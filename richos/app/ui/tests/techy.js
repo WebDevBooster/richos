@@ -52,6 +52,7 @@ const { leaveHome,
   loadPlaywright,
   shot,
   awaitWorkerChipSettled,
+  assertOnThread,
   createRun,
   assert,
   assertEqual,
@@ -59,6 +60,12 @@ const { leaveHome,
   SEED_THEME,
   UI_DIR,
 } = require("./lib/harness");
+const { COUNT_BRIDGE, bridgeQuiet } = require("./lib/bridge-quiet");
+
+/// Bridge latency for a whole run, in milliseconds; zero unless set. Every wait in this file is
+/// on the app (`bridgeQuiet`), so the suite is meant to be as green at 300 as at 0; check 32
+/// runs its walk at 300 every time (hunt part 2 recheck R41).
+const LAG_MS = Number(process.env.RICHOS_TECHY_LAG_MS || 0);
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SRC = path.resolve(UI_DIR, "..", "src-tauri", "src");
@@ -97,8 +104,11 @@ const BETWEEN_TURNS_QUIET = rustSentence(MACHINERY_RS, "not proof the");
 /// when a thread opens and is never set back to null, so once anything has been opened the
 /// session has a conversation for the rest of its life. A check that wanted "nothing open"
 /// and merely navigated away would be testing a state the product does not have.
-async function openApp(browser, viewport, preset) {
+async function openApp(browser, viewport, preset, lagMs) {
   const page = await browser.newPage({ viewport: viewport || { width: 1400, height: 950 } });
+  // Every bridge call counted, so a press can be waited out by what it started rather than by
+  // a number (`lib/bridge-quiet.js`).
+  await page.addInitScript(COUNT_BRIDGE, typeof lagMs === "number" ? lagMs : LAG_MS);
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
@@ -127,12 +137,11 @@ async function openApp(browser, viewport, preset) {
 
 async function openThread(page, threadId) {
   await page.click('.nav-thread[data-thread-id="' + threadId + '"]');
-  await page.waitForFunction(
-    (id) => document.querySelector("#techy-chip") && window.__lastThread !== undefined ? true : true,
-    threadId
-  );
-  // The load is two awaited invokes deep; settle on the conversation being drawn for it.
-  await page.waitForTimeout(250);
+  // `main.js`'s `openThread` is a chain of awaited bridge calls (switch, context, techy mode,
+  // the timeline or machinery read, the work status) and then a render frame, so the thread
+  // is open when the bridge is quiet and the frame is painted. This replaced a predicate that
+  // was always true and a fixed 250 ms (hunt part 2 recheck R41).
+  await bridgeQuiet(page, "opening " + threadId);
 }
 
 /// The CEO's own path to a per-conversation flip: the keyboard shortcut, then his third
@@ -166,7 +175,8 @@ async function pressToggle(page) {
   assertEqual(await scopeChecked(page), "thread", "the per-conversation tier is the one being taken");
   await page.keyboard.press("Enter");
   await page.waitForSelector("#techy-scope", { state: "hidden" });
-  await page.waitForTimeout(250);
+  // The sheet hides after `set_techy_scope` answers; the thread is then re-read in place.
+  await bridgeQuiet(page, "the per-conversation toggle");
 }
 
 /// Flip the rail's "Show the technical view" switch — a SCOPE-AMBIGUOUS control, so inside
@@ -196,7 +206,7 @@ async function dismissPopover(page) {
   if (await page.locator("#assertiveness-popover").isHidden()) return;
   await page.click("#rail-settings");
   await page.waitForSelector("#assertiveness-popover", { state: "hidden" });
-  await page.waitForTimeout(120);
+  await bridgeQuiet(page, "putting the rail's popover away");
 }
 
 /// The sheet's option labels, in document order and only the ones on screen — a hidden
@@ -220,7 +230,8 @@ async function pickScope(page, value) {
   await page.check('#techy-scope input[value="' + value + '"]');
   await page.click("#techy-scope-confirm");
   await page.waitForSelector("#techy-scope", { state: "hidden" });
-  await page.waitForTimeout(250);
+  // The sheet hides after `set_techy_scope` answers; the thread is then re-read in place.
+  await bridgeQuiet(page, "confirming the " + value + " scope");
   await dismissPopover(page);
 }
 
@@ -232,7 +243,7 @@ async function settingsSwitch(page) {
   await page.waitForSelector("#set-techy");
   const on = await page.isChecked("#set-techy");
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(120);
+  await bridgeQuiet(page, "closing the settings menu");
   return on;
 }
 
@@ -1073,7 +1084,7 @@ async function main() {
     await page.click("#set-btn");
     await page.waitForSelector("#set-techy");
     await page.check("#set-techy");
-    await page.waitForTimeout(250);
+    await bridgeQuiet(page, "the settings row with nothing open");
     assert(await page.locator("#techy-scope").isHidden(), "no sheet with nothing open");
     assertEqual(
       (await page.evaluate(() => window.__RICHOS_MOCK__.techyState())).default,
@@ -1133,7 +1144,7 @@ async function main() {
     // Enter, with focus where the sheet put it: on the preselected option.
     await page.keyboard.press("Enter");
     await page.waitForSelector("#techy-scope", { state: "hidden" });
-    await page.waitForTimeout(250);
+    await bridgeQuiet(page, "Enter on the sheet");
     assertEqual(
       await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
       { default: true, companies: {}, threads: {} },
@@ -1163,7 +1174,9 @@ async function main() {
     const page = await openApp(browser, undefined, { chosenEntity: null });
     const before = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
     await page.keyboard.press("Meta+Shift+T");
-    await page.waitForTimeout(250);
+    // Whatever the key set off has finished: a sheet opens in the key's own handler, and a
+    // write would be a bridge call, which this waits out before the two assertions look.
+    await bridgeQuiet(page, "the shortcut with nothing open");
     assert(await page.locator("#techy-scope").isHidden(), "no sheet, because there is no choice to make");
     assertEqual(
       await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
@@ -1202,6 +1215,41 @@ async function main() {
     );
     await page.close();
     return "both doors, three tiers, one answer";
+  });
+
+  await run.check("32. every wait here is on the app, not the clock: the same presses at 300 ms of bridge latency", async () => {
+    // Hunt part 2 recheck R41. The helpers above used to sleep a fixed 250 ms or 120 ms after
+    // a press, which is the whole of a fast run's cost and too little on a slow one: opening a
+    // thread is six awaited bridge calls and confirming the sheet is two. 300 ms on EVERY call
+    // puts each round trip past those numbers, so a helper that still waited on the clock
+    // returns early and the assertion after it reads the screen before the app has drawn it.
+    // A helper that waits on the app (`bridgeQuiet`) is as right here as at zero.
+    const LAG = 300;
+    const page = await openApp(browser, undefined, undefined, LAG);
+    await openThread(page, "acme");
+    await assertOnThread(page, "acme", "acme, opened at 300 ms of bridge latency");
+    await pressToggle(page);
+    assertEqual(await page.textContent("#techy-chip-label"), "Technical view · this conversation",
+      "the toggle's answer is on the chip");
+    assert((await techRows(page)).length >= 6, "and the thread was re-read in place with its tool calls");
+    assertEqual(await settingsSwitch(page), true, "the settings row shows what the store took");
+    await openTechySwitch(page, false);
+    await pickScope(page, "thread");
+    assert(await page.locator("#techy-chip").isHidden(), "off again for this conversation");
+    assertEqual(await page.locator(".tl-tech").count(), 0, "and the re-read drew the calm view");
+    assertEqual(page.__errors, [], "no page errors");
+    await page.close();
+
+    // Check 28's opening-screen press, where the write is the only thing to wait for.
+    const blank = await openApp(browser, undefined, { chosenEntity: null }, LAG);
+    await blank.click("#set-btn");
+    await blank.waitForSelector("#set-techy");
+    await blank.check("#set-techy");
+    await bridgeQuiet(blank, "the settings row with nothing open, at 300 ms");
+    assertEqual((await blank.evaluate(() => window.__RICHOS_MOCK__.techyState())).default, true,
+      "the only tier with a referent was written before the check looked");
+    await blank.close();
+    return "open, toggle on, settings, toggle off and the opening-screen write, all at 300 ms per call";
   });
 
   await browser.close();
@@ -1295,6 +1343,14 @@ main().catch((e) => {
 //     default, and check 31 fails on "nothing was written — in particular not the global
 //     default" with `default: true`. Checks 1-30 stay green under that mutation, which is
 //     why 31 exists.
+// 32  THE HARNESS, not the shipped source, because this check is about the helpers: the
+//     waits in `openThread`, `pressToggle`, `pickScope`, `dismissPopover` and
+//     `settingsSwitch` put back to their fixed 250 ms and 120 ms (hunt part 2 recheck R41)
+//     -> check 32 fails at its first assertion and checks 1-31 stay green (measured
+//     2026-09-30): "acme, opened at 300 ms of bridge latency is not on the thread it is named
+//     for: ... the rail marks "acme", the model is bound to "acme", ... 0 turn(s) painted".
+//     The fixed 250 ms returned after the rail and the binding and before the timeline was
+//     drawn. With the waits on `bridgeQuiet`, all 32 pass.
 //
 // The whole sweep, with the run output and the two Rust-side mutations, is recorded at
 // `docs/verification/techy-mode-2026-08-30/mutation-runs.txt`.
