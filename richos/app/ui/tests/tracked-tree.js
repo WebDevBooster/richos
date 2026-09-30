@@ -35,7 +35,7 @@ const os = require("os");
 const path = require("path");
 const zlib = require("zlib");
 const { spawnSync, execFileSync } = require("child_process");
-const { publishShot, createRun, assert, assertEqual } = require("./lib/harness");
+const { publishShot, createRun, assert, assertEqual, discardChangedShotsForSelfTest } = require("./lib/harness");
 
 const FIXTURE = path.join(__dirname, "fixtures", "tracked-tree-suite.js");
 const GUARD = "the tracked tree is exactly as this suite found it";
@@ -123,6 +123,8 @@ async function main() {
       try {
         publishShot(fresh, reference);
       } finally {
+        // This check's synthetic picture is not a regression in the suite's own report.
+        discardChangedShotsForSelfTest();
         if (regen !== undefined) process.env.RICHOS_SHOTS_REGENERATE = regen;
         after = fs.readFileSync(reference);
         // If the rule is broken this check has just written a committed file. Put it back

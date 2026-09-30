@@ -27,6 +27,9 @@ const { collectPageErrors, createErrorTracker } = require("./lib/page-errors");
 const SOURCES = require("./lib/ui-sources");
 
 const FIXTURE = path.join(__dirname, "fixtures", "changed-shot-suite.js");
+const REFERENCE = path.join(__dirname, "shots-5c", "5c-02-after-a-plain-decline.png");
+const KEPT = path.join(__dirname, ".shots", "changed", "shots-5c", "5c-02-after-a-plain-decline.png");
+const SHOT_CHECK = "every picture this suite took matches its committed reference";
 
 function runFixture(mode, ledger) {
   const env = Object.assign({}, process.env);
@@ -39,13 +42,40 @@ function runFixture(mode, ledger) {
 
 /// A page that is only what `collectPageErrors` touches: `on`, and something to emit from.
 function fakePage() {
-  return new EventEmitter();
+  const page = new EventEmitter();
+  return page;
 }
 
 async function main() {
   const run = createRun("the UI gates can fail — a changed picture, the coverage floor, page errors");
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "richos-gate-honesty-"));
   try {
+    await run.check("1  a picture that differs from its reference FAILS the suite that took it, and the reference is not rewritten", async () => {
+      const before = fs.readFileSync(REFERENCE);
+      let r;
+      try {
+        r = runFixture("changed");
+      } finally {
+        const after = fs.readFileSync(REFERENCE);
+        if (!after.equals(before)) fs.writeFileSync(REFERENCE, before); // put it back, then fail below
+        fs.rmSync(KEPT, { force: true });
+      }
+      assert(fs.readFileSync(REFERENCE).equals(before), "the reference was rewritten by a test run");
+      assert(r.out.includes(SHOT_CHECK), "the child's report has no line about the changed picture:\n" + r.out);
+      assert(new RegExp("FAIL\\s+" + SHOT_CHECK).test(r.out), "the changed picture did not fail the suite:\n" + r.out);
+      assert(r.out.includes("5c-02-after-a-plain-decline.png"), "the failure does not name the picture:\n" + r.out);
+      assert(r.out.includes("RICHOS_SHOTS_REGENERATE="), "the failure does not say how to accept the change:\n" + r.out);
+      assertEqual(r.code, 1, "the child suite's exit code");
+      return "exit 1, FAIL names the picture and how to accept it; reference untouched";
+    });
+
+    await run.check("2  negative control: a picture identical to its reference passes", async () => {
+      const r = runFixture("same");
+      assert(!r.out.includes(SHOT_CHECK), "an unchanged picture was blamed:\n" + r.out);
+      assertEqual(r.code, 0, "the child suite's exit code");
+      return "exit 0, no picture check raised";
+    });
+
     await run.check("3  the ledger keeps housekeeping out of the suite's own check count", async () => {
       const ledger = path.join(scratch, "ledger.jsonl");
       fs.writeFileSync(ledger, "");
