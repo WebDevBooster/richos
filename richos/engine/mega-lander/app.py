@@ -465,6 +465,8 @@ def settle_undispatched(scope, path, record):
     """
     if record.get("tool_use_id") or record.get("agent_id"):
         return
+    if preparing_elsewhere(record):
+        return                           # its preparation is still running: nothing has failed yet
     session, name = record["binding"]["session_id"], record["name"]
     canonical = W.load_agent(W.named_key(session, name))
     if canonical and any(canonical.get(field) for field in SPAWN_EVIDENCE):
@@ -485,6 +487,23 @@ def settle_undispatched(scope, path, record):
                   "replacement cannot repeat its work"})
     save(path, record)
     project(scope, path, record)
+
+
+def preparing_elsewhere(record):
+    """True while the process that owns a `preparing` receipt is still running.
+
+    `prepare` lets go of the conversation lock while its spawn command runs, so
+    the receipt carries the process that is doing that work. A receipt whose owner
+    is gone (a crash) is the one `settle_undispatched` exists for. Anything the
+    operating system cannot answer about is treated as still running: a receipt
+    is only ever settled on proof that nothing is preparing it."""
+    owner = record.get("preparing_by")
+    if record.get("status") != "preparing" or not isinstance(owner, dict):
+        return False
+    state, started = W.process_start(owner.get("pid"))
+    if state == "gone":
+        return False
+    return not (state == "ok" and started != owner.get("started"))
 
 
 def never_dispatched(record):
@@ -542,11 +561,21 @@ def prepare(scope_path, scope, args):
     normalized = {"obligation_id":obligation,"repo":str(repo),"repos":[str(r) for r in repos_all],"title":title,"brief":brief,"role":role,
         "integration":args.get("integration"),"base":args.get("base"),"review_of":args.get("review_of"),"continue_of":args.get("continue_of")}
     identity = hashlib.sha256(json.dumps([scope["binding"]["entity_id"],scope["binding"]["thread_id"],request_id],separators=(",", ":")).encode()).hexdigest()
-    with locked(scope) as root:
+    # The conversation-wide lock is held while the request is checked and its
+    # receipt written, and RELEASED (lock_stack.close() below) before the spawn
+    # command runs: that command can take a long time, and every other worker's
+    # permission check, lifecycle record and inspection in this conversation needs
+    # the same lock. `integrate` releases it before waiting for a repository lock
+    # for the same reason. The receipt stays `preparing`, stamped with the process
+    # that owns it, for the whole time the lock is not held.
+    lock_stack = contextlib.ExitStack()
+    with lock_stack:
+        root = lock_stack.enter_context(locked(scope))
         path = root / (identity + ".json")
         if path.exists():
             old = bounded(path)
             if old["request"] != normalized: raise ValueError("request_id was already used for different work")
+            if preparing_elsewhere(old): return view(old)   # still being prepared: nothing to settle or project yet
             refresh(old); save(path, old); project(scope,path,old)
             # Payload delivery is not retried once provider dispatch became uncertain.
             return view(old, include_payload=old["status"] == "prepared" and old["binding"] == scope["binding"])
@@ -643,6 +672,14 @@ def prepare(scope_path, scope, args):
         base_value = started_from.get("commits") or started_from.get("commit", base_value)
         command = build_spawn_command(repo_dests, name, role, brief_path, title,
                                        integration=args.get("integration"), base=base_value)
+        # From here the receipt is owned by THIS process while the lock is let go:
+        # a second request for the same assignment must see "being prepared" and
+        # leave it alone (`settle_undispatched` would otherwise withdraw the
+        # workspace this very command is creating), and only a dead owner's
+        # receipt is ever settled as never dispatched.
+        record["preparing_by"] = {"pid": os.getpid(), "started": W.process_start(os.getpid())[1]}
+        save(path,record)
+        lock_stack.close()
         preparation_refused = False
         try:
             try:
@@ -689,15 +726,23 @@ def prepare(scope_path, scope, args):
             # `DESKTOP.md` step 4 asked it to wait with `TaskOutput`, and `TaskOutput` is not
             # in a work lease's tool inventory at all (read off the child's own `system/init`
             # frame: 30 tools, no `TaskOutput`, no `BashOutput`).
-            record.update(status="prepared",payload={**ready["payload"],"run_in_background":True},
-                workspace_ref=W.named_key(scope["binding"]["session_id"],name))
-            save(path,record);project(scope,path,record)
-            return view(record,include_payload=True)
+            with locked(scope):
+                # The receipt as it is NOW: other observers may have refreshed it
+                # while the lock was not held. Only this call's own fields change.
+                record = bounded(path)
+                record.pop("preparing_by", None)
+                record.update(status="prepared",payload={**ready["payload"],"run_in_background":True},
+                    workspace_ref=W.named_key(scope["binding"]["session_id"],name))
+                save(path,record);project(scope,path,record)
+                return view(record,include_payload=True)
         except Exception as error:
             # Workspace creation may already have happened. Never claim rollback here.
-            record.update(status="blocked" if preparation_refused else "unknown", problem=str(error)[-12000:])
-            if preparation_refused: record["preparation_refused"] = True
-            save(path,record)
+            with locked(scope):
+                record = bounded(path)
+                record.pop("preparing_by", None)
+                record.update(status="blocked" if preparation_refused else "unknown", problem=str(error)[-12000:])
+                if preparation_refused: record["preparation_refused"] = True
+                save(path,record)
             raise
 
 
