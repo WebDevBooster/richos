@@ -196,12 +196,12 @@ mutant no-claim-file "2c " "$P" \
     "the claim file is the escape hatch for a branch named before anybody knew the row."
 
 mutant unbounded-claim "6b " "$P" \
-    '(?![a-z0-9.])' \
+    '(?![a-z0-9.]|[-_][0-9])' \
     '' \
     "row-11 would claim row 1: silence bought with a prefix match."
 
 mutant wildcard-id "6a " "$P" \
-    'r"(?<![a-z0-9])row[-_]?(?:%s)(?![a-z0-9.])" % "|".join(alts)' \
+    'r"(?<![a-z0-9])row[-_]?(?:%s)(?![a-z0-9.]|[-_][0-9])" % "|".join(alts)' \
     'r"(?<![a-z0-9])row[-_]?[0-9.]+(?![a-z0-9.])"' \
     "a claim that matches ANY id claims every row the moment one worktree exists."
 
