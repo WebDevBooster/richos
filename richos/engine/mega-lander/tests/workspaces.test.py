@@ -2978,6 +2978,42 @@ class Finding12_MentionIsNotOwnership(Base):
         self.assertFalse(ws._alive(child[0]), "the workspace process's own child, working elsewhere, survived")
 
 
+class Finding13_NoSpeculativeShutdown(Base):
+    """Hunt part 4, finding 13: an automatic land attempt stopped a finished
+    worker's processes BEFORE finding its commits were not merged, so a status
+    request, a spawn check or a turn end killed a test or server whose work
+    could not be cleaned up anyway."""
+
+    def _unmerged_with_process(self, name):
+        aid, npath = self.spawn(name)
+        self.commit(npath, "unmerged.txt")
+        pr = subprocess.Popen(["sleep", "300"], cwd=npath)
+        self.env.procs.append(pr)
+        time.sleep(0.2)
+        self.finish(aid)
+        return aid, npath, pr
+
+    def test_finding_13_a_pending_scan_leaves_unmerged_work_running(self):
+        aid, npath, pr = self._unmerged_with_process("zach-opus-spec")
+        self.assertEqual(self.names(), ["zach-opus-spec"])       # the automatic attempt
+        self.assertFalse(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
+        self.assertIsNone(pr.poll(), "an automatic land attempt stopped a process of unmerged work")
+        with self.assertRaises(ws.SpecError) as e:              # and a land by hand says why
+            ws.land("zach-opus-spec", self.sid)
+        self.assertIn("is not in", str(e.exception))
+        self.assertIsNone(pr.poll())
+        self.assertTrue(os.path.isdir(npath))
+
+    def test_finding_13_once_merged_the_land_still_stops_and_rechecks(self):
+        """The reason for the order, kept: once the work IS merged, processes
+        are stopped first and landing is proved after (LandingShutdown)."""
+        aid, npath, pr = self._unmerged_with_process("zach-opus-spec2")
+        self.merge(self.entity, "worktree-agent-" + aid)
+        self.assertEqual(self.names(), [])
+        pr.wait(timeout=15)
+        self.assertFalse(os.path.exists(npath))
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""

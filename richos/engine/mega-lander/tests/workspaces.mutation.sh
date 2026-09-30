@@ -176,6 +176,11 @@ mutant p09-descendant-spared "test_finding_12_a_child_of_a_process_in_the_worksp
     '    grew = False' \
     "a command the workspace's own process started, working on it from elsewhere, would outlive the land (point 9; the reason the argument match existed)."
 
+mutant p09-stopped-before-the-ancestry-check "test_finding_13_a_pending_scan_leaves_unmerged_work_running" "$W" \
+    '    if early:{NL}        raise SpecError(_not_landed_message(rec, early))' \
+    '    if False:{NL}        raise SpecError(_not_landed_message(rec, early))' \
+    "an automatic land attempt would stop a finished worker's tests and servers before finding its commits unmerged, and then leave it pending anyway (hunt part 4, finding 13)."
+
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}{NL}        write_json(_slot_path(rec["key"], call), row)' \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}' \

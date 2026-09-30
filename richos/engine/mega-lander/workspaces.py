@@ -4204,6 +4204,18 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
                     "already": kind, "cleanup_pending": not clean}
         return {"landed": True, "already": kind}
     chain = _chain(rec)
+    # NOTHING IS STOPPED FOR WORK THAT PLAINLY CANNOT LAND (hunt part 4,
+    # finding 13). An automatic attempt (a status, a spawn check, a turn end)
+    # used to stop a finished worker's tests and servers and only then find
+    # its commits were not merged, so it stayed pending with its useful work
+    # killed. Shutdown can only ADD commits, never merge them, so a HEAD or a
+    # branch already read to be outside the integration branch cannot become
+    # landed by stopping anything: that is refused first. Only a definite
+    # answer refuses here; whatever could not be read is left to the full
+    # proof below.
+    early = _not_in_integration(rec, chain, deadline=deadline, definite_only=True)
+    if early:
+        raise SpecError(_not_landed_message(rec, early))
     # Shutdown can flush files or create commits. Prove landing only after it.
     paths = [w["path"] for r in chain for w in live_workspaces(r) if w.get("path")]
     stopped = stop_processes(paths)
@@ -4233,7 +4245,26 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
     preserved = set()
     for r in chain:
         preserved.update(_require_clean(r, "land %s" % r["name"], ignored_ok, deadline) or [])
+    missing = _not_in_integration(rec, chain, preserved, deadline)
+    if missing:
+        raise SpecError(_not_landed_message(rec, missing))
+
+
+def _not_landed_message(rec, missing):
+    return ("%s is not landed yet: %s. Merge it onto the branch this work integrates on, then land it; or "
+            "discard it (point 7)." % (rec["name"], "; ".join(missing)))
+
+
+def _not_in_integration(rec, chain, preserved=(), deadline=None, definite_only=False):
+    """What of this work is not shown to be in the branch it integrates on.
+
+    `definite_only` keeps only what was READ and found outside it (a HEAD or a
+    branch tip that is not an ancestor of the integration tip) and drops every
+    unknown: a read that failed, a target that is not recorded. That is the
+    cheap question land() asks before it stops anything (finding 13); the full
+    question, after shutdown, still counts every unknown as not landed."""
     missing = []
+    definite = []
     targets = {}
 
     def _target(repo):
@@ -4267,6 +4298,7 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
                 elif not is_ancestor(repo, out.strip(), tip):
                     missing.append("HEAD of %s (%s) is not in %s of %s at %s"
                                    % (w["path"], out.strip()[:12], branch, repo, tip[:12]))
+                    definite.append(missing[-1])
     for repo, b in _branch_targets(chain):
         if _past(deadline):
             raise Deadline("the gate's budget ran out before %s's branches could be proved to be in the "
@@ -4283,9 +4315,8 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
             missing.append("branch %s: %s" % (b, unread))
         elif t and not is_ancestor(repo, t, tip):
             missing.append("%s (%s) is not in %s of %s at %s" % (b, t[:12], branch, repo, tip[:12]))
-    if missing:
-        raise SpecError("%s is not landed yet: %s. Merge it onto the branch this work integrates on, "
-                        "then land it; or discard it (point 7)." % (rec["name"], "; ".join(missing)))
+            definite.append(missing[-1])
+    return definite if definite_only else missing
 
 
 def discard(ref, reason, ceo_word="", not_ceo_ordered="", me=""):
