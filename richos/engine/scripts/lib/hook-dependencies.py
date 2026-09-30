@@ -19,6 +19,7 @@ Exit codes, identical to the wrapper's contract:
   2  hooks/hooks.json unparseable, or registering no hook script at all
   4  ANCHOR FAILED — nothing printed
 """
+import ast
 import json
 import os
 import re
@@ -223,6 +224,59 @@ def resolve(eng, index, tok, owner_rel):
     return None
 
 
+# A PYTHON IMPORT OF AN ENGINE MODULE IS A REFERENCE TOO (2026-09-30). The quoted
+# path rule above cannot see `import containers`, so a sandbox built from this
+# closure carried workspaces.py and not the module workspaces.py imports. The
+# land's container cleanup then failed with "No module named 'containers'" and
+# the landed agent kept its workspace (integration section Q, richos 4e73fd89).
+# Modules are looked up beside the importing file and in the three directories
+# the engine puts on sys.path: scripts/lib, mega-lander and scripts/hooks.
+IMPORT_DIRS = ("scripts/lib", "mega-lander", "scripts/hooks", "scripts")
+
+# NEVER COPIED INTO A SANDBOX, BY NAME. testdevices.py lists, boots and deletes
+# the Mac's real simulators and emulators. Its own gate (machine_devices_allowed)
+# stands down when HOME or the state directories are redirected, but a sandbox
+# that redirected only some of them would reach real devices, so the module is
+# simply not there. Every caller that imports it (workspaces.collect_test_devices,
+# disk-watchdog, scratch-reaper, worker_tokens) wraps the import in try/except and
+# degrades to "devices not collected", which is exactly what a sandbox wants.
+DEVICE_MODULES = frozenset(("testdevices",))
+
+STDLIB = getattr(sys, "stdlib_module_names", frozenset())
+
+
+def imported_modules(source):
+    """Top-level module names imported anywhere in a Python source, including
+    imports inside functions and try blocks. Relative imports are skipped."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return set()
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                names.add(a.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def import_references(eng, rel, raw):
+    found = set()
+    owner_dir = os.path.dirname(rel)
+    for name in imported_modules(raw.decode("utf-8", "replace")):
+        if name in STDLIB or name in DEVICE_MODULES:
+            continue
+        for d in (owner_dir,) + IMPORT_DIRS:
+            cand = os.path.normpath(os.path.join(d, name + ".py"))
+            if os.path.isfile(os.path.join(eng, cand)) and cand != rel:
+                if not is_scaffold(cand):
+                    found.add(cand)
+                break
+    return found
+
+
 def references(eng, index, rel):
     path = os.path.join(eng, rel)
     if not os.path.isfile(path):
@@ -235,6 +289,8 @@ def references(eng, index, rel):
     if b"\0" in raw[:4096]:
         return set()
     found = set()
+    if rel.endswith(".py"):
+        found |= import_references(eng, rel, raw)
     for line in raw.decode("utf-8", "replace").splitlines():
         if line.lstrip().startswith("#"):
             continue

@@ -1830,7 +1830,7 @@
     },
     "scripts/lib/hook-dependencies.py": {
       "source": "scripts/lib/hook-dependencies.py",
-      "sha256": "897b42d0130b3b6139bb1da820a8dd9757f5f39764065e419f2f50e2acb3bd51",
+      "sha256": "013b187a06ddb52d8e679407b45d635d8a6c693348d0bcb4998b58f6ec44debe",
       "evidence": "Standard-library source scanner. It reads registration JSON, dispatcher manifest and recursively resolved source paths as data. It never executes discovered files. The supported token suffixes exclude .config; inventories do not consume config values.",
       "keys": [],
       "edges": []
@@ -1848,7 +1848,7 @@
     },
     "scripts/lib/hook-dependencies.test.sh": {
       "source": "scripts/lib/hook-dependencies.test.sh",
-      "sha256": "e7ec14f5035469c0d9f10ce237210e553bbcae64564a1fdf1aada0bd683feb0e",
+      "sha256": "49a0c3e27546b8bd12228bc396be5ff3359abe77e5264b3e6bb658331a6aa3a7",
       "evidence": "Runs the real source scanner and shell wrapper on the live engine and private generated engines. The copied root resolver and generated shell/Python fixture bodies are parsed as data, never executed. Demo source is only searched for its invocation text.",
       "keys": [],
       "edges": [
@@ -15877,7 +15877,7 @@
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
-        "scripts/lib/hook-dependencies.py": "897b42d0130b3b6139bb1da820a8dd9757f5f39764065e419f2f50e2acb3bd51",
+        "scripts/lib/hook-dependencies.py": "013b187a06ddb52d8e679407b45d635d8a6c693348d0bcb4998b58f6ec44debe",
         "scripts/lib/hook-dependencies.sh": "a4634dd1f95fe9c518055fd324d4b56a07186aafb8828e387c890c3cbd0e4621",
         "scripts/lib/inflight.py": "7557f1c701858629759472c355a35583e3e2edaa60ab5ea6f1b5e819984a6739",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
