@@ -1084,6 +1084,108 @@ class StableChannelTests(GitFixture):
         # And the rule that keeps branches off the public repository is re-read first.
         self.assertTrue(self.stub_verify_repository_rules.called)
 
+    def fail_the_app_build(self):
+        """Make `make-release.sh app` fail, where a real stable build dies: compiling,
+        signing or notarizing. Returns the fixture's normal side effect to restore."""
+        normal = self.stub_execute.side_effect
+
+        def failing(*args, **kwargs):
+            if args[0] == "bash" and args[2] == "app":
+                raise subprocess.CalledProcessError(1, args)
+            return normal(*args, **kwargs)
+
+        self.stub_execute.side_effect = failing
+        return normal
+
+    def remote_tag(self, tag):
+        return n.git("ls-remote", "origin", f"refs/tags/{tag}").split()[:1]
+
+    def test_a_stable_build_that_fails_before_publishing_can_be_retried(self):
+        """Hunt part 2, section 05: a failed stable build used up its version.
+
+        `prepare` pushed the real `v<version>` tag before compiling and `build` opened its
+        release entry before compiling, and `stable_plan` read that tag as "shipped". So a
+        build that died at compile or notarization, having released nothing, left a version
+        that could only be abandoned. The version is now reserved the way a nightly reserves
+        its candidate, out of every public list, and the tag is created only by `finish`.
+        """
+        info = self.publish_a_nightly()
+        decision = n.json_text(self.DECISION)
+        # The runner stages every attempt of one stable version in the same directory
+        # (`nightly-local.py`: state/releases/<tag>), so the retry reuses it here too.
+        out = Path(self.temp.name) / "releases" / "v5.1.0"
+        normal = self.fail_the_app_build()
+        failed = n.prepare(n.stable_plan(info["tag"], decision, now=NOW))
+        with self.assertRaises(subprocess.CalledProcessError):
+            n.build(failed, out)
+        # Nothing shipped, and nothing public claims otherwise: no tag, no release entry.
+        self.assertEqual(self.remote_tag("v5.1.0"), [])
+        self.assertNotIn("v5.1.0", self.releases)
+
+        n.git("checkout", "-q", "main")
+        self.stub_execute.side_effect = normal
+        retry = n.prepare(n.stable_plan(info["tag"], decision, now=NOW))
+        self.assertEqual(retry["promoted_from"], info["tag"])
+        n.build(retry, out)
+        self.assertEqual(self.remote_tag("v5.1.0"), [], "the tag waits for the publish step")
+        n.finish(retry, out)
+        self.assertEqual(self.remote_tag("v5.1.0"), [retry["build_commit"]])
+        flips = [c.args for c in self.stub_execute.call_args_list
+                 if c.args[:3] == ("gh", "release", "edit") and "v5.1.0" in c.args]
+        self.assertEqual(len(flips), 1, flips)
+        self.assertIn("--latest", flips[0])
+
+        # Published is final: no new plan, and no attempt planned earlier, can replace it.
+        n.git("checkout", "-q", "main")
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            n.stable_plan(info["tag"], decision, now=NOW)
+
+    def test_two_stable_builds_of_one_version_cannot_both_proceed(self):
+        info = self.publish_a_nightly()
+        decision = n.json_text(self.DECISION)
+        first_plan = n.stable_plan(info["tag"], decision, now=NOW)
+        second_plan = n.stable_plan(info["tag"], decision, now=NOW)
+        first = n.prepare(first_plan)
+        n.git("checkout", "-q", "main")
+        # Planned from the same observation: the lease no longer matches.
+        with self.assertRaisesRegex(ValueError, "reserved the version first"):
+            n.prepare(second_plan)
+        self.assertEqual(n.remote_ref(first["reservation_ref"]), first["build_commit"])
+
+        # A build planned AFTER the first reserved takes the version over, and from that
+        # moment the first can neither build nor publish.
+        first_out = Path(self.temp.name) / "first"
+        second = n.prepare(n.stable_plan(info["tag"], decision, now=NOW))
+        n.git("checkout", "-q", "--detach", first["build_commit"])
+        with self.assertRaisesRegex(ValueError, "no longer names this build"):
+            n.build(first, first_out)
+        self.assertFalse(first_out.exists())
+
+        # The holder publishes; nothing planned before that can replace it afterwards.
+        n.git("checkout", "-q", "--detach", second["build_commit"])
+        second_out = Path(self.temp.name) / "second"
+        n.build(second, second_out)
+        n.finish(second, second_out)
+        self.assertEqual(self.remote_tag("v5.1.0"), [second["build_commit"]])
+        n.git("checkout", "-q", "main")
+        with self.assertRaisesRegex(ValueError, "already reserved or its stable release exists"):
+            n.prepare(first_plan)
+        # Even an attempt that still somehow held the reservation cannot move the tag.
+        with self.assertRaisesRegex(ValueError, "already published from another build"):
+            n.stable_reservation_holds(first, first["build_commit"],
+                                       self.remote_tag("v5.1.0")[0])
+
+    def test_a_retry_leaves_unrelated_staging_alone(self):
+        """Only a superseded attempt of THIS version is cleared; anything else still refuses."""
+        info = self.publish_a_nightly()
+        attempt = n.prepare(n.stable_plan(info["tag"], n.json_text(self.DECISION), now=NOW))
+        out = Path(self.temp.name) / "releases" / "v5.1.0"
+        out.mkdir(parents=True)
+        (out / "keep.txt").write_text("not a stable attempt\n")
+        with self.assertRaises(FileExistsError):
+            n.build(attempt, out)
+        self.assertEqual((out / "keep.txt").read_text(), "not a stable attempt\n")
+
 
 class RepositoryRuleTests(unittest.TestCase):
     """The publisher reads the branch ruleset back before it publishes anything.
@@ -1230,6 +1332,22 @@ else:
         self.assets()
 
     def test_candidate_engine_pin_and_receipt_keep_the_digest_url(self):
+        self.candidate_engine_pin()
+
+    def test_a_stable_build_pins_the_digest_named_engine_too(self):
+        """A per-version engine URL needs the public stable release before the compile.
+
+        That is what made a failed stable build spend its version (hunt part 2, section
+        05), so a stable build takes the same digest-named engine a nightly candidate does.
+        """
+        root = self.scripts.parents[2]
+        (root / n.MANIFEST).write_text('[package]\nversion = "5.1.0"\n')
+        self.config.write_text(n.json_text(
+            {'plugins': {'updater': {'endpoints': [n.STABLE_ENDPOINT]}}}))
+        url = self.candidate_engine_pin()
+        self.assertNotIn('/v5.1.0/', url)
+
+    def candidate_engine_pin(self):
         checker = self.scripts.parents[1] / "engine/scripts/named-persons.sh"
         checker.parent.mkdir(parents=True)
         checker.write_text("#!/bin/sh\nexit 0\n")
@@ -1267,6 +1385,7 @@ EOF
         refused = self.call('app')
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn('URL changed after verification', refused.stderr)
+        return url
 
     def assets(self, manifest_version=None):
         values = {'latest.json': n.json_text({'version': manifest_version or self.version}),
