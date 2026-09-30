@@ -4958,7 +4958,7 @@ def barrier(payload):
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
         fp = str(ti.get("file_path") or ti.get("notebook_path") or "")
-        cx = _codex_workspace_of(fp)
+        cx = _codex_workspace_of(fp, str(payload.get("cwd") or ""))
         if cx:
             return "CODEX", "agent %s (%s) is writing %s inside the codex/ workspace %s" % (
                 aid, rec.get("name"), fp, cx)
@@ -4972,10 +4972,15 @@ def barrier(payload):
     return "REGISTERED", rec.get("name") or ""
 
 
-def _codex_workspace_of(path):
+def _codex_workspace_of(path, cwd=""):
     """The top level of the codex/ workspace `path` lies in, or "". Read from
     git: the nearest existing ancestor's toplevel, and the branch git lists
-    for that worktree."""
+    for that worktree. A relative `path` is the path the tool will edit from
+    the payload's working folder `cwd` (the hook process's own folder says
+    nothing about it)."""
+    path = os.path.expanduser((path or "").strip())
+    if path and not os.path.isabs(path) and (cwd or "").strip():
+        path = os.path.join(os.path.expanduser(cwd.strip()), path)
     p = realpath(path)
     if not p:
         return ""

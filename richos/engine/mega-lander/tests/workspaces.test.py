@@ -2927,6 +2927,20 @@ class Hunt4_TurnEndPauseAndPathChecks(Base):
                       "tool_input": {"to": aid, "message": "go on"}}, self.entity)
         self.assertEqual(ws.finished_state(self.rec("zach-opus-pid"))[:2], (False, False))
 
+    def test_hunt4_10_a_relative_edit_path_is_checked_from_the_payloads_working_folder(self):
+        cx = os.path.join(self.env.root, "codex-wt10")
+        run("git", "-C", self.entity, "worktree", "add", "-q", cx, "-b", "codex/live10")
+        aid, npath = self.spawn("zach-opus-rel")
+        here = os.getcwd()
+        os.chdir(self.env.root)                  # the hook process runs somewhere else entirely
+        try:
+            self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid, "tool_name": "Edit", "cwd": cx,
+                                         "tool_input": {"file_path": "README"}})[0], "CODEX")
+            self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid, "tool_name": "Edit", "cwd": npath,
+                                         "tool_input": {"file_path": "README"}})[0], "REGISTERED")
+        finally:
+            os.chdir(here)
+
 
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
