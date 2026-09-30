@@ -485,7 +485,7 @@ AFTER2="$(wc -l <"$W_NOTIFY" 2>/dev/null | tr -d ' ')"
 if [ "$AFTER2" -gt "$AFTER" ]; then
     ok "W7b CONTROL: with a zero-hour window it notifies again"
 else
-    ok "W7b CONTROL: notification suppressed by window (no re-notify observed)"
+    bad "W7b CONTROL: a zero-hour window did not re-notify ($AFTER -> $AFTER2), so W7 cannot tell a working window from permanent suppression"
 fi
 
 # W8 — below BOTH the notify and urgent floors, exactly one notification per
