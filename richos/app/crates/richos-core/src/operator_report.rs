@@ -49,6 +49,12 @@ use std::path::{Path, PathBuf};
 
 pub const SERVER_NAME: &str = crate::operator_profile::REPORT_SERVER;
 pub const REPORT_TOOL_NAME: &str = "report";
+/// **The lead's own stop** (F6, operator contract notes §4 item 3; Frank's proposal: "a `stop`
+/// on the lead's own server calling `stop_named`"). `TaskStop` reaches only this lead's agents;
+/// this reaches his team's agents in every conversation, so a stop he gave to the wrong lead is
+/// executed once, by that lead, and he never has to say it again.
+pub const STOP_TOOL_NAME: &str = "stop";
+pub const QUALIFIED_STOP_TOOL: &str = "mcp__richos_operator__stop";
 pub const QUALIFIED_REPORT_TOOL: &str = crate::operator_profile::REPORT_TOOL;
 pub const KINDS: [&str; 6] = ["update", "question", "withdraw_question", "answer", "outcome", "failed"];
 /// The notice bound the register already uses (`assignment::sanitize_answer`).
@@ -83,6 +89,19 @@ pub struct ReportScope {
     /// Supplied by the runtime only after binding the original asking session.
     #[serde(default)]
     pub question_context: Option<crate::questions::AskScope>,
+    /// **Where this lead's `stop` reaches the desk** (F6): the desk's socket and the leads'
+    /// stop-only token. `None` when the app serves no desk, and then `stop` says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk: Option<LeadDesk>,
+}
+
+/// The desk's socket and the token that lets a lead make a named stop there, and nothing else
+/// (`operator_desk_tools::DeskSocket::serve_with_lead`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LeadDesk {
+    pub socket: PathBuf,
+    pub token: String,
 }
 
 fn scope_usable(scope: &ReportScope) -> bool {
@@ -357,12 +376,31 @@ pub fn tools() -> Value {
                                    "branch": {"type": "string"}, "into": {"type": "string"}}}},
                 "files": {"type": "array", "maxItems": MAX_FILES, "items": {"type": "string"}},
                 "agents": {"type": "array", "maxItems": MAX_AGENTS, "items": {"type": "string"}}}},
-         "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}}
+         "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}},
+        {"name": STOP_TOOL_NAME,
+         "description": "Stop named agents of his team, and nothing else, when he names them in your conversation, whether they are yours or another conversation's. Call it at once, as your first tool call, before anything else you do with his message. `names`: the agents exactly as he named them. `words`: his words, verbatim. TaskStop reaches only your own agents; this reaches every conversation's, so he never has to say it twice. It returns what was measured: say an agent stopped only when this says it did.",
+         "inputSchema": {"type": "object", "additionalProperties": false, "required": ["names", "words"],
+             "properties": {"names": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+                            "words": {"type": "string", "minLength": 1}}},
+         "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false}}
     ]})
+}
+
+/// F6: the lead's named stop, through the desk. Only names and his words go; the desk decides
+/// whose agent each is.
+fn lead_stop(scope_path: &Path, arguments: &Value) -> Result<Value, String> {
+    let scope = read_scope(scope_path)?;
+    let (names, words) = crate::operator_desk_tools::stop_arguments(arguments)?;
+    let desk = scope.desk.ok_or("RichOS is not serving your team's desk in this launch, so nothing was stopped. \
+Tell him the stop could not be made here.")?;
+    crate::operator_desk_tools::stop_through_desk(&desk.socket, &desk.token, &names, &words)
 }
 
 /// The answer, shared by the protocol adapter and the tests.
 pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, String> {
+    if name == STOP_TOOL_NAME {
+        return lead_stop(scope_path, &arguments);
+    }
     if name != REPORT_TOOL_NAME {
         return Err("That tool does not exist on this server. Nothing was recorded.".into());
     }
@@ -652,6 +690,7 @@ mod tests {
         commit(&repo, "first");
         let scope = ReportScope {
             question_context: None,
+            desk: None,
             version: 1,
             outbox: root.join("lead/outbox.jsonl"),
             attachments: root.join("lead/attachments"),
@@ -786,11 +825,65 @@ mod tests {
 
     // ---- the tool, as the lead sees it ---------------------------------------------------
 
+    /// A desk that records the stops it is asked for and reports each named agent stopped.
+    #[derive(Default)]
+    struct StopsSeen(std::sync::Mutex<Vec<(Vec<String>, String)>>);
+    impl crate::operator_desk_tools::DeskService for StopsSeen {
+        fn stop(&self, names: &[String], words: &str, _: Option<&str>) -> Vec<crate::operator_host::StopResult> {
+            self.0.lock().unwrap().push((names.to_vec(), words.to_string()));
+            names.iter().map(|n| crate::operator_host::StopResult::Stopped { name: n.clone(), seconds: 0.5, registry: Ok(()) })
+                .collect()
+        }
+        fn read(&self, _: &crate::operator_host::ConversationKey, _: bool) -> Vec<crate::operator_host::ConversationRead> {
+            Vec::new()
+        }
+        fn interrupt(&self, _: &crate::operator_host::ConversationKey) -> String {
+            "interrupted".into()
+        }
+    }
+
+    /// **F6 (operator contract notes §4 item 3):** a stop he gives in a conversation whose lead
+    /// does not own the agent reached that lead as words, and `TaskStop` reaches only its own
+    /// agents, so he had to say it again to the right one. The lead's own `stop` goes to the
+    /// desk's `stop_named`, which finds the agent in whichever conversation runs it.
     #[test]
-    fn the_server_offers_exactly_one_tool_named_report() {
+    fn the_lead_s_own_stop_reaches_the_desk_with_his_words_and_says_what_was_measured() {
+        let mut f = fixture();
+        let seen = std::sync::Arc::new(StopsSeen::default());
+        let dir = PathBuf::from("/tmp").join(format!("rol-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket_path = dir.join("desk.sock");
+        let (desk_token, lead_token) = (crate::operator_desk_tools::new_token(), crate::operator_desk_tools::new_token());
+        let socket = crate::operator_desk_tools::DeskSocket::serve_with_lead(seen.clone(), &socket_path, &desk_token,
+                                                                             Some(&lead_token)).unwrap();
+        let stop = json!({"names": ["echo-sonnet-b"], "words": "stop echo-sonnet-b"});
+        // No desk in this launch: nothing is stopped, and the lead is told so.
+        let none = call(&f.scope_path, STOP_TOOL_NAME, stop.clone()).unwrap_err();
+        assert!(none.contains("nothing was stopped"), "{none}");
+        f.scope.desk = Some(LeadDesk { socket: socket_path.clone(), token: lead_token });
+        write_scope(&f.scope_path, &f.scope).unwrap();
+        let said = call(&f.scope_path, STOP_TOOL_NAME, stop).unwrap();
+        assert_eq!(said["stopped"], json!(["echo-sonnet-b"]), "{said}");
+        assert_eq!(said["say"], "Stopped echo-sonnet-b.");
+        // No names, or no words of his: refused before the desk hears anything.
+        assert!(call(&f.scope_path, STOP_TOOL_NAME, json!({"names": [], "words": "stop"})).is_err());
+        assert!(call(&f.scope_path, STOP_TOOL_NAME, json!({"names": ["a"], "words": " "})).is_err());
+        assert_eq!(*seen.0.lock().unwrap(), [(vec!["echo-sonnet-b".to_string()], "stop echo-sonnet-b".to_string())]);
+        assert!(outbox(&f).is_empty(), "a stop is not a report to him");
+        socket.close();
+        if let Err(e) = std::fs::remove_dir_all(&dir) { eprintln!("fixture cleanup: {e}"); }
+    }
+
+    #[test]
+    fn the_server_offers_report_and_the_lead_s_own_stop() {
         let listed = tools();
         let tools = listed["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[1]["name"], STOP_TOOL_NAME);
+        assert_eq!(QUALIFIED_STOP_TOOL, format!("mcp__{SERVER_NAME}__{STOP_TOOL_NAME}"));
+        assert_eq!(tools[1]["inputSchema"]["required"], json!(["names", "words"]));
+        let says = tools[1]["description"].as_str().unwrap();
+        assert!(says.contains("another conversation's") && says.contains("verbatim") && says.contains("TaskStop"), "{says}");
         assert_eq!(tools[0]["name"], REPORT_TOOL_NAME);
         let kinds = &tools[0]["inputSchema"]["properties"]["kind"]["enum"];
         assert_eq!(kinds, &json!(KINDS));

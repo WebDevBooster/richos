@@ -272,6 +272,8 @@ pub struct ProfileLauncher {
     route: Arc<dyn ControlRoute>,
     session: Box<dyn SessionValues>,
     fences: Box<dyn FenceStatus + Send + Sync>,
+    /// F6: where every lead's `stop` reaches the desk, when the app serves one.
+    lead_desk: Option<crate::operator_report::LeadDesk>,
 }
 
 impl ProfileLauncher {
@@ -283,7 +285,14 @@ impl ProfileLauncher {
     pub fn with(declaration: Declaration, executable: &Path, state_root: &Path, log: &Path, route: Arc<dyn ControlRoute>,
                 session: Box<dyn SessionValues>, fences: Box<dyn FenceStatus + Send + Sync>) -> Self {
         ProfileLauncher { declaration, executable: executable.to_path_buf(), state_root: state_root.to_path_buf(),
-                          log: log.to_path_buf(), claim: Mutex::new(None), route, session, fences }
+                          log: log.to_path_buf(), claim: Mutex::new(None), route, session, fences, lead_desk: None }
+    }
+
+    /// **F6: every lead this launcher starts can stop a named agent in any conversation**, through
+    /// the desk's socket with the leads' stop-only token (`DeskSocket::serve_with_lead`).
+    pub fn with_lead_desk(mut self, desk: Option<crate::operator_report::LeadDesk>) -> Self {
+        self.lead_desk = desk;
+        self
     }
 
     /// The claim, taken once per app and adopted after (idempotent).
@@ -313,6 +322,7 @@ impl ProfileLauncher {
                 engine: Some(self.declaration.engine_root.clone()), entity_root: Some(self.declaration.entity_root.clone()),
                 app_run: Some(claim_id.to_string()),
             }),
+            desk: self.lead_desk.clone(),
         }
     }
 
@@ -655,6 +665,7 @@ mod tests {
                 root:state.clone(),entity_id:"entity".into(),thread_id:"thread".into(),asker:"operator:conversation".into(),
                 turn_id:"turn".into(),session_id:"original-session".into(),engine:None,entity_root:None,app_run:None,
             }),
+            desk:None,
         }).unwrap();
         let route=QuestionRoute { scope,fallback:Arc::new(NeverPermission) };
         // Nobody in this test ever answers the question, so a route that waited for his
@@ -959,9 +970,11 @@ mod tests {
             .expect("this test needs a python3 other than /usr/bin/python3 (the xcrun shim) on PATH or in Homebrew")
             .to_string();
         d.environment.insert("PATH".into(), format!("{}:{python_dir}:/usr/bin:/bin", bin.display()));
+        let desk = crate::operator_report::LeadDesk { socket: f.root.join("desk.sock"), token: "l".repeat(32) };
         let launcher = ProfileLauncher::with(d.clone(), Path::new("/fixture/RichOS"), &f.root.join("engine-state"),
                                              &f.root.join("operator/operator.log"), Arc::new(crate::operator_lead::NoPermissionDesk),
-                                             Box::new(Session), Box::new(FencesOn));
+                                             Box::new(Session), Box::new(FencesOn))
+            .with_lead_desk(Some(desk.clone()));
         let key = ConversationKey { entity_id: "femcboost".into(), thread_id: "t-1".into() };
         let paths = ConversationPaths::under(&f.root.join("operator"), &key);
         let lead = launcher.launch(&key, "Landing the fix", &LeadStart::New("session-1".into()), &paths, Arc::new(Nothing)).unwrap();
@@ -972,6 +985,8 @@ mod tests {
         assert_eq!(scope["lead"], claim["claim_id"], "the report scope names the lead as the claim does");
         assert_eq!(scope["question_context"]["app_run"], claim["claim_id"],
                    "F10: his questions are witnessed under this launch's claim, the run every lead of it shares");
+        assert_eq!(scope["desk"], json!({"socket": desk.socket, "token": desk.token}),
+                   "F6: every lead's stop reaches the desk with the leads' token");
         assert_eq!(claim["leads"][0]["title"], "Landing the fix");
         assert_eq!(claim["leads"][0]["session_id"], "session-1");
         assert_eq!(claim["processes"].as_array().unwrap().len(), 3, "app, supervisor, lead: {claim}");

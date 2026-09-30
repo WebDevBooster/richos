@@ -3061,6 +3061,25 @@ pub(crate) mod tests {
         assert_eq!(results[0].sentence(), "Stopped mark-sonnet-a.");
     }
 
+    /// **F6: a stop is executed wherever the agent runs.** He named conversation B's agent while
+    /// talking to conversation A; whichever lead or desk passes his words on, `stop_named` finds
+    /// the agent in B, stops only it, and A's lead is asked to stop nothing.
+    #[test]
+    fn a_named_stop_finds_the_agent_in_another_conversation() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        r.host.relay(&key("b"), "B", None, "go", Origin::DeskTyped).unwrap();
+        let (a, b) = (lead_of(&r, "a"), lead_of(&r, "b"));
+        agent(&a, "t-a", "mark-sonnet-a", "task-a");
+        agent(&b, "t-b", "echo-sonnet-b", "task-b");
+        r.engine.not_alive.lock().unwrap().insert("task-b".into());
+        b.feed(json!({"type":"system","subtype":"task_notification","task_id":"task-b","status":"stopped"}));
+        let results = r.host.stop_named(&["echo-sonnet-b".into()], "stop echo-sonnet-b", Origin::NoOrigin);
+        assert!(matches!(&results[0], StopResult::Stopped { name, .. } if name == "echo-sonnet-b"), "{results:?}");
+        assert_eq!(*b.stops.lock().unwrap(), ["task-b"]);
+        assert!(a.stops.lock().unwrap().is_empty(), "the lead that heard his words owns nothing to stop");
+    }
+
     /// **Every named agent is asked to stop before any one of them is waited for** (hunt
     /// 2026-09-29 part 1, finding 33). The first agent's resolver reading is held open until
     /// the second agent's `stop_task` has gone out. A host that waits for the first agent's

@@ -188,13 +188,17 @@ impl OperatorDesk {
 
     /// The desk the app runs: his engine's scripts from the declared root, the launcher with
     /// the claim, and the gate read from this install's data folder.
+    /// `lead_desk`: where every lead's own `stop` reaches this desk (F6), when the app serves
+    /// the desk's socket with a leads' token.
+    #[allow(clippy::too_many_arguments)]
     pub fn for_app(declaration: Declaration, data_dir: &Path, executable: &Path, settle: Arc<dyn Settle>,
                    origins: Arc<dyn TurnOrigins>, push: Option<NoticePush>,
-                   route: Arc<dyn crate::operator_lead::ControlRoute>) -> Arc<Self> {
+                   route: Arc<dyn crate::operator_lead::ControlRoute>,
+                   lead_desk: Option<crate::operator_report::LeadDesk>) -> Arc<Self> {
         let state_root = data_dir.join("engine-state");
         let log = data_dir.join("operator").join("operator.log");
         let launcher = Arc::new(crate::operator_runtime::ProfileLauncher::new(declaration.clone(), executable, &state_root,
-                                                                               &log, route));
+                                                                               &log, route).with_lead_desk(lead_desk));
         let releaser = launcher.clone();
         let gate_dir = data_dir.to_path_buf();
         Self::new(declaration.clone(), data_dir, DeskParts {
