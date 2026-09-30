@@ -202,12 +202,18 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
     // Two passes, because a worker's land names its reviewer by id and the reviewer's
     // receipt may sort either side of it. Rows are held once, bounded the same way `read`
     // bounds itself.
+    //
+    // The 16 MiB budget counts only the records HELD for this assignment. Every file is still
+    // read one at a time and dropped unless it belongs to the target, so memory stays bounded
+    // while other assignments' intact receipts, however many, no longer use this one's
+    // budget. A record that cannot be read, is oversized, or is damaged still refuses the
+    // answer: it may be this assignment's, and guessing "nothing landed" is the one answer
+    // this module refuses.
     let mut rows: Vec<Value> = Vec::new();
-    let mut bytes_read = 0u64;
+    let mut bytes_held = 0u64;
     for path in &paths {
         let meta = std::fs::symlink_metadata(path).map_err(|_| "A saved work record could not be read.")?;
-        bytes_read += meta.len();
-        if !meta.is_file() || meta.len() > 1024 * 1024 || bytes_read > 16 * 1024 * 1024 {
+        if !meta.is_file() || meta.len() > 1024 * 1024 {
             return Err("A saved work record is too large or redirected.".into());
         }
         let bytes = std::fs::read(path).map_err(|_| "A saved work record could not be read.")?;
@@ -217,6 +223,10 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
         }
         if row["request"]["obligation_id"].as_str() != Some(obligation) {
             continue;
+        }
+        bytes_held += meta.len();
+        if bytes_held > 16 * 1024 * 1024 {
+            return Err("A saved work record is too large or redirected.".into());
         }
         rows.push(row);
         if rows.len() > 200 {
@@ -393,6 +403,25 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
         assert_eq!(trail.lands.len(), 1);
         assert!(trail.cleanup_pending);
         assert_eq!(trail.not_landed, 0, "a landed commit was counted as not landed");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Other assignments' intact receipts, however many, must not spend this assignment's
+    /// size budget: 20 unrelated receipts of about 900 KB each exceed 16 MiB in total while
+    /// this assignment's one small receipt is still readable.
+    #[test] fn unrelated_receipts_do_not_use_up_one_assignments_size_budget() {
+        let root = temp();
+        let mut worker = receipt("aaa", "obligation-7", "worker");
+        worker["integration"] = serde_json::json!({"verified":true,"reviewer_id":"bbb",
+            "branch":"cc/echo-1","commit":"deadbeef","cleanup_pending":[]});
+        let path = write(&root, &[worker]);
+        for n in 0..20 {
+            let mut other = receipt(&format!("big{n:02}"), "obligation-9", "worker");
+            other["padding"] = "x".repeat(900 * 1024).into();
+            std::fs::write(path.join(format!("big{n:02}.json")), serde_json::to_vec(&other).unwrap()).unwrap();
+        }
+        let trail = trail(&root, "depot", "thread", "obligation-7").unwrap();
+        assert_eq!(trail.lands.len(), 1, "unrelated receipts made the assignment unreadable");
         std::fs::remove_dir_all(root).unwrap();
     }
 
