@@ -99,7 +99,8 @@
 # refuses to handle. It is named here rather than left to be met during a release.
 #
 # Exit codes: 0 installed and verified (or, with --check, a usable identity exists).
-# 1 the import reported success and no identity resulted (or, with --check, this
+# 1 the import reported success and no identity resulted, or the identity exists but
+# Apple's intermediate is missing so signatures cannot verify (or, with --check, this
 # machine has no usable Developer ID Application identity). 2 refused. 3 a
 # prerequisite is missing.
 set -euo pipefail
@@ -402,11 +403,15 @@ if [ "$devid_count" -eq 0 ]; then
 fi
 
 if ! security find-certificate -c "$INTERMEDIATE_CN" >/dev/null 2>&1; then
-  say "WARNING — Apple's intermediate '$INTERMEDIATE_CN' is not on this machine."
-  say "  Signing will appear to work and 'codesign --verify' will later fail with"
-  say "  'unable to build chain to self-signed root'. Fix it now, it is one command:"
-  say "      curl -fLO $INTERMEDIATE_URL && security import DeveloperIDG2CA.cer"
-  say ""
+  # The same fact --check treats as "cannot sign" (exit 1). Reporting "usable" here
+  # would let a release compile before codesign --verify fails on the known cause.
+  warn "FAILED — the identity was imported but it is NOT usable: Apple's intermediate"
+  warn "  '$INTERMEDIATE_CN' is not on this machine."
+  warn "  Signing will appear to work and 'codesign --verify' will later fail with"
+  warn "  'unable to build chain to self-signed root'. Fix it now, it is one command:"
+  warn "      curl -fLO $INTERMEDIATE_URL && security import DeveloperIDG2CA.cer"
+  warn "  Then run $0 --check."
+  exit 1
 fi
 
 identity="$(printf '%s\n' "$names" | head -1)"

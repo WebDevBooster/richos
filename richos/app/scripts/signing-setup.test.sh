@@ -39,6 +39,7 @@
 #   F6  [shim] the matching, correctly-typed certificate reaches "installed and usable"
 #   F7  [shim] ...and the Team ID is read out of the identity string
 #   F8  ...and the passphrase-less PKCS#12 does not survive the import
+#   F10 [shim] an identity with no Apple intermediate is NOT usable: exit 1
 #   F9  [shim] an import that reports success and yields NO identity is a FAILURE
 #   G1  the entitlements file the signing path passes codesign is one codesign ACCEPTS
 #   G2  no `security import` anywhere omits -P, so none of them can raise a dialog
@@ -176,6 +177,16 @@ if printf '%s' "$OUT" | grep -Fq "Team ID: TEAM00001"; then
 else
   bad "F7 the Team ID was not extracted" "$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"
 fi
+# F10: the import finds an identity but Apple's intermediate is absent. That is the
+# state --check calls "cannot sign", so the import must not say "usable" and must exit 1.
+SHIMNI="$TMP/shim-no-intermediate"; mkdir -p "$SHIMNI"
+sed 's/find-certificate) exit 0 ;;/find-certificate) exit 1 ;;/' "$SHIM/security" > "$SHIMNI/security"
+chmod +x "$SHIMNI/security"
+run env PATH="$SHIMNI:$PATH" bash "$INSTALL" --dir "$D" "$TMP/right.cer"
+expect "F10 [shim] an identity without Apple's intermediate is NOT reported usable (exit 1)" 1 "is NOT usable"
+if printf '%s' "$OUT" | grep -Fq "is installed and usable"; then
+  bad "F10b the missing-intermediate run still claimed 'installed and usable'" ""
+else ok "F10b ...and never says 'installed and usable'"; fi
 if [ -f "$D/developer-id.p12" ]; then
   bad "F8 the unencrypted PKCS#12 was left on disk" "$D/developer-id.p12 still exists"
 else
