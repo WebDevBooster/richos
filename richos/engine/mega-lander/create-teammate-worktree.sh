@@ -101,6 +101,31 @@ command -v python3 >/dev/null 2>&1 || { echo "create-teammate-worktree.sh: pytho
 
 refuse() { echo "create-teammate-worktree.sh: REFUSED — $*" >&2; exit 3; }
 
+# The setup's own processes (step 4b): the PID this script started, every
+# process in the group it made for itself, and every descendant of either.
+_setup_tree() { # <setup pid>
+    ps -axo pid=,ppid=,pgid= 2>/dev/null | awk -v root="$1" '
+        { pid[NR] = $1; ppid[NR] = $2; pgid[NR] = $3; n = NR }
+        END {
+            keep[root] = 1
+            grew = 1
+            while (grew) {
+                grew = 0
+                for (i = 1; i <= n; i++)
+                    if (!(pid[i] in keep) && ((ppid[i] in keep) || pgid[i] == root)) { keep[pid[i]] = 1; grew = 1 }
+            }
+            for (p in keep) print p
+        }'
+}
+# Which of these PIDs are still running (a zombie has already stopped).
+_setup_alive() { # <pid>...
+    local _q
+    for _q in "$@"; do
+        kill -0 "$_q" 2>/dev/null || continue
+        case "$(ps -o stat= -p "$_q" 2>/dev/null)" in *Z*) ;; *) printf '%s\n' "$_q" ;; esac
+    done
+}
+
 # --- 1. the name is the spawn contract's name --------------------------------
 # THE RULE ITSELF LIVES IN scripts/lib/teammate-name.sh — shared with
 # guard-worktree-isolation.sh, which used to carry a LOOSER shape check of its
@@ -253,7 +278,15 @@ SETUP="$DIR/.richos/${WORKTREE_SETUP_DECLARATION#.}"
 [ -f "$SETUP" ] || SETUP=""
 if [ -n "$SETUP" ]; then
     SETUP_LOG="$(mktemp -t worktree-setup)"
-    ( cd "$DIR" && bash "$SETUP" ) > "$SETUP_LOG" 2>&1 &
+    # ITS OWN PROCESS GROUP, so the timeout below can stop everything it
+    # started (hunt part 4, finding 17). The kill used to reach SETUP_PID
+    # alone, while a child the setup had started kept running in the workspace
+    # and the summary said "killed". The group is made by the process itself
+    # (setpgid, then exec: the PID does not change) because macOS has no
+    # setsid(1) and job control would print notices into this script's output.
+    # Everything signaled below is this PID, its group, or a descendant of it:
+    # processes this script started, never ones matched by a name or a path.
+    ( cd "$DIR" && exec python3 -c 'import os, sys; os.setpgid(0, 0); os.execvp("bash", ["bash", sys.argv[1]])' "$SETUP" ) > "$SETUP_LOG" 2>&1 &
     SETUP_PID=$!
     # Bounded. 120s is many times what any setup here takes and still finite;
     # an unbounded child would make one bad commit hang every spawn after it.
@@ -266,8 +299,26 @@ if [ -n "$SETUP" ]; then
         SETUP_WAITED=$((SETUP_WAITED + 1))
     done
     if kill -0 "$SETUP_PID" 2>/dev/null; then
-        kill -9 "$SETUP_PID" 2>/dev/null
-        SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s and was killed"
+        # Read the tree BEFORE anything dies: a child whose parent is killed is
+        # reparented and no longer looks like a descendant. The group catches
+        # what the tree then misses; the tree catches a child that left the
+        # group while its parent still lived.
+        _SETUP_TREE="$(_setup_tree "$SETUP_PID")"
+        kill -9 -- "-$SETUP_PID" 2>/dev/null
+        for _p in $_SETUP_TREE; do kill -9 "$_p" 2>/dev/null; done
+        wait "$SETUP_PID" 2>/dev/null
+        _SETUP_LEFT=""
+        for _i in 1 2 3 4 5 6 7 8 9 10; do
+            _SETUP_LEFT="$(_setup_alive "$SETUP_PID" $_SETUP_TREE)"
+            [ -z "$_SETUP_LEFT" ] && break
+            sleep 0.5
+        done
+        _SETUP_N="$(printf '%s\n' $_SETUP_TREE | grep -c .)"
+        if [ -z "$_SETUP_LEFT" ]; then
+            SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s and was killed, with every process it started ($_SETUP_N)"
+        else
+            SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s; killed, but STILL RUNNING: $(printf '%s ' $_SETUP_LEFT)"
+        fi
     elif wait "$SETUP_PID"; then
         SETUP_STATUS="ok"
     else

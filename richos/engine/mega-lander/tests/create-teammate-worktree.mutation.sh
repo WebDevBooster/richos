@@ -73,4 +73,9 @@ mutant seed-failure-hidden "C44" "$F" \
     '    if false; then' \
     "a seed that failed would be reported as \"seeded: 0 file(s)\" and the teammate would start without the files its repository needs (finding 16)."
 
+mutant setup-children-survive "C45" "$F" \
+    '        kill -9 -- "-$SETUP_PID" 2>/dev/null{NL}        for _p in $_SETUP_TREE; do kill -9 "$_p" 2>/dev/null; done' \
+    '        kill -9 "$SETUP_PID" 2>/dev/null' \
+    "a timed-out setup's children would keep running in the workspace after the summary said it was killed (finding 17)."
+
 mutation_end

@@ -354,6 +354,32 @@ else
     bad "C44b seed control (rc=$rc): $OUT"
 fi
 
+# HUNT PART 4, FINDING 17: a timed-out setup is stopped WITH what it started.
+# The setup starts a child that outlives it, records the child's PID, and hangs;
+# the kill used to reach the setup's own PID only.
+git -C "$REPO3" checkout -q -b spawning main
+cat >"$REPO3/.richos/worktree-setup" <<'SETUPEOF'
+sleep 30 &
+echo "$!" > "$PWD/child.pid"
+sleep 20
+SETUPEOF
+git -C "$REPO3" commit -q -am "a setup that starts a child and hangs"
+OUT="$(WORKTREE_SETUP_TIMEOUT=2 "$HELPER" "$REPO3" zach-opus-ct45 --base spawning 2>&1)"; rc=$?
+WT3D="$SANDBOX/repo3-wt/zach-opus-ct45"
+CHILD="$(cat "$WT3D/child.pid" 2>/dev/null || true)"
+ALIVE=no
+if [ -n "$CHILD" ] && kill -0 "$CHILD" 2>/dev/null; then
+    case "$(ps -o stat= -p "$CHILD" 2>/dev/null)" in *Z*) ;; *) ALIVE=yes ;; esac
+fi
+if [ "$rc" -eq 0 ] && [ -n "$CHILD" ] && [ "$ALIVE" = no ] \
+   && printf '%s' "$OUT" | grep -q "TIMED OUT after 2s and was killed, with every process it started"; then
+    ok "C45  a timed-out setup is killed WITH the child it started, and the summary says so"
+else
+    bad "C45  setup child (rc=$rc, child=${CHILD:-none}, alive=$ALIVE): $OUT"
+fi
+# the suite's own leftover, by the PID the setup it ran recorded, never by name
+[ "$ALIVE" = yes ] && kill -9 "$CHILD" 2>/dev/null
+
 if ! grep -qE 'worktree (remove|prune)|branch -D|rm -rf' "$HELPER"; then
     ok "C23  the helper contains no deletion: land and discard are the only deleters (points 4, 7)"
 else
