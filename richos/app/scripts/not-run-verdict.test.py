@@ -151,6 +151,8 @@ NAMED = [
     "proof-for.test.sh",
     "native-ios-share.test.sh",
     "native-ios-app.test.sh",
+    # Not named by the finding; the same shape, found by listing every NOT RUN line in app/scripts.
+    "test-results.test.sh",
 ]
 
 

@@ -56,6 +56,9 @@ unset RICHOS_WORKER_TOKENS RICHOS_WORKER_TOKENS_TOOL RICHOS_WORKER_TOKENS_RESERV
   RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK RICHOS_MACHINE_WORKERS
 
 PASS=0; FAIL=0
+# A case this host cannot answer (P1 without the external SSD) is named here and makes the suite
+# exit 2 at the end: NOT RUN is never a pass (hunt part 2, finding 18).
+NOT_RUN=""
 ok()  { printf '  ok    %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n        %s\n' "$1" "${2:-}"; FAIL=$((FAIL + 1)); }
 has() { grep -Fq -- "$2" <<<"$1"; }   # a here-string, never `printf | grep -q` under pipefail
@@ -415,6 +418,7 @@ FAKE_SHARED="$TMP/p/shared" RICHOS_PROOF_RUN_DIR="$TMP/p/state" RICHOS_RUNTIME_D
 prc=$?
 if [ "$(uname -s)" = Darwin ] && ! python3 -c 'import os,sys; sys.exit(0 if os.path.ismount("/Volumes/E1TB") else 1)'; then
   echo "  NOT RUN  P1 proof-run.py needs /Volumes/E1TB on a Mac; R1-R4 hold run-tests.sh to the same fixture"
+  NOT_RUN="$NOT_RUN, P1 (proof-run.py needs /Volumes/E1TB)"
 elif [ "$prc" = 1 ] && python3 - "$TMP/p/log/summary.json" "$NAME" <<'PY'
 import json, os, sys
 checks = {c["check"]: c for c in json.load(open(sys.argv[1]))["checks"]}
@@ -509,6 +513,10 @@ if [ -z "$(kept_xml "$TMP/m4")" ] && grep -qF "a.test.sh: $NAME" "$TMP/m4/out"; 
 else bad "M4 the per-suite folder mutant is caught" "$(tail -4 "$TMP/m4/out")"; fi
 
 echo ""
+if [ "$FAIL" -eq 0 ] && [ -n "$NOT_RUN" ]; then
+  echo "=== test-results tests: $PASS passed, NOT RUN: ${NOT_RUN#, } ==="
+  exit 2
+fi
 if [ "$FAIL" -eq 0 ]; then
   echo "=== test-results tests: all $PASS passed ==="
   exit 0
