@@ -996,6 +996,24 @@ class Collector(Base):
         with self.assertRaisesRegex(ValueError, "unknown lease purpose"):
             T.acquire_ios("iPhone", "runtime", os.getpid(), purpose="forever")
 
+    def test_T50a_an_actively_renewed_lease_outlives_its_lifetime_but_not_the_ceiling(self):
+        # P5-23: the lifetime must not cut off a run whose renewer is still vouching for it.
+        base = {"created": 1000.0, "max_seconds": 900, "idle_seconds": 300}
+        at = 1000.0 + 901
+        renewed = dict(base, last_use=at - 10, activity={"pid": 1, "renewer": 2, "renewed": at - 10})
+        self.assertFalse(T.lease_expired({"lease": renewed}, at))                     # healthy, past 900 s
+        # No renewer behind it (a CLI touch alone): the lifetime still ends it.
+        touched = dict(base, last_use=at - 10)
+        self.assertTrue(T.lease_expired({"lease": touched}, at))
+        # A renewer that has gone quiet for the inactivity window: idle limit ends it.
+        quiet = dict(base, last_use=at - 300, activity={"pid": 1, "renewer": 2, "renewed": at - 300})
+        self.assertTrue(T.lease_expired({"lease": quiet}, at))
+        # A run that renews forever is still ended, at the ceiling.
+        late = 1000.0 + T.LEASE_ACTIVE_CEILING_SECONDS
+        forever = dict(base, last_use=late - 10, activity={"pid": 1, "renewer": 2, "renewed": late - 10})
+        self.assertTrue(T.lease_expired({"lease": forever}, late))
+        self.assertFalse(T.lease_expired({"lease": forever}, late - 100))
+
     def test_T50b_the_pool_wait_is_300_s_unless_a_gate_names_a_positive_number(self):
         with patch.dict(os.environ, {T.POOL_WAIT_ENV: ""}):
             self.assertEqual(T.pool_wait_seconds(), 300)

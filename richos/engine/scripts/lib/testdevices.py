@@ -372,8 +372,8 @@ def owner_state(owner):
 KINDS = ("ios-simulator", "android-emulator", "ios-cache", "android-cache")
 
 # A device lease has two independent limits (host-cpu-enforcement.md). The
-# inactivity limit catches a device its CLI forgot; the lifetime is absolute and
-# nothing renews it.
+# inactivity limit catches a device its CLI forgot; the lifetime is absolute
+# unless an owned run is actively renewing the lease (LEASE_ACTIVE_CEILING_SECONDS).
 LEASE_MAX_SECONDS = 900
 LEASE_IDLE_SECONDS = 300
 # How often run-active renews an owned run's activity: ten renewals fit inside
@@ -385,6 +385,11 @@ LEASE_RENEW_SECONDS = 30
 # that also covers the boot. 1800 s is twice that measurement. Owner death and
 # lease-holder death still collect at once whatever the lifetime is.
 LEASE_PURPOSES = {"ui-suite": 1800}
+# The lifetime above applies to a lease nobody vouches for. A lease its owned run
+# keeps renewing (run-active) outlives it, up to this absolute ceiling, so a run
+# that hangs yet stays alive still releases the device. Four hours is many times
+# the longest measured suite (884 s) and short enough to be found the same day.
+LEASE_ACTIVE_CEILING_SECONDS = 4 * 3600
 
 
 def _record_path(kind, ident):
@@ -629,8 +634,21 @@ def lease_expired(rec, now=None):
     if not lease:
         return False
     now = time.time() if now is None else now
-    return (now - lease["created"] >= lease["max_seconds"] or
-            now - lease["last_use"] >= lease["idle_seconds"])
+    if now - lease["last_use"] >= lease["idle_seconds"]:
+        return True
+    age = now - lease["created"]
+    if age < lease["max_seconds"]:
+        return False
+    # The lifetime exists to end a device nobody is using or nobody can vouch for.
+    # A run whose own renewer (renew_activity: live owner, live child) renewed it
+    # within the last inactivity window is demonstrably working, so the lifetime
+    # does not cut it off; LEASE_ACTIVE_CEILING_SECONDS still ends a run that
+    # renews forever without finishing.
+    activity = lease.get("activity") or {}
+    renewed = activity.get("renewed")
+    if isinstance(renewed, (int, float)) and now - renewed < lease["idle_seconds"]:
+        return age >= max(LEASE_ACTIVE_CEILING_SECONDS, lease["max_seconds"])
+    return True
 
 
 def _registered_verdict(rec):
