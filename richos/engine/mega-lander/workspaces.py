@@ -1473,6 +1473,14 @@ def register_cc(session_id, name, repo, path, branch, identity=None):
 
 def confirm_cc(session_id, name, path, ok, why=""):
     key = named_key(session_id, name)
+    # WHAT THE ENGINE ITSELF MADE (hunt part 4, finding 14). The creator
+    # confirms only after it has seeded the workspace and run the repository's
+    # own setup, so every ignored entry the workspace has now, and the main
+    # checkout does not, is the engine's product and nobody's work: richos's
+    # setup links each workspace to its own build cache, and that link held
+    # every such land until somebody typed --ignored-not-needed. It is recorded
+    # here, exactly, so the land can tell it from the agent's own ignored files.
+    generated = _generated_manifest(realpath(path)) if ok else {}
     with Lock():
         rec = load_agent(key)
         if not rec:
@@ -1480,6 +1488,8 @@ def confirm_cc(session_id, name, path, ok, why=""):
         for w in rec["workspaces"]:
             if w.get("path") == realpath(path):
                 w["created"] = bool(ok)
+                if generated:
+                    w["generated"] = generated
         if not ok:
             rec["creation_failed"] = {"at": now(), "why": why}
         save_agent(rec)
@@ -2946,6 +2956,86 @@ def _landed_residue(rec, w, deadline=None):
     return True
 
 
+GENERATED_TREE_CAP = 2000
+
+
+def _file_digest(p, deadline=None):
+    """SHA-1 of a file, read in pieces with the clock checked between them."""
+    h = hashlib.sha1()
+    with open(p, "rb") as f:
+        while True:
+            if _past(deadline):
+                raise Deadline("the gate's budget ran out while reading %s" % p)
+            chunk = f.read(1 << 20)
+            if not chunk:
+                return h.hexdigest()
+            h.update(chunk)
+
+
+def _fingerprint(p, deadline=None):
+    """What an ignored entry IS, precisely enough to tell it changed: a link by
+    its target, a file by size and content, a directory by every entry under
+    it (links by target, never followed). None when it cannot be read, or a
+    directory is larger than GENERATED_TREE_CAP entries: an entry with no
+    fingerprint is never waived, so the answer is the safe one."""
+    try:
+        if os.path.islink(p):
+            return ["link", os.readlink(p)]
+        if os.path.isfile(p):
+            return ["file", os.path.getsize(p), _file_digest(p, deadline)]
+        if not os.path.isdir(p):
+            return None
+        rows = []
+
+        def unreadable(error):
+            raise error
+        for root, dirs, files in os.walk(p, followlinks=False, onerror=unreadable):
+            dirs.sort()
+            for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(root, d))]:
+                if len(rows) >= GENERATED_TREE_CAP:
+                    return None
+                a = os.path.join(root, name)
+                rows.append([os.path.relpath(a, p), _fingerprint(a, deadline)])
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        return ["dir", len(rows), hashlib.sha1(json.dumps(rows).encode()).hexdigest()]
+    except OSError:
+        return None
+
+
+def _generated_manifest(path):
+    """{relative ignored entry: fingerprint} for every ignored entry of a
+    just-created workspace that the main checkout does not have (finding 14).
+    Never raises: a workspace whose products could not be recorded is one
+    whose ignored entries all need the waiver, exactly as before."""
+    try:
+        _dirty, ignored = uncommitted(path)
+    except SpecError:
+        return {}
+    out = {}
+    for rel in ignored:
+        if " (unreadable" in rel:
+            continue
+        fp = _fingerprint(os.path.join(path, rel.rstrip("/")))
+        if fp is not None:
+            out[rel] = fp
+    return out
+
+
+def _minus_generated(w, ignored, deadline=None):
+    """`ignored` without the entries the engine made at creation and nobody has
+    changed since (finding 14). Anything else — the agent's notes, a nested
+    repository, a setup product the agent then altered — is still named."""
+    made = w.get("generated") or {}
+    if not made:
+        return ignored
+    out = []
+    for rel in ignored:
+        if rel in made and _fingerprint(os.path.join(w["path"], rel.rstrip("/")), deadline) == made[rel]:
+            continue
+        out.append(rel)
+    return out
+
+
 def _require_clean(rec, doing, ignored_ok="", deadline=None):
     """Refuses uncommitted work. Returns the paths it proved to be partial-
     cleanup residue whose every file is preserved (`_landed_residue`): the one
@@ -2963,6 +3053,7 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
                 if residue:
                     preserved.append(w["path"])
             dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
+            ignored = _minus_generated(w, ignored, deadline)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
                     w["path"], len(dirty), "y" if len(dirty) == 1 else "ies", ", ".join(dirty[:5])))

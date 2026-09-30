@@ -191,6 +191,16 @@ mutant p05-dry-check-lands "test_finding_29_a_dry_spawn_check_changes_nothing" "
     '    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET))' \
     "a dry spawn check, which promises to write nothing, would land and delete other eligible work before answering (hunt part 4, finding 29)."
 
+mutant p08-setup-product-held "test_finding_14_the_setups_own_link_needs_no_waiver" "$W" \
+    '            ignored = _minus_generated(w, ignored, deadline)' \
+    '            pass' \
+    "the workspace creator's own setup product (a per-workspace cache link) would hold every automatic land until somebody typed --ignored-not-needed (hunt part 4, finding 14)."
+
+mutant p08-changed-setup-product-waived "test_finding_14_a_setup_product_the_agent_changed_is_its_own" "$W" \
+    '        if rel in made and _fingerprint(os.path.join(w["path"], rel.rstrip("/")), deadline) == made[rel]:' \
+    '        if rel in made:' \
+    "an entry the engine made at creation and the agent then changed would be waived by name, and the agent's change deleted with the workspace (point 8)."
+
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}{NL}        write_json(_slot_path(rec["key"], call), row)' \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}' \

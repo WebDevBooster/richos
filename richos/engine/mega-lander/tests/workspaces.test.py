@@ -3064,6 +3064,60 @@ class Finding29_AskingChangesNothing(Base):
         self.assertIsNone(self.rec("zach-opus-next"), "a dry check wrote a registration")
 
 
+class Finding14_WhatTheEngineMadeIsNotTheAgentsWork(Base):
+    """Hunt part 4, finding 14: the creator's own setup leaves ignored content
+    no main checkout has (richos: a per-workspace link to its own build cache),
+    and the cleanliness check held every such workspace until somebody typed
+    --ignored-not-needed. What the ENGINE made at creation is recorded when the
+    workspace is confirmed, and only that, exactly as it was, needs no waiver.
+    Everything else ignored is still compared and still refused (point 8):
+    notes, nested repositories, and a setup product the agent then changed."""
+
+    def _created_with_setup_link(self, name):
+        with open(os.path.join(self.other, ".gitignore"), "a") as f:
+            f.write("cache-link\n")
+        run("git", "-C", self.other, "commit", "-qam", "ignore the setup's cache link")
+        path = os.path.join(self.env.root, "other-wt", name)
+        ws.register_cc(self.sid, name, self.other, path, "cc/" + name)
+        run("git", "-C", self.other, "worktree", "add", "-q", path, "-b", "cc/" + name)
+        cache = os.path.join(self.env.root, "cache-" + name)
+        os.makedirs(cache)
+        os.symlink(cache, os.path.join(path, "cache-link"))        # what .worktree-setup does
+        ws.confirm_cc(self.sid, name, path, True)                   # the creator's step 5
+        aid, _native = self.spawn(name, path, native=False)
+        return aid, path
+
+    def test_finding_14_the_setups_own_link_needs_no_waiver(self):
+        aid, path = self._created_with_setup_link("zach-opus-gen")
+        self.finish(aid)
+        self.assertEqual(self.names(), [], "the engine's own setup product held the land")
+        self.assertFalse(os.path.exists(path))
+
+    def test_finding_14_anything_else_ignored_still_needs_the_waiver(self):
+        aid, path = self._created_with_setup_link("zach-opus-gen2")
+        os.makedirs(os.path.join(path, "build"))
+        with open(os.path.join(path, "build", "notes.txt"), "w") as f:
+            f.write("the only copy of the agent's notes\n")
+        self.finish(aid)
+        self.assertEqual(self.names(), ["zach-opus-gen2"])
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-gen2", self.sid)
+        self.assertIn("build/", str(e.exception))
+        self.assertNotIn("cache-link", str(e.exception))
+        self.assertTrue(os.path.isfile(os.path.join(path, "build", "notes.txt")))
+
+    def test_finding_14_a_setup_product_the_agent_changed_is_its_own(self):
+        aid, path = self._created_with_setup_link("zach-opus-gen3")
+        link = os.path.join(path, "cache-link")
+        os.unlink(link)
+        os.symlink(os.path.join(self.env.root, "somewhere-else"), link)
+        self.finish(aid)
+        self.assertEqual(self.names(), ["zach-opus-gen3"])
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-gen3", self.sid)
+        self.assertIn("cache-link", str(e.exception))
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""
