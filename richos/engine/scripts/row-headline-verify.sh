@@ -194,6 +194,15 @@ counts = {"MATCH": 0, "MISMATCH": 0, "UNVERIFIED": 0, "REFUSED": 0,
           "ERROR": 0, "LISTED": 0}
 worst = 0
 
+if only and not any(r["id"] == only for r in rows):
+    # A selection that names no row would otherwise check nothing and exit 0.
+    sys.stderr.write(
+        "ERROR: row-headline-verify.sh: --only %s names no row with a readable "
+        "**Headline:** warrant in this record (rows: %s). Nothing was re-run, and "
+        "that is a finding rather than a pass.\n"
+        % (only, ", ".join(r["id"] for r in rows)))
+    sys.exit(2)
+
 for row in rows:
     if only and row["id"] != only:
         continue
@@ -247,7 +256,24 @@ for row in rows:
         print("  ERROR       %-6s could not run: %s" % (rid, exc))
         continue
 
+    # A COMMAND THAT FAILED HAS NOT CONFIRMED ANYTHING by printing the words
+    # first. The one nonzero exit that is an answer rather than a failure is the
+    # conventional exit 1 of grep/test/diff ("found nothing"), and then only with
+    # a quiet stderr: `grep -c word file` prints 0 and exits 1, which is exactly
+    # how a row records "the file does not mention it".
     want = row["expect"].strip()
+    rc = p.returncode
+    quiet_no_match = (rc == 1 and not (p.stderr or "").strip())
+    if rc != 0 and not quiet_no_match:
+        counts["ERROR"] += 1
+        worst = max(worst, 1)
+        got = " / ".join(l.strip() for l in out.strip().split("\n")[-3:])
+        print("  ERROR       %-6s the command exited %d, so what it printed cannot "
+              "confirm the headline. It printed: %s" % (rid, rc, got[:160] or "<nothing>"))
+        print("              %-6s If a nonzero exit is the point, end the command "
+              "so it exits 0 (for example `|| true`) and re-stamp the warrant."
+              % "")
+        continue
     if want and want in out:
         counts["MATCH"] += 1
         print("  MATCH       %-6s still prints: %s" % (rid, want[:90]))

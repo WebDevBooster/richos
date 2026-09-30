@@ -1708,7 +1708,7 @@
       "sources": {
         "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
-        "richos/engine/scripts/row-headline-verify.sh": "43a2d2fb4cbcaf02457ca0966ed26d7a7ba5fa63b33b3dca2add129075754f8f",
+        "richos/engine/scripts/row-headline-verify.sh": "1c58c9d7010e77ebd0e15ab796bf778ce989116b9098a6a3f223b163cfab616a",
         "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "richos/engine/scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
         "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
@@ -1732,7 +1732,7 @@
         "richos/engine/scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
         "richos/engine/scripts/hooks/guard-row-currency-commits.mutation.sh": "0ee55fe56ec08d46ab55a90782e266b495dc6b5f949dcc5d28e423789a97f512",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
-        "richos/engine/scripts/hooks/row-currency.test.sh": "88889c3400051f4cc51b0c2d41771a38a4b74ef3b182c1e6e5d480a8ee7a8606",
+        "richos/engine/scripts/hooks/row-currency.test.sh": "938f8ca8f9739044cfe9e8d25bf15b290ce7a3768d5c10b5b18c6e574316c200",
         "richos/engine/hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
         "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },

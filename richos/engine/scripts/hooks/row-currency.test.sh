@@ -1701,6 +1701,43 @@ fi
 
 fi
 
+# o3b/o3c/o3d. A command that FAILS is not a match just because it printed the
+# words first (P5-67); the conventional exit-1 "nothing found" of grep -c is still
+# a match; and --only naming no row certifies nothing.
+if selected verifier; then
+set -- $(mk_pair hl_failed); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" \
+  "| 3.1 | **The prerequisite is in place.** | **Headline:** \`000000000000\` — \`echo ASSERTION ok && exit 7\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.2 | **Nothing mentions the word.** | **Headline:** \`000000000000\` — \`grep -c nosuchword lib/thing.js\` → \`0\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.3 | **The tool complains but prints the words.** | **Headline:** \`000000000000\` — \`echo ASSERTION; echo broken >&2; exit 1\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |"
+commit_record "$REC"
+run_verify "$REC"
+if case "$VOUT" in *"MATCH       3.1"*) false ;; *"ERROR       3.1"*"exited 7"*) true ;; *) false ;; esac; then
+    ok "a command that printed the words and then exited 7 is an ERROR, not a MATCH"
+else
+    bad "a failing command was credited as a match: $VOUT"
+fi
+case "$VOUT" in
+    *"MATCH       3.2"*) ok "grep -c printing 0 and exiting 1 with a quiet stderr is still a MATCH" ;;
+    *) bad "the conventional exit-1 count of zero was refused: $VOUT" ;;
+esac
+if case "$VOUT" in *"MATCH       3.3"*) false ;; *"ERROR       3.3"*) true ;; *) false ;; esac; then
+    ok "an exit of 1 with an error on stderr is not the conventional answer and is an ERROR"
+else
+    bad "a command that complained on stderr was credited as a match: $VOUT"
+fi
+[ "$VRC" -eq 1 ] && ok "a failing command makes the verifier exit 1" || bad "the verifier did not fail on a failing command (rc=$VRC)"
+run_verify "$REC" --only 9.99
+if [ "$VRC" -eq 2 ] && case "$VOUT" in *"9.99"*) true ;; *) false ;; esac; then
+    ok "--only naming no row is exit 2 and names the row, not a pass over zero rows"
+else
+    bad "--only with an unknown row certified an empty selection (rc=$VRC): $VOUT"
+fi
+
+fi
+
 if [ -n "$MUTATION_CASE" ]; then
     [ "$FAIL" -eq 0 ] || exit 1
     [ "$PASS" -gt 0 ] || exit 2
