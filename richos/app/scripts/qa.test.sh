@@ -39,7 +39,7 @@
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
 #   R5-R8   redact --phones: the gate flags a phone-shaped fixture, the redactor
 #           covers it, the gate then passes the output, the evidence survives
-#   A1-A17  phone-android: taps by the words on screen, refuses an unnamed or
+#   A1-A19  phone-android: taps by the words on screen, refuses an unnamed or
 #           unattached phone, times out as a failure, reads a closure state and
 #           an idle-frame rhythm, types through a key map, reads the editable
 #           field, runs one closure cell, finds unnamed controls, all against a
@@ -643,6 +643,17 @@ case "\$1 \$2" in
   "exec-out screencap") cat "$FIX/pair-pass.png"; exit 0 ;;
 esac
 cmd="\$2"
+# FAKE_FAIL_READS: every read after the package and uptime ones fails, as on a phone whose adb
+# shell is denied them. FAKE_FAIL_PACKAGE: the package dump itself fails.
+if [ -n "\${FAKE_FAIL_PACKAGE:-}" ]; then
+  case "\$cmd" in "dumpsys package "*) echo "permission denied" >&2; exit 1 ;; esac
+fi
+if [ -n "\${FAKE_FAIL_READS:-}" ]; then
+  case "\$cmd" in
+    "dumpsys package "*|"cat /proc/uptime"|"input "*) ;;
+    *) echo "permission denied" >&2; exit 1 ;;
+  esac
+fi
 case "\$cmd" in
   "input "*) echo "\$cmd" >> "\$LOG" ;;
   "dumpsys package "*) printf '    appId=10359\n    User 0: installed=true stopped=false\n' ;;
@@ -685,6 +696,21 @@ run "$PA" --adb "$FAKE" --serial FAKE123 type-file "$TMP/abc.txt"
 if [ "$CODE" = 0 ] && [ "$(grep -c '^input text' "$TMP/adb.log")" = 4 ] && grep -Fxq "input text %s" "$TMP/adb.log"; then
   ok "A6 type-file sends one input per character, a space as %s"
 else bad "A6 type-file sends one input per character, a space as %s" "exit $CODE, log: $(tr '\n' ' ' < "$TMP/adb.log")"; fi
+# A read that FAILED is null with its reason, never an empty list, a zero or a false: "no
+# processes, no foreground service, microphone not running" would otherwise read as a clean closure.
+run env FAKE_FAIL_READS=1 "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect --out "$TMP/s-fail.json"
+if [ "$CODE" = 0 ] && python3 - "$TMP/s-fail.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+for key in ("processes", "services", "foregroundServices", "wakeLocks", "microphoneRunning", "microphoneAppOp",
+            "jobs", "pendingAlarms", "ownNotifications", "resumedActivity", "recentRecordingEvents", "charger"):
+    assert s[key] is None, (key, s[key])
+assert "processes" in s["unreadable"] and "microphone" in s["unreadable"] and "permission denied" in s["unreadable"]["jobs"], s.get("unreadable")
+PY
+then ok "A18 state: reads that failed are null with the reason, never empty, zero or false"
+else bad "A18 state: reads that failed are null with the reason" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+run env FAKE_FAIL_PACKAGE=1 "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect
+expect "A19 state: a package dump that failed cannot answer, it is not 'not installed'" 2 "cannot tell whether"
 run "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect --out "$TMP/s1.json"
 if [ "$CODE" = 0 ] && python3 - "$TMP/s1.json" <<'PY'
 import json, sys
