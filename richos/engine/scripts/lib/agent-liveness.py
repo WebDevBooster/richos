@@ -122,6 +122,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 ALIVE = "ALIVE"
 NOT_ALIVE = "NOT-ALIVE"
@@ -191,6 +192,46 @@ def _pid_alive(pid):
         return True
     except Exception:
         return None
+
+
+# The lock reason records when the holder started: `(pid 94086 start Mon Aug 31
+# 19:39:29 2026)`. A running pid whose REAL start time is not that one is another
+# process that was handed a recycled pid (hunt part 5, P5-18), so the lock is stale.
+LOCK_START_RE = re.compile(r"\(pid\s+\d+\s+start\s+([^)]+)\)")
+START_TOLERANCE_SECONDS = 10
+
+
+def _parse_start(text):
+    """Epoch for a `Mon Aug 31 19:39:29 2026` start string (local time), or None."""
+    try:
+        return time.mktime(time.strptime(text.strip(), "%a %b %d %H:%M:%S %Y"))
+    except (ValueError, OverflowError):
+        return None
+
+
+def _pid_start_epoch(pid):
+    """When the running process `pid` started, from `ps`, or None if unreadable."""
+    try:
+        res = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))],
+                             capture_output=True, text=True, timeout=10,
+                             env=dict(os.environ, LC_ALL="C"))
+    except Exception:
+        return None
+    if res.returncode != 0:
+        return None
+    return _parse_start(res.stdout)
+
+
+def _pid_reused(pid, lock_line):
+    """True only when BOTH start times are readable and differ: reuse is then
+    proven. Anything unreadable on either side is None -- it proves nothing, and
+    the caller keeps the plain running-pid answer."""
+    m = LOCK_START_RE.search(lock_line or "")
+    recorded = _parse_start(m.group(1)) if m else None
+    actual = _pid_start_epoch(pid)
+    if recorded is None or actual is None:
+        return None
+    return abs(recorded - actual) > START_TOLERANCE_SECONDS
 
 
 # --------------------------------------------------------------------------
@@ -572,6 +613,11 @@ def _lock_resolve(entity_root, target):
     ev["pid_shared_with"] = shared - 1
     alive = _pid_alive(pid)
     ev["pid_alive"] = alive
+    if alive:
+        reused = _pid_reused(pid, locked)
+        ev["pid_reused"] = reused
+        if reused:
+            alive = False
 
     if alive is None:
         rec["verdict"] = INDETERMINATE
@@ -583,8 +629,13 @@ def _lock_resolve(entity_root, target):
                          "is running" % (path, pid))
     else:
         rec["verdict"] = NOT_ALIVE
-        rec["reason"] = ("entity worktree %s carries a STALE lock (pid %d is "
-                         "dead)" % (path, pid))
+        if ev.get("pid_reused"):
+            rec["reason"] = ("entity worktree %s carries a STALE lock (pid %d is running, but it "
+                             "started at a different time than the lock recorded, so that pid was "
+                             "reused by another process)" % (path, pid))
+        else:
+            rec["reason"] = ("entity worktree %s carries a STALE lock (pid %d is "
+                             "dead)" % (path, pid))
     _attach_sources(rec)
     return rec
 
