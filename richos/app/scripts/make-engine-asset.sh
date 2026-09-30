@@ -380,9 +380,15 @@ LICENSE_SHIPPED="$(sha256_of "$VERIFY/engine/LICENSE")"
 #       `license:` must have a license file beside it. This is the check that catches a
 #       NEW vendored skill added with a claim and no text - the exact defect the
 #       2026-09-04 audit found in three directories at once.
+#
+# THE INVENTORY IS THE TRACKED SET, the same one the archive is built from and the members
+# check enforces. `find` on disk would also see an ignored vendor or scratch tree with a
+# LICENSE in it, which was never meant to ship, and would then blame packaging for dropping it.
 license_files_under() {
-    ( cd "$1" && find . -type f \( -name 'LICENSE' -o -name 'LICENSE.txt' -o -name 'LICENSE.md' \) \
-        ! -path './LICENSE' | LC_ALL=C sort )
+    git -C "$1" ls-files \
+        | { grep -E '(^|/)(LICENSE|LICENSE\.txt|LICENSE\.md)$' || true; } \
+        | { grep -v -x 'LICENSE' || true; } \
+        | sed 's|^|./|' | LC_ALL=C sort
 }
 
 MISSING_TERMS=""
