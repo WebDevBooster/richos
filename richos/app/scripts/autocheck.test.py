@@ -28,7 +28,7 @@ import tempfile
 import unittest
 
 HERE = Path(__file__).resolve().parent
-AUTOCHECK = HERE / "autocheck"
+AUTOCHECK = Path(os.environ.get("AUTOCHECK_UNDER_TEST", HERE / "autocheck"))
 ENGINE = HERE.parents[1] / "engine"
 HANG_GUARD = 600
 
@@ -88,11 +88,33 @@ import sys
 # Fixture runner, proof-run.py's contract: exit 0 all passed, 1 a check did not pass, 3 nothing
 # failed and a check was NOT RUN; --summary-out gets summary.json's rows. A command that prints
 # "NOT-RUN <why>" and exits 0 is a suite run-tests.sh did not run, for that reason.
-plan = sys.argv[sys.argv.index("--commands") + 1]
+from pathlib import Path
+directory = (Path(sys.argv[sys.argv.index("--log-dir") + 1]) if "--log-dir" in sys.argv
+             else Path(os.environ["RICHOS_AUTOCHECK_PROOF_ROOT"]) / "legacy")
+directory.mkdir(parents=True, exist_ok=True)
+previous = []
+if "--resume" in sys.argv:
+    prior = Path(sys.argv[sys.argv.index("--resume") + 1])
+    lines = json.loads((prior / "plan.json").read_text())
+    previous = json.loads((prior / "outcomes.json").read_text())
+    with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
+        log.write("resume " + str(prior) + "\\n")
+else:
+    lines = Path(sys.argv[sys.argv.index("--commands") + 1]).read_text().splitlines()
+    if "--reuse" in sys.argv:
+        prior = Path(sys.argv[sys.argv.index("--reuse") + 1])
+        previous = json.loads((prior / "outcomes.json").read_text())
+        with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
+            log.write("reuse " + str(prior) + "\\n")
+(directory / "plan.json").write_text(json.dumps(lines))
 rows = []
-for line in open(plan):
+for line in lines:
     line = line.strip()
     if line:
+        old = next((row for row in previous if row["check"] == line and row["result"] == "passed"), None)
+        if old:
+            rows.append(old)
+            continue
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("run " + line + "\\n")
         done = subprocess.run(["bash", "-c", line], stdout=subprocess.PIPE, text=True)
@@ -107,6 +129,7 @@ for line in open(plan):
                          "not_run": {"why": said[0], "suites": [{"name": line, "state": "notrun", "reason": said[0]}]}})
         else:
             rows.append({"check": line, "result": "passed", "not_run": None})
+(directory / "outcomes.json").write_text(json.dumps(rows))
 if "--summary-out" in sys.argv:
     with open(sys.argv[sys.argv.index("--summary-out") + 1], "w") as out:
         json.dump({"checks": rows}, out)
@@ -139,7 +162,8 @@ class Fixture(unittest.TestCase):
                                               "[init]\n\tdefaultBranch = main\n")
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "RICHOS_AUTOCHECK"))}
         self.env.update(GIT_CONFIG_GLOBAL=str(self.base / "gitconfig"), GIT_CONFIG_NOSYSTEM="1",
-                        AUTOCHECK_FIXTURE_LOG=str(self.log), RICHOS_ESCALATION_LEDGER=str(self.ledger))
+                        AUTOCHECK_FIXTURE_LOG=str(self.log), RICHOS_ESCALATION_LEDGER=str(self.ledger),
+                        RICHOS_AUTOCHECK_PROOF_ROOT=str(self.base / "proof-runs"))
         self.repo = self.base / "repo"
 
     def tearDown(self):
@@ -507,6 +531,44 @@ class Land(Fixture):
         self.assertEqual(self.head("main"), before)
         self.assertIn("run cd richos/app && bash scripts/suite.sh", self.tools())
         self.assertIn("lint --all", self.tools())
+        self.git("merge", "--abort")
+
+    def test_same_merge_retry_resumes_saved_plan_and_keeps_passing_lint(self):
+        self.make()
+        self.branch_with("feature", "richos/app/src/thing.txt", "BROKEN\n")
+        self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        first = self.tools()
+        self.assertEqual(first.count("run cd richos/app && bash scripts/lint.sh --all"), 1)
+        self.git("commit", "-m", "land feature", expect=1)
+        second = self.tools()
+        self.assertIn("resume ", second)
+        self.assertEqual(second.count("run cd richos/app && bash scripts/lint.sh --all"), 1)
+        self.assertEqual(second.count("run cd richos/app && bash scripts/suite.sh"), 2)
+        attempts = list((self.base / "proof-runs").glob("*/attempt-*/plan.json"))
+        self.assertEqual(len(attempts), 2)
+        self.git("merge", "--abort")
+
+    def test_fixed_merge_tree_selects_new_plan_and_offers_old_evidence_for_validation(self):
+        self.make()
+        self.branch_with("feature", "richos/app/src/thing.txt", "BROKEN\n")
+        self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        (self.repo / "richos/app/src/thing.txt").write_text("fixed\n")
+        self.git("add", "richos/app/src/thing.txt")
+        self.git("commit", "-m", "land fixed feature")
+        self.assertIn("reuse ", self.tools())
+        self.assertNotIn("resume ", self.tools())
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 2)
+
+    def test_missing_retry_plan_refuses_without_restarting_passing_work(self):
+        self.make()
+        self.branch_with("feature", "richos/app/src/thing.txt", "BROKEN\n")
+        self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        plan = next((self.base / "proof-runs").glob("*/attempt-*/plan.json"))
+        plan.unlink()
+        before = self.tools()
+        out = self.git("commit", "-m", "land feature", expect=1)
+        self.assertIn("retry evidence is unreadable", out.stderr)
+        self.assertEqual(self.tools(), before)
         self.git("merge", "--abort")
 
     def test_a_good_merge_lands_with_a_receipt_and_no_record(self):

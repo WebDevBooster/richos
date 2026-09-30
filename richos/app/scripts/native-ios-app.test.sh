@@ -6,7 +6,8 @@
 # (build plan §3.1 loop L2; stream I1). Missing macOS/Xcode/XcodeGen/an iOS runtime/the external SSD
 # is NOT RUN, exit 2; a build or check failure on a capable host is red.
 # run-tests: no-host-screen: `simctl boot` starts a dedicated simulator without Simulator.app; screenshots come from `simctl io`, never the Mac's screen
-# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios richos/app/scripts/native-ios-app.test.sh richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py
+# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios richos/app/scripts/native-ios-app.test.sh richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App richos/mobile/native-ios/Core/Sources richos/mobile/native-ios/Core/Package.swift richos/mobile/native-ios/DevBridge richos/mobile/native-ios/project.yml richos/mobile/native-ios/Release/platform.yml richos/mobile/native-ios/ShareExtension richos/mobile/native-ios/NotificationService richos/mobile/native-ios/Release/App-Info.plist richos/mobile/native-ios/Release/RichOSNative.entitlements
+# run-tests: select-inputs richos/mobile/native-ios/App richos/mobile/native-ios/Core/Sources richos/mobile/native-ios/Core/Package.swift richos/mobile/native-ios/DevBridge richos/mobile/native-ios/project.yml richos/mobile/native-ios/Release/platform.yml richos/mobile/native-ios/ShareExtension richos/mobile/native-ios/NotificationService richos/mobile/native-ios/Release/App-Info.plist richos/mobile/native-ios/Release/RichOSNative.entitlements
 # run-tests: covers richos/mobile/native-ios/project.yml richos/mobile/native-ios/App/App/AppStore.swift richos/mobile/native-ios/App/App/RichOSNativeApp.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/DevBridge/DevBridge.swift richos/mobile/native-ios/Core/Sources/RichOSCLI/Simulator.swift richos/mobile/native-ios/Core/Sources/RichOSCore/Protocol/URLSessionTransport.swift
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,6 +58,9 @@ if "$RIOS" sim prepare conv-empty >"$SCRATCH/prepare.json" 2>"$SCRATCH/err"; the
     ok "A1 the Debug app builds, installs on a prepared simulator and answers in fixture conv-empty ($(json 'd["result"]["timingsMs"]' < "$SCRATCH/prepare.json"))"
   else bad "A1 prepare" "state: $(head -c 300 "$SCRATCH/prepare.json")"; fi
 else
+  if grep -qF 'prepared simulator is leased by another run' "$SCRATCH/err"; then
+    notrun "prepared simulator is leased by another run; no app test ran"
+  fi
   bad "A1 prepare" "$(tail -c 600 "$SCRATCH/err")"
   echo "=== native-ios-app tests: $FAILED FAILED, $PASS passed (later cases need a running app) ==="
   exit 1

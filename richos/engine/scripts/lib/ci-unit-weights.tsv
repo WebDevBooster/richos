@@ -244,3 +244,8 @@ mega-lander/tests/workspace-stopped-ending.test.sh	6.9	linux-run-34945072758
 mega-lander/tests/workspaces-e2e.test.sh	10.2	linux-run-34945072758
 scripts/operator-fences.test.sh	523.2	darwin-local-2026-09-25-zach-opus-fence2
 scripts/operator-fences-mutation.test.sh	1407.7	darwin-local-2026-09-25-zach-opus-fence2
+
+# 53-mutant full outer suite, default workers, same source as 0c65837b.
+# Recorded PASS: verification-source-identity-20260930/final-integration/04-engine-scripts-scratch-reaper.test.sh.log
+# Its SCR receipt from the isolated run is 275.9s; the contended full suite took 676.8s.
+scripts/hooks/contract-integrity.test.sh:SCR	676.8	mac-20260930-full-scratch-53-mutants

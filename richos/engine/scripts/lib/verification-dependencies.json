@@ -14305,7 +14305,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "a5355a3fae8c48807dc25cb3843c20ffd98b18ee98b739fe259f07e62ccb21b2",
+          "sha256": "99728c8f13f5f3766203f9dc74efe6621d0c3e1e9608ec7aa964999c32853480",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14425,7 +14425,7 @@
         {
           "root": "repository",
           "path": "richos/mobile/native-ios/Release/simulator-tests.sh",
-          "sha256": "c113ea531a0d66e2458f5135b77f2706686e8500f50a28eec88d8f312fd393b4",
+          "sha256": "3390b876c2ac458af3cac56f7bbe047a57398f919211b97d7fb211ed40e29bab",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14521,7 +14521,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "a5355a3fae8c48807dc25cb3843c20ffd98b18ee98b739fe259f07e62ccb21b2",
+          "sha256": "99728c8f13f5f3766203f9dc74efe6621d0c3e1e9608ec7aa964999c32853480",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {

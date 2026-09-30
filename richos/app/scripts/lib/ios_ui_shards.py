@@ -22,6 +22,9 @@ not "every shard exited 0" — it is "the set of tests that ran equals the set t
 """
 import contextlib
 import io
+import hashlib
+import shutil
+from pathlib import Path
 import json
 import os
 import re
@@ -154,6 +157,134 @@ def stamps(bundle, out, runner=subprocess.run):
     return found
 
 
+def attribution(bundle, rows, build_stamp, out, runner=subprocess.run):
+    bad = []
+    if not build_stamp:
+        return ["no build stamp"]
+    # ATTRIBUTION: every test that ran must carry THIS run's build stamp. A test
+    # without it, or with another build's, came from a bundle this run did not build.
+    try:
+        got_stamps = stamps(bundle,
+                            out, runner)
+    except (ValueError, OSError, KeyError) as exc:
+        got_stamps = None
+        bad.append("simulator %d: its tests' build stamps could not be read (%s)" % (1, exc))
+    if got_stamps is not None:
+        # Every XCTest in a UI test bundle carries the stamp itself. A bundle of Swift
+        # Testing tests (which never pass through XCTestCase) is proven by its stamped
+        # BuildStampTests probe. No test anywhere may carry another build's stamp.
+        kinds = getattr(result_tests, "kinds", {})
+        foreign, proven, ran_bundles = [], set(), set()
+        for ident, result, _, _ in rows:
+            if result == "Skipped":
+                continue
+            bundle, _, key = ident.partition("/")
+            ran_bundles.add(bundle)
+            got = got_stamps.get(key)
+            if got == build_stamp:
+                proven.add(bundle)
+            elif got is not None or kinds.get(bundle) == "UI test bundle":
+                foreign.append("%s (%s)" % (key, got or "no stamp"))
+        unproven = sorted(ran_bundles - proven)
+        if foreign:
+            bad.append("simulator %d ran %d test(s) NOT from this run's build %s: %s" % (
+                1, len(foreign), build_stamp, ", ".join(foreign[:4])))
+        if unproven:
+            bad.append("simulator %d: no test in %s carries this run's build stamp %s, so nothing "
+                       "proves which build ran it" % (1, ", ".join(unproven), build_stamp))
+    return bad
+
+
+def retry_identity(root, runtime, devices, selectors):
+    """Bind retained cases to actual files (including untracked source), tools and settings."""
+    root = Path(root)
+    suite = root / "richos/app/scripts/native-ios-ui.test.sh"
+    inputs = next(line.split()[3:] for line in suite.read_text().splitlines()
+                  if line.startswith("# run-tests: inputs "))
+    files = set()
+    for name in inputs:
+        path = root / name
+        files.update(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else files.add(path)
+    files.add(root / "richos/app/scripts/lib/ios_ui_shards.py")
+    hashes = [(str(p.relative_to(root)), hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(files)]
+    tools = [(shutil.which(name), subprocess.check_output([name, flag], text=True))
+             for name, flag in (("xcodebuild", "-version"), ("xcodegen", "--version"), ("swiftc", "--version"))]
+    run_fields = {"RICHOS_AUTOCHECK_ACTIVE", "RICHOS_AUTOCHECK_RETRY_REASON", "RICHOS_PROOF_RUN",
+                  "RICHOS_TEST_DEVICE_RUN_ID", "RICHOS_TEST_DEVICE_OWNER_PID", "RICHOS_IOS_POOL_WAIT",
+                  "RICHOS_VERIFICATION_CONTAMINATION", "RICHOS_VERIFICATION_RUNNER_WAIT",
+                  "RICHOS_VERIFICATION_CHECKOUT", "RICHOS_VERIFICATION_OWNER", "RICHOS_MACHINE_WORKERS",
+                  "RICHOS_SIMULATOR_CACHE_HELD"}
+    settings = sorted((k, v) for k, v in os.environ.items()
+                      if k.startswith(("RICHOS_", "DEVELOPER_", "SDKROOT", "TOOLCHAINS"))
+                      and k not in run_fields and not k.startswith(("RICHOS_WORKER_", "RICHOS_TEST_RESULTS_")))
+    return hashlib.sha256(json.dumps([str(root.resolve()), hashes, tools, runtime,
+                                     devices, selectors, settings, "UTC", "en_US"]).encode()).hexdigest()
+
+
+def retained(work, i, build_stamp, runner=subprocess.run):
+    """Re-read bundles, never trust saved green flags. Lost leases provide no evidence."""
+    work = Path(work)
+    if (work / "build-stamp.txt").read_text().strip() != build_stamp:
+        raise ValueError("retained inputs changed")
+    sources = []
+    path = work / ("reuse-%d.json" % i)
+    if path.exists():
+        sources = json.loads(path.read_text())
+    if not (work / ("test-%d.lost" % i)).exists() and (work / ("result-%d.xcresult" % i)).exists():
+        sources.append({"bundle": str(work / ("result-%d.xcresult" % i)), "cases": None})
+    rows_by_name, provenance = {}, {}
+    for source in sources:
+        bundle = source["bundle"]
+        counts, rows = result_tests(bundle, runner)
+        if counts["total"] != len(rows) or sum(counts[k] for k in ("passed", "failed", "skipped")) != counts["total"]:
+            raise ValueError("retained result counts are inconsistent")
+        if len({row[0] for row in rows}) != len(rows):
+            raise ValueError("retained result repeats a case")
+        bad = attribution(bundle, rows, build_stamp, str(work / ("retry-attribution-%d" % i)), runner)
+        if bad:
+            raise ValueError("; ".join(bad))
+        allowed = source["cases"]
+        for row in rows:
+            if allowed is None or row[0] in allowed:
+                if allowed is not None and row[1] not in ("Passed", "Skipped"):
+                    raise ValueError("retained passing case is no longer passing")
+                rows_by_name[row[0]] = row
+                provenance[row[0]] = bundle
+        if allowed is not None and set(allowed) - {r[0] for r in rows}:
+            raise ValueError("retained case disappeared")
+    return rows_by_name, provenance
+
+
+def cmd_retry(work, previous, i, runner=subprocess.run):
+    """Prepare one device's exact unresolved cases from its enumerated selection."""
+    i = int(i)
+    work = Path(work)
+    expected = [norm(t) for t in enumerated(work / ("tests-%d.json" % i))]
+    if not expected:
+        raise ValueError("xcodebuild listed no tests")
+    (work / ("expected-%d.txt" % i)).write_text("\n".join(expected) + "\n")
+    saved, provenance = {}, {}
+    if previous and Path(previous).is_dir():
+        try:
+            saved, provenance = retained(previous, i, (work / "build-stamp.txt").read_text().strip(), runner)
+        except (OSError, ValueError, KeyError) as exc:
+            print("native-ios-ui: retained evidence unavailable; executing selection: %s" % exc)
+    pending = [t for t in expected if t not in saved or saved[t][1] not in ("Passed", "Skipped")]
+    # Swift Testing's failed cases still need the existing XCTest attribution control.
+    probe = "RichOSNativeTests/BuildStampTests/testTheBundleCarriesItsBuildStamp"
+    if any(t.startswith("RichOSNativeTests/") for t in pending) and probe in expected and probe not in pending:
+        pending.append(probe)
+    sources = {}
+    for t in expected:
+        if t not in pending and t in provenance:
+            sources.setdefault(provenance[t], []).append(t)
+    (work / ("reuse-%d.json" % i)).write_text(json.dumps([
+        {"bundle": b, "cases": cases} for b, cases in sources.items()]))
+    (work / ("retry-%d.args" % i)).write_text("".join("-only-testing:%s\n" % t for t in pending))
+    print("native-ios-ui: device %d: %d retained cases, %d unresolved/control cases" % (i + 1, len(expected) - len(pending), len(pending)))
+    return 0
+
+
 def cmd_verify(work, shards, times, devices, runner=subprocess.run):
     """0 every device green; 1 any failure; 2 a device NOT RUN (its lease ended) and no failure."""
     shards = int(shards)
@@ -186,6 +317,18 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
                 continue
             rc = read("test-%d.rc" % i, "no exit status")
             walls.append(int(read("test-%d.secs" % i, "0")))
+            if os.path.exists(os.path.join(work, "reused-%d" % i)):
+                try:
+                    cached, _ = retained(work, i, build_stamp, runner)
+                    c = {"passed": sum(r[1] == "Passed" for r in cached.values()), "failed": 0,
+                         "skipped": sum(r[1] == "Skipped" for r in cached.values()), "total": len(cached)}
+                    rows = list(cached.values())
+                    for k in counts:
+                        counts[k] += c[k]
+                    ran.extend(r[0] for r in rows)
+                except (OSError, ValueError, KeyError) as exc:
+                    bad.append("retained evidence invalid: %s" % exc)
+                continue
             if rc != "0":
                 bad.append("simulator %d of %d exited %s" % (s + 1, shards, rc))
             try:
@@ -198,37 +341,19 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
             if c["total"] != len(rows) or c["passed"] + c["failed"] + c["skipped"] != c["total"]:
                 bad.append("simulator %d has inconsistent result counts" % (s + 1))
             if build_stamp:
-                # ATTRIBUTION: every test that ran must carry THIS run's build stamp. A test
-                # without it, or with another build's, came from a bundle this run did not build.
+                bad.extend(attribution(os.path.join(work, "result-%d.xcresult" % i), rows, build_stamp,
+                                       os.path.join(work, "attribution-%d" % i), runner))
+            reuse_path = os.path.join(work, "reuse-%d.json" % i)
+            if os.path.exists(reuse_path):
                 try:
-                    got_stamps = stamps(os.path.join(work, "result-%d.xcresult" % i),
-                                        os.path.join(work, "attribution-%d" % i), runner)
-                except (ValueError, OSError, KeyError) as exc:
-                    got_stamps = None
-                    bad.append("simulator %d: its tests' build stamps could not be read (%s)" % (s + 1, exc))
-                if got_stamps is not None:
-                    # Every XCTest in a UI test bundle carries the stamp itself. A bundle of Swift
-                    # Testing tests (which never pass through XCTestCase) is proven by its stamped
-                    # BuildStampTests probe. No test anywhere may carry another build's stamp.
-                    kinds = getattr(result_tests, "kinds", {})
-                    foreign, proven, ran_bundles = [], set(), set()
-                    for ident, result, _, _ in rows:
-                        if result == "Skipped":
-                            continue
-                        bundle, _, key = ident.partition("/")
-                        ran_bundles.add(bundle)
-                        got = got_stamps.get(key)
-                        if got == build_stamp:
-                            proven.add(bundle)
-                        elif got is not None or kinds.get(bundle) == "UI test bundle":
-                            foreign.append("%s (%s)" % (key, got or "no stamp"))
-                    unproven = sorted(ran_bundles - proven)
-                    if foreign:
-                        bad.append("simulator %d ran %d test(s) NOT from this run's build %s: %s" % (
-                            s + 1, len(foreign), build_stamp, ", ".join(foreign[:4])))
-                    if unproven:
-                        bad.append("simulator %d: no test in %s carries this run's build stamp %s, so nothing "
-                                   "proves which build ran it" % (s + 1, ", ".join(unproven), build_stamp))
+                    cached, _ = retained(work, i, build_stamp, runner)
+                    fresh = {row[0] for row in rows}
+                    rows += [row for name, row in cached.items() if name not in fresh]
+                    c = {"passed": sum(r[1] == "Passed" for r in rows),
+                         "failed": sum(r[1] not in ("Passed", "Skipped") for r in rows),
+                         "skipped": sum(r[1] == "Skipped" for r in rows), "total": len(rows)}
+                except (OSError, ValueError, KeyError) as exc:
+                    bad.append("retained evidence invalid: %s" % exc)
             for k in counts:
                 counts[k] += c[k]
             for ident, result, dur, reason in rows:
@@ -237,7 +362,10 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
                     print("        skipped: %s  %s" % (ident.rsplit("/", 1)[-1], reason))
                 if dur is not None:
                     seconds[ident] = float(dur)
-        if expected:
+        device_expected = os.path.join(work, "expected-%d.txt" % (d * shards))
+        if os.path.exists(device_expected):
+            expected = sorted(open(device_expected).read().splitlines())
+        if expected and not lost:
             got = sorted(set(ran))
             if got != expected or len(ran) != len(set(ran)):
                 missing = sorted(set(expected) - set(got))
@@ -253,6 +381,10 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
             print("  NOT RUN  %s: its simulator lease ended mid-run, so this device has no result" % device)
             for b in lost:
                 print("        %s" % b)
+            status = status or 2
+            continue
+        if not bad and counts["passed"] == 0 and counts["skipped"] > 0:
+            print("  NOT RUN  %s: every selected case was skipped; no test executed" % device)
             status = status or 2
             continue
         bad = lost + bad
@@ -434,6 +566,12 @@ def main(argv):
         print(__doc__)
         return 2
     cmd, rest = argv[0], argv[1:]
+    if cmd == "retry":
+        return cmd_retry(*rest)
+    if cmd == "identity":
+        root, runtime, devices, *selectors = rest
+        print(retry_identity(root, runtime, json.loads(devices), selectors))
+        return 0
     if cmd == "split":
         return cmd_split(rest[0], rest[1], rest[2], rest[3:])
     if cmd == "verify":

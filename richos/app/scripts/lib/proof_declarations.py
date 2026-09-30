@@ -59,12 +59,15 @@ def read_declarations(root, directory):
     if not suites:
         raise InvalidDeclaration(f"{directory}: no script suites")
     for suite in suites:
-        declarations = {"inputs": [], "covers": [], "pins": []}
+        declarations = {"inputs": [], "covers": [], "pins": [], "select-inputs": []}
         for number, line in enumerate(suite.read_text().splitlines(), 1):
-            match = re.fullmatch(r"# run-tests: (inputs|covers|pins)(?:\s+(.*))?", line)
+            match = re.fullmatch(r"# run-tests: (inputs|covers|pins|select-inputs)(?:\s+(.*))?", line)
             if match:
                 declarations[match[1]].append((number, (match[2] or "").split()))
         pins = declarations.pop("pins")
+        selection = declarations.pop("select-inputs")
+        if len(selection) > 1 or (selection and not selection[0][1]):
+            raise InvalidDeclaration(f"{suite}: select-inputs must name runtime dependencies exactly once")
         for kind, claims in declarations.items():
             if len(claims) != 1:
                 raise InvalidDeclaration(f"{suite}: expected exactly one '# run-tests: {kind}' row")
@@ -94,7 +97,16 @@ def read_declarations(root, directory):
                 raise InvalidDeclaration(f"{where}: path is not in the tree")
             if not any(path == dep or path.startswith(dep + "/") for dep in inputs):
                 raise InvalidDeclaration(f"{where}: not selected by this suite's inputs")
-        rows.append((suite.name, inputs, covers))
+        selected = selection[0][1] if selection else inputs
+        for dep in (selected if selection else []):
+            _literal(dep, f"{suite}: select-inputs")
+            if not any(dep == broad or dep.startswith(broad + "/") for broad in inputs):
+                raise InvalidDeclaration(f"{suite}: selection input {dep} is not an evidence input")
+            if not (root / dep).exists():
+                raise InvalidDeclaration(f"{suite}: selection input {dep} is missing")
+        if selection and any(not any(p == dep or p.startswith(dep + "/") for dep in selected) for p in covers):
+            raise InvalidDeclaration(f"{suite}: runtime selection omits a covered dependency")
+        rows.append((suite.name, selected, covers))
     return rows
 
 
