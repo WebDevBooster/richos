@@ -2603,15 +2603,40 @@ async function main() {
     await atCurtain(page, 300);
     await stillUp(page, "the relief reading");
     const before = await page.evaluate(() => getComputedStyle(document.querySelector("#splash .splash-signal")).filter);
-    await page.keyboard.press("a");
-    const after = await page.evaluate(() => {
-      const n = document.getElementById("splash");
-      return {
-        settled: n.classList.contains("splash--settled"),
-        signal: getComputedStyle(n.querySelector(".splash-signal")).filter,
-        ink: getComputedStyle(n.querySelector(".splash-ink")).filter,
-      };
+    // THE PINNED READING IS TAKEN INSIDE THE KEYSTROKE, NOT A ROUND TRIP AFTER IT (hunt part 2,
+    // finding 29). This was `press("a")` then `page.evaluate(read)`, the sequence check 8
+    // dropped on 2026-09-10 (see the long comment there): `yieldNow` pins synchronously and
+    // removes `#splash` 220 ms later (`FADE_MS + 40`), so a second round trip on a contended
+    // runner reads `null` and throws on healthy product behavior. A capture-phase `keydown`
+    // listener on `window`, registered now and so after the one `splash.js` registered, runs
+    // in the same dispatch immediately after the pin, before any timer can remove the node.
+    await page.evaluate(() => {
+      window.__reliefAtYield = null;
+      window.addEventListener(
+        "keydown",
+        () => {
+          if (window.__reliefAtYield !== null) return;
+          const n = document.getElementById("splash");
+          window.__reliefAtYield = n
+            ? {
+                settled: n.classList.contains("splash--settled"),
+                signal: getComputedStyle(n.querySelector(".splash-signal")).filter,
+                ink: getComputedStyle(n.querySelector(".splash-ink")).filter,
+              }
+            : { gone: true };
+        },
+        true
+      );
     });
+    await page.keyboard.press("a");
+    // load-bound: a hang guard on a fact the keystroke itself produces; it decides no verdict
+    await page.waitForFunction(() => window.__reliefAtYield !== null, null, { timeout: 20000 });
+    const after = await page.evaluate(() => window.__reliefAtYield);
+    assert(
+      !after.gone,
+      "the curtain was gone before the keystroke reached it — this check fell behind the surface, " +
+        "which is a harness fault, not a product one"
+    );
     assert(after.settled, "the surface did not pin itself on the way out");
     assert(before.indexOf("richos-splash-relief") >= 0, "the relief was not on the gold to begin with");
     assert(after.signal.indexOf("richos-splash-relief") >= 0, "pinning the composition flattened the gold's relief");
