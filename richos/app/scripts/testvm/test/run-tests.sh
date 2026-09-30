@@ -1679,6 +1679,10 @@ t "files-since: every class, the baseline window, and a control that must be fou
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/files-since.test.py" >"$TMP/files-since.log" 2>&1; ok $? "$(cat "$TMP/files-since.log")"
 t_done
 
+t "frame-probe: an all-black frame measures black, a lit one lit, an undecodable one refuses (shot.sh's black-frame gate)"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/frame-probe.test.py" >"$TMP/frame-probe.log" 2>&1; ok $? "$(cat "$TMP/frame-probe.log")"
+t_done
+
 t "adopt-walk: phone-only, left Registered at the boundary, each way to fail named"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/adopt-walk.test.py" >"$TMP/adopt-walk.log" 2>&1; ok $? "$(cat "$TMP/adopt-walk.log")"
 t_done
