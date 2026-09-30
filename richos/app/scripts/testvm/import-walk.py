@@ -39,6 +39,7 @@ import time
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import margin  # noqa: E402
 from relaunch import guest, relaunch  # noqa: E402
 
 IMPORT = HERE.parent / 'import-setup.py'
@@ -170,17 +171,18 @@ def main():
         raise SystemExit('could not stage the fixture in the guest: ' + text)
 
     # ---- W1: before ----------------------------------------------------------------------
-    # A fixed 10 s, kept on purpose: past the splash has no signal a walk can read (run.sh has already
-    # required a window; the splash is a window). The check is that the name is ABSENT, so a poll
-    # for a change cannot replace it. Recorded here, not a verdict.
-    time.sleep(10)
+    # 10 s since the app started, kept on purpose: past the splash has no signal a walk can read (run.sh
+    # has already required a window; the splash is a window). The check is that the name is ABSENT, so a
+    # poll for a change cannot replace it. What the boot and the staging above already spent counts
+    # (R41), because the margin is about the app's age, not about this line. Recorded, not a verdict.
+    w1_margin = margin.wait_since_start(vm, int(pid), 10)
     before_screen = name_on_screen(vm, a.out, 'w1-before')
     before_log = loro_lines(vm, payload + '/app.log')
     checks['W1'] = {
         'name_absent_on_screen': not before_screen['ocr_found'],
         'frame_read': before_screen['frame'] is not None,
         'boot_log_no_memory': any('no corpus configured' in x for x in before_log),
-        'screen': before_screen, 'boot_log': before_log,
+        'screen': before_screen, 'boot_log': before_log, 'margin': w1_margin,
     }
 
     # ---- W2: plan only -------------------------------------------------------------------

@@ -62,6 +62,8 @@ import time
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'qa' / 'lib'))
+sys.path.insert(0, str(HERE))
+import margin  # noqa: E402
 import qaimg  # noqa: E402
 
 
@@ -175,19 +177,23 @@ def main():
     record = {'vm': a.vm, 'started': utc(), 'app_pid': pid}
 
     # The opening curtain holds for 3 s and fades; the home screen is under it. A walk has no DOM
-    # to wait on, so it waits on the clock here, once, and the record says so.
-    time.sleep(8)
+    # to wait on, so it waits on the clock, counted from the app's own start so that what the boot
+    # already spent is not spent again (R41); the record says how long it slept.
+    record['waits'] = {'curtain': margin.wait_since_start(a.vm, pid, 8)}
     box = window_box(a.vm, pid)
     record['window_points'] = box
     run('photograph the home screen', HERE / 'shot.sh', a.vm, a.out / 'home.png')
     run('press Return on the home screen', HERE / 'ax.sh', a.vm, '--key', '36')
     # The field is built on an idle moment after load, under the home screen; the door is a
-    # 200 ms fade. Four seconds is the margin, recorded, not a verdict.
-    time.sleep(4)
+    # 200 ms fade. The frame has to change from the home screen and then hold still; four seconds
+    # is the cap, recorded, not a verdict.
+    record['waits']['door'] = margin.wait_change_then_still(
+        lambda: shoot_bytes(a.vm, a.out / 'settle.png'), (a.out / 'home.png').read_bytes(), 4)
 
     frames = {'home': measure_after(a, 'home', box)}
     themes = []
     first_dark = guest_dark(a.vm)
+    first_frame = None
     for flip in (False, True):
         dark = (not first_dark) if flip else first_dark
         if flip:
@@ -195,20 +201,24 @@ def main():
                 'tell application "System Events" to tell appearance preferences to set dark mode to %s'
                 % ('true' if dark else 'false'))
             # The shell follows the OS live and the engine re-solves the field for the new theme
-            # (speckled-ground.js check 6); four seconds of margin, recorded, not a verdict.
-            time.sleep(4)
+            # (speckled-ground.js check 6); the frame has to change from the first theme's and
+            # then hold still, four seconds at most, recorded, not a verdict.
+            record['waits']['theme'] = margin.wait_change_then_still(
+                lambda: shoot_bytes(a.vm, a.out / 'settle.png'), first_frame, 4)
             if guest_dark(a.vm) != dark:
                 sys.stderr.write('step "flip the guest appearance": the guest did not change appearance\n')
                 raise SystemExit(2)
         theme = 'dark' if dark else 'light'
         name = 'shell-' + theme
         run('photograph the shell (%s)' % theme, HERE / 'shot.sh', a.vm, a.out / (name + '.png'))
+        first_frame = first_frame or (a.out / (name + '.png')).read_bytes()
         frames[name] = measure_after(a, name, box)
         ok, ratio = verdict(frames[name], a.min_points, a.min_ratio)
         frames[name]['top_to_bottom_ratio'] = ratio
         frames[name]['pass'] = ok
         themes.append(theme)
 
+    (a.out / 'settle.png').unlink(missing_ok=True)
     record['frames'] = frames
     record['themes'] = themes
     record['verdict'] = 'PASS' if all(frames['shell-' + t]['pass'] for t in themes) else 'FAIL'
@@ -217,6 +227,18 @@ def main():
     (a.out / 'speckle.json').write_text(json.dumps(record, indent=2) + '\n')
     print(json.dumps({'verdict': record['verdict'], 'frames': frames}))
     return 0 if record['verdict'] == 'PASS' else 1
+
+
+def shoot_bytes(vm, path):
+    """The guest's screen as PNG bytes, or None when a frame could not be taken (an unknown never
+    shortens a wait)."""
+    r = subprocess.run([str(HERE / 'shot.sh'), vm, str(path)], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    try:
+        return Path(path).read_bytes()
+    except OSError:
+        return None
 
 
 def measure_after(a, name, box):
