@@ -83,13 +83,20 @@ def run(command):
     directory = worker_tokens.machine_directory()
     lane_dir = Path(directory).parent / 'native-build-v1'
     worker_tokens.init(lane_dir, 1)
-    lane = worker_tokens.Budget(lane_dir, shared=False, resource='native-build').acquire() if needs_compiler_lane(command) else None
-    token = None
+    lane = token = None
     try:
+        # ONE ORDER, THE PROOF WORKERS' OWN: the machine worker first, the compiler lane
+        # second. A proof worker already holds its slot when it reaches a build and then
+        # waits for the lane. Taking the lane first here, then waiting for a slot, made a
+        # circle whenever every slot belonged to proof workers waiting for this lane
+        # (P5-21); only a budget timeout broke it. The lane holder always holds a slot, so
+        # in this order somebody can always finish.
         # A nested check borrows exactly its parent's slot. Acquiring another
         # machine token here deadlocks when every proof worker reaches a build.
         free = os.environ.get('RICHOS_WORKER_BORROW_LOCK') if os.environ.get('RICHOS_WORKER_SLOT_HELD') == '1' else None
         token = worker_tokens.Budget(directory, runner=True).acquire(free=free)
+        if needs_compiler_lane(command):
+            lane = worker_tokens.Budget(lane_dir, shared=False, resource='native-build').acquire()
         if sys.platform == 'darwin':
             sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'app/scripts/testvm'))
             import reserve
@@ -102,8 +109,9 @@ def run(command):
         cpu_guard.register(os.getpid(), 'native build: ' + os.path.basename(command[0]), 'workload')
         return worker_tokens.run_command(command, token, env)
     finally:
-        if token: token.release()
+        # Reverse of the admission order: the lane first, the worker last.
         if lane: lane.release()
+        if token: token.release()
 
 
 if __name__ == '__main__':
