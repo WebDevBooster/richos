@@ -75,6 +75,9 @@ def v1_battery_check_in_a_shallow_history():
 MARKER = "  NOT RUN  "
 STOPS = re.compile(r"\bexit 2\b|SystemExit\(2\)|^\s*(return|sys\.exit\()[^#]*\b2\b")
 DECLARED = re.compile(r"#\s*not-a-subcheck:\s*\S")
+# Fixture text: a suite that writes a NOT RUN line into a log file for the code under test to read
+# (Path(...).write_text('  NOT RUN  ...')) is not printing a verdict of its own.
+FIXTURE = re.compile(r"\.write_text\(")
 ASSIGNS = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\+?=|\.append\()")
 
 
@@ -99,7 +102,7 @@ def unaccounted(path):
         lines = fh.read().split("\n")
     bad = []
     for i, line in enumerate(lines):
-        if MARKER not in line or line.lstrip().startswith("#"):
+        if MARKER not in line or line.lstrip().startswith("#") or FIXTURE.search(line):
             continue
         window = lines[i:i + 3]
         if DECLARED.search(line) or any(STOPS.search(l) for l in window):
