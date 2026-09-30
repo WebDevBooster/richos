@@ -1587,6 +1587,10 @@ while True: time.sleep(.02)
         must not be refused for naming it."""
         r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True,
                                   build_commit="abc123def456")
+        # Putting the worktree back on the build commit has its own tests
+        # (test_publish_puts_the_build_commit_back_...); this one is about the proof, and
+        # the mocked `command` cannot answer the git questions that restore asks.
+        r.restore_build_commit = Mock()
         with contextlib.redirect_stdout(io.StringIO()):
             r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
                       gui_proof=str(self.proof(commit="abc123def456")))
