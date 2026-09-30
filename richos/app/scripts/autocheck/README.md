@@ -14,6 +14,19 @@ Git runs these itself. Nobody runs them by hand and nobody has to be told to (CE
 
 No formatter runs: the repository does not enforce one.
 
+**A branch commit is checked on the bytes it commits.** Until 2026-09-30 the commit check
+linted the working tree and approved the staged copy, so a bad staged edit whose unstaged
+replacement passed was committed with no record, and a clean staged edit was refused over
+unstaged work it did not hold (hunt part 2, finding 10). Now, when anything under
+`richos/app` is staged, the unstaged difference is saved as a binary patch and untracked
+files are moved into `<worktree git dir>/richos-autocheck-aside/` for the length of the
+check, so the working tree is exactly what is being committed (the index git hands the
+hook, including the temporary one of `git commit <path>` and `-a`); afterwards both are put
+back. This is the design of pre-commit's `staged_files_only`. Ignored files are never moved.
+If a check is killed while work is set aside, or it cannot be put back, it stays in that
+directory, whose `README.txt` says how to restore it, and every later commit check refuses
+until it is gone.
+
 **The one escape is `--no-verify`.** Git cannot be stopped from honoring it, so it is recorded:
 a commit whose tree the commit check never passed, or a main that moved to a tree with no land
 receipt, raises an escalation in the lead's ledger (`richos/engine/scripts/escalate.sh`, read
