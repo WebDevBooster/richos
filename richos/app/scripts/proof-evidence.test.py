@@ -1110,6 +1110,32 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         (crate / "target" / "kept.txt").write_text("changed")
         self.assertNotEqual(with_tracked, evidence.recipe_identity(self.root, recipe, {}))
 
+    def test_python_bytecode_written_beside_a_declared_input_is_not_that_input(self):
+        # 2026-09-30: a hook test ran guard-idle-land.py and Python wrote
+        # hooks/__pycache__/guard-idle-land.cpython-314.pyc; six checks whose inputs hold that
+        # directory became "invalid: execution inputs changed during the check".
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=env)
+        (self.root / ".gitignore").write_text("__pycache__/\n")
+        hooks = self.root / "input" / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "guard.py").write_text("print('x')\n")
+        self.qualification("fixture input contract", paths=["input"])
+        recipe = {"paths": ["input"], "tools": [], "environment": [], "external": [],
+                  "qualification": "qualification.json"}
+        base = evidence.recipe_identity(self.root, recipe, {})
+        (hooks / "__pycache__").mkdir()
+        (hooks / "__pycache__" / "guard.cpython-314.pyc").write_bytes(b"compiled")
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "bytecode appeared")
+        (hooks / "__pycache__" / "guard.cpython-314.pyc").write_bytes(b"recompiled")
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "bytecode changed")
+        (hooks / "guard.py").write_text("print('y')\n")
+        self.assertNotEqual(base, evidence.recipe_identity(self.root, recipe, {}), "the source is still bound")
+        # A __pycache__ git would land (not ignored) is bound exactly as before.
+        (self.root / ".gitignore").write_text("")
+        (hooks / "guard.py").write_text("print('x')\n")
+        self.assertNotEqual(base, evidence.recipe_identity(self.root, recipe, {}), "an unignored directory is input")
+
     def test_test_output_written_beside_a_declared_input_is_not_that_input(self):
         # 2026-09-29: the push of c7491c34 was refused on no-foreign-app-data `invalid`,
         # "changed: richos/app/ui/tests/.shots/...": its inputs include richos/app/ui and the UI
