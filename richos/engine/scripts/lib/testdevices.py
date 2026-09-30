@@ -1477,14 +1477,19 @@ def same_owner(a, b):
     return not a.get("unknown") and all(a.get(k) is not None and a.get(k) == b.get(k) for k in keys)
 
 
-POOL_WAIT_SECONDS = 300
+# A caller that names no deadline waits for as long as the holder can legitimately
+# keep the one device: the longest declared lease lifetime, plus a minute for the
+# holder's release. A shorter default made two ordinary callers fail an admission
+# while a healthy test simply held the device (P5-24).
+POOL_WAIT_SECONDS = max([LEASE_MAX_SECONDS, *LEASE_PURPOSES.values()]) + 60
 POOL_WAIT_ENV = "RICHOS_IOS_POOL_WAIT"
 
 
 def pool_wait_seconds():
     """How long `acquire-ios` waits for the one machine-wide prepared-simulator lease.
 
-    300 s unless RICHOS_IOS_POOL_WAIT names another positive number of seconds. A gate
+    POOL_WAIT_SECONDS (the longest lease lifetime plus a minute) unless RICHOS_IOS_POOL_WAIT
+    names another positive number of seconds. A gate
     that runs several simulator suites side by side sets it to its own deadline: on
     2026-09-25 native-ios-app's A8 held the pool for about 26 minutes, so native-ios-ui
     and native-ios-app, started together by the nightly script-suites gate, could each

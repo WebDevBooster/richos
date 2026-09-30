@@ -1014,9 +1014,11 @@ class Collector(Base):
         self.assertTrue(T.lease_expired({"lease": forever}, late))
         self.assertFalse(T.lease_expired({"lease": forever}, late - 100))
 
-    def test_T50b_the_pool_wait_is_300_s_unless_a_gate_names_a_positive_number(self):
+    def test_T50b_the_pool_wait_outlasts_the_longest_lease_unless_a_gate_names_a_positive_number(self):
         with patch.dict(os.environ, {T.POOL_WAIT_ENV: ""}):
-            self.assertEqual(T.pool_wait_seconds(), 300)
+            # P5-24: five minutes gave up on a healthy holder that may keep the device 15 or 30.
+            self.assertGreater(T.pool_wait_seconds(), max(T.LEASE_MAX_SECONDS, *T.LEASE_PURPOSES.values()))
+            self.assertGreater(T.pool_wait_seconds(), 300)
         with patch.dict(os.environ, {T.POOL_WAIT_ENV: "6900"}):
             self.assertEqual(T.pool_wait_seconds(), 6900)
             # ...and the CLI hands exactly that to acquire_ios, for rios's calls as much as a suite's.
