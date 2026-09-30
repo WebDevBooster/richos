@@ -150,6 +150,7 @@ NAMED = [
     "battery-check.test.py",
     "proof-for.test.sh",
     "native-ios-share.test.sh",
+    "native-ios-app.test.sh",
 ]
 
 
@@ -157,6 +158,7 @@ if __name__ == "__main__":
     print("=== not-run-verdict ===")
     v1_battery_check_in_a_shallow_history()
     verdict_cases("native-ios-share.test.sh", "V2", "S5 (the tag is not in this clone)")
+    verdict_cases("native-ios-app.test.sh", "V3", "A8 (no test files)")
     static_rule(NAMED)
     if FAILED:
         print("=== not-run-verdict tests: %d FAILED, %d passed ===" % (FAILED, PASSED))
