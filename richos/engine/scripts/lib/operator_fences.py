@@ -540,23 +540,58 @@ def at_rest(main_checkout, gitdir):
 # ---------------------------------------------------------------------------
 
 def preserve(files, paths, why):
+    """The directory the repository's state was preserved in, BEFORE a takeover
+    or an abort. Whether it is complete is preservation_problems(target).
+
+    A Git view that FAILED is never stored as the view. It used to be: the
+    exit status was ignored and stderr was written as the patch, so an abort
+    went ahead with "fatal: ..." as the only copy of a merge's resolutions
+    (hunt 2026-09-29 part 5, finding 60). A failed view is written beside the
+    others as <name>.error, and why.json lists every failure, so the caller
+    can refuse the destructive step and the directory still says what it
+    managed to keep."""
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     target = os.path.join(files.preserved, "%s-%s-%d" % (files.key, stamp, os.getpid()))
     os.makedirs(target, mode=0o700, exist_ok=True)
     main, gitdir = paths["main"], paths["gitdir"]
+    problems = []
     for name, args in (("diff-binary-HEAD.patch", ["diff", "--binary", "HEAD"]),
                        ("status-porcelain-v2.txt", ["status", "--porcelain=v2"]),
                        ("ls-files-unmerged.txt", ["ls-files", "-u"])):
-        _rc, out, err = git(main, *args)
+        rc, out, err = git(main, *args)
+        if rc != 0:
+            detail = (err or out).strip()
+            problems.append("git %s failed (exit %s): %s" % (" ".join(args), rc, detail[:300] or "no message"))
+            with open(os.path.join(target, name + ".error"), "w", encoding="utf-8") as fh:
+                fh.write(detail + "\n")
+            continue
         with open(os.path.join(target, name), "w", encoding="utf-8") as fh:
-            fh.write(out if out else err)
+            fh.write(out)
     for name in ("MERGE_HEAD", "MERGE_MSG", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
         src = os.path.join(gitdir, name)
         if os.path.isfile(src):
-            with open(src, "rb") as a, open(os.path.join(target, name), "wb") as b:
-                b.write(a.read())
-    write_json_atomic(os.path.join(target, "why.json"), {"why": why, "at": iso(), "repository": main})
+            try:
+                with open(src, "rb") as a, open(os.path.join(target, name), "wb") as b:
+                    b.write(a.read())
+            except OSError as error:
+                problems.append("%s could not be copied (%s)" % (name, error))
+    write_json_atomic(os.path.join(target, "why.json"), {"why": why, "at": iso(), "repository": main,
+                                                         "complete": not problems, "problems": problems})
     return target
+
+
+def preservation_problems(target):
+    """[] when `target` holds a complete preservation, else what is missing.
+    Read back from the directory rather than trusted from the call, so the
+    answer is the one a person recovering from it would get."""
+    if not target or not os.path.isdir(target):
+        return ["nothing was preserved (%s)" % (target or "no directory")]
+    rec = read_json(os.path.join(target, "why.json"))
+    if not rec:
+        return ["the preservation record %s could not be read" % os.path.join(target, "why.json")]
+    if rec.get("complete") is not True:
+        return list(rec.get("problems") or ["the preservation record does not say it is complete"])
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1431,6 +1466,16 @@ def cmd_takeover(opts):
             return 1
         kept = preserve(files, paths, "takeover of a lease whose holder %s" % (
             "has ended" if state == "dead" else "is past its time"))
+        missing = preservation_problems(kept)
+        if missing:
+            # The promise is "preserved BEFORE the lease changes hands", so a
+            # preservation that failed keeps the lease where it is. A tree at
+            # rest needs no takeover (acquire takes a dead holder's lease), so
+            # this refuses only where the preservation is what matters.
+            _say("land-lease: REFUSED. The land lease for %s was NOT taken over: the repository's state could not "
+                 "be preserved first (%s). What could be kept is in %s. Fix the cause and run the takeover again."
+                 % (paths["main"], "; ".join(missing), kept))
+            return 1
         write_json_atomic(files.lease, _new_lease(holder, paths["main"], previous=lease, preserved=kept))
         _say("land-lease: TOOK OVER the land lease for %s from %s (%s). The repository's state was preserved "
              "first, in %s; name that directory in your land's report. Nothing in the tree was changed."
@@ -1465,6 +1510,14 @@ def cmd_abort_orphan(opts):
              "you did not start." % (verdict.get("kind") or "operation", paths["main"], verdict.get("label"), v))
         return 1
     kept = preserve(files, paths, "abort of an orphaned %s (%s)" % (verdict.get("kind"), v))
+    missing = preservation_problems(kept)
+    if missing:
+        # The abort discards the operation's resolutions, and the preservation
+        # is the only copy it leaves. Without a complete one, nothing is aborted.
+        _say("land-lease: REFUSED. Nothing was aborted: the state of the %s in %s could not be preserved first "
+             "(%s). What could be kept is in %s. Fix the cause and run abort-orphan again."
+             % (verdict.get("kind") or "operation", paths["main"], "; ".join(missing), kept))
+        return 1
     sub = {"MERGE_HEAD": ["merge", "--abort"], "CHERRY_PICK_HEAD": ["cherry-pick", "--abort"],
            "REVERT_HEAD": ["revert", "--abort"]}.get(verdict.get("kind"))
     if not sub:
