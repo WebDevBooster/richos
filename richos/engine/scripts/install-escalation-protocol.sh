@@ -61,7 +61,7 @@ REPO=""
 MODE="install"
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --repo)  REPO="${2:-}"; shift 2 ;;
+        --repo)  REPO="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         --check) MODE="check"; shift ;;
         --diff)  MODE="diff"; shift ;;
         -h|--help) sed -n '3,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;

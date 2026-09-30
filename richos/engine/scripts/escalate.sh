@@ -124,18 +124,18 @@ WT=""; TEAMMATE=""; DISPOSITION=""; TARGET=""; NO_RECORD=0; FORMAT="text"; UNTIL
 FIELDS=""; GIVEN=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --title)       TITLE="${2:-}"; GIVEN="$GIVEN title"; shift 2 ;;
-        --state)       STATE="${2:-}"; GIVEN="$GIVEN state"; shift 2 ;;
-        --for)         AUDIENCE="${2:-}"; GIVEN="$GIVEN for"; shift 2 ;;
-        --question)    QUESTION="${2:-}"; GIVEN="$GIVEN question"; shift 2 ;;
-        --tried)       TRIED="${2:-}"; GIVEN="$GIVEN tried"; shift 2 ;;
-        --meanwhile)   MEANWHILE="${2:-}"; GIVEN="$GIVEN meanwhile"; shift 2 ;;
-        --worktree)    WT="${2:-}"; GIVEN="$GIVEN worktree"; shift 2 ;;
-        --teammate)    TEAMMATE="${2:-}"; GIVEN="$GIVEN teammate"; shift 2 ;;
-        --disposition) DISPOSITION="${2:-}"; GIVEN="$GIVEN disposition"; shift 2 ;;
-        --until)       UNTIL="${2:-}"; GIVEN="$GIVEN until"; shift 2 ;;
-        --fields)      FIELDS="${2:-}"; [ -n "$FIELDS" ] || { echo "escalate.sh: --fields needs a file path" >&2; exit 2; }; shift 2 ;;
-        --format)      FORMAT="${2:-}"; shift 2 ;;
+        --title)       TITLE="${2:-}"; GIVEN="$GIVEN title"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --state)       STATE="${2:-}"; GIVEN="$GIVEN state"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --for)         AUDIENCE="${2:-}"; GIVEN="$GIVEN for"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --question)    QUESTION="${2:-}"; GIVEN="$GIVEN question"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --tried)       TRIED="${2:-}"; GIVEN="$GIVEN tried"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --meanwhile)   MEANWHILE="${2:-}"; GIVEN="$GIVEN meanwhile"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --worktree)    WT="${2:-}"; GIVEN="$GIVEN worktree"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --teammate)    TEAMMATE="${2:-}"; GIVEN="$GIVEN teammate"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --disposition) DISPOSITION="${2:-}"; GIVEN="$GIVEN disposition"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --until)       UNTIL="${2:-}"; GIVEN="$GIVEN until"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --fields)      FIELDS="${2:-}"; [ -n "$FIELDS" ] || { echo "escalate.sh: --fields needs a file path" >&2; exit 2; }; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --format)      FORMAT="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         --no-record)   NO_RECORD=1; shift ;;
         -h|--help)     usage; exit 0 ;;
         -*)  echo "escalate.sh: unrecognized option '$1'" >&2; exit 2 ;;

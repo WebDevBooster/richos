@@ -97,15 +97,15 @@ TRANSCRIPT="${INFLIGHT_TRANSCRIPT:-}"
 TARGET=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --repo)       REPO="${2:-}"; shift 2 ;;
-        --tip)        TIP="${2:-}"; shift 2 ;;
-        --reason)     REASON="${2:-}"; shift 2 ;;
-        --impact)     IMPACT="${2:-}"; shift 2 ;;
-        --detail)     DETAIL="${2:-}"; shift 2 ;;
-        --teammate)   TEAMMATE="${2:-}"; shift 2 ;;
-        --worktree)   WORKTREE="${2:-}"; shift 2 ;;
-        --session)    SESSION_ID="${2:-}"; shift 2 ;;
-        --transcript) TRANSCRIPT="${2:-}"; shift 2 ;;
+        --repo)       REPO="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --tip)        TIP="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --reason)     REASON="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --impact)     IMPACT="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --detail)     DETAIL="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --teammate)   TEAMMATE="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --worktree)   WORKTREE="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --session)    SESSION_ID="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --transcript) TRANSCRIPT="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         -h|--help) usage; exit 0 ;;
         -*)        echo "inflight-notify.sh: unrecognized option '$1'" >&2; exit 2 ;;
         *)         [ -n "$TARGET" ] && { echo "inflight-notify.sh: unexpected argument '$1'" >&2; exit 2; }
