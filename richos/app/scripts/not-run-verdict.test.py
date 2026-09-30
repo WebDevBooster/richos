@@ -23,6 +23,7 @@ Nothing builds, boots or opens a window.
 """
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -116,16 +117,46 @@ def static_rule(names):
               "; ".join(bad))
 
 
+VERDICT_START = re.compile(r'^if \[ "\$FAILED" -eq 0 \] && \[ -n "\$NOT_RUN" \]; then$')
+
+
+def verdict(name, **counters):
+    """Run `name`'s own final verdict, from its NOT RUN branch to the end of the file, with the
+    counters the suite would have reached: (exit status, output), or None if it has no such
+    branch. The cases before it (builds, simulators) cannot run here; the verdict can."""
+    with open(os.path.join(HERE, name)) as fh:
+        lines = fh.read().split("\n")
+    start = next((i for i, line in enumerate(lines) if VERDICT_START.match(line)), None)
+    if start is None:
+        return None
+    script = "set -uo pipefail\n%s\n%s\n" % (
+        "\n".join("%s=%s" % (k, shlex.quote(str(v))) for k, v in counters.items()), "\n".join(lines[start:]))
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    return r.returncode, r.stdout.strip()
+
+
+def verdict_cases(name, label, subcheck):
+    got = [verdict(name, PASS=6, FAILED=0, NOT_RUN=", %s" % subcheck),
+           verdict(name, PASS=7, FAILED=0, NOT_RUN=""),
+           verdict(name, PASS=6, FAILED=1, NOT_RUN=", %s" % subcheck)]
+    check(None not in got and [g[0] for g in got] == [2, 0, 1] and "NOT RUN: %s" % subcheck in got[0][1]
+          and "all 7 passed" in got[1][1],
+          "%s %s's own verdict: a NOT RUN case with nothing failed exits 2 and names it; none exits 0; "
+          "a failure still exits 1" % (label, name), got)
+
+
 # The suites hunt part 2 finding 18 named, each added with its own fix.
 NAMED = [
     "battery-check.test.py",
     "proof-for.test.sh",
+    "native-ios-share.test.sh",
 ]
 
 
 if __name__ == "__main__":
     print("=== not-run-verdict ===")
     v1_battery_check_in_a_shallow_history()
+    verdict_cases("native-ios-share.test.sh", "V2", "S5 (the tag is not in this clone)")
     static_rule(NAMED)
     if FAILED:
         print("=== not-run-verdict tests: %d FAILED, %d passed ===" % (FAILED, PASSED))

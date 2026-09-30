@@ -3,7 +3,7 @@
 # answer", run-tests.sh), never 0 (hunt part 2, finding 18). A throwaway Git repository and a read
 # of the suites' own text; nothing builds, boots or opens a window.
 # run-tests: no-host-screen: a throwaway Git repository and source reads only; nothing is launched on any screen
-# run-tests: inputs richos/app/scripts/not-run-verdict.test.sh richos/app/scripts/not-run-verdict.test.py richos/app/scripts/battery-check.test.py richos/app/scripts/battery-check.py richos/app/scripts/proof-for.test.sh
+# run-tests: inputs richos/app/scripts/not-run-verdict.test.sh richos/app/scripts/not-run-verdict.test.py richos/app/scripts/battery-check.test.py richos/app/scripts/battery-check.py richos/app/scripts/proof-for.test.sh richos/app/scripts/native-ios-share.test.sh
 # run-tests: covers -
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
