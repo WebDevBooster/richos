@@ -5322,7 +5322,7 @@ def barrier(payload):
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
         fp = str(ti.get("file_path") or ti.get("notebook_path") or "")
-        cx = _codex_workspace_of(fp)
+        cx = _codex_workspace_of(fp, str(payload.get("cwd") or ""))
         if cx:
             return "CODEX", "agent %s (%s) is writing %s inside the codex/ workspace %s" % (
                 aid, rec.get("name"), fp, cx)
@@ -5336,10 +5336,15 @@ def barrier(payload):
     return "REGISTERED", rec.get("name") or ""
 
 
-def _codex_workspace_of(path):
+def _codex_workspace_of(path, cwd=""):
     """The top level of the codex/ workspace `path` lies in, or "". Read from
     git: the nearest existing ancestor's toplevel, and the branch git lists
-    for that worktree."""
+    for that worktree. A relative `path` is the path the tool will edit from
+    the payload's working folder `cwd` (the hook process's own folder says
+    nothing about it)."""
+    path = os.path.expanduser((path or "").strip())
+    if path and not os.path.isabs(path) and (cwd or "").strip():
+        path = os.path.join(os.path.expanduser(cwd.strip()), path)
     p = realpath(path)
     if not p:
         return ""
@@ -5358,8 +5363,22 @@ def _codex_workspace_of(path):
     return ""
 
 
+def _recipient_record(session_id, to):
+    """The record a SendMessage `to` names: the teammate's name, or the agent
+    ID the platform's other lifecycle events use (TaskStop, SubagentStop)."""
+    if not session_id or not to:
+        return None
+    rec = load_agent(named_key(session_id, to)) if NAME_RE.match(to) else None
+    if not rec:
+        key = key_for_id(to)
+        rec = load_agent(key) if key else None
+        if rec and rec.get("session_id") not in ("", None, session_id):
+            rec = None                   # another session's agent is not this session's recipient
+    return rec
+
+
 def recipient_state(session_id, name):
-    rec = load_agent(named_key(session_id, name)) if session_id and name else None
+    rec = _recipient_record(session_id, name)
     if not rec:
         return "unregistered", ""
     # A STOPPED agent is finished (point 11), so a message to it would restart
@@ -5378,24 +5397,37 @@ def recipient_state(session_id, name):
 def _turn_started_by_person(transcript):
     """True when the turn now ending began with a message from a person — the
     CEO — rather than a platform notification. Read from the transcript."""
+    # Read BACKWARD in bounded chunks until a row decides, so memory stays one
+    # chunk wide (the reason the read was bounded) while a long tool-heavy turn,
+    # whose initiating row lies earlier than any fixed window, still finds it.
+    chunk = 4 * 1024 * 1024
     try:
-        size = os.path.getsize(transcript)
         with open(transcript, "rb") as f:
-            f.seek(max(0, size - 4 * 1024 * 1024))
-            lines = f.read().decode("utf-8", "replace").splitlines()
+            pos = os.fstat(f.fileno()).st_size
+            tail = b""                   # the unfinished first line of the chunk after this one
+            while pos > 0:
+                start = max(0, pos - chunk)
+                f.seek(start)
+                data = f.read(pos - start) + tail
+                pos = start
+                parts = data.split(b"\n")
+                if pos > 0:
+                    tail, parts = parts[0], parts[1:]      # its start lies in an earlier chunk
+                else:
+                    tail = b""
+                for raw in reversed(parts):
+                    try:
+                        d = json.loads(raw.decode("utf-8", "replace"))
+                    except ValueError:
+                        continue
+                    if not isinstance(d, dict) or d.get("type") != "user":
+                        continue
+                    verdict = _row_is_a_persons(d)
+                    if verdict is None:
+                        continue         # this row starts no turn: the row before it does
+                    return verdict
     except (OSError, TypeError):
         return False
-    for line in reversed(lines):
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(d, dict) or d.get("type") != "user":
-            continue
-        verdict = _row_is_a_persons(d)
-        if verdict is None:
-            continue                     # this row starts no turn: the row before it does
-        return verdict
     return False
 
 
@@ -5701,8 +5733,8 @@ def lifecycle(payload, entity):
             to = str(ti.get("to") or "")
             msg = ti.get("message")
             text = msg if isinstance(msg, str) else ""
-            if to and NAME_RE.match(to):
-                rec = load_agent(named_key(sid, to))
+            if to:
+                rec = _recipient_record(sid, to)
                 if rec:
                     until = prompt_lines(text, "pause-until")
                     if prompt_lines(text, "pause-until") or re.search(r"(?m)^\s*pause-until:\s*$", text):

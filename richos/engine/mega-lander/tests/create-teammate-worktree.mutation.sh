@@ -11,6 +11,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/mutation-harness.sh
 . "$SCRIPT_DIR/../../scripts/lib/mutation-harness.sh"
 mutation_begin "create-teammate-worktree" "mega-lander/tests/create-teammate-worktree.test.sh"
+# Part 4 (2026-09-29 hunt), finding 20. The suite's cases run in sequence on one
+# sandbox, so they cannot be run alone; each mutant's verdict is ONE named case's
+# `FAIL  <want>` line, and the claim this declaration makes is true of this suite:
+# bad() prints `FAIL  <case>` and raises the count that ends the run red. See
+# mutation_focus in scripts/lib/mutation-harness.sh.
+mutation_focus stop-at-want
 
 F="mega-lander/create-teammate-worktree.sh"
 

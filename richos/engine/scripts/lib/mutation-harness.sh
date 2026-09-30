@@ -434,6 +434,11 @@ mutation_copy_engine() { # <dest> <src-engine-root>
     cp -R "$src/agents" "$dir/agents" || return 1
     cp -R "$src/hooks" "$dir/hooks" || return 1
     cp "$src/orchestration.config" "$dir/orchestration.config" || return 1
+    # scripts/lib/spawn.py reads this to classify the spawn guards; without it every
+    # app `prepare` in a sandbox is refused ("the spawn-guard classification could not
+    # be read"), so a case that prepares work went red for that reason whatever was
+    # mutated (found by the focused control of app.mutation.sh, 2026-09-30).
+    cp "$src/spawn-guard-audience.declaration" "$dir/spawn-guard-audience.declaration" || return 1
     [ -f "$src/.claude/settings.local.json" ] && cp "$src/.claude/settings.local.json" "$dir/.claude/"
     [ -d "$src/.claude/agents" ] && cp -R "$src/.claude/agents" "$dir/.claude/agents"
     cp "$src/VERSION" "$dir/VERSION" 2>/dev/null || printf '0.0.0-mutant\n' >"$dir/VERSION"

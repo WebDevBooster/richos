@@ -23,6 +23,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/../../scripts/lib/mutation-harness.sh"
 
 mutation_begin "the per-repository land lock (app.py integrate)" "mega-lander/tests/app.test.sh"
+# Part 4 (2026-09-29 hunt), finding 20. app.test.py takes case names (a bare name
+# selects the methods it begins), and every case builds its own fixture in setUp, so
+# a mutant's verdict, one named case going red, needs only that case. The unmutated
+# control still runs first and must print `PASS  <want>`. See mutation_focus in
+# scripts/lib/mutation-harness.sh.
+mutation_focus want-as-argument
 
 A="mega-lander/app.py"
 # THE LOCK'S PATH IS DERIVED IN workspaces.py SINCE 2026-09-17, and so the

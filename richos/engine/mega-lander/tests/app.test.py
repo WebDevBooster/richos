@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic desktop dispatch across real Git workspaces and the actual ECS store."""
 import contextlib
+import fcntl
 import importlib.util
 import hashlib
 import json
@@ -364,6 +365,86 @@ class DesktopWork(unittest.TestCase):
     def finish_fixture_worker(self,aid,report=""):
         self.app.W.record_end(self.session,aid,"SubagentStop")
         self.app.observe(self.scope,{"hook_event_name":"SubagentStop","session_id":self.session,"agent_id":aid,"last_assistant_message":report})
+
+    def test_an_observation_rewrites_only_the_receipts_that_changed(self):
+        """Part 4 (2026-09-29 hunt), finding 22: observe() saved every receipt in
+        the conversation (write, flush, replace, directory flush) after every tool
+        call, finished ones included."""
+        command=[sys.executable,"-c","import sys; sys.exit(1)"]
+        with patch.object(self.app,"build_spawn_command",return_value=command):
+            with self.assertRaises(ValueError): self.call("prepare",self.args)
+        worker=self.call("prepare",{**self.args,"request_id":"replacement"})   # settles the first: two receipts
+        self.assertEqual(len(self.call("inspect")["records"]),2)
+        real=self.app.save
+        saved=[]
+        def counting(path,value):
+            saved.append(path.name); return real(path,value)
+        event={"hook_event_name":"PostToolUse","session_id":self.session,"agent_id":"nobody","tool_name":"Bash"}
+        with patch.object(self.app,"save",side_effect=counting):
+            self.app.observe(self.scope,event)
+        self.assertEqual(saved,[])
+        self.start_fixture_worker(worker,"hunt22-worker")        # the one worker's record really changes
+        with patch.object(self.app,"save",side_effect=counting):
+            self.app.observe(self.scope,event)
+            self.app.observe(self.scope,event)
+        self.assertEqual(saved,[worker["id"]+".json"])           # once, for it alone
+        with self.app.locked(self.scope) as root:
+            self.assertEqual(self.app.read_record(root,worker["id"])["status"],"running")
+
+    def test_a_slow_preparation_does_not_hold_the_conversation_lock(self):
+        """Part 4 (2026-09-29 hunt), finding 23: prepare() held the conversation's
+        one lock while its spawn command ran, so every other worker's permission
+        check, lifecycle record and inspection in that conversation waited behind
+        a slow setup. The lock is now let go for the command, and a second request
+        for the same assignment meanwhile finds a receipt that is being prepared
+        and leaves it (and the workspace being created) alone."""
+        real = self.app.run
+        seen = {}
+        def run_while_probing(command, **kw):
+            if "spawn.py" not in " ".join(map(str, command)):       # git calls made by the probes below
+                return real(command, **kw)
+            fd = os.open(self.app.folder(self.scope) / ".lock", os.O_RDWR | os.O_CREAT)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    seen["lock"] = "free"
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except BlockingIOError:
+                    seen["lock"] = "held"
+            finally:
+                os.close(fd)
+            if seen["lock"] == "free":      # only then is it safe to do what other workers do meanwhile
+                self.app.observe(self.scope, {"hook_event_name": "PostToolUse", "session_id": self.session,
+                                              "agent_id": "nobody", "tool_name": "Bash"})
+                seen["records"] = len(self.call("inspect")["records"])
+                with self.assertRaisesRegex(ValueError, "unresolved work"):
+                    self.call("prepare", {**self.args, "request_id": "second-request"})
+                seen["same-request"] = self.call("prepare", self.args)["status"]
+            return real(command, **kw)
+        with patch.object(self.app, "run", side_effect=run_while_probing):
+            ready = self.call("prepare", self.args)
+        self.assertEqual(seen.get("lock"), "free")
+        self.assertEqual(seen["records"], 1)
+        self.assertEqual(seen["same-request"], "preparing")          # the same request is told it is underway
+        self.assertEqual(ready["status"], "prepared")
+        self.assertNotIn("preparing_by", self.call("inspect")["records"][0])
+        # the workspace the command created was not withdrawn by the second request
+        self.assertTrue(Path(self.app.target_workspace(ready)["path"]).is_dir())
+
+    def test_a_dead_preparers_receipt_is_still_settled_for_a_replacement(self):
+        """The owner stamp only protects a preparation that is RUNNING: the receipt of
+        a process that is gone (a crash between the two lock holds) is settled as
+        never dispatched, exactly as before."""
+        command = [sys.executable, "-c", "import sys; sys.exit(1)"]
+        with patch.object(self.app, "build_spawn_command", return_value=command):
+            with self.assertRaises(ValueError): self.call("prepare", self.args)
+        with self.app.locked(self.scope) as root:
+            (path, record), = list(self.app.receipts(root))
+            record.update(status="preparing", preparing_by={"pid": 2 ** 22 + 12345, "started": "Thu Jan  1 00:00:00 1970"})
+            self.app.save(path, record)
+        self.assertTrue(self.app.preparing_elsewhere(record) is False)
+        replacement = self.call("prepare", {**self.args, "request_id": "replacement"})
+        self.assertEqual(replacement["status"], "prepared")
 
     def test_native_handback_requires_success_identity_and_observed_reviewer_end(self):
         worker=self.call("prepare",self.args)
@@ -1355,10 +1436,28 @@ class _Result(unittest.TextTestResult):
         super().addError(test,err);self.stream.write("  FAIL  %s (error)\n"%test._testMethodName)
 
 
+def _resolve_names(names,loader):
+    """A class name or `Class.test` passes through. A bare method name, or the start of
+    one, selects every test method it begins -- the same set whose `  FAIL  <name>` line
+    the mutation harness's `grep "FAIL  <want>"` would match, so a mutant focused on its
+    want runs exactly the cases that could prove it (mutation_focus want-as-argument).
+    A name that selects nothing is passed through for the loader to refuse loudly.
+    (Same rule as workspaces.test.py's; every case here builds its own fixture in setUp.)"""
+    module=sys.modules[__name__]
+    cases=[c for c in vars(module).values() if isinstance(c,type) and issubclass(c,unittest.TestCase)]
+    out=[]
+    for n in names:
+        if "." in n or hasattr(module,n):
+            out.append(n);continue
+        hits=["%s.%s"%(c.__name__,m) for c in cases for m in loader.getTestCaseNames(c) if m.startswith(n)]
+        out.extend(hits or [n])
+    return out
+
+
 if __name__=="__main__":
     runner=unittest.TextTestRunner(stream=sys.stdout,verbosity=0,resultclass=_Result)
     loader=unittest.defaultTestLoader
-    names=[a for a in sys.argv[1:] if a]
+    names=_resolve_names([a for a in sys.argv[1:] if a],loader)
     suite=(loader.loadTestsFromNames(names,sys.modules[__name__]) if names
            else loader.loadTestsFromModule(sys.modules[__name__]))
     result=runner.run(suite)

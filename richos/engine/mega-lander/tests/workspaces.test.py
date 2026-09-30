@@ -3248,6 +3248,84 @@ def _resolve_names(names, loader):
     return out
 
 
+class Hunt4_TurnEndPauseAndPathChecks(Base):
+    """Part 4 of the 2026-09-29 hunt, findings 8, 9 and 10."""
+
+    def test_hunt4_08_a_long_tool_heavy_turn_still_finds_the_person_who_began_it(self):
+        """Finding 8: only the last 4 MiB was read, so a turn whose initiating
+        row lay earlier, followed by nothing but tool results, read as no
+        person's turn and the reply was refused."""
+        tr = os.path.join(self.env.root, "long.jsonl")
+        with open(tr, "w") as f:
+            f.write(json.dumps({"type": "user", "origin": {"kind": "human"}, "promptSource": "typed",
+                                "message": {"role": "user", "content": "do the long thing"}}) + "\n")
+            row = json.dumps({"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t", "content": "x" * 9000}]}}) + "\n"
+            for _ in range((9 * 1024 * 1024) // len(row)):        # about 9 MiB of tool output
+                f.write(row)
+        self.assertTrue(ws._turn_started_by_person(tr))
+        # and a long turn begun by the platform still reads as not a person's
+        tr2 = os.path.join(self.env.root, "long2.jsonl")
+        with open(tr2, "w") as f:
+            f.write(json.dumps({"type": "user", "origin": {"kind": "task-notification"}, "promptSource": "system",
+                                "message": {"role": "user", "content": "<task-notification>x</task-notification>"}}) + "\n")
+            for _ in range((9 * 1024 * 1024) // len(row)):
+                f.write(row)
+        self.assertFalse(ws._turn_started_by_person(tr2))
+
+    def test_hunt4_09_a_pause_addressed_by_agent_id_operates_the_pause_record(self):
+        aid, _n = self.spawn("zach-opus-pid")
+        self.assertEqual(ws.recipient_state(self.sid, aid)[0], "active")
+        ws.lifecycle({"hook_event_name": "PostToolUse", "tool_name": "SendMessage", "session_id": self.sid,
+                      "tool_input": {"to": aid, "message": "commit and hold\npause-until: the CEO's answer"}},
+                     self.entity)
+        self.assertEqual(ws.finished_state(self.rec("zach-opus-pid"))[:2], (False, True))
+        self.assertEqual(ws.recipient_state(self.sid, aid)[0], "paused")
+        ws.lifecycle({"hook_event_name": "PostToolUse", "tool_name": "SendMessage", "session_id": self.sid,
+                      "tool_input": {"to": aid, "message": "go on"}}, self.entity)
+        self.assertEqual(ws.finished_state(self.rec("zach-opus-pid"))[:2], (False, False))
+
+    def test_hunt4_10_a_relative_edit_path_is_checked_from_the_payloads_working_folder(self):
+        cx = os.path.join(self.env.root, "codex-wt10")
+        run("git", "-C", self.entity, "worktree", "add", "-q", cx, "-b", "codex/live10")
+        aid, npath = self.spawn("zach-opus-rel")
+        here = os.getcwd()
+        os.chdir(self.env.root)                  # the hook process runs somewhere else entirely
+        try:
+            self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid, "tool_name": "Edit", "cwd": cx,
+                                         "tool_input": {"file_path": "README"}})[0], "CODEX")
+            self.assertEqual(ws.barrier({"session_id": self.sid, "agent_id": aid, "tool_name": "Edit", "cwd": npath,
+                                         "tool_input": {"file_path": "README"}})[0], "REGISTERED")
+        finally:
+            os.chdir(here)
+
+
+class Hunt4_MutationHarnessesDeclareTheirFocus(unittest.TestCase):
+    """Part 4 (2026-09-29 hunt), finding 20: the app, creator and probe-runner
+    harnesses never declared a mutation_focus, so every one of their mutants
+    reran its whole suite to judge one named case."""
+
+    def test_hunt4_20_each_mutation_harness_of_this_folder_declares_how_its_mutants_are_focused(self):
+        import re
+        want = {"app.mutation.sh": "want-as-argument", "create-teammate-worktree.mutation.sh": "stop-at-want",
+                "workspace-probes.mutation.sh": "stop-at-want", "workspaces.mutation.sh": "want-as-argument",
+                "workspace-spec-fourteen.mutation.sh": "stop-at-want"}
+        for name, mode in sorted(want.items()):
+            with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                src = f.read()
+            declared = re.findall(r"(?m)^mutation_focus\s+(\S+)\s*$", src)
+            self.assertEqual(declared, [mode], "%s declares %r, expected [%r]" % (name, declared, mode))
+            self.assertLess(src.index("mutation_begin "), src.index("mutation_focus "),
+                            "%s declares its focus before mutation_begin" % name)
+
+    def test_hunt4_20_the_app_suite_takes_case_names_so_its_mutants_can_run_one_case(self):
+        r = subprocess.run([sys.executable, "-B", "-W", "ignore", os.path.join(HERE, "app.test.py"),
+                            "test_pause_message_is_fixed"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("PASS  test_pause_message_is_fixed_and_does_not_claim_delivery", r.stdout)
+        self.assertIn("1 run, 0 failed", r.stdout)
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a
