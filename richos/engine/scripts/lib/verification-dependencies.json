@@ -3815,7 +3815,7 @@
     },
     "scripts/hooks/inflight-ack-durability.test.sh": {
       "source": "scripts/hooks/inflight-ack-durability.test.sh",
-      "sha256": "8845d8b27d388d5591019c150041dad4bfb55a6abbd38555c37be706d0f043d4",
+      "sha256": "10b44c2e84ef140f02a54afa2def79c4d9ee43ce3a9ecc4e71ed0e91e3618fef",
       "evidence": "Finite notification/ack hook and library copies run against literal PROTECTED_PATHS entity fixtures and private team/ack records. Separately the real workspaces CLI removes registered private Git worktrees after explicit record_end. That uncopied cleanup retains its real engine app-instance settings. Native cases create Git worktrees and locks, not model agents. Ledger/cwd leak checks read record content and directory names, not production config values.",
       "keys": [],
       "edges": [
@@ -9552,7 +9552,7 @@
     },
     "mega-lander/app.py#land-lock-fixtures": {
       "source": "mega-lander/app.py",
-      "sha256": "71965a989538ac783bb73e99772de4b7f6c93e8a743982ab1a46b6c8a23ed8e6",
+      "sha256": "7e8cfb984a58468e8cdc96a5fca3722b23d48d3ef033386935f8cf64a6ae9304",
       "evidence": "Fixture calls only land_lock and _live_fence_lease. Full local closure reviewed: lock metadata, flock, process liveness and repository lease/history reads. Workspaces and ECS imports are bound; ECS runtime operations are not invoked.",
       "keys": [],
       "edges": [
@@ -13529,7 +13529,7 @@
     },
     "mega-lander/app.py#desktop-work-fixtures": {
       "source": "mega-lander/app.py",
-      "sha256": "71965a989538ac783bb73e99772de4b7f6c93e8a743982ab1a46b6c8a23ed8e6",
+      "sha256": "7e8cfb984a58468e8cdc96a5fca3722b23d48d3ef033386935f8cf64a6ae9304",
       "evidence": "All call entrypoints plus observe, dispatch_intent, lock and receipt helpers run against source-bound private fixtures. Subprocesses are Git or fixed spawn.py; the test failure override is literal Python. Spawn hook sources are explicitly fixed to actual isolation guard. The module is imported, never launched as its MCP server. Retain every actual workspace/spawn configuration dependency.",
       "keys": [],
       "edges": [
@@ -13549,7 +13549,7 @@
     },
     "mega-lander/tests/app.test.py": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "3b0cb16dcaabdb4142230da138e0e0a56f45935e0d35964804f031490ea47769",
+      "sha256": "5c21b17cd132358e61149e9e8daa48eeab2fda94101d8c5dc21508e4c5fd8262",
       "evidence": "Full fixed unittest fixture, literal holder/probe subprocess programs and one literal spawn failure override. Private Git, ECS stores, registry, scope, land locks and explicit single-hook manifest bind the app/adapter entrypoint guarantees. No agent, model, arbitrary setup or MCP server is invoked.",
       "keys": [],
       "edges": [
@@ -13563,7 +13563,7 @@
     },
     "mega-lander/tests/app.mutation.sh": {
       "source": "mega-lander/tests/app.mutation.sh",
-      "sha256": "9a3472785ddfec33111451fa6078799356bb058c079e7a74d2ecd9111592ceec",
+      "sha256": "bf18644897785a53747e31ec3dc1602c2a3550b7d5b9c5d351c810dd2dde2c29",
       "evidence": "Sixteen finite app/workspace source replacements then the shared mutation harness runs the same full desktop fixture. Transport presence remains; no other runtime suite is invoked.",
       "keys": [],
       "edges": [
@@ -14877,7 +14877,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "mega-lander/workspaces.py",
-          "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
+          "sha256": "25258389505a5e799bb268f3e9e8b14fe6eb91417b04ae25834307eeb34b27a4",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {

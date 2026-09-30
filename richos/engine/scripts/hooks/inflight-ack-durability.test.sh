@@ -78,7 +78,7 @@ WS_PY="$ENGINE_ROOT/mega-lander/workspaces.py"
 [ -f "$ENGINE_ROOT/scripts/inflight-ack.sh" ]  || cannot_run "scripts/inflight-ack.sh is missing."
 [ -f "$ENGINE_ROOT/scripts/lib/inflight.py" ]  || cannot_run "scripts/lib/inflight.py is missing."
 
-SANDBOX="$(mktemp -d -t inflight-ack-dur.XXXXXX)"
+SANDBOX="$(python3 -c 'import tempfile; print(tempfile.mkdtemp(prefix="inflight-ack-dur."))')"
 # The registry's session identity: a process of this suite's own.
 RICHOS_SESSION_PID="$(sh -c 'sleep 900 >/dev/null 2>&1 & echo $!')"
 export RICHOS_SESSION_PID
@@ -100,6 +100,12 @@ mkdir -p "$REPO" "$TEAM_DIR" "$STATE"
 export RICHOS_INFLIGHT_ACK_LEDGER="$STATE/inflight-acks.jsonl"
 export RICHOS_WORKTREE_LEDGER="$STATE/worktree-ledger.jsonl"
 export RICHOS_WORKSPACES_DIR="$STATE/workspaces"
+# Discard also takes machine-wide land locks outside the workspace registry.
+# Keep those records private while retaining the runner's HOME write canary.
+export RICHOS_LAND_LOCKS_DIR="$SANDBOX/land-locks"
+# Workspace cleanup also opens the test-device lease registry.
+export RICHOS_TEST_DEVICES_DIR="$SANDBOX/test-devices"
+export TEST_DEVICE_FAILURES_STATE="$STATE/test-device-failures.json"
 export INFLIGHT_TEAMS_DIR="$TEAMS"
 export RICHOS_ENTITY_ROOT="$REPO"
 
