@@ -27,16 +27,22 @@ against this page and nothing else.
    exceptions, no deferral. This is a guarantee, not a habit: it holds whether or not Rich remembers, and
    whether or not a session restarts. Without it, point 3 has nothing to act on and workspaces sit
    forever.
-   **Enforced:** while any finished agent's work is neither landed nor discarded (point 7), Rich can
-   neither start new work nor end his turn. A session that starts with such work does that first.
-   **Two things are always allowed, and only these two:** answering the CEO or obeying his stop order
-   (the reply names the pending work, which is handled right after); and work whose only purpose is
-   getting the pending work landed (resolving a clash with main, fixing a failing check). If the only
-   way to end a piece of pending work is a discard that needs the CEO's word (point 7), Rich asks him in
-   that same turn; that one item then waits on him, is on his TODO list, and blocks nothing else.
-   Rich may end his turn when every pending item is either waiting on something he has already started
-   to get it landed, or waiting on something outside his reach (the CEO's word, a service that is down);
-   the latter goes on the CEO's TODO list. New work stays blocked either way.
+   **Enforced (amended by the CEO on 2026-09-30):** pending finished work never blocks
+   unrelated agents from starting. Development in isolated workspaces proceeds independently
+   of integration. Spawn registration does not scan or automatically land the backlog;
+   an explicit continuation still validates the finished work it replaces (point 7).
+   Finished work remains in the persistent pending-work ledger until landed or discarded.
+   A session that starts with such work reconciles it first while independent agents may start.
+   Rich cannot end his turn with unhandled pending work. Answering the CEO or obeying his stop
+   order remains allowed when the reply names that work, which is handled right after.
+   Rich may end his turn when every pending item is waiting on something he has already started
+   to get it landed, or on something outside his reach (the CEO's word, a service that is down).
+   A wait outside his reach needs a CEO TODO reference. A discard requiring the CEO's word
+   is asked in that same turn and remains recorded as waiting on him. A recorded wait is not
+   a completed land: failed merges remain unresolved and cannot be reported as completed.
+   This amendment supersedes the old global spawn block and its September 22 exception for
+   lands under way. Integration checks, workspace ownership and cleanup requirements stay
+   in force. Heavy tests and builds retain their resource admission controls.
 
 6. **Native workspaces get exactly the same treatment.** The workspaces Claude Code creates itself
    (`.claude/worktrees/agent-<id>`, branch `worktree-agent-<id>`) follow points 3, 4 and 5: registered
@@ -79,8 +85,9 @@ against this page and nothing else.
     An agent that ends after handing in its work is finished even if a pause was sent.
 
 12. **An agent cannot outlive its session.** When a session ends — closed, crashed or restarted — every
-    agent it ran is finished, and the next session lands or discards their work before anything else
-    (point 5). While two sessions run at once, each handles only the agents it started. Every session
+    agent it ran is finished, and the next session reconciles their pending work first while
+    independent development may continue (point 5). While two sessions run at once, each handles only
+    the agents it started. Every session
     records itself when it starts. A session has ended when it recorded its end or when its process no
     longer exists on this machine; that is read from the operating system, never guessed. (The record
     carries more than a process number, since those get reused.)

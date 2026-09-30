@@ -737,12 +737,63 @@ class Point05_Guarantee(Base):
         self.finish(aid)
         return aid, npath
 
-    def test_point_05_no_new_work_while_finished_work_is_pending(self):
+    def test_point_05_unrelated_spawn_does_not_scan_pending_work(self):
         self._pending_one()
-        with self.assertRaises(ws.SpecError) as cm:
-            self.spawn("zach-opus-new")
-        self.assertIn("zach-opus-p5", str(cm.exception))
-        # work whose only purpose is landing it is allowed
+        with patch.object(ws, "pending", side_effect=AssertionError("spawn scanned pending work")):
+            self.spawn("zach-opus-independent")
+        self.assertIn("zach-opus-p5", self.names())
+        self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
+        self.assertFalse(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
+
+    def test_point_05_slow_failed_merge_does_not_block_unrelated_spawn(self):
+        aid, npath = self._pending_one()
+        ready = os.path.join(self.env.root, "merge-check-ready")
+        release = os.path.join(self.env.root, "release-merge-check")
+        hook = os.path.join(self.entity, ".git", "hooks", "pre-merge-commit")
+        with open(hook, "w") as f:
+            f.write("#!%s\nimport os, time\n" % sys.executable)
+            f.write("open(%r, 'w').close()\n" % ready)
+            f.write("deadline = time.monotonic() + 30\n")
+            f.write("while not os.path.exists(%r) and time.monotonic() < deadline:\n    time.sleep(0.05)\n" % release)
+            f.write("raise SystemExit(1)\n")
+        os.chmod(hook, 0o755)
+        head = run("git", "-C", self.entity, "rev-parse", "HEAD").stdout.strip()
+        proc = subprocess.Popen(["git", "-C", self.entity, "merge", "--no-ff", "--no-edit",
+                                 "worktree-agent-" + aid], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+        try:
+            deadline = time.monotonic() + 15
+            while not os.path.exists(ready) and proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(os.path.exists(ready), "merge never reached its pre-merge check")
+            self.assertIsNone(proc.poll())
+            self.spawn("zach-opus-during-merge")
+            self.assertIsNone(proc.poll(), "merge check ended before the unrelated spawn")
+            self.assertIn("zach-opus-p5", self.names())
+        finally:
+            with open(release, "w") as f:
+                f.write("finish the check\n")
+            try:
+                proc.communicate(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual(run("git", "-C", self.entity, "rev-parse", "HEAD").stdout.strip(), head)
+        self.spawn("zach-opus-after-failure")
+        self.assertIn("zach-opus-p5", self.names())
+        self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
+        self.assertTrue(os.path.isdir(npath))
+        self.assertIn("worktree-agent-" + aid, branches(self.entity))
+        ok, msg = ws.gate_stop({"session_id": self.sid}, self.entity)
+        self.assertFalse(ok)
+        self.assertIn("zach-opus-p5", msg)
+
+    def test_point_05_new_work_starts_while_finished_work_is_pending(self):
+        self._pending_one()
+        self.spawn("zach-opus-new")
+        self.assertIn("zach-opus-p5", self.names())
+        self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
         self.spawn("zach-opus-fix", extra="lands-pending: zach-opus-p5\n")
 
     def test_point_05_no_turn_end_while_finished_work_is_pending(self):
@@ -793,8 +844,8 @@ class Point05_Guarantee(Base):
             self.assertIn("budget", msg)                     # and says why it is still pending
             self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
             self.assertTrue(os.path.exists(npath))
-            with self.assertRaises(ws.SpecError):            # the spawn half answers too
-                self.spawn("zach-opus-nb")
+            self.spawn("zach-opus-nb")                      # independent of the scan budget
+            self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
         finally:
             os.environ.pop("RICHOS_WORKSPACES_GATE_BUDGET", None)
         # with its budget the same call decides the other way, on the same facts
@@ -821,29 +872,26 @@ class Point05_Guarantee(Base):
         self.assertTrue(ws.gate_stop(dict(answer), self.entity)[0])     # so it may be named again
         self.assertFalse(ws.gate_stop(dict(answer), self.entity)[0])    # and it is spent again
 
-    def test_point_05_waiting_items_allow_turn_end_but_not_new_work(self):
+    def test_point_05_waiting_items_allow_turn_end_and_new_work(self):
         self._pending_one()
         ws.wait("zach-opus-p5", "outside", "GitHub is down", "CEO-TODOs 9.9", self.sid)
         self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
-        with self.assertRaises(ws.SpecError):
-            self.spawn("zach-opus-new2")
+        self.spawn("zach-opus-new2")
+        self.assertIn("zach-opus-p5", self.names())
         with self.assertRaises(ws.SpecError):
             ws.wait("zach-opus-p5", "outside", "x", "", self.sid)   # must be on his TODO list
 
     def test_point_05_a_ceo_discard_question_blocks_nothing_else(self):
-        """"that one item then waits on him, is on his TODO list, and blocks
-        nothing else" — the other pending items still land and the turn may
-        end — AND "New work stays blocked either way", whose own parenthesis
-        names the CEO's word. Both sentences hold at once (round 8, item 7)."""
+        """A discard waiting on the CEO stays pending without stopping other
+        development or another item's automatic land."""
         aid2, npath2 = self.spawn("zach-opus-other")        # a second agent, running while nothing is pending
         aid, npath = self.spawn("zach-opus-ceo", extra="ceo-ordered: 'Implement spec.'\n")
         self.commit(npath)
         self.finish(aid)
         ws.wait("zach-opus-ceo", "ceo-discard", "May I discard the rejected spec branch?", "CEO-TODOs 1.1", self.sid)
         self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])   # the turn may end
-        with self.assertRaises(ws.SpecError) as cm:                              # new work stays blocked
-            self.spawn("zach-opus-unrelated")
-        self.assertIn("zach-opus-ceo", str(cm.exception))
+        self.spawn("zach-opus-unrelated")
+        self.assertIsNone(self.rec("zach-opus-ceo")["disposition"])
         # "blocks nothing else": the second agent finishes, is merged, and lands
         # on its own while the first still waits on him.
         self.commit(npath2, "other.txt")
@@ -867,52 +915,37 @@ class Point05_Guarantee(Base):
         self.assertIn(name, self.names())                 # the auto-land could not finish it
         return aid, npath
 
-    def test_point_05_a_land_under_way_does_not_block_new_work(self):
-        """CEO ruling §77: "Finished work whose land is under way (merged locally
-        or with its checks running, and recorded as such) no longer blocks new
-        agents." Merged but not recorded still blocks; recorded and merged does
-        not; the item stays pending by name; and rewinding the merge (a failed
-        check) makes it block again — the way back out."""
+    def test_point_05_pending_merge_state_does_not_control_spawn(self):
         self._merged_but_pending()
-        with self.assertRaises(ws.SpecError) as cm:       # merged, nothing recorded: blocks
-            self.spawn("zach-opus-n1")
-        self.assertIn("zach-opus-p5", str(cm.exception))
+        self.spawn("zach-opus-n1")
         ws.wait("zach-opus-p5", "started", "land checks running on the merged tree", "", self.sid)
-        self.spawn("zach-opus-n2")                        # recorded AND merged: allowed
+        self.spawn("zach-opus-n2")
         self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
-        self.assertIn("zach-opus-p5", self.names())       # still pending, never forgotten
-        self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])   # turn end: as before
-        run("git", "-C", self.entity, "reset", "-q", "--hard", "HEAD~1")         # the check failed: rewound
-        with self.assertRaises(ws.SpecError) as cm:
-            self.spawn("zach-opus-n3")
-        self.assertIn("zach-opus-p5", str(cm.exception))
+        self.assertIn("zach-opus-p5", self.names())
+        self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
+        run("git", "-C", self.entity, "reset", "-q", "--hard", "HEAD~1")
+        self.spawn("zach-opus-n3")
+        self.assertIn("zach-opus-p5", self.names())
+        self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
 
-    def test_point_05_a_started_record_with_no_merge_still_blocks_new_work(self):
-        """The record alone is a promise, not a land (§77 needs it merged or
-        its checks running on the merge): unmerged work recorded as started
-        lets the turn end, as point 5 always allowed, and still blocks new work."""
+    def test_point_05_unmerged_started_work_does_not_block_new_work(self):
         self._pending_one()
         ws.wait("zach-opus-p5", "started", "about to merge it", "", self.sid)
         self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
-        with self.assertRaises(ws.SpecError) as cm:
-            self.spawn("zach-opus-n4")
-        self.assertIn("zach-opus-p5", str(cm.exception))
+        self.spawn("zach-opus-n4")
+        self.assertIn("zach-opus-p5", self.names())
 
-    def test_point_05_only_a_started_land_counts_as_under_way(self):
-        """A wait on something outside Rich's reach, or on the CEO's word, is
-        not a land in progress: merged or not, new work stays blocked."""
+    def test_point_05_outside_wait_does_not_block_new_work(self):
         self._merged_but_pending()
         ws.wait("zach-opus-p5", "outside", "GitHub is down", "CEO-TODOs 9.9", self.sid)
-        with self.assertRaises(ws.SpecError) as cm:
-            self.spawn("zach-opus-n5")
-        self.assertIn("zach-opus-p5", str(cm.exception))
+        self.spawn("zach-opus-n5")
+        self.assertIn("zach-opus-p5", self.names())
 
-    def test_point_05_a_ceo_word_wait_is_not_a_land_under_way(self):
+    def test_point_05_ceo_word_wait_does_not_block_new_work(self):
         self._merged_but_pending("zach-opus-p5c", extra="ceo-ordered: 'Implement spec.'\n")
         ws.wait("zach-opus-p5c", "ceo-discard", "May I discard it?", "CEO-TODOs 1.1", self.sid)
-        with self.assertRaises(ws.SpecError) as cm:
-            self.spawn("zach-opus-n6")
-        self.assertIn("zach-opus-p5c", str(cm.exception))
+        self.spawn("zach-opus-n6")
+        self.assertIn("zach-opus-p5c", self.names())
 
     def test_point_05_an_agent_started_to_land_it_lets_the_turn_end(self):
         self._pending_one()

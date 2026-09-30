@@ -8,6 +8,8 @@
 #            frozen before the engineer started. A check may be ADDED here. None
 #            of the fourteen is removed or reworded; where one is believed wrong
 #            it is implemented as written and the report says why.
+#            Point 5 spawn assertions were superseded by the CEO on 2026-09-30:
+#            pending integration no longer blocks unrelated development.
 #
 # Every step goes through the hook scripts exactly as hooks/hooks.json registers
 # them — the spawn guard, the Bash worktree guard, the lifecycle hook, the
@@ -642,7 +644,7 @@ sub "C3.4 an unregistered cc/ workspace is in point 5's list: the turn cannot en
 sub "C3.5 an unregistered NATIVE workspace is in point 5's list too, by name" \
     "[ $rc -eq 2 ] && grep -q 'orphan-agent-deadbeefdeadbeef0' '$T/stop.err'" "$(cat "$T/stop.err")"
 spawn "zach-opus-r2" "new work"; rc=$?
-sub "C3.6 and new work is refused while they are pending" "[ $rc -eq 2 ]" "$(cat "$T/spawn.err")"
+sub "C3.6 unrelated new work starts while both orphans remain pending" "[ $rc -eq 0 ] && [ -e '$T/rogue-cc' ]" "$(cat "$T/spawn.err")"
 ws discard orphan-rogue-cc --reason "made by hand, never registered" --not-ceo-ordered "a fixture of this suite" >"$T/d1.out" 2>&1; r1=$?
 ws discard orphan-agent-deadbeefdeadbeef0 --reason "made by hand, never registered" --not-ceo-ordered "a fixture of this suite" >"$T/d2.out" 2>&1; r2=$?
 sub "C3.7 both are handled under point 5 (discarded: $r1 $r2) and gone" \
@@ -1131,7 +1133,7 @@ stop_gate >/dev/null 2>&1
 verdict
 
 # ===========================================================================
-begin C5 "With one finished-and-unlanded agent, a spawn and a turn end are both refused; the two allowances his sentence names are allowed; nothing else is"
+begin C5 "Pending integration allows unrelated spawns while turn-end accounting and its allowances remain enforced (amended 2026-09-30)"
 spawn "zach-opus-a1" "finish without being merged"
 platform_spawn "zach-opus-a1" "aa1a1a1a1a1a1a1a1"
 NPA="$ENT/.claude/worktrees/agent-aa1a1a1a1a1a1a1a1"
@@ -1139,8 +1141,8 @@ commit_in "$NPA" a1.txt
 subagent_stop "aa1a1a1a1a1a1a1a1"
 spawn "zach-opus-b1" "unrelated new work"; r1=$?
 stop_gate; r2=$?
-sub "C5.1 a spawn is refused ($r1), naming the agent" \
-    "[ $r1 -eq 2 ] && grep -q 'zach-opus-a1' '$T/spawn.err'" "$(cat "$T/spawn.err")"
+sub "C5.1 an unrelated spawn is allowed ($r1), leaving the finished workspace pending" \
+    "[ $r1 -eq 0 ] && [ -e '$NPA' ]" "$(cat "$T/spawn.err")"
 sub "C5.1b and a turn end is refused ($r2), naming the agent" \
     "[ $r2 -eq 2 ] && grep -q 'zach-opus-a1' '$T/stop.err'" "$(cat "$T/stop.err")"
 # THE TRANSCRIPT ROWS CARRY THE FIELDS THE PLATFORM STAMPS (round 8, item 4): a person's
@@ -1205,7 +1207,7 @@ sub "C5.6 ALLOWANCE 2: work whose only purpose is landing it may start ($r7)" "[
 stop_gate; r8=$?
 sub "C5.7 and with that work started, the turn may end ($r8) while the item waits on it" "[ $r8 -eq 0 ] && grep -q 'zach-opus-a1' '$T/stop.out'" "$(cat "$T/stop.out" "$T/stop.err")"
 spawn "zach-opus-b2" "unrelated new work"; r9=$?
-sub "C5.8 NOTHING ELSE: unrelated new work is still refused ($r9)" "[ $r9 -eq 2 ]" "$(cat "$T/spawn.err")"
+sub "C5.8 unrelated new work may start while the land helper runs ($r9)" "[ $r9 -eq 0 ]" "$(cat "$T/spawn.err")"
 platform_spawn "zach-opus-h1" "ah1h1h1h1h1h1h1h1"
 git -C "$ENT" merge -q --no-edit "worktree-agent-aa1a1a1a1a1a1a1a1"
 subagent_stop "ah1h1h1h1h1h1h1h1"
@@ -1225,24 +1227,19 @@ printf '%s\n' '{"type":"user","entrypoint":"sdk-cli","promptSource":"sdk","versi
 stop_gate "Stopping. Pending and not yet handled: zach-opus-a2 finished and is not merged; it is handled right after." "$TRS"; rs=$?
 sub "C5.10 ALLOWANCE 1, the other half: obeying his STOP ORDER, naming the pending work, may end the turn ($rs) — given through the RichOS app, the row shape that carries no origin key" "[ $rs -eq 0 ]" "$(cat "$T/stop.err")"
 # "...or waiting on something outside his reach (the CEO's word, a service that is down); the
-# latter goes on the CEO's TODO list. New work stays blocked either way."
+# latter goes on the CEO's TODO list." Independent development may continue.
 ws wait zach-opus-a2 --outside "GitHub is down, the merge cannot be pushed" >"$T/wait.out" 2>&1; rw1=$?
 sub "C5.11 an item waiting on something OUTSIDE his reach with no CEO-TODO reference is refused ($rw1): 'the latter goes on the CEO's TODO list'" \
     "[ $rw1 -eq 2 ] && grep -q 'TODO' '$T/wait.out'" "$(cat "$T/wait.out")"
 ws wait zach-opus-a2 --outside "GitHub is down, the merge cannot be pushed" --todo "CEO-TODOs 7.1" >"$T/wait.out" 2>&1; rw2=$?
 stop_gate; rw3=$?
 spawn "zach-opus-b3" "unrelated new work"; rw4=$?
-sub "C5.12 recorded with its TODO reference ($rw2): the turn may end ($rw3), and new work stays blocked either way ($rw4)" \
-    "[ $rw2 -eq 0 ] && [ $rw3 -eq 0 ] && [ $rw4 -eq 2 ]" "$(cat "$T/wait.out" "$T/stop.err" "$T/spawn.err")"
+sub "C5.12 recorded with its TODO reference ($rw2): the turn may end ($rw3), and independent work may start ($rw4)" \
+    "[ $rw2 -eq 0 ] && [ $rw3 -eq 0 ] && [ $rw4 -eq 0 ]" "$(cat "$T/wait.out" "$T/stop.err" "$T/spawn.err")"
 git -C "$ENT" merge -q --no-edit worktree-agent-aa2a2a2a2a2a2a2a2
 stop_gate >/dev/null 2>&1
-# A discard that needs HIS WORD: "Rich asks him in that same turn; that one item then waits on
-# him, is on his TODO list, and blocks nothing else" — the turn may end and the OTHER pending
-# items still land — AND "New work stays blocked either way", whose own parenthesis names
-# "the CEO's word". Both sentences govern different objects and both hold at once (round 8,
-# item 7). Round 7 read them as a contradiction and built the inversion into the library
-# (`blocks_new_work: kind != "ceo-discard"`); a second agent is spawned FIRST, while nothing
-# is pending, so that "blocks nothing else" can be observed on it.
+# A discard waiting on the CEO remains recorded. Independent spawns and other
+# pending lands continue under the 2026-09-30 amendment to point 5.
 spawn "zach-opus-cw2" "a second body of work, running while nothing is pending"
 platform_spawn "zach-opus-cw2" "acw2cw2cw2cw2cw2c"
 NPCW2="$ENT/.claude/worktrees/agent-acw2cw2cw2cw2cw2c"
@@ -1255,8 +1252,8 @@ subagent_stop "acwcwcwcwcwcwcwcw"
 ws wait zach-opus-cw --ceo "May I discard it? A reviewer rejected it." --todo "CEO-TODOs 7.2" >"$T/wait.out" 2>&1; rc1=$?
 stop_gate; rc2=$?
 spawn "zach-opus-b4" "unrelated new work while he is being asked"; rc3=$?
-sub "C5.13 a discard that needs his word, asked and recorded with its TODO reference ($rc1): that item waits on him and the turn may end ($rc2), the item named as waiting — AND new work stays blocked either way: an unrelated spawn is refused ($rc3), naming it" \
-    "[ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && grep -q 'zach-opus-cw' '$T/stop.out' && [ $rc3 -eq 2 ] && grep -q 'zach-opus-cw' '$T/spawn.err'" "$(cat "$T/wait.out" "$T/stop.err" "$T/stop.out" "$T/spawn.err")"
+sub "C5.13 a discard waiting on the CEO stays named with its TODO ($rc1); the turn may end ($rc2) and independent work may start ($rc3)" \
+    "[ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && grep -q 'zach-opus-cw' '$T/stop.out' && [ $rc3 -eq 0 ]" "$(cat "$T/wait.out" "$T/stop.err" "$T/stop.out" "$T/spawn.err")"
 subagent_stop "acw2cw2cw2cw2cw2c"
 git -C "$ENT" merge -q --no-edit worktree-agent-acw2cw2cw2cw2cw2c
 stop_gate; rc4=$?
@@ -1302,7 +1299,7 @@ sub "C13.6 when the hold clears, the next retry succeeds on its own: workspace a
 verdict
 
 # ===========================================================================
-begin C12 "The session is recorded at start; its end is read from the process start-time, never a pid alone; the next session lands or discards the previous session's agents before any spawn"
+begin C12 "The session is recorded at start; its end is read from the process start-time, never a pid alone; the next session reports previous finished work while allowing independent spawns"
 S="$STORE/sessions/$CUR_SID.json"
 sub "C12.1 SessionStart recorded the session with its process number AND its process start time" \
     "[ -n \"\$(jget '$S' pid)\" ] && [ -n \"\$(jget '$S' pid_start)\" ]" "$(cat "$S" 2>/dev/null | head -c 300)"
@@ -1330,7 +1327,7 @@ start_session "sess-fourteen-2222"
 sub "C12.4 the process is gone, read from the OS: the NEXT session is told first, by name" \
     "grep -q 'zach-opus-w1' '$T/last-start.json' && grep -q 'FIRST' '$T/last-start.json'" "$(cat "$T/last-start.json" "$T/last-start.err")"
 spawn "zach-opus-x2" "new work in the new session"; r3=$?
-sub "C12.5 before any spawn: new work is refused until the previous session's agent is landed or discarded ($r3)" "[ $r3 -eq 2 ] && grep -q 'zach-opus-w1' '$T/spawn.err'" "$(cat "$T/spawn.err")"
+sub "C12.5 independent work starts while the previous session's finished workspace is preserved ($r3)" "[ $r3 -eq 0 ] && [ -e '$NPW' ]" "$(cat "$T/spawn.err")"
 git -C "$ENT" merge -q --no-edit "worktree-agent-aw1w1w1w1w1w1w1w1"
 ws land zach-opus-w1 >"$T/land.out" 2>&1; r4=$?
 spawn "zach-opus-x2" "new work in the new session"; r5=$?
