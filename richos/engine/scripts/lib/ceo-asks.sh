@@ -403,7 +403,9 @@ sid = os.environ.get("CA_J_SID") or ""
 asks = []
 path = os.environ.get("CA_J_LEDGER") or ""
 try:
-    with open(path, encoding="utf-8") as fh:
+    # errors="replace": a byte that is not UTF-8 makes that ONE line corrupt (and
+    # skipped below), it must not make the whole ledger unreadable.
+    with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             line = line.strip()
             if not line:
@@ -427,9 +429,12 @@ try:
                 continue
             asks.append(rec)
 except FileNotFoundError:
-    pass
+    pass                      # no ledger yet: nothing has been asked
 except Exception:
-    pass
+    # A ledger that EXISTS but cannot be read (a directory, a permission fault)
+    # is not evidence that nothing was asked: every prepared item would turn
+    # into a fresh obligation. Exit non-zero so the shell reports BROKEN (P5-50).
+    sys.exit(3)
 
 json.dump({"mode": "assess", "items": items, "asks": asks}, open(sys.argv[1], "w", encoding="utf-8"))
 ' "$job" 2>/dev/null || { rm -f "$items" "$job"; CA_BROKEN="the ledger could not be read"; return 2; }
