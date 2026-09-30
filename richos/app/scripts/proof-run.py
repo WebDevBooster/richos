@@ -117,7 +117,8 @@ ADMISSION, TWO CONDITIONS, BOTH CHECKED BEFORE EVERY START:
   * CEO RULING §77's LINE, the same rule and the same code as testvm/reserve.py: one sample of
     total CPU (user plus system) and memory; below 80% it starts, otherwise the check waits (samples at least 30 s
     apart) and the wait is reported beside its time. --admission-wait bounds only the time the Mac
-    refused it; time queued behind this run's own checks is reported, never charged (refusal_counts).
+    refused it while nothing of this run was running; time queued behind this run's own checks,
+    including a CPU or pressure refusal while they run, is reported, never charged (refusal_counts).
 Checks start longest-expected first, so the long poles are not the ones left waiting. While the
 run goes, a sampler records total CPU and the tokens held; the summary prints both, which is the
 evidence of host use, not a guarantee that running compilers stay under the admission line.
@@ -703,25 +704,31 @@ def admitted(args, sampler):
     return not reserve._refusal(s, args.max_cpu, 16, cpu_rule=True), s
 
 
-def refusal_counts(sample, pressure, running):
-    """Whether a refused start spends the check's --admission-wait (2026-09-29).
+def refusal_counts(running):
+    """Whether a refused start spends the check's --admission-wait (2026-09-29, 2026-09-30).
 
-    THE LIMIT IS ON THE MAC REFUSING, NEVER ON THIS RUN'S OWN QUEUE. Until today the clock ran
-    from the moment a check was ready, so time spent behind this run's own checks for a worker
-    token, a lane or the ramp was charged to it, and a check that only waited behind its
+    THE LIMIT IS ON THE MAC REFUSING, NEVER ON THIS RUN'S OWN QUEUE. Until 2026-09-29 the clock
+    ran from the moment a check was ready, so time spent behind this run's own checks for a
+    worker token, a lane or the ramp was charged to it, and a check that only waited behind its
     siblings was refused: several land logs of 2026-09-29 show checks NOT ADMITTED after
-    ~1,830 s (richos-hq docs/audits/2026-09-29-hunt/part-2-codex.md, section 01). It counts:
-      * a host sample over CEO ruling §77's CPU line or its memory rule (`sample` is not None);
-      * the machine's verification pressure controller closing admission (`pressure`), the
-        same CPU and memory rule measured by cpu_guard;
-      * any other refusal (the machine worker budget, integration priority, the measured
-        resource envelope) while NOTHING of this run is running: then the wait cannot be behind
-        this run's own work, and a Mac that keeps refusing still ends in NOT ADMITTED.
-    It does not count: this run's own full worker budget or envelope while its checks run, a
-    busy lane, the ramp, dependencies, the engine slot or an identical owner (their own bounds).
-    A check waiting behind its siblings therefore waits for as long as they run, which their
-    deadlines already bound, and then gets its turn."""
-    return sample is not None or bool(pressure) or not running
+    ~1,830 s (richos-hq docs/audits/2026-09-29-hunt/part-2-codex.md, section 01).
+
+    It counts every refusal (a host sample over CEO ruling §77's CPU line or its memory rule,
+    the machine's verification pressure controller, the machine worker budget, integration
+    priority, the measured resource envelope) while NOTHING of this run is running: then the
+    wait cannot be behind this run's own work, and a Mac that keeps refusing still ends in NOT
+    ADMITTED.
+
+    It does not count any refusal while this run's own checks run. The full worker budget and
+    envelope are this run's queue by construction; a CPU sample over the line or a closed
+    pressure controller cannot be told apart from the load those running checks make, so it is
+    this run's queue too (part 2 recheck, R01: until 2026-09-30 those two still counted, and a
+    sibling that kept the Mac busy for --admission-wait got the check behind it refused while
+    the sibling was still doing its bounded work). A busy lane, the ramp, dependencies, the
+    engine slot and an identical owner have their own bounds. A check waiting behind its
+    siblings therefore waits for as long as they run, which their deadlines already bound,
+    and then gets its turn; if the Mac still refuses once they are done, that refusal counts."""
+    return not running
 
 
 class HostSamples:
@@ -1258,7 +1265,7 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 pressure = getattr(pressure_owner, 'refusal', None) if token is None else None
                 refusal_kind = ('resource-envelope' if resource_blocked else
                                 'host' if s is not None else 'pressure' if pressure else 'worker')
-                counted = refusal_counts(s, pressure, running)
+                counted = refusal_counts(running)
                 for queued in eligible:
                     queued.wait_reason = refusal_kind
                     queued.refusing = counted
