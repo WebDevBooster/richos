@@ -2942,6 +2942,32 @@ class Hunt4_TurnEndPauseAndPathChecks(Base):
             os.chdir(here)
 
 
+class Hunt4_MutationHarnessesDeclareTheirFocus(unittest.TestCase):
+    """Part 4 (2026-09-29 hunt), finding 20: the app, creator and probe-runner
+    harnesses never declared a mutation_focus, so every one of their mutants
+    reran its whole suite to judge one named case."""
+
+    def test_hunt4_20_each_mutation_harness_of_this_folder_declares_how_its_mutants_are_focused(self):
+        import re
+        want = {"app.mutation.sh": "want-as-argument", "create-teammate-worktree.mutation.sh": "stop-at-want",
+                "workspace-probes.mutation.sh": "stop-at-want", "workspaces.mutation.sh": "want-as-argument",
+                "workspace-spec-fourteen.mutation.sh": "stop-at-want"}
+        for name, mode in sorted(want.items()):
+            with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                src = f.read()
+            declared = re.findall(r"(?m)^mutation_focus\s+(\S+)\s*$", src)
+            self.assertEqual(declared, [mode], "%s declares %r, expected [%r]" % (name, declared, mode))
+            self.assertLess(src.index("mutation_begin "), src.index("mutation_focus "),
+                            "%s declares its focus before mutation_begin" % name)
+
+    def test_hunt4_20_the_app_suite_takes_case_names_so_its_mutants_can_run_one_case(self):
+        r = subprocess.run([sys.executable, "-B", "-W", "ignore", os.path.join(HERE, "app.test.py"),
+                            "test_pause_message_is_fixed"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("PASS  test_pause_message_is_fixed_and_does_not_claim_delivery", r.stdout)
+        self.assertIn("1 run, 0 failed", r.stdout)
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a

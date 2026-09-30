@@ -1390,10 +1390,28 @@ class _Result(unittest.TextTestResult):
         super().addError(test,err);self.stream.write("  FAIL  %s (error)\n"%test._testMethodName)
 
 
+def _resolve_names(names,loader):
+    """A class name or `Class.test` passes through. A bare method name, or the start of
+    one, selects every test method it begins -- the same set whose `  FAIL  <name>` line
+    the mutation harness's `grep "FAIL  <want>"` would match, so a mutant focused on its
+    want runs exactly the cases that could prove it (mutation_focus want-as-argument).
+    A name that selects nothing is passed through for the loader to refuse loudly.
+    (Same rule as workspaces.test.py's; every case here builds its own fixture in setUp.)"""
+    module=sys.modules[__name__]
+    cases=[c for c in vars(module).values() if isinstance(c,type) and issubclass(c,unittest.TestCase)]
+    out=[]
+    for n in names:
+        if "." in n or hasattr(module,n):
+            out.append(n);continue
+        hits=["%s.%s"%(c.__name__,m) for c in cases for m in loader.getTestCaseNames(c) if m.startswith(n)]
+        out.extend(hits or [n])
+    return out
+
+
 if __name__=="__main__":
     runner=unittest.TextTestRunner(stream=sys.stdout,verbosity=0,resultclass=_Result)
     loader=unittest.defaultTestLoader
-    names=[a for a in sys.argv[1:] if a]
+    names=_resolve_names([a for a in sys.argv[1:] if a],loader)
     suite=(loader.loadTestsFromNames(names,sys.modules[__name__]) if names
            else loader.loadTestsFromModule(sys.modules[__name__]))
     result=runner.run(suite)
