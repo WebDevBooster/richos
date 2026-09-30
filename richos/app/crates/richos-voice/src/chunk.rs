@@ -164,11 +164,14 @@ impl SentenceChunker {
             .nth(self.max_chars)
             .map(|(i, _)| i)
             .unwrap_or(bytes.len());
-        let cut = self.pending[..limit].rfind(char::is_whitespace).map(|i| i + 1)?;
-        if cut == 0 {
-            return None;
-        }
-        Some(cut)
+        // Cut just past the last word break, advancing by that character's own UTF-8 length:
+        // a non-breaking or ideographic space is two or three bytes, and cutting one byte in
+        // would split it (hunt part 1 finding 40).
+        self.pending[..limit]
+            .char_indices()
+            .rev()
+            .find(|(_, c)| c.is_whitespace())
+            .map(|(i, c)| i + c.len_utf8())
     }
 
     /// Is the terminator at `idx` a genuine sentence end, or an abbreviation / initial /
@@ -445,6 +448,28 @@ mod tests {
         let rejoined: Vec<&str> = out.iter().flat_map(|s| s.split(' ')).collect();
         let original: Vec<&str> = long.split(' ').collect();
         assert_eq!(rejoined, original);
+    }
+
+    /// INVARIANT (hunt part 1 finding 40): the overlong cut lands on a character boundary
+    /// when the last word break is a multibyte space. A non-breaking space (U+00A0, two
+    /// bytes) or an ideographic space (U+3000, three bytes) is ordinary text in a reply;
+    /// cutting one byte past its start used to panic in `drain`, poisoning the chunker and
+    /// controller locks so voice stayed broken until restart.
+    #[test]
+    fn an_overlong_cut_after_a_multibyte_space_does_not_split_the_space() {
+        for space in ['\u{00A0}', '\u{3000}'] {
+            let mut c = SentenceChunker::with_max_chars(40);
+            // 34 characters, then the multibyte space at character 34, then 16 letters: 51
+            // characters, so the 40-character budget forces a cut and the multibyte space is
+            // the last word break before it.
+            let head = "aaaa bbbb cccc dddd eeee ffff gggg";
+            let tail = "hhhhhhhhhhhhhhhh";
+            let text = format!("{head}{space}{tail}");
+            assert_eq!(text.chars().count(), 51);
+            let mut out = c.push(&text);
+            out.extend(c.flush());
+            assert_eq!(out, vec![head.to_string(), tail.to_string()], "space {space:?}");
+        }
     }
 
     /// INVARIANT (clean output, for the ear): markdown machinery is never spoken.
