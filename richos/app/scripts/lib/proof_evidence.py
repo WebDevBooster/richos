@@ -1005,14 +1005,21 @@ class Pool:
             if item.state not in ("waiting", "passed"):
                 os.close(fd)
                 return False
-            # The two-attempt retry budget stays with reviewed contracts. A whole-checkout
-            # identity only reuses passes: a land retried on the same tree after a failure
-            # runs that check again rather than being refused with no --retry-reason to give.
-            if item.state != "passed" and failures and identity.get("contract") != WHOLE_CHECKOUT:
-                reason = ("unchanged inputs exhausted their two-attempt functional budget"
-                          if len(failures) >= 2 else
+            # A reviewed contract gets two attempts: the first failure needs --retry-reason
+            # with the diagnosis, the second failure ends it. A check with no contract (a
+            # whole-checkout identity) keeps the reason that exempted it: a land retried on
+            # the same tree after one failure runs again, with no --retry-reason to give
+            # (autocheck's land plan has no way to pass one). Its budget starts one failure
+            # later: a second failure on the unchanged tree needs the diagnosis, a third ends
+            # it. Hunt part 2, finding 12: it used to have none, so a known failure repeated
+            # without limit.
+            whole = identity.get("contract") == WHOLE_CHECKOUT
+            free, limit = (1, 3) if whole else (0, 2)
+            if item.state != "passed" and len(failures) > free:
+                reason = ("unchanged inputs exhausted their functional retry budget"
+                          if len(failures) >= limit else
                           "unchanged failed inputs require --retry-reason with the diagnosis")
-                if len(failures) >= 2 or not self.retry_reason:
+                if len(failures) >= limit or not self.retry_reason:
                     item.finish_queue()
                     item.state, item.rc = "blocked", 75
                     item.notes.append(reason + "; prior evidence: " + failures[-1]["run"])
