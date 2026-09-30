@@ -1676,7 +1676,7 @@
         "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "richos/engine/scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
         "richos/engine/scripts/lib/publication-boundary.sh": "75de37fc93a13c1f74c079491fde341f7c40071cc1a0906e3f85d1f13bfc4b0a",
-        "richos/engine/scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+        "richos/engine/scripts/lib/named-persons.py": "3392076d89530f9a120fea16eaba9fa6053f577ae836023c691b5f0eb011c871",
         "richos/engine/scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
         "richos/engine/scripts/hooks/named-persons.test.sh": "effbfab0fbc380662d3dc1a21d3889c45d63a368fc319c78ebf7c1ac97a63b34",
         "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
@@ -2510,7 +2510,7 @@
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
         "richos/engine/scripts/named-persons.sh": "0e219dffeb78a8d7d9593475d2c9efdba010597c08af1dd1b9846e411bd2a2be",
         "richos/engine/scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
-        "richos/engine/scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+        "richos/engine/scripts/lib/named-persons.py": "3392076d89530f9a120fea16eaba9fa6053f577ae836023c691b5f0eb011c871",
         "richos/app/scripts/bin/cargo": "2250e8c39acd3123165adbcfc70f8b344d89e77dc0d6865ca1e3108f0b4de1d9",
         "richos/app/scripts/lib/cargo_identity.py": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
         "richos/app/scripts/lib/cargo-cache-env.sh": "91afb05e2bfa1c380412838ddce98d31e0673c718e14b206d5d81e74a2950a0a"

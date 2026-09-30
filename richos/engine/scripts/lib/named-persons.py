@@ -521,12 +521,25 @@ def payload_surfaces(payload):
         # command string alone would report clean over a leak.
         for m in re.finditer(r"(?:^|\s)(?:-F|--file)[=\s]+(\S+)", cmd):
             p = m.group(1).strip("\"'")
+            # A path that is not a file (stdin `-`, a file this same command
+            # writes, `grep -F pattern`) has nothing to read: skipped. A file
+            # that IS there and cannot be read whole is NOT skipped (hunt
+            # P5-08): reporting clean over a message nobody read is the false
+            # green this mechanism exists to end.
+            if not os.path.isfile(p):
+                continue
             try:
-                if os.path.isfile(p) and os.path.getsize(p) <= MAX_SCAN_BYTES:
-                    with open(p, "r", encoding="utf-8", errors="replace") as fh:
-                        out.append(("commit message file", fh.read()))
-            except OSError:
-                pass
+                if os.path.getsize(p) > MAX_SCAN_BYTES:
+                    raise ListBroken(
+                        "the commit message file %s is larger than the %d-byte scan cap, "
+                        "so its text was not scanned and cannot be called clean."
+                        % (p, MAX_SCAN_BYTES))
+                with open(p, "r", encoding="utf-8", errors="replace") as fh:
+                    out.append(("commit message file", fh.read()))
+            except OSError as exc:
+                raise ListBroken(
+                    "the commit message file %s could not be read (%s), so its text "
+                    "was not scanned and cannot be called clean." % (p, exc.strerror or exc))
     return [(label, text) for label, text in out if isinstance(text, str) and text]
 
 
@@ -648,7 +661,10 @@ def main(argv):
                 return emit("PARSEFAIL")
             if not isinstance(payload, dict):
                 return emit("PARSEFAIL")
-            pairs = payload_surfaces(payload)
+            try:
+                pairs = payload_surfaces(payload)
+            except ListBroken as exc:
+                return emit("BROKEN", str(exc))
         elif mode == "--scan-text":
             pairs = [(rest[0] if rest else "text", sys.stdin.read())]
         else:
@@ -662,11 +678,16 @@ def main(argv):
                 paths = [p for p in blob.split("\0") if p]
             else:
                 paths = rest
+            # WHAT COULD NOT BE READ IS REPORTED, NOT DROPPED (hunt P5-08). A file
+            # that is there and is text but too large, or unreadable, used to
+            # vanish from the scan and the verdict was CLEAN over it. A binary
+            # blob (checked first, so a large image is still just skipped) and a
+            # path that no longer exists (a deletion in a change list) have no
+            # text to leak and stay skipped.
+            unscanned = []
             for p in paths:
                 pairs.append(("path %s" % p, p))
                 try:
-                    if os.path.getsize(p) > MAX_SCAN_BYTES:
-                        continue
                     with open(p, "rb") as fh:
                         head = fh.read(4096)
                     if b"\0" in head:
@@ -674,10 +695,18 @@ def main(argv):
                         # a text scanner. Its PATH is still scanned above, which
                         # is the surface that actually leaked.
                         continue
+                    if os.path.getsize(p) > MAX_SCAN_BYTES:
+                        unscanned.append("%s (larger than the %d-byte scan cap)"
+                                         % (p, MAX_SCAN_BYTES))
+                        continue
                     with open(p, "r", encoding="utf-8", errors="replace") as fh:
                         pairs.append(("content of %s" % p, fh.read()))
-                except OSError:
+                except FileNotFoundError:
                     pass
+                except IsADirectoryError:
+                    pass            # a directory has no text; its files are listed on their own
+                except OSError as exc:
+                    unscanned.append("%s (%s)" % (p, exc.strerror or exc))
 
         try:
             rows = scan_texts(dl, pairs)
@@ -685,6 +714,11 @@ def main(argv):
             return emit("BROKEN", str(exc))
         if rows:
             return emit("FOUND", None, rows)
+        if mode in ("--scan-files", "--scan-file-list") and unscanned:
+            return emit("BROKEN",
+                        "%d file(s) could not be scanned, so the rest being clean does not "
+                        "make the set clean: %s" % (len(unscanned), "; ".join(unscanned[:5])
+                                                     + (" ..." if len(unscanned) > 5 else "")))
         return emit("CLEAN")
 
     sys.stderr.write(__doc__ or "")
