@@ -263,9 +263,18 @@ const SHOT_MIN_DISTINCT = 8;
 //     `RICHOS_SHOTS_REGENERATE=<file|dir|all>`, the same switch `lib/shot-stability.js` names —
 //     which a person runs in their own worktree and then commits, with the reason;
 //   * otherwise the picture this run took is kept at `.shots/changed/<same path>` and the line
-//     says so, with the exact command that accepts it. Nothing fails for it: a changed picture
-//     was never a failure here, and it is not made one now.
+//     says so, with the exact command that accepts it.
+//
+// AND A CHANGED PICTURE FAILS THE SUITE THAT TOOK IT (part-2 hunt section 25, 2026-09-29). The
+// rule above keeps the reference from being overwritten; it used to stop there, so a screen
+// that had visibly changed printed one log line and the suite went green: the comparison
+// existed and could not make anything fail. Now `publishShot` remembers every picture that
+// differs from its reference (or has none yet, outside a declared bound), and the suite's own
+// `report()` carries one housekeeping check naming each of them. The reference is still never
+// rewritten by the failing run: a person accepts the change with `RICHOS_SHOTS_REGENERATE`
+// and commits it with the reason, and the next run is green.
 const CHANGED_DIR = path.join(SHOT_DIR, "changed");
+const changedShots = [];
 
 function publishShot(buf, file) {
   file = path.resolve(file);
@@ -321,7 +330,15 @@ function publishShot(buf, file) {
       ". To accept it: RICHOS_SHOTS_REGENERATE=" + key + " node " + path.basename(process.argv[1] || "<suite>.js") +
       ", then commit it with one line saying why it changed"
   );
+  changedShots.push({ key, difference, outside, kept, accept: "RICHOS_SHOTS_REGENERATE=" + key });
   return { file, written: false, bytes: existing ? existing.length : 0, changed: true, kept };
+}
+
+/// Forget the pictures recorded as changed so far. ONLY for a self-test that deliberately
+/// publishes a picture different from its reference to prove the reference is not rewritten
+/// (`tracked-tree.js` check 1); a suite that took a real picture must never call this.
+function discardChangedShotsForSelfTest() {
+  changedShots.length = 0;
 }
 
 /// The same rule for a shot that already exists as a file — the `.shots/` scratch copy a suite
@@ -805,6 +822,7 @@ function skipSuite(label, reason) {
 }
 
 const TREE_CHECK = "the tracked tree is exactly as this suite found it";
+const SHOT_CHECK = "every picture this suite took matches its committed reference";
 
 function createRun(label) {
   const results = [];
@@ -829,10 +847,35 @@ function createRun(label) {
       const tree = TREE.verify();
       const seen = results.findIndex((r) => r.name === TREE_CHECK);
       if (seen >= 0) results.splice(seen, 1); // a second report() re-measures, never double-counts
+      // Housekeeping checks are appended by this function, not declared in the suite's source,
+      // so `run.js`'s coverage floor must not count them as the suite's own (hunt section 26):
+      // they carry `housekeeping: true` and `productChecks` below leaves them out.
+      const seenShot = results.findIndex((r) => r.name === SHOT_CHECK);
+      if (seenShot >= 0) results.splice(seenShot, 1);
+      if (changedShots.length) {
+        results.push({
+          name: SHOT_CHECK,
+          ok: false,
+          housekeeping: true,
+          detail:
+            changedShots.length + " picture(s) differ from the committed reference (or have none); " +
+            "the references were NOT rewritten:\n            " +
+            changedShots
+              .map(
+                (c) =>
+                  c.key + " — " + c.difference + c.outside + " — this run's picture: " +
+                  path.relative(path.resolve(__dirname, ".."), c.kept) + " — to accept: " + c.accept
+              )
+              .join("\n            ") +
+            "\n          If the change is intended, regenerate with RICHOS_SHOTS_REGENERATE=<file|dir|all>, " +
+            "run in your own worktree, and commit the new picture with one line saying why it changed.",
+        });
+      }
       if (tree.checked) {
         const ok = tree.changed.length === 0;
         results.push({
           name: TREE_CHECK,
+          housekeeping: true,
           ok,
           detail: ok
             ? ""
@@ -859,7 +902,10 @@ function createRun(label) {
       const failures = results
         .filter((r) => !r.ok)
         .map((r) => ({ check: r.name, message: String(r.detail || "").slice(0, 2000) }));
-      recordEvidence(Object.assign({ label, checks: results.length, failed }, failed ? { failures } : {}));
+      // `checks` is everything reported; `productChecks` is only what the suite's source declares
+      // (housekeeping excluded), the number `run.js` measures against the declared count.
+      const productChecks = results.filter((r) => !r.housekeeping).length;
+      recordEvidence(Object.assign({ label, checks: results.length, productChecks, failed }, failed ? { failures } : {}));
       return failed;
     },
   };
@@ -1533,6 +1579,7 @@ module.exports = {
   captureSettled,
   publishShot,
   publishShotFile,
+  discardChangedShotsForSelfTest,
   createRun,
   assert,
   assertEqual,

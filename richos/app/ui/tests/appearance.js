@@ -71,6 +71,7 @@ const {
   UI_DIR,
 } = require("./lib/harness");
 const SOURCES = require("./lib/ui-sources");
+const { collectPageErrors, createErrorTracker } = require("./lib/page-errors");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = "../shots-10-1";
@@ -257,11 +258,7 @@ async function openApp(browser, opts) {
     // (checks 1, 1b, 1c); none of them leaves it implicit.
     colorScheme: opts.osScheme || "light",
       });
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(String(e)));
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push("console: " + m.text());
-  });
+  collectPageErrors(page); // the live array is `page.__errors`, kept for the page's whole life
   await page.addInitScript(() => {
     // CAPTURE THE FIRST PAINT'S THEME, before anything can correct it.
     //
@@ -342,7 +339,6 @@ async function openApp(browser, opts) {
   // The hold is PROVEN on every walk that asked for one, not assumed. A curtain that left
   // early makes every assertion after this one a statement about the shell instead.
   if (opts.holdSplash) page.__curtain = await assertCurtainHeld(page);
-  page.__errors = errors;
   return page;
 }
 
@@ -415,11 +411,13 @@ async function main() {
   const { webkit } = loadPlaywright();
   const browser = await webkit.launch();
   const run = createRun("Appearance — two lightings, one type knob, and whose rail this is");
-  const allErrors = [];
-  const track = (p) => {
-    allErrors.push(...(p.__errors || []));
-    return p;
-  };
+  // EVERY PAGE'S LIVE ERROR ARRAY, read when check 18 runs. `openApp` hands each page an
+  // `errors` array that its `pageerror`/`console` listeners keep appending to for the page's
+  // whole life; this used to copy that array once, right after the page opened, so an error
+  // raised by any later click or shortcut never reached check 18 (part-2 hunt section 42).
+  const tracker = createErrorTracker();
+  const track = tracker.track;
+  const allErrors = tracker.all;
 
   // ---- 1. system is the default, against BOTH operating systems -------------------------
 
@@ -1927,8 +1925,9 @@ async function main() {
   });
 
   await run.check("18  no page errors anywhere in this suite", async () => {
-    assertEqual(allErrors, [], "uncaught errors or console errors during the walks above");
-    return allErrors.length + " uncaught errors, " + allErrors.length + " console errors";
+    const errors = allErrors();
+    assertEqual(errors, [], "uncaught errors or console errors during the walks above");
+    return errors.length + " uncaught or console errors across " + tracker.pageCount() + " page(s)";
   });
 
   await browser.close();
