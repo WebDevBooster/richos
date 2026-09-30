@@ -248,7 +248,23 @@ expect "C4 [shim] a notary key inside a git worktree -> refuse" 2 "is inside a g
 chmod 644 "$KEY"
 run notarize RICHOS_NOTARY_KEY="$KEY" RICHOS_NOTARY_KEY_ID=ABCDE12345 RICHOS_NOTARY_ISSUER=uuid
 expect "C5 [shim] a world-readable notary key -> refuse" 2 "readable by other users of this Mac"
+chmod 640 "$KEY"
+run notarize RICHOS_NOTARY_KEY="$KEY" RICHOS_NOTARY_KEY_ID=ABCDE12345 RICHOS_NOTARY_ISSUER=uuid
+expect "C5b [shim] a group-readable (640) notary key -> refuse" 2 "readable by other users of this Mac"
 chmod 600 "$KEY"
+
+# The updater key has the same rule: a group member can read a 640 key as well as a 644 one.
+UKEY="$KEYDIR/updater.key"
+printf 'not a real key\n' > "$UKEY"
+updater_dry() { shimmed env SHIM_IDENTITIES=1 TAURI_SIGNING_PRIVATE_KEY_PATH="$UKEY" bash "$SCRIPT" --updater --dry-run; }
+for mode in 640 644 604; do
+  chmod "$mode" "$UKEY"
+  run updater_dry
+  expect "C5c [shim] a mode-$mode updater key -> refuse" 2 "readable by other users of this Mac"
+done
+chmod 600 "$UKEY"
+run updater_dry
+expect "C5d [shim] a mode-600 updater key resolves" 0 "(mode 600)"
 
 run notarize RICHOS_NOTARY_KEY="$KEY" RICHOS_NOTARY_KEY_ID=ABCDE12345 RICHOS_NOTARY_ISSUER=uuid
 expect "C6 [shim] a complete API key resolves" 0 "notarization        : ON via App Store Connect API key ABCDE12345"

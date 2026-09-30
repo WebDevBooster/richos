@@ -884,8 +884,10 @@ PY
         exit 2
       fi
       nkey_mode="$(stat -f '%Lp' "$nkey")"
+      # Group digit OR other digit carrying a read bit: a 640 key is readable by every member
+      # of its group, which is other users of this Mac whenever the directory lets them in.
       case "$nkey_mode" in
-        *[4567])
+        *[4567]?|*?[4567])
           warn ""
           warn "REFUSING — $nkey is mode $nkey_mode: readable by other users of this Mac."
           warn "  chmod 600 it and re-run."
@@ -964,8 +966,9 @@ if [ -n "$updater" ]; then
       exit 2
     fi
     key_mode="$(stat -f '%Lp' "$updater_key_path")"
+    # Same rule as the notary key above: the group digit counts, not only the other digit.
     case "$key_mode" in
-      *[4567])
+      *[4567]?|*?[4567])
         warn ""
         warn "REFUSING — $updater_key_path is mode $key_mode: readable by other users of this Mac."
         warn "  chmod 600 it and re-run."
