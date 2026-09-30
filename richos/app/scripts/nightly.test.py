@@ -1334,6 +1334,8 @@ class ReleaseScriptTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        self.cargo_cache = tempfile.TemporaryDirectory()
+        self.addCleanup(self.cargo_cache.cleanup)
         root = Path(self.temp.name)
         self.scripts = root / 'richos/app/scripts'
         self.scripts.mkdir(parents=True)
@@ -1346,6 +1348,12 @@ class ReleaseScriptTests(unittest.TestCase):
             (self.scripts / lib).parent.mkdir(exist_ok=True)
             shutil.copy(Path(__file__).with_name(lib.split('/')[0]) / Path(lib).name,
                         self.scripts / lib)
+        # lib/cargo-target.sh in turn sources lib/cargo-cache-env.sh and names the bundle
+        # directory through ../bin/cargo (lib/cargo_identity.py). Without them the output
+        # lock resolves to "/release" and `app` refuses before packaging.
+        for rel in ('lib/cargo-cache-env.sh', 'lib/cargo_identity.py', 'bin/cargo'):
+            (self.scripts / rel).parent.mkdir(exist_ok=True)
+            shutil.copy2(Path(__file__).parent / rel, self.scripts / rel)
         self.config = root / n.CONFIG
         self.config.parent.mkdir(parents=True)
         (root / 'richos/engine').mkdir()
@@ -1392,7 +1400,10 @@ else:
         self.env = {**os.environ, 'PATH': str(self.bin) + ':' + os.environ['PATH'],
                     'FAKE_REMOTE': str(self.remote), 'FAKE_CARGO_ARGS': str(root / 'cargo-args'),
                     'FAKE_CHANNEL_ENDPOINT': n.ENDPOINT,
-                    'FAKE_REFUSALS': str(root / 'refused-urls')}
+                    'FAKE_REFUSALS': str(root / 'refused-urls'),
+                    # The bundle output lock lives in the test's own directory, outside the
+                    # fixture's Git tree and never in the shared Cargo cache.
+                    'RICHOS_CARGO_CACHE_ROOT': self.cargo_cache.name}
         self.assets()
 
     def test_candidate_engine_pin_and_receipt_keep_the_digest_url(self):
