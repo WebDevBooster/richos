@@ -480,6 +480,16 @@ $(printf '%s' "$dirty" | sed 's/^/    /')" 1
   local intent_args=(--release)
   [ "$IS_NIGHTLY" = "1" ] && intent_args=(--nightly "$VERSION")
 
+  # THE BUNDLE OUTPUT IS THIS RELEASE'S from the build to the last read of the bundle below
+  # (the pin and version checks, the probe, the first-install archive). package-app.sh
+  # holds the same lock for its own steps and sees that this caller already has it; without
+  # this, a second checkout could rebuild the bundle between package-app.sh returning and
+  # the archive below being made from it (hunt part 2, section 21).
+  . "$here/lib/cargo-target.sh"
+  . "$here/lib/output-lock.sh"
+  hold_output_lock "$(cargo_target_dir "$src_tauri")/release" 8 "make-release.sh app" \
+    || die "the bundle output is another packaging run's until it finishes; nothing was built" 1
+
   env "${notarize_env[@]+"${notarize_env[@]}"}" \
       RICHOS_ENGINE_VERSION="$RICHOS_ENGINE_VERSION" \
       RICHOS_ENGINE_URL="$RICHOS_ENGINE_URL" \

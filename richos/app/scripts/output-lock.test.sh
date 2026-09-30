@@ -16,8 +16,11 @@
 #   O5  two different directories do not block each other
 #   O6  make-engine-asset.sh writes nothing into an output directory another run holds
 #   O7  ...and builds normally once that run is gone
+#   O8  package-app.sh goes no further while another run holds its bundle output
+#   O9  a caller holding the bundle output (make-release.sh app) does not block its own
+#       package-app.sh
 #
-# run-tests: inputs richos/app/scripts/output-lock.test.sh richos/app/scripts/lib/output-lock.sh richos/app/scripts/make-engine-asset.sh richos/app/scripts/verify-engine-asset-members.sh LICENSE
+# run-tests: inputs richos/app/scripts/output-lock.test.sh richos/app/scripts/lib/output-lock.sh richos/app/scripts/make-engine-asset.sh richos/app/scripts/verify-engine-asset-members.sh richos/app/scripts/package-app.sh richos/app/scripts/make-release.sh richos/app/scripts/lib/cargo-target.sh LICENSE
 # run-tests: covers richos/app/scripts/lib/output-lock.sh
 set -uo pipefail
 
@@ -159,6 +162,49 @@ if [ "$CODE" -eq 0 ] && [ -s "$ASSET_OUT/richos-engine-1.0.0.tar.gz" ] && [ -s "
     ok "O7 make-engine-asset.sh builds normally once the other run is gone"
 else
     bad "O7 make-engine-asset.sh builds normally once the other run is gone" "exit $CODE: $(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
+fi
+
+# ---------------------------------------------------------------------------------------
+# O8-O9: the Tauri bundle, stopped at the first refusal after the lock
+# ---------------------------------------------------------------------------------------
+# package-app.sh takes the bundle output's lock right after its prerequisites, before the
+# signing mode is resolved. So `--sign developer-id` on a machine reporting no identity (a
+# `security` shim, as package-app.test.sh B1 uses) is a refusal that can only be reached
+# PAST the lock, and no case here compiles, downloads or signs anything. The cargo shim only
+# answers the prerequisite `cargo tauri --version`. CARGO_TARGET_DIR is the shared directory
+# both checkouts would resolve.
+SHIM="$WORK/shim"; mkdir -p "$SHIM"
+printf '#!/usr/bin/env bash\ncase "$*" in *--version*) echo "tauri-cli 2.11.4"; exit 0 ;; esac\nexit 9\n' > "$SHIM/cargo"
+printf '#!/usr/bin/env bash\necho "     0 valid identities found"\n' > "$SHIM/security"
+chmod +x "$SHIM/cargo" "$SHIM/security"
+PAST_THE_LOCK='install-signing-cert.sh'
+TARGET="$WORK/shared-cargo-target"
+mkdir -p "$TARGET/release"
+hold_from_outside "$TARGET/release" "$WORK/release-4" || bad "O8 fixture holder" "never took the lock"
+OUT="$(PATH="$SHIM:$PATH" CARGO_TARGET_DIR="$TARGET" RICHOS_OUTPUT_LOCK_WAIT=2 \
+    bash "$DIR/package-app.sh" --sign developer-id 2>&1)"; CODE=$?
+if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'another packaging run' \
+        && ! printf '%s' "$OUT" | grep -q "$PAST_THE_LOCK"; then
+    ok "O8 package-app.sh goes no further while another run holds its bundle output"
+else
+    bad "O8 package-app.sh goes no further while another run holds its bundle output" \
+        "exit $CODE: $(printf '%s' "$OUT" | grep -v '^ *$' | tail -3 | tr '\n' ' ')"
+fi
+rm -f "$WORK/release-4"
+wait "${HOLDERS[${#HOLDERS[@]}-1]}" 2>/dev/null
+
+# make-release.sh app takes the bundle output first, and holds it across package-app.sh and
+# its own use of the bundle afterwards. package-app.sh, its child, must go past the lock
+# rather than wait on its own caller.
+OUT="$(PATH="$SHIM:$PATH" CARGO_TARGET_DIR="$TARGET" RICHOS_OUTPUT_LOCK_WAIT=2 \
+    bash -c '. "$1"; hold_output_lock "$2" 8 "make-release.sh app" || exit 3; bash "$3" --sign developer-id 2>&1; exit 0' \
+    _ "$LOCK_LIB" "$TARGET/release" "$DIR/package-app.sh" 2>&1)"; CODE=$?
+if [ "$CODE" -eq 0 ] && printf '%s' "$OUT" | grep -q "$PAST_THE_LOCK" \
+        && ! printf '%s' "$OUT" | grep -q 'another packaging run'; then
+    ok "O9 a caller's hold on the bundle output does not block its own package-app.sh"
+else
+    bad "O9 a caller's hold on the bundle output does not block its own package-app.sh" \
+        "exit $CODE: $(printf '%s' "$OUT" | grep -v '^ *$' | tail -3 | tr '\n' ' ')"
 fi
 
 echo ""
