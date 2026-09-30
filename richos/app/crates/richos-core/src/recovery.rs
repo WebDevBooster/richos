@@ -222,10 +222,19 @@ impl Reconciliation {
 /// is never adopted at all"*.
 pub fn reconcile(state: &Path, repositories: &dyn Repositories) -> Reconciliation {
     let mut report = Reconciliation::default();
-    let open = match assignment::open(state) {
-        Ok(open) => open,
+    // **One damaged record does not stop the others being reconciled** (hunt part 1 finding
+    // 08). It used to: the first file that failed to parse, often long-finished work, ended
+    // the sweep before any healthy open assignment was looked at. Unreadable is still
+    // reported, never counted as zero and never called finished (§6.1's standing rule); it
+    // is just no longer the whole answer.
+    let open = match assignment::scan_open(state) {
+        Ok(scan) => {
+            if let Some(first) = scan.unreadable.first() {
+                report.unreadable = Some(format!("{} assignment record(s) could not be read: {first}", scan.unreadable.len()));
+            }
+            scan.rows
+        }
         Err(error) => {
-            // Unreadable is reported, never counted as zero (§6.1's standing rule).
             report.unreadable = Some(error.to_string());
             return report;
         }
@@ -889,6 +898,48 @@ mod tests {
         // Nothing was said about it: he was already told, and telling him twice about the
         // same waiting decision is noise pretending to be diligence.
         assert!(record.notices.is_empty());
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    /// Where the register keeps this assignment's record.
+    fn record_path(state: &Path, id: &str) -> PathBuf {
+        for partition in std::fs::read_dir(state.join("assignments")).unwrap().flatten() {
+            let path = partition.path().join(format!("{id}.json"));
+            if path.exists() {
+                return path;
+            }
+        }
+        panic!("no record for {id}");
+    }
+
+    /// **Hunt part 1 finding 08** (richos-hq `docs/audits/2026-09-29-hunt/part-1-codex.md`):
+    /// one damaged record of long-finished work, on the same conversation as a job that was
+    /// running when RichOS closed. The damaged one is REPORTED (never counted as zero and
+    /// never called finished), and the healthy one is still reconciled: it comes back
+    /// `unknown` with its notice, he is handed that notice, and he can pick it back up.
+    #[test]
+    fn one_damaged_record_is_reported_and_every_healthy_open_one_is_still_reconciled() {
+        let state = root();
+        let old = assignment::register(&state, &registration("obligation-old")).unwrap();
+        assignment::advance(&state, "depot", "thread-one", &old.id, AssignmentState::Settled, "Finished.").unwrap();
+        let running = assignment::register(&state, &registration("obligation-1")).unwrap();
+        assignment::advance(&state, "depot", "thread-one", &running.id, AssignmentState::Running, "Running.").unwrap();
+        std::fs::write(record_path(&state, &old.id), b"{\"schema\":1,\"half").unwrap();
+
+        let report = reconcile(&state, &at(&"a".repeat(40)));
+
+        assert!(report.unreadable.is_some(), "the damaged record was not reported: {report:?}");
+        assert_eq!(report.unknown.len(), 1, "the healthy open job was abandoned: {report:?}");
+        let row = assignment::read(&state, "depot", "thread-one", &running.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Unknown);
+        assert!(report.log_message().contains("could not be read"), "{}", report.log_message());
+        // What recovery raised reaches him, and the way out works, with the damaged file still there.
+        let told = assignment::take_pending_notices(&state, "depot", "thread-one").unwrap();
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert_eq!(told[0].kind, NoticeKind::Unknown);
+        assignment::pick_up(&state, "depot", "thread-one", "landing obligation-1").unwrap();
+        assert_eq!(assignment::read(&state, "depot", "thread-one", &running.id).unwrap().state,
+                   AssignmentState::Registered);
         std::fs::remove_dir_all(state).unwrap();
     }
 

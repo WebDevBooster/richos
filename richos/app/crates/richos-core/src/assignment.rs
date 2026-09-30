@@ -822,10 +822,33 @@ fn read_one(path: &Path, entity: &str, thread: &str) -> Result<Assignment, Assig
 /// Every assignment on this thread, oldest first. A damaged record is an error, never an
 /// omission — spec §6.1's rule that unreadable evidence is reported, not counted as zero.
 pub fn read_all(state: &Path, entity: &str, thread: &str) -> Result<Vec<Assignment>, AssignmentError> {
+    let scan = scan_all(state, entity, thread)?;
+    match scan.unreadable.into_iter().next() {
+        Some(error) => Err(error),
+        None => Ok(scan.rows),
+    }
+}
+
+/// **What a walk of the register could read, and what it could not** (hunt part 1 finding
+/// 08, richos-hq `docs/audits/2026-09-29-hunt/part-1-codex.md`). One damaged record used to
+/// end the whole walk, so a single broken file of long-finished work stopped recovery, and
+/// the delivery of what recovery raised, for every healthy open assignment beside it. A scan
+/// keeps both halves: the rows it read, and one error for each record it could not. It never
+/// drops the second half, so a caller cannot read "nothing unreadable" into it by accident.
+#[derive(Debug, Default)]
+pub struct Scan {
+    pub rows: Vec<Assignment>,
+    pub unreadable: Vec<AssignmentError>,
+}
+
+/// [`read_all`], keeping every record it can read beside the ones it cannot. An `Err` is only
+/// a folder that could not be listed at all. Callers that must never mistake a partial list
+/// for a whole one keep using [`read_all`].
+pub fn scan_all(state: &Path, entity: &str, thread: &str) -> Result<Scan, AssignmentError> {
     let root = folder(state, entity, thread)?;
     let entries = match std::fs::read_dir(&root) {
         Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Scan::default()),
         Err(_) => return Err(AssignmentError("Assignments could not be read.".into())),
     };
     let mut paths = Vec::new();
@@ -841,12 +864,15 @@ pub fn read_all(state: &Path, entity: &str, thread: &str) -> Result<Vec<Assignme
         }
     }
     paths.sort();
-    let mut rows: Vec<Assignment> = Vec::new();
+    let mut scan = Scan::default();
     for path in paths {
-        rows.push(read_one(&path, entity, thread)?);
+        match read_one(&path, entity, thread) {
+            Ok(row) => scan.rows.push(row),
+            Err(error) => scan.unreadable.push(error),
+        }
     }
-    rows.sort_by_key(|row| (row.registered_at_ms, row.id.clone()));
-    Ok(rows)
+    scan.rows.sort_by_key(|row| (row.registered_at_ms, row.id.clone()));
+    Ok(scan)
 }
 
 /// The row's detail when he has said to pick back up work RichOS closed on.
@@ -864,11 +890,22 @@ pub const PICKED_UP_DETAIL: &str = "You asked for it to be picked back up. It is
 /// is ever moved by this.
 pub fn pick_up(state: &Path, entity: &str, thread: &str, title: &str) -> Result<Receipt, AssignmentError> {
     let title = sanitize_title(title)?;
-    let found = read_all(state, entity, thread)?
+    // A damaged record elsewhere on the conversation does not take his way out of an
+    // unknown one away (finding 08). If the one he named is not among the rows that could be
+    // read, and some could not, that is what he is told, never "nothing by that name".
+    let mut scan = scan_all(state, entity, thread)?;
+    let found = scan
+        .rows
         .into_iter()
         .filter(|row| row.state == AssignmentState::Unknown && row.title == title)
-        .max_by_key(|row| (row.updated_at_ms, row.registered_at_ms))
-        .ok_or_else(|| AssignmentError("nothing by that name is waiting to be picked back up in this conversation".into()))?;
+        .max_by_key(|row| (row.updated_at_ms, row.registered_at_ms));
+    let found = match found {
+        Some(found) => found,
+        None if !scan.unreadable.is_empty() => return Err(scan.unreadable.remove(0)),
+        None => {
+            return Err(AssignmentError("nothing by that name is waiting to be picked back up in this conversation".into()))
+        }
+    };
     advance(state, entity, thread, &found.id, AssignmentState::Registered, PICKED_UP_DETAIL)?;
     Ok(Receipt { id: found.id, title: found.title, kind: found.kind })
 }
@@ -1019,7 +1056,14 @@ pub fn take_pending_notices(
     entity: &str,
     thread: &str,
 ) -> Result<Vec<PendingNotice>, AssignmentError> {
-    let rows = read_all(state, entity, thread)?;
+    // Every notice that can be read is handed over; a damaged record's cannot be, and it is
+    // said on stderr rather than taking the healthy ones with it (finding 08). The boot
+    // reconciliation reports it as unreadable in its own line.
+    let scan = scan_all(state, entity, thread)?;
+    for error in &scan.unreadable {
+        eprintln!("[richos] assignments: a record on this conversation could not be read, so its notices wait: {error}");
+    }
+    let rows = scan.rows;
     let at = now_ms();
     let mut pending = Vec::new();
     for row in rows {
@@ -1053,16 +1097,29 @@ pub fn take_pending_notices(
 /// walks partitions rather than one thread because quit does not know which conversation
 /// is open, and an assignment on another thread is still running work.
 pub fn open(state: &Path) -> Result<Vec<Assignment>, AssignmentError> {
+    let scan = scan_open(state)?;
+    match scan.unreadable.into_iter().next() {
+        Some(error) => Err(error),
+        None => Ok(scan.rows),
+    }
+}
+
+/// [`open`], keeping every open record it can read beside one error for each record it
+/// cannot (finding 08; see [`Scan`]). A damaged record is not known to be open or closed, so
+/// it is never among the rows and never dropped from the errors. An `Err` is only a register
+/// that could not be listed at all. The boot reconciliation reads this; the quit and settle
+/// checks keep [`open`], where a partial list must never read as the whole one.
+pub fn scan_open(state: &Path) -> Result<Scan, AssignmentError> {
     let parent = state.join("assignments");
     if parent.is_symlink() {
         return Err(AssignmentError("Assignment records have been redirected.".into()));
     }
     let partitions = match std::fs::read_dir(&parent) {
         Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Scan::default()),
         Err(_) => return Err(AssignmentError("Assignments could not be read.".into())),
     };
-    let mut rows = Vec::new();
+    let mut scan = Scan::default();
     for partition in partitions {
         let directory = partition.map_err(|_| AssignmentError("Assignments could not be listed.".into()))?.path();
         if !directory.is_dir() || directory.is_symlink() {
@@ -1073,19 +1130,24 @@ pub fn open(state: &Path) -> Result<Vec<Assignment>, AssignmentError> {
         for file in files {
             let path = file.map_err(|_| AssignmentError("Assignments could not be listed.".into()))?.path();
             if path.extension().is_some_and(|e| e == "json") {
-                let bytes = std::fs::read(&path)
-                    .map_err(|_| AssignmentError("An assignment record could not be read.".into()))?;
-                let record: Assignment = serde_json::from_slice(&bytes).map_err(|_| {
-                    AssignmentError("An assignment record is damaged or was written by a newer RichOS.".into())
-                })?;
+                let Ok(bytes) = std::fs::read(&path) else {
+                    scan.unreadable.push(AssignmentError("An assignment record could not be read.".into()));
+                    continue;
+                };
+                let Ok(record) = serde_json::from_slice::<Assignment>(&bytes) else {
+                    scan.unreadable.push(AssignmentError(
+                        "An assignment record is damaged or was written by a newer RichOS.".into(),
+                    ));
+                    continue;
+                };
                 if record.schema == 1 && record.state.is_open() {
-                    rows.push(record);
+                    scan.rows.push(record);
                 }
             }
         }
     }
-    rows.sort_by_key(|row| (row.registered_at_ms, row.id.clone()));
-    Ok(rows)
+    scan.rows.sort_by_key(|row| (row.registered_at_ms, row.id.clone()));
+    Ok(scan)
 }
 
 /// The sentences. They live together so the one distinction the CEO is most likely to be
