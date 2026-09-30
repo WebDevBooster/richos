@@ -84,6 +84,9 @@
 #        kept for ever: the instance is quit (S20b) and the act is logged
 #        (S20c). §54 addendum 4 — the instance IS the garbage, and it pins the
 #        rest. Any other holder, or a mixed set, still means KEEP (that is S19).
+#        A second richos-tauri runs OUTSIDE this suite's tree throughout, as
+#        a peer's `cargo test --bin richos-tauri` does on a busy Mac, and is
+#        left running (S20d).
 #
 #   S21  DENY-BY-DEFAULT OVER $TMPDIR AND THE SHARED TEMP ROOTS. Frank's D1/D2,
 #        and they were the absence of a check rather than the defeat of one: a
@@ -263,11 +266,29 @@ while stack:
     tree.append(pid)
     stack.extend(children.get(pid, []))
 if "-p" in args:
-    requested = args[args.index("-p") + 1].split(",")
-    if any(not pid.isdecimal() or (pid not in tree and pid in {p for values in children.values() for p in values}) for pid in requested):
+    at = args.index("-p") + 1
+    requested = args[at].split(",")
+    if any(not pid.isdecimal() for pid in requested):
+        sys.stderr.write("scoped lsof: refusing a PID list it cannot read\n")
+        sys.exit(99)
+    # A LIVE PID OUTSIDE THIS SUITE'S TREE IS DROPPED, NOT A REASON TO REFUSE
+    # THE REST. appinstances shortlists every process on the Mac whose argv
+    # carries `richos-tauri`, so a peer's `cargo test --bin richos-tauri` lands
+    # in the same `-p` list as this suite's fake instance. Refusing the whole
+    # query answered nothing about the fake either, and S20 failed on any busy
+    # Mac (the 2026-09-30 merge of echo-sonnet-app1). Dropping it is the same
+    # narrowing the scoped form makes with `-a -p <tree>`: the foreign process
+    # is never read, and the reaper sees it holding nothing, which is LEAVE.
+    # A pid in no process table at all is passed through as before; lsof
+    # reports nothing for it. Only a list with nothing of ours left is refused.
+    live = {p for values in children.values() for p in values}
+    foreign = [pid for pid in requested if pid not in tree and pid in live]
+    kept = [pid for pid in requested if pid not in foreign]
+    if not kept:
         sys.stderr.write("scoped lsof: refusing a PID outside the fixture\n")
         sys.exit(99)
-    mode = "pid-list"
+    args[at] = ",".join(kept)
+    mode = "pid-list" if not foreign else "pid-list-narrowed"
 else:
     args = ["-a", "-p", ",".join(tree)] + args
     mode = "scoped"
@@ -1340,6 +1361,22 @@ int main(void) {
 CSRC
     mkdir -p "$W_ROOT/appbin"
     if cc -o "$W_ROOT/appbin/richos-tauri" "$W_ROOT/fake.c" 2>/dev/null; then
+        # A SECOND richos-tauri OUTSIDE THIS SUITE'S PROCESS TREE, holding
+        # nothing. The Mac this suite runs on is never quiet: during the
+        # 2026-09-30 merge of echo-sonnet-app1, `cargo test --bin richos-tauri`
+        # ran in parallel with this case, appinstances shortlisted it by that
+        # argv token and asked `lsof -p <fake>,<cargo>`, and the scoped lsof
+        # REFUSED the whole query because one pid lay outside the fixture. No
+        # answer made every instance INDETERMINATE, so S20, S20b and S20c all
+        # failed for a reason that had nothing to do with the reaper. The
+        # decoy makes that condition part of the case instead of an accident
+        # of scheduling: it is reparented to launchd by the subshell exiting,
+        # so it is outside the tree exactly as a peer's process is.
+        DECOY_PIDFILE="$W_ROOT/decoy.pid"
+        ( "$W_ROOT/appbin/richos-tauri" >/dev/null 2>&1 &
+          echo $! >"$DECOY_PIDFILE" )
+        DECOY_PID="$(cat "$DECOY_PIDFILE" 2>/dev/null || true)"
+        [ -n "$DECOY_PID" ] && KILL_LIST="$KILL_LIST $DECOY_PID"
         APP_STATE="$W_TMP/richos-scratch/99999996-appheld/app.state" \
             "$W_ROOT/appbin/richos-tauri" >/dev/null 2>&1 &
         APP_PID=$!
@@ -1376,15 +1413,25 @@ CSRC
             sed -n '1,20p' "$W_HOME/state/scratch-reaper.log" 2>/dev/null \
                 | sed 's/^/        /'
         fi
+        # The decoy holds nothing under any scratch root, so it is not a test
+        # instance and must still be running: deny-by-default, whoever it is.
+        if [ -n "$DECOY_PID" ] && kill -0 "$DECOY_PID" 2>/dev/null; then
+            ok "S20d a richos-tauri outside the fixture holding no scratch was left running"
+        else
+            bad "S20d the decoy richos-tauri outside the fixture is gone (pid ${DECOY_PID:-none})"
+        fi
+        [ -n "$DECOY_PID" ] && kill -9 "$DECOY_PID" 2>/dev/null || true
     else
         ok "S20  SKIPPED — the fixture would not compile on this host"
         ok "S20b SKIPPED — the fixture would not compile on this host"
         ok "S20c SKIPPED — the fixture would not compile on this host"
+        ok "S20d SKIPPED — the fixture would not compile on this host"
     fi
 else
     ok "S20  SKIPPED — lsof or cc is not on this host"
     ok "S20b SKIPPED — lsof or cc is not on this host"
     ok "S20c SKIPPED — lsof or cc is not on this host"
+    ok "S20d SKIPPED — lsof or cc is not on this host"
 fi
 
 # ===========================================================================

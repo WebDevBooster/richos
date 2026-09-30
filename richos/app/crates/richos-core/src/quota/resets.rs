@@ -581,10 +581,16 @@ impl Service {
         self.save(&record)?;
         Ok(self.view())
     }
+    /// The one-use fence: a recorded attempt on this grant, or ANY uncertain attempt (the network
+    /// outcome is unknown, so a duplicate redemption cannot be ruled out), blocks a new one.
+    /// The exception is a definite `notUsed` answer (`not_limited`, `cooldown`, `ineligible`):
+    /// the service said nothing was consumed, so the same grant can be offered and used again
+    /// once it becomes eligible.
     fn attempt_blocks(r: &Record, grant: &str) -> bool {
-        r.attempts
-            .iter()
-            .any(|a| a.account == r.account && (a.grant_id == grant || a.outcome == "uncertain"))
+        r.attempts.iter().any(|a| {
+            a.account == r.account
+                && ((a.grant_id == grant && a.outcome != "notUsed") || a.outcome == "uncertain")
+        })
     }
     pub fn use_approved(
         &self,
@@ -1030,6 +1036,29 @@ mod tests {
         terminal.refresh_transport(&mut t).unwrap();
         assert!(terminal.approve(&terminal.view().offers[0]).is_err());
         assert_eq!(t.posts, 1);
+    }
+
+    #[test]
+    fn a_definite_not_used_answer_does_not_fence_the_same_grant_out_forever() {
+        let root = Scratch::new();
+        let mut t = Fake::new(99.);
+        let service = seeded(root.path(), &mut t);
+        approve(&service);
+        t.reply = Ok(json!({"result":"cooldown"}));
+        let v = service.use_approved(&mut t, || true).unwrap();
+        assert_eq!(v.last_attempt.unwrap().outcome, "notUsed");
+        assert_eq!(t.posts, 1);
+        // A later offer for the SAME grant id says it is available again.
+        service.refresh_transport(&mut t).unwrap();
+        service.approve(&service.view().offers[0]).expect("a notUsed grant must be approvable again");
+        t.reply = Ok(json!({"result":"reset"}));
+        let v = service.use_approved(&mut t, || true).unwrap();
+        assert_eq!(v.last_attempt.unwrap().outcome, "used");
+        assert_eq!(t.posts, 2);
+        // A grant that really was used stays fenced.
+        service.refresh_transport(&mut t).unwrap();
+        assert!(service.approve(&service.view().offers[0]).is_err());
+        assert_eq!(t.posts, 2);
     }
 
     #[test]

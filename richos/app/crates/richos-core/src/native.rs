@@ -3278,8 +3278,11 @@ fn read_npmrc_prefix(home: &str) -> Option<String> {
     let text = std::fs::read_to_string(Path::new(home).join(".npmrc")).ok()?;
     for line in text.lines() {
         let line = line.trim();
-        let rest = line.strip_prefix("prefix")?.trim_start();
-        let value = rest.strip_prefix('=')?.trim();
+        // A line that is not the `prefix` setting (blank, comment, another key) is skipped, not
+        // a reason to stop reading: the real prefix can be on any later line.
+        let Some(rest) = line.strip_prefix("prefix") else { continue };
+        let Some(value) = rest.trim_start().strip_prefix('=') else { continue };
+        let value = value.trim();
         if !value.is_empty() {
             return Some(value.trim_matches('"').trim_matches('\'').to_string());
         }
@@ -5438,6 +5441,23 @@ printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"ty
         let env = ClaudeBinEnv { homebrew_prefixes: vec![dir.display().to_string()], ..Default::default() };
         let found = search_claude_bin(&env).expect("a Homebrew-style install must resolve");
         assert_eq!(found, bin);
+    }
+
+    #[test]
+    fn read_npmrc_prefix_finds_the_prefix_after_comments_blanks_and_other_keys() {
+        let home = fixture_root().join(format!("richos-npmrc-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(
+            home.join(".npmrc"),
+            "# my settings\n\n; another comment\nregistry=https://example.invalid/\nprefixes = nope\nprefix = \"/opt/npm-global\"\n",
+        )
+        .unwrap();
+        assert_eq!(read_npmrc_prefix(&home.display().to_string()).as_deref(), Some("/opt/npm-global"));
+        // Prefix-first still works, and a file with no prefix reads as absent.
+        std::fs::write(home.join(".npmrc"), "prefix=/first\n").unwrap();
+        assert_eq!(read_npmrc_prefix(&home.display().to_string()).as_deref(), Some("/first"));
+        std::fs::write(home.join(".npmrc"), "# only a comment\nregistry=x\n").unwrap();
+        assert_eq!(read_npmrc_prefix(&home.display().to_string()), None);
     }
 
     #[test]
