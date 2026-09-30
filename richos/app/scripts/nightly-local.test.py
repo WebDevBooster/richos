@@ -94,8 +94,10 @@ class LocalTests(unittest.TestCase):
 
         with patch.object(m, "owned_run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             r.gates()
-        # Eight gates, the UI suite's own worktree (rev-parse, worktree add), its cleanup.
-        self.assertEqual(len(seen), 11)
+        # Eight gates (workspace-mutants runs two commands: the fourteen-point pass and, since hunt
+        # part 4 finding 19, the other workspace passes), the UI suite's own worktree
+        # (rev-parse, worktree add), its cleanup.
+        self.assertEqual(len(seen), 12)
         for env in seen:
             self.assertEqual([name for name in env if m.is_credential(name)], [])
             self.assertEqual(env["RICHOS_NAMED_PERSONS_FILE"], "/fixture/list")
@@ -1140,7 +1142,7 @@ while True: time.sleep(.02)
 
     def test_default_runs_every_gate_and_names_each_one_in_the_timings(self):
         r, seen = self.gate_commands()
-        self.assertEqual(len(seen), 11)
+        self.assertEqual(len(seen), 12)
         self.assertEqual(r.skipped, {})
         # ORDER IS PART OF THE ASSERTION, not incidental. The release smoke is first
         # because it is the cheapest refusal in the build (0.2 s against ~950 s), and the
@@ -1202,7 +1204,7 @@ while True: time.sleep(.02)
         # its input is the release path itself rather than a tree whose sha was proved.
         self.assertTrue([c for c in joined if "release-smoke" in c], joined)
         # NO PROOF ON THIS MACHINE: every gate runs, and none is recorded as skipped.
-        self.assertEqual(len(seen), 11)
+        self.assertEqual(len(seen), 12)
         # The workspace-spec mutation pass is never dropped by this flag: a land does not run it
         # (CEO, 2026-09-23, "Only before nightlies"), so there is nothing a land proved.
         self.assertTrue([c for c in joined if "workspace-spec-fourteen" in c], joined)
@@ -1771,6 +1773,16 @@ while True: time.sleep(.02)
         self.assertEqual(len(mut), 1, argvs)
         self.assertEqual(mut[0].kwargs.get("env_extra"), {"RICHOS_FOURTEEN_MUTANTS": "1"})
         self.assertEqual(mut[0].kwargs.get("timeout"), m.GATE_BUDGETS[m.WORKSPACE_MUTANTS_GATE])
+        # ...and, at the same gate, the other workspace suites' mutation passes, which no land
+        # runs any more (hunt part 4 finding 19).
+        others = [c for c in r.command.call_args_list
+                  if "mega-lander/tests/workspaces.test.sh" in " ".join(str(a) for a in c.args)]
+        self.assertEqual(len(others), 1, argvs)
+        units = others[0].args[others[0].args.index("--only-units") + 1].split(",")
+        self.assertEqual(sorted(units), sorted(["mega-lander/tests/workspaces.test.sh",
+                                                "mega-lander/tests/create-teammate-worktree.test.sh",
+                                                "mega-lander/tests/workspace-probes.test.sh"]))
+        self.assertEqual(others[0].kwargs.get("env_extra"), {"RICHOS_MUTATION_PASSES": "1"})
 
     def test_release_never_skips_a_suite_over_unchanged_inputs(self):
         """A proof file on this host may excuse a suite for a CANDIDATE. It may never

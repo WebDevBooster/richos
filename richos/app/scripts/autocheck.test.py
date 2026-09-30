@@ -14,7 +14,10 @@ scratch ledger through the real escalate.sh. Nothing touches this repository or 
   LAND     a merge that breaks its owning suite is refused before main moves; a good one
            lands with a receipt; --no-verify and a fast-forward are recorded and the push
            then runs the checks; an uncovered path, a direct commit and a dirty tree are
-           refused; the land that introduces the check is checked by it.
+           refused; the land that introduces the check is checked by it. The merge gate
+           asks for proof-for.sh --gate, lints the change (--changed; the push: --all), caps
+           each check at 600 s and the gate at 900 s, and a check that reached no verdict is
+           named NOT RUN and never blocks; a failing one does.
   INSTALL  install, --check and --uninstall, a foreign hook left alone, a chain that
            would never call the hook reported.
 """
@@ -46,9 +49,16 @@ echo "Lint passed"
 """
 DRIVER = "# Fixture: this lint knows the commit mode, --changed, and --strict.\n"
 PROOF_FOR = """#!/usr/bin/env bash
-# Fixture selector: scripts/suite.sh proves every change under richos/app.
+# Fixture selector: scripts/suite.sh proves every change under richos/app. It takes the
+# merge gate's selection flag and records every call that asks for it.
 cd "$(dirname "$0")/../../.."
-shift
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --quiet) shift ;;
+        --gate) printf 'proof-for --gate %s\\n' "$*" >> "$AUTOCHECK_FIXTURE_LOG.select"; shift ;;
+        *) break ;;
+    esac
+done
 if [ "$1" = --paths ]; then
     paths=$(printf '%s\\n' "$2" | tr ',' '\\n')
 else
@@ -68,6 +78,39 @@ if printf '%s\\n' "$paths" | grep -q 'claims'; then
     echo "  cd richos/app/ui/tests && node quick.js"
     echo "  cd richos/app/ui/tests && node heavy.js"
 fi
+if printf '%s\\n' "$paths" | grep -q 'state'; then
+    echo "  cd richos/app && bash scripts/state.sh"
+fi
+if printf '%s\\n' "$paths" | grep -q 'device'; then
+    runner=scripts/run-tests.sh
+    echo "  cd richos/app && $runner --only phone-unit.test.sh --only front-door.test.sh --only native-ios-share.test.sh --no-host-screen"
+    echo "  cd richos/app && bash scripts/native-ios-ui.test.sh CaseA"
+fi
+"""
+# Fixture run-tests.sh: runs each --only suite in order and records it.
+RUN_TESTS = """#!/usr/bin/env bash
+cd "$(dirname "$0")/.."
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --only) printf 'suite %s\\n' "$2" >> "$AUTOCHECK_FIXTURE_LOG"; bash "scripts/$2" || exit 1; shift 2 ;;
+        *) shift ;;
+    esac
+done
+"""
+# Suites that need a device the merge never uses: they fail here, so running one refuses.
+SIMULATOR_SUITE = """#!/usr/bin/env bash
+# Fixture iPhone-simulator suite.
+printf 'ran-simulator-suite %s\\n' "$(basename "$0")" >> "$AUTOCHECK_FIXTURE_LOG"
+exit 1
+"""
+SCREEN_SUITE = """#!/usr/bin/env bash
+# run-tests: host-screen
+printf 'ran-screen-suite %s\\n' "$(basename "$0")" >> "$AUTOCHECK_FIXTURE_LOG"
+exit 1
+"""
+PHONE_UNIT = """#!/usr/bin/env bash
+# Fixture headless suite beside them.
+exit 0
 """
 # A document-vs-tree check that measures under a second (weight 0): fails when the claim in
 # src/claims.txt says FALSE. And a heavy suite selected beside it, which a commit never runs.
@@ -88,9 +131,15 @@ import subprocess
 import sys
 
 # Fixture runner, proof-run.py's contract: exit 0 all passed, 1 a check did not pass, 3 nothing
-# failed and a check was NOT RUN; --summary-out gets summary.json's rows. A command that prints
-# "NOT-RUN <why>" and exits 0 is a suite run-tests.sh did not run, for that reason.
+# failed and a check was NOT RUN; --summary-out gets summary.json's rows; outcomes.json is keyed
+# by check, with the reason an invalid result is invalid. A command that prints "NOT-RUN <why>"
+# and exits 0 is a suite run-tests.sh did not run, for that reason; one that prints
+# "STATE <state> [<reason>]" ended in that runner state (timed-out at its cap, ended at the run's
+# cap, not admitted, invalid for that reason). Its own arguments go to <log>.runner. It takes
+# --cap and --run-cap and leaves them to the real runner (proof-run.test.py P40).
 from pathlib import Path
+with open(os.environ["AUTOCHECK_FIXTURE_LOG"] + ".runner", "a") as log:
+    log.write(" ".join(sys.argv[1:]) + "\\n")
 directory = (Path(sys.argv[sys.argv.index("--log-dir") + 1]) if "--log-dir" in sys.argv
              else Path(os.environ["RICHOS_AUTOCHECK_PROOF_ROOT"]) / "legacy")
 directory.mkdir(parents=True, exist_ok=True)
@@ -98,14 +147,14 @@ previous = []
 if "--resume" in sys.argv:
     prior = Path(sys.argv[sys.argv.index("--resume") + 1])
     lines = json.loads((prior / "plan.json").read_text())
-    previous = json.loads((prior / "outcomes.json").read_text())
+    previous = list(json.loads((prior / "outcomes.json").read_text()).values())
     with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
         log.write("resume " + str(prior) + "\\n")
 else:
     lines = Path(sys.argv[sys.argv.index("--commands") + 1]).read_text().splitlines()
     if "--reuse" in sys.argv:
         prior = Path(sys.argv[sys.argv.index("--reuse") + 1])
-        previous = json.loads((prior / "outcomes.json").read_text())
+        previous = list(json.loads((prior / "outcomes.json").read_text()).values())
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("reuse " + str(prior) + "\\n")
 (directory / "plan.json").write_text(json.dumps(lines))
@@ -122,6 +171,7 @@ for line in lines:
         done = subprocess.run(["bash", "-c", line], stdout=subprocess.PIPE, text=True)
         sys.stdout.write(done.stdout)
         said = [l.split()[1] for l in done.stdout.splitlines() if l.startswith("NOT-RUN ")]
+        ended = [l.split(None, 2)[1:] for l in done.stdout.splitlines() if l.startswith("STATE ")]
         if done.returncode:
             print("FAILED " + line)
             rows.append({"check": line, "result": "failed", "not_run": None})
@@ -129,9 +179,13 @@ for line in lines:
             print("NOT RUN (%s) " % said[0] + line)
             rows.append({"check": line, "result": "not-run",
                          "not_run": {"why": said[0], "suites": [{"name": line, "state": "notrun", "reason": said[0]}]}})
+        elif ended:
+            print("%s %s" % (ended[0][0].upper(), line))
+            rows.append({"check": line, "result": ended[0][0], "not_run": None,
+                         **({"invalid": ended[0][1]} if len(ended[0]) > 1 else {})})
         else:
             rows.append({"check": line, "result": "passed", "not_run": None})
-(directory / "outcomes.json").write_text(json.dumps(rows))
+(directory / "outcomes.json").write_text(json.dumps({row["check"]: row for row in rows}))
 if "--summary-out" in sys.argv:
     with open(sys.argv[sys.argv.index("--summary-out") + 1], "w") as out:
         json.dump({"checks": rows}, out)
@@ -152,6 +206,12 @@ SCREEN = """#!/usr/bin/env bash
 cd "$(dirname "$0")/.."
 echo "NOT-RUN $(cat src/screen.txt)"
 """
+STATE = """#!/usr/bin/env bash
+# Fixture check that ends in the runner state src/state.txt names (and its reason, if any).
+cd "$(dirname "$0")/.."
+echo "STATE $(cat src/state.txt)"
+"""
+ENDED = "cancelled"  # dialect-exempt: proof-run.py's state value for a check its run ended
 
 
 class Fixture(unittest.TestCase):
@@ -177,6 +237,11 @@ class Fixture(unittest.TestCase):
         for rel, text, mode in (("scripts/lint.sh", LINT, 0o755), ("scripts/lint/driver.py", DRIVER, 0o644),
                                 ("scripts/proof-for.sh", PROOF_FOR, 0o755), ("scripts/proof-run.py", PROOF_RUN, 0o644),
                                 ("scripts/suite.sh", SUITE, 0o755), ("scripts/screen.sh", SCREEN, 0o755),
+                                ("scripts/state.sh", STATE, 0o755), ("scripts/run-tests.sh", RUN_TESTS, 0o755),
+                                ("scripts/native-ios-share.test.sh", SIMULATOR_SUITE, 0o755),
+                                ("scripts/native-ios-ui.test.sh", SIMULATOR_SUITE, 0o755),
+                                ("scripts/front-door.test.sh", SCREEN_SUITE, 0o755),
+                                ("scripts/phone-unit.test.sh", PHONE_UNIT, 0o755),
                                 ("ui/tests/quick.js", QUICK, 0o644), ("ui/tests/heavy.js", HEAVY, 0o644),
                                 ("ui/tests/suite-weights.tsv", WEIGHTS, 0o644),
                                 ("src/thing.txt", "fine\n", 0o644), ("src/claims.txt", "true\n", 0o644)):
@@ -224,6 +289,10 @@ class Fixture(unittest.TestCase):
 
     def tools(self):
         return self.log.read_text() if self.log.exists() else ""
+
+    def side_log(self, suffix):
+        path = Path(str(self.log) + suffix)
+        return path.read_text() if path.exists() else ""
 
     def recorded(self):
         return self.ledger.read_text() if self.ledger.exists() else ""
@@ -589,7 +658,89 @@ class Land(Fixture):
         self.assertIn("suite: FAIL src/thing.txt is broken", text)
         self.assertEqual(self.head("main"), before)
         self.assertIn("run cd richos/app && bash scripts/suite.sh", self.tools())
-        self.assertIn("lint --all", self.tools())
+        self.assertIn("lint --changed", self.tools())
+        self.git("merge", "--abort")
+
+    def test_the_merge_gate_selects_with_gate_lints_the_change_and_caps_the_run(self):
+        # 2026-09-30: merges of 25 to 71 minutes, whole-product suites for tooling changes and
+        # no cap that a planned weight could not stretch. The land asks proof-for.sh for the
+        # merge gate's selection, lints what the merge changes against the main it lands on, and
+        # hands the runner a 600 s cap per check and the rest of the gate's 900 s for the run.
+        self.make()
+        self.branch_with("feature", "richos/app/src/thing.txt", "fine, better\n")
+        self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertIn("proof-for --gate", self.side_log(".select"))
+        self.assertIn("lint --changed", self.tools())
+        self.assertNotIn("lint --all", self.tools())
+        runner = self.side_log(".runner")
+        self.assertIn("--cap 600", runner)
+        left = int(runner.split("--run-cap ")[1].split()[0])
+        self.assertTrue(60 <= left <= 900, runner)
+
+    def test_a_check_that_reached_no_verdict_is_named_and_never_blocks(self):
+        # Over its cap, ended at the gate's cap, not admitted, a NOT RUN for any reason, or a pass
+        # invalidated only because its inputs moved during the run: none of these is a failure
+        # of the change, so none refuses the land. Each is named in the verdict and the receipt.
+        self.make()
+        cases = (("timed-out", "over its 600 s cap"), (ENDED, "ended at the gate's 900 s cap"),
+                 ("not-admitted", "not admitted"),
+                 ("invalid execution inputs changed during the check", "what it read changed while the gate ran"))
+        for n, (state, why) in enumerate(cases):
+            self.branch_with(f"feature{n}", "richos/app/src/state.txt", state + "\n")
+            out = self.git("merge", "--no-ff", "-m", f"land {state}", f"feature{n}")
+            self.assertIn("MERGE INTO MAIN ALLOWED WITH 1 CHECK(S) NOT RUN, WHICH IS NOT A PASS", out.stderr)
+            self.assertIn(f"NOT RUN: cd richos/app && bash scripts/state.sh ({why})", out.stderr)
+            receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+            self.assertEqual([(row["check"], row["why"]) for row in receipt["not_run"]],
+                             [("cd richos/app && bash scripts/state.sh", why)])
+        self.assertEqual(self.recorded(), "")
+
+    def test_simulator_and_screen_suites_are_left_to_the_nightly_and_named(self):
+        # 2026-09-30: the iPhone suites fought over the one simulator in merge after merge. The
+        # merge never runs a suite that needs a device this Mac has one of: the simulator, or a
+        # screen (the host's, or the test VM's guest). The other suites on the same line run.
+        self.make()
+        self.branch_with("feature", "richos/app/src/device.txt", "a phone change\n")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertIn("suite phone-unit.test.sh", self.tools())
+        self.assertNotIn("ran-simulator-suite", self.tools())
+        self.assertNotIn("ran-screen-suite", self.tools())
+        self.assertIn("MERGE INTO MAIN ALLOWED WITH 3 CHECK(S) NOT RUN, WHICH IS NOT A PASS", out.stderr)
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        whys = {row["check"]: row["why"] for row in receipt["not_run"]}
+        self.assertEqual(sorted(whys), ["front-door.test.sh", "native-ios-share.test.sh", "native-ios-ui.test.sh"])
+        self.assertTrue(all(why.endswith("the nightly runs it") for why in whys.values()), whys)
+        self.assertIn("iPhone simulator", whys["native-ios-ui.test.sh"])
+        self.assertIn("screen", whys["front-door.test.sh"])
+
+    def test_measure_runs_the_land_check_on_what_is_staged_and_writes_no_receipt(self):
+        # How the gate is measured on a replayed merge: the land check of the staged change,
+        # run by hand on a branch, with its verdict and time and no land receipt.
+        self.make()
+        self.git("checkout", "-q", "-b", "replay")
+        measure = [sys.executable, str(self.repo / "richos/app/scripts/autocheck/autocheck.py"), "measure"]
+        self.write("richos/app/src/thing.txt", "BROKEN\n")
+        self.git("add", "-A")
+        out = self.run_(measure)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn("MEASURE REFUSED: a check it owns failed", out.stderr)
+        self.write("richos/app/src/thing.txt", "fine, replayed\n")
+        self.git("add", "-A")
+        out = self.run_(measure)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("autocheck: measure: every selected check passed", out.stderr)
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 2)
+        self.assertFalse((self.repo / ".git/richos-autocheck/land").exists())
+
+    def test_a_failing_check_blocks_and_so_does_an_invalid_result_that_hid_a_failure(self):
+        self.make()
+        self.branch_with("feature", "richos/app/src/state.txt",
+                         "invalid exited 0 but its evidence ledger records 1 failed check(s)\n")
+        before = self.head("main")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        self.assertIn("MERGE INTO MAIN REFUSED: a check it owns failed", out.stderr)
+        self.assertIn("FAILED: cd richos/app && bash scripts/state.sh (invalid)", out.stderr)
+        self.assertEqual(self.head("main"), before)
         self.git("merge", "--abort")
 
     def test_same_merge_retry_resumes_saved_plan_and_keeps_passing_lint(self):
@@ -597,11 +748,11 @@ class Land(Fixture):
         self.branch_with("feature", "richos/app/src/thing.txt", "BROKEN\n")
         self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
         first = self.tools()
-        self.assertEqual(first.count("run cd richos/app && bash scripts/lint.sh --all"), 1)
+        self.assertEqual(first.count("run cd richos/app && bash scripts/lint.sh --changed"), 1)
         self.git("commit", "-m", "land feature", expect=1)
         second = self.tools()
         self.assertIn("resume ", second)
-        self.assertEqual(second.count("run cd richos/app && bash scripts/lint.sh --all"), 1)
+        self.assertEqual(second.count("run cd richos/app && bash scripts/lint.sh --changed"), 1)
         self.assertEqual(second.count("run cd richos/app && bash scripts/suite.sh"), 2)
         attempts = list((self.base / "proof-runs").glob("*/attempt-*/plan.json"))
         self.assertEqual(len(attempts), 2)
@@ -645,8 +796,8 @@ class Land(Fixture):
         self.make()
         self.branch_with("docs", "README.md", "docs\n")
         out = self.git("merge", "--no-ff", "-m", "land docs", "docs")
-        self.assertNotIn("lint --all", self.tools())
-        self.assertNotIn("lint.sh --all", out.stderr)
+        self.assertNotIn("lint --", self.tools())
+        self.assertNotIn("lint.sh --", out.stderr)
         self.assertEqual(self.recorded(), "")
 
     def test_a_land_that_deletes_an_app_file_still_runs_the_lint(self):
@@ -657,7 +808,7 @@ class Land(Fixture):
         self.git("checkout", "-q", "main")
         self.log.unlink(missing_ok=True)
         self.git("merge", "--no-ff", "-m", "land deletion", "gone", expect=None)
-        self.assertIn("lint --all", self.tools())
+        self.assertIn("lint --changed", self.tools())
 
     def test_a_land_whose_screen_suites_did_not_run_lands_and_says_not_run(self):
         # 2026-09-29: front-door and gui-boot were NOT RUN (no screen) in the refused land of
@@ -673,15 +824,15 @@ class Land(Fixture):
         self.assertEqual([row["check"] for row in receipt["not_run"]], ["cd richos/app && bash scripts/screen.sh"])
         self.assertEqual(self.recorded(), "")
 
-    def test_a_land_with_any_other_check_not_run_is_refused(self):
+    def test_a_land_with_any_other_check_not_run_lands_and_names_it(self):
+        # Until 2026-09-30 a host-gap NOT RUN refused the land. A check that did not run is not
+        # a failure of the change; it is named, recorded as NOT RUN and left to the nightly.
         self.make()
         self.branch_with("feature", "richos/app/src/screen.txt", "host-gap\n")
-        before = self.head("main")
-        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
-        self.assertIn("MERGE INTO MAIN REFUSED: a check it owns did not pass", out.stderr)
-        self.assertIn("NOT RUN is not a pass", out.stderr)
-        self.assertEqual(self.head("main"), before)
-        self.git("merge", "--abort")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertIn("MERGE INTO MAIN ALLOWED WITH 1 CHECK(S) NOT RUN, WHICH IS NOT A PASS", out.stderr)
+        self.assertIn("NOT RUN: cd richos/app && bash scripts/screen.sh (host-gap)", out.stderr)
+        self.assertNotIn("every selected check passed", out.stderr)
 
     def test_no_verify_merge_is_recorded(self):
         self.make()
@@ -699,7 +850,9 @@ class Land(Fixture):
         self.git("merge", "--ff-only", "feature")
         self.assertIn("without the land checks (a fast-forward)", self.recorded())
         out = self.git("push", "origin", "main", expect=1)
-        self.assertIn("PUSH REFUSED: a check it owns did not pass", out.stderr)
+        self.assertIn("PUSH REFUSED: a check it owns failed", out.stderr)
+        # HEAD is already the land there, so the lint measures the whole tree.
+        self.assertIn("lint --all", self.tools())
         self.assertNotEqual(self.git("rev-parse", "main", cwd=remote).stdout.strip(), self.head("main"))
 
     def test_main_fast_forwarded_onto_a_merge_commit_is_named_a_fast_forward(self):
@@ -751,6 +904,18 @@ class Land(Fixture):
         self.git("checkout", "-q", "main")
         out = self.git("merge", "--no-ff", "-m", "land intro", "intro", expect=1)
         self.assertIn("MERGE INTO MAIN REFUSED", out.stderr)
+
+
+class Tables(unittest.TestCase):
+    def test_every_suite_the_merge_leaves_to_the_nightly_exists_in_this_tree(self):
+        # A named table rots when a suite is renamed; this reads it against the real tree.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        missing = [suite for suite in module.SHARED_DEVICE_SUITES if not (HERE / suite).is_file()]
+        self.assertEqual(missing, [])
+        self.assertTrue(module.SHARED_DEVICE_SUITES)
 
 
 class Install(Fixture):

@@ -44,7 +44,13 @@ class DesktopWork(unittest.TestCase):
              # override that exists for exactly that -- it cannot reach an
              # app-launched engine, whose configure() strips every inherited
              # RICHOS_* name and re-adds only its own list.
-             "RICHOS_LAND_LOCKS_DIR":str(self.root/"land locks")}
+             "RICHOS_LAND_LOCKS_DIR":str(self.root/"land locks"),
+             # The override above is stripped from an app-launched engine child, which
+             # then derives the machine-wide home from CLAUDE_CONFIG_DIR (else
+             # ~/.claude) and would write its land locks under the operator's
+             # home. CLAUDE_CONFIG_DIR is the one name the app does not strip, so the
+             # suite owns the child's land-lock home by pointing it inside the fixture.
+             "CLAUDE_CONFIG_DIR":str(self.root/"claude config")}
         self.env=patch.dict(os.environ,env);self.env.start();self.addCleanup(self.env.stop)
         self.app=load();ecs=self.root/"ecs"
         binding=self.app.ECS.execute(ecs,{"protocol":1,"command":"bind","scope":{"entity_id":"depot","thread_id":"thread-a","session_id":self.session,"turn_id":"turn-a","audience":"ceo"},"request_id":"bind-first","source_ref":"ledger:thread-a:turn-a","expected_revision":None})["binding"]

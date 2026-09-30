@@ -716,6 +716,57 @@ try:
     check(waited, "P16i naming the holder's slot in the environment does not let an unrelated run skip the line",
           output("p16-fake")[-400:])
 
+    # P40 — the merge gate's caps (2026-09-30). --cap is ONE number for every check, engine
+    # units included, whatever a dated weight predicts (`workspace-spec-fourteen` was planned
+    # at 2812 s and ran in 172-554 s); --run-cap ends the run on its own clock and ends, never
+    # fails, what did not finish; a run refused a proof-run slot still writes its summary.
+    ended = "cancelled"  # dialect-exempt: the runner's state value, which summary.json carries
+    heavy = pr.Item("engine mega-lander/tests/workspace-spec-fourteen.test.sh", os.path.join(pr.ROOT, "richos/engine"),
+                    ["bash", "scripts/ci-shard.sh", "--only-units", "mega-lander/tests/workspace-spec-fourteen.test.sh"],
+                    "engine-shard-1", 2812.0)
+    long_suite = pr.Item("contrast.js", os.path.join(pr.ROOT, "richos/app/ui/tests"), ["node", "contrast.js"], None, 2812.0)
+    capped = [pr.deadline_for(heavy, Args(cap=600)), pr.deadline_for(long_suite, Args(cap=600))]
+    uncapped = [pr.deadline_for(heavy, Args()), pr.deadline_for(long_suite, Args())]
+    check(capped == [600.0, 600.0] and uncapped == [None, 3600.0],
+          "P40a --cap 600 stops an engine unit and a check planned at 2812 s at 600 s; without it nothing changes",
+          (capped, uncapped))
+
+    d40 = os.path.join(tmp, "p40")
+    os.makedirs(d40)
+    slow = pr.Item("slow", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "sleep 30"], "one-lane", 5.0)
+    behind = pr.Item("behind", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "true"], "one-lane", 1.0)
+    quick = pr.Item("quick", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "true"], None, 1.0)
+    t40 = time.time()
+    buf40 = io.StringIO()
+    with contextlib.redirect_stdout(buf40):
+        pr.run([slow, behind, quick], Args(run_cap=3), d40, sampler=idle)
+    took40 = time.time() - t40
+    check(slow.state == ended and "--run-cap" in " ".join(slow.notes)
+          and behind.state == ended and "not started" in " ".join(behind.notes)
+          and quick.state == "passed" and took40 < 20 and "RUN CAP" in buf40.getvalue(),
+          "P40b at --run-cap 3 the running check is stopped and the waiting one never starts, both ended by "
+          "name; the finished one keeps its pass (%.0f s)" % took40,
+          ([(i.label, i.state, i.notes) for i in (slow, behind, quick)], buf40.getvalue()[-300:]))
+
+    a = start_run("p40-hold", "touch %s/c.a; %s" % (mark, held("c")))
+    until(lambda: exists(os.path.join(mark, "c.a")), a)
+    cmds40 = os.path.join(tmp, "p40-refused.cmds")
+    with open(cmds40, "w") as fh:
+        fh.write("cd richos/app && bash -c 'touch %s/c.b'\n" % mark)
+    summary40 = os.path.join(tmp, "p40-refused.summary.json")
+    env40 = {**os.environ, "RICHOS_PROOF_RUN_SLOTS_DIR": slots_dir, "RICHOS_RUNTIME_DIR": os.path.join(tmp, "no-runtime")}
+    env40.pop("RICHOS_PROOF_RUN_SLOT_HELD", None)
+    r40 = subprocess.run([sys.executable, "-c", runner_boot, "--commands", cmds40, "--log-dir",
+                          os.path.join(tmp, "p40-refused.log"), "--slot-wait", "0.5", "--summary-out", summary40],
+                         capture_output=True, text=True, env=env40)
+    release("c")
+    a.wait()
+    rows40 = json.load(open(summary40))["checks"] if exists(summary40) else None
+    check(r40.returncode == 1 and rows40 and all(row["result"] == "not-admitted" for row in rows40)
+          and not exists(os.path.join(mark, "c.b")),
+          "P40c a run refused a proof-run slot writes its summary: every check NOT ADMITTED by name, none run",
+          (r40.returncode, rows40, r40.stdout[-300:]))
+
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.
     class Held:

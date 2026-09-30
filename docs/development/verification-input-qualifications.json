@@ -2071,14 +2071,14 @@
     "no-foreign-app-data": {
       "review": "The suite scans exactly the shipped app source, crates, UI, scripts and tools trees as text. Positive refusal and acceptance cases are generated under TMPDIR. It does not execute scanned code or inspect application data. The shared run-tests wrapper discovers suites and reads its tracked declarations but the exact --only selection executes this suite alone. Private HOME clears skip-unchanged state and inherited host-screen overrides; worker admission and result preservation remain active. No host process, live clock predicate, network or operator record determines the scanner verdict. Cargo invocations use workspace-specific mutable outputs. The bound Cargo dispatcher and target resolver read Cargo.toml in the same declared source or private fixture workspace. Compiler wrappers and their settings are bound by the runner toolchain identity.",
       "sources": {
-        "richos/app/scripts/no-foreign-app-data.test.sh": "fe13a6a9ff4d70d4d9558d671b3a8e23114ed5f8418538d0e6934db545eeb732",
+        "richos/app/scripts/no-foreign-app-data.test.sh": "8f45371fdd07c1e696bf615deaf8dcfdd350f613ccaa9eb0aa324709e812c836",
         "richos/app/scripts/run-tests.sh": "56903e7ec047fb5bcc2e4490acb1468faccf3c63efeb82df1c3ec6e130a4ba4a",
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
         "richos/app/scripts/lib/test_results.py": "9790f38172be11848fbc50fc5fc387831f25a5bda49e877e1ed4aa59fb6fa0e2",
         "richos/engine/scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
         "richos/app/scripts/bin/cargo": "2250e8c39acd3123165adbcfc70f8b344d89e77dc0d6865ca1e3108f0b4de1d9",
         "richos/app/scripts/lib/cargo_identity.py": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
-        "richos/app/scripts/lib/cargo-cache-env.sh": "68e85ef5873e9d5a18f9094a44562941c91723855019bf7369ecbd90a8e053b4"
+        "richos/app/scripts/lib/cargo-cache-env.sh": "91afb05e2bfa1c380412838ddce98d31e0673c718e14b206d5d81e74a2950a0a"
       },
       "requires": {
         "paths": [
@@ -2513,7 +2513,7 @@
         "richos/engine/scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
         "richos/app/scripts/bin/cargo": "2250e8c39acd3123165adbcfc70f8b344d89e77dc0d6865ca1e3108f0b4de1d9",
         "richos/app/scripts/lib/cargo_identity.py": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
-        "richos/app/scripts/lib/cargo-cache-env.sh": "68e85ef5873e9d5a18f9094a44562941c91723855019bf7369ecbd90a8e053b4"
+        "richos/app/scripts/lib/cargo-cache-env.sh": "91afb05e2bfa1c380412838ddce98d31e0673c718e14b206d5d81e74a2950a0a"
       },
       "requires": {
         "paths": [

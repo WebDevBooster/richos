@@ -8606,8 +8606,8 @@
     },
     "mega-lander/tests/workspaces.test.sh": {
       "source": "mega-lander/tests/workspaces.test.sh",
-      "sha256": "3641facebf4d57c9b4c55e8d6048b3612c6f8e5b8a6cbd1f8933a43a2d1e68ce",
-      "evidence": "Fixed Python unit suite and optional finite mutation driver.",
+      "sha256": "b7c5891dd1786fdd4d7ad17534d438ba7f573e6a955dd68d33b22c7939cd9bf4",
+      "evidence": "Fixed Python unit suite and optional finite mutation driver. Renewed 2026-09-30 (hunt part 4 finding 19): the mutation driver now runs only when RICHOS_MUTATION_PASSES=1 (the nightly's gates/workspace-mutants) and otherwise prints NOT RUN; its edge is kept because that run executes it. No configuration read is added.",
       "keys": [],
       "edges": [
         {
@@ -11788,8 +11788,8 @@
     },
     "mega-lander/tests/workspace-probes.test.sh": {
       "source": "mega-lander/tests/workspace-probes.test.sh",
-      "sha256": "60c25bfd8915b207ae81831867548595373f4fcae8ca8406cdc71ebc25b31655",
-      "evidence": "Full fixture review: creates a fresh Git repository containing only the copied runner/library and literal synthetic probes. Executes integration CLI, then the copied runner. Probes only inspect library attributes or call integration_for; no in-tree probe or live manifest is executed. Config values never enter the fixture. The optional mutation driver executes this same suite and retains config transport presence.",
+      "sha256": "dedcb61caa0edc36656e0faf51bb5de78a386750ff12e24c901c85063a8a825c",
+      "evidence": "Full fixture review: creates a fresh Git repository containing only the copied runner/library and literal synthetic probes. Executes integration CLI, then the copied runner. Probes only inspect library attributes or call integration_for; no in-tree probe or live manifest is executed. Config values never enter the fixture. The optional mutation driver executes this same suite and retains config transport presence. Renewed 2026-09-30 (hunt part 4 finding 19): the mutation driver now runs only when RICHOS_MUTATION_PASSES=1 (the nightly's gates/workspace-mutants) and otherwise prints NOT RUN; its edge is kept because that run executes it. No configuration read is added.",
       "keys": [],
       "edges": [
         {
@@ -13472,8 +13472,8 @@
     },
     "mega-lander/tests/create-teammate-worktree.test.sh": {
       "source": "mega-lander/tests/create-teammate-worktree.test.sh",
-      "sha256": "bc563f1047bbfadb10adfc90c540af7eaf5cff32333ef5f12762c90f16e40412",
-      "evidence": "Private HOME/session/registry and Git repositories exercise integration, creator and register-cc. Seeded files and four setup programs are literal fixture content. Retain actual engine model/registry inputs and shared mutation transport. Renewed 2026-09-30: the finding 16-18 cases add an unreadable seed file, a setup that starts a child, and literal WORKTREE_SETUP_TIMEOUT and RICHOS_OPERATION_DEADLINE values.",
+      "sha256": "8edcd784ced5d244346ed5a9e9ea9ff1a68c973ea399ad21f506dabbea47b1d7",
+      "evidence": "Private HOME/session/registry and Git repositories exercise integration, creator and register-cc. Seeded files and four setup programs are literal fixture content. Retain actual engine model/registry inputs and shared mutation transport. Renewed 2026-09-30: the finding 16-18 cases add an unreadable seed file, a setup that starts a child, and literal WORKTREE_SETUP_TIMEOUT and RICHOS_OPERATION_DEADLINE values. Renewed 2026-09-30 (hunt part 4 finding 19): the mutation driver now runs only when RICHOS_MUTATION_PASSES=1 (the nightly's gates/workspace-mutants) and otherwise prints NOT RUN; its edge is kept because that run executes it. No configuration read is added.",
       "keys": [],
       "edges": [
         {
@@ -13610,8 +13610,8 @@
     },
     "mega-lander/tests/app.test.py": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "7568c428a8e285648e35904222bb0d55d6750752134f8e4c535e8ac2e0b57c80",
-      "evidence": "Full fixed unittest fixture, literal holder/probe subprocess programs and one literal spawn failure override. Private Git, ECS stores, registry, scope, land locks and explicit single-hook manifest bind the app/adapter entrypoint guarantees. No agent, model, arbitrary setup or MCP server is invoked.",
+      "sha256": "736f1397020441068e478dac06252d8d41b658bd56f022bf02b2baefe46398df",
+      "evidence": "Full fixed unittest fixture, literal holder/probe subprocess programs and one literal spawn failure override. Private Git, ECS stores, registry, scope, land locks and explicit single-hook manifest bind the app/adapter entrypoint guarantees. No agent, model, arbitrary setup or MCP server is invoked. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private.",
       "keys": [],
       "edges": [
         {
@@ -13638,8 +13638,8 @@
     },
     "mega-lander/tests/app.test.sh": {
       "source": "mega-lander/tests/app.test.sh",
-      "sha256": "2e5e8e4aabc10969111865636fa53dfecdb6bae95f77d22a2fa07fda2d7154cc",
-      "evidence": "Runs exactly the bound full Python fixture and its mutation driver. Neither half is omitted from config qualification.",
+      "sha256": "0733107cfcd3ef83fcddff76425665201cb7a43956f92bd2b2fe5bcc81d6ce9e",
+      "evidence": "Runs exactly the bound full Python fixture and its mutation driver. Neither half is omitted from config qualification. Renewed 2026-09-30 (hunt part 4 finding 19): the mutation driver now runs only when RICHOS_MUTATION_PASSES=1 (the nightly's gates/workspace-mutants) and otherwise prints NOT RUN; its edge is kept because that run executes it. No configuration read is added.",
       "keys": [],
       "edges": [
         {
@@ -14366,7 +14366,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "5034b666e9f3c1d786bd78d60b85b0ef6156bbe55e95de20b54cbefe532f3b6d",
+          "sha256": "e4532a80f661184e0d1e45b3ebededf53add7132eee7605001a1fd9e236aff66",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14384,7 +14384,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "a8afde29df83a7a32e596e712632b186659ddd6098020e769618ff656d3fb0e3",
+          "sha256": "61263568c1c264e423e9d01d2136cbb7e9764192202865bdc9de8de92e4f4a36",
           "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         },
         {
@@ -14582,7 +14582,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "5034b666e9f3c1d786bd78d60b85b0ef6156bbe55e95de20b54cbefe532f3b6d",
+          "sha256": "e4532a80f661184e0d1e45b3ebededf53add7132eee7605001a1fd9e236aff66",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -15315,8 +15315,8 @@
     },
     "mega-lander/tests/app.test.py#pause-message-case": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "7568c428a8e285648e35904222bb0d55d6750752134f8e4c535e8ac2e0b57c80",
-      "evidence": "Added 2026-09-30 for workspaces.test.py's finding-20 case, which runs this suite with the one name test_pause_message_is_fixed. That selects only DesktopWork.test_pause_message_is_fixed_and_does_not_claim_delivery: setUp builds private Git repositories, a private orchestration.config, agent definitions copied from the engine as data, a private registry, scope, ECS store and land-locks directory, and loads app.py; the case renders pause messages and calls inspect over no receipts.",
+      "sha256": "736f1397020441068e478dac06252d8d41b658bd56f022bf02b2baefe46398df",
+      "evidence": "Added 2026-09-30 for workspaces.test.py's finding-20 case, which runs this suite with the one name test_pause_message_is_fixed. That selects only DesktopWork.test_pause_message_is_fixed_and_does_not_claim_delivery: setUp builds private Git repositories, a private orchestration.config, agent definitions copied from the engine as data, a private registry, scope, ECS store and land-locks directory, and loads app.py; the case renders pause messages and calls inspect over no receipts. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private.",
       "keys": [],
       "edges": [
         {

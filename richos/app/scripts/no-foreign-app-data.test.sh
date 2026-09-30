@@ -66,6 +66,10 @@ else
 fi
 
 echo ""
-echo "  $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ] || exit 1
+# run-tests.sh counts a suite's checks from the "all N passed ===" line, so the verdict has that shape.
+if [ "$FAIL" -ne 0 ]; then
+    echo "=== no-foreign-app-data (app): $FAIL FAILED, $PASS passed ==="
+    exit 1
+fi
+echo "=== no-foreign-app-data (app): all $PASS passed ==="
 exit 0
