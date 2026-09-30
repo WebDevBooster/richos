@@ -2897,8 +2897,8 @@
     },
     "scripts/scratch-reaper.mutation.sh": {
       "source": "scripts/scratch-reaper.mutation.sh",
-      "sha256": "149890cea01df08dc0be116c8b3e06f897a3d27d6935f83f4c9728c9347e2643",
-      "evidence": "All 51 mutants use the shared literal source replacement API against scratch-reaper.py, then execute scratch-reaper.test.sh, whose world/run functions select their own config. Copied shipped settings remain transport only, including nested helper reads.",
+      "sha256": "54b9e7868118f9a83993321e280f48bf8ec229ff8075192947d88075b5734ac2",
+      "evidence": "All 51 mutants use the shared literal source replacement API against scratch-reaper.py, then execute scratch-reaper.test.sh, whose world/run functions select their own config. Copied shipped settings remain transport only, including nested helper reads. Since 2026-09-30 it declares mutation_focus stop-at-want, which stops a mutant's suite at its named FAIL line and changes no input.",
       "keys": [],
       "edges": [
         {
@@ -15790,7 +15790,7 @@
         "scripts/mechanical-findings-lint.sh": "e38128228771d66806eaa945f3711c609d2d9f56e124be9b1d1546b2b89e89f5",
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
         "scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
-        "scripts/scratch-reaper.mutation.sh": "149890cea01df08dc0be116c8b3e06f897a3d27d6935f83f4c9728c9347e2643",
+        "scripts/scratch-reaper.mutation.sh": "54b9e7868118f9a83993321e280f48bf8ec229ff8075192947d88075b5734ac2",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
         "scripts/scratch-reaper.test.sh": "31f1a3a421e46242e7ab8f5a1257dc52e7e20a92d51e894434028e60e224548f",
         "scripts/scratch-sweep.sh": "98804cde04a632171f4323a43164e18871412d44e41ec36b2e535a2e43554297",

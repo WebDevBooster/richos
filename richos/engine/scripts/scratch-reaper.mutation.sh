@@ -47,6 +47,21 @@ ENGINE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 mutation_begin "scratch-reaper safety properties" "scripts/scratch-reaper.test.sh"
 
+# EACH MUTANT STOPS AT ITS OWN VERDICT (added 2026-09-30). Every mutant below
+# ran the WHOLE suite, about a minute of it, even when its named case is among
+# the first ten; 51 of them, eight at a time, were most of an SCR layer that
+# reached its 900 s deadline during the 2026-09-30 merge checks. The claim
+# `stop-at-want` makes about scratch-reaper.test.sh holds by construction:
+# `bad` is the only thing that prints `FAIL  <case>`, it increments FAIL,
+# nothing ever decrements it, and the suite exits 1 whenever FAIL is non-zero.
+# So a printed `FAIL  <want>` line always ends the run red, and stopping there
+# changes when the verdict is read, not what it is. A mutant whose line never
+# appears still runs to the end and is judged exactly as before — "the suite
+# still PASSED" and "red, but not here" are both still reachable. What is
+# stopped is the suite's whole process tree (stop-at-line.py), so the `sleep`
+# and `tail -f` holders a case started go with it.
+mutation_focus stop-at-want
+
 LIB="scripts/lib/scratch-reaper.py"
 
 mutant M1.liveness-gutted "S1 " "$LIB" \
