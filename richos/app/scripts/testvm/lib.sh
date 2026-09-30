@@ -220,6 +220,22 @@ guest_ssh() {
   ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" "$TESTVM_GUEST_USER@$ip" "$@"
 }
 
+# wait_for_app_window <vm> <pid> [polls] [interval-seconds]
+# A pid is not a proof of a started app: it can be running and drawing nothing, which is what
+# a screenshot would photograph and call a pass. Polls the guest for a window of <pid>, checking
+# BEFORE any sleep. Sets WINDOWS to the last count read; returns 0 once it is at least 1 and 1
+# when the polls run out, so a caller can refuse a windowless boot.
+wait_for_app_window() {
+  local vm="$1" pid="$2" polls="${3:-45}" interval="${4:-1}" i
+  WINDOWS=0
+  for i in $(seq 1 "$polls"); do
+    WINDOWS="$(guest_ssh "$vm" "osascript -e 'tell application \"System Events\" to count windows of (first process whose unix id is $pid)' 2>/dev/null || echo 0" | tr -d '[:space:]')" || WINDOWS=0
+    [ "${WINDOWS:-0}" -gt 0 ] 2>/dev/null && return 0
+    [ "$i" -lt "$polls" ] && sleep "$interval"
+  done
+  return 1
+}
+
 guest_scp() {
   local vm="$1"; shift
   local ip

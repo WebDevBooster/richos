@@ -623,6 +623,29 @@ t "summary: run.sh carries the refusal block and the escape hatch, in that order
   hasnt "$src" 'JOIN_OUT="$("$HERE/tailnet.sh" join "$VM" 2>&1)" && true'
 t_done
 
+t "window wait: a boot with zero windows FAILS after its polls (finding 40), it is not 'ready'"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_for_app_window inside the subshell
+  out="$( guest_ssh() { echo "call" >> "$TMP/ww-calls"; echo 0; }
+          rm -f "$TMP/ww-calls"
+          wait_for_app_window vm 123 3 0; echo "rc=$? windows=$WINDOWS calls=$(wc -l < "$TMP/ww-calls" | tr -d ' ')" )"
+  eq "$out" "rc=1 windows=0 calls=3"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  has "$src" 'if ! wait_for_app_window "$VM" "$PID" 45 1; then'
+  hasnt "$src" 'WARNING: the app is running'
+t_done
+
+t "window wait: a window that is already there returns at the first look, with no sleep before it"
+  start=$SECONDS
+  # shellcheck disable=SC2329  # the stub is invoked by wait_for_app_window inside the subshell
+  out="$( guest_ssh() { echo 2; }
+          wait_for_app_window vm 123 45 30; echo "rc=$? windows=$WINDOWS" )"
+  eq "$out" "rc=0 windows=2"
+  elapsed=$((SECONDS - start))
+  quick=0; [ "$elapsed" -lt 5 ] || quick=1
+  ok "$quick" "waited ${elapsed}s instead of returning at once"
+t_done
+
 t "summary: the join's exit status survives set -e, so the refusal block is reachable at all"
   # FOUND WHILE WRITING THE REFUSAL ABOVE, and it would have been invisible: under
   # `set -e` a plain `VAR=$(failing-cmd)` KILLS THE SCRIPT at that line, before any
