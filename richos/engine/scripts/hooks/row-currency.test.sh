@@ -882,6 +882,26 @@ else
     bad "large conflicted merge lost its tree (merge rc=$MERGE_RC, tree rc=$TREE_RC)"
 fi
 
+# An ALTERNATE index (GIT_INDEX_FILE) is the index the commit would use, so it is
+# the one measured: the pending tree is the alternate's tree, and differs from
+# what the repository's own index would give (P5-64).
+ALT_IDX="$SCRATCH/alt-index"
+rm -f "$ALT_IDX"
+GIT_INDEX_FILE="$ALT_IDX" git -C "$WORK" read-tree HEAD >/dev/null 2>&1
+ALT_BLOB="$(printf 'only in the alternate index\n' | git -C "$WORK" hash-object -w --stdin)"
+GIT_INDEX_FILE="$ALT_IDX" git -C "$WORK" update-index --add --cacheinfo "100644,$ALT_BLOB,altonly.txt" >/dev/null 2>&1
+ALT_EXPECTED="$(GIT_INDEX_FILE="$ALT_IDX" git -C "$WORK" write-tree 2>/dev/null)"
+DEFAULT_TREE="$(git -C "$WORK" write-tree 2>/dev/null)"
+ALT_ACTUAL="$(GIT_INDEX_FILE="$ALT_IDX" "$BASH_BIN" -c 'source "$1"; rc_pending_tree "$2" index' _ "$ENGINE_ROOT/scripts/lib/row-currency.sh" "$WORK")"
+DEF_ACTUAL="$("$BASH_BIN" -c 'source "$1"; rc_pending_tree "$2" index' _ "$ENGINE_ROOT/scripts/lib/row-currency.sh" "$WORK")"
+if [ -n "$ALT_EXPECTED" ] && [ "$ALT_EXPECTED" != "$DEFAULT_TREE" ] &&
+   [ "$ALT_ACTUAL" = "$ALT_EXPECTED" ] && [ "$DEF_ACTUAL" = "$DEFAULT_TREE" ]; then
+    ok "rc_pending_tree measures the alternate index when GIT_INDEX_FILE selects one, and the default otherwise"
+else
+    bad "rc_pending_tree ignored GIT_INDEX_FILE (alt expected=$ALT_EXPECTED actual=$ALT_ACTUAL; default expected=$DEFAULT_TREE actual=$DEF_ACTUAL)"
+fi
+rm -f "$ALT_IDX"
+
 # ---------------------------------------------------------------------------
 # (i) NO OVERRIDE — there is no escape token, deliberately
 # ---------------------------------------------------------------------------
