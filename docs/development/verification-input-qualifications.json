@@ -2468,7 +2468,7 @@
         "richos/engine/scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "richos/engine/scripts/lib/tree-witness.sh": "9ffa064b9d59b2d9e4fd1bcbc9aedb5725093f908ddcbc32e104629f9983c98c",
+        "richos/engine/scripts/lib/tree-witness.sh": "ce0b40484c82bb421e5b4fef7a20276f606cc3df2c19fc6466700fd9ddaf1304",
         "richos/engine/scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "richos/engine/scripts/lib/mutation-harness.sh": "9dd839120e0a3b2ae4ef91054e076a8e9ea31c4592dbe0ea3eb80f3f018c88b0",
         "richos/engine/scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
