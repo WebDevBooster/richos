@@ -60,3 +60,24 @@ fn escaping_symlink_cannot_supply_a_delivered_command() {
     std::os::unix::fs::symlink("/usr/bin/git", fixture.0.join("runtime/bin/git")).unwrap();
     assert!(EngineRuntime::load(&fixture.0, None).unwrap_err().to_string().contains("escapes"));
 }
+
+#[test]
+fn a_delivery_already_verified_is_not_read_and_hashed_again_but_a_touched_file_is() {
+    let fixture = Delivery::new();
+    let root = std::fs::canonicalize(fixture.0.join("runtime")).unwrap();
+    assert_eq!(richos_core::runtime::files_hashed_under(&root), 0);
+    EngineRuntime::load(&fixture.0, None).unwrap();
+    assert_eq!(richos_core::runtime::files_hashed_under(&root), 5, "the first load reads every delivered file");
+    for _ in 0..3 {
+        EngineRuntime::load(&fixture.0, None).unwrap();
+    }
+    assert_eq!(richos_core::runtime::files_hashed_under(&root), 5, "later connections reuse the verified result");
+    // Everything else is still checked on every load: an unlisted file is refused...
+    std::fs::write(fixture.0.join("runtime/stray.txt"), "fictional only").unwrap();
+    assert!(EngineRuntime::load(&fixture.0, None).unwrap_err().to_string().contains("unexpected"));
+    std::fs::remove_file(fixture.0.join("runtime/stray.txt")).unwrap();
+    // ...and so is a file rewritten with different bytes of the very same length.
+    std::fs::write(fixture.0.join("runtime/bin/git"), b"#!/bin/sh\nexit 1\n").unwrap();
+    assert!(EngineRuntime::load(&fixture.0, None).unwrap_err().to_string().contains("changed"));
+    assert_eq!(richos_core::runtime::files_hashed_under(&root), 5, "a failed read is not remembered as verified");
+}

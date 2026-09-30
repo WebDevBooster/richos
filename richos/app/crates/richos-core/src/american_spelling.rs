@@ -136,9 +136,17 @@ pub struct Change {
     pub offset: usize,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many whole-text scans this thread has run; a test counts them.
+    static SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// [`fix`], plus the list of what changed. Used where the writer is told what was changed (a
 /// document write), so a later edit of the same text quotes the text that is really there.
 pub fn fix_with_changes(text: &str) -> (String, Vec<Change>) {
+    #[cfg(test)]
+    SCANS.with(|n| n.set(n.get() + 1));
     let mut speller = Speller::new();
     speller.changes = Some(Vec::new());
     let mut out = speller.push(text);
@@ -805,13 +813,32 @@ fn fix_fragment_at(file: &str, old: &str, new: &str, every: bool) -> Option<(Str
     } else {
         vec![file.find(old)?]
     };
+    // **One scan of the document as it will be, not one per place.** Every place gets `new`
+    // (with `every` that is exactly what the edit will leave in the file), the whole result is
+    // checked once, and each place's own changes are read out of it by offset. The context that
+    // protects fences and quotations is the same context; it is just computed once.
+    let mut whole = String::with_capacity(file.len() + places.len() * new.len().saturating_sub(old.len()));
+    let mut starts = Vec::with_capacity(places.len());
+    let mut from = 0;
+    for &offset in &places {
+        whole.push_str(&file[from..offset]);
+        starts.push(whole.len());
+        whole.push_str(new);
+        from = offset + old.len();
+    }
+    whole.push_str(&file[from..]);
+    let (_, changes) = fix_with_changes(&whole);
     let mut answer: Option<(String, Vec<Change>)> = None;
-    for offset in places {
-        let whole = format!("{}{}{}", &file[..offset], new, &file[offset + old.len()..]);
-        let (_, changes) = fix_with_changes(&whole);
-        let inside: Vec<Change> = changes
-            .into_iter()
-            .filter(|c| c.offset >= offset && c.offset + c.from.len() <= offset + new.len())
+    let mut next = 0; // changes are in offset order; places are too
+    for &offset in &starts {
+        while next < changes.len() && changes[next].offset < offset {
+            next += 1;
+        }
+        let inside: Vec<Change> = changes[next..]
+            .iter()
+            .take_while(|c| c.offset < offset + new.len())
+            .filter(|c| c.offset + c.from.len() <= offset + new.len())
+            .cloned()
             .collect();
         let mut text = String::with_capacity(new.len());
         let mut last = 0;
@@ -1107,6 +1134,28 @@ pub(crate) mod tests {
         let clean = serde_json::json!({"file_path": md.to_str().unwrap(), "content": "Plain words only."});
         assert!(fix_tool_input("Write", &clean).is_none(), "nothing to change is no output at all");
         assert!(fix_tool_input("Bash", &serde_json::json!({"command": "echo"})).is_none());
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn replacing_every_occurrence_scans_the_document_once_not_once_per_occurrence() {
+        let dir = scratch("every");
+        let md = dir.join("notes.md");
+        let word = section("edit-word");
+        let word = word.trim();
+        let fixed_word = fix(word);
+        let occurrences = 400;
+        let file = "ANCHOR and some prose around it.\n".repeat(occurrences);
+        std::fs::write(&md, &file).unwrap();
+        let input = serde_json::json!({
+            "file_path": md.to_str().unwrap(), "old_string": "ANCHOR",
+            "new_string": format!("the {word}"), "replace_all": true});
+        let before = SCANS.with(|n| n.get());
+        let (out, changes) = fix_tool_input("Edit", &input).expect("every place is prose");
+        let scans = SCANS.with(|n| n.get()) - before;
+        assert_eq!(out["new_string"].as_str().unwrap(), format!("the {fixed_word}"));
+        assert_eq!(changes.len(), 1, "the answer is the one fragment's changes, as before");
+        assert_eq!(scans, 1, "{occurrences} occurrences must cost one document scan, not {scans}");
         drop(std::fs::remove_dir_all(&dir));
     }
 

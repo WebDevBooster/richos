@@ -431,15 +431,22 @@ impl Service {
         }
         let now = crate::util::now_millis();
         let current = self.view_at(now);
-        // Even a manual refresh honors failure backoff. Fresh manual requests have a
-        // short cooldown so double-clicks cannot repeatedly hit the provider.
-        if current.retry_at.is_some()
-            || (!force && current.next_check_at.is_some_and(|t| t > now))
-            || (force
-                && current
-                    .checked_at
-                    .is_some_and(|t| now.saturating_sub(t) < 5_000))
-        {
+        // **A manual refresh does not wait out the automatic failure backoff.** The backoff
+        // protects the provider from the monitor's ticks; a person who fixed the problem and
+        // asked again is owed a real check. What still protects the provider from him is the
+        // short cooldown against double-clicks, measured from the last attempt of any kind —
+        // a failure's `retry_at` is set `BACKOFF_MS` past the attempt that caused it.
+        let last_attempt = [current.checked_at, current.retry_at.map(|t| t.saturating_sub(BACKOFF_MS))]
+            .into_iter()
+            .flatten()
+            .filter(|t| *t <= now)
+            .max();
+        let cooling = last_attempt.is_some_and(|t| now.saturating_sub(t) < 5_000);
+        if if force {
+            cooling
+        } else {
+            current.retry_at.is_some() || current.next_check_at.is_some_and(|t| t > now)
+        } {
             return current;
         }
         let result = source.read(bin, &self.cwd);
@@ -755,6 +762,32 @@ mod tests {
         assert!(service.wait_for_refresh(Duration::ZERO), "sign-in completion wakes the reader");
         service.refresh(Path::new("unused"), true);
         assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+    /// Hunt part 1 finding 23: a manual refresh is owed a real check even inside the automatic
+    /// ten-minute failure backoff, while the automatic one still waits and a double-click
+    /// straight after a failure still does not reach the provider.
+    #[test]
+    fn a_manual_refresh_is_not_held_by_the_automatic_failure_backoff() {
+        use std::sync::atomic::Ordering;
+        let dir = Scratch::new();
+        let service = Service::open(dir.path()).unwrap();
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        *service.source.lock().unwrap() =
+            Box::new(FakeSource { calls: calls.clone(), result: Err(ReadError::Failed) });
+        assert!(service.refresh(Path::new("unused"), true).retry_at.is_some());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        service.refresh(Path::new("unused"), true);
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "a double-click right after a failure is still absorbed");
+        // The failure was 10 s ago (its wait is set BACKOFF_MS past the attempt) and he fixed it.
+        service.snapshot.lock().unwrap().retry_at = Some(crate::util::now_millis() + BACKOFF_MS - 10_000);
+        let mut windows = snapshot(20., 3_600_000).windows;
+        windows[0].resets_at = Some(crate::util::now_millis() + 3_600_000);
+        *service.source.lock().unwrap() = Box::new(FakeSource { calls: calls.clone(), result: Ok(windows) });
+        service.refresh(Path::new("unused"), false);
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "the automatic check still waits out the backoff");
+        let view = service.refresh(Path::new("unused"), true);
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "his manual check is a real one");
+        assert!(view.retry_at.is_none(), "and its answer replaces the old failure");
     }
     #[test]
     fn cache_failure_backoff_policy_persistence_and_account_invalidation() {
