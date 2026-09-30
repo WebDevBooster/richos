@@ -123,7 +123,7 @@ async function open(browser, setup, viewport) {
 /// and no timer is needed.
 async function answer(page, selector) {
   await page.click(selector);
-  await page.waitForFunction(() => !document.getElementById("feedback-notice").hidden, {
+  await page.waitForFunction(() => !document.getElementById("feedback-notice").hidden, null, {
     timeout: 5000,
   });
   return page.textContent("#feedback-notice");

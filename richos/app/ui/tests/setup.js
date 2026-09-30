@@ -426,7 +426,7 @@ async function main() {
     await page.waitForSelector("#setup-close:not([hidden])");
     // The account answer, whenever it lands, has landed by now: its own effect is observable.
     await page.waitForFunction(
-      () => /connected|sign in|Sign in|account/i.test(document.getElementById("setup-account").textContent || ""),
+      () => /connected|sign in|Sign in|account/i.test(document.getElementById("setup-account").textContent || ""), null,
       { timeout: 10000 }
     );
     // A WINDOW OF THE PAGE'S OWN FRAMES after the answer landed, not 400ms of this process's
@@ -998,7 +998,7 @@ async function main() {
     // the end state rather than for a clock. A screen that never leaves fails HERE, with the
     // reason in the timeout, rather than being read as a paint that lost a race.
     await page.waitForFunction(
-      () => { const h = document.getElementById("home"); return !h || h.hidden; },
+      () => { const h = document.getElementById("home"); return !h || h.hidden; }, null,
       { timeout: 5000 }
     );
     // ...AND THE BOOT IS FINISHED, said by the product rather than by a clock in this file.
@@ -1130,7 +1130,7 @@ async function main() {
         window.__RICHOS_MOCK_PRESET__ = v;
       }, { setup: "missing-engine" });
       await p.goto(APP);
-      await p.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
+      await p.waitForFunction("typeof window.RichSplash === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
       // The curtain is UP and the offer is already behind it — the window this is about. If
       // either half is not true the check is measuring nothing, so both are asserted.
       await p.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
@@ -1215,7 +1215,7 @@ async function main() {
   await run.check("20  nothing outside the offer can be reached while the offer is up", async () => {
     const page = await openApp(browser, { setup: "missing-engine" });
     await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
-    await page.waitForFunction(() => !document.querySelector(".splash"), { timeout: 10000 });
+    await page.waitForFunction(() => !document.querySelector(".splash"), null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
 
     const tryFocus = (id) =>
       page.evaluate((i) => {
@@ -1352,7 +1352,7 @@ async function main() {
     const page = await open({ setup: "missing-engine" });
     await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
     await page.click("#setup-later");
-    await page.waitForFunction(() => document.getElementById("setup-sheet").hidden, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("setup-sheet").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
 
     // The refusal, on voice's own channel, exactly as `start_voice_capture`'s submit closure
     // emits it. The text is the shipped sentence and the window never looks at it.
@@ -1365,7 +1365,7 @@ async function main() {
         at: Date.now(),
       });
     });
-    await page.waitForFunction(() => !document.getElementById("setup-sheet").hidden, { timeout: 5000 })
+    await page.waitForFunction(() => !document.getElementById("setup-sheet").hidden, null, { timeout: 5000 }) // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
       .catch(() => {});
     assert(
       await page.evaluate(() => !document.getElementById("setup-sheet").hidden),

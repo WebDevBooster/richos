@@ -652,7 +652,7 @@ async function countedLaunch(browser, off) {
   if (off) await page.addInitScript(() => window.localStorage.setItem("richos.splash.enabled", "false"));
   await page.addInitScript(LAUNCH_COUNTERS);
   await page.goto(APP);
-  await page.waitForFunction(() => window.__atReady != null, { timeout: 20000 });
+  await page.waitForFunction(() => window.__atReady != null, null, { timeout: 20000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
   // THE POSITIVE PROBES, FIRST — because two of the four need the curtain to still be on
   // screen, and this surface is over in a few seconds. A zero from an instrument that never
   // ran is the same number as a zero from a launch that asked for nothing, and this
@@ -789,7 +789,7 @@ async function settledShot(page, name) {
   // WAS racing it — a 270 ms window, and the picture that came out is described on
   // `curtainNow`. The callers now ask for `noCeiling` as well, and that is asserted below
   // rather than believed.
-  await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });
+  await page.waitForFunction(() => window.RichSplash.state.barStopped === true, null, { timeout: 20000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
   if (SHUTTER_LAG_MS > 0) await page.waitForTimeout(SHUTTER_LAG_MS);
   // THE OPT-IN HAS TO HAVE TAKEN, and this is where that is established. `NO_CEILING` refuses
   // to arm the timer whose body is `yieldNow("ceiling")`; if the product ever arms its
@@ -1933,7 +1933,7 @@ async function main() {
         window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "fresh", ordinal: 1, splashEnabled: v });
       }, durable);
       await p.goto(APP);
-      await p.waitForFunction("typeof window.RichHome === 'object'", { timeout: 15000 });
+      await p.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 15000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
       const got = await p.evaluate(() => {
         const home = document.getElementById("home");
         const cs = home ? getComputedStyle(home) : null;
@@ -2029,7 +2029,7 @@ async function main() {
         [c.durable, c.mirror]
       );
       await p.goto(APP);
-      await p.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
+      await p.waitForFunction("typeof window.RichSplash === 'object'", null, { timeout: 10000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
       const got = await p.evaluate(() => ({
         nodes: document.querySelectorAll("#splash, .splash").length,
         shown: window.RichSplash.state.shown,
@@ -2325,7 +2325,7 @@ async function main() {
 
     async function timeOne(page) {
       await page.goto(APP);
-      await page.waitForFunction(() => window.__readyAt != null, { timeout: 20000 });
+      await page.waitForFunction(() => window.__readyAt != null, null, { timeout: 20000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
       return page.evaluate(() => {
         const t = window.__readyAt;
         window.__readyAt = null;
@@ -3352,7 +3352,7 @@ async function main() {
     assert(handover.present && handover.yielding, "the curtain did not begin to fade on that keystroke");
     assertEqual(handover.reason, "first-input", "an ordinary key stopped dismissing the opening screen");
     assert(handover.display !== "none", "the button is still hidden while the curtain is fading — it arrives 220ms late");
-    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 });
+    await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
     assert(await page.locator("#set-btn").isVisible(), "the button never came back after the curtain left");
     const said = noErrors(page, "25");
     await page.__ctx.close();
@@ -3511,7 +3511,7 @@ async function main() {
     assert(going.yielding, "the curtain is not fading");
     assert(going.settled, "the composition was not pinned on its way out — a resumed screen must still show a finished mark");
     assert(going.pausedMs > 0, "the surface reports it was never held, which cannot be true of a resumed screen");
-    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 });
+    await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
     const landed = await page.evaluate(() => ({
       home: !!(window.RichHome && window.RichHome.isOpen()),
       settings: getComputedStyle(document.querySelector(".settings")).display,
@@ -3574,7 +3574,7 @@ async function main() {
     // ...and an ordinary click anywhere else still dismisses, exactly as it did before §62.
     await page.mouse.click(700, 500);
     const dismissed = await page
-      .waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 })
+      .waitForFunction(() => !document.getElementById("splash"), null, { timeout: 5000 }) // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
       .then(() => true)
       .catch(() => false);
     assert(dismissed, "the first-input dismissal is otherwise UNCHANGED — the exception is exactly one control wide");
@@ -3610,7 +3610,7 @@ async function main() {
       assertEqual(after.state.reason, "first-input", leg.name + ": the screen did not dismiss on first input");
       assertEqual(after.state.paused, false, leg.name + ": it dismissed but is still reporting itself held");
       const gone = await page
-        .waitForFunction(() => !document.getElementById("splash"), { timeout: 5000 })
+        .waitForFunction(() => !document.getElementById("splash"), null, { timeout: 5000 }) // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
         .then(() => true)
         .catch(() => false);
       assert(gone, leg.name + ": it decided to go and then did not");
@@ -3638,7 +3638,7 @@ async function main() {
     // end-to-end by check 12b and is deliberately not re-measured here; what this holds is that
     // an untouched launch reports the default, was never held, refused nobody, and left on its
     // own — the four readings §62's machinery could have broken without 12b noticing.
-    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 20000 });
+    await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 20000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
     const after = await page.evaluate(() => ({
       state: JSON.parse(JSON.stringify(window.RichSplash.state)),
       life: Math.round(window.__curtain.goneAt - window.__curtain.shownAt),

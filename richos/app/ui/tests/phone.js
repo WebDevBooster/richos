@@ -1489,7 +1489,7 @@ async function openSheet(browser, theme, preset) {
     // real minute would take, without spending one.
     await page.clock.setSystemTime(Date.now() + 61000);
     await page.waitForFunction(
-      () => !/waiting/i.test(document.getElementById("phone-ts-peer-ready").textContent),
+      () => !/waiting/i.test(document.getElementById("phone-ts-peer-ready").textContent), null,
       { timeout: 15000 }
     );
     const said = (await page.textContent("#phone-ts-peer-ready")).replace(/\s+/g, " ").trim();

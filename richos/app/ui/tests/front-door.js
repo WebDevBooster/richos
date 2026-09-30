@@ -91,7 +91,7 @@ async function openApp(browser, launchKind) {
     }, launchKind);
   }
   await page.goto(APP);
-  await page.waitForFunction(() => typeof window.RichHome === "object", { timeout: 15000 });
+  await page.waitForFunction(() => typeof window.RichHome === "object", null, { timeout: 15000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
   page.__errors = errors;
   return page;
 }
@@ -101,21 +101,21 @@ async function openApp(browser, launchKind) {
 /// an idle callback that may never come in a headless run.
 async function fieldLive(page) {
   await page.evaluate(() => window.RichHome.startField());
-  await page.waitForFunction(() => window.RichHome.state.field === "live", { timeout: 60000 });
+  await page.waitForFunction(() => window.RichHome.state.field === "live", null, { timeout: 60000 });
   // `field-engine.js:1442` adds `.gone` when it starts its first frame; the fade is 800ms and
   // the end state is what is under test, so this waits for the end state and not for a timer.
   await page.waitForFunction(
     () => {
       const n = document.getElementById("home-loading");
       return !!n && n.classList.contains("gone");
-    },
+    }, null,
     { timeout: 10000 }
   );
   await page.waitForFunction(
     () => {
       const n = document.getElementById("home-loading");
       return !n || getComputedStyle(n).opacity === "0";
-    },
+    }, null,
     { timeout: 5000 }
   );
 }
@@ -281,7 +281,7 @@ async function main() {
     // user back to the home screen" (CEO, 2026-09-01), and that has to keep working on the
     // window that did not open on it — otherwise the fix for B1 took the screen away.
     await page.evaluate(() => window.RichHome.show("front-door-suite"));
-    await page.waitForFunction(() => !document.getElementById("home").hidden, { timeout: 5000 });
+    await page.waitForFunction(() => !document.getElementById("home").hidden, null, { timeout: 5000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
     const r = await page.evaluate(() => {
       const door = document.getElementById("home-enter");
       const box = door && door.getBoundingClientRect();

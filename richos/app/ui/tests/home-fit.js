@@ -94,11 +94,11 @@ async function openHome(browser, viewport) {
   });
   page.__errors = errors;
   await page.goto(APP);
-  await page.waitForFunction("typeof window.RichHome === 'object'", { timeout: 15000 });
+  await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 15000 }); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
   await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("home-fit"));
   await page.evaluate(() => window.RichHome.startField());
-  await page.waitForFunction("window.RichHome.state.field === 'live'", { timeout: 60000 });
-  await page.waitForFunction("window.__loro && !window.__loro.blooming", { timeout: 90000 });
+  await page.waitForFunction("window.RichHome.state.field === 'live'", null, { timeout: 60000 });
+  await page.waitForFunction("window.__loro && !window.__loro.blooming", null, { timeout: 90000 });
   await page.waitForTimeout(800);
   return page;
 }

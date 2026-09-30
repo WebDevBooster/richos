@@ -164,7 +164,7 @@ async function openApp(browser) {
 /// filled by `refreshDesk()`, one statement after that focus, and `#retention-hint` by
 /// `syncRetentionFromBackend()`, dead last. Both non-empty means nothing else is going to move.
 async function settled(page) {
-  await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => !document.getElementById("splash"), null, { timeout: 15000 }).catch(() => {}); // load-bound: waits for the fact and returns the moment it holds; this deadline only ends a hang
   await shellSettled(page);
   await awaitSettled(page);
   await flushFrames(page);
