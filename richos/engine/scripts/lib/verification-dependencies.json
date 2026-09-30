@@ -4275,7 +4275,7 @@
     },
     "scripts/lib/operator_leads.py#claim-start": {
       "source": "scripts/lib/operator_leads.py",
-      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "sha256": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
       "evidence": "Reviewed cmd_claim_start and complete local closure including claim lock/state, native identity, entity/operator switch and JSON output. Only engine import is operator_fences for these readers and atomic claim writes; workspaces import belongs to the uncalled live-names verb. CLI receives literal claim-start and parses stdin as data.",
       "keys": [],
       "edges": [
@@ -8868,7 +8868,7 @@
     },
     "scripts/lib/operator_leads.py#lease-refusal": {
       "source": "scripts/lib/operator_leads.py",
-      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "sha256": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
       "evidence": "Reviewed lease_refusal, claim_state/read_claim/live_processes, labels and is_app_lead: fixed identity helpers and private claim JSON only.",
       "keys": [],
       "edges": [
@@ -8976,7 +8976,7 @@
     },
     "scripts/lib/operator_leads.py#hooks": {
       "source": "scripts/lib/operator_leads.py",
-      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "sha256": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
       "evidence": "Complete module reviewed. Fixed verbs consume private claims/memory leases, launcher data and native identity. Only engine imports are fence runtime and workspace live-record readers. No orchestration reader or payload command execution.",
       "keys": [],
       "edges": [
@@ -9491,7 +9491,7 @@
     },
     "scripts/hooks/operator-leads.test.sh": {
       "source": "scripts/hooks/operator-leads.test.sh",
-      "sha256": "d3663029c4cf718309ccd1b58d7b139133161228d97346a11b5c092968937a31",
+      "sha256": "9097e525483d7c88c0aade29c3f18f5266c0b590709195d8bd2abd0f3310ba35",
       "evidence": "Full suite reviewed: private literal entity config, claims, memory and named records; captured shell servers run finite hook/lease/Git commands. Exercises the real dispatcher and fixed Python readers. No model agents launch.",
       "keys": [],
       "edges": [
@@ -15705,7 +15705,7 @@
         "scripts/lib/scratch-reaper.py": "9b819095fdea55fbef5e2a61b47c8459ff5fe02f4a4f0af878ab23c81c144280",
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
         "scripts/lib/record-canary.sh": "2cf0fc8ace8e444b2af29265e4fbb0fb08047e1b13978c7d41a79e594ede5c72",
         "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
@@ -15781,7 +15781,7 @@
         "scripts/lib/scratch-reaper.py": "9b819095fdea55fbef5e2a61b47c8459ff5fe02f4a4f0af878ab23c81c144280",
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
         "scripts/lib/ceo-asks.sh": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
@@ -15960,7 +15960,7 @@
         "scripts/hook-registration-completeness.sh": "0cf54e75ea95aa43b5f4824d54941c9faee1b840bb688b471fa50ee1e9d8b350",
         "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
         "scripts/hooks/guard-land-lease-commands.sh": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
@@ -16423,14 +16423,14 @@
         "scripts/hooks/guard-shared-writes.sh"
       ],
       "sources": {
-        "scripts/hooks/operator-leads.test.sh": "d3663029c4cf718309ccd1b58d7b139133161228d97346a11b5c092968937a31",
+        "scripts/hooks/operator-leads.test.sh": "9097e525483d7c88c0aade29c3f18f5266c0b590709195d8bd2abd0f3310ba35",
         "scripts/lib/operator-fences-fixture.sh": "cf035be668ccb5fcaba1d6c668275f943ea115050990be0444dcabfa8e0b5fd7",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
         "scripts/lib/operator_fences_admin.py": "6a235436ab3fb2309ca8af8f764ab9ffddd27a9acb258f1766b9e7aa754218cc",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
         "mega-lander/workspaces.py": "1bf0140ac5f8bab0da20c8feccfe8cd3c432e18943204e1109726ded56b008fc",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/lib/operator-fence-launcher.sh": "b83c89e06e3e8aab78b2fd3eebb4693e2e41a08d752eae525fddceb10316ac59",
         "scripts/land-lease.sh": "a3a621ff827d5d60c4a127e9cb155bb03a78e9fed842d34acc727a39669e84b2",
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
@@ -16597,7 +16597,7 @@
         "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
         "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",

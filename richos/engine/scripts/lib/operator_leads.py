@@ -464,7 +464,16 @@ def _stale(lease):
 def take_memory_lease(path, holder, wait=MEMORY_LEASE_WAIT):
     """(True, None) once this call holds it; (False, current holder) after the
     wait. O_EXCL create; a stale file (its holder dead, or older than 5 s) is
-    removed and the create retried."""
+    removed and the create retried.
+
+    A stale lease that CANNOT be removed (a directory in its place, a file its
+    directory refuses to delete) is waited on like a live one and refused at
+    the same deadline, with `unremovable` in the returned holder saying why.
+    It used to `continue` straight past the deadline check, so the create
+    failed and retried with no sleep for as long as the process lived, and the
+    worker's tool call never came back (hunt 2026-09-29 part 5, finding 61).
+    A removal that succeeds, or finds the file already gone, still retries at
+    once: that is the quick takeover a stale lease is owed."""
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     deadline = time.monotonic() + wait
     body = dict(holder, at=OF.now())
@@ -485,10 +494,14 @@ def take_memory_lease(path, holder, wait=MEMORY_LEASE_WAIT):
         if current is None or _stale(current):
             try:
                 os.unlink(path)
-            except OSError:
-                pass
-            continue
-        last = current
+                continue
+            except FileNotFoundError:
+                continue                                # another taker removed it first
+            except OSError as error:
+                last = dict(current or {}, unremovable="%s could not be removed (%s)" % (
+                    path, error.strerror or error))
+        else:
+            last = current
         if time.monotonic() >= deadline:
             return False, last
         time.sleep(0.05)
@@ -523,6 +536,13 @@ def cmd_shared_writes_pre(payload):
         ok, holder = take_memory_lease(memory_lease_path(memory), _lease_holder(payload))
         if ok:
             return 0
+        if holder.get("unremovable"):
+            return refuse(
+                "=== OPERATOR SHARED WRITES: the memory write lease for %s is stale and cannot be removed ===\n"
+                "  %s. Nobody holds it, but nothing can take it either, so every memory write waits %d s\n"
+                "  and is refused. Remove what is at that path by hand (it is only a lease, never his memory),\n"
+                "  then run the same write again."
+                % (memory, holder["unremovable"], int(MEMORY_LEASE_WAIT)))
         return refuse(
             "=== OPERATOR SHARED WRITES: %s is being written by another session ===\n"
             "  Session %s (process %s) has held the memory write lease for more than %d s. Two leads never\n"
