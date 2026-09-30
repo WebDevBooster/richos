@@ -127,7 +127,9 @@ engine, sb, name, aid, sid, started, commit, tr = sys.argv[1:9]
 extra = sys.argv[9] if len(sys.argv) > 9 else ""
 sys.path.insert(0, os.path.join(engine, "mega-lander"))
 import workspaces
-now = time.time()
+# Whole seconds, like tick's `date +%s`: a fractional fixture clock made an age of
+# exactly N minutes read as N-1 whenever tick ran inside the same second.
+now = float(int(time.time()))
 repo = os.path.join(sb, "repos", name)
 os.makedirs(repo, exist_ok=True)
 # Only the commit's DATE is the fixture's. The identity is the operator's own
