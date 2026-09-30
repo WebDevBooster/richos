@@ -381,12 +381,18 @@ def candidate_pids():
         # the basename of either comm or argv[0] is enough to shortlist, and a
         # false shortlist costs one lsof and is then denied for lack of
         # evidence.
-        first = rest.split(None, 1)[0]
-        tokens = {os.path.basename(first)}
-        for tok in rest.split():
-            tokens.add(os.path.basename(tok))
-            if len(tokens) > 8:
-                break
+        #
+        # EXECUTABLE IDENTITY ONLY (P5-47). The shortlist used to take the
+        # basename of EVERY argument too, so `bash -c "cargo run -p
+        # richos-tauri"` was shortlisted by its last word, and a scratch cwd then
+        # made it COLLECT: a wrapper shell, or an unrelated command that merely
+        # mentions the app, was selected for termination. The process IS the
+        # app only when its executable (comm) or its argv[0] is an app binary;
+        # an argument is prose about one.
+        fields = rest.split()
+        tokens = {os.path.basename(fields[0])}
+        if len(fields) > 1:
+            tokens.add(os.path.basename(fields[1]))      # argv[0]
         if tokens & names:
             out[pid] = rest
     return out
