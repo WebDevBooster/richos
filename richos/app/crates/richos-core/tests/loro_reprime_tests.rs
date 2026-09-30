@@ -259,6 +259,44 @@ fn a_rotation_recompiles_rather_than_reusing_the_slice_the_previous_lease_was_gi
     let _ = std::fs::remove_file(&path);
 }
 
+/// **PART 1 HUNT FINDING 43.** The provenance sink describes the memory the CURRENT session was
+/// given, but it was only ever replaced by an ACCEPTED slice. A session primed afterwards with a
+/// thin answer, a refusal or a compiler failure kept the previous session's records, and a
+/// correction could be filed citing memory this session never saw.
+#[test]
+fn a_session_primed_without_memory_keeps_no_provenance_from_the_session_before_it() {
+    use richos_core::loro::{InjectedSlice, SharedSliceProvenance, SliceProvenance};
+    let (path, ledger) = tmp_ledger("prov-forget");
+    let mut spine = support::spine(ledger);
+    let b = binding(&mut spine);
+    let sink: SharedSliceProvenance = Arc::new(Mutex::new(SliceProvenance::new()));
+    spine.set_loro_provenance(Arc::clone(&sink));
+    // What an earlier session's accepted slice left behind for this thread.
+    sink.lock().unwrap().record(InjectedSlice {
+        thread_id: b.thread_id().to_string(),
+        entity_id: "femcboost".into(),
+        topic: "an earlier topic".into(),
+        fingerprint: "sha256:earlier".into(),
+        compiler: "compiler-1".into(),
+        at: 1,
+        records: Vec::new(),
+    });
+    assert!(sink.lock().unwrap().for_thread(b.thread_id()).is_some(), "the control entry was not recorded");
+
+    // The session that is primed now is given nothing: the compiler found nothing recorded.
+    spine.set_loro_context_compiler(Box::new(FakeCompiler::new(LoroTier::NothingRecorded(
+        "COMPANY MEMORY (loro): nothing recorded bears on \"hello\".".into(),
+    ))));
+    spine.attach_lease(Box::new(MockCognition::new("s-2", vec!["ok"])));
+    spine.submit_prompt("hello", Source::Text).unwrap();
+
+    assert!(
+        sink.lock().unwrap().for_thread(b.thread_id()).is_none(),
+        "the previous session's memory is still resolvable after a session that was given none"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
 #[test]
 fn pending_question_selects_memory_without_becoming_a_hidden_model_request() {
     let (path, ledger) = tmp_ledger("pending-query-only");

@@ -446,7 +446,7 @@ richos/app/
                               screen and the priming turn to one derived fact across all four
                               reachable states, and refuse a write that has nowhere to go
                               rather than reporting success over it
-    tests/loro_reprime_tests.rs 11 Tier-C tests: a slice that carries another company's
+    tests/loro_reprime_tests.rs 12 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
                               CEO layer and nothing else
     tests/loro_lane_map_tests.rs 11 lane-map tests: the default map is the CEO's six
@@ -1104,7 +1104,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1711 tests + 5 doc-tests (1707 direct, 4 ignored)
+cargo test -p richos-core                       # 1712 tests + 5 doc-tests (1708 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

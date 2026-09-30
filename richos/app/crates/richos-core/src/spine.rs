@@ -1760,6 +1760,19 @@ impl Spine {
     /// so there is no `?` to add here, and a memory miss cannot take down a session
     /// rotation the CEO is not supposed to be able to see.
     fn fill_loro_tier(&self, payload: &mut RePrimePayload, binding: &ThreadBinding) {
+        // **WHAT THE PREVIOUS SESSION WAS GIVEN IS NOT WHAT THIS ONE IS GIVEN** (part 1 hunt
+        // finding 43). This runs once per priming of a fresh session, and the provenance sink
+        // describes the CURRENT session's prompt (`SliceProvenance::record`'s own doc). The
+        // compiler replaces the entry only when it ACCEPTS a slice, so a thin answer, a refusal,
+        // a compiler failure, a thread with no topic or a build with no compiler would all leave
+        // the previous session's records in place, resolvable by `stage_belief_correction` into
+        // a proposal citing memory this session never saw. Forgotten first; an accepted slice
+        // records its own entry again below.
+        if let Some(sink) = self.loro_provenance.as_ref() {
+            if let Ok(mut held) = sink.lock() {
+                held.forget(binding.thread_id());
+            }
+        }
         let Some(compiler) = self.loro_compiler.as_ref() else { return };
         // A COMPILER AND NO LOOKUP IS THE ORDINARY STATE, and it leaves `EvidenceTier::NotWired`
         // untouched below — never a claim that the CEO has no such files.
