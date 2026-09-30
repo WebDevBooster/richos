@@ -170,7 +170,10 @@ def main():
         raise SystemExit('could not stage the fixture in the guest: ' + text)
 
     # ---- W1: before ----------------------------------------------------------------------
-    time.sleep(10)  # past the splash
+    # A fixed 10 s, kept on purpose: past the splash has no signal a walk can read (run.sh has already
+    # required a window; the splash is a window). The check is that the name is ABSENT, so a poll
+    # for a change cannot replace it. Recorded here, not a verdict.
+    time.sleep(10)
     before_screen = name_on_screen(vm, a.out, 'w1-before')
     before_log = loro_lines(vm, payload + '/app.log')
     checks['W1'] = {
@@ -224,10 +227,10 @@ def main():
     attempt = 0
     while time.monotonic() < deadline:
         attempt += 1
-        time.sleep(8)
-        found = name_on_screen(vm, a.out, 'w6-after-%d' % attempt)
+        found = name_on_screen(vm, a.out, 'w6-after-%d' % attempt)  # look first; sleep only between looks
         if found['ocr_found']:
             break
+        time.sleep(8)
     after_log = loro_lines(vm, relaunched['log'])
     checks['W6'] = {
         'name_on_screen_ocr': found['ocr_found'], 'name_in_ax_tree_recorded_only': found['ax_found'],

@@ -646,6 +646,27 @@ t "window wait: a window that is already there returns at the first look, with n
   ok "$quick" "waited ${elapsed}s instead of returning at once"
 t_done
 
+t "readiness waits: the base stop and the reboot are polled, not slept (finding 41)"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_until_vm_stopped inside the subshell
+  out="$( vm_running() { return 1; }
+          start=$SECONDS; wait_until_vm_stopped base 60 30; echo "rc=$? took=$((SECONDS - start))" )"
+  eq "$out" "rc=0 took=0"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_until_vm_stopped inside the subshell
+  out="$( vm_running() { return 0; }
+          wait_until_vm_stopped base 3 0; echo "rc=$?" )"
+  eq "$out" "rc=1"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_for_guest_reboot inside the subshell
+  out="$( n=0; ssh() { n=$((n+1)); [ "$n" -ge 3 ] && [ "$n" -lt 5 ] && return 255; [ "$n" -ge 5 ] && return 0; return 0; }
+          wait_for_guest_reboot 10.0.0.1 30 90 0 2>&1; echo "rc=$?" )"
+  eq "$out" "rc=0"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_for_guest_reboot inside the subshell
+  out="$( ssh() { return 255; }; wait_for_guest_reboot 10.0.0.1 2 3 0 2>&1; echo "rc=$?" )"
+  has "$out" "rc=1"
+  src="$(cat "$TESTVM_DIR/setup.sh" "$TESTVM_DIR/run.sh")"
+  hasnt "$src" "sleep 25"
+  hasnt "$src" "    sleep 3"
+t_done
+
 t "summary: the join's exit status survives set -e, so the refusal block is reachable at all"
   # FOUND WHILE WRITING THE REFUSAL ABOVE, and it would have been invisible: under
   # `set -e` a plain `VAR=$(failing-cmd)` KILLS THE SCRIPT at that line, before any

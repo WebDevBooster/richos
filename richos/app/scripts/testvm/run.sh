@@ -96,7 +96,8 @@ if ! vm_exists "$VM"; then
   if vm_running "$TESTVM_BASE_VM"; then
     log "stopping the base VM so the clone is consistent..."
     tart stop "$TESTVM_BASE_VM" 2>/dev/null || true
-    sleep 3
+    # Clone the moment the base reports stopped, not after a fixed 3 s; 30 s is the ceiling.
+    wait_until_vm_stopped "$TESTVM_BASE_VM" 60 0.5 || die "$TESTVM_BASE_VM did not stop within 30s; not cloning an inconsistent disk"
   fi
   tart clone "$TESTVM_BASE_VM" "$VM"
   echo ephemeral > "$STATE/ephemeral"
