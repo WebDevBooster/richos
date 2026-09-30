@@ -336,20 +336,32 @@ def load_pending(entity_root, session_id):
         return []
 
 
+# Failures to save the owed-answer record in THIS process. The record is the only
+# thing that carries an unpaid obligation to the next turn, so a failed save is
+# reported (stderr, and the Stop status line) and never swallowed (P5-48).
+SAVE_FAILURES = []
+
+
 def save_pending(entity_root, session_id, items):
+    """True when the record now says what `items` says; False, loudly, when not."""
     path = pending_path(entity_root, session_id)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if not items:
             if os.path.exists(path):
                 os.remove(path)
-            return
+            return True
         tmp = "%s.%d" % (path, os.getpid())
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump({"pending": items}, fh)
         os.replace(tmp, path)
-    except OSError:
-        pass
+        return True
+    except OSError as error:
+        msg = ("the owed failure-type answer could NOT be saved at %s (%s), so the next turn will not know it "
+               "is owed" % (path, error))
+        SAVE_FAILURES.append(msg)
+        sys.stderr.write("failure-type: %s\n" % msg)
+        return False
 
 
 def log_event(entity_root, record):
@@ -636,6 +648,13 @@ def commit_types(repo, rel, commits):
 
 
 def stop_status(kind, detail=""):
+    # A quiet "none"/"satisfied" line over a record that failed to save is the
+    # silent loss P5-48 names: say it instead. ("blocked" carries the letters of
+    # what is missing, and its refusal text already printed the save failure.)
+    if SAVE_FAILURES and kind == "cannot":
+        detail = (detail + " — AND " if detail else "") + "; ".join(SAVE_FAILURES)
+    elif SAVE_FAILURES and kind != "blocked":
+        kind, detail = "cannot", "; ".join(SAVE_FAILURES)
     sys.stdout.write("FT\t%s\t%s\n" % (kind, detail.replace("\t", " ").replace("\n", " ")))
 
 
