@@ -39,6 +39,7 @@ const path = require("path");
 const { leaveHome, loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const SOURCES = require("./lib/ui-sources");
+const { COUNT_BRIDGE, bridgeQuiet } = require("./lib/bridge-quiet");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_JS = fs.readFileSync(path.join(UI_DIR, "main.js"), "utf8");
 
@@ -1126,6 +1127,7 @@ async function main() {
   await run.check("19  a key pressed at the opening curtain cannot answer the offer behind it", async () => {
     const open = async () => {
       const p = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      await p.addInitScript(COUNT_BRIDGE, 0);
       await p.addInitScript((v) => {
         window.__RICHOS_MOCK_PRESET__ = v;
       }, { setup: "missing-engine" });
@@ -1143,7 +1145,16 @@ async function main() {
 
     const escaped = await open();
     await escaped.keyboard.press("Escape");
-    await escaped.waitForTimeout(2500);
+    // Two facts, not 2,500 ms (hunt part 2 recheck R41). The curtain leaves on its own clock:
+    // `yieldNow` fades it for FADE_MS and removes it 40 ms later (splash.js). That removal is
+    // waited for under a hang guard only; a curtain that never leaves is reported by the
+    // assertion below, with its own sentence, rather than by the wait. Then whatever else the
+    // key set off has finished: a press on "Not now" behind the curtain would be a bridge
+    // call, and the sheet is read only after the bridge is quiet.
+    await escaped
+      .waitForFunction(() => !document.querySelector(".splash"), undefined, { timeout: 30000 })
+      .catch(() => {});
+    await bridgeQuiet(escaped, "Escape at the opening curtain");
     const afterEscape = await escaped.evaluate(() => ({
       curtain: !!document.querySelector(".splash"),
       sheetHidden: document.getElementById("setup-sheet").hidden,

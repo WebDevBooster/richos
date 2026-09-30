@@ -277,14 +277,19 @@ fn operator_desk_at_boot(
     // (h): the lead's `can_use_tool` has nowhere to go but a refusal until the permission desk
     // route is built; in the declared bypass mode P14 measured nothing reaching it at all.
     let listed = declaration.origins.clone();
-    let desk = richos_core::operator_desk::OperatorDesk::for_app(declaration, data_dir, &executable, settle, origins, Some(push),
-                                                                 Arc::new(richos_core::operator_lead::NoPermissionDesk));
-    desk.start_default_retirement();
     let token = richos_core::operator_desk_tools::new_token();
+    // F6: the leads' own token, good for a named stop and nothing else, so a stop he gives to
+    // whichever lead is in front of him is executed there, once.
+    let lead_token = richos_core::operator_desk_tools::new_token();
     let path = richos_core::operator_desk_tools::socket_path(&data_dir.join("operator"));
+    let lead_desk = richos_core::operator_report::LeadDesk { socket: path.clone(), token: lead_token.clone() };
+    let desk = richos_core::operator_desk::OperatorDesk::for_app(declaration, data_dir, &executable, settle, origins, Some(push),
+                                                                 Arc::new(richos_core::operator_lead::NoPermissionDesk),
+                                                                 Some(lead_desk));
+    desk.start_default_retirement();
     eprintln!("[richos] his team: operator install; each conversation's lead starts on its next assignment (log {})",
               desk.log_path().display());
-    match richos_core::operator_desk_tools::DeskSocket::serve(desk.clone(), &path, &token) {
+    match richos_core::operator_desk_tools::DeskSocket::serve_with_lead(desk.clone(), &path, &token, Some(&lead_token)) {
         Ok(socket) => (Some(desk), Some(socket),
                        Some(richos_core::operator_desk_tools::DeskAccess { socket: path, token, origins: listed })),
         Err(e) => {

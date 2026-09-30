@@ -182,6 +182,21 @@ mutant no-session-filter "C5. " "$LIB" \
     'if False:' \
     "a question put to him yesterday did not reach the person who opened a session today."
 
+mutant any-app-run "C5d. " "$LIB" \
+    'if not (run and str(rec.get("app_run") or "") == run):' \
+    'if not run:' \
+    "an ask from an earlier launch of the app did not reach the person looking at this one."
+
+mutant app-run-not-witnessed "C5c. " "$W" \
+    'record["app_run"] = os.environ["CA_RUN"]' \
+    'pass' \
+    "a run the witness never writes down is a run no other conversation's lead can be credited with."
+
+mutant run-start-asks-again "C5g. " "$S" \
+    'if [ "${CA_VERDICT:-}" = "SATISFIED" ]; then\n    exit 0' \
+    'if false; then\n    exit 0' \
+    "a new conversation's lead told to open with the next question makes him answer one per conversation."
+
 mutant blocked-counts-as-prepared "A5. " "$PY" \
     'prepared = [i for i in items if (i.get("state") or "") == ready_state]' \
     'prepared = list(items)' \

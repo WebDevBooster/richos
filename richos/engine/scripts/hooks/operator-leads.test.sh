@@ -31,6 +31,7 @@
 #     S4   a lease whose session has ended, or older than 5 s, is taken at once
 #     S5   the same tool_use_id delivered again passes
 #     S6   after the wait, a held lease refuses naming the holder (unit)
+#     S9   a stale lease that cannot be removed is refused at the deadline (unit)
 #     S7   a record write without the land lease is refused; with it, it passes
 #     S8   a gitignored path, a native worktree and an unfenced repository pass
 #   e5 (guard-live-names.sh, PreToolUse[Agent])
@@ -327,6 +328,52 @@ assert not got and holder["tool_use_id"] == "a", (got, holder)
 os.unlink(path)
 P
 check "S6 after the wait, a held lease is refused naming its holder (unit)" $rc
+
+# S9 (hunt 2026-09-29 part 5, finding 61): a stale lease that cannot be removed
+# used to `continue` straight past the deadline, so the O_EXCL create failed and
+# retried forever and the worker's tool call never came back. Each attempt runs
+# in a child with its own timeout, because on the defect the call never returns.
+python3 - "$OFX/s9" "$LIB" <<'P'; rc=$?
+import json, os, subprocess, sys, time
+base, lib = sys.argv[1], os.path.dirname(sys.argv[2])
+child = r'''
+import json, os, sys, time
+sys.path.insert(0, sys.argv[1])
+import operator_leads as L
+t0 = time.monotonic()
+got, holder = L.take_memory_lease(sys.argv[2], {"pid": os.getpid(), "start": 0, "session_id": "U",
+                                                "tool_use_id": "s9"}, wait=0.3)
+print(json.dumps({"got": got, "holder": holder, "took": time.monotonic() - t0}))
+'''
+where = os.path.join(base, "dir", "memory-s9.lease")      # a directory where the lease file belongs
+os.makedirs(where)
+ro = os.path.join(base, "ro")                             # a stale lease whose directory refuses deletion
+os.makedirs(ro)
+stale = os.path.join(ro, "memory-s9.lease")
+with open(stale, "w") as fh:
+    json.dump({"pid": 999999, "start": 1, "session_id": "gone", "tool_use_id": "old", "at": time.time() - 60}, fh)
+os.chmod(ro, 0o500)
+bad = []
+try:
+    for name, path in (("a directory", where), ("a stale file that cannot be deleted", stale)):
+        try:
+            r = subprocess.run([sys.executable, "-c", child, lib, path], capture_output=True, text=True, timeout=5)
+        except subprocess.TimeoutExpired:
+            bad.append("%s: still spinning 5 s after a 0.3 s wait" % name)
+            continue
+        if r.returncode != 0:
+            bad.append("%s: exit %d %s" % (name, r.returncode, r.stderr.strip()[-300:]))
+            continue
+        got = json.loads(r.stdout)
+        if got["got"] or got["took"] > 2 or not (got["holder"] or {}).get("unremovable"):
+            bad.append("%s: %r" % (name, got))
+finally:
+    os.chmod(ro, 0o700)
+if bad:
+    print("\n".join(bad))
+    sys.exit(1)
+P
+check "S9 a stale lease that cannot be removed is refused at the deadline, saying so (unit)" $rc
 
 hook T "$H_SW" recw; r1=$?; out1="$OFX_OUT"
 ofx_in T "bash '$ENGINE_ROOT/scripts/land-lease.sh' acquire --repo '$R'"

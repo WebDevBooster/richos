@@ -113,11 +113,14 @@ fn main() {
     };
 
     let path = std::env::temp_dir().join(format!("richos-loro-demo-{}.jsonl", std::process::id()));
-    let _ = std::fs::remove_file(&path);
+    // A ledger left at this path would carry its turns into this payload, so one that cannot
+    // be removed stops the demo; none being there is the ordinary case.
+    if let Err(e) = std::fs::remove_file(&path) {
+        assert!(e.kind() == std::io::ErrorKind::NotFound, "an earlier ledger at {} could not be removed ({e})", path.display());
+    }
     let ledger = Ledger::open(&path).expect("open ledger");
-    let mut spine = Spine::new(ledger);
-    let entity_id = EntityId::parse(&entity).expect("RICHOS_ENTITY must be a registered entity id");
-    spine.ensure_active_thread_in(&entity_id).expect("thread");
+    let entity_id = EntityId::parse(&entity).expect("RICHOS_ENTITY must be a valid entity id");
+    let mut spine = conversation(ledger, registry, &entity_id);
 
     if let Some(c) = compiler {
         spine.set_loro_context_compiler(Box::new(c));
@@ -139,7 +142,27 @@ fn main() {
         println!("{p}");
         println!("--------------------------------------------------------------- {} chars", p.len());
     }
-    let _ = std::fs::remove_file(&path);
+    if let Err(e) = std::fs::remove_file(&path) {
+        eprintln!("[demo] the scratch ledger could not be removed ({e}); it is still at {}", path.display());
+    }
+}
+
+/// The conversation the demo primes, in `entity`, under the registry this install has. The
+/// core refuses a company its registry does not hold (`Spine::ensure_active_thread_in`), and
+/// a fresh spine holds none (hunt part 1 finding 46). A company this machine has not
+/// registered is added for this run only, in memory, and the demo says so: nothing is
+/// written to the registry file, and the corpus lanes were already resolved from the
+/// machine's own registry, unchanged.
+fn conversation(ledger: Ledger, mut registry: EntityRegistry, entity: &EntityId) -> Spine {
+    if !registry.contains(entity) {
+        let restored = EntityRegistry::from_existing_ids(std::slice::from_ref(entity));
+        registry.register(restored.entities()[0].clone()).expect("a company with no roots overlaps none");
+        eprintln!("[demo] company {entity} is not registered on this machine; it is registered for this run only and never saved");
+    }
+    let mut spine = Spine::new(ledger);
+    spine.set_entity_registry(registry);
+    spine.ensure_active_thread_in(entity).expect("thread");
+    spine
 }
 
 /// The registry this install has, read from its own configuration directory. Empty when
@@ -153,4 +176,22 @@ fn registry_on_this_machine() -> EntityRegistry {
     let load = EntityRegistry::load(&path);
     eprintln!("[demo] registry: {} compan(ies) from {} ({})", load.registry.len(), path.display(), load.source.as_str());
     load.registry
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hunt part 1 finding 46: on a machine that has registered no company (a fresh install),
+    /// the setup still opens the conversation the demo primes, instead of stopping at
+    /// `UnknownEntity`. No provider or corpus is used here.
+    #[test]
+    fn the_setup_opens_the_conversation_on_an_unconfigured_machine() {
+        let path = std::env::temp_dir().join(format!("richos-example-setup-{}.jsonl", uuid::Uuid::new_v4()));
+        let entity = EntityId::parse("richos").unwrap();
+        let spine = conversation(Ledger::open(&path).unwrap(), EntityRegistry::empty(), &entity);
+        assert!(spine.active_thread().is_some());
+        drop(spine);
+        std::fs::remove_file(&path).unwrap();
+    }
 }

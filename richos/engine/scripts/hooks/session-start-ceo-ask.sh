@@ -154,6 +154,13 @@ if [ "$ARC" -ge 2 ]; then
 fi
 
 [ "${CA_UNASKED:-0}" -gt 0 ] || exit 0
+# In the RichOS app the floor is one ask per APP RUN (scripts/lib/ceo-asks.sh,
+# THE ONE WIDENING): once one conversation's lead has put an item to him, a new
+# conversation's lead is not told to open by asking again. Outside the app this
+# never fires: with no session and no run, nothing has been asked yet.
+if [ "${CA_VERDICT:-}" = "SATISFIED" ]; then
+    exit 0
+fi
 
 TOP="$(printf '%s\n' "$CA_ASK_LINES" | head -1)"
 TOP_ID="$(printf '%s' "$TOP" | cut -f2)"

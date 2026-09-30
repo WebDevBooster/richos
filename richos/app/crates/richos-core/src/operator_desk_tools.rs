@@ -212,9 +212,22 @@ pub struct DeskSocket {
 impl DeskSocket {
     /// Serve `service` at `path`, admitting only requests that carry `token`.
     pub fn serve(service: Arc<dyn DeskService>, path: &Path, token: &str) -> io::Result<DeskSocket> {
+        Self::serve_with_lead(service, path, token, None)
+    }
+
+    /// Serve `service` at `path` to the front desk (`token`: every call) and, with `lead_token`,
+    /// to his team's leads, who may make exactly one call: a named stop (F6, the lead-side stop
+    /// of the operator contract notes §4 item 3). A lead holds the lead token in its own report
+    /// scope, never the desk's, so it can stop an agent and can neither read another
+    /// conversation nor interrupt one.
+    pub fn serve_with_lead(service: Arc<dyn DeskService>, path: &Path, token: &str, lead_token: Option<&str>)
+                           -> io::Result<DeskSocket> {
         use std::os::unix::fs::PermissionsExt;
-        if token.len() < 16 {
+        if token.len() < 16 || lead_token.is_some_and(|t| t.len() < 16) {
             return Err(io::Error::other("the desk's token is too short"));
+        }
+        if lead_token.is_some_and(|t| same_token(t, token)) {
+            return Err(io::Error::other("the leads' token must not be the desk's own"));
         }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -230,18 +243,18 @@ impl DeskSocket {
         let listener = UnixListener::bind(path)?;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         let closing = Arc::new(AtomicBool::new(false));
-        let (flag, expected) = (closing.clone(), token.to_string());
+        let (flag, expected, lead) = (closing.clone(), token.to_string(), lead_token.map(str::to_string));
         std::thread::Builder::new().name("richos-operator-socket".into()).spawn(move || {
             for stream in listener.incoming() {
                 if flag.load(Ordering::SeqCst) {
                     return;
                 }
                 let Ok(stream) = stream else { continue };
-                let (service, expected) = (service.clone(), expected.clone());
+                let (service, expected, lead) = (service.clone(), expected.clone(), lead.clone());
                 // One thread per call: a named stop may take most of a minute, and a read asked
                 // meanwhile must not wait behind it.
                 if let Err(e) = std::thread::Builder::new().name("richos-operator-call".into())
-                    .spawn(move || answer(service.as_ref(), &expected, stream)) {
+                    .spawn(move || answer(service.as_ref(), &expected, lead.as_deref(), stream)) {
                     eprintln!("operator desk: a call could not be served ({e})");
                 }
             }
@@ -282,10 +295,10 @@ fn same_token(given: &str, expected: &str) -> bool {
     given.len() == expected.len() && given.bytes().zip(expected.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
 
-fn answer(service: &dyn DeskService, token: &str, stream: UnixStream) {
+fn answer(service: &dyn DeskService, token: &str, lead_token: Option<&str>, stream: UnixStream) {
     let reply = match read_line(&stream) {
         Ok(line) => match serde_json::from_str::<Value>(&line) {
-            Ok(request) => dispatch(service, token, &request),
+            Ok(request) => dispatch(service, token, lead_token, &request),
             Err(_) => json!({"ok": false, "say": "The request was not readable."}),
         },
         Err(e) => json!({"ok": false, "say": format!("The request could not be read ({e}).")}),
@@ -306,9 +319,14 @@ fn read_line(stream: &UnixStream) -> io::Result<String> {
     Ok(line)
 }
 
-fn dispatch(service: &dyn DeskService, token: &str, request: &Value) -> Value {
-    if !same_token(request["token"].as_str().unwrap_or(""), token) {
+fn dispatch(service: &dyn DeskService, token: &str, lead_token: Option<&str>, request: &Value) -> Value {
+    let given = request["token"].as_str().unwrap_or("");
+    let desk = same_token(given, token);
+    if !desk && !lead_token.is_some_and(|lead| same_token(given, lead)) {
         return json!({"ok": false, "say": "This request did not come from RichOS."});
+    }
+    if !desk && request["op"].as_str() != Some("stop") {
+        return json!({"ok": false, "say": "A lead can only stop named agents through the desk."});
     }
     let key = ConversationKey { entity_id: request["entity_id"].as_str().unwrap_or("").to_string(),
                                 thread_id: request["thread_id"].as_str().unwrap_or("").to_string() };
@@ -365,8 +383,35 @@ fn call_desk(scope: &DeskToolScope, op: &str, fields: Value) -> Result<Value, St
     if let (Some(target), Some(extra)) = (request.as_object_mut(), fields.as_object()) {
         target.extend(extra.clone());
     }
+    call_socket(&scope.socket, &request)
+}
+
+/// **A named stop from one of his team's leads** (F6): the same stop the front desk's tool
+/// makes, through the same socket, with the lead token its report scope carries. The desk's
+/// `stop_named` finds each agent in whichever conversation runs it (`owner_of`), so a stop that
+/// reached the wrong lead as words is still executed once.
+pub fn stop_through_desk(socket: &Path, lead_token: &str, names: &[String], words: &str) -> Result<Value, String> {
+    call_socket(socket, &json!({"token": lead_token, "op": "stop", "names": names, "words": words}))
+}
+
+/// The names and his words of a stop call, checked the same way for the front desk and a lead.
+pub(crate) fn stop_arguments(args: &Value) -> Result<(Vec<String>, String), String> {
+    let names: Vec<String> = args["names"].as_array().ok_or("Name the agents to stop.")?
+        .iter().filter_map(Value::as_str).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).collect();
+    if names.is_empty() || names.len() > MAX_NAMES {
+        return Err(format!("Name between 1 and {MAX_NAMES} agents to stop."));
+    }
+    let words = args["words"].as_str().map(str::trim).filter(|w| !w.is_empty())
+        .ok_or("Pass his words, verbatim.")?;
+    if words.len() > MAX_WORDS {
+        return Err("His words are too long to record; pass the sentence that asks for the stop.".into());
+    }
+    Ok((names, words.to_string()))
+}
+
+fn call_socket(socket: &Path, request: &Value) -> Result<Value, String> {
     let unreachable = |e: io::Error| format!("RichOS did not answer for your team ({e}). Nothing was changed.");
-    let mut stream = UnixStream::connect(&scope.socket).map_err(unreachable)?;
+    let mut stream = UnixStream::connect(socket).map_err(unreachable)?;
     stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(unreachable)?;
     stream.set_read_timeout(Some(REPLY_WAIT)).map_err(unreachable)?;
     writeln!(stream, "{request}").map_err(unreachable)?;
@@ -384,16 +429,7 @@ fn call(scope_path: &Path, name: &str, args: Value) -> Result<Value, String> {
     let scope = read_scope(scope_path)?;
     match name {
         STOP_TOOL => {
-            let names: Vec<String> = args["names"].as_array().ok_or("Name the agents to stop.")?
-                .iter().filter_map(Value::as_str).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).collect();
-            if names.is_empty() || names.len() > MAX_NAMES {
-                return Err(format!("Name between 1 and {MAX_NAMES} agents to stop."));
-            }
-            let words = args["words"].as_str().map(str::trim).filter(|w| !w.is_empty())
-                .ok_or("Pass his words, verbatim.")?;
-            if words.len() > MAX_WORDS {
-                return Err("His words are too long to record; pass the sentence that asks for the stop.".into());
-            }
+            let (names, words) = stop_arguments(&args)?;
             call_desk(&scope, "stop", json!({"names": names, "words": words}))
         }
         INTERRUPT_TOOL => call_desk(&scope, "interrupt", json!({})),
@@ -618,6 +654,32 @@ mod tests {
         assert_eq!(replies[1]["result"]["isError"], true);
         assert_eq!(replies[2]["result"]["isError"], true);
         assert!(f.desk.stops.lock().unwrap().is_empty(), "nothing reached the desk");
+    }
+
+    /// **F6: the leads' token stops named agents and does nothing else.** A lead holds it in its
+    /// report scope; it can neither read another conversation nor interrupt one, and the desk's
+    /// own token still does everything.
+    #[test]
+    fn the_leads_token_stops_named_agents_and_does_nothing_else() {
+        let root = PathBuf::from("/tmp").join(format!("rol-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]));
+        std::fs::create_dir_all(&root).unwrap();
+        let desk = Arc::new(FakeDesk::default());
+        let (token, lead) = (new_token(), new_token());
+        assert!(DeskSocket::serve_with_lead(desk.clone(), &root.join("same.sock"), &token, Some(&token)).is_err(),
+                "the leads' token is never the desk's own");
+        let socket = DeskSocket::serve_with_lead(desk.clone(), &root.join("desk.sock"), &token, Some(&lead)).unwrap();
+        let stopped = stop_through_desk(socket.path(), &lead, &["mark-sonnet-a".into()], "stop mark").unwrap();
+        assert_eq!(stopped["stopped"], json!(["mark-sonnet-a"]));
+        assert_eq!(desk.stops.lock().unwrap().clone(), [(vec!["mark-sonnet-a".to_string()], "stop mark".to_string(), None)]);
+        for op in ["read", "interrupt"] {
+            let refused = call_socket(socket.path(), &json!({"token": lead, "op": op, "entity_id": "femcboost", "thread_id": "t-1"}));
+            assert_eq!(refused.unwrap_err(), "A lead can only stop named agents through the desk.", "{op}");
+        }
+        assert!(desk.interrupts.lock().unwrap().is_empty());
+        let read = call_socket(socket.path(), &json!({"token": token, "op": "read", "entity_id": "femcboost", "thread_id": "t-1"}));
+        assert_eq!(read.unwrap()["ok"], true, "the desk's own token still reads");
+        socket.close();
+        if let Err(e) = std::fs::remove_dir_all(&root) { eprintln!("fixture cleanup: {e}"); }
     }
 
     #[test]

@@ -269,6 +269,24 @@ class Walk(unittest.TestCase):
         self.assertEqual(gp.w2(ctx, {})[0], 'NOT-RUN')
         self.assertEqual(gp.s6(ctx, {})[0], 'NOT-RUN')
 
+    def test_o2_runs_only_when_named_and_grades_each_item_on_what_was_measured(self):
+        self.assertIn('O2', gp.EXPLICIT, 'a default probe run must never start the O2 walk')
+        ctx = gp.Context.__new__(gp.Context)
+        ctx.walk_binary = ''
+        self.assertEqual(gp.o2(ctx, {})[0], 'NOT-RUN')
+        f3 = {'ruled_in_outbox': 0, 'control_in_outbox': 1,
+              'reply': 'O2-F3-REFUSED Nothing was recorded: ... §21 › The splash screens — ...'}
+        self.assertTrue(gp.grade_o2_f3(f3))
+        for key, value in (('ruled_in_outbox', 1), ('control_in_outbox', 0), ('reply', 'O2-F3-RECORDED')):
+            self.assertFalse(gp.grade_o2_f3(dict(f3, **{key: value})), key)
+        f6 = {'before': 'ALIVE', 'after': ['NOT-ALIVE', True, None], 'stop_lines': ['stop of o2-sonnet-b from ...'],
+              'reply': 'O2-F6 {"ok":true,"say":"Stopped o2-sonnet-b.","stopped":["o2-sonnet-b"]}'}
+        self.assertTrue(gp.grade_o2_f6(f6))
+        for key, value in (('before', 'NOT-ALIVE'), ('after', ['ALIVE', None, None]), ('after', ['NOT-ALIVE', None, None]),
+                           ('stop_lines', []), ('stop_lines', ['a', 'b']), ('reply', 'O2-F6 nothing')):
+            self.assertFalse(gp.grade_o2_f6(dict(f6, **{key: value})), key)
+        self.assertFalse(gp.grade_o2_f6({'why': 'the teammate could not be started'}))
+
     def test_a_heartbeat_is_a_shell_loop_writing_one_file(self):
         self.assertIn('/tmp/hb.txt', gp.heartbeat_command('/tmp/hb.txt'))
 

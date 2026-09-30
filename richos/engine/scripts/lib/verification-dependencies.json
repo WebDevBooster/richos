@@ -111,7 +111,7 @@
   "nodes": {
     "scripts/lib/ceo-asks.sh": {
       "source": "scripts/lib/ceo-asks.sh",
-      "sha256": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+      "sha256": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
       "evidence": "ca_resolve reads the finite CA_REPOS_KEY declaration; remaining routines read separate TODO records.",
       "keys": [
         "CEO_TODOS_REPOS"
@@ -374,7 +374,7 @@
     },
     "scripts/hooks/notice-ceo-asks.sh": {
       "source": "scripts/hooks/notice-ceo-asks.sh",
-      "sha256": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
+      "sha256": "a69920c5d344cc2f050112281e96c948b884b40a2c91416f01499d25f0618330",
       "evidence": "Resolves the governed root then delegates config access to ca_resolve. Its other inputs are the hook payload and per-session ledger. The app receipt extension reads payload identity and de-duplicates the same session ledger under a file lock; it introduces no other config reader or helper.",
       "keys": [],
       "edges": [
@@ -419,7 +419,7 @@
     },
     "scripts/hooks/session-start-ceo-ask.sh": {
       "source": "scripts/hooks/session-start-ceo-ask.sh",
-      "sha256": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+      "sha256": "722f3e24fc066989c8721ccfa8a5b0e4b1746b265edca30083c2e3febd297079",
       "evidence": "Resolves the governed root then delegates config access to ca_resolve. Its other inputs are the hook payload and per-session ledger.",
       "keys": [],
       "edges": [
@@ -458,7 +458,7 @@
     },
     "scripts/lib/operator_fences.py#proc": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+      "sha256": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
       "evidence": "Kernel process-generation routines read libproc or /proc only. Fence/lease commands below this region are not invoked by the process supervisor.",
       "keys": [],
       "edges": [],
@@ -552,7 +552,7 @@
     },
     "scripts/hooks/ceo-asks.test.sh": {
       "source": "scripts/hooks/ceo-asks.test.sh",
-      "sha256": "e4a12ccda51a090f9f8ca18e4d009708cd197e1c3b49948899949e6b5b6e78fe",
+      "sha256": "b7eea03ad88a87128b1f582f6352244b523c047b2292374d33caf9be65b240b0",
       "evidence": "Creates a private entity config and private TODO declaration from literal values. Every hook/status invocation receives that entity root. Real hooks.json, installer, probe and notice text are read as registration/source data only. It never transports the real config. Nested mutations rebuild the same fixtures.",
       "keys": [],
       "edges": [
@@ -587,7 +587,7 @@
     },
     "scripts/hooks/ceo-asks.mutation.sh": {
       "source": "scripts/hooks/ceo-asks.mutation.sh",
-      "sha256": "134d6c67a7c8402062a7e592e680d35943fd088fd5d36165e4ac1fa61775602b",
+      "sha256": "33b277c48240615f462ba9a703a70f22b62008ff4748e2a110ec58bf024d89e3",
       "evidence": "Copies a finite hook/helper list, never the real configuration. Thirteen literal mutations change matching, gating and reporting, not config provenance. Nested ceo-asks.test.sh reconstructs private configs before execution. The ledger mutation needle now matches append/read mode, without changing executed helpers or settings provenance.",
       "keys": [],
       "edges": [
@@ -1432,7 +1432,7 @@
     },
     "scripts/lib/containers.py#workspace-cleanup": {
       "source": "scripts/lib/containers.py",
-      "sha256": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+      "sha256": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
       "evidence": "reap_for_workspaces reads declared workspace container inventories and Docker state, consulting workspaces.all_agents/live_workspaces for liveness. No orchestration.config values are loaded.",
       "keys": [],
       "edges": [
@@ -1830,7 +1830,7 @@
     },
     "scripts/lib/hook-dependencies.py": {
       "source": "scripts/lib/hook-dependencies.py",
-      "sha256": "897b42d0130b3b6139bb1da820a8dd9757f5f39764065e419f2f50e2acb3bd51",
+      "sha256": "013b187a06ddb52d8e679407b45d635d8a6c693348d0bcb4998b58f6ec44debe",
       "evidence": "Standard-library source scanner. It reads registration JSON, dispatcher manifest and recursively resolved source paths as data. It never executes discovered files. The supported token suffixes exclude .config; inventories do not consume config values.",
       "keys": [],
       "edges": []
@@ -1848,7 +1848,7 @@
     },
     "scripts/lib/hook-dependencies.test.sh": {
       "source": "scripts/lib/hook-dependencies.test.sh",
-      "sha256": "e7ec14f5035469c0d9f10ce237210e553bbcae64564a1fdf1aada0bd683feb0e",
+      "sha256": "49a0c3e27546b8bd12228bc396be5ff3359abe77e5264b3e6bb658331a6aa3a7",
       "evidence": "Runs the real source scanner and shell wrapper on the live engine and private generated engines. The copied root resolver and generated shell/Python fixture bodies are parsed as data, never executed. Demo source is only searched for its invocation text.",
       "keys": [],
       "edges": [
@@ -4264,7 +4264,7 @@
     },
     "scripts/lib/operator_fences.py#claim-readers": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+      "sha256": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
       "evidence": "Reviewed sessions_dir, launcher_for/fenced, claude_session, alive, iso and JSON read/write helpers reached by claim-start. Local closure adds ancestors/lstart_epoch, repo_paths/git and read_launcher. Git calls read metadata; launcher content is parsed as data, never sourced. Native process identity is shared with the existing proc closure. No orchestration configuration.",
       "keys": [],
       "edges": [
@@ -4275,7 +4275,7 @@
     },
     "scripts/lib/operator_leads.py#claim-start": {
       "source": "scripts/lib/operator_leads.py",
-      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "sha256": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
       "evidence": "Reviewed cmd_claim_start and complete local closure including claim lock/state, native identity, entity/operator switch and JSON output. Only engine import is operator_fences for these readers and atomic claim writes; workspaces import belongs to the uncalled live-names verb. CLI receives literal claim-start and parses stdin as data.",
       "keys": [],
       "edges": [
@@ -4465,7 +4465,7 @@
     },
     "scripts/hooks/notice-escalations.sh": {
       "source": "scripts/hooks/notice-escalations.sh",
-      "sha256": "d878502c1bb7c5dd014ee18084fa413c86db3b32d35919ca2db78187613902bd",
+      "sha256": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
       "evidence": "Resolves adoption and reads the ledger through fixed escalations and stop-notice libraries. Payload and ledger fields are data, never sourced. Root presence is the only configuration dependency. Renewed 2026-09-28: the Stop path also calls escalations_deliver with the payload on stdin and a per-session delivered-set under the entity's .claude/state/stop-hook-notices; the payload's session id and transcript path are data.",
       "keys": [],
       "edges": [
@@ -4477,6 +4477,20 @@
         },
         {
           "to": "scripts/lib/escalations.sh"
+        },
+        {
+          "to": "scripts/lib/audit-report-watch.py"
+        }
+      ]
+    },
+    "scripts/lib/audit-report-watch.py": {
+      "source": "scripts/lib/audit-report-watch.py",
+      "sha256": "7f209e0a82c51458910d9b9a1bec67bb5d16c5f1fa24710e91afafdd9c95e2ec",
+      "evidence": "Reads the record repository's docs/audits reports at HEAD through fixed git calls (path from RICHOS_AUDIT_RECORD_REPO or a fixed home default) and a state file under RICHOS_AUDIT_WATCH_STATE. Report text is parsed as data, never evaluated. Raises through the fixed sibling escalate.sh with a fields file it writes itself. No orchestration config or manifest is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/escalate.sh"
         }
       ]
     },
@@ -4930,7 +4944,7 @@
     },
     "scripts/lib/operator_fences.py#admin-status": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+      "sha256": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
       "evidence": "The fixed admin status dispatch imports operator_fences_admin. Its library callbacks are read_json, git, file_digest, read_launcher, repo_paths, _default_home and keyed_paths. Their only dynamic engine import is workspaces for land lock paths. The lease status/fence/install dispatches are not reached.",
       "keys": [],
       "edges": [
@@ -4944,7 +4958,7 @@
     },
     "scripts/lib/operator_fences_admin.py#status": {
       "source": "scripts/lib/operator_fences_admin.py",
-      "sha256": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+      "sha256": "310c9f04074eb90a9a8e190812247c80dd4a2f271cfe9b7444fc843c0674acac",
       "evidence": "Status and declaration-check parse only OPERATOR_FENCES from the explicit entity config. Remaining local calls read registry JSON, launcher text, file hashes, chain directory entries and Git hooksPath; no launcher or chain member executes. The other config assignments parsed into the declaration dictionary are unused by status.",
       "keys": [
         "OPERATOR_FENCES"
@@ -7179,7 +7193,7 @@
     },
     "scripts/hooks/notice-escalations.sh#unadopted-stop": {
       "source": "scripts/hooks/notice-escalations.sh",
-      "sha256": "d878502c1bb7c5dd014ee18084fa413c86db3b32d35919ca2db78187613902bd",
+      "sha256": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
       "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
       "keys": [],
       "edges": [
@@ -8868,7 +8882,7 @@
     },
     "scripts/lib/operator_leads.py#lease-refusal": {
       "source": "scripts/lib/operator_leads.py",
-      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "sha256": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
       "evidence": "Reviewed lease_refusal, claim_state/read_claim/live_processes, labels and is_app_lead: fixed identity helpers and private claim JSON only.",
       "keys": [],
       "edges": [
@@ -8879,7 +8893,7 @@
     },
     "scripts/lib/operator_fences.py#runtime": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+      "sha256": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
       "evidence": "AST call/import inventory and all external execution boundaries reviewed for fence, lease, merge-owner, turn-end and early-check. Only engine imports are workspace lock paths and the claim predicate. Launcher assignments are data. Git uses the caller repository and its separately bound hooks. Admin is a separate dispatch.",
       "keys": [],
       "edges": [
@@ -8904,7 +8918,7 @@
     },
     "scripts/lib/operator_fences_admin.py#fixture-admin": {
       "source": "scripts/lib/operator_fences_admin.py",
-      "sha256": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+      "sha256": "310c9f04074eb90a9a8e190812247c80dd4a2f271cfe9b7444fc843c0674acac",
       "evidence": "All admin bodies reviewed. Reads three named keys from explicit entity configuration, copies the fixed program and renders the fixed launcher. Registry and hook files are data in admin; copied hooks do not execute here.",
       "keys": [
         "OPERATOR_FENCES",
@@ -8976,7 +8990,7 @@
     },
     "scripts/lib/operator_leads.py#hooks": {
       "source": "scripts/lib/operator_leads.py",
-      "sha256": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+      "sha256": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
       "evidence": "Complete module reviewed. Fixed verbs consume private claims/memory leases, launcher data and native identity. Only engine imports are fence runtime and workspace live-record readers. No orchestration reader or payload command execution.",
       "keys": [],
       "edges": [
@@ -9491,7 +9505,7 @@
     },
     "scripts/hooks/operator-leads.test.sh": {
       "source": "scripts/hooks/operator-leads.test.sh",
-      "sha256": "d3663029c4cf718309ccd1b58d7b139133161228d97346a11b5c092968937a31",
+      "sha256": "9097e525483d7c88c0aade29c3f18f5266c0b590709195d8bd2abd0f3310ba35",
       "evidence": "Full suite reviewed: private literal entity config, claims, memory and named records; captured shell servers run finite hook/lease/Git commands. Exercises the real dispatcher and fixed Python readers. No model agents launch.",
       "keys": [],
       "edges": [
@@ -14450,7 +14464,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/lib/operator_fences.py",
-          "sha256": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+          "sha256": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14954,7 +14968,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "scripts/hooks/notice-ceo-asks.sh",
-          "sha256": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
+          "sha256": "a69920c5d344cc2f050112281e96c948b884b40a2c91416f01499d25f0618330",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {
@@ -15066,7 +15080,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "scripts/lib/ceo-asks.sh",
-          "sha256": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+          "sha256": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {
@@ -15114,7 +15128,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "scripts/lib/containers.py",
-          "sha256": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+          "sha256": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {
@@ -15544,25 +15558,25 @@
         "session-start-ceo-ask.sh"
       ],
       "sources": {
-        "scripts/hooks/ceo-asks.test.sh": "e4a12ccda51a090f9f8ca18e4d009708cd197e1c3b49948899949e6b5b6e78fe",
-        "scripts/hooks/notice-ceo-asks.sh": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
+        "scripts/hooks/ceo-asks.test.sh": "b7eea03ad88a87128b1f582f6352244b523c047b2292374d33caf9be65b240b0",
+        "scripts/hooks/notice-ceo-asks.sh": "a69920c5d344cc2f050112281e96c948b884b40a2c91416f01499d25f0618330",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
-        "scripts/lib/ceo-asks.sh": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+        "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
-        "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+        "scripts/hooks/session-start-ceo-ask.sh": "722f3e24fc066989c8721ccfa8a5b0e4b1746b265edca30083c2e3febd297079",
         "scripts/ceo-asks-status.sh": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
-        "scripts/hooks/ceo-asks.mutation.sh": "134d6c67a7c8402062a7e592e680d35943fd088fd5d36165e4ac1fa61775602b",
+        "scripts/hooks/ceo-asks.mutation.sh": "33b277c48240615f462ba9a703a70f22b62008ff4748e2a110ec58bf024d89e3",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
@@ -15590,7 +15604,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
-        "scripts/lib/ceo-asks.sh": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+        "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
@@ -15606,7 +15620,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
@@ -15646,7 +15660,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -15687,7 +15701,7 @@
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
@@ -15705,11 +15719,11 @@
         "scripts/lib/scratch-reaper.py": "9b819095fdea55fbef5e2a61b47c8459ff5fe02f4a4f0af878ab23c81c144280",
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/record-canary.sh": "2cf0fc8ace8e444b2af29265e4fbb0fb08047e1b13978c7d41a79e594ede5c72",
-        "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
-        "scripts/lib/ceo-asks.sh": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+        "scripts/hooks/session-start-ceo-ask.sh": "722f3e24fc066989c8721ccfa8a5b0e4b1746b265edca30083c2e3febd297079",
+        "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
@@ -15744,7 +15758,7 @@
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
@@ -15758,7 +15772,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -15781,9 +15795,9 @@
         "scripts/lib/scratch-reaper.py": "9b819095fdea55fbef5e2a61b47c8459ff5fe02f4a4f0af878ab23c81c144280",
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
-        "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
-        "scripts/lib/ceo-asks.sh": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
+        "scripts/hooks/session-start-ceo-ask.sh": "722f3e24fc066989c8721ccfa8a5b0e4b1746b265edca30083c2e3febd297079",
+        "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
@@ -15870,14 +15884,14 @@
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
-        "scripts/lib/hook-dependencies.py": "897b42d0130b3b6139bb1da820a8dd9757f5f39764065e419f2f50e2acb3bd51",
+        "scripts/lib/hook-dependencies.py": "013b187a06ddb52d8e679407b45d635d8a6c693348d0bcb4998b58f6ec44debe",
         "scripts/lib/hook-dependencies.sh": "a4634dd1f95fe9c518055fd324d4b56a07186aafb8828e387c890c3cbd0e4621",
         "scripts/lib/inflight.py": "7557f1c701858629759472c355a35583e3e2edaa60ab5ea6f1b5e819984a6739",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
@@ -15887,8 +15901,8 @@
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/operator_fences_admin.py": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
+        "scripts/lib/operator_fences_admin.py": "310c9f04074eb90a9a8e190812247c80dd4a2f271cfe9b7444fc843c0674acac",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
         "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
@@ -15943,7 +15957,7 @@
         "scripts/hooks/guard-brief-scope.sh": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
         "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
         "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
-        "scripts/lib/ceo-asks.sh": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+        "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "scripts/hooks/guard-ceo-ruled-ask.sh": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
         "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
@@ -15960,7 +15974,7 @@
         "scripts/hook-registration-completeness.sh": "0cf54e75ea95aa43b5f4824d54941c9faee1b840bb688b471fa50ee1e9d8b350",
         "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
         "scripts/hooks/guard-land-lease-commands.sh": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
@@ -15995,7 +16009,7 @@
         "scripts/lib/workspaces.py": "982dad78682707a732036c4c0b4b99753bbae9de42e2e7cf83a407913367ed54",
         "scripts/hooks/left-off.test.sh": "159b8e36fd623094897bde2132e2c205fbc985ae72895e783645bb91720ac3a1",
         "scripts/hooks/left-off.mutation.sh": "845f799309b90254a9ac87ed3fead11485364080c49b4be8640b6f335fe02c0a",
-        "scripts/hooks/notice-ceo-asks.sh": "c1982944fcb496bd016248b31063838f2ce0806418eeb41cddd335da9687bf01",
+        "scripts/hooks/notice-ceo-asks.sh": "a69920c5d344cc2f050112281e96c948b884b40a2c91416f01499d25f0618330",
         "scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
         "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
@@ -16004,7 +16018,7 @@
         "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
         "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
-        "scripts/hooks/notice-escalations.sh": "d878502c1bb7c5dd014ee18084fa413c86db3b32d35919ca2db78187613902bd",
+        "scripts/hooks/notice-escalations.sh": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
         "scripts/hooks/notice-protected-ref-moves.sh": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
         "scripts/lib/protected-ref-moves.py": "d4b8e7c1cb3553a722541124159906f4f9d7284aa94d311c2d4c0b2c6974c95c",
@@ -16018,7 +16032,7 @@
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
         "scripts/hooks/release-land-leases.sh": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
         "scripts/hooks/release-shared-writes.sh": "da06d8fbe6b3438a0bb1c33cea6e6b4789aeb041f9aef246ec3eea24d0f4ed80",
-        "scripts/hooks/session-start-ceo-ask.sh": "3b0b8396d0e50a6145401df798bde92e7bc59ffd55a7260f160f7b1b8d72ec69",
+        "scripts/hooks/session-start-ceo-ask.sh": "722f3e24fc066989c8721ccfa8a5b0e4b1746b265edca30083c2e3febd297079",
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
@@ -16097,7 +16111,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16221,7 +16235,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16295,7 +16309,7 @@
         "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
         "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
-        "scripts/hooks/notice-escalations.sh": "d878502c1bb7c5dd014ee18084fa413c86db3b32d35919ca2db78187613902bd",
+        "scripts/hooks/notice-escalations.sh": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
         "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
@@ -16330,7 +16344,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
@@ -16359,7 +16373,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16423,14 +16437,14 @@
         "scripts/hooks/guard-shared-writes.sh"
       ],
       "sources": {
-        "scripts/hooks/operator-leads.test.sh": "d3663029c4cf718309ccd1b58d7b139133161228d97346a11b5c092968937a31",
+        "scripts/hooks/operator-leads.test.sh": "9097e525483d7c88c0aade29c3f18f5266c0b590709195d8bd2abd0f3310ba35",
         "scripts/lib/operator-fences-fixture.sh": "cf035be668ccb5fcaba1d6c668275f943ea115050990be0444dcabfa8e0b5fd7",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
-        "scripts/lib/operator_fences_admin.py": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences_admin.py": "310c9f04074eb90a9a8e190812247c80dd4a2f271cfe9b7444fc843c0674acac",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "mega-lander/workspaces.py": "1bf0140ac5f8bab0da20c8feccfe8cd3c432e18943204e1109726ded56b008fc",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/lib/operator-fence-launcher.sh": "b83c89e06e3e8aab78b2fd3eebb4693e2e41a08d752eae525fddceb10316ac59",
         "scripts/land-lease.sh": "a3a621ff827d5d60c4a127e9cb155bb03a78e9fed842d34acc727a39669e84b2",
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
@@ -16478,7 +16492,7 @@
         "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
         "scripts/hooks/guard-no-home-network-phone.sh": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
-        "scripts/lib/ceo-asks.sh": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+        "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
@@ -16561,7 +16575,7 @@
         "scripts/hooks/guard-brief-scope.sh": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
         "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
         "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
-        "scripts/lib/ceo-asks.sh": "daabdeddfb1bae53354d6674fee6da09745508a391e0d83a071e11d431e1e554",
+        "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
@@ -16586,7 +16600,7 @@
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16597,7 +16611,7 @@
         "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
         "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
-        "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
+        "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
@@ -16625,7 +16639,7 @@
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-stale-staging.sh": "3aaaea16970f7d9cb08b4600ba1a2edad55333c24115e7fb759cedc9512b1a6e",
@@ -16650,7 +16664,7 @@
         "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
         "scripts/lib/disk-watchdog.py": "e9e7ca4981c480b8fb3598f1feb7302dd617f8b040c2db4e4a661306cddd03ed",
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
-        "scripts/hooks/notice-escalations.sh": "d878502c1bb7c5dd014ee18084fa413c86db3b32d35919ca2db78187613902bd",
+        "scripts/hooks/notice-escalations.sh": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
         "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
@@ -16728,7 +16742,7 @@
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
@@ -16752,8 +16766,8 @@
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/operator_fences_admin.py": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
+        "scripts/lib/operator_fences_admin.py": "310c9f04074eb90a9a8e190812247c80dd4a2f271cfe9b7444fc843c0674acac",
         "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
@@ -16781,7 +16795,7 @@
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/lib/agent_hold.py": "90512881bea4b681b9ced8f4528613cdd82959d9c3fb4e2f97ad44477aeffeed",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
@@ -16818,14 +16832,14 @@
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
         "scripts/lib/agent_hold.py": "90512881bea4b681b9ced8f4528613cdd82959d9c3fb4e2f97ad44477aeffeed",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
         "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
@@ -16864,7 +16878,7 @@
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
         "scripts/lib/agent_hold.py": "90512881bea4b681b9ced8f4528613cdd82959d9c3fb4e2f97ad44477aeffeed",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
@@ -16889,7 +16903,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
         "scripts/hooks/owned-state.mutation.sh": "16c882410080023b2f3502ca2d7237fe005ce31b9c91be738ffba65551d05932",
         "scripts/owned-state.sh": "313a26b975baf1005c6a86beaa03cc7910481b9e1d6754d45a0e4206b5b001a0",
@@ -16936,7 +16950,7 @@
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
+        "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/registered-hooks.sh": "b6da2aa1ed92ad840fe03ac4c47f1ce2e18887fc99d58755bbf43ac000fea6cd",
         "scripts/hooks/ceo-todos.test.sh": "4ce8bf99eb39a587d86364a1f3beab8128abc85b3b008d0101398dbd51a9ff61",
         "scripts/ceo-todos-render.sh": "63b00d5fde2eb129df925749ae9967521d9251936f5f19db627bded6049fddc3",
@@ -16967,7 +16981,7 @@
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
         "scripts/lib/agent_hold.py": "90512881bea4b681b9ced8f4528613cdd82959d9c3fb4e2f97ad44477aeffeed",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
-        "scripts/lib/containers.py": "957965ce69a27ad94066c9a20c92956e715cb5bdd234080b92024c8e9f0f08c9",
+        "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",

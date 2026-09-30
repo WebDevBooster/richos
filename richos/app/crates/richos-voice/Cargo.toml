@@ -37,9 +37,13 @@ libc = "0.2"
 [dev-dependencies]
 richos-core = { path = "../richos-core" }
 
+# `test = true` runs the example's own setup test with `cargo test -p richos-voice`, so a loop
+# that can no longer open its conversation fails there, not at its next live run (hunt part 1
+# finding 46). The setup test opens no device and starts no provider.
 [[example]]
 name = "voice_loop"
 path = "examples/voice_loop.rs"
+test = true
 
 [[example]]
 name = "device_probe"

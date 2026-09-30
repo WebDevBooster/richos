@@ -63,7 +63,9 @@
 #
 # Per question: the matched item id (or UNMATCHED), which repository it came
 # from, the match score and how it matched, the question text, the timestamp and
-# the session id. The TEXT is recorded here, deliberately unlike
+# the session id, and, in the RichOS app, the app run (`app_run`: the payload's,
+# or the lead's RICHOS_OPERATOR_LEAD; scripts/lib/ceo-asks.sh, THE ONE
+# WIDENING). The TEXT is recorded here, deliberately unlike
 # notice-inflight-sends.sh which refuses to log message bodies — a question put
 # to the CEO is not private correspondence, it is the artifact under audit, and
 # an UNMATCHED line is useless for diagnosis without the words that failed to
@@ -246,6 +248,17 @@ try:
 except Exception:
     print("")
 ' 2>/dev/null || true)"
+# The app run (scripts/lib/ceo-asks.sh, THE ONE WIDENING): the app writes it on
+# the questions it witnesses; a lead's own call carries it in its environment.
+APP_RUN="$(python3 3<<< "$INPUT" -c '
+import json, os
+try:
+    d = json.load(os.fdopen(3))
+    print(str(d.get("app_run", "") or "").strip())
+except Exception:
+    print("")
+' 2>/dev/null || true)"
+[ -n "$APP_RUN" ] || APP_RUN="$(ca_app_run)"
 
 # App display receipts retain the original session and question identity across retries.
 LEDGER="$(ca_ledger_path "$ENTITY_ROOT")"
@@ -262,7 +275,7 @@ while IFS=$'\t' read -r QIDX QTEXT; do
     # shell string are invisible in every diff that will ever be read.
     [ -n "$LINE" ] || LINE="$(printf 'UNMATCHED\t\t\t0.00\t0\t0\tpredicate-failed')"
 
-    CA_LINE="$LINE" CA_QIDX="$QIDX" CA_SID="$SESSION_ID" CA_AID="$AGENT_ID" \
+    CA_LINE="$LINE" CA_QIDX="$QIDX" CA_SID="$SESSION_ID" CA_AID="$AGENT_ID" CA_RUN="$APP_RUN" \
     CA_QFILE="$QFILE" CA_LEDGER="$LEDGER" CA_APP_QUESTION_ID="$APP_QUESTION_ID" python3 -c '
 import json, os
 from datetime import datetime, timezone
@@ -303,6 +316,8 @@ record = {
 receipt = os.environ.get("CA_APP_QUESTION_ID") or ""
 if receipt:
     record["app_question_id"] = receipt
+if os.environ.get("CA_RUN"):
+    record["app_run"] = os.environ["CA_RUN"]
 try:
     import fcntl
     with open(os.environ["CA_LEDGER"], "a+", encoding="utf-8") as fh:

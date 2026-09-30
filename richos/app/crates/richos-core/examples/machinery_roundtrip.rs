@@ -25,12 +25,22 @@ use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::journal::MachineryJournal;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::machinery::{MachineryObserver, MachineryRecord};
-use richos_core::entity::EntityId;
+use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::spine::Spine;
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::Cognition;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+/// Open the conversation this proof talks in, in company `richos`, after the journal and
+/// observers are attached so they see it from its start. The core ships no companies and
+/// refuses an unregistered one (`Spine::create_thread`), so the company is stated first, as
+/// the shell's boot and the shared test fixture state theirs (hunt part 1 finding 46).
+fn open_conversation(spine: &mut Spine, title: &str) -> String {
+    let entity = EntityId::parse("richos").unwrap();
+    spine.set_entity_registry(EntityRegistry::from_existing_ids(std::slice::from_ref(&entity)));
+    spine.create_thread(title, &entity).expect("thread")
+}
 
 /// What the interleaved stream looked like live.
 ///
@@ -96,7 +106,7 @@ fn main() {
     let live = Live::default();
     spine.set_observer(Box::new(live.clone()));
     spine.set_machinery_observer(Box::new(live.clone()));
-    let thread_id = spine.create_thread("Machinery roundtrip proof", &EntityId::parse("richos").unwrap()).expect("thread");
+    let thread_id = open_conversation(&mut spine, "Machinery roundtrip proof");
 
     let claude_bin = resolve_claude_bin();
     eprintln!("[machinery] claude    = {}", claude_bin.display());
@@ -217,4 +227,23 @@ fn report_dense(seqs: &[u64]) {
         if unique { "YES" } else { "NO" },
         if dense { "YES" } else { "NO" }
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hunt part 1 finding 46: the setup opens the conversation, so a run reaches its first
+    /// provider call instead of stopping at `UnknownEntity`. No provider is started here.
+    #[test]
+    fn the_setup_opens_the_conversation_the_proof_talks_in() {
+        let root = std::env::temp_dir().join(format!("richos-example-setup-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut spine = Spine::new(Ledger::open(root.join("conversation-ledger.jsonl")).unwrap());
+        spine.set_machinery_journal(MachineryJournal::new(root.join("machinery")));
+        let thread = open_conversation(&mut spine, "Setup check");
+        assert_eq!(spine.active_thread(), Some(thread.as_str()));
+        drop(spine);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 }

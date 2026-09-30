@@ -188,13 +188,17 @@ impl OperatorDesk {
 
     /// The desk the app runs: his engine's scripts from the declared root, the launcher with
     /// the claim, and the gate read from this install's data folder.
+    /// `lead_desk`: where every lead's own `stop` reaches this desk (F6), when the app serves
+    /// the desk's socket with a leads' token.
+    #[allow(clippy::too_many_arguments)]
     pub fn for_app(declaration: Declaration, data_dir: &Path, executable: &Path, settle: Arc<dyn Settle>,
                    origins: Arc<dyn TurnOrigins>, push: Option<NoticePush>,
-                   route: Arc<dyn crate::operator_lead::ControlRoute>) -> Arc<Self> {
+                   route: Arc<dyn crate::operator_lead::ControlRoute>,
+                   lead_desk: Option<crate::operator_report::LeadDesk>) -> Arc<Self> {
         let state_root = data_dir.join("engine-state");
         let log = data_dir.join("operator").join("operator.log");
         let launcher = Arc::new(crate::operator_runtime::ProfileLauncher::new(declaration.clone(), executable, &state_root,
-                                                                               &log, route));
+                                                                               &log, route).with_lead_desk(lead_desk));
         let releaser = launcher.clone();
         let gate_dir = data_dir.to_path_buf();
         Self::new(declaration.clone(), data_dir, DeskParts {
@@ -1023,7 +1027,7 @@ mod tests {
         assert!(d.desk.wait_quiet(Duration::from_secs(10)));
         let store = Store::new(&d.state);
         let scope = AskScope { root: d.state.clone(), entity_id: a.entity_id.clone(), thread_id: a.thread_id.clone(),
-            turn_id: "lead-turn".into(), asker: format!("operator:handle:{}", a.id), session_id: "original-lead".into(), engine: None, entity_root: None };
+            turn_id: "lead-turn".into(), asker: format!("operator:handle:{}", a.id), session_id: "original-lead".into(), engine: None, entity_root: None, app_run: None };
         let inputs = serde_json::from_value(serde_json::json!([{"text":"When should the release ship?", "options":[
             {"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}])).unwrap();
         let q = store.ask(&scope, inputs).unwrap().remove(0);

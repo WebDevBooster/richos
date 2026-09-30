@@ -162,6 +162,14 @@ pub struct AskScope {
     pub engine: Option<PathBuf>,
     #[serde(default)]
     pub entity_root: Option<PathBuf>,
+    /// **The app run** his team's lead was started in: the claim id the app gives every lead
+    /// of one launch (`RICHOS_OPERATOR_LEAD`, `operator_claim.rs`). The display witness writes
+    /// it on the ledger line, so an ask one conversation's lead put to him satisfies the
+    /// engine's ask-first gate for every lead of the same run (operator contract notes §4
+    /// item 2, Frank's F10; engine `scripts/lib/ceo-asks.sh`, "THE ONE WIDENING"). `None`
+    /// everywhere else, which keeps an ask keyed to its session alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_run: Option<String>,
 }
 #[derive(Default, Serialize, Deserialize)]
 struct Data {
