@@ -7832,7 +7832,7 @@
     },
     "scripts/hooks/owned-state.test.sh": {
       "source": "scripts/hooks/owned-state.test.sh",
-      "sha256": "265c0099789c0bd4451cb6a246bb13ebedb3525d07e13f9ada60f11a3ce05b26",
+      "sha256": "543f28888f9c8524d6598e54526f9dcb25d853fc21a32cb5c57829dca1099b5a",
       "evidence": "Full suite writes literal entity configs and shell-check declarations, tests registration metadata in a separate private engine and extracts the one shipped escalation row. The latter command and declaration are bound explicitly. Private ledger and time-dependent baselines remain execution inputs; real config is copied only by the nested mutation transport.",
       "keys": [],
       "edges": [
@@ -16912,7 +16912,7 @@
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
-        "scripts/hooks/owned-state.test.sh": "265c0099789c0bd4451cb6a246bb13ebedb3525d07e13f9ada60f11a3ce05b26",
+        "scripts/hooks/owned-state.test.sh": "543f28888f9c8524d6598e54526f9dcb25d853fc21a32cb5c57829dca1099b5a",
         "scripts/lib/escalations.py": "3d49c91cb11003f13ccfbe972496d612da47452f2600802210ae7cc9d9047a5e",
         "scripts/escalate.sh": "a3d891782e92bb1b4019788ebdb4c72b02f39fefc24262d523b03c6995a68405",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
