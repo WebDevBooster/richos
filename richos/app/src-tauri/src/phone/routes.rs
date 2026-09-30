@@ -417,8 +417,14 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
             return Outcome::NotFound;
         }
     }
-    if let Some(cursor) = body.get("delivered_cursor").and_then(|v| v.as_u64()) {
-        let _ = channel.devices.set_delivered_cursor(cursor);
+    // **A cursor is only meaningful inside the conversation that numbered it**, so it is recorded
+    // per conversation (`thread_id` beside it, hunt 2026-09-29 part 1 finding 14). A bare cursor
+    // says nothing about which conversation was read and is not recorded.
+    if let (Some(cursor), Some(thread)) = (
+        body.get("delivered_cursor").and_then(|v| v.as_u64()),
+        body.get("thread_id").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 256),
+    ) {
+        let _ = channel.devices.set_delivered_cursor(thread, cursor);
     }
 
     // **THE SIX WORDS, ANSWERED** — Ray's nightly `.7` walk, defect 2, and the half of it that

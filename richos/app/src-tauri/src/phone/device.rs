@@ -178,9 +178,17 @@ pub struct Device {
     /// notifications allowed, which happens after pairing — and `None` again the moment the
     /// push service reports the subscription gone (plan risk 2).
     pub push: Option<Subscription>,
-    /// The last cursor the phone said it had durably seen. Advisory: it stops a push repeating
-    /// something already read, and it never decides what the ledger holds.
+    /// **No longer consulted** (hunt 2026-09-29, part 1, finding 14). It was one number for the
+    /// whole phone, compared with row cursors that each conversation numbers from 1, so having
+    /// read row 100 of a long thread silenced the push for row 3 of a new one. Kept so a record
+    /// written before [`Device::delivered_cursors`] still reads; see that field.
     pub delivered_cursor: Option<u64>,
+    /// The last cursor the phone said it had durably seen, PER CONVERSATION (thread id to cursor).
+    /// Advisory: it stops a push repeating something already read, and it never decides what the
+    /// ledger holds. A cursor only means something inside the conversation that numbered it, so a
+    /// cursor sent without its conversation is not recorded.
+    #[serde(default)]
+    pub delivered_cursors: std::collections::BTreeMap<String, u64>,
     /// Modern browsers acknowledge completed replies actually rendered in the foreground.
     /// An open proxied stream alone cannot establish that somebody is reading it.
     #[serde(default)]
@@ -312,6 +320,17 @@ fn confirmed_by_default() -> bool {
 }
 
 impl Device {
+    /// **Has the phone already read this row of this conversation?** The one question every push
+    /// path asks before announcing a reply, so that the answer is the same on all of them. A
+    /// cursor counts only inside the conversation that numbered it (finding 14): nothing recorded
+    /// for `thread` means nothing is known to be read there.
+    pub fn has_read(&self, thread: &str, cursor: Option<u64>) -> bool {
+        match (self.delivered_cursors.get(thread), cursor) {
+            (Some(read), Some(row)) => *read >= row,
+            _ => false,
+        }
+    }
+
     /// **Both people-answers are in**: the person said the words matched on the phone AND on this
     /// Mac. What anything that reaches the phone unprompted — a push, a notification
     /// registration — asks before it acts, so an unconfirmed key can never be the one that is
@@ -971,6 +990,7 @@ impl DeviceDesk {
             paired_at: now,
             push: None,
             delivered_cursor: None,
+            delivered_cursors: Default::default(),
             reply_receipts: false,
             seen_replies: Vec::new(),
             push_transport: web_push(),
@@ -1396,10 +1416,20 @@ impl DeviceDesk {
         self.write(&state)
     }
 
-    pub fn set_delivered_cursor(&self, cursor: u64) -> Result<(), PhoneError> {
+    /// Record how far the phone has read in ONE conversation (the latest answer wins, as the
+    /// single number did).
+    pub fn set_delivered_cursor(&self, thread: &str, cursor: u64) -> Result<(), PhoneError> {
+        /// More conversations than he will ever have; the bound keeps the record from growing
+        /// without limit if a client invents thread ids.
+        const MAX_THREADS: usize = 256;
         let mut state = self.state.lock().unwrap();
         if let Some(device) = state.device.as_mut() {
-            device.delivered_cursor = Some(cursor);
+            if !device.delivered_cursors.contains_key(thread) && device.delivered_cursors.len() >= MAX_THREADS {
+                if let Some(oldest) = device.delivered_cursors.keys().next().cloned() {
+                    device.delivered_cursors.remove(&oldest);
+                }
+            }
+            device.delivered_cursors.insert(thread.to_string(), cursor);
             self.write(&state)?;
         }
         Ok(())

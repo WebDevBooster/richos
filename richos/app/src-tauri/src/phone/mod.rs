@@ -1644,15 +1644,15 @@ impl PhoneRuntime {
             let Some(subscription) = device.push.clone() else { return };
             Gathered {
                 devices: Arc::clone(&running.channel.devices),
-                device_id: device.id,
+                device_id: device.id.clone(),
                 subscription,
-                delivered_cursor: device.delivered_cursor,
+                device,
                 vapid: Arc::clone(&running.vapid),
                 api_base: running.channel.api_base.current().map(|o| o.api_base),
                 bridge: Arc::clone(&running.bridge),
             }
         };
-        let Gathered { devices, device_id, subscription, delivered_cursor, vapid, api_base, bridge } = gathered;
+        let Gathered { devices, device_id, subscription, device, vapid, api_base, bridge } = gathered;
         // Through the trait, deliberately: `push_last_reply` reads exactly what the phone reads,
         // through the same gated door, so a push can never carry something the stream could not.
         let bridge: &dyn routes::Bridge = bridge.as_ref();
@@ -1660,7 +1660,7 @@ impl PhoneRuntime {
         let Ok(payload) = bridge.snapshot(Some(&thread_id)) else { return };
         let rows = rows::rows_from_payload(&payload);
         let Some(last) = rows.iter().rev().find(|r| r["role"] == "rich" && r["kind"] != "question") else { return };
-        if delivered_cursor >= last["cursor"].as_u64() || !push::should_notify(&devices, &device_id, thread_id, last["id"].as_str().unwrap_or("")) {
+        if device.has_read(thread_id, last["cursor"].as_u64()) || !push::should_notify(&devices, &device_id, thread_id, last["id"].as_str().unwrap_or("")) {
             // He has already seen it. A push here would be the second time he was told.
             return;
         }
@@ -1732,7 +1732,8 @@ struct Gathered {
     devices: Arc<device::DeviceDesk>,
     device_id: String,
     subscription: push::Subscription,
-    delivered_cursor: Option<u64>,
+    /// The paired phone, for the question "has he already read this row of this conversation".
+    device: device::Device,
     vapid: Arc<push::VapidKey>,
     api_base: Option<String>,
     bridge: Arc<bridge::PhoneBridge>,
@@ -1810,6 +1811,32 @@ mod tests {
         let end = start + source[start..].find("\n    }\n").expect("status() ends");
         let body = &source[start..end];
         assert_eq!(body.matches("self.rejected.lock()").count(), 1, "status() must lock `rejected` exactly once");
+    }
+
+    /// Finding 14 at the record: a read mark belongs to its conversation, survives a restart, and
+    /// says nothing about any other conversation.
+    #[test]
+    fn a_read_mark_is_kept_per_conversation_and_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("richos-phone-marks-{}-{}", std::process::id(), now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let devices = device::DeviceDesk::open(&dir).unwrap();
+        let phone = device::tests::Phone::new();
+        let window = devices.open_pairing().unwrap();
+        devices
+            .complete_pairing(&window.code, &device::PublicKeyForm::Jwk(phone.jwk()), "iPhone", device::PairedVia::CONNECT, device::Platform::IOS)
+            .unwrap();
+        devices.set_delivered_cursor("thread-a", 100).unwrap();
+        devices.set_delivered_cursor("thread-b", 3).unwrap();
+        drop(devices);
+        let reopened = device::DeviceDesk::open(&dir).unwrap();
+        let device = reopened.paired().unwrap();
+        assert!(device.has_read("thread-a", Some(100)));
+        assert!(device.has_read("thread-b", Some(3)));
+        assert!(!device.has_read("thread-b", Some(4)), "a newer reply in thread B was taken as read");
+        assert!(!device.has_read("thread-c", Some(1)), "reading A and B said something about C");
+        assert!(!device.has_read("thread-a", None), "a reply with no cursor was taken as read");
+        drop(reopened);
+        std::fs::remove_dir_all(&dir).expect("the test's own folder could not be removed");
     }
 
     /// **The seven key names `ui/phone.js` reads.** A rename on this side is a screen that draws
