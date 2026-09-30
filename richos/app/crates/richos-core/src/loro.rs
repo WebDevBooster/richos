@@ -827,6 +827,15 @@ impl SliceProvenance {
         self.by_thread.insert(injected.thread_id.clone(), injected);
     }
 
+    /// Drop what was injected for a thread. Called when a NEW session is about to be primed
+    /// for it: the entry described the previous session's prompt, and `record` only ever
+    /// replaces it with an accepted slice. A later thin result, refusal or compiler failure
+    /// would otherwise leave the old records resolvable, so a correction could cite memory the
+    /// new session was never given (part 1 hunt finding 43).
+    pub fn forget(&mut self, thread_id: &str) {
+        self.by_thread.remove(thread_id);
+    }
+
     pub fn for_thread(&self, thread_id: &str) -> Option<&InjectedSlice> {
         self.by_thread.get(thread_id)
     }

@@ -461,6 +461,14 @@ struct Resident {
     context_pressure: Option<(String, ContextUsage)>,
     /// When this thread last had the chair. The eviction order and nothing else.
     parked_at_ms: u64,
+    /// The renewal THIS desk is owed, and since when it has waited for a command — part 1 hunt
+    /// finding 42. `Spine::pending_rotation_reason` and `rotation_deferred_since` describe
+    /// whichever lease sits in the chair, exactly like the usage numbers above, so they travel
+    /// with the desk. Left behind, the reason was consumed by the NEXT thread's first request
+    /// and renewed the wrong (just resumed) session, while the desk that reached its limit
+    /// stayed parked with no renewal scheduled.
+    pending_rotation_reason: Option<String>,
+    rotation_deferred_since: Option<std::time::Instant>,
 }
 
 /// How many front desks stay resident at once, the one in the chair included.
@@ -1141,6 +1149,8 @@ impl Spine {
             context_usage: self.context_usage.take(),
             context_pressure: self.context_pressure.take(),
             parked_at_ms: now_millis(),
+            pending_rotation_reason: self.pending_rotation_reason.take(),
+            rotation_deferred_since: self.rotation_deferred_since.take(),
         });
         // The chair is now empty, and the control must say so before anything else runs:
         // a stop pressed in this instant has to reach nothing rather than reach the desk
@@ -1178,6 +1188,11 @@ impl Spine {
         self.context_chars = resident.context_chars;
         self.context_usage = resident.context_usage;
         self.context_pressure = resident.context_pressure;
+        // Its own renewal, if it was owed one when it was parked (finding 42). The chair was
+        // just emptied by `park_current_front_desk`, so nothing here overwrites a reason that
+        // belongs to another desk.
+        self.pending_rotation_reason = resident.pending_rotation_reason;
+        self.rotation_deferred_since = resident.rotation_deferred_since;
         true
     }
 
@@ -1745,7 +1760,21 @@ impl Spine {
     /// so there is no `?` to add here, and a memory miss cannot take down a session
     /// rotation the CEO is not supposed to be able to see.
     fn fill_loro_tier(&self, payload: &mut RePrimePayload, binding: &ThreadBinding) {
+        // **WHAT THE PREVIOUS SESSION WAS GIVEN IS NOT WHAT THIS ONE IS GIVEN** (part 1 hunt
+        // finding 43). This runs once per priming of a fresh session, and the provenance sink
+        // describes the CURRENT session's prompt (`SliceProvenance::record`'s own doc). The
+        // compiler replaces the entry only when it ACCEPTS a slice, so a thin answer, a refusal,
+        // a compiler failure or a thread with no topic would all leave the previous session's
+        // records in place, resolvable by `stage_belief_correction` into a proposal citing memory
+        // this session never saw. Forgotten first; an accepted slice records its own entry again
+        // below. Only when a compiler is attached: it is the only writer of this sink, so a spine
+        // without one has no previous session's slice to drop.
         let Some(compiler) = self.loro_compiler.as_ref() else { return };
+        if let Some(sink) = self.loro_provenance.as_ref() {
+            if let Ok(mut held) = sink.lock() {
+                held.forget(binding.thread_id());
+            }
+        }
         // A COMPILER AND NO LOOKUP IS THE ORDINARY STATE, and it leaves `EvidenceTier::NotWired`
         // untouched below — never a claim that the CEO has no such files.
         // Acceptance is journaled before priming. Use the newest pending request only as
@@ -2044,6 +2073,8 @@ impl Spine {
                     context_usage: None,
                     context_pressure: None,
                     parked_at_ms: now_millis(),
+                    pending_rotation_reason: None,
+                    rotation_deferred_since: None,
                 });
                 // Never the desk just filed — it is the most recently parked, and the cap
                 // retires the LEAST recently spoken.

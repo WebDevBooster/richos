@@ -454,6 +454,17 @@ struct AnswerRelay {
     continued: Option<Continuation>,
 }
 
+/// What `OperatorHost::close_answer_turns_at_end` found when a lead ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnswerTurnsAtEnd {
+    /// No open answer turn: nothing is owed and he is asked to speak.
+    NoneOpen,
+    /// An unexpected end with a turn not yet continued: it stays open for one restart.
+    Continuing,
+    /// An unexpected end of a lead that was already started once to continue the turn.
+    RetrySpent,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct Continuation {
     uuid: String,
@@ -1523,7 +1534,7 @@ impl OperatorHost {
     /// A positive end: the lead's output closed. Confirmed with `waitid` before anything is
     /// said; an expected end (quit, retirement, refusal) is not news.
     fn ended(&self, conversation: &Arc<Mutex<Conversation>>) {
-        let (key, lead, quitting) = {
+        let (key, lead, quitting, turns) = {
             let mut c = conversation.lock().unwrap();
             // C6: an ended lead holds nothing. Its queued messages died with it, so nothing is
             // awaited any more and no turn runs: an answer not yet taken is resent by the next
@@ -1532,10 +1543,13 @@ impl OperatorHost {
             c.in_turn = false;
             c.turn_handle = None;
             c.opened_by = None;
-            // The lead's own end is told to him with "Speak to me here and I'll start it again",
-            // so a turn it had taken an answer into waits for his words, not a continuation.
-            self.close_answer_turns(&mut c);
-            (c.key.clone(), c.lead.take(), c.quitting)
+            // **CONTINUE IT ONCE** (part 1 hunt finding 16; the CEO's ruling of 2026-09-30). An
+            // expected end closes every open answer turn, as it always did. An unexpected end
+            // keeps open the turns that have not had their one continuation, so the desk's next
+            // tick restarts the lead and finishes the answer by itself; a turn that already had
+            // its one continuation is closed, and he is asked to speak, as before.
+            let turns = self.close_answer_turns_at_end(&mut c);
+            (c.key.clone(), c.lead.take(), c.quitting, turns)
         };
         let Some(lead) = lead else { return };
         let deadline = Instant::now() + Duration::from_secs(2);
@@ -1549,8 +1563,45 @@ impl OperatorHost {
         }
         // r3 (q) item 5: every end not caused by quit or retirement, with its cause, counted.
         self.log(&format!("LEAD ENDED UNEXPECTEDLY {}/{}: its output closed ({quit:?})", key.entity_id, key.thread_id));
-        self.delivery.say(&key, &Lane::Conversation, Say::Team,
-            "Your team in this conversation has ended. Speak to me here and I'll start it again, resumed where it was.");
+        let notice = match turns {
+            AnswerTurnsAtEnd::Continuing => "Your team in this conversation stopped unexpectedly. \
+                I'm starting it again now and it will finish your answer.",
+            AnswerTurnsAtEnd::RetrySpent => "Your team in this conversation stopped again while finishing your answer. \
+                Speak to me here and I'll start it again, resumed where it was.",
+            AnswerTurnsAtEnd::NoneOpen => "Your team in this conversation has ended. \
+                Speak to me here and I'll start it again, resumed where it was.",
+        };
+        self.delivery.say(&key, &Lane::Conversation, Say::Team, notice);
+    }
+
+    /// What a lead's end does to the answer turns that were open when it came. Expected ends
+    /// (quit, retirement, refusal) close them all. An unexpected end leaves open the turns that
+    /// have not been continued yet, so the desk's next tick restarts the lead and continues them
+    /// once ([`Self::continue_one`]); those that already had their one continuation are closed,
+    /// so a second unexpected end falls back to asking for his words.
+    fn close_answer_turns_at_end(&self, c: &mut Conversation) -> AnswerTurnsAtEnd {
+        let expected = c.quitting;
+        let mut changed = false;
+        let (mut kept, mut spent) = (false, false);
+        for relay in c.record.answers.iter_mut().filter(|a| a.turn_open) {
+            if !expected && relay.continued.is_none() {
+                kept = true;
+            } else {
+                relay.turn_open = false;
+                changed = true;
+                spent |= !expected;
+            }
+        }
+        if changed {
+            self.save(&c.paths.record, &c.record);
+        }
+        if kept {
+            AnswerTurnsAtEnd::Continuing
+        } else if spent {
+            AnswerTurnsAtEnd::RetrySpent
+        } else {
+            AnswerTurnsAtEnd::NoneOpen
+        }
     }
 
     // ---- (d): stops -------------------------------------------------------------------------
@@ -2795,8 +2846,9 @@ pub(crate) mod tests {
 
     /// A turn that ends after it took the answer leaves nothing to continue: a completed turn,
     /// his Esc, a quit he chose while his team worked, a Stop on that assignment (F8: his next
-    /// words decide), or the lead's own end (its notice already asks for his words). A relay
-    /// written before `turn_open` existed is never continued.
+    /// words decide). A relay written before `turn_open` existed is never continued. The lead's
+    /// own unexpected end is NOT on this list: it is continued once
+    /// (`a_lead_that_ends_unexpectedly_after_taking_his_answer_is_restarted_once`).
     #[test]
     fn a_turn_that_ended_or_that_he_ended_is_never_continued() {
         fn taken(r: &Rig, thread: &str, handle: Option<&str>) -> Arc<FakeLead> {
@@ -2816,10 +2868,7 @@ pub(crate) mod tests {
         r.host.interrupt(&key("esc"));
         taken(&r, "stop", Some("h-1"));
         r.host.hold(&key("stop"), "h-1", Some("Stopped mark-sonnet-a.")); // his Stop on that assignment
-        let lead = taken(&r, "crash", None);
-        *lead.exited.lock().unwrap() = true;
-        r.host.handle(&key("crash"), LeadEvent::Ended);
-        for thread in ["done", "esc", "crash"] {
+        for thread in ["done", "esc"] {
             assert!(!relay_of(&r, thread, "d-1").turn_open, "{thread}");
         }
         let before = r.launcher.leads.lock().unwrap().len();
@@ -2838,6 +2887,74 @@ pub(crate) mod tests {
         let old: AnswerRelay = serde_json::from_str(r#"{"delivery_id":"d-1","answer_to":null,"uuid":"u-9","session":"s",
             "taken":true}"#).unwrap();
         assert!(!old.turn_open && old.continued.is_none(), "a relay from before this field is not continued");
+    }
+
+    /// **CONTINUE IT ONCE** (part 1 hunt finding 16; the CEO's ruling of 2026-09-30). The lead
+    /// ends unexpectedly after taking his answer and before that turn finished. The turn stays
+    /// open, he is told it is being started again, and the desk's next tick restarts the lead
+    /// into the same session and sends ONE continuation; never a second.
+    #[test]
+    fn a_lead_that_ends_unexpectedly_after_taking_his_answer_is_restarted_once() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "Do it.", Origin::DeskTyped).unwrap();
+        r.host.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap();
+        let first = lead_of(&r, "a");
+        let answer = answer_uuid(&first);
+        r.host.handle(&key("a"), LeadEvent::Took(answer.clone()));
+        assert!(relay_of(&r, "a", "d-1").turn_open);
+
+        *first.exited.lock().unwrap() = true;
+        r.host.handle(&key("a"), LeadEvent::Ended);
+        assert!(relay_of(&r, "a", "d-1").turn_open, "the answer's turn was closed by the lead's end");
+        assert!(r.said.all().iter().any(|x| x.2 == Say::Team
+            && x.3.starts_with("Your team in this conversation stopped unexpectedly.")
+            && x.3.contains("starting it again")), "{:?}", r.said.all());
+        assert!(continuations(&r).is_empty(), "nothing is sent until the desk's tick");
+
+        continue_all(&r.host);
+        let sent = continuations(&r);
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert!(sent[0].1.contains(&answer) && sent[0].1.contains("h-1"), "it names the answer and its handle: {}", sent[0].1);
+        let (_, start, second) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(start, LeadStart::Resume(first.session.clone()), "into the same session");
+        assert_eq!(second.sent.lock().unwrap().as_slice(), std::slice::from_ref(&sent[0].1));
+        // Once: a tick while that continuation is in flight sends nothing more.
+        continue_all(&r.host);
+        assert_eq!(continuations(&r).len(), 1);
+    }
+
+    /// The fall-back half of the same ruling. If the lead started to continue the answer also
+    /// ends unexpectedly, he is told so and asked to speak; nothing is started by itself again.
+    #[test]
+    fn a_second_unexpected_end_asks_for_his_words_and_starts_nothing() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", Some("h-1"), "Do it.", Origin::DeskTyped).unwrap();
+        r.host.deliver_answer(&key("a"), "A", Some("h-1"), "d-1", "Green.").unwrap();
+        let first = lead_of(&r, "a");
+        r.host.handle(&key("a"), LeadEvent::Took(answer_uuid(&first)));
+        *first.exited.lock().unwrap() = true;
+        r.host.handle(&key("a"), LeadEvent::Ended);
+        continue_all(&r.host);
+        assert_eq!(continuations(&r).len(), 1);
+
+        // The restarted lead dies before it finishes the continuation.
+        let second = lead_of(&r, "a");
+        *second.exited.lock().unwrap() = true;
+        r.host.handle(&key("a"), LeadEvent::Ended);
+        assert!(!relay_of(&r, "a", "d-1").turn_open, "a second continuation is still owed");
+        assert!(r.said.all().iter().any(|x| x.2 == Say::Team
+            && x.3.starts_with("Your team in this conversation stopped again")
+            && x.3.contains("Speak to me here")), "{:?}", r.said.all());
+
+        let leads = r.launcher.leads.lock().unwrap().len();
+        continue_all(&r.host);
+        continue_all(&relaunched(&r));
+        assert_eq!(continuations(&r).len(), 1, "never a second continuation");
+        assert_eq!(r.launcher.leads.lock().unwrap().len(), leads, "a lead was started by itself a third time");
+        // His words still resume the session, as before.
+        r.host.relay(&key("a"), "A", None, "again", Origin::DeskTyped).unwrap();
+        let (_, start, _) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(start, LeadStart::Resume(first.session.clone()));
     }
 
     /// **A resend the lead drops** (P18 case B: the app died after the send and before its

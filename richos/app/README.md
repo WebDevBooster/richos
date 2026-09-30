@@ -415,7 +415,7 @@ richos/app/
                               learning where the central folder is re-primes a lease that was
                               already running. The two negative controls come first because
                               they are what make the positives mean anything
-    tests/resident_front_desk_tests.rs 8 tests for the CEO's "any number of conversation
+    tests/resident_front_desk_tests.rs 9 tests for the CEO's "any number of conversation
                               threads, each holding one front desk": a thread's lease is
                               PARKED alive rather than killed when another thread speaks, so
                               coming back is the same provider session with no re-prime; a
@@ -450,7 +450,7 @@ richos/app/
                               screen and the priming turn to one derived fact across all four
                               reachable states, and refuse a write that has nowhere to go
                               rather than reporting success over it
-    tests/loro_reprime_tests.rs 11 Tier-C tests: a slice that carries another company's
+    tests/loro_reprime_tests.rs 12 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
                               CEO layer and nothing else
     tests/loro_lane_map_tests.rs 11 lane-map tests: the default map is the CEO's six
@@ -1108,7 +1108,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1724 tests + 5 doc-tests (1720 direct, 4 ignored)
+cargo test -p richos-core                       # 1732 tests + 5 doc-tests (1728 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

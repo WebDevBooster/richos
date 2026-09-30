@@ -306,10 +306,14 @@ impl CandidateDesk {
                 self.pending.retain(|p| p.key != c.key);
                 self.pending.push(*c);
             }
-            DeskRecord::Learned { key, .. } | DeskRecord::LearnFailed { key, .. } => {
+            DeskRecord::Learned { key, .. } => {
                 self.pending.retain(|p| p.key != key);
                 self.declined.retain(|(k, _)| *k != key);
             }
+            // A writer that refused consumed nothing: the CEO still wants the correction, so
+            // it stays pending (live AND after a restart) and a second confirm can retry it.
+            // The journal line remains, so the failure is still on record.
+            DeskRecord::LearnFailed { .. } => {}
             DeskRecord::Declined { key, .. } => {
                 self.pending.retain(|p| p.key != key);
                 match self.declined.iter_mut().find(|(k, _)| *k == key) {
@@ -711,8 +715,29 @@ mod tests {
 
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(raw.contains("learn-failed"), "the failure was not journalled: {raw}");
+        // The journal keeps the failure, but the candidate stays answerable: live and after
+        // a restart (part 1 hunt finding 45).
+        assert_eq!(d.pending().len(), 1, "a refused write consumed the candidate");
         let reopened = CandidateDesk::open(&path).unwrap();
-        assert!(reopened.pending().is_empty());
+        assert_eq!(reopened.pending().len(), 1, "a restart dropped the retryable candidate");
+    }
+
+    /// INVARIANT: a confirm that failed can be confirmed again, and the retry is what
+    /// consumes the candidate.
+    #[test]
+    fn a_failed_confirm_can_be_retried_and_the_retry_consumes_it() {
+        let path = tmp("retry");
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut d = CandidateDesk::open(&path).unwrap();
+        d.set_vocabulary(Box::new(Recording { calls: calls.clone(), fail: true }));
+        let out = stage_one(&mut d, "It's Kestrel, not Kestral.");
+        let key = out.candidates[0].key.clone();
+        assert!(d.confirm(&key).is_err());
+        assert!(matches!(d.confirm(&key), Err(StagingError::WriterRefused { .. })), "second confirm must reach the writer, not NoSuchCandidate");
+        d.set_vocabulary(Box::new(Recording { calls, fail: false }));
+        assert!(d.confirm(&key).is_ok());
+        assert!(d.pending().is_empty());
+        assert!(CandidateDesk::open(&path).unwrap().pending().is_empty());
     }
 
     /// INVARIANT: the thread is captured when the correction is STAGED. A candidate that

@@ -418,6 +418,15 @@ pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// already reasons about.
 pub const STOP_REASON_CANCELLED: &str = "cancelled";
 
+/// A persisted question ended the turn and the provider process is GONE (it did not answer the
+/// interrupt inside the grace window, or it had already exited). The spine schedules a
+/// rotation on this, because the next answer needs a live session.
+pub const STOP_REASON_QUESTION_ASKED: &str = "question_asked";
+
+/// A persisted question ended the turn and the provider ANSWERED the interrupt, so its process
+/// is alive with its live context. Nothing is rotated: the answer goes to the same session.
+pub const STOP_REASON_QUESTION_ASKED_OPEN: &str = "question_asked_open";
+
 /// **Which of the two leases this is** — the background-work spec §2.1's second connection,
 /// made a type rather than a boolean so every place that has to care says which one it
 /// means.
@@ -1378,6 +1387,18 @@ struct ReaderState {
     checkpoint_after_his_words: bool,
     /// What was withheld after the checkpoint, kept so the turn's end can SAY what it took.
     withheld_after_checkpoint: String,
+    /// **The `tool_use` id of a checkpoint that was ATTEMPTED after his words and has not
+    /// answered yet** — part 1 hunt finding 15. `checkpoint_after_his_words` used to be set on
+    /// the attempt, so a checkpoint the engine's adapter refused (`isError: true`) still
+    /// withheld the error explanation or corrected answer that followed it. The flag is now
+    /// set only when the matching `tool_result` comes back without `is_error`; a result that
+    /// says the write failed clears this id and leaves everything after it visible.
+    /// Host-owned, reset with the send.
+    checkpoint_call_id: Option<String>,
+    /// The context-only text this session was last given by [`NativeCognition::supply_context_brief`]
+    /// and took to `end_turn`. A fact about the SESSION, not the turn, so unlike its neighbors
+    /// it is never reset with the send — a new session starts with a new reader state, `None`.
+    context_brief_held: Option<String>,
     /// **The front desk's bookkeeping grant, held here because this is where his first words
     /// are seen** — [`ActionGrant::ContinuityTools`]. `None` on a lease with no continuity
     /// server (every work lease, and any lease started without a bridge).
@@ -1588,6 +1609,8 @@ impl Default for ReaderState {
             withheld_after_receipt: String::new(),
             checkpoint_after_his_words: false,
             withheld_after_checkpoint: String::new(),
+            checkpoint_call_id: None,
+            context_brief_held: None,
             turns_named_by_the_child: false,
             background: Vec::new(),
         }
@@ -2573,6 +2596,9 @@ impl NativeClient {
         // model that has been instructed to say nothing and a host that cannot say anything. So
         // the model keeps its instruction, the app beats it to the words by a round trip, and the
         // duplicate is withheld HERE — where the host can see both and he can only ever see one.
+        if ty == "user" {
+            Self::settle_the_checkpoint(&msg, state);
+        }
         if ty == "user" && !state.lock().unwrap().context_only {
             let said = {
                 let st = state.lock().unwrap();
@@ -2703,8 +2729,38 @@ impl NativeClient {
         // engine's own adapter (the scope file is shut until `he_has_now_been_spoken_to` opens
         // it), so it establishes nothing — and taking it as "the turn has spoken" would withhold
         // the reply that has not happened yet.
-        if st.spoken_this_turn {
-            st.checkpoint_after_his_words = true;
+        //
+        // **AND NEVER ON THE ATTEMPT ALONE** (part 1 hunt finding 15). This only NAMES the call;
+        // [`Self::settle_the_checkpoint`] sets the withholding when its result says it wrote.
+        // A call that was refused or failed established nothing, and what the model says next
+        // (an error explanation, a corrected answer) is his to read. A result that never comes
+        // leaves the flag false, which is a doubled line at worst and never a silent turn.
+        if st.spoken_this_turn && !st.checkpoint_after_his_words {
+            if let Some(id) = block.get("id").and_then(|v| v.as_str()) {
+                st.checkpoint_call_id = Some(id.to_string());
+            }
+        }
+    }
+
+    /// **THE CHECKPOINT ANSWERED** — the other half of [`Self::note_the_checkpoint`]. `msg` is a
+    /// `user` frame; a `tool_result` in it whose `tool_use_id` is the pending checkpoint's
+    /// settles it. `is_error` is the wire's own word for a call that did not write
+    /// (`adapters/mcp.py` answers `"isError": True` for a refusal), so anything else is a
+    /// checkpoint that succeeded and the closing line after it is the duplicate to withhold.
+    fn settle_the_checkpoint(msg: &Value, state: &Arc<Mutex<ReaderState>>) {
+        let mut st = state.lock().unwrap();
+        let Some(pending) = st.checkpoint_call_id.clone() else { return };
+        let blocks = msg.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array());
+        for block in blocks.map(|b| b.as_slice()).unwrap_or(&[]) {
+            if block.get("type").and_then(|v| v.as_str()) == Some("tool_result")
+                && block.get("tool_use_id").and_then(|v| v.as_str()) == Some(pending.as_str())
+            {
+                st.checkpoint_call_id = None;
+                if block.get("is_error").and_then(|v| v.as_bool()) != Some(true) {
+                    st.checkpoint_after_his_words = true;
+                }
+                return;
+            }
         }
     }
 
@@ -2965,6 +3021,7 @@ impl NativeClient {
                 // the strength of this turn's bookkeeping.
                 state.checkpoint_after_his_words = false;
                 state.withheld_after_checkpoint.clear();
+                state.checkpoint_call_id = None;
                 drop(state);
             }
             if let Err(error) = Self::write_line(&self.stdin, &msg) {
@@ -3005,14 +3062,22 @@ impl NativeClient {
                 *seq += 1;
             }
         }
+        // **A QUESTION ENDS THE TURN, AND A COOPERATIVE PROVIDER KEEPS ITS PROCESS** (part 1
+        // hunt finding 31). Persisted questions terminate only the front desk's asking turn, and
+        // a non-cooperative provider must not retain the conversation mutex indefinitely — that
+        // reason is unchanged and it is what the grace window below is for. But a question is an
+        // ordinary pause, so the host first asks the provider to stop (`cancel`: the grants are
+        // revoked and an interrupt goes out) and waits up to [`cancel_grace`] for it to answer.
+        // One that does keeps its live context and the next answer goes to the same process
+        // ([`STOP_REASON_QUESTION_ASKED_OPEN`]); only one that does not answer in time is ended
+        // ([`STOP_REASON_QUESTION_ASKED`], which the spine answers with a rotation).
+        let mut question_ended = false;
         loop {
-            // Persisted questions terminate only the front desk's asking turn. A
-            // non-cooperative provider cannot retain its conversation mutex indefinitely.
-            if question_scope.as_deref().is_some_and(crate::question_tools::has_asked) {
+            if !question_ended && question_scope.as_deref().is_some_and(crate::question_tools::has_asked) {
                 release(&mut seq, on_item, &mut spelling);
-                self.cancel_handle().shutdown();
-                *self.current_prompt.lock().unwrap()=None;
-                return Ok("question_asked".into());
+                question_ended = true;
+                let _ = self.cancel_handle().cancel();
+                cancel_deadline.get_or_insert_with(|| std::time::Instant::now() + cancel_grace());
             }
             let received = match cancel_deadline {
                 None if question_scope.is_some()=>rx.recv_timeout(Duration::from_millis(40)),
@@ -3022,6 +3087,13 @@ impl NativeClient {
                     None => Err(RecvTimeoutError::Timeout),
                 },
             };
+            // What the provider says while it winds the asking turn down is not part of his
+            // conversation: the question is the last thing this turn had to say.
+            if question_ended
+                && matches!(received, Ok(ChunkMsg::Text(_) | ChunkMsg::Frame(_) | ChunkMsg::Permission { .. } | ChunkMsg::Usage { .. }))
+            {
+                continue;
+            }
             match received {
                 Ok(ChunkMsg::Text(t)) => {
                     let decided = spelling.push(&t);
@@ -3074,6 +3146,16 @@ impl NativeClient {
                 Ok(ChunkMsg::Done(result)) => {
                     release(&mut seq, on_item, &mut spelling);
                     let reason = stop_reason_of(&result);
+                    if question_ended {
+                        // The provider answered the interrupt, so its process is alive and
+                        // holds the conversation's live context; only a process that is gone
+                        // is reported as the ended kind the spine rotates on.
+                        return Ok(if reason == "child_exited" {
+                            STOP_REASON_QUESTION_ASKED
+                        } else {
+                            STOP_REASON_QUESTION_ASKED_OPEN
+                        }.to_string());
+                    }
                     if reason == "child_exited" { return Err(NativeError::Closed); }
                     if result.get("is_error").and_then(Value::as_bool) == Some(true)
                         && reason != STOP_REASON_CANCELLED
@@ -3085,6 +3167,17 @@ impl NativeClient {
                     return Ok(reason);
                 }
                 Err(RecvTimeoutError::Timeout) if cancel_deadline.is_none() => continue,
+                Err(RecvTimeoutError::Timeout) if question_ended => {
+                    // The provider did not answer the interrupt inside the grace window: this
+                    // is the non-cooperative case the turn-ending rule was written for. The
+                    // process is ended and the spine replaces it on the next turn.
+                    self.cancel_handle().shutdown();
+                    *self.current_prompt.lock().unwrap() = None;
+                    return Ok(STOP_REASON_QUESTION_ASKED.to_string());
+                }
+                Err(RecvTimeoutError::Disconnected) if question_ended => {
+                    return Ok(STOP_REASON_QUESTION_ASKED.to_string());
+                }
                 Err(RecvTimeoutError::Timeout) => {
                     // The agent was told to interrupt and did not answer within the grace
                     // window. Stop rendering this turn — and DETACH the sink first, so
@@ -3544,6 +3637,27 @@ impl NativeCognition {
             continuity: Some((bridge, continuity_scope)), continuity_tools_scope: None, work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work, ceo_thread_seats: None })
     }
 
+    /// **Give this session the turn's brief, unless it already holds exactly this text** — part 1
+    /// hunt finding 29. The brief goes to the provider as a context-only turn so that internal
+    /// material stays apart from the user-visible answer and no action can run while it is
+    /// supplied; that is unchanged. What it cost was a whole provider round trip in front of
+    /// EVERY question, including the many whose brief is byte-for-byte the one the previous turn
+    /// of this same session was given. When the text is identical to the last brief this
+    /// session took, the session already has it in context, so the hidden turn is skipped and
+    /// the question goes straight through. Any change (a new obligation, a receipt, a question)
+    /// makes the text differ and the turn is paid as before; a fresh session has a fresh reader
+    /// state, so a rotation or a new lease always gets its full brief.
+    fn supply_context_brief(&mut self, brief: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        let priming = crate::reprime::context_only_priming(brief);
+        if self.client.reader_state.lock().unwrap().context_brief_held.as_deref() == Some(priming.as_str()) {
+            return Ok(());
+        }
+        let reason = self.client.prompt_context_only(&priming, on_item)?;
+        if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
+        self.client.reader_state.lock().unwrap().context_brief_held = Some(priming);
+        Ok(())
+    }
+
     fn prepare_question_scope(&self,entity:&str,thread:&str,turn:&str,asker:&str,method:&str)->Result<(),CognitionError> {
         let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else {return Ok(());};
         let root=self.engine_profile.as_ref().map(|p|p.state.clone())
@@ -3868,9 +3982,7 @@ impl Cognition for NativeCognition {
                 })
                 .map_err(CognitionError::Io)?;
         }
-        let reason = self.client.prompt_context_only(&crate::reprime::context_only_priming(&brief), on_item)?;
-        if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
-        Ok(())
+        self.supply_context_brief(&brief, on_item)
     }
 
     /// The work lease's preparation — **the sibling path of `prepare_work_turn`, and its
@@ -4290,6 +4402,69 @@ printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"ty
             crate::question_tools::call(&path,"ask",json!({"questions":[{"text":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]})).unwrap();
         }}).unwrap();
         assert!(asked);assert_eq!(reason,"question_asked");assert_returned_before_the_result(root);
+    }
+
+    /// **PART 1 HUNT FINDING 31.** A question used to kill the provider process every time, so
+    /// the answer had to open and prime a replacement and the live context went with the
+    /// outgoing process. A provider that answers the interrupt keeps its process, and the next
+    /// prompt reaches that same process.
+    #[test]
+    fn a_question_ends_the_turn_without_ending_a_cooperative_provider() {
+        let script=write_script("cooperative-question",
+            r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Asking now"}]}}'
+read -r interrupt
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+read -r answer
+printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Still here"}]}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let root=script.parent().unwrap();
+        let client=NativeClient::spawn(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let path=root.join("scope.json");
+        let scope=crate::question_tools::Scope{context:crate::questions::AskScope{root:root.into(),entity_id:"company".into(),thread_id:"thread".into(),turn_id:"ask-turn".into(),asker:"front_desk".into(),session_id:client.session_id().into(),engine:None,entity_root:None},actions_allowed:true,answer_method:"typed".into(),surface:"mac".into()};
+        crate::question_tools::write_scope(&path,&scope).unwrap();
+        client.reader_state.lock().unwrap().question_scope=Some(path.clone());
+        let mut asked=false;
+        let reason=client.prompt("Ask one choice",&mut |item|{if matches!(item,TurnItem::Text{..}) && !asked {
+            asked=true;
+            crate::question_tools::call(&path,"ask",json!({"questions":[{"text":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]})).unwrap();
+        }}).unwrap();
+        assert!(asked);
+        assert_eq!(reason,STOP_REASON_QUESTION_ASKED_OPEN,"a provider that answered the interrupt was reported as ended");
+        // The same process takes the answer: it is the one holding the conversation's context.
+        client.reader_state.lock().unwrap().question_scope=None;
+        let mut said=String::new();
+        let next=client.prompt("Ship today",&mut |item|{if let TurnItem::Text{text,..}=item {said.push_str(text)}}).unwrap();
+        assert_eq!((next.as_str(),said.as_str()),("end_turn","Still here"),"the provider process was ended by the question");
+    }
+
+    /// **PART 1 HUNT FINDING 29.** The brief goes to the provider as a hidden context-only turn
+    /// before every question. A brief identical to the one this session already took needs no
+    /// second round trip; one that differs still does.
+    #[test]
+    fn an_unchanged_brief_is_not_sent_to_the_provider_a_second_time() {
+        let script=write_script("unchanged-brief",
+            r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+while read -r line; do
+  printf 'x\n' >> "$(dirname "$0")/hidden-turns"
+  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+done
+"#);
+        let root=script.parent().unwrap();
+        let mut cognition=NativeCognition::start(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let hidden=|| std::fs::read_to_string(root.join("hidden-turns")).map(|s| s.lines().count()).unwrap_or(0);
+        cognition.supply_context_brief("Brief A",&mut |_|{}).unwrap();
+        assert_eq!(hidden(),1,"the first brief must reach the provider");
+        cognition.supply_context_brief("Brief A",&mut |_|{}).unwrap();
+        assert_eq!(hidden(),1,"an identical brief paid a second hidden provider turn");
+        cognition.supply_context_brief("Brief B",&mut |_|{}).unwrap();
+        assert_eq!(hidden(),2,"a changed brief must still be supplied");
     }
 
     // ---- the background-work spec's §5.8a-ii seams ------------------------------------
@@ -6106,6 +6281,19 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
     /// string; Ray's verbatim sentences are in the tests' own documentation, where they can be
     /// read, rather than mangled into a shell literal here.
     fn a_checkpointed_turn(tag: &str, before: &str, after: &str, speak_first: bool) -> Vec<TurnItem2> {
+        a_checkpointed_turn_returning(tag, before, after, speak_first, "")
+    }
+
+    /// [`a_checkpointed_turn`] with the checkpoint's own `tool_result` flag chosen:
+    /// `result_flag` is spliced into the result block, so `"\"is_error\":true,"` is a
+    /// checkpoint the engine's adapter refused (`adapters/mcp.py`, `"isError": True`).
+    fn a_checkpointed_turn_returning(
+        tag: &str,
+        before: &str,
+        after: &str,
+        speak_first: bool,
+        result_flag: &str,
+    ) -> Vec<TurnItem2> {
         let reply = if speak_first {
             format!(r#"printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{before}"}}}}}}'"#)
         } else {
@@ -6119,7 +6307,7 @@ printf '%s\n' '{{"type":"stream_event","event":{{"type":"message_start"}}}}'
 {reply}
 printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_start","content_block":{{"type":"tool_use","id":"toolu_CP","name":"mcp__richos_continuity__checkpoint","input":{{}}}}}}}}'
 printf '%s\n' '{{"type":"assistant","message":{{"content":[{{"type":"tool_use","id":"toolu_CP","name":"mcp__richos_continuity__checkpoint","input":{{"summary":"the conversation so far"}}}}]}}}}'
-printf '%s\n' '{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"toolu_CP","content":"checkpoint written"}}]}}}}'
+printf '%s\n' '{{"type":"user","message":{{"content":[{{"type":"tool_result",{result_flag}"tool_use_id":"toolu_CP","content":"checkpoint written"}}]}}}}'
 printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{after}"}}}}}}'
 printf '%s\n' '{{"type":"result","stop_reason":"end_turn"}}'
 "#));
@@ -6195,6 +6383,28 @@ printf '%s\n' '{{"type":"result","stop_reason":"end_turn"}}'
             said,
             vec!["It is in progress. Nothing is waiting on you."],
             "a checkpoint ahead of the reply must never withhold the reply: {log:#?}"
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_the_engine_refused_never_withholds_what_the_model_says_next() {
+        // **PART 1 HUNT FINDING 15.** The withholding exists for the duplicate closing line
+        // after a checkpoint that SUCCEEDED. The flag used to be set on the `tool_use` — the
+        // attempt — so a checkpoint the adapter refused (`isError: true`) still swallowed the
+        // model's error explanation or corrected answer. A refused checkpoint established
+        // nothing, so what the model says after it is his to read.
+        let log = a_checkpointed_turn_returning(
+            "refused-checkpoint-then-the-correction",
+            "It is landed.",
+            "Correction: it is not landed yet, the checkpoint was refused.",
+            true,
+            r#""is_error":true,"#,
+        );
+        let said: Vec<&String> = log.iter().filter_map(|i| match i { TurnItem2::Said(t) => Some(t), _ => None }).collect();
+        assert_eq!(
+            said,
+            vec!["It is landed.", "Correction: it is not landed yet, the checkpoint was refused."],
+            "words after a refused checkpoint were hidden: {log:#?}"
         );
     }
 
