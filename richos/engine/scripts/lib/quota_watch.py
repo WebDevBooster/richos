@@ -1176,8 +1176,16 @@ def _poll_loop(a, out, alive):
                 lambda: rule_verdict(r, a.threshold, a.stale, now)[0])
         if weekly_event:
             text = weekly_text.getvalue()
-            key = (text.split("\n", 1)[0], tuple(w["working"]), tuple(w.get("weekly_paused", [])))
+            # The key names the weekly WINDOW as well as the headline and the workers
+            # (hunt part 5, P5-16): the next window's crossing is a new alarm for the
+            # same workers. A threshold and a release each end the other's dedupe, so
+            # a hold that is released and then needed again wakes the lead again.
+            kind = "threshold" if weekly_blocked else "release"
+            this_window = quota_weekly.weekly(r)
+            key = (kind, text.split("\n", 1)[0], tuple(w["working"]), tuple(w.get("weekly_paused", [])),
+                   this_window["resets_at"] if this_window else None)
             if key not in weekly_seen:
+                weekly_seen = {k for k in weekly_seen if k[0] == kind}
                 weekly_seen.add(key)
                 out.wake("WEEKLY-THRESHOLD" if weekly_blocked else "WEEKLY-RELEASE", text, now)
         if weekly_blocked:

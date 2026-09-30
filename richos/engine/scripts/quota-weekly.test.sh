@@ -96,6 +96,42 @@ class Weekly(unittest.TestCase):
                 self.assertNotIn('RESUME:',text)
                 message=text.split('WAIT until the orchestrator',1)[1].split('\n  Summary:',1)[0]
                 pause_protocol.validate_text('WAIT until the orchestrator'+message)
+    def drive(self,readings,worker_rows,polls,args=None):
+        """Run the real poll loop for `polls` polls. The clock advances one poll per sleep; a reading
+        that is an Exception is raised from read_source. Returns everything woken to the lead."""
+        args=args or types.SimpleNamespace(threshold=93,threshold_problem='',config='',until_reset=False,
+            engine_root='fixture',poll=300,stale=300,command='watch')
+        lines,events=io.StringIO(),io.StringIO()
+        naps=[0]
+        class Done(BaseException): pass
+        def nap(_seconds):
+            naps[0]+=1
+            if naps[0]>=polls: raise Done
+        def read(_a,_now):
+            r=readings[min(naps[0],len(readings)-1)]
+            if isinstance(r,Exception): raise r
+            return r
+        def who(_engine):
+            return worker_rows[min(naps[0],len(worker_rows)-1)]
+        with patch.object(watcher,'read_source',side_effect=read),patch.object(watcher,'workers',side_effect=who), \
+            patch.object(watcher.time,'time',side_effect=lambda:NOW+300*naps[0]),patch.object(watcher.time,'sleep',side_effect=nap), \
+            patch.object(weekly,'reset_tick',return_value={'error':'no offer'}):
+            with self.assertRaises(Done):
+                watcher.poll_loop(args,watcher.Out(lines=lines,events=events))
+        return events.getvalue()
+    def second_window(self,used):
+        r=reading(used);r['windows'][0]['resets_at']=NOW+86400+604800
+        return r
+    def test_a_second_weekly_window_gets_its_own_threshold_event(self):
+        # Hunt part 5, P5-16: 99%, reset to 0%, release, then 99% in the NEXT weekly window with the same
+        # worker. The dedupe key named the headline and the workers, so the second crossing never woke the lead.
+        events=self.drive([reading(99),reading(0),self.second_window(99)],
+                          [workers(['worker']),workers(held=['worker']),workers(['worker'])],3)
+        self.assertEqual(events.count('WEEKLY-QUOTA-THRESHOLD'),2,events)
+        self.assertEqual(events.count('WEEKLY-QUOTA-RELEASE'),1,events)
+    def test_the_same_weekly_window_still_wakes_once(self):
+        events=self.drive([reading(99),reading(99),reading(99)],[workers(['worker'])],3)
+        self.assertEqual(events.count('WEEKLY-QUOTA-THRESHOLD'),1,events)
     def test_unusable_reset_still_pauses(self):
         args=types.SimpleNamespace(stale=300,command='watch')
         for status in ({'error':'unavailable'},{'actionError':'uncertain'},{'resets':{'approval':None}}):
