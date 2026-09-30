@@ -1162,6 +1162,38 @@ the retired 'printf | grep -Fq' idiom exited $E2OLD for the same needle on the s
 fi
 OUT=""
 
+# C1 — CLEANUP WAITS FOR ITS CHILDREN, ESCALATES, AND DELETES THE SCRATCH LAST (hunt part 2,
+# section 15). The fake suite starts one owned child that ignores TERM (and so does its `sleep`,
+# because an ignored signal is inherited). The runner is sent TERM, as a canceling caller would.
+# When the runner has exited, that child must be gone and the scratch directory must be gone; the
+# old cleanup sent TERM, deleted the scratch and returned with the child still running.
+C1BOX="$TMP/c1box"; mkdir -p "$C1BOX"
+install_harness "$C1BOX"
+C1PID="$TMP/c1.pid"; C1TMP="$TMP/c1tmp"; mkdir -p "$C1TMP"
+printf '%s\n' "bash -c 'trap \"\" TERM; echo \$\$ > \"$C1PID\"; while :; do sleep 1; done' &" \
+  'wait' > "$C1BOX/stubborn.test.sh"
+env -i PATH="$FIXTURE_PATH" HOME="$FIXTURE_HOME" TMPDIR="$C1TMP" LC_ALL=C \
+    RUN_TESTS_STATE="$TMP/fixture-state" RUN_TESTS_KILL_GRACE=1 \
+    bash "$C1BOX/run-tests.sh" > "$TMP/c1.out" 2>&1 &
+C1RUNNER=$!
+n=0; while [ ! -s "$C1PID" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+C1CHILD="$(cat "$C1PID" 2>/dev/null)"
+kill -TERM "$C1RUNNER" 2>/dev/null
+wait "$C1RUNNER" 2>/dev/null
+C1ALIVE=""; C1LEFT=""
+if [ -n "$C1CHILD" ] && kill -0 "$C1CHILD" 2>/dev/null; then C1ALIVE=1; fi
+if [ -n "$(ls -A "$C1TMP" 2>/dev/null)" ]; then C1LEFT="$(find "$C1TMP" -mindepth 1 -maxdepth 1 | tr '\n' ' ')"; fi
+[ -z "$C1ALIVE" ] || kill -KILL "$C1CHILD" 2>/dev/null   # this test's own child, by its recorded pid
+if [ -z "$C1CHILD" ]; then
+  bad "C1 cleanup outlives no child" "the stand-in child never started, so nothing was tested"
+elif [ -n "$C1ALIVE" ]; then
+  bad "C1 cleanup outlives no child" "the runner exited while its TERM-ignoring child $C1CHILD was still running"
+elif [ -n "$C1LEFT" ]; then
+  bad "C1 cleanup outlives no child" "the child is gone but the scratch was not removed: $C1LEFT"
+else
+  ok "C1 cleanup waits, escalates past a child that ignores TERM, and deletes the scratch only after it is gone"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
   echo "=== run-tests.test.sh: $FAIL FAILED, $PASS passed ==="
