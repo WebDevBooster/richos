@@ -719,6 +719,38 @@ else
     bad "FT54 only his words trigger" "rc $SRC stderr: $SERR"
 fi
 
+# FT55 — a command that merely PRINTS the words "cat" and the register's name
+# has read nothing: echo is not a reader, so (a) is still missing.
+REGBASE="$(basename "$REG")"
+mk_transcript "$T" "[[\"human\", \"$P\", \"$TURN_START\", \"$ASK\"], [\"bash\", \"$P\", \"$(iso_at -50)\", \"echo cat $REGBASE\", false]]"
+stop_run "$T" "$P" "It looks like a landing failure." false "c0550000-0000-4000-8000-000000000000"
+if [ "$SRC" = "2" ] && [ "$(missing_set)" = "ab" ]; then
+    ok "FT55 echoing 'cat <register name>' is not reading the register: refused for (a) and (b) ((c) was committed above)"
+else
+    bad "FT55 echo is not a read" "rc $SRC missing '$(missing_set)'"
+fi
+
+# FT57 — a reader run on some OTHER file is not the lookup either.
+mk_transcript "$T" "[[\"human\", \"$P\", \"$TURN_START\", \"$ASK\"], [\"bash\", \"$P\", \"$(iso_at -50)\", \"cat $SANDBOX/notes.md | head -5\", false]]"
+stop_run "$T" "$P" "It looks like a landing failure." false "c0570000-0000-4000-8000-000000000000"
+if [ "$SRC" = "2" ] && [ "$(missing_set)" = "ab" ]; then
+    ok "FT57 a reader run on a different file is not reading the register: refused for (a) and (b)"
+else
+    bad "FT57 another file is not the register" "rc $SRC missing '$(missing_set)'"
+fi
+
+# FT56 — the opposite, same path: a real reader run on the register IS a read,
+# alone, in a pipeline, and as the argument of a search.
+for CMD56 in "cat $REG" "cat $REG | head -20" "grep -n 'Type 3' $REG" "sed -n 1,20p $REG" "cd $REC && cat $REL" "cat < $REG"; do
+    mk_transcript "$T" "[[\"human\", \"$P\", \"$TURN_START\", \"$ASK\"], [\"bash\", \"$P\", \"$(iso_at -50)\", \"$CMD56\", false]]"
+    stop_run "$T" "$P" "It looks like a landing failure." false "c0560000-0000-4000-8000-000000000000"
+    if [ "$SRC" = "2" ] && [ "$(missing_set)" = "b" ]; then
+        ok "FT56 a real reader on the register counts as reading it (a satisfied): $CMD56"
+    else
+        bad "FT56 a real read is credited: $CMD56" "rc $SRC missing '$(missing_set)'"
+    fi
+done
+
 # ===========================================================================
 # 4. BOTH HOOKS, IN ORDER — the replay shape
 # ===========================================================================

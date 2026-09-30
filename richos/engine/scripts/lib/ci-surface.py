@@ -145,6 +145,7 @@ Exit codes:
 
 import argparse
 import glob
+import hashlib
 import json
 import os
 import re
@@ -216,6 +217,11 @@ def parse_duration(text):
     if not m:
         return None
     n, unit = int(m.group(1)), m.group(2).lower()
+    if n == 0:
+        # A ceiling of zero can never be met and divides the percent-of-budget
+        # figure; it is a declaration problem, reported as one by
+        # parse_declarations, not a duration.
+        return None
     return n * {"s": 1, "m": 60, "h": 3600}[unit]
 
 
@@ -294,7 +300,7 @@ def parse_declarations(source):
         rest = rest.strip()
         if kw == "budget":
             if parse_duration(rest) is None:
-                out["malformed"].append("ci-budget: %r is not a duration (use 45m, 1800s, 2h)" % rest)
+                out["malformed"].append("ci-budget: %r is not a positive duration (use 45m, 1800s, 2h)" % rest)
             else:
                 out["budget"] = rest
         elif kw == "budget-since":
@@ -364,16 +370,23 @@ def parse_triggers(source):
 
     head = lines[start].split(":", 1)[1].strip()
     events, push_paths, cron = [], [], []
+    push_ignore = []
 
     if head and not head.startswith("#"):
         # inline form: `on: push` or `on: [push, pull_request]`
         for tok in re.findall(r"[A-Za-z_]+", head):
             events.append(tok)
         return {"parsed": True, "events": sorted(set(events)), "push_paths": [], "cron": [],
-                "reason": "inline"}
+                "push_paths_ignore": [], "reason": "inline"}
 
     cur_event = None
-    in_paths = False
+    in_paths = False       # inside a `paths:` list (positive filter)
+    in_ignore = False      # inside a `paths-ignore:` list (a NEGATIVE filter)
+
+    def _items(text):
+        # `["a/**", 'b.yml']` or `[a, b]` on one line -> the entries.
+        return [v.strip().strip('"').strip("'") for v in text.strip()[1:-1].split(",")
+                if v.strip().strip('"').strip("'")]
     for ln in lines[start + 1:]:
         if ln.strip() == "" or ln.lstrip().startswith("#"):
             continue
@@ -386,30 +399,53 @@ def parse_triggers(source):
             if re.match(r"^[A-Za-z_]+$", key):
                 cur_event = key
                 events.append(key)
-                in_paths = False
+                in_paths = in_ignore = False
                 continue
         if indent == 2 and stripped.startswith("- "):
             tok = stripped[2:].strip()  # `on:` given as a sequence
             if re.match(r"^[A-Za-z_]+$", tok):
                 events.append(tok)
             continue
-        if cur_event == "push" and indent == 4 and stripped.startswith("paths"):
-            in_paths = True
+        if cur_event == "push" and indent == 4 and re.match(r"^paths(-ignore)?\s*:", stripped):
+            # `paths-ignore` EXCLUDES; putting it in the positive list would
+            # turn "never for docs" into "only for docs".
+            ignore = stripped.startswith("paths-ignore")
+            rest = stripped.split(":", 1)[1].strip()
+            in_paths, in_ignore = (not ignore), ignore
+            if rest.startswith("[") and rest.endswith("]"):
+                (push_ignore if ignore else push_paths).extend(_items(rest))
+                in_paths = in_ignore = False
             continue
-        if in_paths and indent >= 6 and stripped.startswith("- "):
+        if (in_paths or in_ignore) and indent >= 6 and stripped.startswith("- "):
             val = stripped[2:].strip().strip('"').strip("'")
             if val:
-                push_paths.append(val)
+                (push_paths if in_paths else push_ignore).append(val)
             continue
-        if in_paths and indent <= 4:
-            in_paths = False
+        if (in_paths or in_ignore) and indent <= 4:
+            in_paths = in_ignore = False
         if cur_event == "schedule" and stripped.startswith("- cron"):
             m = re.search(r"cron\s*:\s*[\"']?([^\"'#]+)", stripped)
             if m:
                 cron.append(m.group(1).strip())
 
     return {"parsed": True, "events": sorted(set(events)), "push_paths": push_paths,
-            "cron": cron, "reason": "block"}
+            "push_paths_ignore": push_ignore, "cron": cron, "reason": "block"}
+
+
+def _cron_weekdays(field):
+    """`1`, `1,4`, `1-5` (0 and 7 are Sunday) -> set of 0-6, or None if the
+    field uses a shape this reader does not understand (names, steps)."""
+    days = set()
+    for part in field.split(","):
+        m = re.match(r"^(\d)(?:-(\d))?$", part)
+        if not m:
+            return None
+        a = int(m.group(1))
+        b = int(m.group(2)) if m.group(2) is not None else a
+        if a > 7 or b > 7 or b < a:
+            return None
+        days.update(d % 7 for d in range(a, b + 1))
+    return days
 
 
 def cron_interval_seconds(cron_exprs):
@@ -428,7 +464,25 @@ def cron_interval_seconds(cron_exprs):
         if len(parts) != 5:
             continue
         minute, hour = parts[0], parts[1]
+        dom, month, dow = parts[2], parts[3], parts[4]
         iv = None
+        if dom != "*" or month != "*":
+            # Day-of-month and month restrictions make the real gap weeks or
+            # months; abstain rather than call it daily.
+            continue
+        if dow != "*":
+            # A weekday restriction: what matters for "have firings been
+            # missed" is the LONGEST gap between scheduled days, whatever the
+            # hour field says.
+            days = _cron_weekdays(dow)
+            if not days:
+                continue
+            ordered = sorted(days)
+            gaps = [(ordered[(i + 1) % len(ordered)] - d) % 7 or 7
+                    for i, d in enumerate(ordered)]
+            iv = max(gaps) * 24 * 3600
+            best = iv if best is None else min(best, iv)
+            continue
         if hour.startswith("*/"):
             try:
                 iv = int(hour[2:]) * 3600
@@ -758,8 +812,13 @@ class Api:
         return err
 
     def _cache_path(self, path):
-        key = re.sub(r"[^A-Za-z0-9]+", "_", path)[:180]
-        return os.path.join(STATE_DIR, "api_%s.json" % key)
+        # The readable part is for a human looking at the directory; the digest
+        # of the WHOLE path is the identity. Substituting punctuation and
+        # truncating alone made `team/a-b` and `team/a_b` (or two paths that
+        # differ after character 180) the same file.
+        key = re.sub(r"[^A-Za-z0-9]+", "_", path)[:120]
+        digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:16]
+        return os.path.join(STATE_DIR, "api_%s_%s.json" % (key, digest))
 
     def _is_transient(self, stderr):
         s = (stderr or "").lower()
@@ -1081,7 +1140,11 @@ def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now,
         skipped = [j["name"] for j in jobs if j.get("conclusion") == "skipped"]
         declared = decls.get("skips") or {}
         undeclared = [n for n in skipped if not _match_declared(n, declared)]
-        rotten = [n for n in declared if not any(_job_matches(n, s) for s in skipped)]
+        # A declaration is stale when the job it names is GONE from the run,
+        # not when it happened to run this time: a conditional job that ran
+        # successfully still needs its explanation for the next run that skips it.
+        present = [j.get("name") for j in jobs]
+        rotten = [n for n in declared if not any(_job_matches(n, s) for s in present)]
         bits = []
         if undeclared:
             bits.append("UNDECLARED SKIP: %s. A skipped job inside a run whose conclusion is `%s` is a "
@@ -1090,8 +1153,8 @@ def judge(entry, decls, triggers, wf_api, runs, jobs, branch, source_mtime, now,
                         % (", ".join(repr(n) for n in undeclared),
                            (latest or {}).get("conclusion", "?")))
         if rotten:
-            bits.append("STALE DECLARATION: `# ci-skip: %s` names a job that did not skip in the latest "
-                        "run. The row has become a lie; delete it." % ", ".join(sorted(rotten)))
+            bits.append("STALE DECLARATION: `# ci-skip: %s` names a job that is not in the latest "
+                        "run at all. The row has become a lie; delete it." % ", ".join(sorted(rotten)))
         if bits:
             ax["skipped"] = ("FINDING", " ".join(bits))
         elif skipped:
@@ -1209,14 +1272,17 @@ def _fnmatch_actions(path, pattern):
     repositories today, and a pattern carrying one is reported as UNKNOWABLE by
     the caller rather than quietly matched wrong.
     """
-    import fnmatch
     if pattern.endswith("/**"):
         return path == pattern[:-3] or path.startswith(pattern[:-2])
     if pattern.endswith("/"):
         return path.startswith(pattern)
-    rx = re.escape(pattern).replace(r"\*\*", "\x00").replace(r"\*", "[^/]*").replace("\x00", ".*")
+    # `**/` matches zero or more directories (so `**/x.yml` matches `x.yml`);
+    # a bare `*` never crosses `/`. No fnmatch fallback: fnmatch's `*` crosses
+    # separators and would undo that restriction.
+    rx = re.escape(pattern).replace(r"\*\*/", "\x01").replace(r"\*\*", "\x00")
+    rx = rx.replace(r"\*", "[^/]*").replace("\x00", ".*").replace("\x01", "(?:.*/)?")
     rx = rx.replace(r"\?", "[^/]")
-    return re.fullmatch(rx, path) is not None or fnmatch.fnmatch(path, pattern)
+    return re.fullmatch(rx, path) is not None
 
 
 def _probe_path(pattern):
@@ -1768,6 +1834,63 @@ def self_test():
     want("duration m", parse_duration("45m"), 2700)
     want("duration h", parse_duration("2h"), 7200)
     want("prose is not a duration", parse_duration("about four minutes"), None)
+
+    # P5-55: a zero budget is a declaration problem, reported as one, and never
+    # reaches the percent-of-budget division.
+    want("a zero budget is not a usable duration", parse_duration("0s"), None)
+    d = parse_declarations("# ci-budget: 0m\n")
+    want("a zero budget declares nothing", d["budget"], None)
+    want("a zero budget is named as malformed", len(d["malformed"]), 1)
+    e = {}
+    judge(e, {"budget": "0s", "skips": {}, "evidence": "x" * 20},
+          {"parsed": True, "events": ["push"], "push_paths": [], "cron": []},
+          {"state": "active", "_total_count": 1},
+          [{"status": "completed", "conclusion": "success", "run_number": 1,
+            "run_started_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:01:00Z", "id": 1}],
+          [{"name": "a", "conclusion": "success"}], "main", None, now_utc())
+    want("a zero budget in a judged entry does not crash", e.get("axes", {}).get("slow", {}).get("verdict"),
+         "UNDECLARED")
+
+    # P5-52: paths-ignore is not a positive path list; inline paths are read.
+    t = parse_triggers("on:\n  push:\n    paths-ignore:\n      - \"docs/**\"\njobs:\n  a:\n")
+    want("paths-ignore is not a required path", t["push_paths"], [])
+    want("paths-ignore is kept apart", t.get("push_paths_ignore"), ["docs/**"])
+    t = parse_triggers("on:\n  push:\n    paths: [\"a/**\", 'b.yml']\njobs:\n  a:\n")
+    want("inline paths are read", t["push_paths"], ["a/**", "b.yml"])
+    want("a single * does not cross a directory", _fnmatch_actions("a/b/c.txt", "a/*.txt"), False)
+    want("a single * matches inside a directory", _fnmatch_actions("a/c.txt", "a/*.txt"), True)
+    want("** crosses directories", _fnmatch_actions("a/b/c.txt", "a/**/c.txt"), True)
+    want("a leading **/ matches the root", _fnmatch_actions("c.txt", "**/c.txt"), True)
+    want("weekly cron is seven days", cron_interval_seconds(["0 3 * * 1"]), 7 * 86400)
+    want("monthly cron abstains", cron_interval_seconds(["0 3 1 * *"]), None)
+    want("a month-restricted cron abstains", cron_interval_seconds(["0 3 * 6 *"]), None)
+    want("Mon and Thu gap is the longest gap", cron_interval_seconds(["0 3 * * 1,4"]), 4 * 86400)
+    want("weekdays only leaves the weekend gap", cron_interval_seconds(["0 3 * * 1-5"]), 3 * 86400)
+    want("daily cron is unchanged", cron_interval_seconds(["0 3 * * *"]), 86400)
+
+    # P5-53: two distinct API paths never share a cache file.
+    c = Api.__new__(Api)
+    want("punctuation-only differences do not collide",
+         c._cache_path("repos/team/a-b/actions/runs") != c._cache_path("repos/team/a_b/actions/runs"), True)
+    want("long paths that differ late do not collide",
+         c._cache_path("x" * 300 + "a") != c._cache_path("x" * 300 + "b"), True)
+
+    # P5-56: a declared skip for a job that ran successfully is not stale; one
+    # naming a job that no longer exists is.
+    sk_decl = {"budget": "4m", "skips": {"affected": "subsumed by the full pass"}, "evidence": "x" * 20}
+    sk_run = [{"status": "completed", "conclusion": "success", "run_number": 9,
+               "run_started_at": _iso(now_utc(), -3600), "updated_at": _iso(now_utc(), -1800), "id": 1}]
+    e = {}
+    judge(e, sk_decl, {"parsed": True, "events": ["push"], "push_paths": [], "cron": []},
+          {"state": "active", "_total_count": 9}, sk_run,
+          [{"name": "affected", "conclusion": "success"}], "main", None, now_utc())
+    want("a conditional job that ran keeps its skip declaration",
+         e["axes"]["skipped"]["verdict"] != "FINDING", True)
+    e = {}
+    judge(e, sk_decl, {"parsed": True, "events": ["push"], "push_paths": [], "cron": []},
+          {"state": "active", "_total_count": 9}, sk_run,
+          [{"name": "other", "conclusion": "success"}], "main", None, now_utc())
+    want("a declaration naming a vanished job is still stale", e["axes"]["skipped"]["verdict"], "FINDING")
 
     now = now_utc()
     push = {"parsed": True, "events": ["push"], "push_paths": [], "cron": []}

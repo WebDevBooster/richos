@@ -1174,6 +1174,12 @@ json.dump({target: {"first": "2026-09-18T07:40:05Z",
                     "attempts": 1}},
           open(path, "w"), indent=1)
 PY
+# THE AGE FLOOR MUST ACTUALLY BE IN FORCE FOR THIS CASE. The world's config sets
+# SCRATCH_LEGACY_AGE_HOURS=0, which makes every legacy directory old enough and
+# made S17b's "kept by the age floor" control untrue in this world while it
+# reported success either way (P5-68). S17 and S17b run under the real 2 h floor.
+cp "$W_CFG" "$W_CFG.floor0"
+sed -i.bak 's/^SCRATCH_LEGACY_AGE_HOURS=.*/SCRATCH_LEGACY_AGE_HOURS="2"/' "$W_CFG"
 OUT="$(run)"
 if printf '%s' "$OUT" | grep -q 'A PREVIOUS RUN FAILED TO DELETE THIS'; then
     ok "S17  a recorded failure is reconsidered DESPITE a fresh mtime"
@@ -1187,13 +1193,18 @@ fi
 # is correctly KEPT by the age floor. Without this, S17 passes just as well
 # against a reaper that ignores the age floor entirely.
 rm -f "$FSTATE"
-OUT="$(run)"
-if printf '%s' "$OUT" | grep -q 'zlegacy-recent' \
+OUT="$(run --verbose)"
+# The disposition, not the name: the directory must be listed as a KEEP and must
+# not be listed as a DELETE. Its name appearing anywhere proves neither.
+if printf '%s\n' "$OUT" | grep -E '(^|[[:space:]])KEEP[[:space:]].*zlegacy-recent' >/dev/null \
+   && ! printf '%s\n' "$OUT" | grep -E '(^|[[:space:]])DELETE[[:space:]].*zlegacy-recent' >/dev/null \
    && ! printf '%s' "$OUT" | grep -q 'A PREVIOUS RUN FAILED'; then
     ok "S17b CONTROL: with no failure recorded the same fresh directory is kept"
 else
-    ok "S17b CONTROL: the fresh directory is not a delete candidate"
+    bad "S17b CONTROL: the fresh directory was not KEPT by the age floor, so S17 cannot tell a working floor from none"
+    printf '%s\n' "$OUT" | grep 'zlegacy-recent' | sed 's/^/        /' | head -5
 fi
+cp "$W_CFG.floor0" "$W_CFG"
 
 # AND THE FILE MUST EMPTY ITSELF. A failure record that only ever grew would be
 # a permanent alert about paths cleaned up weeks ago, and a permanent alert is

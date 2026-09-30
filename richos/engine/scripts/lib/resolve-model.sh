@@ -69,6 +69,30 @@ if [ -n "${_RESOLVE_MODEL_SH_SOURCED:-}" ]; then
 fi
 _RESOLVE_MODEL_SH_SOURCED=1
 
+# _def_model_line <definition-file> — the lowercased value of the `model:` line
+# in the FIRST frontmatter block, unnormalized; empty when there is none. (A
+# function of its own so the heredoc is never parsed inside a $( ) on bash 3.2.)
+_def_model_line() {
+  python3 - "$1" 2>/dev/null <<'PY' || true
+import sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        lines = f.read().split("\n")
+except Exception:
+    sys.exit(0)
+# frontmatter = the block between the FIRST '---' and the next '---' only.
+if not lines or lines[0].strip() != "---":
+    sys.exit(0)
+for ln in lines[1:]:
+    if ln.strip() == "---":
+        break
+    s = ln.strip()
+    if s.lower().startswith("model:"):
+        print(s.split(":", 1)[1].strip().strip('"').strip("'").lower())
+        break
+PY
+}
+
 # resolve_expected_model <override> <subagent_type> — echo the model this spawn
 # is EXPECTED to boot on, or "" (empty) if undeterminable. Precedence: an
 # explicit override (arg 1) wins; else the model: line in the YAML frontmatter
@@ -112,22 +136,17 @@ resolve_expected_model() {
     *) printf ''; return 0 ;;
   esac
   [ -n "$def" ] || { printf ''; return 0; }
-  python3 - "$def" 2>/dev/null <<'PY' || true
-import sys
-try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        lines = f.read().split("\n")
-except Exception:
-    sys.exit(0)
-# frontmatter = the block between the FIRST '---' and the next '---' only.
-if not lines or lines[0].strip() != "---":
-    sys.exit(0)
-for ln in lines[1:]:
-    if ln.strip() == "---":
-        break
-    s = ln.strip()
-    if s.lower().startswith("model:"):
-        print(s.split(":", 1)[1].strip().strip('"').strip("'").lower())
-        break
-PY
+  # The definition's default gets the SAME normalization as an override: a
+  # verbose id ("claude-opus-4-8") in the frontmatter names the model "opus",
+  # exactly as the same id given as an override does.
+  local dm
+  dm="$(_def_model_line "$def")"
+  [ -n "$dm" ] || { printf ''; return 0; }
+  if [ "$dm" = "inherit" ]; then
+    printf '%s' "$dm"; return 0
+  fi
+  for m in $ALLOWED_MODELS; do
+    case "$dm" in *"$m"*) printf '%s' "$m"; return 0;; esac
+  done
+  printf '%s' "$dm"
 }

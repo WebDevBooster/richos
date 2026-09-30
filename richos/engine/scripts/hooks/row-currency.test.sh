@@ -882,6 +882,26 @@ else
     bad "large conflicted merge lost its tree (merge rc=$MERGE_RC, tree rc=$TREE_RC)"
 fi
 
+# An ALTERNATE index (GIT_INDEX_FILE) is the index the commit would use, so it is
+# the one measured: the pending tree is the alternate's tree, and differs from
+# what the repository's own index would give (P5-64).
+ALT_IDX="$SCRATCH/alt-index"
+rm -f "$ALT_IDX"
+GIT_INDEX_FILE="$ALT_IDX" git -C "$WORK" read-tree HEAD >/dev/null 2>&1
+ALT_BLOB="$(printf 'only in the alternate index\n' | git -C "$WORK" hash-object -w --stdin)"
+GIT_INDEX_FILE="$ALT_IDX" git -C "$WORK" update-index --add --cacheinfo "100644,$ALT_BLOB,altonly.txt" >/dev/null 2>&1
+ALT_EXPECTED="$(GIT_INDEX_FILE="$ALT_IDX" git -C "$WORK" write-tree 2>/dev/null)"
+DEFAULT_TREE="$(git -C "$WORK" write-tree 2>/dev/null)"
+ALT_ACTUAL="$(GIT_INDEX_FILE="$ALT_IDX" "$BASH_BIN" -c 'source "$1"; rc_pending_tree "$2" index' _ "$ENGINE_ROOT/scripts/lib/row-currency.sh" "$WORK")"
+DEF_ACTUAL="$("$BASH_BIN" -c 'source "$1"; rc_pending_tree "$2" index' _ "$ENGINE_ROOT/scripts/lib/row-currency.sh" "$WORK")"
+if [ -n "$ALT_EXPECTED" ] && [ "$ALT_EXPECTED" != "$DEFAULT_TREE" ] &&
+   [ "$ALT_ACTUAL" = "$ALT_EXPECTED" ] && [ "$DEF_ACTUAL" = "$DEFAULT_TREE" ]; then
+    ok "rc_pending_tree measures the alternate index when GIT_INDEX_FILE selects one, and the default otherwise"
+else
+    bad "rc_pending_tree ignored GIT_INDEX_FILE (alt expected=$ALT_EXPECTED actual=$ALT_ACTUAL; default expected=$DEFAULT_TREE actual=$DEF_ACTUAL)"
+fi
+rm -f "$ALT_IDX"
+
 # ---------------------------------------------------------------------------
 # (i) NO OVERRIDE — there is no escape token, deliberately
 # ---------------------------------------------------------------------------
@@ -1678,6 +1698,43 @@ else
 fi
 [ "$VRC" -ne 0 ] && ok "a refused row makes the verifier non-zero — declining to check is not passing" \
                  || bad "the verifier exited 0 having checked nothing (rc=$VRC)"
+
+fi
+
+# o3b/o3c/o3d. A command that FAILS is not a match just because it printed the
+# words first (P5-67); the conventional exit-1 "nothing found" of grep -c is still
+# a match; and --only naming no row certifies nothing.
+if selected verifier; then
+set -- $(mk_pair hl_failed); REC="$1"; WORK="$2"
+declare_headlines "$REC" "3"
+OID="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" \
+  "| 3.1 | **The prerequisite is in place.** | **Headline:** \`000000000000\` — \`echo ASSERTION ok && exit 7\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.2 | **Nothing mentions the word.** | **Headline:** \`000000000000\` — \`grep -c nosuchword lib/thing.js\` → \`0\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.3 | **The tool complains but prints the words.** | **Headline:** \`000000000000\` — \`echo ASSERTION; echo broken >&2; exit 1\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |"
+commit_record "$REC"
+run_verify "$REC"
+if case "$VOUT" in *"MATCH       3.1"*) false ;; *"ERROR       3.1"*"exited 7"*) true ;; *) false ;; esac; then
+    ok "a command that printed the words and then exited 7 is an ERROR, not a MATCH"
+else
+    bad "a failing command was credited as a match: $VOUT"
+fi
+case "$VOUT" in
+    *"MATCH       3.2"*) ok "grep -c printing 0 and exiting 1 with a quiet stderr is still a MATCH" ;;
+    *) bad "the conventional exit-1 count of zero was refused: $VOUT" ;;
+esac
+if case "$VOUT" in *"MATCH       3.3"*) false ;; *"ERROR       3.3"*) true ;; *) false ;; esac; then
+    ok "an exit of 1 with an error on stderr is not the conventional answer and is an ERROR"
+else
+    bad "a command that complained on stderr was credited as a match: $VOUT"
+fi
+[ "$VRC" -eq 1 ] && ok "a failing command makes the verifier exit 1" || bad "the verifier did not fail on a failing command (rc=$VRC)"
+run_verify "$REC" --only 9.99
+if [ "$VRC" -eq 2 ] && case "$VOUT" in *"9.99"*) true ;; *) false ;; esac; then
+    ok "--only naming no row is exit 2 and names the row, not a pass over zero rows"
+else
+    bad "--only with an unknown row certified an empty selection (rc=$VRC): $VOUT"
+fi
 
 fi
 

@@ -620,7 +620,19 @@ rc_pending_tree() {
         return 1
     fi
 
-    real="$(git -C "$root" rev-parse --absolute-git-dir 2>/dev/null)/index"
+    # The index Git itself would read: an alternate one named by GIT_INDEX_FILE
+    # (a relative name is relative to the caller's directory, else the repository
+    # root), otherwise <gitdir>/index. Reading the default one while the commit
+    # uses another measures a tree that will not land.
+    real="${GIT_INDEX_FILE:-}"
+    if [ -z "$real" ]; then
+        real="$(git -C "$root" rev-parse --absolute-git-dir 2>/dev/null)/index"
+    else
+        case "$real" in
+            /*) ;;
+            *) if [ -f "$PWD/$real" ]; then real="$PWD/$real"; else real="$root/$real"; fi ;;
+        esac
+    fi
     tmpidx="$(mktemp -t row-currency-index.XXXXXX)" || return 1
     if [ -f "$real" ]; then
         cp "$real" "$tmpidx" 2>/dev/null || { rm -f "$tmpidx"; return 1; }

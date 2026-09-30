@@ -584,10 +584,74 @@ def register_read(facts, reg_path, rel):
         if name == "Grep" and path_is_register(inp.get("path"), reg_path, rel):
             return True
         if name == "Bash":
-            cmd = inp.get("command") or ""
-            if base in cmd and READER_VERBS.search(cmd):
+            if bash_reads_register(inp.get("command") or "", reg_path, rel, base):
                 return True
     return False
+
+
+_READER_WORDS = {"cat", "grep", "egrep", "fgrep", "rg", "sed", "awk", "head", "tail", "less",
+                 "more", "nl", "python", "python3", "perl", "ruby", "bat", "view", "cut", "wc"}
+_INTERPRETERS = {"python", "python3", "perl", "ruby"}
+_WRAPPERS = {"sudo", "env", "command", "time", "nice", "builtin"}
+
+
+def bash_reads_register(cmd, reg_path, rel, base):
+    """True when some simple command in `cmd` runs a READER on the register.
+
+    Looking for the reader verb and the register's name anywhere in the text
+    credited `echo cat failure-types.md`, which reads nothing. The command is
+    split into simple commands, the command WORD must be a reader, and one of
+    its arguments (or the target of a `<` redirect) must be the register. An
+    interpreter run with -c/-e carries its program in one argument, so there the
+    register's name anywhere inside that argument counts."""
+    import shlex
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        tokens = list(lex)
+    except ValueError:
+        return False
+    segments, cur = [], []
+    for tok in tokens:
+        if tok and set(tok) <= set(";|&()"):
+            segments.append(cur)
+            cur = []
+        else:
+            cur.append(tok)
+    segments.append(cur)
+    for seg in segments:
+        words = list(seg)
+        while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in _WRAPPERS):
+            words.pop(0)
+        if not words:
+            continue
+        verb = os.path.basename(words[0])
+        args, redirected = [], False
+        for w in words[1:]:
+            if w in ("<", "<<", "<<<"):
+                redirected = True
+                continue
+            if w.startswith(">") or re.match(r"^\d*>", w):
+                redirected = None  # an output redirect: its operand is written, not read
+                continue
+            if redirected is None:
+                redirected = False
+                continue
+            args.append(w)
+        if verb not in _READER_WORDS:
+            continue
+        for a in args:
+            if path_matches_register(a, reg_path, rel, base):
+                return True
+            if verb in _INTERPRETERS and base in a:
+                return True
+    return False
+
+
+def path_matches_register(arg, reg_path, rel, base):
+    if not arg or arg.startswith("-"):
+        return False
+    return path_is_register(arg, reg_path, rel) or os.path.basename(arg) == base
 
 
 def norm(s):
