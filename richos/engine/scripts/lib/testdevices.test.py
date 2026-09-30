@@ -9,6 +9,7 @@ paired with the case that must NOT remove, because a collector is judged as
 much on what it leaves as on what it takes.
 """
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -1282,6 +1283,27 @@ class Collector(Base):
         time.sleep(0.8)                                        # and not after it
         self.assertEqual(T._read_json(T._record_path("ios-simulator", udid))["lease"]["last_use"], stopped)
         T.release_ios(udid, os.getpid())
+
+    def test_T51b_one_failed_renewal_attempt_does_not_end_renewal_for_good(self):
+        # P5-25: a registry-lock timeout is a failed attempt, not a lost lease. The run
+        # keeps renewing on the next interval; before, one error stopped renewal forever.
+        udid = self.device("rios-ui-transient-renewal")
+        T.register("ios-simulator", udid, os.getpid())
+        real = T.renew_activity
+        calls = []
+
+        def flaky(*args):
+            calls.append(time.monotonic())
+            if len(calls) == 1:
+                raise TimeoutError("registry lock busy")
+            return real(*args)
+        err = io.StringIO()
+        with patch.object(T, "renew_activity", flaky), patch("sys.stderr", err):
+            code = T.run_active("ios-simulator", udid, ["sleep", "1.5"], os.getpid(), interval=0.2, check=0.05)
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(len(calls), 3)                    # it went on after the failure
+        self.assertIn("trying again", err.getvalue())
+        self.assertNotIn("stopped renewing", err.getvalue())
 
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")

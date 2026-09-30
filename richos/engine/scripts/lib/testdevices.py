@@ -607,7 +607,13 @@ def run_active(kind, ident, command, owner_pid=None, checkout="", interval=None,
                 try:
                     renewed, why = renew_activity(kind, ident, owner, created, child)
                 except (OSError, TimeoutError, ValueError) as exc:
-                    renewed, why = False, "renewal failed: %s" % exc
+                    # A registry lock timeout or a full disk is a failed ATTEMPT, not a
+                    # lost lease: the next interval tries again. A positive loss (a False
+                    # answer below) and the lease check above are what end renewal or the
+                    # run, so a healthy test is not abandoned by one bad moment.
+                    sys.stderr.write("testdevices run-active: renewal of %s failed (%s); "
+                                     "trying again in %ss\n" % (ident, exc, interval))
+                    continue
                 if not renewed:
                     renewing = False
                     if child.poll() is None:
