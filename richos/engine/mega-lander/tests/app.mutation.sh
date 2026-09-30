@@ -37,9 +37,11 @@ WS="mega-lander/workspaces.py"
 # --- 1. THE LAND IS UNDER THE LOCK, OR IT IS NOT LOCKED AT ALL -------------
 # The before-state itself: `integrate` reaches `git merge --ff-only` holding
 # only per-conversation locks, so two threads merge into one repository at once.
+# Since part 4, finding 2 the land takes EVERY repository's lock (land_locks);
+# one repository is exactly land_lock alone, so removing the call removes it.
 mutant land-not-locked "test_two_conversations_landing_in_one_repository_take_one_lock_and_the_merge_is_under_it" "$A" \
-    '    with land_lock(scope,repository) as land:' \
-    '    with contextlib.nullcontext({}) as land:' \
+    '    with land_locks(scope,repositories_to_land) as lands:' \
+    '    with contextlib.nullcontext({r:{} for r in repositories_to_land}) as lands:' \
     "the fast-forward would run with no lock on the repository at all -- the exact defect, restored: two threads' merges race and the loser's finished, reviewed work is re-implemented."
 
 # --- 2. THE LOCK IS KEYED TO THE REPOSITORY -------------------------------
@@ -100,8 +102,8 @@ mutant wait-not-reported "test_the_second_lander_waits_for_the_first_and_never_r
 # one's running agents, and workspaces.py can only name the conversation that
 # did it if the land wrote a record.
 mutant land-not-recorded "test_the_land_record_is_appended_beside_the_lock_and_names_the_conversation" "$A" \
-    '                    W.append_land_record(repository,land["landed"])' \
-    '                    pass' \
+    '                        W.append_land_record(repo,lands[repo]["landed"])' \
+    '                        pass' \
     "a land would move the recorded branch and leave nothing saying which conversation moved it, so the other thread's agents would be told only that their base changed -- or, where no record exists at all, nothing. Attribution cannot be recovered afterwards: the reflog names a ref write, never a conversation."
 
 # --- 9. AND IT IS APPENDED, NEVER OVERWRITTEN ---------------------------
@@ -117,8 +119,8 @@ mutant land-record-overwritten-not-appended "test_the_land_record_is_appended_be
 # written at the end of the call rather than at the merge would count those
 # repeats as lands that never happened.
 mutant land-recorded-without-a-merge "test_the_land_record_is_appended_beside_the_lock_and_names_the_conversation" "$A" \
-    '                git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)' \
-    '                W.append_land_record(repository,{"schema":1,"branch":branch,"before":tip,"commit":commit,"at":W.iso(),"thread_id":"x","entity_id":"y","session_id":"z","pid":0}){NL}                git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)' \
+    '                    git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)' \
+    '                    W.append_land_record(repo,{"schema":1,"branch":branch,"before":tip,"commit":commit,"at":W.iso(),"thread_id":"x","entity_id":"y","session_id":"z","pid":0}){NL}                    git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)' \
     "a repeated integrate -- the recovery path, which merges nothing -- would record a land it did not perform, and the history would then answer for moves that never happened."
 
 # --- 11. THE WAITER READS WHAT THE HOLDER DID FROM THE HISTORY ----------

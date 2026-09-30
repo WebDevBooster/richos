@@ -87,14 +87,78 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual(ready["status"], "prepared")
         self.assertIn("agent_payload", ready)
 
-    def test_unstructured_spawn_failure_still_blocks_duplicate_work(self):
+    def test_unstructured_spawn_failure_is_retained_then_settled_for_a_replacement(self):
+        """Part 4, finding 1: this test used to END at the refusal below, which
+        pinned the stuck state. The receipt is still retained and never
+        replayed, but a replacement settles it once nothing ran."""
         command = [sys.executable, "-c", "import sys; print('spawn: refused - NOTHING WAS CREATED.'); sys.exit(1)"]
         with patch.object(self.app, "build_spawn_command", return_value=command):
             with self.assertRaises(ValueError): self.call("prepare", self.args)
         record = self.call("inspect")["records"][0]
         self.assertEqual(record["status"], "unknown")
+        # The same request is still only its receipt: nothing is replayed.
+        self.assertNotIn("agent_payload", self.call("prepare", self.args))
+        replacement = self.call("prepare", {**self.args, "request_id":"replacement"})
+        self.assertEqual(replacement["status"], "prepared")
+        self.assertIn("agent_payload", replacement)
+        settled = [r for r in self.call("inspect")["records"] if r["id"] == record["id"]][0]
+        self.assertEqual(settled["status"], "blocked")
+        self.assertEqual(settled["settled"]["withdrawn"], [])
+        self.assertIn("never dispatched", settled["settled"]["reason"])
+
+    def test_a_created_but_never_dispatched_preparation_is_withdrawn_and_a_registered_spawn_is_not(self):
+        """Part 4, finding 1, the harder half: the failed preparation DID create
+        its workspace. Its registration shows no spawn, so the canonical
+        withdrawal removes it and a replacement proceeds. The control is the
+        reason the receipt is kept at all: once the canonical record shows a
+        registered spawn, nothing is withdrawn and the refusal stands."""
+        real = self.app.run
+        def created_then_uncertain(command, **kw):
+            real(command, **kw)
+            raise TimeoutError("synthetic uncertainty after the workspace was created")
+        with patch.object(self.app, "run", side_effect=created_then_uncertain):
+            with self.assertRaises(TimeoutError): self.call("prepare", self.args)
+        stuck = self.call("inspect")["records"][0]
+        self.assertEqual(stuck["status"], "unknown")
+        key = self.app.W.named_key(self.session, stuck["name"])
+        workspace = [w for w in self.app.W.load_agent(key)["workspaces"] if w.get("kind") == "cc"][0]
+        self.assertTrue(Path(workspace["path"]).is_dir())
+        # CONTROL: a registered spawn may have run, so it is never withdrawn here.
+        with self.app.W.Lock():
+            canonical = self.app.W.load_agent(key); canonical["tool_use_id"] = "observed-spawn"
+            self.app.W.save_agent(canonical)
         with self.assertRaisesRegex(ValueError, "unresolved"):
-            self.call("prepare", {**self.args, "request_id":"must-not-duplicate"})
+            self.call("prepare", {**self.args, "request_id":"refused-replacement"})
+        self.assertTrue(Path(workspace["path"]).is_dir())
+        # CONTROL: dirty files are refused, never discarded.
+        with self.app.W.Lock():
+            canonical = self.app.W.load_agent(key); canonical.pop("tool_use_id")
+            self.app.W.save_agent(canonical)
+        (Path(workspace["path"]) / "keep.txt").write_text("KEEP")
+        with self.assertRaisesRegex(ValueError, "could not be withdrawn"):
+            self.call("prepare", {**self.args, "request_id":"dirty-replacement"})
+        self.assertEqual((Path(workspace["path"]) / "keep.txt").read_text(), "KEEP")
+        (Path(workspace["path"]) / "keep.txt").unlink()
+        # Nothing ran and nothing is dirty: withdrawn canonically, and replaced.
+        replacement = self.call("prepare", {**self.args, "request_id":"replacement"})
+        self.assertEqual(replacement["status"], "prepared")
+        self.assertFalse(Path(workspace["path"]).exists())
+        self.assertEqual(self.app.git(self.repo, "branch", "--list", workspace["branch"]), "")
+        self.assertIsNone(self.app.W.load_agent(key))
+        settled = [r for r in self.call("inspect")["records"] if r["id"] == stuck["id"]][0]
+        self.assertEqual(settled["status"], "blocked")
+        self.assertEqual(settled["settled"]["withdrawn"], [workspace["path"]])
+
+    def test_a_settled_preparation_does_not_block_the_assignment_from_completing(self):
+        """Part 4, finding 1, one step later: a settled receipt did no work, so
+        completion must not demand integration evidence for it."""
+        command = [sys.executable, "-c", "import sys; sys.exit(1)"]
+        with patch.object(self.app, "build_spawn_command", return_value=command):
+            with self.assertRaises(ValueError): self.call("prepare", self.args)
+        args = self.reviewed_pair("after-stuck")
+        self.assertTrue(self.call("integrate", args)["work_integrated"])
+        done = self.call("complete", {"obligation_id":"fixture-task", "worker_ids":[args["worker_id"]]})
+        self.assertTrue(done["obligation_closed"])
 
     def test_build_spawn_command_one_repository_is_byte_identical_to_todays_command(self):
         # POSITIVE CONTROL: the exact list `prepare()` built before this
@@ -123,6 +187,13 @@ class DesktopWork(unittest.TestCase):
             "--integration","/repoA=main","--base","/repoA=deadbeef"]
         self.assertEqual(got,want)
 
+    def test_build_spawn_command_scopes_a_per_repository_base_to_every_repository(self):
+        # Part 4, finding 2: a reviewer or continuation of a job in several
+        # repositories starts each workspace at that repository's own commit.
+        got=self.app.build_spawn_command([("/repoA","/destA"),("/repoB","/destB")],"reviewer-sonnet-abc",
+            "reviewer","/x/y.brief","Review",integration=None,base={"/repoB":"b"*40,"/repoA":"a"*40})
+        self.assertEqual(got[got.index("--json")+1:],["--base","/repoA="+"a"*40,"--base","/repoB="+"b"*40])
+
     def test_prepare_with_repos_creates_a_workspace_in_each_and_scopes_the_form(self):
         second=self.root/"second project";second.mkdir()
         subprocess.run(["git","init","--template=","-q","-b","main",str(second)],check=True)
@@ -143,6 +214,97 @@ class DesktopWork(unittest.TestCase):
         self.assertTrue(any(self.repo.name in l for l in lines))
         self.assertTrue(any(second.name in l for l in lines))
         self.assertEqual(self.call("inspect")["records"][0]["request"]["repos"],[str(self.repo),str(second)])
+
+    def second_repository(self):
+        second=self.root/"second project";second.mkdir()
+        subprocess.run(["git","init","--template=","-q","-b","main",str(second)],check=True)
+        subprocess.run(["git","-C",str(second),"-c","core.hooksPath=/dev/null","-c","commit.gpgSign=false","-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","--allow-empty","-qm","Fixture"],check=True)
+        self.registry.write_text(json.dumps({"version":2,"entities":[{"id":"depot","roots":[str(self.repo),str(second)],
+            "connected_repositories":[str(self.repo),str(second)]}]}))
+        return second
+
+    def workspaces_of(self,ready):
+        canonical=self.app.W.load_agent(self.app.W.named_key(self.session,ready["name"]))
+        return {w["repo"]:w["path"] for w in canonical["workspaces"] if w.get("kind")=="cc"}
+
+    def commit_in_each(self,paths,file,text):
+        commits={}
+        for repo,path in paths.items():
+            (Path(path)/file).write_text(text+" in "+Path(repo).name)
+            self.app.git(path,"add",file)
+            self.app.git(path,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional "+file)
+            commits[repo]=self.app.git(path,"rev-parse","HEAD")
+        return commits
+
+    def test_a_job_in_two_repositories_is_edited_reviewed_and_landed_in_both(self):
+        """Part 4, finding 2. `prepare` accepted a job in two repositories and
+        created a workspace in each, and then every later step handled only the
+        primary: a direct edit in the second workspace was refused, review named
+        only the primary commit, integrate merged only the primary repository
+        and canonical cleanup then refused the unmerged second one."""
+        second=self.second_repository()
+        spec={**self.args,"request_id":"multi-worker","repos":[str(second)]}
+        worker=self.call("prepare",spec)
+        self.start_fixture_worker(worker,"multi-worker")
+        paths=self.workspaces_of(worker)
+        self.assertEqual(sorted(paths),sorted([str(self.repo),str(second)]))
+        # The edit boundary covers every workspace of the job, and still nothing else.
+        event={"session_id":self.session,"agent_id":"multi-worker","cwd":str(self.coord),"tool_name":"Write",
+               "tool_input":{"file_path":str(Path(paths[str(second)])/"result.txt")}}
+        context=self.app.worker_context(self.scope,event)["hookSpecificOutput"]["additionalContext"]
+        for path in paths.values(): self.assertIn(str(Path(path).resolve()),context)
+        with self.assertRaisesRegex(ValueError,"outside"):
+            self.app.worker_context(self.scope,{**event,"tool_input":{"file_path":str(self.root/"elsewhere.txt")}})
+        commits=self.commit_in_each(paths,"result.txt","FICTIONAL")
+        self.finish_fixture_worker("multi-worker")
+        # A review that does not cover every repository is refused before anything is created.
+        with self.assertRaisesRegex(ValueError,"exactly the repositories"):
+            self.call("prepare",{**self.args,"request_id":"partial-review","role":"reviewer","review_of":worker["id"]})
+        reviewer=self.call("prepare",{**spec,"request_id":"multi-review","role":"reviewer","review_of":worker["id"],
+            "title":"Review both","brief":"Review the change in both repositories; do not modify any files."})
+        self.assertEqual(reviewer["review_target"]["commits"],commits)
+        self.start_fixture_worker(reviewer,"multi-reviewer")
+        review_paths=self.workspaces_of(reviewer)
+        for repo,path in review_paths.items():
+            self.assertEqual(self.app.git(path,"rev-parse","HEAD"),commits[repo])   # each at the worker's exact commit
+        # A verdict naming only the primary commit is not a review of this work.
+        primary=commits[str(self.repo)]
+        self.finish_fixture_worker("multi-reviewer","RICHOS_REVIEW "+json.dumps(
+            {"commit":primary,"verdict":"passed","checks":["primary only"]}))
+        with self.assertRaisesRegex(ValueError,"passing review"):
+            self.call("integrate",{"worker_id":worker["id"],"reviewer_id":reviewer["id"]})
+        self.assertNotEqual(self.app.git(second,"rev-parse","main"),commits[str(second)])
+        self.finish_fixture_worker("multi-reviewer","RICHOS_REVIEW "+json.dumps(
+            {"commit":primary,"commits":commits,"verdict":"passed","checks":["both repositories"]}))
+        landed=self.call("integrate",{"worker_id":worker["id"],"reviewer_id":reviewer["id"]})
+        self.assertTrue(landed["work_integrated"])
+        self.assertEqual(landed["cleanup_pending"],[])
+        for repo,commit in commits.items():
+            self.assertEqual(self.app.git(repo,"rev-parse","main"),commit)
+            self.assertIn(commit,landed["evidence_ref"])
+            self.assertEqual(self.app.W.land_records(repo)[-1]["commit"],commit)
+        self.assertEqual(sorted(landed["land_locks"]),sorted(commits))
+        for path in list(paths.values())+list(review_paths.values()): self.assertFalse(Path(path).exists(),path)
+        self.assertTrue(self.call("complete",{"obligation_id":"fixture-task","worker_ids":[worker["id"]]})["obligation_closed"])
+
+    def test_a_continuation_of_a_job_in_two_repositories_restarts_each_at_its_saved_commit(self):
+        """Part 4, finding 2, continuation: the saved commit was read from the
+        primary repository only, so the second repository's new workspace began
+        somewhere else while canonical continuation deleted the old one."""
+        second=self.second_repository()
+        spec={**self.args,"request_id":"multi-first","repos":[str(second)]}
+        worker=self.call("prepare",spec)
+        self.start_fixture_worker(worker,"multi-first")
+        commits=self.commit_in_each(self.workspaces_of(worker),"partial.txt","SAVED")
+        self.finish_fixture_worker("multi-first")
+        with self.assertRaisesRegex(ValueError,"exactly the repositories"):
+            self.call("prepare",{**self.args,"request_id":"narrow-continue","continue_of":worker["id"]})
+        continued=self.call("prepare",{**spec,"request_id":"multi-continue","continue_of":worker["id"]})
+        self.assertEqual(continued["continuation"]["commits"],commits)
+        self.start_fixture_worker(continued,"multi-continue")
+        for repo,path in self.workspaces_of(continued).items():
+            self.assertEqual(self.app.git(path,"rev-parse","HEAD"),commits[repo])
+            self.assertEqual((Path(path)/"partial.txt").read_text(),"SAVED in "+Path(repo).name)
 
     def test_prepare_rejects_a_repeated_or_unconnected_repos_entry(self):
         with self.assertRaisesRegex(ValueError,"distinct"):
@@ -847,15 +1009,15 @@ class DesktopWork(unittest.TestCase):
             holder.kill()
         holder.wait(timeout=30)
 
-    def reviewed_pair(self,tag,repo=None):
+    def reviewed_pair(self,tag,repo=None,file="result.txt"):
         """A worker and a passing reviewer, both run-ended: the exact state
         `integrate` is called from."""
         spec={**self.args,"request_id":"prepare-"+tag}
         if repo: spec["repo"]=str(repo)
         worker=self.call("prepare",spec)
         target=self.start_fixture_worker(worker,tag+"-worker")
-        (target/"result.txt").write_text("FICTIONAL "+tag)
-        self.app.git(target,"add","result.txt")
+        (target/file).write_text("FICTIONAL "+tag)
+        self.app.git(target,"add",file)
         self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional "+tag)
         commit=self.app.git(target,"rev-parse","HEAD")
         self.finish_fixture_worker(tag+"-worker")
@@ -865,6 +1027,92 @@ class DesktopWork(unittest.TestCase):
         self.finish_fixture_worker(tag+"-reviewer","RICHOS_REVIEW "+json.dumps(
             {"commit":commit,"verdict":"passed","checks":["synthetic reviewer observation"]}))
         return {"worker_id":worker["id"],"reviewer_id":reviewer["id"]}
+
+    def concurrent_reviewed_pairs(self,*jobs):
+        """Two assignments whose workers RUN AT THE SAME TIME from the same tip,
+        each then reviewed: the ordinary concurrent case. Every worker starts
+        before any ends, because the engine refuses a new worker while finished
+        work is pending (point 5) and one assignment has one unresolved worker.
+        `jobs` is (tag, file); the first job is fixture-task and each later one
+        gets its own accepted obligation. The committer is the repository's own
+        configuration, which a merge commit needs; nothing supplies one."""
+        for key,value in (("user.name","Fixture"),("user.email","fixture@example.invalid")):
+            subprocess.run(["git","-C",str(self.repo),"config",key,value],check=True)
+        started=[]
+        for number,(tag,file) in enumerate(jobs):
+            obligation="fixture-task" if number==0 else "fixture-task-"+tag
+            if number:
+                self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"checkpoint","binding":self.scope["binding"],
+                    "request_id":"accept-"+obligation,"checkpoint":{"statements":[{"verb":"commitment",
+                    "fields":{"id":obligation,"title":"Create fictional "+tag}}]}})
+            spec={**self.args,"request_id":"prepare-"+tag,"obligation_id":obligation}
+            worker=self.call("prepare",spec)
+            started.append((tag,file,spec,worker,self.start_fixture_worker(worker,tag+"-worker")))
+        pairs=[]
+        for tag,file,spec,worker,target in started:
+            (target/file).write_text("FICTIONAL "+tag)
+            self.app.git(target,"add",file)
+            self.app.git(target,"commit","-qm","Fictional "+tag)
+            commit=self.app.git(target,"rev-parse","HEAD")
+            self.finish_fixture_worker(tag+"-worker")
+            pairs.append((tag,spec,worker,commit))
+        out=[]
+        for tag,spec,worker,commit in pairs:
+            reviewer=self.call("prepare",{**spec,"request_id":"review-"+tag,"role":"reviewer","review_of":worker["id"],
+                "title":"Review "+tag,"brief":"Review the exact change; do not modify any files."})
+            self.start_fixture_worker(reviewer,tag+"-reviewer")
+            self.finish_fixture_worker(tag+"-reviewer","RICHOS_REVIEW "+json.dumps(
+                {"commit":commit,"verdict":"passed","checks":["synthetic reviewer observation"]}))
+            out.append(({"worker_id":worker["id"],"reviewer_id":reviewer["id"]},commit,spec["obligation_id"]))
+        return out
+
+    def test_a_second_reviewed_change_is_merged_after_the_first_moved_the_branch(self):
+        """Part 4, finding 3. Two workers start from the same tip and change
+        different files. The first lands by fast-forward. The second used to be
+        refused by an ancestry check whose whole message was Git's empty output
+        ("engine operation refused"), which sent finished, reviewed work back for
+        another implementation and review. It now lands by a merge commit whose
+        second parent IS the reviewed commit, because Git merges the two cleanly."""
+        (first,first_commit,first_task),(second,second_commit,second_task)=self.concurrent_reviewed_pairs(
+            ("one","one.txt"),("two","two.txt"))
+        start=self.app.git(self.repo,"rev-parse","main")
+        # CONTROL: both really started from the same tip, and neither contains the other.
+        self.assertEqual(self.app.git(self.repo,"merge-base",first_commit,second_commit),start)
+        self.call("integrate",first)
+        self.assertEqual(self.app.git(self.repo,"rev-parse","main"),first_commit)     # a fast-forward, as before
+        landed_second=self.call("integrate",second)
+        self.assertTrue(landed_second["work_integrated"])
+        self.assertEqual(landed_second["commit"],second_commit)
+        self.assertEqual(landed_second["cleanup_pending"],[])
+        tip=self.app.git(self.repo,"rev-parse","main")
+        self.assertEqual(self.app.git(self.repo,"rev-parse",tip+"^1"),first_commit)
+        self.assertEqual(self.app.git(self.repo,"rev-parse",tip+"^2"),second_commit)   # the reviewed commit, unrewritten
+        self.assertEqual((self.repo/"one.txt").read_text(),"FICTIONAL one")
+        self.assertEqual((self.repo/"two.txt").read_text(),"FICTIONAL two")
+        self.assertEqual(self.app.git(self.repo,"status","--porcelain"),"")
+        record=self.app.W.land_records(self.repo)[-1]
+        self.assertEqual((record["before"],record["commit"],record["reviewed_commit"]),(first_commit,tip,second_commit))
+        # A repeated integrate merges nothing and records no second land.
+        self.assertTrue(self.call("integrate",second)["work_integrated"])
+        self.assertEqual(self.app.git(self.repo,"rev-parse","main"),tip)
+        self.assertEqual(self.app.W.land_records(self.repo)[-1],record)
+        self.assertIn(second_commit,landed_second["evidence_ref"])
+        for task,args in ((first_task,first),(second_task,second)):
+            self.assertTrue(self.call("complete",{"obligation_id":task,"worker_ids":[args["worker_id"]]})["obligation_closed"])
+
+    def test_a_reviewed_change_that_conflicts_with_the_moved_branch_is_refused_by_name(self):
+        """The reason the code gave still holds where it applies: no conflict is
+        ever resolved here. The refusal now names the conflict instead of Git's
+        empty ancestry answer, and nothing is left half merged."""
+        (first,_,_),(second,_,_)=self.concurrent_reviewed_pairs(("left","result.txt"),("right","result.txt"))
+        self.call("integrate",first)
+        tip=self.app.git(self.repo,"rev-parse","main")
+        with self.assertRaisesRegex(ValueError,"conflicts with it in result.txt"):
+            self.call("integrate",second)
+        self.assertEqual(self.app.git(self.repo,"rev-parse","main"),tip)
+        self.assertEqual(self.app.git(self.repo,"status","--porcelain"),"")
+        self.assertFalse(Path(self.app.git(self.repo,"rev-parse","--path-format=absolute","--git-path","MERGE_HEAD")).exists())
+        self.assertEqual((self.repo/"result.txt").read_text(),"FICTIONAL left")
 
     def test_two_conversations_landing_in_one_repository_take_one_lock_and_the_merge_is_under_it(self):
         args=self.reviewed_pair("onelock")
