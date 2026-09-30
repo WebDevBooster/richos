@@ -69,6 +69,7 @@ class Tree:
 
     def __init__(self, root):
         self.root = root
+        self.unread = {}
         rc, out, err = git(root, "ls-files", "-z")
         if rc != 0:
             raise Broken("`git ls-files` failed in %s: %s" % (root, err.strip()))
@@ -101,14 +102,37 @@ class Tree:
         return rel in self.files or rel in self.dirs
 
     def read(self, rel):
+        """The text of a tracked document, or None when it could not be read.
+
+        None is NOT "nothing to check": the document is recorded in self.unread
+        with the reason, and main() refuses (BROKEN) at the end of the checks
+        rather than report the tree complete over documents it never read (hunt
+        P5-08). The callers keep their `if text is None: continue` so one bad
+        document does not hide what the rest say; the refusal comes after."""
         p = os.path.join(self.root, rel)
         try:
-            if os.path.getsize(p) > MAX_FILE_BYTES:
+            size = os.path.getsize(p)
+            if size > MAX_FILE_BYTES:
+                self.unread[rel] = ("%d bytes, over the %d-byte read bound"
+                                    % (size, MAX_FILE_BYTES))
                 return None
             with open(p, encoding="utf-8", errors="replace") as fh:
                 return fh.read()
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            self.unread[rel] = getattr(exc, "strerror", None) or type(exc).__name__
             return None
+
+    def require_all_read(self):
+        """Raise Broken if any document this run needed could not be read."""
+        if self.unread:
+            names = sorted(self.unread)
+            raise Broken(
+                "%d tracked document(s) could not be read, so their citations, "
+                "declarations and onboarding links were NOT checked and the tree "
+                "cannot be called complete: %s%s"
+                % (len(names),
+                   "; ".join("%s (%s)" % (n, self.unread[n]) for n in names[:5]),
+                   " ..." if len(names) > 5 else ""))
 
     def ignored(self, candidates):
         """Which of these repo-relative paths does .gitignore exclude?
@@ -816,6 +840,7 @@ def main():
                            cfg.get("declaration_dir", ""))
         check_workflows(tree, set(exempt.get("WORKFLOW_EXEMPT", [])), used, explain)
         check_misplacement(tree, cfg.get("private_roots", []), set(decls), explain)
+        tree.require_all_read()
     except Broken as e:
         sys.stderr.write("BROKEN: %s\n" % e)
         return 2

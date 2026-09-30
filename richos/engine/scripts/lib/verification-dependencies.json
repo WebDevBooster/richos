@@ -6001,7 +6001,7 @@
     },
     "scripts/publication-completeness.py#fixture-trees": {
       "source": "scripts/publication-completeness.py",
-      "sha256": "070b517d7f9d0d1d5ad96ba55cb77e906f04e68993aeb9c303661abe94a40330",
+      "sha256": "6f6ae1c3814aee84e60c7dda1ce7b9c1e4b5d54ad8c015cf6852048957cf93c6",
       "evidence": "AST import/call inventory and all I/O boundaries reviewed: only stdlib, stdin JSON, supplied tree files/private roots, fixed Git ls-files and check-ignore. Scans source and workflow text as data, never executes extracted commands or imports scanned modules. These callers generate all public/private trees.",
       "keys": [],
       "edges": []
@@ -16133,7 +16133,7 @@
         "scripts/lib/publication-boundary.sh": "b8e3d8f8b80e0048174b55ca2a479f0030e7b1c6f03caae6e7aa14def514ab4f",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/publication-completeness.sh": "54b22bd10dd4d1e70ee41077d2cd6c21dbefe4d835d8a19a5438513faf7b60b0",
-        "scripts/publication-completeness.py": "070b517d7f9d0d1d5ad96ba55cb77e906f04e68993aeb9c303661abe94a40330",
+        "scripts/publication-completeness.py": "6f6ae1c3814aee84e60c7dda1ce7b9c1e4b5d54ad8c015cf6852048957cf93c6",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Only the fixed guard registration is resolved through both real surfaces. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
@@ -16156,7 +16156,7 @@
         "scripts/lib/publication-boundary.sh": "b8e3d8f8b80e0048174b55ca2a479f0030e7b1c6f03caae6e7aa14def514ab4f",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
-        "scripts/publication-completeness.py": "070b517d7f9d0d1d5ad96ba55cb77e906f04e68993aeb9c303661abe94a40330"
+        "scripts/publication-completeness.py": "6f6ae1c3814aee84e60c7dda1ce7b9c1e4b5d54ad8c015cf6852048957cf93c6"
       },
       "evidence": "The only real-manifest assertion forbids a raw publication-completeness substring. Fixture workflow and hook contents are never executed.",
       "text_needles": [
