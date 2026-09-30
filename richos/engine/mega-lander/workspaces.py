@@ -2820,7 +2820,7 @@ def uncommitted(path, deadline=None):
                 for sub in _ignored_dir_diff(mine, other, rel.rstrip("/"), deadline):
                     ignored.append(sub)
                 continue
-            if other and os.path.isfile(mine) and os.path.isfile(other) and _same_file(mine, other):
+            if other and os.path.isfile(mine) and os.path.isfile(other) and _same_file(mine, other, deadline):
                 continue
             ignored.append(rel)
         else:
@@ -2858,7 +2858,9 @@ def _ignored_dir_diff(mine, other, rel, deadline=None):
         dirs.sort()
         for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(root, d))]:
             n += 1
-            if deadline is not None and (n & 63) == 0 and _past(deadline):
+            # Every entry, not every 64th: one comparison can be slow (a large
+            # file, slow storage), and the clock is only a clock read.
+            if _past(deadline):
                 raise Deadline("the gate's budget ran out while comparing the ignored directory %s" % rel)
             a = os.path.join(root, name)
             b = os.path.join(other, os.path.relpath(a, mine))
@@ -2869,7 +2871,7 @@ def _ignored_dir_diff(mine, other, rel, deadline=None):
                 except OSError:
                     same = False
             else:
-                same = os.path.isfile(b) and not os.path.islink(b) and _same_file(a, b)
+                same = os.path.isfile(b) and not os.path.islink(b) and _same_file(a, b, deadline)
             if not same:
                 out.append(sub)
         # a symlinked directory is compared above as a link and never descended
@@ -2877,12 +2879,14 @@ def _ignored_dir_diff(mine, other, rel, deadline=None):
     return out
 
 
-def _same_file(a, b):
+def _same_file(a, b, deadline=None):
+    """Byte-identical? Read in pieces with the gate's clock checked between
+    them (hunt part 4, finding 15): one whole-file read of a large file used
+    to be a step no deadline could interrupt."""
     try:
         if os.path.getsize(a) != os.path.getsize(b):
             return False
-        with open(a, "rb") as fa, open(b, "rb") as fb:
-            return hashlib.sha1(fa.read()).digest() == hashlib.sha1(fb.read()).digest()
+        return _file_digest(a, deadline) == _file_digest(b, deadline)
     except OSError:
         return False
 
@@ -2940,7 +2944,7 @@ def _landed_residue(rec, w, deadline=None):
                         return False
                 elif os.path.isfile(source):
                     executable = bool(os.stat(source).st_mode & 0o111)
-                    if (os.path.isfile(target) and not os.path.islink(target) and _same_file(source, target)
+                    if (os.path.isfile(target) and not os.path.islink(target) and _same_file(source, target, deadline)
                             and executable == bool(os.stat(target).st_mode & 0o111)):
                         continue
                     if mode != ("100755" if executable else "100644"):
@@ -4375,7 +4379,7 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
                                     "ignored_not_needed": ignored_ok or None, "as_part_of": rec["key"]}
             save_agent(fresh)
         event("landed", key=r["key"], auto=bool(auto), as_part_of=rec["key"])
-    clean = _delete_chain(chain, "landed", processes=stopped)
+    clean = _delete_chain(chain, "landed", processes=stopped, deadline=deadline)
     if not clean:
         if not (load_agent(rec["key"]) or {}).get("disposition"):
             raise SpecError("landing eligibility changed during cleanup; the work was preserved")
@@ -4498,25 +4502,32 @@ def discard(ref, reason, ceo_word="", not_ceo_ordered="", me=""):
     return {"discarded": True, "tips": tips}
 
 
-def _delete_chain(chain, why, processes=None):
+def _delete_chain(chain, why, processes=None, deadline=None):
     allw = [(r, w) for r in chain for w in live_workspaces(r) if w.get("path")]
     stopped = processes if processes is not None else stop_processes([w["path"] for _r, w in allw])
     complete = True
     for r in chain:
         if not _delete(r, [w for w in live_workspaces(r) if w.get("path")], branches=True, why=why,
-                       processes=stopped):
+                       processes=stopped, deadline=deadline):
             complete = False
             if why == "landed" and not (load_agent(r["key"]) or {}).get("disposition"):
                 return False
     return complete
 
 
-def _delete(rec, workspaces, branches, why, processes=None):
+def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
     """Points 9, 10, 13: stop every process, then delete every workspace (and
-    branch) as one; whatever fails is retried automatically."""
+    branch) as one; whatever fails is retried automatically.
+
+    `deadline` is the caller's budget (hunt part 4, finding 15). The second
+    landing proof below used to run without it, so a gate or a retry with a
+    stated budget could spend any amount of time comparing files. Running out
+    is not a failure and not a change of eligibility: the deletion is simply
+    deferred to the next retry, with nothing deleted and no attempt counted."""
     if processes is None:
         processes = stop_processes([w["path"] for w in workspaces])
     failures = []
+    deferred = ""
     held = False
     if processes.get("survivors"):
         failures.append("processes still running in its workspaces: %s" % processes["survivors"])
@@ -4552,7 +4563,10 @@ def _delete(rec, workspaces, branches, why, processes=None):
             owner = load_agent(disposition.get("as_part_of") or rec["key"]) or current
             chain = _chain(owner)
             try:
-                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "")
+                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "", deadline)
+            except Deadline as e:
+                deferred = str(e)
+                held = True
             except SpecError as e:
                 # Eligibility expired. Return surviving work to the pending gate,
                 # instead of retrying a forced deletion under an old verdict.
@@ -4572,15 +4586,21 @@ def _delete(rec, workspaces, branches, why, processes=None):
                 event("landing-reopened", key=rec["key"], why=str(e))
                 return False
 
-        for w in workspaces:
+        for w in (workspaces if not held else []):
             # Point 3: the branches the agent created are its branches too, and
             # they are recorded (observe_created_refs) rather than read back out of
             # the directory here — the record survives the directory.
+            if _past(deadline):
+                deferred = "the budget ran out before %s was deleted" % w.get("path")
+                held = True
+                break
             ok, err = remove_workspace(w)
             if ok:
                 w["deleted_at"] = iso()
             else:
                 failures.append(err)
+    if deferred:
+        failures.append(deferred)
     untouched = []
     if branches and not held:
         for repo, b in _branch_targets([rec]):
@@ -4617,7 +4637,16 @@ def _delete(rec, workspaces, branches, why, processes=None):
         fresh["created_branches"] = rec.get("created_branches") or []
         if untouched:
             fresh.setdefault("history", []).extend(untouched)
-        if failures:
+        if failures and failures == [deferred]:
+            # Out of budget only: due again at once, and no attempt counted,
+            # so a busy gate never walks a healthy deletion toward the CEO's
+            # "keeps failing" notice.
+            d = fresh.get("deletion") or {"attempts": 0}
+            d["deferred"] = deferred[:400]
+            d["next_at"] = now()
+            d["branches"] = bool(branches)
+            fresh["deletion"] = d
+        elif failures:
             d = fresh.get("deletion") or {"attempts": 0, "first_failed_at": now()}
             d["attempts"] = d.get("attempts", 0) + 1
             d["last_error"] = "; ".join(failures)[:2000]
@@ -4639,18 +4668,25 @@ def _delete(rec, workspaces, branches, why, processes=None):
     return not failures
 
 
-def retry_due(budget=5.0):
-    """Point 13: a failed deletion is retried with no one's involvement."""
+def retry_due(budget=5.0, deadline=None):
+    """Point 13: a failed deletion is retried with no one's involvement.
+
+    The budget bounds the attempts, not only the gaps between them (hunt part
+    4, finding 15): each attempt is given what is left of it, and a caller
+    with its own deadline (the Stop gate) passes that, so the retries spend
+    the gate's budget instead of adding to it."""
     t0 = now()
+    stop_at = t0 + budget if deadline is None else min(t0 + budget, deadline)
     out = []
     for rec in all_agents():
         d = rec.get("deletion")
         if not d or d.get("next_at", 0) > now():
             continue
-        if now() - t0 > budget:
+        if now() - t0 > budget or _past(stop_at):
             break
         targets = [w for w in live_workspaces(rec) if w.get("path")]
-        ok = _delete(rec, targets, branches=d.get("branches", True), why="retry %d" % (d.get("attempts", 0) + 1))
+        ok = _delete(rec, targets, branches=d.get("branches", True), why="retry %d" % (d.get("attempts", 0) + 1),
+                     deadline=stop_at)
         out.append((rec["key"], ok))
     return out
 
@@ -5436,9 +5472,12 @@ def gate_stop(payload, entity):
         why = forbidden_now(sid, s)
         if why:
             return True, _refused_session_notice(sid, why)
-    retry_due()
+    # ONE BUDGET FOR THE WHOLE GATE (hunt part 4, finding 15): the retries used
+    # to run first, on their own clock, before the gate's deadline existed.
+    deadline = _gate_deadline(GATE_STOP_BUDGET)
+    retry_due(deadline=deadline)
     report = {}
-    items = pending(sid, entity, scan=True, deadline=_gate_deadline(GATE_STOP_BUDGET), report=report)
+    items = pending(sid, entity, scan=True, deadline=deadline, report=report)
     loud = keeps_failing()
     notes = []
     if report.get("deferred"):

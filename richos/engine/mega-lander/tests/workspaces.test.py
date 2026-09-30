@@ -3118,6 +3118,84 @@ class Finding14_WhatTheEngineMadeIsNotTheAgentsWork(Base):
         self.assertIn("cache-link", str(e.exception))
 
 
+class Finding15_TheBudgetReachesTheWork(Base):
+    """Hunt part 4, finding 15: the gate's budget exists so the platform never
+    cancels the hook before it answers. The deletion's second landing proof
+    ran with no deadline, a retry could overrun its budget inside one attempt,
+    the Stop gate started its retries before making its deadline, and a file
+    comparison read whole files without looking at the clock. The second
+    proof itself stays: shutdown or partial deletion can change eligibility."""
+
+    FILES = 20
+    SLOW = 0.3
+
+    def _landed_with_pending_deletion(self, name):
+        aid, npath = self.spawn(name)
+        self.commit(npath)
+        for root in (npath, self.entity):                   # identical ignored files, compared one by one
+            os.makedirs(os.path.join(root, "build"), exist_ok=True)
+            for i in range(self.FILES):
+                with open(os.path.join(root, "build", "f%02d.txt" % i), "w") as f:
+                    f.write("same %d\n" % i)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        with patch.object(ws, "remove_workspace", return_value=(False, "simulated disk refusal")):
+            self.assertEqual(self.names(), [])
+        rec = self.rec(name)
+        self.assertEqual(rec["disposition"]["kind"], "landed")
+        self.assertTrue(rec["deletion"])
+        return npath
+
+    def _slow_same_file(self):
+        real = ws._same_file
+
+        def slow(a, b, *args, **kw):
+            time.sleep(self.SLOW)
+            return real(a, b, *args, **kw)
+        return slow
+
+    def test_finding_15_a_retry_stops_at_its_budget_inside_the_attempt(self):
+        npath = self._landed_with_pending_deletion("zach-opus-bud")
+        t0 = time.monotonic()
+        with patch.object(ws, "_same_file", self._slow_same_file()):
+            ws.retry_due(budget=1.0)
+        took = time.monotonic() - t0
+        self.assertLess(took, self.FILES * self.SLOW * 0.6,
+                        "one retry attempt ran %.1fs past a 1s budget" % took)
+        rec = self.rec("zach-opus-bud")
+        # Out of time is not "eligibility changed": the land stands and the
+        # deletion is simply retried later.
+        self.assertEqual(rec["disposition"]["kind"], "landed")
+        self.assertTrue(rec["deletion"])
+        self.assertTrue(os.path.isdir(npath))
+        ws.retry_due()                                       # with time, it finishes
+        self.assertFalse(os.path.exists(npath))
+
+    def test_finding_15_the_stop_gate_puts_its_retries_inside_its_budget(self):
+        self._landed_with_pending_deletion("zach-opus-bud2")
+        os.environ["RICHOS_WORKSPACES_GATE_BUDGET"] = "1"
+        try:
+            t0 = time.monotonic()
+            with patch.object(ws, "_same_file", self._slow_same_file()):
+                ok, _msg = ws.gate_stop({"session_id": self.sid}, self.entity)
+            took = time.monotonic() - t0
+        finally:
+            os.environ.pop("RICHOS_WORKSPACES_GATE_BUDGET", None)
+        self.assertTrue(ok)
+        self.assertLess(took, self.FILES * self.SLOW * 0.6,
+                        "the Stop gate took %.1fs on a 1s budget" % took)
+
+    def test_finding_15_a_file_comparison_looks_at_the_clock(self):
+        a = os.path.join(self.env.root, "big-a")
+        b = os.path.join(self.env.root, "big-b")
+        for p in (a, b):
+            with open(p, "wb") as f:
+                f.write(b"x" * (8 << 20))
+        self.assertTrue(ws._same_file(a, b))
+        with self.assertRaises(ws.Deadline):
+            ws._same_file(a, b, deadline=ws.now() - 1)
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""

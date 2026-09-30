@@ -201,6 +201,16 @@ mutant p08-changed-setup-product-waived "test_finding_14_a_setup_product_the_age
     '        if rel in made:' \
     "an entry the engine made at creation and the agent then changed would be waived by name, and the agent's change deleted with the workspace (point 8)."
 
+mutant p05-retry-proof-has-no-deadline "test_finding_15_a_retry_stops_at_its_budget_inside_the_attempt" "$W" \
+    '                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "", deadline)' \
+    '                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "")' \
+    "a deletion retry would repeat the whole landing proof with no deadline, so one attempt could run any length of time past its stated budget (hunt part 4, finding 15)."
+
+mutant p05-gate-retries-on-their-own-clock "test_finding_15_the_stop_gate_puts_its_retries_inside_its_budget" "$W" \
+    '    retry_due(deadline=deadline)' \
+    '    retry_due()' \
+    "the Stop gate's retries would run on their own clock before its budget applies, so the hook could be canceled before it answers (hunt part 4, finding 15)."
+
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}{NL}        write_json(_slot_path(rec["key"], call), row)' \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}' \
