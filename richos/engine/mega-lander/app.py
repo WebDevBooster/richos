@@ -851,6 +851,12 @@ def review_report(record, message, aid, source, tool_use_id=None):
 def observe(scope, payload=None):
     with locked(scope) as root:
         for path,record in receipts(root):
+            # A call normally changes at most one worker's record; a durable write
+            # (write, flush, replace, directory flush) for every receipt in the
+            # conversation, finished ones included, is work the observation has no
+            # reason to do. Durability stays exactly as strong for a record that
+            # did change: it is rewritten, the same way, whenever it differs.
+            before = json.dumps(record, sort_keys=True)
             refresh(record)
             if (payload and record["request"]["role"] == "reviewer"
                     and payload.get("agent_id") == record.get("agent_id") and record.get("agent_id")
@@ -872,7 +878,8 @@ def observe(scope, payload=None):
                     if isinstance(message, str) and "RICHOS_REVIEW " not in message and record.get("review_handback"):
                         final = {**record["review_handback"], "end_observed": True}
                     record["review_observation"] = final
-            save(path,record)
+            if json.dumps(record, sort_keys=True) != before:
+                save(path,record)
     # ECS projection happens on scoped inspection. A late provider callback must
     # not write through a turn binding which has already been closed or superseded.
 

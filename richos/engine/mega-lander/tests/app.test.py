@@ -365,6 +365,31 @@ class DesktopWork(unittest.TestCase):
         self.app.W.record_end(self.session,aid,"SubagentStop")
         self.app.observe(self.scope,{"hook_event_name":"SubagentStop","session_id":self.session,"agent_id":aid,"last_assistant_message":report})
 
+    def test_an_observation_rewrites_only_the_receipts_that_changed(self):
+        """Part 4 (2026-09-29 hunt), finding 22: observe() saved every receipt in
+        the conversation (write, flush, replace, directory flush) after every tool
+        call, finished ones included."""
+        command=[sys.executable,"-c","import sys; sys.exit(1)"]
+        with patch.object(self.app,"build_spawn_command",return_value=command):
+            with self.assertRaises(ValueError): self.call("prepare",self.args)
+        worker=self.call("prepare",{**self.args,"request_id":"replacement"})   # settles the first: two receipts
+        self.assertEqual(len(self.call("inspect")["records"]),2)
+        real=self.app.save
+        saved=[]
+        def counting(path,value):
+            saved.append(path.name); return real(path,value)
+        event={"hook_event_name":"PostToolUse","session_id":self.session,"agent_id":"nobody","tool_name":"Bash"}
+        with patch.object(self.app,"save",side_effect=counting):
+            self.app.observe(self.scope,event)
+        self.assertEqual(saved,[])
+        self.start_fixture_worker(worker,"hunt22-worker")        # the one worker's record really changes
+        with patch.object(self.app,"save",side_effect=counting):
+            self.app.observe(self.scope,event)
+            self.app.observe(self.scope,event)
+        self.assertEqual(saved,[worker["id"]+".json"])           # once, for it alone
+        with self.app.locked(self.scope) as root:
+            self.assertEqual(self.app.read_record(root,worker["id"])["status"],"running")
+
     def test_native_handback_requires_success_identity_and_observed_reviewer_end(self):
         worker=self.call("prepare",self.args)
         target=self.start_fixture_worker(worker,"handback-worker")
