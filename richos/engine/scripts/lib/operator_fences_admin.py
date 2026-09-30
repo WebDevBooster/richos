@@ -185,6 +185,10 @@ def install_one(repo, entity, decl):
     os.makedirs(program_dir, exist_ok=True)
     program = os.path.join(program_dir, "operator_fences.py")
     shutil.copyfile(PROGRAM_SOURCE, program)
+    # check_one refuses a program without the executable bit (P5-44), and
+    # copyfile creates it from the umask (0644), so every fresh install was
+    # refused by `on` until this set the bit it is checked for.
+    os.chmod(program, 0o755)
     digest = F.file_digest(program)
     holders = " ".join(decl.get("LAND_LEASE_HOLDERS", "").split())
     write_executable(target, launcher_text({

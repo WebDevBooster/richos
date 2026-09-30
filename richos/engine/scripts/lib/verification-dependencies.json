@@ -4944,7 +4944,7 @@
     },
     "scripts/lib/operator_fences_admin.py#status": {
       "source": "scripts/lib/operator_fences_admin.py",
-      "sha256": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+      "sha256": "6a235436ab3fb2309ca8af8f764ab9ffddd27a9acb258f1766b9e7aa754218cc",
       "evidence": "Status and declaration-check parse only OPERATOR_FENCES from the explicit entity config. Remaining local calls read registry JSON, launcher text, file hashes, chain directory entries and Git hooksPath; no launcher or chain member executes. The other config assignments parsed into the declaration dictionary are unused by status.",
       "keys": [
         "OPERATOR_FENCES"
@@ -8904,7 +8904,7 @@
     },
     "scripts/lib/operator_fences_admin.py#fixture-admin": {
       "source": "scripts/lib/operator_fences_admin.py",
-      "sha256": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+      "sha256": "6a235436ab3fb2309ca8af8f764ab9ffddd27a9acb258f1766b9e7aa754218cc",
       "evidence": "All admin bodies reviewed. Reads three named keys from explicit entity configuration, copies the fixed program and renders the fixed launcher. Registry and hook files are data in admin; copied hooks do not execute here.",
       "keys": [
         "OPERATOR_FENCES",
@@ -15888,7 +15888,7 @@
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/operator_fences_admin.py": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+        "scripts/lib/operator_fences_admin.py": "6a235436ab3fb2309ca8af8f764ab9ffddd27a9acb258f1766b9e7aa754218cc",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
         "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
@@ -16427,7 +16427,7 @@
         "scripts/lib/operator-fences-fixture.sh": "cf035be668ccb5fcaba1d6c668275f943ea115050990be0444dcabfa8e0b5fd7",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
-        "scripts/lib/operator_fences_admin.py": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+        "scripts/lib/operator_fences_admin.py": "6a235436ab3fb2309ca8af8f764ab9ffddd27a9acb258f1766b9e7aa754218cc",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
         "mega-lander/workspaces.py": "1bf0140ac5f8bab0da20c8feccfe8cd3c432e18943204e1109726ded56b008fc",
         "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
@@ -16753,7 +16753,7 @@
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "scripts/lib/operator_fences_admin.py": "5b7219a8cae0adc172e65408cd669259a87e3c8262d3b5570434398a82f62ed6",
+        "scripts/lib/operator_fences_admin.py": "6a235436ab3fb2309ca8af8f764ab9ffddd27a9acb258f1766b9e7aa754218cc",
         "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
