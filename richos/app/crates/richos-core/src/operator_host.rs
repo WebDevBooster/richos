@@ -667,6 +667,9 @@ pub struct OperatorHost {
     alarms: Mutex<AlarmDeduper>,
     /// The saved records were read once, this process, for turns to continue.
     scanned: std::sync::atomic::AtomicBool,
+    /// Agents `agent-liveness.sh` answered NOT-ALIVE for while their stream said they had
+    /// ended, by task id, with that ended status ([`Self::resolved_liveness`]).
+    witnessed_ended: Mutex<HashMap<String, TaskStatus>>,
 }
 
 /// The sink a lead's reader writes to: a channel into this conversation's own worker, so a slow
@@ -697,6 +700,7 @@ impl OperatorHost {
             conversations: Mutex::new(HashMap::new()),
             alarms: Mutex::new(AlarmDeduper::default()),
             scanned: std::sync::atomic::AtomicBool::new(false),
+            witnessed_ended: Mutex::new(HashMap::new()),
         })
     }
 
@@ -1764,7 +1768,34 @@ impl OperatorHost {
     /// (m): his team counts as running while any agent of any lead is ALIVE, or any lead's
     /// supervisor records a live descendant outside the lead's own group.
     pub fn team(&self) -> TeamReading {
-        self.team_reading(|agent| self.engine.liveness(&agent.task_id))
+        self.team_reading(|agent| self.resolved_liveness(agent))
+    }
+
+    /// **The resolver's answer, without asking it again about an agent it already saw end**
+    /// (hunt 2026-09-29 part 1, finding 34). While an update waits for him the gate reads his
+    /// team every five seconds, and each reading ran `agent-liveness.sh` (up to 30 s each, one
+    /// after another) for every agent any lead ever started, finished ones included.
+    ///
+    /// The resolver stays the authority (the update gate keeps it rather than the stream's
+    /// reading, r3 (m)): an agent is taken as ended without asking only after the resolver
+    /// itself answered NOT-ALIVE while the stream said it had ended, and only while the stream
+    /// still says that same thing. A running agent is asked on every reading, and an agent the
+    /// stream sees start again is asked again. What this cannot see is a restart this app's
+    /// leads never report, which the operator claim (his team belongs to this app while it
+    /// runs) rules out.
+    fn resolved_liveness(&self, agent: &crate::operator_lead::AgentTask) -> AgentLiveness {
+        let ended = !agent.status.is_running();
+        if ended && self.witnessed_ended.lock().unwrap().get(&agent.task_id) == Some(&agent.status) {
+            return AgentLiveness::NotAlive;
+        }
+        let reading = self.engine.liveness(&agent.task_id);
+        let mut witnessed = self.witnessed_ended.lock().unwrap();
+        if ended && reading == AgentLiveness::NotAlive {
+            witnessed.insert(agent.task_id.clone(), agent.status);
+        } else {
+            witnessed.remove(&agent.task_id);
+        }
+        reading
     }
 
     /// **(m) without a subprocess**, for a caller that must answer at once: the app's exit
@@ -1833,7 +1864,7 @@ impl OperatorHost {
             // Nothing running: no ALIVE (or undecided) agent, no live descendant outside the
             // lead's own group (G8: language servers and MCP servers share its group and do not
             // count), and no land lease held by this conversation.
-            let agents_busy = lead.tasks().agents().iter().any(|a| self.engine.liveness(&a.task_id) != AgentLiveness::NotAlive);
+            let agents_busy = lead.tasks().agents().iter().any(|a| self.resolved_liveness(a) != AgentLiveness::NotAlive);
             let descendants = live_descendants(&c.paths.reap_state);
             let lease = leases.iter().any(|l| lease_held_by(l, &c.title));
             if agents_busy || descendants != Some(0) || lease {
@@ -2932,6 +2963,39 @@ pub(crate) mod tests {
         assert_eq!(stops, ["task-a", "task-b"], "each named task once, nothing else");
         assert_eq!(r.engine.stop_words.lock().unwrap().len(), 1, "his words are recorded once, for both names");
         assert_eq!(r.engine.registry.lock().unwrap().len(), 2);
+    }
+
+    /// **An agent already witnessed ended is not asked about again on every reading** (hunt
+    /// 2026-09-29 part 1, finding 34). While an update waits for him, the gate reads his team
+    /// every five seconds, and every reading launched `agent-liveness.sh` for every agent the
+    /// leads ever started, finished ones included. The resolver stays the authority: an agent
+    /// is taken as ended without asking only after the resolver itself said NOT-ALIVE while the
+    /// stream said it had ended, and only for as long as the stream still says so. A running
+    /// agent is asked every time, and one the stream sees start again is asked again.
+    #[test]
+    fn an_agent_the_resolver_saw_end_is_not_asked_about_again_while_the_stream_says_it_ended() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        let lead = lead_of(&r, "a");
+        agent(&lead, "t-done", "done-agent", "task-done");
+        agent(&lead, "t-live", "live-agent", "task-live");
+        lead.feed(json!({"type":"system","subtype":"task_notification","task_id":"task-done","status":"completed"}));
+        r.engine.not_alive.lock().unwrap().insert("task-done".into());
+        let asked = |task: &str| r.engine.asked.lock().unwrap().iter().filter(|t| *t == task).count();
+        for _ in 0..3 {
+            assert_eq!(r.host.team().alive, ["live-agent"]);
+        }
+        assert_eq!(asked("task-done"), 1, "an agent already witnessed ended was asked about again on every reading");
+        assert_eq!(asked("task-live"), 3, "a running agent is asked on every reading");
+
+        // The stream sees it start again: the resolver is asked again, and its answer counts.
+        lead.feed(json!({"type":"system","subtype":"task_updated","task_id":"task-done","patch":{"status":"running"}}));
+        r.engine.not_alive.lock().unwrap().remove("task-done");
+        let reading = r.host.team();
+        assert_eq!(asked("task-done"), 2);
+        let mut alive = reading.alive.clone();
+        alive.sort();
+        assert_eq!(alive, ["done-agent", "live-agent"]);
     }
 
     #[test]
