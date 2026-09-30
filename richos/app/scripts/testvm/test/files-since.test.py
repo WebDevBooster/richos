@@ -104,5 +104,12 @@ with tempfile.TemporaryDirectory() as t:
     rc, out, _ = scan(*common, '--control', str(plain))
     check('a control the named detector would not flag exits 2', rc == 2 and out['controls_not_flagged_named'] == [str(plain)], (rc, out.get('controls_not_flagged_named')))
 
+    # A root that cannot be listed is a place the search could not cover; the control found
+    # under the other root cannot vouch for it.
+    gone = root / 'no-such-root'
+    rc, out, _ = scan(*common, '--root', str(gone), '--control', str(control))
+    check('an unreadable root exits 2 even though the control was found elsewhere',
+          rc == 2 and out['verdict'] == 'search-broken' and out['unreadable_roots'] == [str(gone)], (rc, out.get('verdict'), out.get('unreadable_roots')))
+
 print(f'files-since.test.py: {len(failures)} failed')
 sys.exit(1 if failures else 0)
