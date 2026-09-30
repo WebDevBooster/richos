@@ -340,6 +340,19 @@ def _tick_locked(now, reports):
             if not episode.get("notified"):
                 # Posting failed last time (osascript refused): retried, never repeated.
                 episode["notified"] = notify_ceo(episode.get("message", ""))
+            if not episode.get("escalation"):
+                # The ledger write failed when the episode opened: retried on each
+                # tick until it lands, once (an id is then recorded), never repeated.
+                try:
+                    episode["escalation"] = raise_escalation(
+                        {"ts": first_ts, "source": episode.get("source", "transcript"),
+                         "text": episode.get("text", ""), "where": episode.get("where", "")},
+                        episode["failures"])
+                    lines.append("login-alarm: the escalation ledger recovered; "
+                                 "escalation %s written" % episode["escalation"])
+                except Exception as exc:
+                    episode["escalation"] = ""
+                    lines.append("login-alarm: COULD NOT WRITE THE ESCALATION LEDGER (%s)" % exc)
             lines.append("LOGIN-EXPIRED (already alarmed at %s): %d failure(s) in this episode"
                          % (iso(episode.get("alarmed_at", now)), episode["failures"]))
     else:
