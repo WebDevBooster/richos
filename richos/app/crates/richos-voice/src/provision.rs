@@ -101,7 +101,16 @@ impl Pin {
     /// Free bytes a fetch of this model should require before it starts.
     pub fn required_free_bytes(&self) -> u64 {
         // Integer ceiling of bytes * 1.1, so the answer does not depend on float rounding.
-        (self.bytes * HEADROOM_NUMERATOR).div_ceil(HEADROOM_DENOMINATOR)
+        self.required_free_bytes_resuming(0)
+    }
+
+    /// Free bytes a fetch should require when `resume_from` bytes are already on disk.
+    ///
+    /// The partial file is appended to in place, so only the MISSING bytes need new room; the same
+    /// 10% headroom is kept on that remainder. `resume_from == 0` is the whole-model figure.
+    pub fn required_free_bytes_resuming(&self, resume_from: u64) -> u64 {
+        let missing = self.bytes.saturating_sub(resume_from);
+        (missing * HEADROOM_NUMERATOR).div_ceil(HEADROOM_DENOMINATOR)
     }
 }
 
@@ -619,6 +628,16 @@ pub fn resume_plan(part_bytes: u64, total_bytes: u64, part_head: Option<&[u8]>) 
     }
 }
 
+/// How many bytes of `<name>.part` in `dir` the next fetch would keep and append to (0 when it
+/// would start or restart). The offer view uses this so it quotes the same room `plan_fetch` asks.
+pub fn resumable_bytes(pin: &Pin, dir: &Path) -> u64 {
+    let part = dir.join(format!("{}.part", pin.file));
+    let part_bytes = file_bytes(&part);
+    let head = if part_bytes > 0 { read_head(&part, SNIFF_BYTES) } else { None };
+    let plan = resume_plan(part_bytes, pin.bytes, head.as_deref());
+    if plan.action == ResumeAction::Resume { plan.from } else { 0 }
+}
+
 /// What the server SAYS it is about to send, as an ABSOLUTE file length.
 ///
 /// On a 206 the `Content-Length` is the remaining bytes, so the resume offset has to be added back
@@ -789,13 +808,16 @@ pub fn plan_fetch(pin: &Pin, dir: &Path, free_bytes: Option<u64>) -> FetchPlan {
         let _ = fs::remove_file(&dest);
     }
 
-    if let Some(finding) = disk_preflight(free_bytes, pin.required_free_bytes()) {
-        return FetchPlan::Refused { finding };
-    }
-
+    // The room needed depends on what the partial will do: a resume appends in place and needs only
+    // the missing bytes; a start or a restart writes the whole model. Decided BEFORE anything is
+    // removed, so a refusal leaves the partial exactly where it was.
     let part_bytes = file_bytes(&part);
     let head = if part_bytes > 0 { read_head(&part, SNIFF_BYTES) } else { None };
     let plan = resume_plan(part_bytes, pin.bytes, head.as_deref());
+    let resume_from = if plan.action == ResumeAction::Resume { plan.from } else { 0 };
+    if let Some(finding) = disk_preflight(free_bytes, pin.required_free_bytes_resuming(resume_from)) {
+        return FetchPlan::Refused { finding };
+    }
     if plan.action == ResumeAction::Restart {
         let _ = fs::remove_file(&part);
     }
@@ -804,7 +826,7 @@ pub fn plan_fetch(pin: &Pin, dir: &Path, free_bytes: Option<u64>) -> FetchPlan {
         url: model_url(pin),
         dest,
         part,
-        from: if plan.action == ResumeAction::Resume { plan.from } else { 0 },
+        from: resume_from,
         total: pin.bytes,
         resume_reason: plan.reason,
     }
