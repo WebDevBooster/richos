@@ -1,10 +1,13 @@
 """Keep mutable Cargo artifacts private to the physical workspace that built them."""
 import hashlib
 import fnmatch
+import json
 import os
 from pathlib import Path
 import shutil
 import sys
+import subprocess
+import tempfile
 import tomllib
 
 
@@ -82,6 +85,99 @@ def target_dir(directory, environment, base=None, cwd=None):
     return cache, cache / "workspaces" / key
 
 
+def shared_build_environment(args, env, cwd, root, cache, private):
+    """Let Cargo reuse dependency units while giving local units distinct hashes.
+
+    Cargo 1.95 hashes the workspace-wrapper path for members and the absolute
+    source path for nonmembers outside the workspace. Its internal metadata
+    switch also gives cdylibs hashed filenames. Without that switch a fresh
+    cdylib can be another workspace's overwritten file, despite the wrapper.
+    Keep the old isolation on other versions or unqualified workspace shapes.
+    """
+    prefix = args[:1] if args and args[0].startswith("+") else []
+    command_args = args[len(prefix):]
+    if not command_args or command_args[0] not in ("build", "check", "test", "run", "bench", "rustc"):
+        return env
+    if env.get("RUSTC_WORKSPACE_WRAPPER") or env.get("CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER"):
+        return env
+    for directory in (Path(cwd), *Path(cwd).parents, Path(env.get("CARGO_HOME", str(Path(env.get("HOME", str(Path.home()))) / ".cargo")))):
+        for config in (directory / ".cargo/config", directory / ".cargo/config.toml", directory / "config.toml"):
+            if config.is_file():
+                data = tomllib.loads(config.read_text())
+                if data.get("include") or data.get("build", {}).get("rustc-workspace-wrapper"):
+                    return env
+    cargo = cargo_executable(env)
+    try:
+        version = subprocess.run([cargo, *prefix, "-vV"], env=env, cwd=cwd,
+                                 capture_output=True, text=True, timeout=15, check=True).stdout
+        if "release: 1.95.0\n" not in version:
+            return env
+        host = next(line.split(": ", 1)[1] for line in version.splitlines() if line.startswith("host: "))
+        # Preserve resolution/configuration flags. Cargo validates features,
+        # patches and path dependencies; never guess which crates are local.
+        metadata_args = []
+        before_separator = command_args[:command_args.index("--")] if "--" in command_args else command_args
+        i = 1
+        while i < len(before_separator):
+            arg = before_separator[i]
+            if arg in ("--manifest-path", "--features", "-F", "--config", "--target"):
+                value = before_separator[i + 1]
+                if arg == "--config" and (Path(cwd) / value).is_file():
+                    data = tomllib.loads((Path(cwd) / value).read_text())
+                    if data.get("include") or data.get("build", {}).get("rustc-workspace-wrapper"):
+                        return env
+                metadata_args.extend(("--filter-platform" if arg == "--target" else arg, value))
+                i += 2
+                continue
+            if arg in ("--all-features", "--no-default-features", "--offline", "--locked", "--frozen"):
+                metadata_args.append(arg)
+            elif arg.startswith(("--manifest-path=", "--features=", "--config=")):
+                if arg.startswith("--config=") and (Path(cwd) / arg.split("=", 1)[1]).is_file():
+                    data = tomllib.loads((Path(cwd) / arg.split("=", 1)[1]).read_text())
+                    if data.get("include") or data.get("build", {}).get("rustc-workspace-wrapper"):
+                        return env
+                metadata_args.append(arg)
+            elif arg.startswith("--target="):
+                metadata_args.append(arg.replace("--target=", "--filter-platform=", 1))
+            i += 1
+        if not any(a.startswith("--filter-platform") for a in metadata_args):
+            metadata_args.extend(("--filter-platform", host))
+        result = subprocess.run([cargo, *prefix, "metadata", "--format-version=1", *metadata_args],
+                                env=env, cwd=cwd, capture_output=True, text=True, timeout=60, check=True)
+        metadata = json.loads(result.stdout)
+        members = set(metadata["workspace_members"])
+        for package in metadata["packages"]:
+            path = Path(package["manifest_path"]).resolve()
+            if package["source"] is None and package["id"] not in members and path.is_relative_to(root):
+                # An excluded path dependency inside the root gets a relative
+                # Cargo hash but no workspace wrapper. It must stay isolated.
+                return env
+        # CLI configuration of a workspace wrapper must not be overridden.
+        if any("rustc-workspace-wrapper" in arg for arg in metadata_args):
+            return env
+    except (OSError, ValueError, KeyError, StopIteration, IndexError, subprocess.SubprocessError):
+        return env
+    private.mkdir(parents=True, exist_ok=True)
+    wrapper = private / "rustc-workspace-v1"
+    if not wrapper.exists():
+        # Identical content, distinct physical paths. Cargo hashes the path.
+        fd, temporary = tempfile.mkstemp(prefix="rustc-workspace-", dir=private)
+        with os.fdopen(fd, "w") as output:
+            output.write('#!/bin/sh\nexec "$@"\n')
+        os.chmod(temporary, 0o755)
+        os.replace(temporary, wrapper)
+    env["RUSTC_WORKSPACE_WRAPPER"] = str(wrapper)
+    # sccache 0.18 cannot identify an arbitrary workspace wrapper as rustc.
+    # Cargo itself now reuses complete dependency units (including build
+    # scripts), so bypass this redundant wrapper for shared-build commands.
+    if Path(env.get("RUSTC_WRAPPER") or env.get("CARGO_BUILD_RUSTC_WRAPPER") or "").name == "sccache":
+        env["RUSTC_WRAPPER"] = ""
+        env["CARGO_BUILD_RUSTC_WRAPPER"] = ""
+    env.setdefault("__CARGO_DEFAULT_LIB_METADATA", "richos-private-workspace-v1")
+    env["CARGO_BUILD_BUILD_DIR"] = str(cache / "shared-build-v1")
+    return env
+
+
 def command(arguments, environment, cwd):
     environment = enable_environment(environment)
     args, base, directory = [], None, Path(cwd)
@@ -135,7 +231,7 @@ def command(arguments, environment, cwd):
     env = dict(environment, RICHOS_CARGO_CACHE_ROOT=str(cache),
                CARGO_TARGET_DIR=str(private), CARGO_BUILD_TARGET_DIR=str(private),
                CARGO_BUILD_BUILD_DIR=str(private))
-    return args, env
+    return args, shared_build_environment(args, env, cwd, workspace_root(directory), cache, private)
 
 
 def main():

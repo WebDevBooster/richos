@@ -1185,7 +1185,7 @@ npm install && npm test                         # every suite, discovered from d
 node restart-scope.js                           # one suite, while you are working on it
 ```
 
-**Cargo's mutable output is private to each physical workspace.** A shared target can
+**Cargo's final output and local build identities belong to each physical workspace.** A shared target can
 run another checkout's stale binary when its source timestamps are older than the cached
 artifact. `scripts/bin/cargo` prevents that by treating `CARGO_TARGET_DIR` and
 `--target-dir` as cache roots and deriving a separate output directory for each workspace.
@@ -1197,14 +1197,23 @@ in Cargo config must be removed; choose a cache root through `CARGO_TARGET_DIR` 
 `bash .richos/worktree-setup` links default `target/` paths to those private directories
 on the external SSD. `scripts/shared-build-cache.sh --check` detects old shared links;
 run the script without `--check` to retarget the links while preserving their old cache.
-Cargo registry downloads remain shared. Existing compiler wrappers are preserved; an
-available `sccache` caches compilations by compiler inputs instead of mutable Cargo
-artifacts. Its Rust cache key includes the Cargo output environment, so dependency
-compilation reuse across these private workspaces is not guaranteed. This Mac uses
-the verified Mozilla sccache 0.18.0 binary at
-`/Volumes/E1TB/tools/sccache/v0.18.0/sccache`, with the configured `SCCACHE_DIR` cache.
-Other hosts can supply sccache on PATH or set `RUSTC_WRAPPER` explicitly. Without a
-compiler cache, Cargo still builds correctly but a new workspace pays for its dependencies.
+Cargo 1.95.0 builds compatible dependencies once in `<cache-root>/shared-build-v1`.
+Cargo retains its build lock, parallelism and input validation, including features,
+flags, compiler identity, build scripts and generated sources. Each workspace gets a
+distinct `RUSTC_WORKSPACE_WRAPPER` path, which Cargo hashes into its local units;
+nonmembers outside the workspace already have absolute source identities. Final
+binaries and libraries stay in the private target directory. Cargo's internal
+`__CARGO_DEFAULT_LIB_METADATA` switch forces hashed intermediate filenames for
+cdylibs too. The A/B/A regression loads the libraries, not just test executables.
+
+This behavior is qualified for Cargo 1.95.0. Other versions, custom workspace
+wrappers, included configuration and excluded local dependencies inside the workspace
+retain fully private build directories. A toolchain upgrade needs the reuse and
+isolation tests before extending that qualification. sccache 0.18.0 is bypassed for
+shared-build commands because it cannot identify this workspace wrapper; other
+compiler wrappers are preserved. Private fallback commands keep existing cache setup.
+Registry downloads remain shared in both modes. Dependencies with changed effective
+inputs are rebuilt by Cargo, even when their lockfile entry is unchanged.
 See [Cargo's build-cache documentation](https://doc.rust-lang.org/cargo/reference/build-cache.html).
 
 Playwright remains shared: `ui/tests/lib/harness.js` derives the main checkout's install

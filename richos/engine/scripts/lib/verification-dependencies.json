@@ -14431,7 +14431,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/cargo_identity.py",
-          "sha256": "a88990c93cb148a1915ef1a095ef5c649b4583ae9b8215f00d7ab468ae1ecbc0",
+          "sha256": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
           "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
         }
       ]
@@ -14551,7 +14551,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/cargo_identity.py",
-          "sha256": "a88990c93cb148a1915ef1a095ef5c649b4583ae9b8215f00d7ab468ae1ecbc0",
+          "sha256": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
           "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
         }
       ]
