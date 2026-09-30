@@ -244,6 +244,9 @@ def main():
         time.sleep(1.2)
         roots = [ghome, '/Users/Shared', '/Library', '/private/tmp', '/private/var/tmp', '/private/var/folders']
         root_args = ' '.join('--root ' + shlex.quote(r) for r in roots)
+        # The guest's system folders always hold a few directories nobody can list; the home the
+        # app ran in is not one of them, so an unreadable directory there breaks the search.
+        root_args += ' ' + ' '.join('--tolerate-unreadable ' + shlex.quote(r) for r in roots if r != ghome)
         rc, _, e = gr(f'python3 {W}/files-since.py scan --since {W}/m0 --until {W}/m1 {root_args} '
                       f'> {W}/baseline.json 2>{W}/baseline.err', 600)
         step('baseline window scanned', seconds=a.baseline_seconds, exit=rc)
