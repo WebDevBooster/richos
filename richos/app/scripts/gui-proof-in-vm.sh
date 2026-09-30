@@ -135,6 +135,9 @@ mkdir -p "$(dirname "$OUT")" || die "cannot create $(dirname "$OUT")"
 # ---------------------------------------------------------------------------------------
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/richos-gui-proof.XXXXXX")" || die "cannot create a scratch directory"
 STOPPED=0
+# cleanup returns the run's own status, unless that status was 0 and the guest could not be
+# stopped: then 1. A failed run keeps its own code (the proof's result is not overwritten by
+# the cleanup's), and a passing run never exits 0 over a guest left on this Mac (§54).
 cleanup() {
   local rc=$?
   if [ "$STOPPED" = 0 ]; then
@@ -151,13 +154,18 @@ cleanup() {
       echo "      $TESTVM/stop.sh $VM" >&2
       echo "      $TESTVM/reap.sh" >&2
       sed 's/^/      /' "$WORK/stop.log" >&2 2>/dev/null
+      if [ "$rc" -eq 0 ]; then
+        echo "  The proof's own result stands in its file; this command exits 1 because the cleanup failed." >&2
+        rc=1
+      fi
       echo "" >&2
     fi
   fi
   rm -rf "$WORK"
   return $rc
 }
-trap cleanup EXIT
+# An EXIT trap's return status does not become the script's; only an `exit` inside it does.
+trap 'cleanup; exit $?' EXIT
 trap 'cleanup; exit 130' INT TERM
 
 # A fixture HOME: empty, and OUTSIDE the operator's own. The app under test must not read
