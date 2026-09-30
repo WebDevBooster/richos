@@ -13,15 +13,22 @@ const { createRun, publishShot } = require(path.join(__dirname, "..", "lib", "ha
 const { tinyPng } = require("./tiny-png");
 
 const mode = process.argv[2];
-const reference = path.join(__dirname, "..", "shots-5c", "5c-02-after-a-plain-decline.png");
+// Always a throwaway reference `gate-honesty.js` made and named, never a committed one (recheck R27).
+const reference = process.env.RICHOS_GATE_HONESTY_REFERENCE;
 
 async function main() {
+  if (!reference) throw new Error("RICHOS_GATE_HONESTY_REFERENCE is not set; refusing to touch a committed reference");
   const run = createRun("changed-shot fixture (" + mode + ")");
   await run.check("the fixture's own action: " + mode, async () => {
     switch (mode) {
       case "changed":
         publishShot(tinyPng(40), reference);
         return "published a picture that differs from the committed reference";
+      case "changed-and-rewrite":
+        // The deliberate violation, for the gate's own self-test only.
+        publishShot(tinyPng(40), reference);
+        fs.writeFileSync(reference, tinyPng(40));
+        return "published a differing picture, then rewrote the reference";
       case "same":
         publishShot(fs.readFileSync(reference), reference);
         return "published the reference's own bytes";

@@ -27,12 +27,19 @@ const { collectPageErrors, createErrorTracker } = require("./lib/page-errors");
 const SOURCES = require("./lib/ui-sources");
 
 const FIXTURE = path.join(__dirname, "fixtures", "changed-shot-suite.js");
-const REFERENCE = path.join(__dirname, "shots-5c", "5c-02-after-a-plain-decline.png");
-const KEPT = path.join(__dirname, ".shots", "changed", "shots-5c", "5c-02-after-a-plain-decline.png");
+const { tinyPng } = require("./fixtures/tiny-png");
+// A key of this file's own, unique per process so concurrent runs share nothing (recheck R27).
+// It sits inside the tests directory (so `publishShot` treats it as a reference) but is created
+// here and removed here; no committed reference or other suite's kept candidate is ever read,
+// overwritten or deleted by this gate.
+const FIXTURE_KEY = path.join("shots-gate-honesty-" + process.pid, "fixture-reference.png");
+const REFERENCE = path.join(__dirname, FIXTURE_KEY);
+const KEPT = path.join(__dirname, ".shots", "changed", FIXTURE_KEY);
+const REFERENCE_BYTES = tinyPng(24); // differs from the picture the `changed` child publishes
 const SHOT_CHECK = "every picture this suite took matches its committed reference";
 
 function runFixture(mode, ledger) {
-  const env = Object.assign({}, process.env);
+  const env = Object.assign({}, process.env, { RICHOS_GATE_HONESTY_REFERENCE: REFERENCE });
   delete env.RICHOS_SHOTS_REGENERATE; // a regeneration asked of THIS process is not asked of the child
   delete env.RICHOS_UI_TESTS_LEDGER;
   if (ledger) env.RICHOS_UI_TESTS_LEDGER = ledger;
@@ -49,21 +56,25 @@ function fakePage() {
 async function main() {
   const run = createRun("the UI gates can fail — a changed picture, the coverage floor, page errors");
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "richos-gate-honesty-"));
+  fs.mkdirSync(path.dirname(REFERENCE), { recursive: true });
+  fs.writeFileSync(REFERENCE, REFERENCE_BYTES);
   try {
     await run.check("1  a picture that differs from its reference FAILS the suite that took it, and the reference is not rewritten", async () => {
       const before = fs.readFileSync(REFERENCE);
-      let r;
-      try {
-        r = runFixture("changed");
-      } finally {
-        const after = fs.readFileSync(REFERENCE);
-        if (!after.equals(before)) fs.writeFileSync(REFERENCE, before); // put it back, then fail below
-        fs.rmSync(KEPT, { force: true });
-      }
-      assert(fs.readFileSync(REFERENCE).equals(before), "the reference was rewritten by a test run");
+      // RICHOS_GATE_HONESTY_MODE is a seam for this gate's own self-test
+      // (`lib/gate-honesty-own-key.test.js`): it asks the child to ALSO rewrite the reference,
+      // the write this check exists to catch.
+      const r = runFixture(process.env.RICHOS_GATE_HONESTY_MODE || "changed");
+      // Observe the reference as the child left it BEFORE putting anything back (recheck N04):
+      // restoring first and asserting afterward makes the assertion true by construction.
+      const after = fs.readFileSync(REFERENCE);
+      const rewritten = !after.equals(before);
+      if (rewritten) fs.writeFileSync(REFERENCE, before); // put it back so later checks start clean
+      fs.rmSync(KEPT, { force: true });
+      assert(!rewritten, "the reference was rewritten by a test run");
       assert(r.out.includes(SHOT_CHECK), "the child's report has no line about the changed picture:\n" + r.out);
       assert(new RegExp("FAIL\\s+" + SHOT_CHECK).test(r.out), "the changed picture did not fail the suite:\n" + r.out);
-      assert(r.out.includes("5c-02-after-a-plain-decline.png"), "the failure does not name the picture:\n" + r.out);
+      assert(r.out.includes(FIXTURE_KEY.split(path.sep).join("/")), "the failure does not name the picture:\n" + r.out);
       assert(r.out.includes("RICHOS_SHOTS_REGENERATE="), "the failure does not say how to accept the change:\n" + r.out);
       assertEqual(r.code, 1, "the child suite's exit code");
       return "exit 1, FAIL names the picture and how to accept it; reference untouched";
@@ -149,6 +160,8 @@ async function main() {
     });
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
+    fs.rmSync(path.dirname(REFERENCE), { recursive: true, force: true });
+    fs.rmSync(path.dirname(KEPT), { recursive: true, force: true });
   }
 
   process.exit(run.report() ? 1 : 0);
