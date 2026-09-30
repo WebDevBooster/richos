@@ -184,6 +184,39 @@ def git(repo, *args, check=False):
     return res.stdout
 
 
+def git_checked(repo, *args):
+    """(ok, stdout). Unlike git(), a FAILURE IS NOT AN EMPTY ANSWER.
+
+    git() returns "" for a command that ran and printed nothing AND for a
+    command that could not run, which is how a failed worktree inventory became
+    "no peers" and a failed merge-base became "not behind" (hunt P5-08). The
+    callers that decide a verdict from the answer use this and carry the
+    failure out as an error instead."""
+    try:
+        res = subprocess.run(["git", "-C", repo] + list(args),
+                             capture_output=True, text=True, timeout=30)
+    except Exception:
+        return False, ""
+    return res.returncode == 0, res.stdout
+
+
+def ancestor_state(repo, a, b):
+    """True / False / None. None = git could not answer (neither 0 nor 1), which
+    is_ancestor() folds into False and so into "behind" or "not landed"."""
+    try:
+        res = subprocess.run(
+            ["git", "-C", repo, "merge-base", "--is-ancestor", a, b],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception:
+        return None
+    if res.returncode == 0:
+        return True
+    if res.returncode == 1:
+        return False
+    return None
+
+
 def main_checkout(repo):
     """The TRUE main checkout for this repository, from any worktree inside it.
 
@@ -206,12 +239,20 @@ def is_ancestor(repo, a, b):
     return res.returncode == 0
 
 
-def list_worktrees(repo):
+def list_worktrees(repo, strict=False):
     """Parse `git worktree list --porcelain` into dicts.
 
     Fields per entry: path, head, branch, detached, locked (the raw lock line
-    or None), prunable."""
-    out = git(repo, "worktree", "list", "--porcelain")
+    or None), prunable.
+
+    strict=True raises RuntimeError when git could not list them, instead of
+    returning the same empty list as a repository with no teammates."""
+    if strict:
+        ok, out = git_checked(repo, "worktree", "list", "--porcelain")
+        if not ok:
+            raise RuntimeError("git worktree list failed in %s" % repo)
+    else:
+        out = git(repo, "worktree", "list", "--porcelain")
     entries = []
     cur = None
     for line in out.splitlines():
@@ -1107,7 +1148,14 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
         result["error"] = "could not resolve a tip commit for %s" % repo
         return result
 
-    for entry in list_worktrees(root):
+    try:
+        inventory = list_worktrees(root, strict=True)
+    except RuntimeError as exc:
+        # NO PEERS IS AN ANSWER; "git would not say" IS NOT. Fail closed: main()
+        # exits 2 on an error and guard-inflight-notify.sh refuses on it.
+        result["error"] = "the worktree inventory could not be read (%s), so who is in flight is UNKNOWN" % exc
+        return result
+    for entry in inventory:
         path = entry["path"]
         if norm(path) == norm(root):
             continue  # the main checkout is not a teammate
@@ -1165,9 +1213,14 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
             wt["live"] = False
 
         head = entry["head"] or wt["branch"]
-        contained = bool(head) and is_ancestor(root, head, tip)
+        wt["scan_gap"] = ""
+        landed_state = ancestor_state(root, head, tip) if head else False
+        behind_state = ancestor_state(root, tip, head) if head else False
+        if landed_state is None or behind_state is None:
+            wt["scan_gap"] = "git could not say whether %s contains or trails %s" % (head[:12], tip[:12])
+        contained = bool(head) and landed_state is True
         wt["landed"] = contained
-        wt["behind"] = bool(head) and not is_ancestor(root, tip, head)
+        wt["behind"] = bool(head) and behind_state is not True
 
         wt["base"] = ""
         wt["moved_shas"] = []
@@ -1175,14 +1228,23 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
         wt["own_paths"] = []
         wt["overlap"] = []
         if wt["behind"] and head:
-            base = git(root, "merge-base", tip, head).strip()
+            ok_b, out_b = git_checked(root, "merge-base", tip, head)
+            base = out_b.strip() if ok_b else ""
             wt["base"] = base
-            if base:
-                wt["moved_shas"] = git(root, "rev-list", "%s..%s" % (base, tip)).split()
-                wt["moved_paths"] = sorted(set(
-                    git(root, "diff", "--name-only", base, tip).split("\n")) - {""})
-                wt["own_paths"] = sorted(set(
-                    git(root, "diff", "--name-only", base, head).split("\n")) - {""})
+            if not base:
+                # Behind, but the point it diverged from cannot be named (git
+                # failed, or there is no common ancestor). That is NOT "nothing
+                # moved under it": the verdict below would say CLEAN-NOT-BEHIND.
+                wt["scan_gap"] = "the merge-base of %s and %s could not be computed, so what moved under it is UNKNOWN" % (tip[:12], head[:12])
+            else:
+                ok1, shas = git_checked(root, "rev-list", "%s..%s" % (base, tip))
+                ok2, moved = git_checked(root, "diff", "--name-only", base, tip)
+                ok3, own = git_checked(root, "diff", "--name-only", base, head)
+                if not (ok1 and ok2 and ok3):
+                    wt["scan_gap"] = "git could not list the commits or paths that moved since %s" % base[:12]
+                wt["moved_shas"] = shas.split()
+                wt["moved_paths"] = sorted(set(moved.split("\n")) - {""})
+                wt["own_paths"] = sorted(set(own.split("\n")) - {""})
                 wt["overlap"] = sorted(set(wt["moved_paths"]) & set(wt["own_paths"]))
 
         result["worktrees"].append(wt)
@@ -1213,6 +1275,8 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
             # is simply no longer thrown away.
             wt["ack"] = ack_status(wt, tip, "", updates, timeout_min,
                                    ledger_tip_rows)
+        elif wt["scan_gap"]:
+            wt["verdict"] = "UNVERIFIED"    # never a CLEAN-* verdict on a question git did not answer
         elif wt["landed"]:
             wt["verdict"] = "CLEAN-LANDED"
         elif not wt["behind"] or not wt["moved_shas"]:
@@ -1246,6 +1310,15 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
     # wrote three acks and finished, and the evidence went with the directory.
     result["orphan_acks"] = orphan_ledger_acks(
         _ledger_rows or [], tip, root, result["worktrees"])
+    # Only a LIVE worktree's gap matters: a finished teammate's verdict is
+    # NOT-LIVE whatever git says, and one odd leftover must not refuse every
+    # push. A live teammate git could not be asked about is a debt nobody can
+    # see, so it is an error (exit 2, which the guard refuses on).
+    gaps = ["%s: %s" % (w["path"], w["scan_gap"])
+            for w in result["worktrees"] if w["live"] and w["scan_gap"]]
+    if gaps:
+        result["error"] = ("the sweep could not finish reading git, so the verdict for %d "
+                           "worktree question(s) is UNKNOWN: %s" % (len(gaps), "; ".join(gaps)))
     return result
 
 

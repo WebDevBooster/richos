@@ -707,6 +707,7 @@ RESULT="$(pb_scan "$JOB" || true)"
 
 case "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f1)" in
   CLEAN)
+    pb_unread_note "guard-publication-commits.sh" "$RESULT"
     exit 0 ;;
   BROKEN)
     pb_broken_banner "guard-publication-commits.sh" "$(printf '%s' "$RESULT" | sed -n '1p' | cut -f2-)" >&2

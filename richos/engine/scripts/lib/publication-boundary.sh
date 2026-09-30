@@ -638,6 +638,23 @@ pb_scan() {
 }
 
 # ---------------------------------------------------------------------------
+# pb_unread_note <hook> <scan result>
+# ---------------------------------------------------------------------------
+# The scanner ends its output with one `UNREAD<TAB><path><TAB><why>` line per
+# published path it could not read (hunt P5-08). Reading it is not optional
+# decoration: a CLEAN that silently skipped a path is the false green this
+# mechanism exists to end, and the scanner's own comment says such a path is
+# "reported, not blocked". Prints nothing when nothing was skipped. Stderr, and
+# never a verdict: the caller's exit code is already decided.
+pb_unread_note() {
+    local hook="$1" result="$2" named
+    named="$(printf '%s\n' "$result" | awk -F'\t' '$1=="UNREAD" { n++; if (n<=5) s = s (s ? "; " : "") $2 " (" $3 ")" } END { if (n) printf "%d path(s) could not be read and were NOT examined: %s%s", n, s, (n>5 ? " ..." : "") }')"
+    [ -n "$named" ] || return 0
+    echo "NOTE (scripts/hooks/$hook): $named" >&2
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # pb_refusal <hook> <what> <findings> <repo_root> <skipped>
 # ---------------------------------------------------------------------------
 # THE REFUSAL. A block the author cannot act on becomes a block the author

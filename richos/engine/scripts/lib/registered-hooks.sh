@@ -131,7 +131,13 @@ _rh_manifest_for() {
 # site for why "return nothing" was not an option.
 _rh_dispatch_modules_textscan() {
     local f="$1" mf key
-    mf="$(_rh_manifest_for "$f")" || return 0
+    mf="$(_rh_manifest_for "$f")" || {
+        # No manifest is "the dispatcher is not in play" ONLY when this surface
+        # does not register the dispatcher. One that does, with no manifest to
+        # expand it, names rules this answer would silently lack (hunt P5-08).
+        grep -q 'dispatch-pretooluse\.sh[[:space:]][A-Za-z]' "$f" 2>/dev/null && return 2
+        return 0
+    }
     for key in $(grep -o 'dispatch-pretooluse\.sh[[:space:]][A-Za-z][A-Za-z]*' "$f" 2>/dev/null \
                  | awk '{print $2}' | LC_ALL=C sort -u); do
         awk -F'|' -v k="$key" '
@@ -159,9 +165,10 @@ _rh_dispatch_modules() {
         # REFUSES without python3 (rc 3) rather than degrade, so that path
         # never reaches here.
         _rh_dispatch_modules_textscan "$f"
-        return 0
+        return $?
     fi
-    python3 -c '
+    local _dm_out _dm_rc=0
+    _dm_out="$(python3 -c '
 import json, os, re, sys
 f, want, libdir = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
@@ -215,6 +222,14 @@ if isinstance(hooks, dict):
                     keys.add(m.group(1))
 if not keys:
     raise SystemExit(0)
+# THE DISPATCHER IS REGISTERED HERE, SO THE MANIFEST IS NOT OPTIONAL (hunt P5-08).
+# "No manifest, nothing to add" is the pre-dispatcher behavior for a surface that
+# does not use the dispatcher, and that is the `not keys` exit above. With a
+# dispatcher key in play, a manifest that is missing or cannot be read leaves the
+# inventory short of the rules that key runs, and it used to say so with exit 0
+# and no output. Exit 3 = "cannot expand the dispatcher"; the shell maps it to 2.
+if not manifest:
+    raise SystemExit(3)
 out = set()
 try:
     with open(manifest, encoding="utf-8") as mh:
@@ -226,10 +241,13 @@ try:
             if k.strip() in keys:
                 out.add(mod.strip())
 except OSError:
-    raise SystemExit(0)
+    raise SystemExit(3)
 for name in sorted(out):
     print(name)
-' "$f" "$event" "$_RH_LIB_DIR" 2>/dev/null || true
+' "$f" "$event" "$_RH_LIB_DIR" 2>/dev/null)" || _dm_rc=$?
+    [ -z "$_dm_out" ] || printf '%s\n' "$_dm_out"
+    [ "$_dm_rc" -eq 0 ] || return 2
+    return 0
 }
 
 # hook_enforced_on_surface <surface-json> <script-basename>
@@ -290,6 +308,7 @@ registered_hook_scripts() {
     local event="${2:-}"
     local out=""
     local rc=0
+    local _rh_dm=""
 
     [ -n "$f" ] && [ -f "$f" ] || return 1
 
@@ -323,7 +342,10 @@ for name in sorted(found):
         rc=$?
         [ "$rc" -eq 0 ] || return 2
         [ -n "$out" ] || return 2
-        out="$(printf '%s\n%s\n' "$out" "$(_rh_dispatch_modules "$f" "$event")" \
+        # A dispatcher that cannot be expanded makes the inventory SHORT, not
+        # complete: rc 2 with the other "cannot answer" cases (hunt P5-08).
+        _rh_dm="$(_rh_dispatch_modules "$f" "$event")" || return 2
+        out="$(printf '%s\n%s\n' "$out" "$_rh_dm" \
                | grep -v '^$' | LC_ALL=C sort -u)"
         printf '%s\n' "$out"
         return 0
@@ -382,7 +404,8 @@ for name in sorted(found):
     # actually registered, i.e. a guessed association. The honest form is the
     # one that costs a check, not the one that invents a row, and BR2's
     # independent parse cross-checks this answer either way.
-    out="$(printf '%s\n%s\n' "$out" "$(_rh_dispatch_modules "$f")" \
+    _rh_dm="$(_rh_dispatch_modules "$f")" || return 2
+    out="$(printf '%s\n%s\n' "$out" "$_rh_dm" \
            | grep -v '^$' | LC_ALL=C sort -u)"
     printf '%s\n' "$out"
 }
@@ -449,9 +472,12 @@ _cands = [
     os.path.join(sys.argv[2], "..", "hooks", "dispatch-pretooluse.manifest"),
 ]
 manifest = {}
+manifest_ok = True
+found_manifest = False
 for _c in _cands:
     if not os.path.isfile(_c):
         continue
+    found_manifest = True
     try:
         with open(_c, encoding="utf-8") as mh:
             for line in mh:
@@ -462,9 +488,11 @@ for _c in _cands:
                 manifest.setdefault(k.strip(), []).append(mod.strip())
     except OSError:
         manifest = {}
+        manifest_ok = False      # present but unreadable: NOT the same as absent
     break
 
 rows = set()
+used_dispatcher = False
 hooks = doc.get("hooks", {})
 if isinstance(hooks, dict):
     for event, entries in hooks.items():
@@ -486,8 +514,14 @@ if isinstance(hooks, dict):
                     rows.add("%s\t%s\t%s" % (event, matcher, m))
                 d = re.search(r"scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)", cmd)
                 if d:
+                    used_dispatcher = True
                     for mod in manifest.get(d.group(1), []):
                         rows.add("%s\t%s\t%s" % (event, matcher, mod))
+# A DISPATCHER REGISTERED WITH NO READABLE MANIFEST LEAVES THE ROWS SHORT (hunt
+# P5-08); it used to print them as if whole. Exit 3, which the shell maps to rc 2.
+# A surface that never names the dispatcher needs no manifest, as before.
+if used_dispatcher and not (found_manifest and manifest_ok):
+    raise SystemExit(3)
 for row in sorted(rows):
     print(row)
 ' "$f" "$_RH_LIB_DIR" 2>/dev/null)"
