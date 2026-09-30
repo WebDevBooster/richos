@@ -195,21 +195,26 @@ fi
 # --- collect the surfaces --------------------------------------------------
 # A pattern matching nothing is silent: one list serves the engine and every
 # governed repository, and a repository without skills/ is not a finding.
-FILES=""
+# A LIST OF PATHS IS AN ARRAY, NEVER A SPACE-JOINED STRING (P5-43). The root is
+# quoted so a space in the repository's own path cannot split it, and the files
+# are kept one per element so a space in a file name cannot either; only the
+# pattern is left unquoted, because expanding it IS the glob.
+FILES=()
 set -f
 set -- $SURFACES
 set +f
 for pat in "$@"; do
-    for f in $ROOT/$pat; do
+    for f in "$ROOT"/$pat; do
         [ -f "$f" ] || continue
-        case " $FILES " in
-            *" $f "*) ;;
-            *) FILES="${FILES:+$FILES }$f" ;;
-        esac
+        _seen=0
+        for _have in ${FILES[@]+"${FILES[@]}"}; do
+            [ "$_have" = "$f" ] && { _seen=1; break; }
+        done
+        [ "$_seen" -eq 1 ] || FILES+=("$f")
     done
 done
 
-if [ -z "$FILES" ]; then
+if [ "${#FILES[@]}" -eq 0 ]; then
     echo "entrypoint-currency-lint: no instruction surface exists in $ROOT (patterns from $SURFACES_SOURCE matched no file). Nothing to check." >&2
     exit 0
 fi
@@ -219,7 +224,7 @@ SUPERSEDED_NAMES="$(entrypoints_superseded_names "$SPEC")"
 FINDINGS=0
 SCANNED=0
 
-for f in $FILES; do
+for f in "${FILES[@]}"; do
     SCANNED=$((SCANNED + 1))
     for sname in $SUPERSEDED_NAMES; do
         # Every line naming this superseded entrypoint, minus the ones carrying a

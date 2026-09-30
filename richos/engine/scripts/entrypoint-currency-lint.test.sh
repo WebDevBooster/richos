@@ -340,6 +340,38 @@ else
 fi
 
 echo
+# ---------------------------------------------------------------------------
+echo "a space in the repository's own path must not hide its instruction surfaces (P5-43)"
+# ---------------------------------------------------------------------------
+SBP="$(sandbox)"
+SPACED="$SBP/a repo with spaces"
+mkdir -p "$SPACED/skills/demo"
+declare_config "$SPACED" "$SPEC_REAL" "$SURFACES_REAL"
+cat >"$SPACED/CLAUDE.md" <<'STALE'
+# Doctrine
+
+Start a teammate by running prepare-agent-spawn.py and then the rest by hand.
+STALE
+OUT="$("$LINT" --root "$SPACED" --engine "$SPACED" 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ]; then
+    ok "a stale instruction is FOUND (exit 1) in a repository whose path contains spaces"
+else
+    no "a stale instruction in a spaced root is found" "exit=$RC output: $OUT"
+fi
+case "$OUT" in
+    *"no instruction surface exists"*) no "the lint must not claim the spaced root has no surface" "got: $OUT" ;;
+    *) ok "and it does not claim there is nothing to check" ;;
+esac
+printf '# A skill\n\nUse prepare-agent-spawn.py.\n' > "$SPACED/skills/demo/SKILL.md"
+mkdir -p "$SPACED/skills/my skill"
+printf '# A skill with a space in its directory\n\nUse prepare-agent-spawn.py.\n' > "$SPACED/skills/my skill/SKILL.md"
+OUT="$("$LINT" --root "$SPACED" --engine "$SPACED" 2>&1)"; RC=$?
+case "$OUT" in
+    *"my skill/SKILL.md"*) ok "a surface file whose own name contains a space is scanned too" ;;
+    *) no "a surface file with a space in its name is scanned" "exit=$RC output: $OUT" ;;
+esac
+
+echo
 echo "----------------------------------------"
 printf 'entrypoint-currency-lint: %s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
