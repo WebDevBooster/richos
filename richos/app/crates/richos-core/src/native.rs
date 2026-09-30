@@ -6987,6 +6987,20 @@ read -r keep_alive
         assert!(ended.summary.contains("exit code 0"), "{}", ended.summary);
         assert!(!ended.during_a_turn_of_ours, "an ending after the turn was counted as inside it");
 
+        // The provider's closing `result` for that ending follows the notification and is read
+        // a moment later. Sent before it is read, the next prompt would be parked, unconfirmed,
+        // when it arrives and would take it for its own turn's end (a slow reader, as under a
+        // parallel build, then returned the second turn before its frames). So wait for the
+        // reader to have parked that `result` on the between-turn lane, on the reading itself.
+        // load-bound: hang guard only; the loop waits for the fact, the deadline decides no verdict
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !client.between.lock().unwrap().queue.iter().any(
+            |i| matches!(i, BetweenItem::Frame(f) if f.get("type").and_then(Value::as_str) == Some("result")),
+        ) {
+            assert!(std::time::Instant::now() < deadline, "the closing result was never read");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
         client.prompt("start another and run one in the foreground", &mut |_| {}).unwrap();
         let all = client.background_commands();
         assert_eq!(
