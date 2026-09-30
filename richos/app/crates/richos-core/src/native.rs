@@ -1395,6 +1395,10 @@ struct ReaderState {
     /// says the write failed clears this id and leaves everything after it visible.
     /// Host-owned, reset with the send.
     checkpoint_call_id: Option<String>,
+    /// The context-only text this session was last given by [`NativeCognition::supply_context_brief`]
+    /// and took to `end_turn`. A fact about the SESSION, not the turn, so unlike its neighbors
+    /// it is never reset with the send — a new session starts with a new reader state, `None`.
+    context_brief_held: Option<String>,
     /// **The front desk's bookkeeping grant, held here because this is where his first words
     /// are seen** — [`ActionGrant::ContinuityTools`]. `None` on a lease with no continuity
     /// server (every work lease, and any lease started without a bridge).
@@ -1606,6 +1610,7 @@ impl Default for ReaderState {
             checkpoint_after_his_words: false,
             withheld_after_checkpoint: String::new(),
             checkpoint_call_id: None,
+            context_brief_held: None,
             turns_named_by_the_child: false,
             background: Vec::new(),
         }
@@ -3617,6 +3622,27 @@ impl NativeCognition {
             continuity: Some((bridge, continuity_scope)), continuity_tools_scope: None, work_binding: None, engine_profile: Some(profile), role: LeaseRole::Work, ceo_thread_seats: None })
     }
 
+    /// **Give this session the turn's brief, unless it already holds exactly this text** — part 1
+    /// hunt finding 29. The brief goes to the provider as a context-only turn so that internal
+    /// material stays apart from the user-visible answer and no action can run while it is
+    /// supplied; that is unchanged. What it cost was a whole provider round trip in front of
+    /// EVERY question, including the many whose brief is byte-for-byte the one the previous turn
+    /// of this same session was given. When the text is identical to the last brief this
+    /// session took, the session already has it in context, so the hidden turn is skipped and
+    /// the question goes straight through. Any change (a new obligation, a receipt, a question)
+    /// makes the text differ and the turn is paid as before; a fresh session has a fresh reader
+    /// state, so a rotation or a new lease always gets its full brief.
+    fn supply_context_brief(&mut self, brief: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        let priming = crate::reprime::context_only_priming(brief);
+        if self.client.reader_state.lock().unwrap().context_brief_held.as_deref() == Some(priming.as_str()) {
+            return Ok(());
+        }
+        let reason = self.client.prompt_context_only(&priming, on_item)?;
+        if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
+        self.client.reader_state.lock().unwrap().context_brief_held = Some(priming);
+        Ok(())
+    }
+
     fn prepare_question_scope(&self,entity:&str,thread:&str,turn:&str,asker:&str,method:&str)->Result<(),CognitionError> {
         let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else {return Ok(());};
         let root=self.engine_profile.as_ref().map(|p|p.state.clone())
@@ -3941,9 +3967,7 @@ impl Cognition for NativeCognition {
                 })
                 .map_err(CognitionError::Io)?;
         }
-        let reason = self.client.prompt_context_only(&crate::reprime::context_only_priming(&brief), on_item)?;
-        if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
-        Ok(())
+        self.supply_context_brief(&brief, on_item)
     }
 
     /// The work lease's preparation — **the sibling path of `prepare_work_turn`, and its
@@ -4401,6 +4425,31 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         let mut said=String::new();
         let next=client.prompt("Ship today",&mut |item|{if let TurnItem::Text{text,..}=item {said.push_str(text)}}).unwrap();
         assert_eq!((next.as_str(),said.as_str()),("end_turn","Still here"),"the provider process was ended by the question");
+    }
+
+    /// **PART 1 HUNT FINDING 29.** The brief goes to the provider as a hidden context-only turn
+    /// before every question. A brief identical to the one this session already took needs no
+    /// second round trip; one that differs still does.
+    #[test]
+    fn an_unchanged_brief_is_not_sent_to_the_provider_a_second_time() {
+        let script=write_script("unchanged-brief",
+            r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+while read -r line; do
+  printf 'x\n' >> "$(dirname "$0")/hidden-turns"
+  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+done
+"#);
+        let root=script.parent().unwrap();
+        let mut cognition=NativeCognition::start(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let hidden=|| std::fs::read_to_string(root.join("hidden-turns")).map(|s| s.lines().count()).unwrap_or(0);
+        cognition.supply_context_brief("Brief A",&mut |_|{}).unwrap();
+        assert_eq!(hidden(),1,"the first brief must reach the provider");
+        cognition.supply_context_brief("Brief A",&mut |_|{}).unwrap();
+        assert_eq!(hidden(),1,"an identical brief paid a second hidden provider turn");
+        cognition.supply_context_brief("Brief B",&mut |_|{}).unwrap();
+        assert_eq!(hidden(),2,"a changed brief must still be supplied");
     }
 
     // ---- the background-work spec's §5.8a-ii seams ------------------------------------
