@@ -181,6 +181,16 @@ mutant p09-stopped-before-the-ancestry-check "test_finding_13_a_pending_scan_lea
     '    if False:{NL}        raise SpecError(_not_landed_message(rec, early))' \
     "an automatic land attempt would stop a finished worker's tests and servers before finding its commits unmerged, and then leave it pending anyway (hunt part 4, finding 13)."
 
+mutant p05-status-lands "test_finding_29_status_reports_and_changes_nothing" "$W" \
+    '    items = pending(me, entity, scan=True, dry=True)' \
+    '    items = pending(me, entity, scan=True)' \
+    "asking for the status would land and delete eligible work and stop its processes on the way to the answer (hunt part 4, finding 29)."
+
+mutant p05-dry-check-lands "test_finding_29_a_dry_spawn_check_changes_nothing" "$W" \
+    '    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET), dry=dry)' \
+    '    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET))' \
+    "a dry spawn check, which promises to write nothing, would land and delete other eligible work before answering (hunt part 4, finding 29)."
+
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}{NL}        write_json(_slot_path(rec["key"], call), row)' \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}' \

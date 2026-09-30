@@ -3014,6 +3014,56 @@ class Finding13_NoSpeculativeShutdown(Base):
         self.assertFalse(os.path.exists(npath))
 
 
+class Finding29_AskingChangesNothing(Base):
+    """Hunt part 4, finding 29: `workspaces.sh status` and the dry spawn check
+    (`check-spawn`) ask what WOULD happen. They used to land and delete
+    eligible work, stopping its processes, on the way to the answer."""
+
+    def _landable_with_process(self, name):
+        aid, npath = self.spawn(name)
+        self.commit(npath, "landable.txt")
+        pr = subprocess.Popen(["sleep", "300"], cwd=npath)
+        self.env.procs.append(pr)
+        time.sleep(0.2)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        return aid, npath, pr
+
+    def _untouched(self, name, npath, pr):
+        self.assertIsNone(pr.poll(), "asking stopped a process of %s" % name)
+        self.assertTrue(os.path.isdir(npath), "asking deleted %s's workspace" % name)
+        self.assertIsNone(self.rec(name)["disposition"], "asking landed %s" % name)
+
+    def test_finding_29_status_reports_and_changes_nothing(self):
+        aid, npath, pr = self._landable_with_process("zach-opus-st")
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ws._print_status(self.sid, self.entity)
+        self._untouched("zach-opus-st", npath, pr)
+        out = buf.getvalue()
+        self.assertIn("zach-opus-st", out)
+        self.assertIn("LANDABLE", out)                          # and it says what WOULD happen
+        # The operation that is asked to act still acts.
+        self.assertEqual(self.names(), [])
+        pr.wait(timeout=15)
+        self.assertFalse(os.path.exists(npath))
+
+    def test_finding_29_a_dry_spawn_check_changes_nothing(self):
+        pa, ppath = self.spawn("zach-opus-cont")
+        self.commit(ppath, "unmerged.txt")
+        self.finish(pa)                                         # the work the new spawn continues
+        aid, npath, pr = self._landable_with_process("zach-opus-bystander")
+        payload = {"session_id": self.sid, "tool_name": "Agent", "richos_spawn_check": {"planned": []},
+                   "tool_input": {"name": "zach-opus-next", "subagent_type": "zach", "isolation": "worktree",
+                                  "prompt": "do it\ncontinues: zach-opus-cont\n"}}
+        self.assertTrue(ws.is_spawn_check(payload))
+        ws.register_spawn(payload, self.entity, dry=True)
+        self._untouched("zach-opus-bystander", npath, pr)
+        self.assertIsNone(self.rec("zach-opus-next"), "a dry check wrote a registration")
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""

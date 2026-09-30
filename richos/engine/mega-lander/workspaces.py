@@ -1605,8 +1605,13 @@ def register_spawn(payload, entity, dry=False):
     # pending integration. Only a continuation needs the pending list, because
     # it replaces finished work and must validate that work before cleanup.
     # Normal spawns must not scan or auto-land other agents' workspaces.
-    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET))
+    # A DRY check asks the same question and acts on nothing (finding 29): it
+    # used to auto-land and delete other eligible work, stopping its
+    # processes, before reaching `if dry: return`. What WOULD land is left out
+    # here exactly as the live call's land leaves it out.
+    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET), dry=dry)
              if continues else [])
+    items = [i for i in items if not i.get("would_land") and not i.get("unregistered")]
     continuation_keys = []
     for c in continues:
         match = [i for i in items if i["name"] == c or i["key"] == c]
@@ -2459,17 +2464,20 @@ def wait(ref, kind, on, todo="", session_id=""):
 # point 5 — the pending list, and who handles which item (point 12)
 # ---------------------------------------------------------------------------
 
-def scan_unregistered(repos):
+def scan_unregistered(repos, record=True):
     """Point 3, hole 6: a cc/ or native workspace with no registration, and any
     such branch, is finished work of an ended session. codex/ and every other
-    name is not the system's concern (points 1, 2) and is never listed."""
+    name is not the system's concern (points 1, 2) and is never listed.
+
+    `record=False` only looks (finding 29): nothing is bound and no record is
+    made, and what was found is returned as (repo, path, branch, kind)."""
     paths, branches = set(), set()
     # Point 14: a record that was never spawned through the guard — an orphan
     # this sweep made, or a provisional native start no spawn registered — had
     # no spawn at which to be refused for a missing record. It binds to its
     # repository's body of work at the first sweep after one exists, recorded
     # on it by id, once; until then its land refuses and names the command.
-    for r in all_agents():
+    for r in (all_agents() if record else []):
         if not (r.get("orphan") or r.get("provisional")) or r.get("disposition"):
             continue
         # ITS OWN name, never `repos`: reusing the parameter's name narrowed
@@ -2527,6 +2535,8 @@ def scan_unregistered(repos):
             if b in attached or (repo, b) in branches or b.startswith(CODEX_PREFIX):
                 continue
             found.append((repo, "", b, classify("", b)))
+    if not record:
+        return found
     made = []
     for repo, path, branch, kind in found:
         key = "orphan--" + hashlib.sha1(("%s\0%s\0%s" % (repo, path, branch)).encode()).hexdigest()[:16]
@@ -2581,23 +2591,64 @@ def _claimable(rec, me, cache):
     return True
 
 
-def pending(me, entity="", scan=False, auto=True, deadline=None, report=None):
+def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dry=False):
     """The finished work this session must land or discard (point 5), after
     landing automatically everything that already is landed (point 4).
 
     With a deadline, the AUTO-LAND is what gets dropped when the budget runs
     out — never the list. An item that could not be checked stays pending and
     keeps blocking, which is the safe answer; the names of the items that were
-    not checked go into `report` so the gate can say so rather than go quiet."""
+    not checked go into `report` so the gate can say so rather than go quiet.
+
+    `dry=True` IS THE SAME QUESTION ASKED WITHOUT ACTING ON THE ANSWER (hunt
+    part 4, finding 29). `workspaces.sh status` and the dry spawn check ask
+    what WOULD happen, and both used to take this function's automatic land on
+    the way: work that was eligible was landed and deleted, its processes
+    stopped, and other sessions' records claimed. Dry, nothing is written:
+    no land, no claim, no adoption of the platform's records, no orphan record
+    for an unregistered workspace. Eligibility is still proved, by the same
+    read-only proof the land uses after shutdown, and an item that WOULD land
+    is returned marked `would_land` rather than left out, so the caller can
+    say so. An unregistered workspace the scan finds is returned marked
+    `unregistered`. The operations that are asked to act (the Stop gate, a
+    live spawn, `land`) still act."""
     cache = {}
+    items = []
     if scan:
         repos = set(known_repos())
         if entity:
             repos.add(main_checkout(entity) or realpath(entity))
-        scan_unregistered(sorted(r for r in repos if r))
-    items = []
+        found = scan_unregistered(sorted(r for r in repos if r), record=not dry)
+        if dry:
+            for repo, path, branch, kind in found:
+                items.append({"key": "", "name": "orphan-" + os.path.basename(path or branch.replace("/", "-")),
+                              "why": "it has no registration: finished work of an ended session (point 3)",
+                              "waiting": "", "waiting_on": "", "blocks_new_work": False,
+                              "blocks_turn_end": True, "unregistered": True,
+                              "workspaces": [(path or "(branch only)", branch)]})
     for rec in all_agents():
         if rec.get("disposition"):
+            continue
+        if dry:
+            fin, paused_, why = finished_state(rec, cache)
+            if not fin:
+                if paused_ and rec.get("session_id") == me and not (rec.get("pause") or {}).get("until"):
+                    items.append(_item(rec, "paused with nothing named that ends it (point 11)", cache, me))
+                continue
+            if not _claimable(rec, me, cache):
+                continue
+            it = _item(rec, why, cache, me)
+            if auto and not _past(deadline):
+                try:
+                    _require_landed(rec, _chain(rec), "", deadline)
+                    it["would_land"] = True
+                except Deadline:
+                    _deferred(report, rec)
+                except SpecError:
+                    pass
+            elif auto:
+                _deferred(report, rec)
+            items.append(it)
             continue
         # Point 11: an ending the platform recorded itself and gave no hook for
         # (a stopped agent) becomes finished HERE, before anything asks whether
@@ -5510,7 +5561,10 @@ def current_session():
 
 
 def _print_status(me, entity):
-    items = pending(me, entity, scan=True)
+    # A status is a question: it lands nothing, deletes nothing, stops nothing
+    # and claims nothing (hunt part 4, finding 29). What the next gate or land
+    # WOULD land is shown as LANDABLE instead.
+    items = pending(me, entity, scan=True, dry=True)
     print("session: %s" % (me or "(none)"))
     for repo in sorted(all_integration_records()):
         r = all_integration_records()[repo]
@@ -5518,9 +5572,11 @@ def _print_status(me, entity):
     if not items:
         print("pending: none")
     for i in items:
-        print("PENDING  %s  %s%s%s" % (i["name"], i["why"],
-                                       ("  [waiting %s: %s]" % (i["waiting"], i["waiting_on"])) if i["waiting"] else "",
-                                       "  [independent spawns allowed]"))
+        label = "LANDABLE" if i.get("would_land") else ("UNREGISTERED" if i.get("unregistered") else "PENDING ")
+        note = ("  [lands at the next gate, or: workspaces.sh land %s]" % i["name"]) if i.get("would_land") else ""
+        print("%s %s  %s%s%s%s" % (label, i["name"], i["why"],
+                                    ("  [waiting %s: %s]" % (i["waiting"], i["waiting_on"])) if i["waiting"] else "",
+                                    "  [independent spawns allowed]", note))
         for p, b in i["workspaces"]:
             print("           %s  %s" % (p, b or ""))
     for r in all_agents():
