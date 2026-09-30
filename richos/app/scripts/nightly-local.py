@@ -1993,6 +1993,23 @@ class Runner:
         """Where the build keeps its own VM boot proof: gui-proof-in-vm.sh's default."""
         return self.state / "gui-proofs" / f"{run_id}.proof"
 
+    def proven_boot_leftover(self, proof, started):
+        """The guest name a passing proof written during this attempt names, else None.
+
+        Read only after the boot command failed. A proof from an earlier attempt of the same
+        run (older than `started`), a missing or unreadable one, or any result but `pass`
+        answers None: that failure stays "not proven"."""
+        try:
+            if Path(proof).stat().st_mtime < started - 1:
+                return None
+            fields = self.read_gui_proof(proof)
+        except (OSError, ValueError):
+            return None
+        if fields.get("result") != "pass":
+            return None
+        where = fields.get("where", "")
+        return where.partition(":")[2] or where or "the guest named in the run log"
+
     def vm_boot_proof(self, run_id):
         """Boot the candidate's own signed bundle in a test-VM guest. None on a pass, else
         the sentence that says what did not happen and how to take it again.
@@ -2010,10 +2027,21 @@ class Runner:
         guest = f"guest {self.gui_host}" if self.gui_host else "a fresh guest"
         self.announce(f"Booting the candidate's own bundle in {guest} on the test VM "
                       "(nothing is put on this Mac's screen)...")
+        started = time.time()
         try:
             with self.phase(VM_PROOF_PHASE):
                 self.command(*args, env_extra=extra, timeout=VM_PROOF_BUDGET)
         except RuntimeError as error:
+            leftover = self.proven_boot_leftover(proof, started)
+            if leftover is not None:
+                # gui-proof-in-vm.sh exits 1 over a passing proof only when it could not stop its
+                # guest (its cleanup). The boot WAS proven and publish accepts the proof as it
+                # always did; what is wrong is a guest left on this Mac (finding 19 follow-up).
+                return (f"THE CANDIDATE IS BUILT AND ITS BOOT WAS PROVEN IN THE TEST VM ({proof} says "
+                        f"result=pass), BUT THE GUEST COULD NOT BE STOPPED AFTERWARD: {error}. "
+                        f"Left behind: {leftover}. Delete it with richos/app/scripts/testvm/stop.sh "
+                        f"{leftover} and richos/app/scripts/testvm/reap.sh. `publish --run {run_id}` "
+                        "still accepts the proof; nothing needs a rebuild or a second boot.")
             return (f"THE CANDIDATE IS BUILT, AND ITS BOOT WAS NOT PROVEN IN THE TEST VM: {error}. "
                     f"The proof file, if any, is {proof}. `publish` refuses this candidate until a "
                     f"passing proof exists; take it again with "

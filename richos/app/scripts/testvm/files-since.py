@@ -12,8 +12,10 @@ Runs INSIDE a test guest (push it with guest.sh --push). Standard library only.
       Every file, symlink or newly born directory under the roots whose modification,
       change or birth time is after --since (and not after --until), classified. JSON on
       stdout. Exit 0 when every control was found and nothing NAMED sits outside --inside;
-      1 when something named does; 2 when a control was not found (the search itself is
-      not working, so its silence proves nothing).
+      1 when something named does; 2 when a control was not found or a --root could not
+      be listed (the search itself is not working, so its silence proves nothing).
+      An entry INSIDE a readable root that cannot be read is counted (unreadable_count)
+      and does not fail the search: a guest's system folders always hold a few.
 
 WHY A POSITIVE CONTROL. "The search found nothing outside the folder" is a claim about
 the search as much as about the app. A root that was not readable, a clock compared the
@@ -76,9 +78,17 @@ def scan(args):
             baseline = {row['path'] for row in json.load(f)['files']}
     markers = {os.path.realpath(args.since)} | ({os.path.realpath(args.until)} if args.until else set())
 
-    rows, unreadable = [], []
+    rows, unreadable, unreadable_roots = [], [], []
     for root in args.root:
         root = os.path.realpath(root)
+        # A root that cannot be listed at all is a place the search was told to cover and
+        # could not: a control found elsewhere proves nothing about it.
+        try:
+            with os.scandir(root):
+                pass
+        except OSError:
+            unreadable_roots.append(root)
+            continue
         for dirpath, dirnames, filenames in os.walk(root, topdown=True, onerror=lambda e: unreadable.append(str(e.filename))):
             for name in list(dirnames) + filenames:
                 full = os.path.join(dirpath, name)
@@ -128,7 +138,7 @@ def scan(args):
     missing = sorted(controls - found)
     unflagged = sorted(r['path'] for r in rows if r['class'] == 'control' and r.get('would_be') != 'named' and named)
     verdict = 'pass'
-    if missing or unflagged:
+    if missing or unflagged or unreadable_roots:
         verdict = 'search-broken'
     elif counts.get('named'):
         verdict = 'named-outside'
@@ -136,6 +146,7 @@ def scan(args):
         'since': since, 'until': until, 'scanned_at': time.time(),
         'roots': [os.path.realpath(r) for r in args.root],
         'inside': inside, 'declared': declared, 'harness': harness, 'named_words': named,
+        'unreadable_roots': unreadable_roots,
         'controls_missing': missing, 'controls_not_flagged_named': unflagged,
         'unreadable_count': len(unreadable), 'unreadable_sample': unreadable[:20],
         'counts': counts, 'verdict': verdict,
