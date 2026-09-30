@@ -18,6 +18,11 @@
 //
 // Skipped, loudly and non-fatally, when cargo is unavailable: a harness that silently passes
 // because it could not run is worse than one that says it did not.
+//
+// ONLY WHEN CARGO IS ABSENT (hunt part 2, finding 18). Until 2026-09-30 every cargo failure took
+// that skip, so a compile error in the backend this suite exists to check exited 0, and the land
+// (which runs this file directly, not through run.js) recorded it passed. A cargo that runs and
+// fails is a red check here; only a cargo that cannot be started at all is a skip.
 
 "use strict";
 
@@ -34,21 +39,29 @@ function wirePayload() {
     env: Object.assign({}, process.env, { PATH: process.env.PATH + ":" + process.env.HOME + "/.cargo/bin" }),
     maxBuffer: 32 * 1024 * 1024,
   });
-  if (r.error || r.status !== 0) {
-    return { ok: false, why: (r.error && r.error.message) || (r.stderr || "").trim().slice(-400) };
+  if (r.error && r.error.code === "ENOENT") {
+    return { ok: false, absent: true, why: r.error.message };
   }
-  return { ok: true, payload: JSON.parse(r.stdout) };
+  if (r.error || r.status !== 0) {
+    const why = (r.error && r.error.message) || (r.stderr || "").trim().slice(-400);
+    return { ok: false, absent: false, why: `cargo exited ${r.status}: ${why}` };
+  }
+  try {
+    return { ok: true, payload: JSON.parse(r.stdout) };
+  } catch (e) {
+    return { ok: false, absent: false, why: "the payload is not JSON: " + e.message };
+  }
 }
 
 async function main() {
   const run = createRun("real backend bytes, real renderer, WebKit");
 
   const wire = wirePayload();
-  if (!wire.ok) {
+  if (wire.absent) {
     // The skip is now RECORDED as well as printed. It read identically to a human before and
     // was invisible to `run.js`, which saw only exit 0 — so a CI runner with no cargo would
     // have counted this suite as green while it did nothing at all. `run.js` fails on a skip
-    // it was not explicitly told to allow.
+    // it was not explicitly told to allow, and proof-run.py records it NOT RUN.
     skipSuite(
       "real backend bytes, real renderer, WebKit",
       "could not run `cargo run --example timeline_payload` from app/src-tauri. Install Rust " +
@@ -56,6 +69,12 @@ async function main() {
     );
     return 0;
   }
+
+  await run.check("the backend emits the timeline payload (cargo run --example timeline_payload)", async () => {
+    if (!wire.ok) throw new Error(wire.why);
+    return `${wire.payload.items.length} item(s)`;
+  });
+  if (!wire.ok) return run.report();
 
   const { webkit } = loadPlaywright();
   const browser = await webkit.launch();

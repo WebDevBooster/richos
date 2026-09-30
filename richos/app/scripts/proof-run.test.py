@@ -339,6 +339,46 @@ try:
           "P38e proof-for.sh's UI line is recognized as a UI suite; the web app's node --test is not",
           [(i.label, i.cwd, i.argv) for i in real])
 
+    # P39 — the REAL realbytes.js on the land's own line, both ways it can fail to render the
+    # backend's bytes. A cargo that runs and fails (a compile error) is a red check; only a cargo
+    # that cannot be started is a skip, and that skip is NOT RUN. Before 2026-09-30 both were
+    # the same skip, exit 0, recorded `passed`. Neither case reaches the browser.
+    d39 = os.path.join(tmp, "p39")
+    fake = os.path.join(d39, "fakebin")
+    os.makedirs(fake)
+    with open(os.path.join(fake, "cargo"), "w") as fh:
+        fh.write("#!/bin/sh\necho 'error[E0425]: cannot find value `payload` in this scope' >&2\nexit 101\n")
+    os.chmod(os.path.join(fake, "cargo"), 0o755)
+    nocargo_home = os.path.join(d39, "home")
+    os.makedirs(nocargo_home)
+    line39 = "cd richos/app/ui/tests && node realbytes.js"
+    broken = items_from([line39], d39)[0]
+    broken.env["PATH"] = fake + os.pathsep + os.environ.get("PATH", "")
+    absent = items_from([line39], d39)[0]
+    absent.label = "realbytes-no-cargo"
+    # No cargo anywhere: the runner and the suite both add $HOME/.cargo/bin, so HOME moves too.
+    absent.env["PATH"] = os.pathsep.join((os.path.dirname(sys.executable), "/usr/bin", "/bin"))
+    absent.env["HOME"] = nocargo_home
+    saved_home = os.environ["HOME"]
+    os.environ["HOME"] = nocargo_home
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            pr.run([broken], Args(), os.path.join(d39, "broken"), sampler=idle)
+            pr.run([absent], Args(), os.path.join(d39, "absent"), sampler=idle)
+    finally:
+        os.environ["HOME"] = saved_home
+    with open(broken.log, errors="replace") as fh:
+        broken_log = fh.read()
+    check(broken.state == "failed" and broken.rc == 1 and "E0425" in broken_log and "FAIL" in broken_log,
+          "P39a realbytes.js over a cargo that fails to compile is a FAILED check naming the error, never a skip",
+          (broken.state, broken.rc, broken.notes, broken_log[-400:]))
+    with open(absent.log, errors="replace") as fh:
+        absent_log = fh.read()
+    check(absent.state == "not-run" and (absent.not_run or {}).get("why") == "suite-skipped"
+          and "SKIPPED, not passed" in absent_log,
+          "P39b realbytes.js with no cargo at all still skips, loudly, and the land records it NOT RUN",
+          (absent.state, absent.notes, absent_log[-400:]))
+
     # P18 — a proof run started by a check of a proof run, in a MAIN checkout, is part of its
     # caller's integration plan and never waits for the episode lock its caller holds. Before
     # 2026-09-29 it opened a second episode, waited its whole bound for that lock and failed
