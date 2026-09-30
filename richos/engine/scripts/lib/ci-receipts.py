@@ -36,11 +36,15 @@ Usage:
     ci-receipts.py verify --plan <file>    receipts on stdin, plan ids in <file>
         --proof-run <target directory>   validate current inputs and original-SHA provenance
 
+Environment:
+    RICHOS_CI_KNOWN_RED   the declaration table to read (default: ci-known-red.tsv beside this file)
+
 Exit codes:
     0  the union equals the plan and every verdict is green
     1  a unit is missing, unplanned, red, or the commits disagree
     2  usage, or a receipt line that cannot be parsed
 """
+import datetime
 import json
 import os
 import sys
@@ -159,6 +163,25 @@ def reweigh(ran, weights_path, emit_path):
             print("    %8.1fs  %-62s planned %.1fs (%.1fx)" % (secs, uid, w, secs / w))
 
 
+def known_red_table(path):
+    """{unit: expiry} from lib/ci-known-red.tsv, or None when it cannot be read.
+
+    Same columns as ci-shard.sh's kr_field: id, classified, expires, ... A row
+    with fewer than six columns is not a row there, so it is not one here."""
+    rows = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh:
+                if ln.startswith("#"):
+                    continue
+                parts = ln.rstrip("\n").split("\t")
+                if len(parts) >= 6 and parts[0] not in rows:
+                    rows[parts[0]] = parts[2]
+    except OSError:
+        return None
+    return rows
+
+
 def receipt_contradictions(rec):
     """Why this receipt's own fields contradict its verdict label, or None.
 
@@ -268,6 +291,26 @@ def verify(plan_path, weights_path=None, emit_path=None, proof_run=None):
         problems.append(
             "%d receipt(s) contradict their own verdict, so the label is not evidence:\n    %s"
             % (len(contradicted), "\n    ".join("%-72s %s" % (u, why) for u, why in contradicted)))
+
+    # KNOWN-RED is an excuse with an expiry, granted by a live row. A receipt
+    # only claims it; whether the row exists and is unexpired is read here.
+    claimed = sorted(u for u, recs in ran.items() if recs[0].get("verdict") == "KNOWN-RED")
+    if claimed:
+        table = known_red_table(os.environ.get("RICHOS_CI_KNOWN_RED") or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "ci-known-red.tsv"))
+        today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        unexcused = []
+        for u in claimed:
+            if table is None:
+                unexcused.append("%s (lib/ci-known-red.tsv could not be read)" % u)
+            elif u not in table:
+                unexcused.append("%s (no declaration in lib/ci-known-red.tsv)" % u)
+            elif not table[u] or today > table[u]:
+                unexcused.append("%s (declaration expired %s)" % (u, table[u] or "<no date>"))
+        if unexcused:
+            problems.append(
+                "%d KNOWN-RED receipt(s) are not excused by a live declaration:\n    %s"
+                % (len(unexcused), "\n    ".join(unexcused)))
 
     red = sorted((u, recs[0].get("verdict"), recs[0].get("rc"))
                  for u, recs in ran.items() if recs[0].get("verdict") not in GREEN)

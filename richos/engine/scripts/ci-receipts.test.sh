@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 #
 # ci-receipts.test.sh — `ci-receipts.py verify` must not certify a receipt whose
-# own numbers refute its label.
+# own numbers refute its label, and must not excuse KNOWN-RED without a live row.
 #
 #   R1  a good PASS receipt is certified (the control: the checker still says yes).
 #   R2  PASS with rc=1, expected_rc=0 is NOT certified.
 #   R3  PASS with rc=0, expected_rc=3 (a scoped section that ran everything) is NOT certified.
 #   R4  a receipt missing its sha and exit fields is NOT certified.
+#   R5  KNOWN-RED with a live, unexpired declaration row is certified and reported.
+#   R6  KNOWN-RED with no declaration row is NOT certified.
+#   R7  KNOWN-RED whose declaration expired is NOT certified.
+#   R8  KNOWN-RED with an unreadable declaration table is NOT certified.
 #
 # CI_RECEIPTS may name another copy of the checker (used to show the new cases
 # fail on the version before the fix).
@@ -58,6 +62,18 @@ if [ "$RC" = 1 ] && grep -q 'contradict' <<<"$OUT"; then ok "R3  PASS with rc=0 
 
 RICHOS_CI_KNOWN_RED="$SANDBOX/empty.tsv" run '{"unit":"scripts/a.test.sh","verdict":"PASS"}'
 if [ "$RC" = 1 ]; then ok "R4  a receipt with no sha and no exit fields is refused"; else bad "R4  (rc=$RC): $OUT"; fi
+
+RICHOS_CI_KNOWN_RED="$SANDBOX/live.tsv" run "$(receipt KNOWN-RED 1 0)"
+if [ "$RC" = 0 ] && grep -q 'declared KNOWN-RED' <<<"$OUT"; then ok "R5  KNOWN-RED with a live declaration is certified and reported"; else bad "R5  (rc=$RC): $OUT"; fi
+
+RICHOS_CI_KNOWN_RED="$SANDBOX/empty.tsv" run "$(receipt KNOWN-RED 1 0)"
+if [ "$RC" = 1 ] && grep -q 'no declaration' <<<"$OUT"; then ok "R6  KNOWN-RED with no declaration row is refused"; else bad "R6  (rc=$RC): $OUT"; fi
+
+RICHOS_CI_KNOWN_RED="$SANDBOX/expired.tsv" run "$(receipt KNOWN-RED 1 0)"
+if [ "$RC" = 1 ] && grep -q 'expired' <<<"$OUT"; then ok "R7  KNOWN-RED past its expiry is refused"; else bad "R7  (rc=$RC): $OUT"; fi
+
+RICHOS_CI_KNOWN_RED="$SANDBOX/does-not-exist.tsv" run "$(receipt KNOWN-RED 1 0)"
+if [ "$RC" = 1 ] && grep -q 'could not be read' <<<"$OUT"; then ok "R8  KNOWN-RED with an unreadable table is refused"; else bad "R8  (rc=$RC): $OUT"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
