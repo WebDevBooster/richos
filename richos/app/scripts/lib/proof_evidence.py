@@ -108,7 +108,26 @@ def declared_output(path):
 
 def excluded(path):
     """Output, never input: a tagged build cache or a declared test-output directory."""
-    return build_cache(path) or declared_output(path)
+    return build_cache(path) or declared_output(path) or bytecode_cache(path)
+
+
+def bytecode_cache(path):
+    """True for a `__pycache__` directory that git ignores and tracks nothing in.
+
+    Compiled bytecode is derived from the source beside it and Python recompiles it when the
+    source changes, so it is output, never an input (2026-09-30: a hook test wrote
+    hooks/__pycache__/guard-idle-land.cpython-314.pyc and six checks whose declared inputs held
+    that directory became "invalid: execution inputs changed during the check"). The same
+    safety condition as a build cache: a directory git would land is still bound."""
+    path = Path(path)
+    if path.name != "__pycache__":
+        return False
+    try:
+        if path.is_symlink() or not path.is_dir():
+            return False
+    except OSError:
+        return False
+    return ignored_and_untracked(path)
 
 
 def build_cache(path):

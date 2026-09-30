@@ -662,6 +662,12 @@ def launch(item, n, logdir, tokens_dir, reserved):
         if os.path.exists(item.ui_ledger):
             os.unlink(item.ui_ledger)    # an earlier attempt's records are not this attempt's
         env["RICHOS_UI_TESTS_LEDGER"] = item.ui_ledger
+    # Python bytecode is never a check's output into the checkout (2026-09-30): a hook test that
+    # ran guard-idle-land.py wrote hooks/__pycache__/guard-idle-land.cpython-314.pyc inside six
+    # other checks' declared inputs, and all six became "invalid: execution inputs changed
+    # during the check". Set here, like the ledger path below, so it is not part of any input
+    # identity. A check that needs bytecode (a test of the bytecode cache itself) sets its own.
+    env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     item.state, item.started = "running", time.monotonic()
     evidence = getattr(item, "evidence", None)
     if evidence:

@@ -981,5 +981,59 @@ class NativeResults(Base):
         self.assertNotIn("EXIT STATUS", out.getvalue())
 
 
+class Interrupted(Base):
+    """A hold or release cut short must not lose the record of what it stopped (hunt P5-01)."""
+
+    def setUp(self):
+        super().setUp()
+        self.sleeper = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        self.procs.append(self.sleeper)
+        self.pids.add(self.sleeper.pid)
+        self.real_kill = os.kill
+
+    def state_of(self, pid):
+        return agent_hold.snapshot()[pid]["stat"]
+
+    def hold_it(self, kill=None):
+        from unittest.mock import patch
+        target = self.sleeper.pid
+        tree = ({target}, set(), set(), [], {})
+        with patch.object(agent_hold, "owned_tree", return_value=tree), \
+                patch.object(agent_hold, "calls", return_value=[]), \
+                patch.object(agent_hold, "ensure_watchdog", return_value=None), \
+                patch.object(agent_hold.os, "kill", side_effect=kill or self.real_kill):
+            return agent_hold.hold(self.session, self.agent, "fixture", sample=0)
+
+    def test_a_hold_cut_short_right_after_the_stop_still_records_the_process(self):
+        def kill_then_interrupt(pid, sig):
+            self.real_kill(pid, sig)
+            if sig == signal.SIGSTOP:
+                raise KeyboardInterrupt()
+        with self.assertRaises(KeyboardInterrupt):
+            self.hold_it(kill_then_interrupt)
+        self.assertTrue(wait_for(lambda: self.state_of(self.sleeper.pid).startswith("T")), "it was stopped")
+        rec = agent_hold._read_json(agent_hold._held_path(self.session, self.agent))
+        self.assertIn(str(self.sleeper.pid), rec["held"], "the stopped process is on record")
+        agent_hold.release(self.session, self.agent)
+        self.assertTrue(wait_for(lambda: not self.state_of(self.sleeper.pid).startswith("T")),
+                        "release continued it")
+
+    def test_a_release_cut_short_before_its_signals_is_finished_by_the_next_release(self):
+        from unittest.mock import patch
+        self.hold_it()
+        self.assertTrue(wait_for(lambda: self.state_of(self.sleeper.pid).startswith("T")))
+
+        def interrupt(pid, sig):
+            raise KeyboardInterrupt()
+        with patch.object(agent_hold.os, "kill", side_effect=interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                agent_hold.release(self.session, self.agent)
+        self.assertTrue(self.state_of(self.sleeper.pid).startswith("T"), "still stopped after the cut")
+        result = agent_hold.release(self.session, self.agent)
+        self.assertIn(self.sleeper.pid, result["continued"])
+        self.assertTrue(wait_for(lambda: not self.state_of(self.sleeper.pid).startswith("T")))
+        self.assertFalse(os.path.exists(agent_hold._held_path(self.session, self.agent) + agent_hold.RELEASING))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

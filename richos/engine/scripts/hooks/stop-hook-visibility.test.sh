@@ -441,6 +441,36 @@ elif [ -f "$ENGINE_ROOT/scripts/hooks/$FIRST_HOOK" ]; then
     rm -f "$MUT_OUT" "$MUT_ERR"
 fi
 
+# 3d. A NOTICE NEVER BLOCKS, EVEN ON A BROKEN INSTALL (hunt part 3, finding 3).
+# Every notice-*.sh carries the shared root bootstrap, whose missing-library
+# branch announces "ENFORCEMENT IS NOT ACTIVE". For a guard that is a refusal;
+# for a notice it must be the same announcement on the operator channel and
+# exit 0, because a Stop hook that exits 2 re-fires to the block cap and strands
+# the turn it was only meant to inform. Each real notice is copied where its
+# ../lib/resolve-roots.sh does not exist, which is the broken install.
+BARE="$SANDBOX/bare/scripts/hooks"
+mkdir -p "$BARE"
+N3D=0
+for f in "$ENGINE_ROOT"/scripts/hooks/notice-*.sh; do
+    h="$(basename "$f")"
+    case "$h" in *.test.sh) continue ;; esac
+    grep -q 'BROKEN INSTALL' "$f" 2>/dev/null || continue
+    N3D=$((N3D + 1))
+    cp "$f" "$BARE/$h"
+    b_out="$(mktemp "$SANDBOX/bo.XXXXXX")"
+    RICHOS_ENTITY_ROOT="$UNADOPTED" bash "$BARE/$h" <"$STOP_PAYLOAD" >"$b_out" 2>/dev/null
+    b_rc=$?
+    if [ "$b_rc" -eq 0 ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if "BROKEN INSTALL" in d.get("systemMessage","") else 1)' "$b_out" 2>/dev/null; then
+        ok "3d. $h on a broken install announces to the operator and does not block"
+    else
+        bad "3d. $h on a broken install must announce and exit 0" "exit $b_rc; stdout: $(head -c 160 "$b_out" 2>/dev/null)"
+    fi
+    rm -f "$b_out"
+done
+if [ "$N3D" -eq 0 ]; then
+    bad "3d. notice hooks were found to check" "no notice-*.sh carries the broken-install banner — 3d checked nothing"
+fi
+
 # 3c. THE NOISE CONTROL. A directory that has simply not adopted the engine is
 # NOT APPLICABLE, not broken, and every Stop hook must stay silent there —
 # otherwise "announce when you cannot run" turns into nagging every session

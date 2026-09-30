@@ -434,6 +434,34 @@ case "$VERDICT" in
         HEADLINE="this commit changes the record, and $(printf '%s' "$RESULT" | sed -n '1p' | cut -f2) thing(s) about these TODOs are not ready"
     else
         HEADLINE="PRE-EXISTING: $(printf '%s' "$RESULT" | sed -n '1p' | cut -f2) thing(s) about this repository's CEO TODOs are not ready (this commit did not touch the record)"
+        # A commit that neither edits the record nor removes a file cannot have
+        # made a row false, so it must not be held hostage to somebody else's
+        # stale row (hunt part 3, finding 1). The reason for checking every
+        # commit still holds where a commit CAN break a claim: one that deletes
+        # or renames away an artifact a row names. Those keep the refusal; all
+        # others get the same report as a notice and go through.
+        REMOVED_LIST="$(git -C "$CT_REPO" diff --cached --name-only --no-renames --diff-filter=D 2>/dev/null || true)"
+        if [ "$STAGE_ALL" -eq 1 ]; then
+            REMOVED_LIST="$REMOVED_LIST$(git -C "$CT_REPO" diff --name-only --no-renames --diff-filter=D 2>/dev/null || true)"
+        fi
+        # A commit that stages the generated entry point or the README is the
+        # commonest way to make the view disagree with the record, so it is
+        # judged like a record edit and keeps the refusal.
+        SURFACE_STAGED=0
+        for surface in "$CT_TODO_VIEW" "$CT_ROOT_README"; do
+            [ -n "$surface" ] || continue
+            case "
+$STAGED_LIST
+" in
+                *"
+$surface
+"*) SURFACE_STAGED=1 ;;
+            esac
+        done
+        if [ -z "$REMOVED_LIST" ] && [ "$SURFACE_STAGED" -eq 0 ]; then
+            ct_refusal "guard-ceo-todos-commits.sh" "$HEADLINE — NOTICE ONLY, this commit removes no file, so it is not blocked" "$BODY" "$CT_REPO/$CT_TODO_RECORD" >&2
+            exit 0
+        fi
     fi
     ct_refusal "guard-ceo-todos-commits.sh" "$HEADLINE" "$BODY" "$CT_REPO/$CT_TODO_RECORD" >&2
     exit 2 ;;

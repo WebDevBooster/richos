@@ -30,6 +30,9 @@ import sys
 import time
 import math
 
+# Before the import below: cpu_policy and what it imports live under engine/scripts/lib, and
+# compiling them here wrote lib/__pycache__ into the checkout on every admitted run (2026-09-30).
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'engine/scripts/lib'))
 from cpu_policy import DEFAULT_MAX_CPU, admission_open, busy_percent
 try:

@@ -114,7 +114,7 @@ if [ ! -f "$_RR_LIB" ]; then
     printf '%s\n' "$_RR_MSG" >&2
     _RR_J="${_RR_MSG//\\/\\\\}"; _RR_J="${_RR_J//\"/\\\"}"; _RR_J="${_RR_J//$'\n'/\\n}"
     printf '{"systemMessage":"%s"}\n' "$_RR_J"
-    exit 2
+    exit 0
 fi
 # shellcheck source=../lib/resolve-roots.sh
 . "$_RR_LIB"
