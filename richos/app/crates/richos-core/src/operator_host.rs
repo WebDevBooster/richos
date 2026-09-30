@@ -1886,23 +1886,39 @@ impl OperatorHost {
     /// The quit path: every lead by SIGTERM to its supervisor (r3 (q) item 2).
     pub fn quit_all(&self) -> Vec<(ConversationKey, Quit)> {
         let all: Vec<Arc<Mutex<Conversation>>> = self.conversations.lock().unwrap().values().cloned().collect();
-        let mut out = Vec::new();
+        let mut leads = Vec::new();
         for conversation in all {
-            let lead = {
-                let mut c = conversation.lock().unwrap();
-                c.quitting = true;
-                // He chose to quit while his team worked: that work is stopped (the quit
-                // sheet's "The work is stopped"), and the next launch does not carry it on.
-                if c.in_turn || !c.awaiting.is_empty() {
-                    self.close_answer_turns(&mut c);
-                }
-                c.lead.take().map(|l| (c.key.clone(), l))
-            };
-            if let Some((key, lead)) = lead {
-                let quit = lead.quit();
-                self.log(&format!("{}/{}: quit ({quit:?})", key.entity_id, key.thread_id));
-                out.push((key, quit));
+            let mut c = conversation.lock().unwrap();
+            c.quitting = true;
+            // He chose to quit while his team worked: that work is stopped (the quit
+            // sheet's "The work is stopped"), and the next launch does not carry it on.
+            if c.in_turn || !c.awaiting.is_empty() {
+                self.close_answer_turns(&mut c);
             }
+            if let Some(lead) = c.lead.take() {
+                leads.push((c.key.clone(), lead));
+            }
+        }
+        // **Every lead is asked to end at once** (hunt 2026-09-29 part 1, finding 35). Each
+        // lead still gets its whole grace (`QUIT_GRACE`: SIGTERM to its supervisor, which reaps
+        // the lead's tree, and only then the group kill, r3 (q) item 2), but the graces now run
+        // side by side instead of adding up per conversation. This returns only when every lead
+        // has ended, so the claim, which the desk releases after it, is still given up only
+        // after every lead has gone (e item 3).
+        let out: Vec<(ConversationKey, Quit)> = std::thread::scope(|scope| {
+            let ending: Vec<_> = leads
+                .into_iter()
+                .map(|(key, lead)| (key, scope.spawn(move || lead.quit())))
+                .collect();
+            ending
+                .into_iter()
+                // A quit that panicked is re-raised here, as it was when this ran inline: no
+                // `Quit` would be a true account of a lead whose ending was never finished.
+                .map(|(key, quit)| (key, quit.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))))
+                .collect()
+        });
+        for (key, quit) in &out {
+            self.log(&format!("{}/{}: quit ({quit:?})", key.entity_id, key.thread_id));
         }
         out
     }
@@ -1935,7 +1951,11 @@ pub(crate) mod tests {
         /// whether the uuid was already on disk: the intent-before-send check (design §4.1 test 5).
         pub(crate) record_probe: Mutex<Option<PathBuf>>,
         pub(crate) on_disk_at_send: Mutex<Vec<bool>>,
+        /// Runs inside `quit`, after it is counted and before the lead is ended, so a test can
+        /// make one lead's quit take its time (a slow supervisor) and see what happens meanwhile.
+        pub(crate) quit_hook: Mutex<Option<QuitHook>>,
     }
+    pub(crate) type QuitHook = Arc<dyn Fn() + Send + Sync>;
     impl FakeLead {
         pub(crate) fn feed(&self, frame: Value) {
             self.book.lock().unwrap().observe(&frame);
@@ -1975,6 +1995,10 @@ pub(crate) mod tests {
         fn exited(&self) -> bool { *self.exited.lock().unwrap() }
         fn quit(&self) -> Quit {
             *self.quits.lock().unwrap() += 1;
+            let hook = self.quit_hook.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook();
+            }
             *self.exited.lock().unwrap() = true;
             Quit::Terminated { waited: Duration::ZERO }
         }
@@ -2996,6 +3020,42 @@ pub(crate) mod tests {
         let mut alive = reading.alive.clone();
         alive.sort();
         assert_eq!(alive, ["done-agent", "live-agent"]);
+    }
+
+    /// **Quit asks every lead to end at once** (hunt 2026-09-29 part 1, finding 35). Each lead's
+    /// quit is SIGTERM to its supervisor and up to `QUIT_GRACE` (10 s) for it to reap the lead's
+    /// tree; one after another, those graces added up per conversation. Here each of two leads'
+    /// quits waits until the other's has begun: a quit path that ends them one at a time cannot
+    /// satisfy the first of them, whose wait lets go by itself after 10 s and says so.
+    #[test]
+    fn quit_asks_every_lead_to_end_at_once_rather_than_one_grace_after_another() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        r.host.relay(&key("b"), "B", None, "go", Origin::DeskTyped).unwrap();
+        let (a, b) = (lead_of(&r, "a"), lead_of(&r, "b"));
+        let forced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        for (me, other) in [(&a, &b), (&b, &a)] {
+            let (other, flag) = (Arc::clone(other), Arc::clone(&forced));
+            *me.quit_hook.lock().unwrap() = Some(Arc::new(move || {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while *other.quits.lock().unwrap() == 0 {
+                    if Instant::now() >= deadline {
+                        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }));
+        }
+        let quits = r.host.quit_all();
+        assert!(!forced.load(std::sync::atomic::Ordering::SeqCst),
+                "one lead's quit waited out its grace before the next lead was asked to end");
+        assert_eq!(quits.len(), 2);
+        assert_eq!((*a.quits.lock().unwrap(), *b.quits.lock().unwrap()), (1, 1), "each lead is quit once");
+        assert!(a.exited() && b.exited());
+        for lead in [&a, &b] {
+            *lead.quit_hook.lock().unwrap() = None;
+        }
     }
 
     #[test]
