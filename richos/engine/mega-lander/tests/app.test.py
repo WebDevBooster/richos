@@ -187,6 +187,13 @@ class DesktopWork(unittest.TestCase):
             "--integration","/repoA=main","--base","/repoA=deadbeef"]
         self.assertEqual(got,want)
 
+    def test_build_spawn_command_scopes_a_per_repository_base_to_every_repository(self):
+        # Part 4, finding 2: a reviewer or continuation of a job in several
+        # repositories starts each workspace at that repository's own commit.
+        got=self.app.build_spawn_command([("/repoA","/destA"),("/repoB","/destB")],"reviewer-sonnet-abc",
+            "reviewer","/x/y.brief","Review",integration=None,base={"/repoB":"b"*40,"/repoA":"a"*40})
+        self.assertEqual(got[got.index("--json")+1:],["--base","/repoA="+"a"*40,"--base","/repoB="+"b"*40])
+
     def test_prepare_with_repos_creates_a_workspace_in_each_and_scopes_the_form(self):
         second=self.root/"second project";second.mkdir()
         subprocess.run(["git","init","--template=","-q","-b","main",str(second)],check=True)
@@ -207,6 +214,97 @@ class DesktopWork(unittest.TestCase):
         self.assertTrue(any(self.repo.name in l for l in lines))
         self.assertTrue(any(second.name in l for l in lines))
         self.assertEqual(self.call("inspect")["records"][0]["request"]["repos"],[str(self.repo),str(second)])
+
+    def second_repository(self):
+        second=self.root/"second project";second.mkdir()
+        subprocess.run(["git","init","--template=","-q","-b","main",str(second)],check=True)
+        subprocess.run(["git","-C",str(second),"-c","core.hooksPath=/dev/null","-c","commit.gpgSign=false","-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","--allow-empty","-qm","Fixture"],check=True)
+        self.registry.write_text(json.dumps({"version":2,"entities":[{"id":"depot","roots":[str(self.repo),str(second)],
+            "connected_repositories":[str(self.repo),str(second)]}]}))
+        return second
+
+    def workspaces_of(self,ready):
+        canonical=self.app.W.load_agent(self.app.W.named_key(self.session,ready["name"]))
+        return {w["repo"]:w["path"] for w in canonical["workspaces"] if w.get("kind")=="cc"}
+
+    def commit_in_each(self,paths,file,text):
+        commits={}
+        for repo,path in paths.items():
+            (Path(path)/file).write_text(text+" in "+Path(repo).name)
+            self.app.git(path,"add",file)
+            self.app.git(path,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional "+file)
+            commits[repo]=self.app.git(path,"rev-parse","HEAD")
+        return commits
+
+    def test_a_job_in_two_repositories_is_edited_reviewed_and_landed_in_both(self):
+        """Part 4, finding 2. `prepare` accepted a job in two repositories and
+        created a workspace in each, and then every later step handled only the
+        primary: a direct edit in the second workspace was refused, review named
+        only the primary commit, integrate merged only the primary repository
+        and canonical cleanup then refused the unmerged second one."""
+        second=self.second_repository()
+        spec={**self.args,"request_id":"multi-worker","repos":[str(second)]}
+        worker=self.call("prepare",spec)
+        self.start_fixture_worker(worker,"multi-worker")
+        paths=self.workspaces_of(worker)
+        self.assertEqual(sorted(paths),sorted([str(self.repo),str(second)]))
+        # The edit boundary covers every workspace of the job, and still nothing else.
+        event={"session_id":self.session,"agent_id":"multi-worker","cwd":str(self.coord),"tool_name":"Write",
+               "tool_input":{"file_path":str(Path(paths[str(second)])/"result.txt")}}
+        context=self.app.worker_context(self.scope,event)["hookSpecificOutput"]["additionalContext"]
+        for path in paths.values(): self.assertIn(str(Path(path).resolve()),context)
+        with self.assertRaisesRegex(ValueError,"outside"):
+            self.app.worker_context(self.scope,{**event,"tool_input":{"file_path":str(self.root/"elsewhere.txt")}})
+        commits=self.commit_in_each(paths,"result.txt","FICTIONAL")
+        self.finish_fixture_worker("multi-worker")
+        # A review that does not cover every repository is refused before anything is created.
+        with self.assertRaisesRegex(ValueError,"exactly the repositories"):
+            self.call("prepare",{**self.args,"request_id":"partial-review","role":"reviewer","review_of":worker["id"]})
+        reviewer=self.call("prepare",{**spec,"request_id":"multi-review","role":"reviewer","review_of":worker["id"],
+            "title":"Review both","brief":"Review the change in both repositories; do not modify any files."})
+        self.assertEqual(reviewer["review_target"]["commits"],commits)
+        self.start_fixture_worker(reviewer,"multi-reviewer")
+        review_paths=self.workspaces_of(reviewer)
+        for repo,path in review_paths.items():
+            self.assertEqual(self.app.git(path,"rev-parse","HEAD"),commits[repo])   # each at the worker's exact commit
+        # A verdict naming only the primary commit is not a review of this work.
+        primary=commits[str(self.repo)]
+        self.finish_fixture_worker("multi-reviewer","RICHOS_REVIEW "+json.dumps(
+            {"commit":primary,"verdict":"passed","checks":["primary only"]}))
+        with self.assertRaisesRegex(ValueError,"passing review"):
+            self.call("integrate",{"worker_id":worker["id"],"reviewer_id":reviewer["id"]})
+        self.assertNotEqual(self.app.git(second,"rev-parse","main"),commits[str(second)])
+        self.finish_fixture_worker("multi-reviewer","RICHOS_REVIEW "+json.dumps(
+            {"commit":primary,"commits":commits,"verdict":"passed","checks":["both repositories"]}))
+        landed=self.call("integrate",{"worker_id":worker["id"],"reviewer_id":reviewer["id"]})
+        self.assertTrue(landed["work_integrated"])
+        self.assertEqual(landed["cleanup_pending"],[])
+        for repo,commit in commits.items():
+            self.assertEqual(self.app.git(repo,"rev-parse","main"),commit)
+            self.assertIn(commit,landed["evidence_ref"])
+            self.assertEqual(self.app.W.land_records(repo)[-1]["commit"],commit)
+        self.assertEqual(sorted(landed["land_locks"]),sorted(commits))
+        for path in list(paths.values())+list(review_paths.values()): self.assertFalse(Path(path).exists(),path)
+        self.assertTrue(self.call("complete",{"obligation_id":"fixture-task","worker_ids":[worker["id"]]})["obligation_closed"])
+
+    def test_a_continuation_of_a_job_in_two_repositories_restarts_each_at_its_saved_commit(self):
+        """Part 4, finding 2, continuation: the saved commit was read from the
+        primary repository only, so the second repository's new workspace began
+        somewhere else while canonical continuation deleted the old one."""
+        second=self.second_repository()
+        spec={**self.args,"request_id":"multi-first","repos":[str(second)]}
+        worker=self.call("prepare",spec)
+        self.start_fixture_worker(worker,"multi-first")
+        commits=self.commit_in_each(self.workspaces_of(worker),"partial.txt","SAVED")
+        self.finish_fixture_worker("multi-first")
+        with self.assertRaisesRegex(ValueError,"exactly the repositories"):
+            self.call("prepare",{**self.args,"request_id":"narrow-continue","continue_of":worker["id"]})
+        continued=self.call("prepare",{**spec,"request_id":"multi-continue","continue_of":worker["id"]})
+        self.assertEqual(continued["continuation"]["commits"],commits)
+        self.start_fixture_worker(continued,"multi-continue")
+        for repo,path in self.workspaces_of(continued).items():
+            self.assertEqual(self.app.git(path,"rev-parse","HEAD"),commits[repo])
+            self.assertEqual((Path(path)/"partial.txt").read_text(),"SAVED in "+Path(repo).name)
 
     def test_prepare_rejects_a_repeated_or_unconnected_repos_entry(self):
         with self.assertRaisesRegex(ValueError,"distinct"):

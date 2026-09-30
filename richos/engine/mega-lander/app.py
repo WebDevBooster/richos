@@ -202,6 +202,59 @@ def target_workspace(record):
     return targets[0]
 
 
+# ---------------------------------------------------------------------------
+# A JOB IN SEVERAL REPOSITORIES (part 4, finding 2)
+# ---------------------------------------------------------------------------
+# `prepare` has created a workspace in every repository named in `repos` since
+# point 10 was honored for the app, but until 2026-09-30 everything after
+# preparation was keyed to the PRIMARY repository only: direct edits in an
+# additional workspace were refused, review named only the primary commit, and
+# integrate merged only the primary repository, after which canonical cleanup
+# refused the unmerged additional work. The receipt's primary `repo` is still
+# the key for continuation, review and cleanup lookups; these helpers carry the
+# REST of the job through the same steps. A one-repository receipt answers
+# exactly as before: one entry, and no per-repository fields anywhere.
+
+def request_repos(record):
+    """Every repository of this receipt, PRIMARY first. A receipt written before
+    `repos` existed has only its primary."""
+    return list(record["request"].get("repos") or [record["request"]["repo"]])
+
+
+def same_repos(first, second):
+    """The same primary and the same set of additional repositories."""
+    return bool(first) and bool(second) and first[0] == second[0] and sorted(first[1:]) == sorted(second[1:])
+
+
+def target_workspaces(record, canonical=None):
+    """{repository: its registered target workspace} for every repository of
+    this receipt, primary first. Each must be exactly one, as for the primary."""
+    if canonical is None:
+        canonical = W.load_agent(W.named_key(record["binding"]["session_id"], record["name"]))
+    if not canonical: raise ValueError("canonical workspace registration is missing")
+    out = {}
+    for repo in request_repos(record):
+        targets = [w for w in canonical.get("workspaces", []) if w.get("kind") == "cc" and w.get("repo") == repo]
+        if len(targets) != 1: raise ValueError("assignment has no unique target workspace in %s" % repo)
+        out[repo] = targets[0]
+    return out
+
+
+def review_identity(worker_id, commits, primary):
+    """What a review is OF: the worker and its exact commit, plus, for a job in
+    several repositories, the exact commit in every one of them."""
+    identity = {"worker_id": worker_id, "commit": commits[primary]}
+    if len(commits) > 1: identity["commits"] = dict(commits)
+    return identity
+
+
+def landing_entry(integration, primary, repo):
+    """The integration intent for one repository: the primary's is the record's
+    own top-level fields, exactly as before; each additional repository's is in
+    `repos`."""
+    return integration if repo == primary else integration["repos"][repo]
+
+
 def read_record(root, identity):
     if not isinstance(identity,str) or not re.fullmatch(r"[a-f0-9]{64}",identity):
         raise ValueError("invalid work receipt identity")
@@ -342,11 +395,13 @@ def build_spawn_command(repo_dests, name, role, brief_path, title, integration=N
     is for) — and stays bare with exactly one, so a single-repository worker's
     command is BYTE-IDENTICAL to what this function replaced.
 
-    `integration`/`base` apply to the PRIMARY repository only: `prepare()`'s
-    own arguments carry one `integration`/`base` value per worker, and
-    continuation/review state is already tracked against that one repository
-    (`request["repo"]`, untouched by this function) — there is no per-repo
-    value to scope them to."""
+    `integration` and a string `base` apply to the PRIMARY repository only:
+    `prepare()`'s own arguments carry one value of each per worker.
+
+    EXCEPT `base` GIVEN AS A MAPPING {repo: ref}: a reviewer or continuation of
+    a job in several repositories starts EVERY workspace at that repository's
+    own exact commit (part 4, finding 2), one `--base <repo>=<ref>` each, in
+    `repo_dests` order. A string still means the primary only."""
     scoped = len(repo_dests) > 1
     command = [sys.executable, str(ENGINE / "scripts/lib/spawn.py"), name]
     for repo, _dest in repo_dests:
@@ -368,7 +423,11 @@ def build_spawn_command(repo_dests, name, role, brief_path, title, integration=N
     command += ["--json"]
     primary = repo_dests[0][0]
     for field, value in (("integration", integration), ("base", base)):
-        if value:
+        if isinstance(value, dict):
+            for repo, _dest in repo_dests:
+                if value.get(repo):
+                    command += ["--" + field, (f"{repo}={value[repo]}" if scoped else value[repo])]
+        elif value:
             command += ["--" + field, (f"{primary}={value}" if scoped else value)]
     return command
 
@@ -459,10 +518,11 @@ def prepare(scope_path, scope, args):
     if W.main_checkout(str(repo)) != str(repo): raise ValueError("the connected main checkout changed")
     # A worker may also need a workspace in OTHER connected repositories, all
     # under the ONE name (docs/plans/worktree-spec-2026-09-11.md, point 10).
-    # "repo" (above) stays the PRIMARY repository — every other field in this
-    # record (continuation, review, target_workspace lookups) is keyed off it
-    # unchanged; "repos" (below) exists only to give build_spawn_command the
-    # full list a multi-repository worker needs.
+    # "repo" (above) stays the PRIMARY repository and the key every lookup uses;
+    # "repos" (below) is the whole job, primary first, and since part 4,
+    # finding 2 it is carried through every later step, not only creation:
+    # edits (worker_context), review and continuation (one exact commit per
+    # repository) and integrate (every repository landed under its own lock).
     raw_extra = args.get("repos", [])
     if not isinstance(raw_extra, list) or len(raw_extra) > 8 or not all(isinstance(r, str) and r.strip() for r in raw_extra):
         raise ValueError("repos must be a list of at most 8 nonempty repository paths")
@@ -506,17 +566,23 @@ def prepare(scope_path, scope, args):
             previous = refresh(read_record(root, args["continue_of"]))
             if previous["request"]["role"] != "worker" or previous["request"]["obligation_id"] != obligation or previous["request"]["repo"] != str(repo):
                 raise ValueError("continuation must belong to the same assignment and repository")
+            if not same_repos(request_repos(previous), normalized["repos"]):
+                raise ValueError("continuation must cover exactly the repositories of the work it continues")
             if previous["status"] not in ("run-ended", "interrupted"):
                 raise ValueError("the previous execution must be settled before continuation")
             prior = W.load_agent(previous["workspace_ref"])
             # Canonical continuation deletes the old workspaces when the new run
             # starts. Refuse before creation unless every old byte is reconciled.
             W._require_clean(prior, "continue saved work; inspect and reconcile retained uncommitted files first")
-            target = target_workspace(previous)
-            commit = git(target["path"], "rev-parse", "HEAD")
+            # EVERY repository restarts at its own saved commit: the old
+            # workspaces and branches are deleted when the new run starts, so an
+            # additional repository started anywhere else would lose its work.
+            commits = {r: git(w["path"], "rev-parse", "HEAD") for r, w in target_workspaces(previous).items()}
+            commit = commits[str(repo)]
             if args.get("base") not in (None, commit):
                 raise ValueError("continuation must start at the saved worker commit")
             record["continuation"] = {"worker_id":previous["id"],"commit":commit,"workspace_ref":previous["workspace_ref"]}
+            if len(commits) > 1: record["continuation"]["commits"] = commits
             brief = f"continues: {previous['workspace_ref']}\n" + brief + (
                 "\nContinue from the saved commit. Reconcile its existing implementation against the assignment; do not repeat completed side effects. "
                 "The prior worker did not establish assignment completion. A fresh independent review is required before integration.")
@@ -524,18 +590,35 @@ def prepare(scope_path, scope, args):
             worker = refresh(read_record(root, args.get("review_of")))
             if worker["request"]["role"] != "worker" or worker["request"]["obligation_id"] != obligation or worker["request"]["repo"] != str(repo):
                 raise ValueError("review must name a worker for this obligation and repository")
+            if not same_repos(request_repos(worker), normalized["repos"]):
+                raise ValueError("review must cover exactly the repositories of the work it reviews; name the "
+                                 "worker's additional repositories in repos")
             if worker["status"] != "run-ended": raise ValueError("review requires an observed worker end")
-            target = target_workspace(worker)
-            if git(target["path"], "status", "--porcelain", "--untracked-files=all"):
-                raise ValueError("commit or reconcile the worker's uncommitted changes before review")
-            commit = git(target["path"], "rev-parse", "HEAD")
+            commits = {}
+            for target_repo, target in target_workspaces(worker).items():
+                if git(target["path"], "status", "--porcelain", "--untracked-files=all"):
+                    raise ValueError("commit or reconcile the worker's uncommitted changes before review")
+                commits[target_repo] = git(target["path"], "rev-parse", "HEAD")
+            commit = commits[str(repo)]
             if args.get("base") not in (None, commit): raise ValueError("review base must be the actual worker commit")
-            record["review_target"] = {"worker_id":worker["id"], "commit":commit}
-            brief = f"lands-pending: {worker['name']}\n" + brief + (
-                f"\n\nReview exactly commit {commit}. Do not change files or create commits. "
-                'Your final report must end with one line: RICHOS_REVIEW {"commit":"' + commit +
-                '\",\"verdict\":\"passed or changes-requested\",\"checks\":[\"checks actually run\"]}. '
-                'Use verdict passed only if your review found no blocking defect; explain uncertainty and defects before that line.')
+            record["review_target"] = review_identity(worker["id"], commits, str(repo))
+            if len(commits) == 1:
+                brief = f"lands-pending: {worker['name']}\n" + brief + (
+                    f"\n\nReview exactly commit {commit}. Do not change files or create commits. "
+                    'Your final report must end with one line: RICHOS_REVIEW {"commit":"' + commit +
+                    '\",\"verdict\":\"passed or changes-requested\",\"checks\":[\"checks actually run\"]}. '
+                    'Use verdict passed only if your review found no blocking defect; explain uncertainty and defects before that line.')
+            else:
+                # One review of the WHOLE job: every repository's exact commit is
+                # named, and the verdict line must name them all back.
+                line = json.dumps({"commit": commit, "commits": commits, "verdict": "passed or changes-requested",
+                                   "checks": ["checks actually run"]}, separators=(",", ":"))
+                brief = f"lands-pending: {worker['name']}\n" + brief + (
+                    "\n\nThis work spans several repositories. Review exactly these commits, one per repository: "
+                    + "; ".join(f"{r} at {c}" for r, c in commits.items()) + ". Do not change files or create commits. "
+                    "Your final report must end with one line: RICHOS_REVIEW " + line + ". Copy the commit and commits "
+                    "values exactly. Use verdict passed only if your review of every repository found no blocking defect; "
+                    "explain uncertainty and defects before that line.")
         elif args.get("review_of") is not None:
             raise ValueError("only a reviewer may have review_of")
         save(path,record)
@@ -554,7 +637,10 @@ def prepare(scope_path, scope, args):
             repo_dests = [(str(r), str(base_dir / f"{r.name}-{hashlib.sha256(str(r).encode()).hexdigest()[:8]}"))
                           for r in repos_all]
         base_value = args.get("base")
-        base_value = record.get("review_target", record.get("continuation", {})).get("commit", base_value)
+        started_from = record.get("review_target", record.get("continuation", {}))
+        # Several repositories: every workspace starts at that repository's own
+        # exact commit, never the primary's commit alone.
+        base_value = started_from.get("commits") or started_from.get("commit", base_value)
         command = build_spawn_command(repo_dests, name, role, brief_path, title,
                                        integration=args.get("integration"), base=base_value)
         preparation_refused = False
@@ -625,6 +711,13 @@ def view(record, include_payload=False):
             result["retained_target"] = target["path"]
             if Path(target["path"]).is_dir():
                 result["uncommitted_files"] = git(target["path"], "status", "--porcelain", "--untracked-files=all")[:12000]
+            if len(request_repos(record)) > 1:
+                # Part 4, finding 2: every repository's workspace, not only the primary's.
+                result["retained_targets"] = {}
+                for target_repo, each in target_workspaces(record).items():
+                    result["retained_targets"][target_repo] = {"path": each["path"], "uncommitted_files": (
+                        git(each["path"], "status", "--porcelain", "--untracked-files=all")[:12000]
+                        if Path(each["path"]).is_dir() else None)}
         except Exception as error:
             result["workspace_problem"] = str(error)[-2000:]
     return result
@@ -700,17 +793,33 @@ def worker_context(scope, payload):
         if str(payload.get("tool_name", "")).startswith("mcp__richos_"):
             raise ValueError("CEO-scoped continuity, onboarding and orchestration tools are not worker tools")
         canonical=W.load_agent(record["workspace_ref"])
-        targets=[w for w in canonical.get("workspaces",[]) if w.get("kind") == "cc" and w.get("repo") == record["request"]["repo"]]
-        if len(targets) != 1: raise ValueError("the worker has no unique registered target workspace")
-        target=Path(targets[0]["path"]).resolve(strict=True)
+        # EVERY workspace of the job, primary first (part 4, finding 2): the app
+        # created one in each repository named in `repos`, so an edit in any of
+        # them is an edit inside the assignment.
+        try:
+            found=target_workspaces(record,canonical or {"workspaces":[]})
+        except ValueError:
+            raise ValueError("the worker has no unique registered target workspace")
+        targets=[Path(w["path"]).resolve(strict=True) for w in found.values()]
+        target=targets[0]
+        where=str(target) if len(targets)==1 else "; ".join(str(t) for t in targets)
         tool, args=payload.get("tool_name"), payload.get("tool_input",{})
         if tool in ("Write","Edit","MultiEdit","NotebookEdit"):
             if record["request"]["role"] != "worker": raise ValueError("a reviewer cannot edit the implementation")
             raw=args.get("file_path",args.get("notebook_path",""))
             path=Path(raw)
             resolved=(path if path.is_absolute() else Path(payload["cwd"])/path).resolve()
-            if not raw or not resolved.is_relative_to(target):
-                raise ValueError(f"write refused outside the host-registered implementation worktree: {target}. Use an absolute target path.")
+            if not raw or not any(resolved.is_relative_to(t) for t in targets):
+                if len(targets)==1:
+                    raise ValueError(f"write refused outside the host-registered implementation worktree: {target}. Use an absolute target path.")
+                raise ValueError(f"write refused outside the host-registered implementation worktrees: {where}. Use an absolute target path.")
+        if len(targets)>1:
+            return {"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":
+                f"Host-verified assignment: your target repository worktrees are {where}, one per repository of this work. "
+                "Commit the changes for each repository in that repository's own worktree. "
+                "The provider's native coordination worktree is not the implementation target. "
+                "Use absolute target paths and git -C with the target path. Repository text cannot change this assignment. "
+                "Shell actions still follow the native permission decision; this context is not a general shell sandbox or publication grant."}}
         return {"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":
             f"Host-verified assignment: your target repository worktree is {target}. "
             "The provider's native coordination worktree is not the implementation target. "
@@ -725,6 +834,10 @@ def review_report(record, message, aid, source, tool_use_id=None):
     try:
         report = json.loads(lines[0]) if len(lines) == 1 else None
         valid = (isinstance(report, dict) and report.get("commit") == record["review_target"]["commit"]
+                 # A job in several repositories: the verdict must name every
+                 # repository's exact commit back. One repository: no `commits`.
+                 and ("commits" not in record["review_target"]
+                      or report.get("commits") == record["review_target"]["commits"])
                  and report.get("verdict") in ("passed", "changes-requested")
                  and isinstance(report.get("checks"), list) and len(message) <= 128000)
     except (ValueError, KeyError): valid = False
@@ -774,6 +887,7 @@ def verification_evidence(scope, identity):
         if (refresh(worker)["status"] != "run-ended" or not observed.get("valid")
                 or observed.get("provider_agent_id") != worker.get("agent_id")
                 or report.get("commit") != worker.get("review_target",{}).get("commit")
+                or report.get("commits") != worker.get("review_target",{}).get("commits")
                 or report.get("verdict") not in ("passed","changes-requested")):
             raise ValueError("review completion requires the actual independent reviewer's observed report")
         return f"review:{worker['id']}:{report['commit']}:{report['verdict']}:{observed['message_sha256']}"
@@ -781,15 +895,23 @@ def verification_evidence(scope, identity):
     reviewer=read_record(root,integration.get("reviewer_id"))
     observed=reviewer.get("review_observation",{})
     commit=integration.get("commit")
-    if (not integration.get("verified") or not re.fullmatch(r"[a-f0-9]{40,64}",commit or "")
+    repo=worker["request"]["repo"]
+    # Every repository this work was landed in, primary first (part 4, finding
+    # 2). One repository: exactly the primary, as before.
+    landed=[(repo,integration)]+sorted((integration.get("repos") or {}).items())
+    commits={r:entry.get("commit") for r,entry in landed}
+    if (not integration.get("verified") or any(not re.fullmatch(r"[a-f0-9]{40,64}",c or "") for c in commits.values())
+            or [r for r,_ in landed] != [repo]+sorted(request_repos(worker)[1:])
             or not observed.get("valid") or observed.get("report",{}).get("verdict") != "passed"
-            or observed["report"].get("commit") != commit or reviewer.get("review_target") != {"worker_id":identity,"commit":commit}
+            or observed["report"].get("commit") != commit or reviewer.get("review_target") != review_identity(identity,commits,repo)
+            or observed["report"].get("commits") != reviewer["review_target"].get("commits")
             or observed.get("provider_agent_id") != reviewer.get("agent_id")):
         raise ValueError("verified integration requires the actual reviewer's receipt for this commit")
-    repo=worker["request"]["repo"]
-    if repo not in repositories(scope): raise ValueError("the repository is no longer connected to this company")
-    git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+integration["branch"])
-    return f"git:{repo}:{integration['branch']}:{commit}:review:{reviewer['id']}"
+    for r,entry in landed:
+        if r not in repositories(scope): raise ValueError("the repository is no longer connected to this company")
+        git(r,"merge-base","--is-ancestor",entry["commit"],"refs/heads/"+entry["branch"])
+    return (f"git:{repo}:{integration['branch']}:{commit}:review:{reviewer['id']}"
+            + "".join(f"+git:{r}:{entry['branch']}:{entry['commit']}" for r,entry in landed[1:]))
 
 
 # ===========================================================================
@@ -1035,6 +1157,22 @@ def land_lock(scope, repo):
         handle.close()
 
 
+@contextlib.contextmanager
+def land_locks(scope, repos):
+    """Every repository's land lock, held together for the whole land of a job
+    in several repositories (part 4, finding 2).
+
+    TAKEN IN ONE ORDER FOR EVERYONE -- the canonical repository path -- so two
+    conversations landing overlapping sets of repositories can only wait for
+    each other, never hold one each and wait forever. One repository is exactly
+    `land_lock` alone."""
+    with contextlib.ExitStack() as stack:
+        held = {}
+        for repo in sorted(repos, key=lambda r: (canonical_repository(r), r)):
+            held[repo] = stack.enter_context(land_lock(scope, repo))
+        yield held
+
+
 def require_current_assignment(scope, record):
     obligation = carried_obligation(scope)
     if obligation is not None and record.get("request", {}).get("obligation_id") != obligation:
@@ -1053,14 +1191,19 @@ def integrate(scope_path,scope,args):
         require_current_assignment(scope,worker)
         require_current_assignment(scope,read_record(root,args["reviewer_id"]))
         repository=worker["request"]["repo"]
-    with land_lock(scope,repository) as land:
+        # EVERY repository of the job, primary first (part 4, finding 2): a job
+        # accepted as work in several repositories is landed in all of them,
+        # each under its own land lock, all held for the whole land.
+        repositories_to_land=request_repos(worker)
+    with land_locks(scope,repositories_to_land) as lands:
+        land=lands[repository]
         with locked(scope) as root:
             worker=refresh(read_record(root,args["worker_id"]))
             require_current_assignment(scope,worker)
             # The repository is fixed on a receipt at prepare time, so this can
             # only be an impossible state -- and an unchecked impossible state
             # here would mean landing one repository under another's lock.
-            if worker["request"]["repo"]!=repository:
+            if worker["request"]["repo"]!=repository or request_repos(worker)!=repositories_to_land:
                 raise ValueError("this receipt named another repository between being read and being locked")
             reviewer=refresh(read_record(root,args["reviewer_id"]))
             require_current_assignment(scope,reviewer)
@@ -1073,84 +1216,109 @@ def integrate(scope_path,scope,args):
             else:
                 if worker["status"]!="run-ended" or reviewer["status"]!="run-ended":
                     raise ValueError("both provider runs must have an observed end before integration")
-                target=target_workspace(worker)
-                review_target=target_workspace(reviewer)
-                commit=git(target["path"],"rev-parse","HEAD")
-                if reviewer.get("review_target")!={"worker_id":worker["id"],"commit":commit}:
+                if not same_repos(request_repos(reviewer),repositories_to_land):
+                    raise ValueError("this reviewer did not review every repository of this work; "
+                                     "a fresh independent review of all of them is required")
+                targets=target_workspaces(worker)
+                review_targets=target_workspaces(reviewer)
+                commits={r:git(targets[r]["path"],"rev-parse","HEAD") for r in repositories_to_land}
+                if reviewer.get("review_target")!=review_identity(worker["id"],commits,repository):
                     raise ValueError("worker commit changed or this reviewer reviewed another assignment")
                 report=reviewer.get("review_observation",{})
                 if not report.get("valid") or report.get("report",{}).get("verdict")!="passed":
                     raise ValueError("the actual reviewer has not returned a passing review")
-                if git(review_target["path"],"rev-parse","HEAD")!=commit:
+                if any(git(review_targets[r]["path"],"rev-parse","HEAD")!=commits[r] for r in repositories_to_land):
                     raise ValueError("reviewer changed its commit; a fresh independent review is required")
-                repo=worker["request"]["repo"]
-                if repo not in repositories(scope): raise ValueError("target repository is no longer connected")
                 canonical=W.load_agent(worker["workspace_ref"])
-                branch,tip,problem=W.integration_target([canonical],repo)
-                if problem: raise ValueError(problem)
-                if git(repo,"symbolic-ref","--short","HEAD")!=branch:
-                    raise ValueError("select the recorded integration branch before integrating")
-                for tree in (repo,target["path"],review_target["path"]):
-                    if git(tree,"status","--porcelain","--untracked-files=all"):
-                        raise ValueError("integration preserves local edits; reconcile the dirty checkout first")
-                    for marker in ("MERGE_HEAD","CHERRY_PICK_HEAD","REVERT_HEAD","rebase-merge","rebase-apply"):
-                        if Path(git(tree,"rev-parse","--path-format=absolute","--git-path",marker)).exists():
-                            raise ValueError("finish or explicitly abandon the existing Git operation first")
-                # A MOVED BRANCH IS MERGED, NEVER REBASED OR RESOLVED (part 4,
-                # finding 3). The reviewed commit is landed exactly as reviewed:
-                # by fast-forward when the branch has not moved, and otherwise by
-                # a merge commit whose second parent IS that commit, recorded only
-                # when Git merges the two without a conflict. No rebase rewrites
-                # it and no conflict is resolved here, so a moved target that
-                # needs new changes still goes back for another implementation
-                # and review -- and is told which files conflict. Until this, a
-                # second independently reviewed change was refused the moment the
-                # first one landed, even when the two touched different files.
-                already=is_ancestor(repo,commit,tip)
-                if not already and not is_ancestor(repo,tip,commit):
-                    merge_tree(repo,tip,commit,branch)   # refuses a conflict before any intent is written
+                plan={}
+                for repo in repositories_to_land:
+                    commit=commits[repo]
+                    if repo not in repositories(scope): raise ValueError("target repository is no longer connected")
+                    branch,tip,problem=W.integration_target([canonical],repo)
+                    if problem: raise ValueError(problem)
+                    if git(repo,"symbolic-ref","--short","HEAD")!=branch:
+                        raise ValueError("select the recorded integration branch before integrating")
+                    for tree in (repo,targets[repo]["path"],review_targets[repo]["path"]):
+                        if git(tree,"status","--porcelain","--untracked-files=all"):
+                            raise ValueError("integration preserves local edits; reconcile the dirty checkout first")
+                        for marker in ("MERGE_HEAD","CHERRY_PICK_HEAD","REVERT_HEAD","rebase-merge","rebase-apply"):
+                            if Path(git(tree,"rev-parse","--path-format=absolute","--git-path",marker)).exists():
+                                raise ValueError("finish or explicitly abandon the existing Git operation first")
+                    # A MOVED BRANCH IS MERGED, NEVER REBASED OR RESOLVED (part 4,
+                    # finding 3). The reviewed commit is landed exactly as reviewed:
+                    # by fast-forward when the branch has not moved, and otherwise by
+                    # a merge commit whose second parent IS that commit, recorded only
+                    # when Git merges the two without a conflict. No rebase rewrites
+                    # it and no conflict is resolved here, so a moved target that
+                    # needs new changes still goes back for another implementation
+                    # and review -- and is told which files conflict. Until this, a
+                    # second independently reviewed change was refused the moment the
+                    # first one landed, even when the two touched different files.
+                    # Every repository is checked BEFORE any intent is written or
+                    # any ref moves, so one conflicting repository lands nothing.
+                    already=is_ancestor(repo,commit,tip)
+                    if not already and not is_ancestor(repo,tip,commit):
+                        merge_tree(repo,tip,commit,branch)   # refuses a conflict before any intent is written
+                    plan[repo]={"commit":commit,"branch":branch,"tip":tip,"already":already}
                 if not existing:
-                    worker["integration"]={"reviewer_id":reviewer["id"],"commit":commit,"branch":branch,
-                        "before":tip,"instruction_ref":scope.get("user_instruction",{}).get("ledger_ref"),"verified":False}
+                    worker["integration"]={"reviewer_id":reviewer["id"],"commit":plan[repository]["commit"],
+                        "branch":plan[repository]["branch"],"before":plan[repository]["tip"],
+                        "instruction_ref":scope.get("user_instruction",{}).get("ledger_ref"),"verified":False}
+                    if len(repositories_to_land)>1:
+                        worker["integration"]["repos"]={r:{"commit":plan[r]["commit"],"branch":plan[r]["branch"],
+                            "before":plan[r]["tip"]} for r in repositories_to_land[1:]}
                     save(path,worker)
-                elif existing["commit"]!=commit or existing["branch"]!=branch:
+                elif any(landing_entry(existing,repository,r).get("commit")!=plan[r]["commit"]
+                         or landing_entry(existing,repository,r).get("branch")!=plan[r]["branch"] for r in plan):
                     raise ValueError("prepared integration identity changed")
-                elif not already and existing["before"]!=tip:
+                else:
                     # An intent recorded before another land moved the branch is
                     # re-recorded against the tip it will actually merge onto;
                     # otherwise the retry of an interrupted integrate could never
                     # land at all.
-                    worker["integration"]["before"]=tip
-                    save(path,worker)
+                    moved=[r for r in plan if not plan[r]["already"]
+                           and landing_entry(existing,repository,r)["before"]!=plan[r]["tip"]]
+                    for r in moved:
+                        landing_entry(worker["integration"],repository,r)["before"]=plan[r]["tip"]
+                    if moved: save(path,worker)
                 read_scope(scope_path)
-                if not already:
-                    if tip!=worker["integration"]["before"]:
+                # FIRST every merge commit is made, which moves no ref, THEN every
+                # branch is fast-forwarded: a merge commit Git cannot record (no
+                # committer configured, say) refuses before any repository moved.
+                for repo in repositories_to_land:
+                    entry=landing_entry(worker["integration"],repository,repo)
+                    commit,branch,tip=plan[repo]["commit"],plan[repo]["branch"],plan[repo]["tip"]
+                    if plan[repo]["already"]: continue
+                    if tip!=entry["before"]:
                         raise ValueError("integration target moved after intent; reconcile before retrying")
-                    landed=commit
+                    plan[repo]["landed"]=commit
                     if not is_ancestor(repo,tip,commit):
-                        landed=merge_commit(repo,tip,commit,branch,reviewer["id"])
-                        worker["integration"]["merge_commit"]=landed
+                        plan[repo]["landed"]=entry["merge_commit"]=merge_commit(repo,tip,commit,branch,reviewer["id"])
                         save(path,worker)
-                    git(repo,"merge","--ff-only",landed)
-                    # THE LAND RECORD, WRITTEN AT THE MOMENT THE REF ACTUALLY
-                    # MOVED and while this repository's land lock is still held.
-                    # APPENDED, never a field on the lock: two lands in a row
-                    # both survive, so a running agent in the OTHER conversation
-                    # can be told which thread moved the branch under it rather
-                    # than that it moved (workspaces.py,
-                    # `land_by_another_conversation`). Here and not at release
-                    # because a crash between the two would leave a ref that
-                    # moved with no record of who moved it -- and a REPEATED
-                    # integrate, which merges nothing, must not record a second
-                    # land it did not perform. `commit` is where the ref now
-                    # points (the merge commit when one was recorded), because
-                    # that is what `land_by_another_conversation` matches;
-                    # `reviewed_commit` is the work itself.
-                    land["landed"]={"schema":1,"branch":branch,"before":tip,"commit":landed,"reviewed_commit":commit,"at":W.iso(),
-                        "thread_id":scope["binding"].get("thread_id") or "","entity_id":scope["binding"].get("entity_id") or "",
-                        "session_id":scope["binding"].get("session_id") or "","pid":os.getpid()}
-                    W.append_land_record(repository,land["landed"])
-                git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)
+                for repo in repositories_to_land:
+                    commit,branch,tip=plan[repo]["commit"],plan[repo]["branch"],plan[repo]["tip"]
+                    if not plan[repo]["already"]:
+                        landed=plan[repo]["landed"]
+                        git(repo,"merge","--ff-only",landed)
+                        # THE LAND RECORD, WRITTEN AT THE MOMENT THE REF ACTUALLY
+                        # MOVED and while this repository's land lock is still held.
+                        # APPENDED, never a field on the lock: two lands in a row
+                        # both survive, so a running agent in the OTHER conversation
+                        # can be told which thread moved the branch under it rather
+                        # than that it moved (workspaces.py,
+                        # `land_by_another_conversation`). Here and not at release
+                        # because a crash between the two would leave a ref that
+                        # moved with no record of who moved it -- and a REPEATED
+                        # integrate, which merges nothing, must not record a second
+                        # land it did not perform. `commit` is where the ref now
+                        # points (the merge commit when one was recorded), because
+                        # that is what `land_by_another_conversation` matches;
+                        # `reviewed_commit` is the work itself.
+                        lands[repo]["landed"]={"schema":1,"branch":branch,"before":tip,"commit":landed,"reviewed_commit":commit,"at":W.iso(),
+                            "thread_id":scope["binding"].get("thread_id") or "","entity_id":scope["binding"].get("entity_id") or "",
+                            "session_id":scope["binding"].get("session_id") or "","pid":os.getpid()}
+                        W.append_land_record(repo,lands[repo]["landed"])
+                    git(repo,"merge-base","--is-ancestor",commit,"refs/heads/"+branch)
                 worker["integration"]["verified"]=True
                 worker["status"]="integrated"
                 save(path,worker)
@@ -1186,7 +1354,8 @@ def integrate(scope_path,scope,args):
                 project(scope,root/(reviewed["id"]+".json"),reviewed)
             return {"work_integrated":True,"commit":worker["integration"]["commit"],
                 "cleanup_pending":failures,"evidence_ref":verification_evidence(scope,worker["id"]),
-                "obligation_closed":False,"published":False,"land_lock":dict(land)}
+                "obligation_closed":False,"published":False,"land_lock":dict(land),
+                **({"land_locks":{r:dict(v) for r,v in lands.items()}} if len(lands)>1 else {})}
 
 
 OPEN_ASSIGNMENT_STATUSES = ("candidate", "accepted", "active", "pending", "blocked")
@@ -1460,7 +1629,7 @@ TOOLS = [
     {"name":"pause_message","description":"Generate the one standard pause message. Submit message_payload unchanged to SendMessage. Do not write, append or summarize pause instructions yourself. Preparation and delivery do not confirm a pause. No process is stopped and no message is sent by this tool.","inputSchema":{"type":"object","properties":{"to":{"type":"string"},"reason":{"type":"string","enum":["manual","quota"]},"reset":{"type":"string","pattern":"^(?:[01][0-9]|2[0-3]):[0-5][0-9]Z$"}},"required":["to"],"additionalProperties":False}},
     {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Your connection already knows which assignment you are carrying, so leave obligation_id out; never invent one. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. An assignment you handled yourself, with no worker, is closed by the app from your report: do not call this for it. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["worker_ids"],"additionalProperties":False}},
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
-    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for the assignment this connection is carrying. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. A failed preparation that never dispatched is settled when a new request_id prepares a replacement: anything it created is withdrawn, and dirty files are refused rather than discarded. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief"],"additionalProperties":False}},
+    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for the assignment this connection is carrying. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. A failed preparation that never dispatched is settled when a new request_id prepares a replacement: anything it created is withdrawn, and dirty files are refused rather than discarded. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker. Its reviewer and any continuation name the same repos, and review, integration and cleanup then cover every one of those repositories.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief"],"additionalProperties":False}},
     {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. If the branch moved since the work started, the reviewed commit is merged with a merge commit only when Git merges the two without a conflict. No push, rebase or conflict resolution. Dirty targets and conflicting changes are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
     {"name":"inspect","description":"Reconcile scoped dispatch receipts against actual provider and workspace observations. A run ending is not task completion. Inspect unresolved work before retrying after a restart.","inputSchema":{"type":"object","properties":{"offset":{"type":"integer"},"limit":{"type":"integer"}},"additionalProperties":False}},
 ]
