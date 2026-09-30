@@ -1559,7 +1559,28 @@ impl OperatorHost {
             // The ack line is the engine's record of his stop; the stop itself still goes out.
             self.log(&format!("stop.sh did not run cleanly: {why}"));
         }
-        names.iter().map(|name| self.stop_one(name, words)).collect()
+        // **Every named agent is stopped at once, and each is still reported only on its own
+        // witnessed death** (hunt 2026-09-29 part 1, finding 33). Their stops are independent:
+        // one agent's slow control reply or slow resolver reading must not keep the next agent
+        // working. Before, the second agent's `stop_task` was sent only after the first
+        // agent's whole confirmation (up to two attempts of `STOP_WAIT` each, plus its
+        // registry step). The results come back in the order he named them.
+        if names.len() <= 1 {
+            return names.iter().map(|name| self.stop_one(name, words)).collect();
+        }
+        std::thread::scope(|scope| {
+            let running: Vec<_> = names.iter().map(|name| scope.spawn(move || self.stop_one(name, words))).collect();
+            running
+                .into_iter()
+                .zip(names)
+                .map(|(stop, name)| {
+                    stop.join().unwrap_or_else(|_| StopResult::Failed {
+                        name: name.clone(),
+                        why: "the stop could not be followed to its end".into(),
+                    })
+                })
+                .collect()
+        })
     }
 
     fn owner_of(&self, name: &str) -> Option<(Arc<dyn LeadHandle>, String)> {
@@ -1953,13 +1974,21 @@ pub(crate) mod tests {
         pub(crate) asked: Mutex<Vec<String>>,
         pub(crate) leases: Mutex<Vec<String>>,
         pub(crate) lease_reads: Mutex<usize>,
+        /// Runs before every liveness answer, so a test can hold one agent's reading open (a
+        /// slow `agent-liveness.sh`) and see what the host does meanwhile.
+        pub(crate) before_liveness: Mutex<Option<LivenessHook>>,
     }
+    pub(crate) type LivenessHook = Arc<dyn Fn(&str) + Send + Sync>;
     impl OperatorEngine for FakeEngine {
         fn stop_words(&self, names: &[String], words: &str) -> Result<String, String> {
             self.stop_words.lock().unwrap().push((names.to_vec(), words.to_string()));
             Ok(String::new())
         }
         fn liveness(&self, agent_id: &str) -> AgentLiveness {
+            let hook = self.before_liveness.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook(agent_id);
+            }
             self.asked.lock().unwrap().push(agent_id.to_string());
             if self.not_alive.lock().unwrap().contains(agent_id) { AgentLiveness::NotAlive } else { AgentLiveness::Alive }
         }
@@ -2858,6 +2887,51 @@ pub(crate) mod tests {
         let registry = r.engine.registry.lock().unwrap().clone();
         assert_eq!(registry, [(lead.session.clone(), "mark-sonnet-a".to_string(), "stop a".to_string())]);
         assert_eq!(results[0].sentence(), "Stopped mark-sonnet-a.");
+    }
+
+    /// **Every named agent is asked to stop before any one of them is waited for** (hunt
+    /// 2026-09-29 part 1, finding 33). The first agent's resolver reading is held open until
+    /// the second agent's `stop_task` has gone out. A host that waits for the first agent's
+    /// death before reaching the second never sends it, and the hold lets go by itself after
+    /// 10 s and says so; a host that stops them independently sends it at once. Each agent
+    /// is still reported stopped only on its own witnessed death and registry step.
+    #[test]
+    fn a_slow_first_stop_does_not_hold_back_the_stop_of_the_next_agent() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        let lead = lead_of(&r, "a");
+        agent(&lead, "t-a", "mark-sonnet-a", "task-a");
+        agent(&lead, "t-b", "mark-sonnet-b", "task-b");
+        for task in ["task-a", "task-b"] {
+            r.engine.not_alive.lock().unwrap().insert(task.into());
+            lead.feed(json!({"type":"system","subtype":"task_notification","task_id":task,"status":"stopped"}));
+        }
+        let forced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (watched, flag) = (lead.clone(), forced.clone());
+        *r.engine.before_liveness.lock().unwrap() = Some(Arc::new(move |agent_id: &str| {
+            if agent_id != "task-a" {
+                return;
+            }
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !watched.stops.lock().unwrap().iter().any(|t| t == "task-b") {
+                if Instant::now() >= deadline {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }));
+        let results = r.host.stop_named(&["mark-sonnet-a".into(), "mark-sonnet-b".into()], "stop a and b", Origin::DeskTyped);
+        assert!(!forced.load(std::sync::atomic::Ordering::SeqCst),
+                "the second agent's stop was sent only after the first agent's stop had been waited out: {:?}",
+                lead.stops.lock().unwrap());
+        assert!(matches!(&results[0], StopResult::Stopped { name, registry: Ok(()), .. } if name == "mark-sonnet-a"), "{results:?}");
+        assert!(matches!(&results[1], StopResult::Stopped { name, registry: Ok(()), .. } if name == "mark-sonnet-b"), "{results:?}");
+        let mut stops = lead.stops.lock().unwrap().clone();
+        stops.sort();
+        assert_eq!(stops, ["task-a", "task-b"], "each named task once, nothing else");
+        assert_eq!(r.engine.stop_words.lock().unwrap().len(), 1, "his words are recorded once, for both names");
+        assert_eq!(r.engine.registry.lock().unwrap().len(), 2);
     }
 
     #[test]
