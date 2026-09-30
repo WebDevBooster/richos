@@ -159,6 +159,27 @@ def reweigh(ran, weights_path, emit_path):
             print("    %8.1fs  %-62s planned %.1fs (%.1fx)" % (secs, uid, w, secs / w))
 
 
+def receipt_contradictions(rec):
+    """Why this receipt's own fields contradict its verdict label, or None.
+
+    The runner labels PASS only when rc equals expected_rc, and KNOWN-RED only
+    for a unit that failed (rc differs). A label that the numbers beside it
+    refute is a hand-edited or corrupted receipt, not evidence. Every receipt
+    also carries the commit it verified: a blank one certifies nothing."""
+    if not isinstance(rec.get("sha"), str) or not rec["sha"].strip():
+        return "it carries no commit SHA"
+    rc, exp = rec.get("rc"), rec.get("expected_rc")
+    if isinstance(rc, bool) or isinstance(exp, bool) \
+            or not isinstance(rc, int) or not isinstance(exp, int):
+        return "rc/expected_rc are missing or not integers (rc=%r, expected_rc=%r)" % (rc, exp)
+    verdict = rec.get("verdict")
+    if verdict == "PASS" and rc != exp:
+        return "it says PASS but rc=%d and expected_rc=%d" % (rc, exp)
+    if verdict == "KNOWN-RED" and rc == exp:
+        return "it says KNOWN-RED but rc=%d equals expected_rc (the unit passed)" % rc
+    return None
+
+
 def verify(plan_path, weights_path=None, emit_path=None, proof_run=None):
     try:
         with open(plan_path, encoding="utf-8") as fh:
@@ -240,6 +261,13 @@ def verify(plan_path, weights_path=None, emit_path=None, proof_run=None):
         problems.append(
             "the shards did not all verify the SAME commit: %s. A union taken across two trees "
             "certifies neither of them." % detail)
+
+    contradicted = sorted((u, receipt_contradictions(recs[0])) for u, recs in ran.items()
+                          if receipt_contradictions(recs[0]))
+    if contradicted:
+        problems.append(
+            "%d receipt(s) contradict their own verdict, so the label is not evidence:\n    %s"
+            % (len(contradicted), "\n    ".join("%-72s %s" % (u, why) for u, why in contradicted)))
 
     red = sorted((u, recs[0].get("verdict"), recs[0].get("rc"))
                  for u, recs in ran.items() if recs[0].get("verdict") not in GREEN)
