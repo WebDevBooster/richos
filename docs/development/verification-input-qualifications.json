@@ -2069,13 +2069,16 @@
       }
     },
     "no-foreign-app-data": {
-      "review": "The suite scans exactly the shipped app source, crates, UI, scripts and tools trees as text. Positive refusal and acceptance cases are generated under TMPDIR. It does not execute scanned code or inspect application data. The shared run-tests wrapper discovers suites and reads its tracked declarations but the exact --only selection executes this suite alone. Private HOME clears skip-unchanged state and inherited host-screen overrides; worker admission and result preservation remain active. No host process, live clock predicate, network or operator record determines the scanner verdict.",
+      "review": "The suite scans exactly the shipped app source, crates, UI, scripts and tools trees as text. Positive refusal and acceptance cases are generated under TMPDIR. It does not execute scanned code or inspect application data. The shared run-tests wrapper discovers suites and reads its tracked declarations but the exact --only selection executes this suite alone. Private HOME clears skip-unchanged state and inherited host-screen overrides; worker admission and result preservation remain active. No host process, live clock predicate, network or operator record determines the scanner verdict. Cargo invocations use workspace-specific mutable outputs. The bound Cargo dispatcher and target resolver read Cargo.toml in the same declared source or private fixture workspace. Compiler wrappers and their settings are bound by the runner toolchain identity.",
       "sources": {
         "richos/app/scripts/no-foreign-app-data.test.sh": "fe13a6a9ff4d70d4d9558d671b3a8e23114ed5f8418538d0e6934db545eeb732",
-        "richos/app/scripts/run-tests.sh": "1f657104c268e717864f12b10fbfebcb53e7c22945c77406369b4ff1baa8b3b9",
+        "richos/app/scripts/run-tests.sh": "56903e7ec047fb5bcc2e4490acb1468faccf3c63efeb82df1c3ec6e130a4ba4a",
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
         "richos/app/scripts/lib/test_results.py": "9790f38172be11848fbc50fc5fc387831f25a5bda49e877e1ed4aa59fb6fa0e2",
-        "richos/engine/scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b"
+        "richos/engine/scripts/lib/foreign_app_data.py": "9fcafeaae9e177df0c15fc93b547b2aa08710f94f723e393d51239861859b00b",
+        "richos/app/scripts/bin/cargo": "2250e8c39acd3123165adbcfc70f8b344d89e77dc0d6865ca1e3108f0b4de1d9",
+        "richos/app/scripts/lib/cargo_identity.py": "a88990c93cb148a1915ef1a095ef5c649b4583ae9b8215f00d7ab468ae1ecbc0",
+        "richos/app/scripts/lib/cargo-cache-env.sh": "68e85ef5873e9d5a18f9094a44562941c91723855019bf7369ecbd90a8e053b4"
       },
       "requires": {
         "paths": [
@@ -2498,16 +2501,19 @@
       }
     },
     "make-release": {
-      "review": "The complete R1-R10 refusal journeys copy the release script, version/config and real name scanner into a private tracked repository. A private literal deny-list includes both clean and planted-hit controls. Downloads are exclusively from an owned loopback fixture server. Every app case refuses before any compiler, signing or publication step. Private HOME clears signing/proxy/config overrides; the worktree-derived port is operational allocation, not asserted data. Receipt timestamps are output only. Source Git history, live release hosts and operator records are not consulted.",
+      "review": "The complete R1-R10 refusal journeys copy the release script, version/config and real name scanner into a private tracked repository. A private literal deny-list includes both clean and planted-hit controls. Downloads are exclusively from an owned loopback fixture server. Every app case refuses before any compiler, signing or publication step. Private HOME clears signing/proxy/config overrides; the worktree-derived port is operational allocation, not asserted data. Receipt timestamps are output only. Source Git history, live release hosts and operator records are not consulted. Cargo invocations use workspace-specific mutable outputs. The bound Cargo dispatcher and target resolver read Cargo.toml in the same declared source or private fixture workspace. Compiler wrappers and their settings are bound by the runner toolchain identity.",
       "sources": {
         "richos/app/scripts/make-release.test.sh": "354dab37039aaba443d108821fe51405142e66710ab5c8285013a62f5f17ffe8",
         "richos/app/scripts/make-release.sh": "3cad06ac6ce5b06ba62f1248c9bfb101eabc224fb19769291e1d8815a0ed1541",
-        "richos/app/scripts/lib/cargo-target.sh": "5e3c3c1c09f357a7a6691be9ef9d1ecd0e92601092be7700975f7c43e41770ec",
+        "richos/app/scripts/lib/cargo-target.sh": "792e2e55fb692061744f8fe931ef42b0f70deb13ec10341dc4dd46fe36cfb487",
         "richos/app/scripts/lib/output-lock.sh": "d58823a5ddc7fa31e0aae4053f1ccf0a9c10e0c83c72c5f8ac9e9a84f19362f6",
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
         "richos/engine/scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca",
         "richos/engine/scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
-        "richos/engine/scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2"
+        "richos/engine/scripts/lib/named-persons.py": "9b37ff785ef195ec844190c4b4c6e678432d3b0d9d70aac0feba9ed2303a1af2",
+        "richos/app/scripts/bin/cargo": "2250e8c39acd3123165adbcfc70f8b344d89e77dc0d6865ca1e3108f0b4de1d9",
+        "richos/app/scripts/lib/cargo_identity.py": "a88990c93cb148a1915ef1a095ef5c649b4583ae9b8215f00d7ab468ae1ecbc0",
+        "richos/app/scripts/lib/cargo-cache-env.sh": "68e85ef5873e9d5a18f9094a44562941c91723855019bf7369ecbd90a8e053b4"
       },
       "requires": {
         "paths": [

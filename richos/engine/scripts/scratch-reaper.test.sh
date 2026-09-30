@@ -185,6 +185,145 @@ NO_DEVICES="$SANDBOX/no-devices"
 mkdir -p "$NO_DEVICES/android"
 printf '#!/bin/sh\necho %s\n' "'{\"devices\": {}}'" >"$NO_DEVICES/simctl"
 chmod +x "$NO_DEVICES/simctl"
+
+# ---------------------------------------------------------------------------
+# THE OPEN-FILE TABLE THIS SUITE READS IS ITS OWN, NEVER THE WHOLE MAC'S.
+# ---------------------------------------------------------------------------
+# The reaper asks `lsof -n -P -F n` for EVERY open file on the machine, once
+# per run, and `lsof +D <tree>` per held candidate — which also enumerates every
+# process before it filters. Measured on 2026-09-30 with a logging wrapper: one
+# run of this suite made 42 whole-machine reads and 7 `+D` reads at about
+# 0.25 s of kernel time each, and the mutation harness runs this suite once
+# per mutant, 51 mutants, eight at a time. That is roughly 2,500 whole-machine
+# scans in a quarter of an hour, and it is what held the Mac at about 60%
+# SYSTEM CPU during the 2026-09-30 merge checks while the CPU admission rule
+# refused every other job on the machine. The SCR layer reached its 900 s
+# deadline and was killed.
+#
+# NOTHING A CASE HERE PROVES NEEDS ANOTHER PROGRAM'S FILES. Every holder a case
+# asserts about — the `sleep` sitting in a workspace, the `tail -f` in a legacy
+# tree, the fake app instance — is a process THIS SUITE started. So the suite
+# puts an `lsof` first on PATH (the reaper runs `lsof` by name, the same seam
+# the Docker and simctl stubs already use) that runs the REAL lsof with the
+# query unchanged and one restriction added: `-a -p <this suite's process
+# tree>`. The table is real — real processes, real descriptors, read by the
+# real tool — and it is only this suite's part of it. A query that already
+# names its pids (appinstances asks `lsof -p <candidates>`) is passed through
+# unchanged, because it was never a whole-machine scan.
+#
+# THE TREE IS COMPUTED AT EACH CALL from the process table, rooted at this
+# suite's own shell, so a holder started by any case is inside it with no
+# bookkeeping to forget. It also removes cross-talk: eight copies of this suite
+# run at once under the mutation harness, and none of them can now see the
+# others' holders.
+#
+# A stub that INVENTED the table would prove nothing about the reaper reading a
+# real one; that is why this wrapper narrows the question and never answers it.
+# S27's deliberately blind `lsof` is still put in FRONT of this one on PATH, so
+# that case is unchanged. S33 at the end proves the reaper's queries actually
+# came through here, so a reaper that started calling lsof by absolute path —
+# and went back to scanning the whole Mac — would turn this suite red.
+SCOPED_LSOF_LOG=""
+if command -v lsof >/dev/null 2>&1; then
+    # INHERITED WHEN NESTED: a copy of this suite run by the mutation harness
+    # finds the OUTER copy's wrapper first on PATH, and must not wrap a wrapper.
+    SRT_REAL_LSOF="${SRT_REAL_LSOF:-$(command -v lsof)}"
+    SRT_SUITE_PID="$$"
+    SCOPED_LSOF_LOG="$SANDBOX/scoped-lsof.log"
+    : >"$SCOPED_LSOF_LOG"
+    SRT_LSOF_LOG="$SCOPED_LSOF_LOG"
+    export SRT_REAL_LSOF SRT_SUITE_PID SRT_LSOF_LOG
+    mkdir -p "$SANDBOX/scoped-bin"
+    cat >"$SANDBOX/scoped-bin/lsof" <<'PYEOF'
+#!/usr/bin/env python3
+"""The real lsof, asked only about the process tree of the suite that made it."""
+import os
+import subprocess
+import sys
+
+real = os.environ.get("SRT_REAL_LSOF", "")
+root = os.environ.get("SRT_SUITE_PID", "")
+args = sys.argv[1:]
+if not real or not root or os.path.basename(os.path.dirname(real)) == "scoped-bin":
+    sys.stderr.write("scoped lsof: no real lsof or no suite root; refusing to "
+                     "scan the whole machine\n")
+    sys.exit(97)
+ps = subprocess.run(["ps", "-Ao", "pid=,ppid="], capture_output=True, text=True)
+if ps.returncode != 0:
+    sys.stderr.write("scoped lsof: ps failed; refusing to guess the tree\n")
+    sys.exit(98)
+children = {}
+for line in ps.stdout.splitlines():
+    parts = line.split()
+    if len(parts) == 2:
+        children.setdefault(parts[1], []).append(parts[0])
+tree, stack = [], [root]
+while stack:
+    pid = stack.pop()
+    tree.append(pid)
+    stack.extend(children.get(pid, []))
+if "-p" in args:
+    requested = args[args.index("-p") + 1].split(",")
+    if any(not pid.isdecimal() or (pid not in tree and pid in {p for values in children.values() for p in values}) for pid in requested):
+        sys.stderr.write("scoped lsof: refusing a PID outside the fixture\n")
+        sys.exit(99)
+    mode = "pid-list"
+else:
+    args = ["-a", "-p", ",".join(tree)] + args
+    mode = "scoped"
+log = os.environ.get("SRT_LSOF_LOG", "")
+if log:
+    try:
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write("%s\t%s\n" % (mode, " ".join(sys.argv[1:])))
+    except OSError:
+        pass
+os.execv(real, [real] + args)
+PYEOF
+    chmod +x "$SANDBOX/scoped-bin/lsof"
+    PATH="$SANDBOX/scoped-bin:$PATH"
+    export PATH
+
+    # Observe requests before executable lookup. Counting the wrapper's own log
+    # cannot catch a second call that bypasses it by absolute path. Reject that
+    # call before it can scan the host, including calls made by imported helpers.
+    SRT_SCANNER_AUDIT="$SANDBOX/scanner-audit.log"
+    SRT_SCOPED_LSOF="$SANDBOX/scoped-bin/lsof"
+    export SRT_SCANNER_AUDIT SRT_SCOPED_LSOF
+    : >"$SRT_SCANNER_AUDIT"
+    mkdir -p "$SANDBOX/scoped-python"
+    cat >"$SANDBOX/scoped-python/sitecustomize.py" <<'PYEOF'
+import os
+from pathlib import Path
+import shutil
+import sys
+
+def audit(event, arguments):
+    if event not in ("subprocess.Popen", "os.exec", "os.posix_spawn"):
+        return
+    executable, argv = arguments[:2]
+    name = Path(os.fsdecode(executable)).name
+    if name not in ("lsof", "du"):
+        return
+    resolved = os.path.realpath(shutil.which(os.fsdecode(executable)) or os.fsdecode(executable))
+    scoped = os.path.realpath(os.environ["SRT_SCOPED_LSOF"])
+    blind = os.environ.get("SRT_BLIND_LSOF", "")
+    permitted = name == "lsof" and (resolved == scoped or (blind and resolved == os.path.realpath(blind)))
+    # The wrapper's exec of the real tool must carry its PID restriction.
+    if event == "os.exec" and name == "lsof":
+        permitted = (resolved == os.path.realpath(os.environ["SRT_REAL_LSOF"]) and "-p" in argv
+                     and os.path.realpath(sys.argv[0]) == scoped)
+    outcome = "allowed" if permitted else "denied"
+    role = "control" if os.environ.get("SRT_SCANNER_CONTROL") == "1" else "suite"
+    with open(os.environ["SRT_SCANNER_AUDIT"], "a", encoding="utf-8") as stream:
+        stream.write("%s\t%s\t%s\t%s\n" % (outcome, role, event, resolved))
+    if not permitted:
+        raise RuntimeError("fixture refused an unscoped scanner: " + resolved)
+
+sys.addaudithook(audit)
+PYEOF
+    export PYTHONPATH="$SANDBOX/scoped-python${PYTHONPATH:+:$PYTHONPATH}"
+fi
 KILL_LIST=""
 cleanup() {
     # Reaped as well as killed: an unreaped job prints "Terminated: 15" AFTER
@@ -2038,7 +2177,7 @@ BLINDDIR="$W_ROOT/blindbin"
 mkdir -p "$BLINDDIR"
 printf '#!/bin/sh\nexit 9\n' >"$BLINDDIR/lsof"
 chmod +x "$BLINDDIR/lsof"
-OUT="$(PATH="$BLINDDIR:$PATH" run --dry-run)"
+OUT="$(SRT_BLIND_LSOF="$BLINDDIR/lsof" PATH="$BLINDDIR:$PATH" run --dry-run)"
 N_UNDEC="$(printf '%s\n' "$OUT" | grep -c 'OPEN-FILE TABLE COULD NOT BE READ' || true)"
 if [ "$N_UNDEC" = "1" ]; then
     ok "S27  an unreadable open-file table is reported ONCE for the whole root"
@@ -2435,6 +2574,59 @@ then
 else
     bad "S32b the watchdog cannot tell the two piles apart from what is published"
     cat "$W_HOME/state/scratch-reaper-state.json" 2>/dev/null | sed 's/^/        /' | head -20
+fi
+
+# ===========================================================================
+# S33 — THIS SUITE NEVER SCANNED THE WHOLE MAC'S OPEN-FILE TABLE
+# ===========================================================================
+# The scoped lsof at the top of this file only helps if the reaper actually
+# goes through it. A reaper that began calling lsof by absolute path would pass
+# every case above AND put the 2026-09-30 kernel flood straight back, with
+# nothing anywhere saying so. So: the reaper's whole-machine query must have
+# arrived here at least once (it runs on every pass), and it must have been
+# narrowed to this suite's tree when it did.
+if [ -n "$SCOPED_LSOF_LOG" ]; then
+    N_SCOPED="$(grep -c '^scoped' "$SCOPED_LSOF_LOG" 2>/dev/null || true)"
+    N_WHOLE="$(grep -c $'^scoped\t-n -P -F n$' "$SCOPED_LSOF_LOG" 2>/dev/null || true)"
+    N_DENIED="$(grep -c $'^denied\tsuite\t' "$SRT_SCANNER_AUDIT" || true)"
+    N_REQUESTS="$(grep -c $'^allowed\tsuite\tsubprocess.Popen\t' "$SRT_SCANNER_AUDIT" || true)"
+    if [ "${N_WHOLE:-0}" -gt 0 ] && [ "${N_REQUESTS:-0}" -ge "${N_SCOPED:-0}" ] && [ "${N_DENIED:-0}" -eq 0 ]; then
+        ok "S33  scanner requests were audited before execution, with no escaping scan"
+    else
+        bad "S33  the reaper's whole-machine lsof never reached the scoped wrapper (scoped=$N_SCOPED whole-form=$N_WHOLE), so this suite scanned the whole Mac"
+    fi
+
+    # Partial bypass control: one real wrapped query followed by an absolute
+    # query. A harmless fake stands in for the forbidden host scanner, so even
+    # a broken audit hook cannot make this control scan the Mac.
+    mkdir -p "$SANDBOX/escaping-bin"
+    printf '#!/bin/sh\ntouch "%s"\n' "$SANDBOX/escaped-scan" > "$SANDBOX/escaping-bin/lsof"
+    chmod +x "$SANDBOX/escaping-bin/lsof"
+    if SRT_SCANNER_CONTROL=1 python3 - "$SANDBOX/escaping-bin/lsof" <<'PY' >"$SANDBOX/partial-bypass.log" 2>&1
+import subprocess, sys
+subprocess.run(["lsof", "-n", "-P", "-F", "n"], capture_output=True)
+subprocess.run([sys.argv[1], "-n", "-P", "-F", "n"], check=True)
+PY
+    then
+        bad "S33b the partial scanner bypass was accepted"
+    elif [ ! -f "$SANDBOX/escaped-scan" ] && grep -q 'fixture refused an unscoped scanner' "$SANDBOX/partial-bypass.log"; then
+        ok "S33b a partial absolute-path bypass is refused before its scanner starts"
+    else
+        bad "S33b the bypass control failed without proving pre-execution refusal"
+    fi
+    if SRT_REAL_LSOF="$SANDBOX/escaping-bin/lsof" SRT_SCANNER_CONTROL=1 python3 - <<'PY' >"$SANDBOX/pid-bypass.log" 2>&1
+import subprocess
+subprocess.run(["lsof", "-p", "1"], check=True)
+PY
+    then
+        bad "S33c a scanner could ask about a process outside the fixture"
+    elif [ ! -f "$SANDBOX/escaped-scan" ] && grep -q 'refusing a PID outside the fixture' "$SANDBOX/pid-bypass.log"; then
+        ok "S33c an explicit PID outside the fixture is refused before its scanner starts"
+    else
+        bad "S33c the PID control did not prove refusal before execution"
+    fi
+else
+    ok "S33  SKIPPED — lsof is not on this host"
 fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------

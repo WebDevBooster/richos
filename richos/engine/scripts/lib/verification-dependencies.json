@@ -1387,7 +1387,7 @@
     },
     "mega-lander/workspaces.py#barrier": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "The barrier CLI reaches reference snapshots, native process identities and private workspace/session records. Its reviewed local call closure has no dynamic helper import and does not read orchestration.config. WAIT branch: an ending the platform recorded (observe_platform_end) also imports agent_hold.py to release that agent's hold; release reads no config and executes no engine program.",
       "keys": [],
       "edges": [
@@ -1443,7 +1443,7 @@
     },
     "mega-lander/workspaces.py#lifecycle-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed CLI paths: hook/lifecycle, register-spawn, barrier, integration/record_integration, pause and gate-stop. Their local call closure reaches workspace cleanup and these three dynamic modules; it does not reach the land CLI-only QA throwaway or scratch-sweep calls. No direct orchestration.config reader. WAIT branch: pause, resume, stop, TaskStop, SessionStart and SessionEnd also import agent_hold.py to hold or release the agent's processes, and the SendMessage path imports pause_protocol.py to recognize the generated pause and RESUME. Neither reads config.",
       "keys": [],
       "edges": [
@@ -2268,7 +2268,7 @@
     },
     "mega-lander/workspaces.py#liveness-readers": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "agent-liveness imports only key_for_id, load_agent, done_path, read_json and finished_state. Their reviewed local closure is state_dir/_p/_key_segment, agent_path/session_path/load_session, session_state/process_start/_ps_env and iso. These read registry JSON and native process status, never orchestration settings, and have no dynamic engine import.",
       "keys": [],
       "edges": []
@@ -2449,7 +2449,7 @@
     },
     "mega-lander/workspaces.py#session-recovery": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "The stop recovery predicate calls load_session and forbidden_now. Their finite local closure reads private registry/platform session JSON, native ancestry and git rev-parse, and may heal that same session under Lock/write_json/event. Helpers include session_pid, _ps_parent_and_comm, _platform_sessions_dir, worktree_session_reason, realpath, git/_git_env and registry path/time helpers. None reads orchestration.config or imports a dynamic engine module.",
       "keys": [],
       "edges": []
@@ -2467,7 +2467,7 @@
     },
     "mega-lander/workspaces.py#claims-fixture": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "The claims test calls load_agent, new_record, now and save_agent. Their finite local closure creates the literal record, resolves private agent/done paths and writes the private record/id index via write_json/_write_id. No config read or dynamic engine import.",
       "keys": [],
       "edges": []
@@ -2882,8 +2882,8 @@
     },
     "scripts/scratch-reaper.test.sh": {
       "source": "scripts/scratch-reaper.test.sh",
-      "sha256": "3987ec7472048506ed539f672f067a601308085aa0ce4e45da2ef44c714fb16a",
-      "evidence": "world creates literal configuration and every run supplies W_CFG through SCRATCH_REAPER_CONFIG, including the appinstances fallback. Inline mutations change only that fixture. Device/Docker/process adapters and test app binaries are generated locally. The final mutation harness copies the engine then re-enters this same literal-config test.",
+      "sha256": "9f78eb5afaa8cfc906af2d922cf965e94bb5b917828486bc4038e8ca699b1439",
+      "evidence": "world creates literal configuration and every run supplies W_CFG through SCRATCH_REAPER_CONFIG, including the appinstances fallback. Inline mutations change only that fixture. Device/Docker/process adapters and test app binaries are generated locally. The final mutation harness copies the engine then re-enters this same literal-config test. Its lsof adapter is generated locally too: it runs the real lsof narrowed to the suite's own process tree and reads only the SRT_* environment the suite exports, never configuration.",
       "keys": [],
       "edges": [
         {
@@ -2897,8 +2897,8 @@
     },
     "scripts/scratch-reaper.mutation.sh": {
       "source": "scripts/scratch-reaper.mutation.sh",
-      "sha256": "149890cea01df08dc0be116c8b3e06f897a3d27d6935f83f4c9728c9347e2643",
-      "evidence": "All 51 mutants use the shared literal source replacement API against scratch-reaper.py, then execute scratch-reaper.test.sh, whose world/run functions select their own config. Copied shipped settings remain transport only, including nested helper reads.",
+      "sha256": "2b7c4389b485c37fe63d4bc920357fe0724889f817ab2a38f07c50b324362c74",
+      "evidence": "All 53 mutants use the shared literal source replacement API against scratch-reaper.py (51) or its scoped test instrumentation (2), then execute scratch-reaper.test.sh, whose world/run functions select their own config. Copied shipped settings remain transport only, including nested helper reads. Since 2026-09-30 it declares mutation_focus stop-at-want, which stops a mutant's suite at its named FAIL line and changes no input.",
       "keys": [],
       "edges": [
         {
@@ -2911,7 +2911,7 @@
     },
     "mega-lander/workspaces.py#integration": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "integration_for/integration_target and record_integration use a finite local closure: integration record/file/path/work lookup, branch_tip/main_checkout/git, _write_integration/Lock/write_json/event and path/time helpers. Only registry JSON and git metadata are consumed; no config read or engine import. all_bodies_of_work uses the same _integration_file reader and returns its works mapping without executing lifecycle actions.",
       "keys": [],
       "edges": []
@@ -3604,7 +3604,7 @@
     },
     "mega-lander/workspaces.py#empty-recipient-fixture": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "The pause fixture explicitly supplies a newly created private RICHOS_WORKSPACES_DIR with no agent/done records. The recipient CLI reads load_agent(named_key(session,name)) and returns unregistered before observe_platform_end or any lifecycle operation. The recipient CLI takes entity from its argument or environment and does not perform the hook-only cwd Git lookup. Reached helpers are state_dir/_p/_key_segment, agent_path/done_path/read_json and named_key; none consumes config. The caller test hash binds this empty-registry precondition.",
       "keys": [],
       "edges": []
@@ -3793,7 +3793,7 @@
     },
     "mega-lander/workspaces.py#discard": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed discard CLI plus fixture registration new_record/named_key/_add_workspace/main_checkout/save_agent and record_end. Every local helper other than discard is shared with the already reviewed lifecycle closure. Discard validates record state/reason, records tips and invokes the same _delete_chain cleanup. CLI receives explicit --session; it never enters land-only QA or scratch-sweep paths. Retains actual engine configuration reads from app-instance cleanup.",
       "keys": [],
       "edges": [
@@ -4024,7 +4024,7 @@
     },
     "mega-lander/workspaces.py#isolation-registration": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed CLI register-readonly/register-cc/confirm-cc and check-spawn. Only register_readonly, register_cc and confirm_cc add local functions beyond the reviewed lifecycle/discard closure; they use the same registry, native identity and Git helpers, with no new dynamic import or config read. check-spawn calls register_spawn with dry=True. Also retains hook, integration and discard used directly by the isolation suite. Explicit --session bypasses ambient current_session for the non-payload fixture calls.",
       "keys": [],
       "edges": [
@@ -4082,7 +4082,7 @@
     },
     "mega-lander/workspaces.py#recipient": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "The recipient CLI calls recipient_state, which loads its named record then observe_platform_end and finished_state. Only recipient_state is new beyond the reviewed lifecycle closure; all its callees are already covered there. Its cleanup remains bound to actual engine app-instance settings. Explicit --session avoids ambient current_session.",
       "keys": [],
       "edges": [
@@ -4891,7 +4891,7 @@
     },
     "mega-lander/workspaces.py#land-lock-paths": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "The admin status path calls land_locks_dir and land_lock_path. Their finite closure is realpath, canonical_repository, git and _git_env. It creates the private lock directory and reads Git repository identity, never orchestration.config or another engine helper.",
       "keys": [],
       "edges": []
@@ -7576,7 +7576,7 @@
     },
     "mega-lander/workspaces.py#ledger-lookup": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Ledger assignment resolution calls key_for_id then load_agent. Reviewed key/id/path/read_json helpers only read the workspace registry; no config or dynamic helper call.",
       "keys": [],
       "edges": []
@@ -7636,7 +7636,7 @@
     },
     "mega-lander/workspaces.py#event-store": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed state_dir, event, _p, iso and now only: resolves the workspace store and appends a timestamped JSON row, without config or dynamic helper calls.",
       "keys": [],
       "edges": []
@@ -7799,7 +7799,7 @@
     },
     "mega-lander/workspaces.py#left-off-registry": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Left-off reads all_agents(include_done=True); its suite writes new_record/named_key/save_agent and record_integration. Reviewed record enumeration only adds private path/read_json to the existing claims and integration closures.",
       "keys": [],
       "edges": [
@@ -7929,7 +7929,7 @@
     },
     "mega-lander/workspaces.py#quota-fixture": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Quota workers calls current_session, all_agents and finished_state; fixtures also use integration/register-spawn/hook/recipient. Reviewed current_session reads the explicit session ID or the private registry/platform records using the captured sleeper PID. These share lifecycle helpers and retain real engine cleanup settings.",
       "keys": [],
       "edges": [
@@ -8253,7 +8253,7 @@
     },
     "mega-lander/workspaces.py#land-cli-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed CLI integration/discard/withdraw-cc/land and current_session. Land shares existing lifecycle eligibility/deletion helpers but its CLI also calls qa_throwaway_lines and sweep_scratch_after_land. Those fixed helper imports and the real scratch sweep are included. Unsourced QA transcript classifier defaults are separately scoped.",
       "keys": [],
       "edges": [
@@ -8288,7 +8288,7 @@
     },
     "mega-lander/workspaces.py#observe-refs": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed observe CLI parses payload, resolves its recorded agent and observes only unfinished work. observe_created_refs and its snapshot/protected-ref helpers are shared with the lifecycle/barrier closures; payload commands are never executed.",
       "keys": [],
       "edges": [
@@ -8478,7 +8478,7 @@
     },
     "mega-lander/workspaces.py#unit-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed all external import/execution sites and unit-call census. Library calls use lifecycle, registration and observation helpers. QA uses the fixed toolkit/classifier imports. The only main(land) call patches sweep_scratch_after_land to a no-op, so its production reaper is not invoked. Stop and wait only update records and observe refs. WAIT branch: stop and pause also release or hold processes through agent_hold.py, reached by the lifecycle edge.",
       "keys": [],
       "edges": [
@@ -8502,7 +8502,7 @@
     },
     "mega-lander/tests/workspaces.test.py": {
       "source": "mega-lander/tests/workspaces.test.py",
-      "sha256": "5fd6d6172ede9c36f4b3db3de4cc1bff5a45768dd50b1e8e35c8f5044854e459",
+      "sha256": "8a0a84ddb2fd5b9bd261acc19b7dce9eabeb34354e081db845c49b490a9c138d",
       "evidence": "AST census of every ws call, subprocess and run call: fixed Git fixtures, captured sleep processes, a literal shutdown writer and seven Stop guards. Private HOME/config directories and Git config do not replace real app cleanup or QA settings. Six guards receive only a forbidden lead; workspace gate receives a private unadopted repository. The sole land CLI call explicitly patches out the scratch sweep. The added resource-waits Stop guard also returns at the forbidden-lead recovery before reading settings or wait state.",
       "keys": [],
       "edges": [
@@ -8569,7 +8569,7 @@
     },
     "mega-lander/workspaces.py#fourteen-cli": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed suite CLI calls: register-cc, integration, status, retry, pause, stop, wait, discard and land, plus _turn_started_by_person import. All use the previously reviewed local library call closure. Land includes its real QA and scratch sweep. Printed command/payload text is never executed by this module.",
       "keys": [],
       "edges": [
@@ -8608,7 +8608,7 @@
     },
     "mega-lander/tests/workspace-spec-fourteen.test.sh": {
       "source": "mega-lander/tests/workspace-spec-fourteen.test.sh",
-      "sha256": "37c1150ae3314bb3f198b5a9bd8e347b599cc47d6fbc0e3be6931cb535d06455",
+      "sha256": "d0509de23629b837c40a257e93a1dbd27ca9297707cf61bfbe8fba4c5d501133",
       "evidence": "Reviewed suite fixture constructors, complete executable call sites, inline Python and finite eval assertions. Private adopted repository copies real config; settings are retained. Agent/lifecycle events are literal JSON, not actual model dispatch. Creator repositories have no setup hooks. Land invokes the actual scratch sweep. Direct unsourced integration consumers read only environment defaults, while hook children source the copied config.",
       "keys": [],
       "edges": [
@@ -8796,7 +8796,7 @@
     },
     "mega-lander/workspaces.py#live-names": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed all_agents(False), finished_state and fixture record creation. Private enumeration adds only JSON reads to liveness/claims paths; no cleanup or dynamic engine import.",
       "keys": [],
       "edges": [
@@ -9541,7 +9541,7 @@
     },
     "mega-lander/workspaces.py#land-record-readers": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Reviewed read_land_lock, land_record_path and land_records: bounded JSON history reads beside canonical repository lock paths, with no config read or execution.",
       "keys": [],
       "edges": [
@@ -9572,7 +9572,7 @@
     },
     "mega-lander/workspaces.py#fence-restore": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Full _recreate_deleted_ref and _fence_restore_intent reviewed: private Git ref/intent operations, launcher text reads and native process identity. No config execution; installed callbacks are separately bound by the fixture.",
       "keys": [],
       "edges": [
@@ -11165,7 +11165,7 @@
     },
     "mega-lander/workspaces.py#spawn-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Spawn reaches integration, registration, native session, Git and registry readers plus withdraw_cc. known_repos/all_integration_records read private JSON. withdraw_cc delegates to the reviewed lifecycle deletion path and retains engine cleanup configuration; no land CLI sweep is invoked.",
       "keys": [],
       "edges": [
@@ -12663,7 +12663,7 @@
     },
     "mega-lander/workspaces.py#fixture-records": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Fixture and completion functions only: named_key/new_record/_add_workspace/save_agent/load_agent/live_workspaces plus path/JSON/id/iso helpers. Writes private registry records, reads no config and runs no lifecycle command. _add_workspace also calls _remember_repo and _bind_body_of_work, which read/write private JSON and call the bound integration_record closure.",
       "keys": [],
       "edges": [
@@ -12952,7 +12952,7 @@
     },
     "mega-lander/workspaces.py#stop-records": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Stop CLI and fixture call all_agents(True), named_key/load_agent, finished_state, live_workspaces, _chain, main_checkout, integration_target, record_integration, new_record/save_agent and _bind_body_of_work. Reviewed _chain adds only load_agent traversal. All other callees are in the bound registry/integration closures. No lifecycle operation, cleanup or config-value reader executes.",
       "keys": [],
       "edges": [
@@ -13489,7 +13489,7 @@
     },
     "mega-lander/workspaces.py#desktop-work-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+      "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
       "evidence": "Desktop app and fixture use the reviewed lifecycle/unit/spawn/land closure. Additional append_land_record/_trim_land_records write bounded JSON only, while land_by_another_conversation reads history and thread identity. _require_clean uses the reviewed land residue/uncommitted helpers. Retain real cleanup and CLI helper configuration conservatively.",
       "keys": [],
       "edges": [
@@ -14305,26 +14305,26 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "eb46db35905566f620d0a1c8cf27826939880659b6db338c769ad3b83a95718f",
+          "sha256": "a5355a3fae8c48807dc25cb3843c20ffd98b18ee98b739fe259f07e62ccb21b2",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/proof_evidence.py",
-          "sha256": "a2a0b5f57e239bfb1935b67cb0df62f21c360519ae4556e68dd48a839c60622a",
+          "sha256": "a7d639d34dd0c23e7edf9b704b2d4f6d2c076ae25adac850e2795ddabc190d86",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
           "root": "repository",
           "path": "richos/app/scripts/run-tests.sh",
-          "sha256": "64ed08e92801c253acad321ccb7931b0a557d6a1859fbb078869cb85095594a9",
+          "sha256": "56903e7ec047fb5bcc2e4490acb1468faccf3c63efeb82df1c3ec6e130a4ba4a",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "b00129891a02e910e4834d35c1478c8c8e005bab71f8d43c04faa9cf19893391",
-          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+          "sha256": "8a370bd68a49578f61576175cb39233c45f174bc229f1046f3ef4f3637bc2e0b",
+          "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         },
         {
           "root": "repository",
@@ -14335,7 +14335,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/testvm/reserve.py",
-          "sha256": "2dfa4a6cb1071fd07755d2dcea1ef8f344c75b78903b3fdd3c4bee117ed97399",
+          "sha256": "02c5f75fbf326ce8cd1e5e31e707cbb8606b94aaf50064477959e3a92b3d5960",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14427,6 +14427,12 @@
           "path": "richos/mobile/native-ios/Release/simulator-tests.sh",
           "sha256": "c113ea531a0d66e2458f5135b77f2706686e8500f50a28eec88d8f312fd393b4",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/cargo_identity.py",
+          "sha256": "a88990c93cb148a1915ef1a095ef5c649b4583ae9b8215f00d7ab468ae1ecbc0",
+          "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
         }
       ]
     },
@@ -14515,13 +14521,13 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "eb46db35905566f620d0a1c8cf27826939880659b6db338c769ad3b83a95718f",
+          "sha256": "a5355a3fae8c48807dc25cb3843c20ffd98b18ee98b739fe259f07e62ccb21b2",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
           "root": "repository",
           "path": "richos/app/scripts/testvm/reserve.py",
-          "sha256": "2dfa4a6cb1071fd07755d2dcea1ef8f344c75b78903b3fdd3c4bee117ed97399",
+          "sha256": "02c5f75fbf326ce8cd1e5e31e707cbb8606b94aaf50064477959e3a92b3d5960",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14533,7 +14539,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/proof_evidence.py",
-          "sha256": "a2a0b5f57e239bfb1935b67cb0df62f21c360519ae4556e68dd48a839c60622a",
+          "sha256": "a7d639d34dd0c23e7edf9b704b2d4f6d2c076ae25adac850e2795ddabc190d86",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14541,6 +14547,12 @@
           "path": "richos/app/scripts/lib/proof_slots.py",
           "sha256": "825b7652d519652322aa227532115c17c14a738b3fba639807671750bc54d8b2",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/cargo_identity.py",
+          "sha256": "a88990c93cb148a1915ef1a095ef5c649b4583ae9b8215f00d7ab468ae1ecbc0",
+          "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
         }
       ]
     },
@@ -14865,7 +14877,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "mega-lander/workspaces.py",
-          "sha256": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+          "sha256": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {
@@ -15552,7 +15564,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/registered-hooks.sh": "9d114f6ba96262d75ad875cd0bcb609b3f1924e75946a21e5ab8819fd3a8df51",
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
         "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
@@ -15609,7 +15621,7 @@
         "scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
         "scripts/lib/testdevices.py": "7317a16a8075947446dd7602c1715694e4f5dcce5ea0795d9dd9cb75ed665cdd",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
@@ -15676,8 +15688,8 @@
         "ass-kicker/tests/stated-actions.mutation.sh": "6ee77e488fc4d2b872d0e94b5a1d0ede7f8212c04036d914a80fa82e375e3c89",
         "mega-lander/create-teammate-worktree.sh": "189e5e613e20454aeab4a5d7b66d635ed876c165d3fa18884b7e1f9fcd59c963",
         "mega-lander/tests/workspaces-e2e.test.sh": "98ab5258ff74f8c554ace58ffffdf3ea3456705b22e46684a1e9e876f55a49a2",
-        "mega-lander/tests/workspaces.test.py": "5fd6d6172ede9c36f4b3db3de4cc1bff5a45768dd50b1e8e35c8f5044854e459",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/tests/workspaces.test.py": "8a0a84ddb2fd5b9bd261acc19b7dce9eabeb34354e081db845c49b490a9c138d",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
         "scripts/entrypoint-currency-lint.sh": "09d95bf0ae992caa52ab7eeaec9613a0cb6ca23933a4f8450c52aba36d8f7486",
         "scripts/hooks/claim-roles.mutation.sh": "d998c6197966082daa82eb5fdb30c3a76d6757a06033afadc0cbc741e7eeebc0",
@@ -15790,9 +15802,9 @@
         "scripts/mechanical-findings-lint.sh": "e38128228771d66806eaa945f3711c609d2d9f56e124be9b1d1546b2b89e89f5",
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
         "scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
-        "scripts/scratch-reaper.mutation.sh": "149890cea01df08dc0be116c8b3e06f897a3d27d6935f83f4c9728c9347e2643",
+        "scripts/scratch-reaper.mutation.sh": "2b7c4389b485c37fe63d4bc920357fe0724889f817ab2a38f07c50b324362c74",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
-        "scripts/scratch-reaper.test.sh": "3987ec7472048506ed539f672f067a601308085aa0ce4e45da2ef44c714fb16a",
+        "scripts/scratch-reaper.test.sh": "9f78eb5afaa8cfc906af2d922cf965e94bb5b917828486bc4038e8ca699b1439",
         "scripts/scratch-sweep.sh": "98804cde04a632171f4323a43164e18871412d44e41ec36b2e535a2e43554297",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
@@ -16129,7 +16141,7 @@
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
         "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
@@ -16150,7 +16162,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/hooks/guard-ci-turn-gate.sh": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
@@ -16298,7 +16310,7 @@
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
         "scripts/lib/operator_fences_admin.py": "924d3bf06082e5d54a7caf7f1ea88a2124cd6a52454c094a11a8ad51b2e5e035",
         "scripts/lib/operator_fences.py": "d9f38d964a9e388458cc85d623c317962525ffad82104512b816cedbe9d58b5d",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/lib/operator_leads.py": "839ec6da2752417f1d1f3c273b7145dae9d1795f2923d8a248f430a9c830db22",
         "scripts/lib/operator-fence-launcher.sh": "b83c89e06e3e8aab78b2fd3eebb4693e2e41a08d752eae525fddceb10316ac59",
         "scripts/land-lease.sh": "a3a621ff827d5d60c4a127e9cb155bb03a78e9fed842d34acc727a39669e84b2",
@@ -16424,7 +16436,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
         "scripts/lib/agent-liveness.py": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",
         "scripts/hooks/guard-brief-scope.sh": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
@@ -16588,7 +16600,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/agent-liveness.py": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "80d6df68468d7484a4385eb8b1b9ffdf1ea9575776a5e7141bb3fca58ca7ec11",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
@@ -16646,7 +16658,7 @@
         "ass-kicker/brief-provenance.py": "78b82b175a6d2e59032bcffd9ca49928023f4742bd8866275c581e7afb6d4a10",
         "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
         "mega-lander/create-teammate-worktree.sh": "189e5e613e20454aeab4a5d7b66d635ed876c165d3fa18884b7e1f9fcd59c963",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/lib/agent_hold.py": "f8e2b2c70604088324a1da244338316aaaa791aae073d9bb18202f75ad13c9a4",
         "scripts/lib/appinstances.py": "e30b7e3522111d099a20bc2d5af49bff1d5b9a4245d5c2147306ef065596efca",
@@ -16675,8 +16687,8 @@
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "189e5e613e20454aeab4a5d7b66d635ed876c165d3fa18884b7e1f9fcd59c963",
         "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "bf6792427093c7ffab3d853360c0e4ded7d95f2835ec5e7d049dd4722b158b45",
-        "mega-lander/tests/workspace-spec-fourteen.test.sh": "37c1150ae3314bb3f198b5a9bd8e347b599cc47d6fbc0e3be6931cb535d06455",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/tests/workspace-spec-fourteen.test.sh": "d0509de23629b837c40a257e93a1dbd27ca9297707cf61bfbe8fba4c5d501133",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-unresolved-claims.py": "793b6ea10ac7db990e7c3062af9ce21d7fbcf984804d69d92452ab336737d053",
@@ -16724,7 +16736,7 @@
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "189e5e613e20454aeab4a5d7b66d635ed876c165d3fa18884b7e1f9fcd59c963",
         "mega-lander/tests/workspaces-e2e.test.sh": "98ab5258ff74f8c554ace58ffffdf3ea3456705b22e46684a1e9e876f55a49a2",
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
@@ -16830,7 +16842,7 @@
     "scripts/hooks/guard-resume-isolation.test.sh": {
       "commands": [],
       "sources": {
-        "mega-lander/workspaces.py": "2af6d481de9fba7cd268ea7a335ecdab45a49af43313013c820bd561c0d31558",
+        "mega-lander/workspaces.py": "98d5ba206b5a37021ea11ae7f5c0ae6c5953cc0968068f00967d9a34b55e3a80",
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
         "scripts/hooks/guard-resume-isolation.test.sh": "c58c65a57d542a4a9070777badf8c6057e751657bfae0d1e716f1510f8433da4",
         "scripts/lib/agent-liveness.py": "f6dc620af5b9a521717d4d3d4c07c24d730af892177970b044ecac81e12b605c",

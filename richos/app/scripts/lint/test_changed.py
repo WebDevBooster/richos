@@ -33,6 +33,10 @@ class Changed(unittest.TestCase):
         scripts = self.root / APP / "scripts"
         shutil.copytree(LINT, scripts / "lint", ignore=shutil.ignore_patterns("__pycache__", "baselines"))
         shutil.copy(LINT.parent / "lint.sh", scripts / "lint.sh")
+        (scripts / "lib").mkdir()
+        for name in ("cargo-cache-env.sh", "cargo_identity.py"):
+            shutil.copy(LINT.parent / "lib" / name, scripts / "lib" / name)
+        shutil.copytree(LINT.parent / "bin", scripts / "bin")
         shutil.copy(REAL_ROOT / APP / ".shellcheckrc", self.root / APP / ".shellcheckrc")
         (self.root / "richos/engine").symlink_to(REAL_ROOT / "richos/engine")
         self.write("scripts/a.sh", unquoted(2))

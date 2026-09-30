@@ -1185,23 +1185,31 @@ npm install && npm test                         # every suite, discovered from d
 node restart-scope.js                           # one suite, while you are working on it
 ```
 
-**A worktree never builds its own caches, and never installs its own Playwright.** Both live
-once per machine, outside any checkout, and a new worktree is pointed at them the moment it
-is created — `.richos/worktree-setup` runs
-[`scripts/shared-build-cache.sh`](scripts/shared-build-cache.sh), which symlinks this
-workspace's `target/` and `src-tauri/target` at the shared cargo cache
-(`/Volumes/E1TB/caches/cargo-target`, or `~/.cache/richos/cargo-target` when that volume is
-not mounted; `$RICHOS_BUILD_CACHE` overrides both). Playwright needs nothing at all:
-`ui/tests/lib/harness.js` derives the main checkout's install from git when this directory has
-no `node_modules`, so the commands above work in a fresh worktree with nothing installed in it.
-Run `bash .richos/worktree-setup` by hand in a checkout that predates this, and
-`scripts/shared-build-cache.sh --check` to see where a checkout's caches actually point. The
-nightly release build is deliberately excluded and shares nothing. Measured on a fresh
-checkout, 2026-09-20: the desktop shell's first `cargo build` went 58s with its own `target/`
-to 19s against the shared cache; `cargo test -p richos-voice --no-run` 18s to 13s;
-`cargo test -p richos-core --no-run` 21s to 19s — the spine has little to share, because its
-cost is its own code rather than its dependencies, and a checkout compiles that itself either
-way. **Never copy or symlink either cache by hand**; that is the step this replaced.
+**Cargo's mutable output is private to each physical workspace.** A shared target can
+run another checkout's stale binary when its source timestamps are older than the cached
+artifact. `scripts/bin/cargo` prevents that by treating `CARGO_TARGET_DIR` and
+`--target-dir` as cache roots and deriving a separate output directory for each workspace.
+The test runner, lint entry point and RichOS CPU admission wrapper enable this
+dispatcher. For a direct development command, use `scripts/bin/cargo test`, or source
+`scripts/lib/cargo-cache-env.sh` before using `cargo`. Explicit output-directory overrides
+in Cargo config must be removed; choose a cache root through `CARGO_TARGET_DIR` instead.
+
+`bash .richos/worktree-setup` links default `target/` paths to those private directories
+on the external SSD. `scripts/shared-build-cache.sh --check` detects old shared links;
+run the script without `--check` to retarget the links while preserving their old cache.
+Cargo registry downloads remain shared. Existing compiler wrappers are preserved; an
+available `sccache` caches compilations by compiler inputs instead of mutable Cargo
+artifacts. Its Rust cache key includes the Cargo output environment, so dependency
+compilation reuse across these private workspaces is not guaranteed. This Mac uses
+the verified Mozilla sccache 0.18.0 binary at
+`/Volumes/E1TB/tools/sccache/v0.18.0/sccache`, with the configured `SCCACHE_DIR` cache.
+Other hosts can supply sccache on PATH or set `RUSTC_WRAPPER` explicitly. Without a
+compiler cache, Cargo still builds correctly but a new workspace pays for its dependencies.
+See [Cargo's build-cache documentation](https://doc.rust-lang.org/cargo/reference/build-cache.html).
+
+Playwright remains shared: `ui/tests/lib/harness.js` derives the main checkout's install
+when this directory has no `node_modules`. The nightly release checkout keeps its separate
+setup. Never copy compiled Cargo output between checkouts.
 
 Contract and rules: [`richos/app/ui/tests/README.md`](ui/tests/README.md). Two notes that belong
 here rather than there:

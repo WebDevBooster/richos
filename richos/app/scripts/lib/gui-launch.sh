@@ -69,6 +69,7 @@ set -uo pipefail
 # runs the example through `cargo run`, exactly as before this mode existed.
 GUI_PREBUILT_NAMES="richos-tauri gui_boot_machine"
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/cargo-cache-env.sh"
 gui_prebuilt_mode() { [ -n "${RICHOS_GUI_PREBUILT:-}" ]; }
 
 # gui_prebuilt_check — exit 0 when every prebuilt executable is there and runnable; otherwise

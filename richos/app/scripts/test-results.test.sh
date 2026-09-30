@@ -30,7 +30,7 @@
 #          longer giving a suite its own folder
 #
 # run-tests: no-host-screen: fake suites and fake Gradle runs that write files under mktemp; nothing is launched on any screen
-# run-tests: inputs richos/app/scripts/test-results.test.sh richos/app/scripts/lib/test_results.py richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/proof-run.py
+# run-tests: inputs richos/app/scripts/test-results.test.sh richos/app/scripts/lib/test_results.py richos/app/scripts/run-tests.sh richos/app/scripts/lib/worktree-resource.sh richos/app/scripts/proof-run.py richos/app/scripts/bin/cargo richos/app/scripts/lib/cargo_identity.py richos/app/scripts/lib/cargo-cache-env.sh
 # run-tests: covers richos/app/scripts/lib/test_results.py
 set -uo pipefail
 
@@ -191,10 +191,12 @@ else bad "N6 last-error" "$out"; fi
 # ------------------------------------------------------------------------------------------
 make_box() {  # make_box <dir> [keeper]  — a scratch copy of the harness, its libraries, two suites
   local box="$1" keeper="${2:-$KEEPER}"
-  mkdir -p "$box/scripts/lib"
+  mkdir -p "$box/scripts/lib" "$box/scripts/bin"
   cp "$DIR/run-tests.sh" "$box/scripts/run-tests.sh"
   cp "$DIR/lib/worktree-resource.sh" "$box/scripts/lib/worktree-resource.sh"
   cp "$keeper" "$box/scripts/lib/test_results.py"
+  cp "$DIR/lib/cargo-cache-env.sh" "$DIR/lib/cargo_identity.py" "$box/scripts/lib/"
+  cp "$DIR/bin/cargo" "$box/scripts/bin/cargo"
   cat > "$box/scripts/fake-gradle.sh" <<SH
 HANG_TICKS=$HANG_TICKS
 SH

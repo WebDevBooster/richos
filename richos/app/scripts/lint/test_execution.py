@@ -1,4 +1,5 @@
 import argparse
+import json
 import fcntl
 import os
 from pathlib import Path
@@ -51,6 +52,14 @@ class Execution(unittest.TestCase):
                         'echo \'{"reason":"build-finished","success":true}\'\n')
         path.chmod(0o755)
         return [[str(path)]]
+
+    def test_compiler_errors_in_json_are_printed_when_compilation_fails(self):
+        output = json.dumps({"reason": "compiler-message", "message": {
+            "level": "error", "message": "wrong arguments", "rendered": "error[E0061]: wrong arguments at model_provisioning.rs:90"}})
+        result = subprocess.CompletedProcess([], 1, output, "could not compile: 2 previous errors")
+        with patch('rust.run_cargo', return_value=(result, .1)), \
+                self.assertRaisesRegex(Refusal, "error\\[E0061\\].*model_provisioning.rs:90"):
+            rust.collect(Path.cwd(), [['cargo', 'clippy']])
 
     def test_waiting_for_cargos_lock_is_not_clippys_time(self):
         # Audit R12: the Tauri cap counted Cargo's lock wait, so a Clippy queued behind another

@@ -264,7 +264,7 @@ WHOLE_CHECKOUT = "whole-checkout-v2"
 CHECKOUT_TOOLS = ("bash", "sh", "node", "python3", "git")
 CHECKOUT_ENVIRONMENT_NAMES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "DEVELOPER_DIR", "SDKROOT")
 CHECKOUT_ENVIRONMENT_PREFIXES = ("RICHOS_", "RUN_TESTS_", "NODE_", "NPM_CONFIG_", "PYTHON", "CARGO_",
-                                 "RUST", "PLAYWRIGHT_")
+                                 "RUST", "SCCACHE_", "PLAYWRIGHT_")
 # Set per run or per process by the runner and the land hook; never part of an identity.
 RUN_SCOPED_ENVIRONMENT = frozenset(("RICHOS_AUTOCHECK_ACTIVE", "RICHOS_TEST_RESULTS_ROOT",
                                     "RICHOS_TEST_DEVICE_RUN_ID", "RICHOS_VERIFICATION_CONTAMINATION"))
@@ -390,7 +390,13 @@ def rust_toolchain(root, environment):
                                 capture_output=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as exc:
         raise ValueError("cannot read the Rust toolchain: " + str(exc)) from None
-    return {"path": rustc, "exit": result.returncode, "sha256": hashlib.sha256(result.stdout).hexdigest()}
+    identity = {"path": rustc, "exit": result.returncode, "sha256": hashlib.sha256(result.stdout).hexdigest()}
+    wrapper = environment.get("RUSTC_WRAPPER") or environment.get("CARGO_BUILD_RUSTC_WRAPPER")
+    if wrapper:
+        resolved = shutil.which(wrapper, path=environment.get("PATH"))
+        identity["compiler_wrapper"] = ({"path": resolved, "sha256": _tool_digest(resolved)}
+                                        if resolved else {"missing": wrapper})
+    return identity
 
 
 INSTALL_ENVIRONMENT_NAMES = ("PATH", "HOME", "PLAYWRIGHT_BROWSERS_PATH", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN",

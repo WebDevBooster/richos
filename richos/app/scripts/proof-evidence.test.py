@@ -621,7 +621,7 @@ class Evidence(unittest.TestCase):
                 shutil.copy2(path, engine / "scripts/lib" / path.name)
         for name in ("ci-shard.sh", "ci-units.sh"):
             shutil.copy2(source_engine / name, engine / "scripts" / name)
-        for name in ("proof_evidence.py", "proof_slots.py", "test_results.py"):
+        for name in ("proof_evidence.py", "proof_slots.py", "test_results.py", "cargo_identity.py"):
             shutil.copy2(HERE / "lib" / name, app / "lib" / name)
         shutil.copy2(HERE / "testvm/reserve.py", app / "testvm/reserve.py")
         shutil.copy2(HERE / "proof-run.py", app / "proof-run.py")
@@ -1433,6 +1433,13 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         # A toolchain update behind the same `rustc` shim is a different compiler.
         rustc.write_text('#!/bin/sh\necho "rustc 1.91.0 (fixture)"\n')
         self.assertNotEqual(identity()["installed"]["rust"], reinstalled["installed"]["rust"])
+        wrapper = bin_dir / "sccache"
+        wrapper.write_text('#!/bin/sh\nexec "$@"\n')
+        wrapper.chmod(0o755)
+        environment["RUSTC_WRAPPER"] = str(wrapper)
+        wrapped = identity()["installed"]["rust"]
+        wrapper.write_text('#!/bin/sh\n# a different compiler cache\nexec "$@"\n')
+        self.assertNotEqual(identity()["installed"]["rust"], wrapped)
 
 
 if __name__ == "__main__":

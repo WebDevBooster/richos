@@ -11,10 +11,11 @@
 # serves the back end's question tool exactly as the app does, and it refuses to host without an
 # engine, writing nothing. W4's grading is proved by operator-probes/test/run-tests.sh.
 #
-# run-tests: inputs richos/app/scripts/work-walk.test.sh richos/app/crates/richos-core
+# run-tests: inputs richos/app/scripts/work-walk.test.sh richos/app/crates/richos-core richos/app/scripts/bin/cargo richos/app/scripts/lib/cargo_identity.py richos/app/scripts/lib/cargo-cache-env.sh richos/app/scripts/lib/cargo-target.sh
 # run-tests: covers richos/app/crates/richos-core/examples/work_walk.rs
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/lib/cargo-cache-env.sh"
 APP="$(cd "$HERE/.." && pwd)"
 PASS=0
 FAIL=0
@@ -40,7 +41,8 @@ if ! ( cd "$APP" && cargo build --quiet -p richos-core --example work_walk --fea
   exit 1
 fi
 ok "W2 builds with crash-points"
-WALK="${CARGO_TARGET_DIR:-$APP/target}/debug/examples/work_walk"
+. "$HERE/lib/cargo-target.sh"
+WALK="$(cargo_target_dir "$APP")/debug/examples/work_walk"
 [ -x "$WALK" ] || { echo "work-walk.test.sh: no binary at $WALK" >&2; exit 1; }
 
 # W3: no mode is a usage refusal, not a host.

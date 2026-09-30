@@ -276,6 +276,7 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$DIR/lib/cargo-cache-env.sh"
 # Standalone fixture copies have no engine; a complete checkout uses its shared budget.
 WORKER_TOOL="$DIR/../../engine/scripts/lib/worker_tokens.py"
 # `--list` starts nothing, so it must not wait for a machine worker token to say so.

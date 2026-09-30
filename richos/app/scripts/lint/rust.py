@@ -120,7 +120,17 @@ def collect(root, commands, deadline=None, clock=None):
         result, _ = run_cargo(command + ["--message-format=json"], cwd=root, timeout=remaining,
                               clock=clock)
         if result.returncode:
-            raise Refusal(f"Clippy compilation failed: {result.stderr[-3000:]}")
+            errors = []
+            for line in result.stdout.splitlines():
+                try:
+                    item = json.loads(line)
+                except ValueError:
+                    continue
+                message = item.get("message", {})
+                if item.get("reason") == "compiler-message" and message.get("level") == "error":
+                    errors.append(message.get("rendered") or message.get("message", ""))
+            detail = "\n".join(errors) if errors else result.stderr[-3000:]
+            raise Refusal(f"Clippy compilation failed: {detail}")
         finished, artifacts = False, 0
         try:
             for line in result.stdout.splitlines():
