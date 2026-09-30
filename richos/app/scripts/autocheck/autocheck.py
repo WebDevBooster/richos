@@ -21,13 +21,14 @@ engineer in a worktree, Codex, Rich in the main checkout.
   none is run. A failure refuses the commit with the reason.
 
   LAND, anything that moves main (pre-merge-commit on main, pre-commit on main, and
-  pre-push of main as the backstop): the suites `proof-for.sh` assigns to the change, run
-  by `proof-run.py`, plus `lint.sh --all` when the land changes something under richos/app
-  and the selection does not already include `lint.test.sh`. Nobody chooses the suites. A failure refuses the merge before it exists,
-  so it cannot be pushed. A pass leaves a receipt keyed by the tree it proved. A check
-  proof-run reports NOT RUN is never a pass: the land accepts only a suite that needs a
-  screen (a land never uses this Mac's screen), names it in its verdict and records it in
-  the receipt as not run; any other NOT RUN refuses the land (README.md, "NOT RUN").
+  pre-push of main as the backstop): the suites that own the changed files
+  (`proof-for.sh --gate`), run by `proof-run.py`, plus `lint.sh --changed` when the land
+  changes something under richos/app and the selection does not already include
+  `lint.test.sh` (the push backstop: `--all`). Every check is stopped at 600 s and the gate at
+  900 s (THE MERGE GATE'S LIMITS). Nobody chooses the suites. A failing check refuses the
+  merge before it exists, so it cannot be pushed; that is all that refuses it (land_verdict).
+  A check that did not reach a verdict is NOT RUN, which is never a pass: it is named in the
+  verdict and in the receipt, and the nightly runs it (README.md, "NOT RUN").
 
   THE ONE ESCAPE is git's own `--no-verify`. It cannot be prevented; it is recorded. After
   the fact (post-commit, post-merge) a commit whose tree this check never passed, or a main
@@ -626,9 +627,21 @@ def merge_heads(repo):
     return heads
 
 
-def select(repo, argv):
-    """proof-for.sh's commands for one selection, or (None, rc) when it refuses."""
-    result = subprocess.run(["bash", PROOF_FOR, "--quiet", *argv], cwd=repo.top, env=repo.env,
+def knows(repo, path, flag):
+    """Does this tree's copy of a tool take `flag`? A land into a main older than the flag
+    runs that main's tool without it: slower, never looser."""
+    try:
+        return flag in (repo.top / path).read_text(errors="replace")
+    except OSError:
+        return False
+
+
+def select(repo, argv, gate=False):
+    """proof-for.sh's commands for one selection, or (None, rc) when it refuses. `gate`: the
+    merge gate's selection (proof-for.sh --gate), where a directory input selects its suite only
+    for a product path."""
+    flags = ["--gate"] if gate and knows(repo, PROOF_FOR, "--gate)") else []
+    result = subprocess.run(["bash", PROOF_FOR, "--quiet", *flags, *argv], cwd=repo.top, env=repo.env,
                             stdin=subprocess.DEVNULL, capture_output=True, text=True)
     if result.returncode:
         sys.stderr.write(result.stdout + result.stderr)
@@ -636,10 +649,24 @@ def select(repo, argv):
     return [line.strip() for line in result.stdout.splitlines() if line.strip()], 0
 
 
-def land_check(repo, what, staged, range_argv):
+# THE MERGE GATE'S LIMITS (2026-09-30). The CEO, on a day of 25-71 minute merge checks that
+# failed on everything but the fixes: "That whole CI shitshow had the exact same end effect as
+# what has been happening today". So a land runs the lint on what changed and the suites that
+# own the changed files (proof-for.sh --gate), each check stopped at CHECK_CAP_SECONDS and the
+# whole gate at GATE_CAP_SECONDS. What did not reach a verdict inside them is NOT RUN, named in
+# the receipt, and never blocks; the nightly (nightly-local.py) still runs everything and stays
+# the release gate. A failing check blocks; that is all (land_verdict). Adoption ledger §2.4,
+# T3 Code's release gating: affected checks only, every job capped at 10 minutes.
+CHECK_CAP_SECONDS = 600
+GATE_CAP_SECONDS = 900
+
+
+def land_check(repo, what, staged, range_argv, changed_lint=True):
     """Run the suites proof-for.sh assigns plus the lint on the working tree, which the
     caller has established IS the tree being landed. Returns 0 and writes the receipt when
-    they pass."""
+    nothing it ran failed. `changed_lint`: HEAD is the main being landed onto, so the lint
+    measures the change against it (`lint.sh --changed`); the push backstop, where HEAD is
+    already the land, measures the whole tree."""
     started = time.monotonic()
     for need in (PROOF_FOR, PROOF_RUN, LINT):
         if not (repo.top / need).is_file():
@@ -648,7 +675,7 @@ def land_check(repo, what, staged, range_argv):
     commands = []
     covered = set()
     if range_argv:
-        found, rc = select(repo, range_argv)
+        found, rc = select(repo, range_argv, gate=True)
         if found is None:
             return refuse_selection(what, rc)
         commands += found
@@ -657,16 +684,19 @@ def land_check(repo, what, staged, range_argv):
     else:
         extra = list(staged)
     if extra:
-        found, rc = select(repo, ["--paths", ",".join(extra)])
+        found, rc = select(repo, ["--paths", ",".join(extra)], gate=True)
         if found is None:
             return refuse_selection(what, rc)
         commands += [c for c in found if c not in commands]
     # The lint checks the application (it lives under richos/app). A land that changes nothing
     # under richos/app has nothing for it to check, as in commit_check, so it does not pay the
     # compiler work (hunt part 2, finding 13). Any application path, a deletion included, runs it.
+    # On the changed files only: `--changed` is the lint's own rule, never looser than `--all`
+    # (a count that grows is decided by the full pass, lint/driver.py).
     touches_app = any(p.startswith("richos/app/") for p in covered | set(staged))
     if touches_app and not any("lint.test.sh" in c for c in commands):
-        commands.append("cd richos/app && bash scripts/lint.sh --all")
+        mode = "--changed" if changed_lint and knows(repo, LINT_DRIVER, "--changed") else "--all"
+        commands.append(f"cd richos/app && bash scripts/lint.sh {mode}")
     say(f"autocheck: {what}: {len(commands)} check command(s) selected by proof-for.sh, run by proof-run.py:")
     for c in commands:
         say("    " + c)
@@ -706,73 +736,108 @@ def land_check(repo, what, staged, range_argv):
     reason = os.environ.get("RICHOS_AUTOCHECK_RETRY_REASON")
     if reason:
         argv += ["--retry-reason", reason]
+    # The caps (THE MERGE GATE'S LIMITS). The run gets what is left of the gate's time, and
+    # waits for admission and for a proof-run slot no longer than that: a Mac too busy to start
+    # a check inside the gate leaves it NOT RUN, named, instead of holding the merge.
+    if knows(repo, PROOF_RUN, "--run-cap"):
+        left = max(60, int(GATE_CAP_SECONDS - (time.monotonic() - started)))
+        argv += ["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(left),
+                 "--admission-wait", str(left), "--slot-wait", str(left)]
     try:
         result = repo.run(["python3", PROOF_RUN, *argv, "--log-dir", str(directory), "--summary-out", summary_path])
         if (directory / "plan.json").is_file():
             pending = root / "last-attempt.pending"
             pending.write_text(json.dumps({"directory": str(directory), "identity": identity}))
             os.replace(pending, prior)
-        not_run, why_not = accepted_not_run(result.returncode, summary_path)
+        blocking, not_run, why_not = land_verdict(result.returncode, summary_path, directory)
     finally:
         os.unlink(plan)
     seconds = time.monotonic() - started
-    if result.returncode and not_run is None:
-        banner(f"{what.upper()} REFUSED: a check it owns did not pass", [
+    if blocking is None or blocking:
+        banner(f"{what.upper()} REFUSED: a check it owns failed", [
             "proof-run.py's summary above names the check, its state and its log.",
             *([why_not] if why_not else []),
+            *(f"FAILED: {row['check']} ({row['result']})" for row in blocking or []),
             "Nothing was committed: fix the branch and land it again.",
             "git's --no-verify skips this, and every skip is recorded in the lead's escalation ledger.",
         ])
         return 1
     tree = repo.index_tree()
-    repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1), not_run=not_run or []))
+    repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1), not_run=not_run))
     if not_run:
         names = ", ".join(f"{row['check']} ({row['why']})" for row in not_run)
         banner(f"{what.upper()} ALLOWED WITH {len(not_run)} CHECK(S) NOT RUN, WHICH IS NOT A PASS", [
             f"NOT RUN: {names}.",
-            "Every other selected check ran and passed. These need a screen, and a land never puts",
-            "anything on this Mac's screen (--no-host-screen). The receipt records them as NOT RUN,",
-            "never as passed, and `nightly-local.py publish` refuses a build of this commit until",
-            "a gui-boot proof taken against it exists (--gui-proof). See autocheck/README.md.",
+            "Nothing that ran failed. These did not reach a verdict inside the gate's limits (600 s a",
+            "check, 900 s the gate) or could not run here; the receipt records them as NOT RUN, never",
+            "as passed, and the nightly (nightly-local.py) runs them. See autocheck/README.md.",
         ])
-        say(f"autocheck: {what}: passed with {len(not_run)} NOT RUN (no screen): {names}; "
+        say(f"autocheck: {what}: passed with {len(not_run)} NOT RUN: {names}; "
             f"{seconds:.1f}s; receipt for tree {tree[:12]}")
         return 0
     say(f"autocheck: {what}: every selected check passed in {seconds:.1f}s; receipt for tree {tree[:12]}")
     return 0
 
 
-# The one NOT RUN a land accepts: a suite that needs a screen, under --no-host-screen with no
-# test-VM guest named. Anything else that did not run (a declared host gap, a suite skipped as
-# unchanged) did not answer for this change and refuses the land. Reasoning: README.md.
-LAND_ACCEPTS_NOT_RUN = {"no-screen"}
+# Why a check that did not pass is NOT RUN rather than a failure (land_verdict).
+NOT_RUN_WHY = {"timed-out": "over its 600 s cap", "not-admitted": "not admitted",
+               "contained": "stopped by the verification controller",
+               "resource-envelope-exceeded": "stopped by the verification controller",
+               "infrastructure-failed": "the runner could not supervise it",
+               "cleanup-failed": "the runner could not clean it up",
+               "scheduler-starvation": "not admitted", "resource-recovery-exhausted": "not admitted"}
+ENDED = "cancelled"  # dialect-exempt: proof-run.py's state value for a check its run ended (CANCELED there)
+NOT_RUN_WHY[ENDED] = "ended at the gate's 900 s cap"
+# A pass invalidated only because what it read changed while the run went (proof_evidence.py,
+# Record.save and finalize): no verdict either way, which is not a failure of the change.
+INPUTS_MOVED = ("inputs changed", "source changed during execution")
 
 
-def accepted_not_run(rc, summary_path):
-    """([{check, why, suites}], None) when proof-run exited 3 and every check it did not pass is
-    NOT RUN for a reason the land accepts; (None, reason) otherwise. Exit 0 is ([], None)."""
+def land_verdict(rc, summary_path, directory):
+    """(blocking rows, not_run rows, reason) from proof-run's summary. A failing check blocks:
+    `failed`, `blocked` (an unchanged failure the runner refuses to run again), and `invalid`
+    for any reason but inputs that moved during the run. Everything else that did not pass did
+    not reach a verdict: NOT RUN, named, never blocking. The coverage verifier `engine receipts`
+    fails whenever one of its units did not pass, so it blocks only when every unit passed.
+    (None, [], reason) when there is no verdict to read."""
     if rc == 0:
-        return [], None
-    if rc != 3:
-        return None, None
+        return [], [], None
+    if rc not in (1, 3):
+        return None, [], f"proof-run.py exited {rc}, which is not a verdict."
     try:
         with open(summary_path) as stream:
             checks = json.load(stream)["checks"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        return None, f"proof-run.py exited 3 (NOT RUN) and its summary is unreadable ({exc})."
-    idle, other = [], []
+        return None, [], f"proof-run.py exited {rc} and its summary is unreadable ({exc})."
+    try:
+        outcomes = json.loads((Path(directory) / "outcomes.json").read_text())
+        outcomes = outcomes if isinstance(outcomes, dict) else {}
+    except (OSError, ValueError):
+        outcomes = {}
+    units = [row for row in checks if row.get("check", "").startswith("engine ") and row["check"] != "engine receipts"]
+    units_passed = all(row.get("result") == "passed" for row in units)
+    blocking, not_run = [], []
     for row in checks:
-        if row.get("result") == "passed":
+        state, name = row.get("result"), row.get("check")
+        if state == "passed":
             continue
-        info = row.get("not_run") or {}
-        if row.get("result") == "not-run" and info.get("why") in LAND_ACCEPTS_NOT_RUN:
-            idle.append({"check": row["check"], "why": info["why"], "suites": info.get("suites", [])})
+        why = None
+        if state in ("failed", "blocked"):
+            if name == "engine receipts" and not units_passed:
+                why = "its engine units did not all reach a verdict"
+        elif state == "invalid":
+            invalid = str((outcomes.get(name) or {}).get("invalid", ""))
+            if any(phrase in invalid for phrase in INPUTS_MOVED):
+                why = "what it read changed while the gate ran"
+        elif state == "not-run":
+            why = (row.get("not_run") or {}).get("why") or "not run"
         else:
-            other.append(f"{row.get('check')} ({row.get('result')}{', ' + info['why'] if info.get('why') else ''})")
-    if other or not idle:
-        return None, ("NOT RUN is not a pass. A land accepts it only for a suite that needs a screen; "
-                      "these did not answer for this change: " + (", ".join(other) or "none named") + ".")
-    return idle, None
+            why = NOT_RUN_WHY.get(state, state)
+        if why is None:
+            blocking.append({"check": name, "result": state})
+        else:
+            not_run.append({"check": name, "why": why, "suites": (row.get("not_run") or {}).get("suites", [])})
+    return blocking, not_run, None
 
 
 def refuse_selection(what, rc):
@@ -820,7 +885,7 @@ def pre_push(repo, stdin_text):
             ])
             return 1
         base = remote_sha if remote_sha != ZERO else git("rev-list", "--max-parents=0", local_sha, cwd=repo.top).split()[0]
-        if land_check(repo, "push", [], [f"{base}..{local_sha}"]):
+        if land_check(repo, "push", [], [f"{base}..{local_sha}"], changed_lint=False):
             return 1
     return 0
 
