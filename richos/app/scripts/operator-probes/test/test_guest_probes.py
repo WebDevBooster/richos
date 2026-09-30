@@ -449,7 +449,7 @@ class GradeP18(unittest.TestCase):
 
 class CrashMatrix(unittest.TestCase):
     def cell(self, **change):
-        rec = {'reports': 1, 'ledger': {'relays': [{'uuid': 'U', 'session': 'S', 'taken': True}], 'inbox_waiting': 0,
+        rec = {'cell': 'W3', 'first_exit': -6, 'reports': 1, 'ledger': {'relays': [{'uuid': 'U', 'session': 'S', 'taken': True}], 'inbox_waiting': 0,
                                         'transcript_uuid_counts': {'U': 1}}}
         rec.update(change)
         return rec
@@ -465,6 +465,19 @@ class CrashMatrix(unittest.TestCase):
             rec = self.cell()
             rec['ledger'][key] = value
             self.assertFalse(gp.grade_w3_cell(rec), (key, value))
+
+    def test_a_crash_cell_that_never_crashed_does_not_pass(self):
+        """Hunt part 2, finding 36: W3 waited 180 s, killed the walk late and graded it anyway."""
+        for cell in ('W1b', 'W2', 'W3'):
+            self.assertTrue(gp.grade_w3_cell(self.cell(cell=cell)), cell)
+            self.assertFalse(gp.grade_w3_cell(self.cell(cell=cell, crash_point_not_reached=True, first_exit=-9)), cell)
+            self.assertFalse(gp.grade_w3_cell(self.cell(cell=cell, first_exit=0)), '%s: a normal exit' % cell)
+        self.assertFalse(gp.grade_w3_cell(self.cell(cell='W3', crash_point_not_reached=True, first_exit=0)))
+
+    def test_the_queued_answer_window_needs_its_long_command_still_running(self):
+        self.assertTrue(gp.grade_w3_cell(self.cell(cell='W4', first_exit=-9, long_task_alive_at_kill=True)))
+        self.assertFalse(gp.grade_w3_cell(self.cell(cell='W4', first_exit=-9, long_task_alive_at_kill=False)))
+        self.assertFalse(gp.grade_w3_cell(self.cell(cell='W4', first_exit=-9)))
 
     def test_a_cell_that_needed_his_words_does_not_pass(self):
         """Run 2026-09-27, cell W3: the lead reported once, but only after the harness gave his
@@ -537,7 +550,8 @@ class WorkCrashMatrix(unittest.TestCase):
         rec = {'cell': cell, 'register': {'assignment': 'J'}, 'reports': 1, 'walks_gone': [True, True],
                'row': {'state': 'settled', 'notices': [{'kind': 'Answer'}]}, 'spawns_last_walk': 1,
                'inbox': {'inputs': [{'id': 'question-set:x', 'handed': True, 'taken_in': 'S'}]},
-               'recovery': {'unknown': [], 'answers_waiting': ['J']}, 'blocked_before_crash': True}
+               'recovery': {'unknown': [], 'answers_waiting': ['J']}, 'blocked_before_crash': True,
+               'first_exit': -6}
         rec.update(change)
         return rec
 
@@ -549,6 +563,13 @@ class WorkCrashMatrix(unittest.TestCase):
             untaken = {'inputs': [{'id': 'question-set:x', 'handed': False, 'taken_in': None}]}
             self.assertFalse(gp.grade_w4_cell(self.cell(cell, inbox=untaken))[0], '%s: never taken' % cell)
             self.assertFalse(gp.grade_w4_cell(self.cell(cell, walks_gone=[True, False]))[0], '%s: a walk left running' % cell)
+        for cell in ('P4-carry', 'P4-sent', 'P5'):
+            extra = dict(recovery={'unknown': ['J'], 'answers_waiting': []}, row={'state': 'unknown', 'notices': []},
+                         spawns_last_walk=0, reports=0) if cell == 'P5' else {}
+            self.assertTrue(gp.grade_w4_cell(self.cell(cell, **extra))[0], cell)
+            for change in ({'crash_point_not_reached': True, 'first_exit': -9}, {'first_exit': 0}):
+                self.assertFalse(gp.grade_w4_cell(self.cell(cell, **extra, **change))[0],
+                                 '%s: the crash point was never reached (%s)' % (cell, change))
         for cell in ('P4-carry', 'P4-sent'):
             told = self.cell(cell, row={'state': 'settled', 'notices': [{'kind': 'Unknown'}, {'kind': 'Answer'}]})
             self.assertFalse(gp.grade_w4_cell(told)[0], '%s: told a job that never started was running' % cell)

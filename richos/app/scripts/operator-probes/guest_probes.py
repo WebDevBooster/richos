@@ -3235,7 +3235,20 @@ def grade_w3_cell(rec):
     """A cell passes when the lead reported the answer once with NO words from him (a cell that
     needed them does not pass: the 2026-09-27 run's W3 cell did, which is the gap the continuation
     closes), the answer is in the transcript once, the inbox let it go, the relay is taken and no
-    turn is left open; a continuation, when one was sent, is in the transcript once."""
+    turn is left open; a continuation, when one was sent, is in the transcript once.
+
+    A cell that names a crash point also passes only when that crash happened: the walk was
+    aborted by the point (a nonzero first exit) and not killed at the wait's deadline
+    (`crash_point_not_reached`), and the queued-answer window (W4) only when the long command
+    it waits behind was still running at the kill. A late kill or a normal exit is a different
+    test from the one the cell names (hunt part 2, finding 36)."""
+    cell = rec.get('cell')
+    if rec.get('crash_point_not_reached'):
+        return False
+    if cell in ('W1b', 'W2', 'W3') and not rec.get('first_exit'):
+        return False
+    if cell == 'W4' and not rec.get('long_task_alive_at_kill'):
+        return False
     ledger = rec.get('ledger') or {}
     relays = ledger.get('relays') or []
     continued = list((ledger.get('continuation_uuid_counts') or {}).values())
@@ -3631,6 +3644,10 @@ def grade_w4_cell(rec):
     job = ((rec.get('register') or {}).get('assignment'))
     if not all(rec.get('walks_gone') or [False]):
         return False, 'a walk was left running'
+    if cell in ('P4-carry', 'P4-sent', 'P5') and (rec.get('crash_point_not_reached') or not rec.get('first_exit')):
+        # The cell's whole claim is recovery from an abort at its crash point (finding 36).
+        return False, 'the crash point was not reached (crash_point_not_reached=%s first_exit=%s)' % (
+            rec.get('crash_point_not_reached'), rec.get('first_exit'))
     if cell == 'P5':
         ok = (job in (recovery.get('unknown') or []) and row.get('state') == 'unknown' and taken
               and rec.get('reports', 0) <= 1 and rec.get('spawns_last_walk') == 0)
@@ -3643,7 +3660,7 @@ def grade_w4_cell(rec):
     if cell in ('P4-carry', 'P4-sent'):
         waiting = job in (recovery.get('answers_waiting') or []) and job not in (recovery.get('unknown') or [])
         no_unknown = 'Unknown' not in notices
-        ok = waiting and no_unknown and once and taken and not rec.get('crash_point_not_reached')
+        ok = waiting and no_unknown and once and taken
         return ok, 'answers_waiting=%s no_unknown_notice=%s reports=%s taken=%s' % (waiting, no_unknown, rec.get('reports'), taken)
     if cell == 'P4e':
         spawned = rec.get('spawns_last_walk') == 2
