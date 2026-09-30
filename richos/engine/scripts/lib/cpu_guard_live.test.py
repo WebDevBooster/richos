@@ -47,7 +47,7 @@ class LiveRuleTests(unittest.TestCase):
         for now in range(0, 604, 2):
             rows = {10: self.row(), 20: self.row(10), 30: self.row(20, now * 4.5, name='rustc'),
                     40: self.row(), 50: self.row(40, now * 4.5, name='rustc')}
-            chosen, rates, protected = watch.sample(rows, now)
+            chosen, rates, protected = watch.sample(rows, now, host_busy=100)
             for pid in chosen:
                 stopped.setdefault(pid, now)
         self.assertEqual(stopped.get(50), 12)
@@ -61,8 +61,30 @@ class LiveRuleTests(unittest.TestCase):
         self.root(10, 'release-build')
         watch = L.Watch()
         for now in range(0, 14, 2):
-            chosen, _, _ = watch.sample({10: self.row(), 30: self.row(10 if now == 0 else 1, now * 4.5)}, now)
+            chosen, _, _ = watch.sample({10: self.row(), 30: self.row(10 if now == 0 else 1, now * 4.5)}, now,
+                                        host_busy=100)
         self.assertEqual(chosen, [30])
+
+    def test_a_job_over_the_core_limit_is_left_alone_while_the_host_has_room(self):
+        # P5-22: four cores for a minute on a host that is 40 percent busy is healthy
+        # work, not a runaway. The same job on a saturated host is still stopped.
+        self.root(40, 'session')
+        for busy, expected in ((40, []), (79.9, []), (100, [50])):
+            watch = L.Watch()
+            chosen = []
+            for now in range(0, 62, 2):
+                rows = {40: self.row(), 50: self.row(40, now * 4.0, name='rustc')}
+                chosen, _, _ = watch.sample(rows, now, host_busy=busy)
+            self.assertEqual(chosen, expected, busy)
+
+    def test_a_brief_host_spike_does_not_stop_a_long_running_job(self):
+        self.root(40, 'session')
+        watch = L.Watch()
+        chosen = []
+        for now in range(0, 62, 2):
+            rows = {40: self.row(), 50: self.row(40, now * 4.0, name='rustc')}
+            chosen, _, _ = watch.sample(rows, now, host_busy=100 if now in (30, 32) else 30)
+            self.assertEqual(chosen, [], now)
 
     def test_the_rule_is_the_same_in_both_controllers(self):
         import cpu_guard
