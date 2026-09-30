@@ -573,9 +573,20 @@ while IFS= read -r p; do
       if [ "$m" = "main" ]; then
         printf '%s\t%s\t--bin richos-tauri\n' "src-tauri" "unit" >> "$WORK/rust"
       else
-        printf '%s\t%s\t--bin richos-tauri %s::\n' "src-tauri" "unit" "$m" >> "$WORK/rust"
+        # A `<module>::` filter runs the tests under that module path. A module that declares
+        # no test and has no child module matches zero tests, and cargo exits 0 over zero
+        # tests, so claiming it would record a pass that proves nothing (hunt 2026-09-29,
+        # part 2, section 14). Claim it only when the file declares a test or the module has
+        # children (a directory of that name) whose tests the filter also selects; otherwise
+        # fall through to UNCOVERED, like the core-crate branch above.
+        sfile="$ROOT/$p"; sdir="${sfile%.rs}"; sdir="${sdir%/mod}"
+        if grep -qE '#\[(cfg\(test\)|test|tokio::test)\]' "$sfile" 2>/dev/null \
+           || [ -d "$sdir" ]; then
+          printf '%s\t%s\t--bin richos-tauri %s::\n' "src-tauri" "unit" "$m" >> "$WORK/rust"
+          MATCHED=1; note "the shell's own unit tests for $m"
+        fi
       fi
-      MATCHED=1; note "the shell's own unit tests for $m" ;;
+      [ "$m" != "main" ] || { MATCHED=1; note "the shell's own unit tests for $m"; } ;;
     "$APP_REL"/src-tauri/Cargo.toml|"$APP_REL"/src-tauri/build.rs)
       printf '%s\t%s\t--bin richos-tauri\n' "src-tauri" "all" >> "$WORK/rust"; MATCHED=1 ;;
   esac
