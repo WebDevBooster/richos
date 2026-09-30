@@ -9,8 +9,8 @@ Git runs these itself. Nobody runs them by hand and nobody has to be told to (CE
 | `git commit` | every branch but `main`, in every worktree | `lint.sh --changed --strict`: the lint ratchets for what differs from `HEAD` (static and load rules; Clippy for a Rust set whose inputs changed), and no count may grow, whatever room a ceiling has | refuses the commit, with the lint's reason |
 | `git commit` | every branch but `main`, in every worktree | a branch-changed file that a reviewed check pins by SHA-256 in `docs/development/verification-input-qualifications.json` must have its pin renewed in the same change (the merge would refuse it with `UnqualifiedReader`); read only when a changed path is named there | refuses the commit, naming the file, the unit and the fix |
 | `git merge` into a branch | every branch but `main` | `lint.sh --changed` (ceilings; what main brings was held to its land) | refuses the merge |
-| `git merge` into `main`, a commit on `main` | the main checkout | the suites `proof-for.sh` assigns to the change, run by `proof-run.py`, plus `lint.sh --all` when the land changes something under `richos/app` and that selection does not already include `lint.test.sh` | refuses the merge before main moves |
-| `git push` of `main` | wherever main is pushed from | the same land checks, only when main's tip has no land receipt (a fast-forward, a cherry-pick, a `--no-verify` merge) | refuses the push |
+| `git merge` into `main`, a commit on `main` | the main checkout | the suites that own the changed files (`proof-for.sh --gate`), run by `proof-run.py`, plus `lint.sh --changed` when the land changes something under `richos/app` and that selection does not already include `lint.test.sh`; each check capped at 600 s, the gate at 900 s | a failing check refuses the merge before main moves; nothing else does |
+| `git push` of `main` | wherever main is pushed from | the same land checks (the lint as `--all`: HEAD is already the land), only when main's tip has no land receipt (a fast-forward, a cherry-pick, a `--no-verify` merge) | refuses the push |
 
 No formatter runs: the repository does not enforce one.
 
@@ -42,6 +42,57 @@ at every session start and turn end) and is appended to
 `<git-common-dir>/richos-autocheck/bypass.log`. A rebase, cherry-pick or revert on a branch
 replays commits and is not recorded; its land runs the full checks.
 
+## The merge gate: small, capped, and blocking only on a failure (2026-09-30)
+
+The CEO, after a day of 25-71 minute merge checks that failed on everything but the fixes:
+*"That whole CI shitshow had the exact same end effect as what has been happening today"*.
+T3 Code's release gating (adoption ledger §2.4) is the design copied: affected checks only,
+every job capped at 10 minutes. A merge into main runs exactly:
+
+1. **The lint on what changed**: `lint.sh --changed` against the main being landed onto,
+   which the lint guarantees is never looser than `--all`. The push backstop keeps `--all`.
+2. **The owning suites of the changed files**, from `proof-for.sh --gate`: a directory
+   input (a suite that reads a whole tree) selects its suite only for a product path, so a
+   change to scripts, the engine, the UI test harness or documents runs only the suites that
+   cover or name its files. The merge of zach-opus-lander1 (three mega-lander files) ran
+   make-engine-asset, gui-boot and proof-for for that reason; it no longer does.
+3. **Caps**: `proof-run.py --cap 600` stops every check, engine units included, at ten
+   minutes whatever a dated weight predicts, and `--run-cap` ends the run at what is left of
+   the gate's 900 s; admission and the proof-run slot wait no longer than that either.
+
+**Left to the nightly, by name**: suites that need a device this Mac has one of: the
+iPhone simulator (native-ios-app, native-ios-share, native-ios-ui, mobile-ios) or a screen,
+the host's or the test VM's guest (read off the suite as `proof-run.py` reads it). The
+mutation passes of the workspace suites run only under `RICHOS_MUTATION_PASSES=1` (and the
+fourteen-point suite's under `RICHOS_FOURTEEN_MUTANTS=1`), which the nightly's
+`gates/workspace-mutants` sets (hunt part 4 finding 19).
+
+**What blocks**: a check that failed (`failed`), an unchanged failure the runner refuses to
+run again (`blocked`), and an `invalid` result for any reason except inputs that changed while
+the gate ran (an invalid result can hide a failure, for example a UI suite whose ledger
+records a failed check). `engine receipts` blocks only when every engine unit passed.
+**Nothing else blocks**: a check over its cap, ended at the gate's cap, not admitted, stopped
+by the verification controller, NOT RUN for any reason, or left to the nightly is named in
+the verdict and written to the receipt's `not_run` with its reason. The nightly
+(`nightly-local.py`) runs all of it and stays the release gate.
+
+### Measuring the gate
+
+`python3 richos/app/scripts/autocheck/autocheck.py measure`, run by hand in a checkout, runs
+the land check of what is staged there against HEAD, exactly as a commit onto main does, and
+writes no land receipt. To replay a land: detach, stage the land's change on top of a base
+without it, run `measure`, then return to the branch.
+
+Measured 2026-09-30 on cc/zach-opus-gate1 (07d289da8), replaying two of that day's lands:
+
+| Land | Old gate that day | New gate |
+| --- | --- | --- |
+| zach-opus-lander1 (3 mega-lander files) | 11.4 min (21 checks) and 24.3 min (45 checks, iPhone suites, make-engine-asset, gui-boot), both refused | 2.9 min, 8 checks (6 engine units, receipts, the contamination row); refused: `verification-inputs.test.sh` (reader pins changed by an earlier land) and the change's own `app.test.sh` writing its HOME record |
+| echo-opus-assign1 (4 richos-core files) | 4.0 min (21 checks) refused; a second try passed 10 min with the iPhone suites failing | 5.6 min cold (sccache bypassed, see the escalation of that day), 16 checks, front-door and gui-boot left to the nightly; refused: `operator-walk.test.sh` W5, whose snippet in operator_host.rs the change removed |
+
+Both refusals are failures of checks the change owns; nothing was refused for a simulator, a
+screen, a cap or admission.
+
 ## NOT RUN is not a pass
 
 A check `proof-run.py` could not run is reported as its own state, `not-run`, with a reason:
@@ -52,8 +103,11 @@ records only a skip, such as `realbytes.js` with no `cargo`). Until 2026-09-29 `
 `gui-boot` were recorded as `passed` in exactly that case, and until 2026-09-30 so was a
 skipped UI suite.
 
-**The land's decision: a `no-screen` NOT RUN does not refuse the land; every other NOT RUN
-does.** Why:
+**The land's decision (since 2026-09-30): no NOT RUN refuses the land; each is named.** Until
+then a `host-gap`, `unchanged-inputs` or `suite-skipped` NOT RUN refused it, and only
+`no-screen` was accepted, for the reasons below. A check that did not run is not a failure of
+the change, and the merge gate blocks only on failures (above); the nightly answers for it.
+The original reasoning for the screen case, which still holds:
 
 - A land may never put anything on this Mac's screen (CEO ruling §65; `--no-host-screen` is
   how every land runs), so a screen suite can never run in one here. Refusing would make every
@@ -66,9 +120,8 @@ does.** Why:
   where a screen may be used, the test VM, before anything is published.
 - With `RICHOS_GUI_HOST` naming a guest, the same suites run in the guest and are real passes
   or failures; nothing here changes that.
-- A `host-gap`, `unchanged-inputs` or `suite-skipped` NOT RUN is a suite that did not answer for this change
-  on a host that could have run it, so it refuses. The land check removes
-  `RUN_TESTS_SKIP_UNCHANGED` from its environment: a land runs every suite it selected.
+- The land check still removes `RUN_TESTS_SKIP_UNCHANGED` from its environment: a land runs
+  every suite it selected, so an `unchanged-inputs` NOT RUN does not happen there.
 
 ## A check's inputs are not another check's outputs
 
@@ -126,9 +179,10 @@ supposed to run anyway, plus about 4 s of its own (selection and receipt). Measu
 one changed script (5 checks, including `lint.test.sh` and `make-engine-asset.test.sh`) took
 128 s end to end in a fresh clone, 112 s of it the lint suite compiling Rust at a new path.
 When the land changes something under `richos/app` and the selection does not include
-`lint.test.sh`, the check adds `lint.sh --all`; a land that changes nothing under `richos/app`
-(engine-only or documentation) adds nothing, as the commit check does. The added lint costs 58 s warm (`lint.test.sh` as a whole, which a land of anything
-under `richos/app` selects, measured 81 s).
+`lint.test.sh`, the check adds `lint.sh --changed` (until 2026-09-30 `--all`, 58 s warm); a
+land that changes nothing under `richos/app` (engine-only or documentation) adds nothing, as
+the commit check does. The merge gate's own measured cost is in the land records of the
+change that introduced it (cc/zach-opus-gate1).
 
 ## Merge retries and phone scope
 
@@ -144,8 +198,10 @@ the runner's existing retry budget.
 The three iPhone suites declare `select-inputs` for product dependencies separately
 from their broader `inputs` used to validate saved evidence. Harness changes run the
 fixture controls in `merge-check-scope.test.sh`. Actual Core, project, plist and app
-inputs still select the phone checks. The suites queue on one simulator lane with a
-finite pool wait bounded by the check's existing deadline.
+inputs still select the phone checks for an engineer's own proof and the nightly; since
+2026-09-30 a merge into main leaves the simulator suites to the nightly and names them (the
+merge gate, above). Where they run, they queue on one simulator lane with a finite pool wait
+bounded by the check's existing deadline.
 
 `lib/ios_ui_scope.py` maps reviewed feature files to their affected XCTest families
 and unit-test suites. Shared inputs, new feature files and unreviewed test inventories

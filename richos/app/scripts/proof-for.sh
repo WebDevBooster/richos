@@ -115,6 +115,7 @@
 #   proof-for.sh --paths <p>[,<p>…]   an explicit list (this is how the suite drives it)
 #   options: --explain   print the mapping, path by path, on stderr
 #            --quiet     the commands only, nothing else on stdout
+#            --gate      the merge gate's selection (see THE MERGE GATE'S SELECTION below)
 #
 # Exit codes:
 #   0  mapped (the command list may legitimately be empty — it says so)
@@ -122,6 +123,21 @@
 #   2  usage, a diff that could not be read, or a declaration that does not reconcile
 #   3  a commit in the range touches richos/mobile/ without `Battery-check: NO — <evidence>`
 #      (CEO ruling §81; battery-check.py names each one). Nothing is mapped then.
+#
+# =========================================================================================
+# THE MERGE GATE'S SELECTION (--gate, 2026-09-30)
+# =========================================================================================
+# A DIRECTORY input (`# run-tests: inputs richos/engine`, a `ui/tests/...` row ending in `/`)
+# says "this suite reads the whole tree". For a change to the PRODUCT (the Rust crates, the
+# desktop shell, the shipped UI, the phone web app, the phone apps) that is exactly right: the
+# suite reads what ships. For a change to TOOLING (scripts, the engine, the test harness,
+# documents) it selected whole-product suites: every engine change ran make-engine-asset
+# (packaging), proof-for and lint.test.sh, and the merge of 3 mega-lander files ran 45 checks
+# for 24 minutes on 2026-09-30. Under --gate a directory input selects its suite only for a
+# changed product path; a tooling path selects the suites that cover it, are it, or name it
+# exactly. Coverage is unchanged (a directory input never covered anything), so UNCOVERED is
+# exactly what it is without --gate. Without --gate nothing changes: the commit check, an
+# engineer's own proof and the nightly still get the full selection.
 # =========================================================================================
 
 set -uo pipefail
@@ -140,9 +156,10 @@ CI_AFFECTED="$ROOT/richos/engine/scripts/ci-affected-units.sh"
 
 die() { echo "ERROR: proof-for.sh: $1" >&2; exit "${2:-2}"; }
 
-MODE=""; REF=""; PATHS_INLINE=""; EXPLAIN=0; QUIET=0
+MODE=""; REF=""; PATHS_INLINE=""; EXPLAIN=0; QUIET=0; GATE=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --gate)    GATE=1; shift ;;
     --staged)  MODE=staged; shift ;;
     --working) MODE=working; shift ;;
     --paths)   [ "$#" -ge 2 ] || die "--paths needs a comma-separated list"
@@ -376,6 +393,20 @@ ui_suites_requiring() {  # $1 = a lib basename without .js; prints suite file na
 
 crate_underscore() { printf '%s' "$1" | tr '-' '_'; }
 
+# What ships (THE MERGE GATE'S SELECTION, above): a directory input selects for these under
+# --gate. Everything else (scripts, the engine, the UI test harness, documents) is tooling.
+is_product() {  # $1 = repo-relative path
+  case "$1" in
+    "$APP_REL"/ui/tests/*) return 1 ;;
+    "$APP_REL"/crates/*|"$APP_REL"/src-tauri/*|"$APP_REL"/ui/*|"$APP_REL"/third-party/*) return 0 ;;
+    "$APP_REL"/updater/*|"$APP_REL"/icon-source/*|"$APP_REL"/Cargo.toml|"$APP_REL"/Cargo.lock) return 0 ;;
+    "$APP_REL"/style.css|richos/web/*|richos/mobile/*) return 0 ;;
+  esac
+  return 1
+}
+# 0 when a directory input may select its suite for this path.
+dir_selects() { [ "$GATE" -eq 0 ] || is_product "$1"; }
+
 is_code() {  # $1 = repo-relative path
   case "$1" in
     *.md|*.txt|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.tsv|*.csv|*.lock|*.webmanifest|*.ttf|*.otf|*.woff*|*.icns|*.wav|*.mp3) return 1 ;;
@@ -478,7 +509,12 @@ while IFS= read -r p; do
     else
       for d in $decl; do
         case "$p" in
-          "$d"|"$d"/*) printf '%s\n' "$s" >> "$WORK/script"; note "input of $s ($d)"; break ;;
+          "$d") printf '%s\n' "$s" >> "$WORK/script"; note "input of $s ($d)"; break ;;
+          "$d"/*)
+            if dir_selects "$p"; then
+              printf '%s\n' "$s" >> "$WORK/script"; note "input of $s ($d)"; break
+            fi
+            note "under a directory $s reads ($d); not selected at the gate for a tooling path" ;;
         esac
       done
     fi
@@ -535,10 +571,12 @@ while IFS= read -r p; do
   # make every file in that tree look covered. Found 2026-09-29: a Rust test file added in
   # 6f5cfb03 made app/README.md's counts false, and docs-claims.js, whose row named eight
   # exact files, was selected by nothing in that land.
-  while IFS= read -r s; do
-    [ -n "$s" ] || continue
-    add_ui "$s"; note "under a directory $s reads (selects; covers nothing)"
-  done < <(awk -F"$TAB" -v q="$p" 'index(q, $1) == 1 { print $2 }' "$WORK/ui-dir-index" 2>/dev/null)
+  if dir_selects "$p"; then
+    while IFS= read -r s; do
+      [ -n "$s" ] || continue
+      add_ui "$s"; note "under a directory $s reads (selects; covers nothing)"
+    done < <(awk -F"$TAB" -v q="$p" 'index(q, $1) == 1 { print $2 }' "$WORK/ui-dir-index" 2>/dev/null)
+  fi
 
   # ---- Rust ----
   case "$p" in

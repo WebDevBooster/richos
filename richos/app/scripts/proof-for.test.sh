@@ -511,6 +511,43 @@ else
   bad "L1 an untested shell module is UNCOVERED" "exit $L1_RC: $(tr '\n' ' ' < "$WORK/l1.out")"
 fi
 
+# -----------------------------------------------------------------------------------------
+# M. THE MERGE GATE'S SELECTION (--gate, 2026-09-30). The land of zach-opus-lander1 (88943d1b)
+#    changed three mega-lander files and its merge ran make-engine-asset (packaging), gui-boot
+#    and proof-for because they read `richos/engine` wholesale. Under --gate a tooling path
+#    selects only what covers or names it; a product path still selects every whole-tree reader.
+# -----------------------------------------------------------------------------------------
+if have_commit 88943d1b; then
+  run_pf "$WORK/g-full.out" --quiet 88943d1b^1..88943d1b; G_FULL=$RC
+  run_pf "$WORK/g-gate.out" --quiet --gate 88943d1b^1..88943d1b; G_GATE=$RC
+  if [ "$G_FULL" -eq 0 ] && [ "$G_GATE" -eq 0 ] && grep -q 'make-engine-asset.test.sh' "$WORK/g-full.out" \
+     && ! grep -qE 'make-engine-asset|run-tests.sh' "$WORK/g-gate.out" \
+     && [ "$(grep -c 'ci-shard.sh --only-units' "$WORK/g-gate.out")" -eq "$(grep -c 'ci-shard.sh --only-units' "$WORK/g-full.out")" ] \
+     && grep -q 'only-units mega-lander/tests/app.test.sh' "$WORK/g-gate.out"; then
+    ok "M1 an engine change at the gate runs its engine units and no whole-tree app suite"
+  else
+    bad "M1 an engine change at the gate runs its engine units and no whole-tree app suite" \
+        "full exit $G_FULL, gate exit $G_GATE: $(tr '\n' ' ' < "$WORK/g-gate.out")"
+  fi
+else
+  bad "M1 88943d1b is not in this clone — the gate fixture could not run"
+fi
+run_pf "$WORK/g2.out" --quiet --gate --paths richos/app/crates/richos-core/src/assignment.rs; G2_RC=$RC
+if [ "$G2_RC" -eq 0 ] && grep -q 'only work-walk.test.sh\|--only work-walk.test.sh' "$WORK/g2.out" \
+   && grep -q 'cargo test -p richos-core --lib assignment::' "$WORK/g2.out"; then
+  ok "M2 a product change at the gate still selects the suites that read its whole tree"
+else
+  bad "M2 a product change at the gate still selects the suites that read its whole tree" \
+      "exit $G2_RC: $(tr '\n' ' ' < "$WORK/g2.out")"
+fi
+run_pf "$WORK/g3.out" --quiet --gate --paths richos/app/scripts/lib/proof_slots.py; G3_RC=$RC
+if [ "$G3_RC" -eq 0 ] && grep -q -- '--only proof-run.test.sh' "$WORK/g3.out" \
+   && ! grep -qE 'make-engine-asset|--only (lint|not-run-verdict|no-foreign-app-data)\.test\.sh' "$WORK/g3.out"; then
+  ok "M3 a script at the gate selects the suite that covers it, not every reader of scripts/"
+else
+  bad "M3 a script at the gate selects the suite that covers it" "exit $G3_RC: $(tr '\n' ' ' < "$WORK/g3.out")"
+fi
+
 echo
 TAIL=""
 [ "$NOTRUN" -gt 0 ] && TAIL=", $NOTRUN NOT RUN"

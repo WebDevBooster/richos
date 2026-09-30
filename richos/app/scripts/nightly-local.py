@@ -446,6 +446,17 @@ SUITE_RESULTS = "script-suites.json"
 UI_TESTS = Path("richos/app/ui/tests")
 UI_SUITE_GATE = "gates/ui-suite"
 WORKSPACE_MUTANTS_GATE = "gates/workspace-mutants"
+# The engine units whose mutation passes run only under RICHOS_MUTATION_PASSES=1, at that gate
+# (hunt part 4 finding 19): every land runs their behavioral checks, never their mutants.
+# mega-lander/tests/app.test.sh takes the same switch but is NOT here yet: on 2026-09-30 its
+# behavioral half failed under ci-shard.sh with RECORD-TOUCHED (it writes the machine-wide land
+# locks under its HOME, app.test.py line 41) before its mutation pass started, so adding it
+# would turn every nightly red. It joins this list in the change that fixes that.
+MUTATION_PASS_UNITS = (
+    "mega-lander/tests/workspaces.test.sh",
+    "mega-lander/tests/create-teammate-worktree.test.sh",
+    "mega-lander/tests/workspace-probes.test.sh",
+)
 UI_SHARDS = 4
 
 # ── Quarantine: the list that keeps test rot from stopping a build ───────────────────────
@@ -903,6 +914,8 @@ GATE_SET_PER_STEP = (
     "RICHOS_IOS_POOL_WAIT",
     # The workspace-spec mutation pass, the same ruling; set at the workspace-mutants gate.
     "RICHOS_FOURTEEN_MUTANTS",
+    # ...and the other workspace suites' passes (MUTATION_PASS_UNITS), at the same gate.
+    "RICHOS_MUTATION_PASSES",
     # How many prepared-simulator leases the pool hands out at once (testdevices.py
     # pool_leases): the operator's `--simulated-phones`, set at the script-suites call site.
     SIMULATED_PHONES_ENV,
@@ -1769,11 +1782,23 @@ class Runner:
         # ci-shard.sh, so the unit keeps its leak canary and its deadline; a failed or unproven
         # mutant fails this gate and stops the nightly. Every mutant works in its own copy of
         # the engine (mutation-harness.sh), so nothing it does touches the tree another gate reads.
+        #
+        # The other workspace suites' mutation passes, the same ruling applied to them (hunt
+        # part 4 finding 19, 2026-09-30): OFF at every land, ON here with
+        # RICHOS_MUTATION_PASSES=1, one unit after another, a failed pass failing the gate
+        # (MUTATION_PASS_UNITS says why app.test.sh is not among them yet). Their own budget is
+        # UNVERIFIED: the dated CI-era weights put the three units, mutation passes included,
+        # near 700 s (workspaces 580 s, workspace-probes 114 s, create-teammate-worktree 4 s;
+        # their behavioral halves took 89, 25 and 9 s here on 2026-09-30), so they get the
+        # fourteen-point pass's own 3600 s until the first nightly measures them.
         def workspace_mutants():
             with self.phase(WORKSPACE_MUTANTS_GATE):
                 self.command("bash", "richos/engine/scripts/ci-shard.sh", "--only-units",
                              "mega-lander/tests/workspace-spec-fourteen.test.sh",
                              env_extra={"RICHOS_FOURTEEN_MUTANTS": "1"},
+                             timeout=GATE_BUDGETS[WORKSPACE_MUTANTS_GATE])
+                self.command("bash", "richos/engine/scripts/ci-shard.sh", "--only-units",
+                             ",".join(MUTATION_PASS_UNITS), env_extra={"RICHOS_MUTATION_PASSES": "1"},
                              timeout=GATE_BUDGETS[WORKSPACE_MUTANTS_GATE])
 
         def privacy_sweep():
