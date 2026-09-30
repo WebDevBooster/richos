@@ -76,6 +76,23 @@ by the verification controller, NOT RUN for any reason, or left to the nightly i
 the verdict and written to the receipt's `not_run` with its reason. The nightly
 (`nightly-local.py`) runs all of it and stays the release gate.
 
+### Measuring the gate
+
+`python3 richos/app/scripts/autocheck/autocheck.py measure`, run by hand in a checkout, runs
+the land check of what is staged there against HEAD, exactly as a commit onto main does, and
+writes no land receipt. To replay a land: detach, stage the land's change on top of a base
+without it, run `measure`, then return to the branch.
+
+Measured 2026-09-30 on cc/zach-opus-gate1 (07d289da8), replaying two of that day's lands:
+
+| Land | Old gate that day | New gate |
+| --- | --- | --- |
+| zach-opus-lander1 (3 mega-lander files) | 11.4 min (21 checks) and 24.3 min (45 checks, iPhone suites, make-engine-asset, gui-boot), both refused | 2.9 min, 8 checks (6 engine units, receipts, the contamination row); refused: `verification-inputs.test.sh` (reader pins changed by an earlier land) and the change's own `app.test.sh` writing its HOME record |
+| echo-opus-assign1 (4 richos-core files) | 4.0 min (21 checks) refused; a second try passed 10 min with the iPhone suites failing | 5.6 min cold (sccache bypassed, see the escalation of that day), 16 checks, front-door and gui-boot left to the nightly; refused: `operator-walk.test.sh` W5, whose snippet in operator_host.rs the change removed |
+
+Both refusals are failures of checks the change owns; nothing was refused for a simulator, a
+screen, a cap or admission.
+
 ## NOT RUN is not a pass
 
 A check `proof-run.py` could not run is reported as its own state, `not-run`, with a reason:
