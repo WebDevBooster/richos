@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 #[derive(Debug, thiserror::Error)]
 #[error("RichOS runtime setup is incomplete: {0}")]
@@ -26,6 +27,36 @@ pub struct EngineRuntime {
     pub node: PathBuf,
     pub git: PathBuf,
     pub versions: BTreeMap<String, String>,
+}
+
+/// What the filesystem says about a delivered file without reading it: size, both times (ctime
+/// cannot be set from userland, so a write that put `mtime` back is still seen), inode and device.
+#[derive(Clone, PartialEq, Eq)]
+struct Stamp(u64, i64, i64, i64, i64, u64, u64);
+
+fn stamp_of(meta: &std::fs::Metadata) -> Stamp {
+    use std::os::unix::fs::MetadataExt;
+    Stamp(meta.len(), meta.mtime(), meta.mtime_nsec(), meta.ctime(), meta.ctime_nsec(), meta.ino(), meta.dev())
+}
+
+/// **A file whose bytes this process has already hashed against the digest the delivery names,
+/// and which the filesystem says is the same file since** (hunt part 1 finding 30). Every
+/// conversation or work connection verifies the runtime; reading and hashing every delivered file
+/// again for each one is the cost this removes. Only the byte read is skipped: the inventory walk,
+/// the link checks, the escape checks and the executable checks still run on every load, so an
+/// unexpected, missing, re-linked or re-permissioned file is refused as before. A file that is
+/// touched at all (its size, either time, its inode) is hashed again.
+#[derive(Default)]
+struct Verified {
+    files: std::collections::HashMap<PathBuf, (Stamp, String)>,
+    hashed: std::collections::HashMap<PathBuf, usize>,
+}
+static VERIFIED: Mutex<Option<Verified>> = Mutex::new(None);
+
+/// How many delivered files this process has read and hashed under `root` (the canonical
+/// runtime directory). An observation for tests and the boot log.
+pub fn files_hashed_under(root: &Path) -> usize {
+    VERIFIED.lock().ok().and_then(|held| held.as_ref()?.hashed.get(root).copied()).unwrap_or(0)
 }
 
 fn relative(name: &str) -> bool {
@@ -71,15 +102,30 @@ impl EngineRuntime {
             if !resolved.starts_with(&root) || path.is_symlink() {
                 return Err(RuntimeError(format!("runtime file escapes its delivery: {name}")));
             }
-            let mut file = std::fs::File::open(path).map_err(|e| RuntimeError(e.to_string()))?;
-            let mut hash = Sha256::new();
-            let mut buffer = [0; 65536];
-            loop {
-                let length = file.read(&mut buffer).map_err(|e| RuntimeError(e.to_string()))?;
-                if length == 0 { break; }
-                hash.update(&buffer[..length]);
+            let mut file = std::fs::File::open(&path).map_err(|e| RuntimeError(e.to_string()))?;
+            // Stamped from the open handle BEFORE the read, so a write that lands during the
+            // hash leaves a stamp that no longer matches and is hashed again next time.
+            let stamp = stamp_of(&file.metadata().map_err(|e| RuntimeError(e.to_string()))?);
+            let known = VERIFIED.lock().is_ok_and(|held| {
+                held.as_ref()
+                    .and_then(|v| v.files.get(&path))
+                    .is_some_and(|(seen, digest)| *seen == stamp && digest == wanted)
+            });
+            if !known {
+                let mut hash = Sha256::new();
+                let mut buffer = [0; 65536];
+                loop {
+                    let length = file.read(&mut buffer).map_err(|e| RuntimeError(e.to_string()))?;
+                    if length == 0 { break; }
+                    hash.update(&buffer[..length]);
+                }
+                if format!("{:x}", hash.finalize()) != *wanted { return Err(RuntimeError(format!("runtime file changed: {name}"))); }
+                if let Ok(mut held) = VERIFIED.lock() {
+                    let held = held.get_or_insert_with(Verified::default);
+                    held.files.insert(path.clone(), (stamp, wanted.clone()));
+                    *held.hashed.entry(root.clone()).or_default() += 1;
+                }
             }
-            if format!("{:x}", hash.finalize()) != *wanted { return Err(RuntimeError(format!("runtime file changed: {name}"))); }
             expected.insert(name.clone());
         }
         for (name, target) in &delivery.links {
