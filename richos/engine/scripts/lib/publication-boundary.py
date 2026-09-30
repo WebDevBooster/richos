@@ -79,6 +79,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 
 # --- the recorded-speech shape ---------------------------------------------
 #
@@ -433,7 +434,9 @@ def parse_private_files(entries):
             continue
         digest, name = entry.split(':', 1)
         digest = digest.strip().lower()
-        name = name.strip()
+        # The minter writes whitespace (and '%') in a name as %XX, because an
+        # entry is one whitespace-delimited token; undo that here.
+        name = urllib.parse.unquote(name.strip())
         if len(digest) != 64 or not name:
             continue
         out.append((digest, name, os.path.basename(name.rstrip('/')).lower()))
@@ -885,17 +888,21 @@ def mint(path):
         return 2
     text = decode_best(raw)
     name = os.path.basename(path)
+    # An entry is one whitespace-delimited token in the declaration, so a name
+    # with whitespace is written percent-encoded (parse_private_files decodes).
+    # The header line below shows the real name.
+    declared = urllib.parse.quote(name, safe="/:@!$&'()*+,;=-._~") if re.search(r'[\s%]', name) else name
     by_bytes = hashlib.sha256(raw).hexdigest()
     words = normalise(text)  # dialect-exempt: existing identifier in this file
     by_words = hashlib.sha256(' '.join(words).encode('utf-8')).hexdigest()
     print("# %s — %d bytes, %d words" % (name, len(raw), len(words)))
     print("# bytes-only identity (a re-save under a different encoding "
           "defeats it):")
-    print("#   PRIVATE_FILES=\"%s:%s\"" % (by_bytes, name))
+    print("#   PRIVATE_FILES=\"%s:%s\"" % (by_bytes, declared))
     print("# word-sequence identity — RECOMMENDED for text; survives "
           "re-encoding,")
     print("# re-wrapping and reformatting. Both are accepted; declare one:")
-    print("PRIVATE_FILES=\"%s:%s\"" % (by_words, name))
+    print("PRIVATE_FILES=\"%s:%s\"" % (by_words, declared))
     return 0
 
 
