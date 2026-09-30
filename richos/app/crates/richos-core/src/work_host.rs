@@ -188,6 +188,10 @@ struct Watched {
     told: Option<String>,
     /// The lease session the commands run under; a different one cannot report them.
     session: Option<String>,
+    /// That lease's cancel handle, kept so his Stop can tell these commands to stop while
+    /// another job holds the lease (hunt 2026-09-29 part 1, finding 11). `None` for a lease
+    /// that has no handle, which then says it could not reach them.
+    stopper: Option<Arc<dyn TurnCancel>>,
 }
 
 /// What a watched job's report turn starts from: which of its commands ended, and what he
@@ -1204,6 +1208,13 @@ impl WorkHost {
             return;
         }
         if let Err(why) = self.ensure_lease(backend, binding) {
+            // **A quit reached this back end while it was opening** (finding 28): the quit's
+            // sweep has already written this job's honest state, `interrupted`, and a "did
+            // not start" written after it would be the last word on a job he quit.
+            if backend.inner.lock().unwrap().closing {
+                self.let_go_if_ended(record);
+                return;
+            }
             // **An answer run that could not open its back end** (the work-path design's C10:
             // D4 takes this exit). His answer is saved and nothing was asked of anybody, so the
             // job waits on it again and is tried once more, within D4's bound.
@@ -1271,6 +1282,20 @@ impl WorkHost {
             }
             let session = lease.session_id().to_string();
             let mut inner = backend.inner.lock().unwrap();
+            // **The quit path reads this back end's cancel handle in the same critical section
+            // that sets `closing`**, so exactly one of two things is true here: quit has not
+            // begun, and the handle published below is the one it will cancel; or it has, and
+            // it will never see this handle. In the second case the grant just bound is
+            // revoked here and no turn starts, because quit no longer waits for this lease
+            // (hunt 2026-09-29 part 1, finding 28) and nothing else would revoke it.
+            if inner.closing {
+                drop(inner);
+                if let Err(error) = lease.revoke_work_assignment() {
+                    eprintln!("[richos] work: a grant bound as RichOS closed could not be revoked: {error}");
+                }
+                self.let_go_if_ended(record);
+                return;
+            }
             inner.cancel = lease.cancel_handle();
             inner.live = Some(LiveAssignment {
                 id: record.id.clone(),
@@ -1747,7 +1772,9 @@ impl WorkHost {
         if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
             let _ = lease.revoke_work_assignment();
         }
-        backend.inner.lock().unwrap().cancel = None;
+        // Off the back end, as before: nothing may cancel a turn that has ended. A job handed
+        // to the watch below keeps it, for its commands only.
+        let stopper = backend.inner.lock().unwrap().cancel.take();
 
         // 5. What state it is in is read from evidence, never from the turn ending.
         //
@@ -1817,6 +1844,7 @@ impl WorkHost {
                 commands,
                 told: told_while_running,
                 session,
+                stopper,
             });
             backend.wake.notify_all();
             return;
@@ -3023,10 +3051,23 @@ impl WorkHost {
             .unwrap()
             .spawn_work(binding)
             .map_err(|e| e.to_string())?;
-        {
+        // **A back end that finished opening after quit began is not kept** (hunt 2026-09-29
+        // part 1, finding 28). Quit no longer waits without bound for this lock, so it may
+        // already have swept past this back end; keeping the lease would hand a connection to
+        // a job that the sweep has already marked `interrupted`. It is dropped with the lock
+        // released, the way every other retirement here drops one.
+        let closing = {
             let mut inner = backend.inner.lock().unwrap();
-            inner.lease_session = Some(opened.session_id().to_string());
-            inner.lease_repositories = self.connected_repositories(binding);
+            if !inner.closing {
+                inner.lease_session = Some(opened.session_id().to_string());
+                inner.lease_repositories = self.connected_repositories(binding);
+            }
+            inner.closing
+        };
+        if closing {
+            drop(lease);
+            drop(opened);
+            return Err("RichOS is closing down. Nothing was started.".into());
         }
         *lease = Some(opened);
         Ok(())
@@ -3233,10 +3274,28 @@ impl WorkHost {
                 // **A job watched for its command** ([`Watched`]): its turn is long over, so
                 // it ends the way a stop inside its wait does, and its finish is not asked for.
                 if let Some(at) = inner.watching.iter().position(|watched| watched.record.id == id) {
-                    inner.watching.remove(at);
+                    let watched = inner.watching.remove(at);
                     drop(inner);
-                    assignment::advance(&self.state, entity, thread, id, AssignmentState::Interrupted,
-                        "Stopped. The workspace and the receipts are kept.")
+                    // **And its commands are told to stop** (hunt 2026-09-29 part 1, finding
+                    // 11). Taking the job off the watch alone left them running and changing
+                    // his workspace after he saw it stopped. Each is stopped by the provider's
+                    // own task id on the lease it runs on, so no turn is interrupted and no
+                    // other job's command is touched. Where one could not be reached, he is
+                    // told it may still be running rather than that it stopped.
+                    let mut reached = watched.stopper.is_some();
+                    for (task, what) in &watched.commands {
+                        if !watched.stopper.as_ref().is_some_and(|stop| stop.stop_background_command(task)) {
+                            reached = false;
+                            eprintln!("[richos] work: a stopped job's command could not be told to stop ({what})");
+                        }
+                    }
+                    let detail = if reached {
+                        "Stopped. The workspace and the receipts are kept."
+                    } else {
+                        "Stopped. A command it started could not be told to stop, so it may still be running. \
+                         The workspace and the receipts are kept."
+                    };
+                    assignment::advance(&self.state, entity, thread, id, AssignmentState::Interrupted, detail)
                         .map_err(|e| e.to_string())?;
                     if let Err(error) = assignment::raise_notice(&self.state, entity, thread, id, NoticeKind::Interrupted,
                         &assignment::says::interrupted(&record.title))
@@ -3422,11 +3481,25 @@ impl WorkHost {
                 );
             }
         }
+        // **The same bound holds here** (hunt 2026-09-29 part 1, finding 28). The lease lock
+        // is held for as long as a back end takes to OPEN (`ensure_lease` holds it across
+        // `spawn_work`), and a blocking lock here waited that long after the bound above had
+        // expired. A lock still held at the bound is skipped, and nothing it guards is lost:
+        // a back end still opening has been given no grant (the bind comes after it), and
+        // `ensure_lease` does not keep one that finishes opening now; a back end still in a
+        // turn had its grants revoked and its process fence killed by `handle.shutdown()`
+        // above (`native.rs`'s `NativeCancelHandle`).
         for backend in &backends {
-            if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
+            let Some(mut lease) = lock_until(&backend.lease, deadline) else {
+                eprintln!(
+                    "[richos] work: quit did not wait for a back end that was still opening or ending its turn"
+                );
+                continue;
+            };
+            if let Some(lease) = lease.as_mut() {
                 let _ = lease.revoke_work_assignment();
             }
-            *backend.lease.lock().unwrap() = None;
+            *lease = None;
         }
     }
 
@@ -3454,6 +3527,24 @@ impl WorkHost {
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
+    }
+}
+
+/// **Take `lock` if it can be had by `deadline`**, trying at least once however late it is.
+/// For the quit path, where a lock held by a back end that is still opening must not hold the
+/// app open (hunt 2026-09-29 part 1, finding 28). A poisoned lock is still a lock: its
+/// holder panicked and is gone, so what it guards is taken as it is.
+fn lock_until<T>(lock: &Mutex<T>, deadline: std::time::Instant) -> Option<std::sync::MutexGuard<'_, T>> {
+    loop {
+        match lock.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => return Some(poisoned.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {}
+        }
+        if std::time::Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 
@@ -3795,6 +3886,8 @@ mod tests {
         /// (every lease with an engine profile), so the turn comes back as the reader's
         /// `NativeError::Closed`, never as the `cancelled` result the default fake returns.
         stop_ends_child: AtomicBool,
+        /// Every background command this lease was asked to stop, by task id, in order.
+        commands_stopped: Mutex<Vec<String>>,
     }
     impl TurnCancel for Fence {
         fn cancel(&self) -> bool {
@@ -3804,6 +3897,10 @@ mod tests {
         fn shutdown(&self) {
             self.shutdowns.fetch_add(1, Ordering::SeqCst);
             self.cancel();
+        }
+        fn stop_background_command(&self, task_id: &str) -> bool {
+            self.commands_stopped.lock().unwrap().push(task_id.to_string());
+            true
         }
     }
 
@@ -4666,6 +4763,50 @@ mod tests {
         assert_eq!(h.attempts.load(Ordering::SeqCst), 2, "a later job is not refused on the strength of the earlier failure");
         assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "and the recovered provider opened");
         h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **QUIT IS BOUNDED EVEN WHILE A BACK END IS STILL BEING OPENED** (hunt 2026-09-29 part 1,
+    /// finding 28). `ensure_lease` holds the lease lock across `spawn_work`, so a quit that
+    /// reached its last cleanup while the back end was still opening used to wait on that lock
+    /// for as long as the opening took, after the two-second bound had already expired.
+    ///
+    /// The gate holds `spawn_work` shut, which is exactly that window, and it is released only
+    /// after the quit has been given 8 s: four times the quit's own 2 s bound. A build with the
+    /// unbounded wait cannot return inside it, on any machine; a bounded one returns in about
+    /// 2 s. Then, released, the back end that finished opening after the quit is not kept and
+    /// does not write over the sweep: the row stays `interrupted` and nothing was bound.
+    #[test]
+    fn quit_is_bounded_while_a_back_end_is_still_being_opened() {
+        let h = harness(5);
+        h.host.start();
+        h.start_gate.shut();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !h.host.lease_locked("thread-one") {
+            assert!(std::time::Instant::now() < deadline, "the runner never began opening its back end");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let host = Arc::clone(&h.host);
+        let (done, quit_returned) = std::sync::mpsc::channel();
+        let began = std::time::Instant::now();
+        std::thread::spawn(move || {
+            host.shutdown();
+            done.send(()).ok();
+        });
+        let returned = quit_returned.recv_timeout(std::time::Duration::from_secs(8)).is_ok();
+        let took = began.elapsed();
+        h.start_gate.release();
+        assert!(returned, "quit was still waiting after {took:?} for a back end that was still opening");
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the runner never finished");
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Interrupted, "the late opening wrote over the quit: {row:?}");
+        assert!(h.bound.lock().unwrap().is_empty(), "a back end opened after quit was given the assignment");
+        assert!(!h.host.lease_locked("thread-one"));
+        assert!(
+            h.host.backend("thread-one").is_some_and(|backend| backend.lease.lock().unwrap().is_none()),
+            "a back end opened after quit was kept"
+        );
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
@@ -6266,6 +6407,38 @@ mod tests {
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "his Stop did not reach the wait");
         let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
         assert_eq!(row.state, AssignmentState::Interrupted, "{}", row.detail);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **His Stop of a watched job tells its command to stop** (hunt 2026-09-29 part 1,
+    /// finding 11). A job whose background command outlived its wait is watched between jobs;
+    /// Stop used to take it off the watch and mark it `interrupted` without ever telling the
+    /// command, which kept running and changing the workspace after he saw it stopped. The
+    /// command is now told, by the provider's own task id, on the lease it runs on; and the
+    /// rest is as before: `interrupted`, the same words, and its later ending asks nothing.
+    #[test]
+    fn a_stop_of_a_watched_job_tells_its_command_to_stop() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+        *h.answer_reply.lock().unwrap() = "Started.".into();
+        h.start_in_turn.lock().unwrap().push_back(vec![background_command("blong", "sleep 3600")]);
+        h.host.start();
+        let job = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert!(h.fence.commands_stopped.lock().unwrap().is_empty(), "nothing is stopped before he asks");
+        h.host.stop_assignment("depot", "thread-one", &job.id).unwrap();
+        assert_eq!(*h.fence.commands_stopped.lock().unwrap(), ["blong"],
+                   "Stop took the job off the watch and never told its command to stop");
+        let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept."));
+        background_command_ends(&h, "blong", false);
+        assert!(!h.host.wait_for_completed(2, std::time::Duration::from_millis(400)), "a stopped job was asked for a report");
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1);
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }

@@ -530,7 +530,7 @@ richos/app/
                               the vendor's one string that carries both families' wording.
                               The transient arm has its own positive control, without which
                               a classifier answering `Unknown` to everything would pass
-    tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
+    tests/worker_attribution_tests.rs 11 tests that the workers in the prompt are the
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
                               every case, so "reads nothing" cannot pass by finding nothing)
@@ -1108,7 +1108,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1716 tests + 5 doc-tests (1712 direct, 4 ignored)
+cargo test -p richos-core                       # 1724 tests + 5 doc-tests (1720 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

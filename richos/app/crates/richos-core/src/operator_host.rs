@@ -667,6 +667,9 @@ pub struct OperatorHost {
     alarms: Mutex<AlarmDeduper>,
     /// The saved records were read once, this process, for turns to continue.
     scanned: std::sync::atomic::AtomicBool,
+    /// Agents `agent-liveness.sh` answered NOT-ALIVE for while their stream said they had
+    /// ended, by task id, with that ended status ([`Self::resolved_liveness`]).
+    witnessed_ended: Mutex<HashMap<String, TaskStatus>>,
 }
 
 /// The sink a lead's reader writes to: a channel into this conversation's own worker, so a slow
@@ -697,6 +700,7 @@ impl OperatorHost {
             conversations: Mutex::new(HashMap::new()),
             alarms: Mutex::new(AlarmDeduper::default()),
             scanned: std::sync::atomic::AtomicBool::new(false),
+            witnessed_ended: Mutex::new(HashMap::new()),
         })
     }
 
@@ -1559,7 +1563,28 @@ impl OperatorHost {
             // The ack line is the engine's record of his stop; the stop itself still goes out.
             self.log(&format!("stop.sh did not run cleanly: {why}"));
         }
-        names.iter().map(|name| self.stop_one(name, words)).collect()
+        // **Every named agent is stopped at once, and each is still reported only on its own
+        // witnessed death** (hunt 2026-09-29 part 1, finding 33). Their stops are independent:
+        // one agent's slow control reply or slow resolver reading must not keep the next agent
+        // working. Before, the second agent's `stop_task` was sent only after the first
+        // agent's whole confirmation (up to two attempts of `STOP_WAIT` each, plus its
+        // registry step). The results come back in the order he named them.
+        if names.len() <= 1 {
+            return names.iter().map(|name| self.stop_one(name, words)).collect();
+        }
+        std::thread::scope(|scope| {
+            let running: Vec<_> = names.iter().map(|name| scope.spawn(move || self.stop_one(name, words))).collect();
+            running
+                .into_iter()
+                .zip(names)
+                .map(|(stop, name)| {
+                    stop.join().unwrap_or_else(|_| StopResult::Failed {
+                        name: name.clone(),
+                        why: "the stop could not be followed to its end".into(),
+                    })
+                })
+                .collect()
+        })
     }
 
     fn owner_of(&self, name: &str) -> Option<(Arc<dyn LeadHandle>, String)> {
@@ -1743,7 +1768,34 @@ impl OperatorHost {
     /// (m): his team counts as running while any agent of any lead is ALIVE, or any lead's
     /// supervisor records a live descendant outside the lead's own group.
     pub fn team(&self) -> TeamReading {
-        self.team_reading(|agent| self.engine.liveness(&agent.task_id))
+        self.team_reading(|agent| self.resolved_liveness(agent))
+    }
+
+    /// **The resolver's answer, without asking it again about an agent it already saw end**
+    /// (hunt 2026-09-29 part 1, finding 34). While an update waits for him the gate reads his
+    /// team every five seconds, and each reading ran `agent-liveness.sh` (up to 30 s each, one
+    /// after another) for every agent any lead ever started, finished ones included.
+    ///
+    /// The resolver stays the authority (the update gate keeps it rather than the stream's
+    /// reading, r3 (m)): an agent is taken as ended without asking only after the resolver
+    /// itself answered NOT-ALIVE while the stream said it had ended, and only while the stream
+    /// still says that same thing. A running agent is asked on every reading, and an agent the
+    /// stream sees start again is asked again. What this cannot see is a restart this app's
+    /// leads never report, which the operator claim (his team belongs to this app while it
+    /// runs) rules out.
+    fn resolved_liveness(&self, agent: &crate::operator_lead::AgentTask) -> AgentLiveness {
+        let ended = !agent.status.is_running();
+        if ended && self.witnessed_ended.lock().unwrap().get(&agent.task_id) == Some(&agent.status) {
+            return AgentLiveness::NotAlive;
+        }
+        let reading = self.engine.liveness(&agent.task_id);
+        let mut witnessed = self.witnessed_ended.lock().unwrap();
+        if ended && reading == AgentLiveness::NotAlive {
+            witnessed.insert(agent.task_id.clone(), agent.status);
+        } else {
+            witnessed.remove(&agent.task_id);
+        }
+        reading
     }
 
     /// **(m) without a subprocess**, for a caller that must answer at once: the app's exit
@@ -1812,7 +1864,7 @@ impl OperatorHost {
             // Nothing running: no ALIVE (or undecided) agent, no live descendant outside the
             // lead's own group (G8: language servers and MCP servers share its group and do not
             // count), and no land lease held by this conversation.
-            let agents_busy = lead.tasks().agents().iter().any(|a| self.engine.liveness(&a.task_id) != AgentLiveness::NotAlive);
+            let agents_busy = lead.tasks().agents().iter().any(|a| self.resolved_liveness(a) != AgentLiveness::NotAlive);
             let descendants = live_descendants(&c.paths.reap_state);
             let lease = leases.iter().any(|l| lease_held_by(l, &c.title));
             if agents_busy || descendants != Some(0) || lease {
@@ -1834,23 +1886,39 @@ impl OperatorHost {
     /// The quit path: every lead by SIGTERM to its supervisor (r3 (q) item 2).
     pub fn quit_all(&self) -> Vec<(ConversationKey, Quit)> {
         let all: Vec<Arc<Mutex<Conversation>>> = self.conversations.lock().unwrap().values().cloned().collect();
-        let mut out = Vec::new();
+        let mut leads = Vec::new();
         for conversation in all {
-            let lead = {
-                let mut c = conversation.lock().unwrap();
-                c.quitting = true;
-                // He chose to quit while his team worked: that work is stopped (the quit
-                // sheet's "The work is stopped"), and the next launch does not carry it on.
-                if c.in_turn || !c.awaiting.is_empty() {
-                    self.close_answer_turns(&mut c);
-                }
-                c.lead.take().map(|l| (c.key.clone(), l))
-            };
-            if let Some((key, lead)) = lead {
-                let quit = lead.quit();
-                self.log(&format!("{}/{}: quit ({quit:?})", key.entity_id, key.thread_id));
-                out.push((key, quit));
+            let mut c = conversation.lock().unwrap();
+            c.quitting = true;
+            // He chose to quit while his team worked: that work is stopped (the quit
+            // sheet's "The work is stopped"), and the next launch does not carry it on.
+            if c.in_turn || !c.awaiting.is_empty() {
+                self.close_answer_turns(&mut c);
             }
+            if let Some(lead) = c.lead.take() {
+                leads.push((c.key.clone(), lead));
+            }
+        }
+        // **Every lead is asked to end at once** (hunt 2026-09-29 part 1, finding 35). Each
+        // lead still gets its whole grace (`QUIT_GRACE`: SIGTERM to its supervisor, which reaps
+        // the lead's tree, and only then the group kill, r3 (q) item 2), but the graces now run
+        // side by side instead of adding up per conversation. This returns only when every lead
+        // has ended, so the claim, which the desk releases after it, is still given up only
+        // after every lead has gone (e item 3).
+        let out: Vec<(ConversationKey, Quit)> = std::thread::scope(|scope| {
+            let ending: Vec<_> = leads
+                .into_iter()
+                .map(|(key, lead)| (key, scope.spawn(move || lead.quit())))
+                .collect();
+            ending
+                .into_iter()
+                // A quit that panicked is re-raised here, as it was when this ran inline: no
+                // `Quit` would be a true account of a lead whose ending was never finished.
+                .map(|(key, quit)| (key, quit.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))))
+                .collect()
+        });
+        for (key, quit) in &out {
+            self.log(&format!("{}/{}: quit ({quit:?})", key.entity_id, key.thread_id));
         }
         out
     }
@@ -1883,7 +1951,11 @@ pub(crate) mod tests {
         /// whether the uuid was already on disk: the intent-before-send check (design §4.1 test 5).
         pub(crate) record_probe: Mutex<Option<PathBuf>>,
         pub(crate) on_disk_at_send: Mutex<Vec<bool>>,
+        /// Runs inside `quit`, after it is counted and before the lead is ended, so a test can
+        /// make one lead's quit take its time (a slow supervisor) and see what happens meanwhile.
+        pub(crate) quit_hook: Mutex<Option<QuitHook>>,
     }
+    pub(crate) type QuitHook = Arc<dyn Fn() + Send + Sync>;
     impl FakeLead {
         pub(crate) fn feed(&self, frame: Value) {
             self.book.lock().unwrap().observe(&frame);
@@ -1923,6 +1995,10 @@ pub(crate) mod tests {
         fn exited(&self) -> bool { *self.exited.lock().unwrap() }
         fn quit(&self) -> Quit {
             *self.quits.lock().unwrap() += 1;
+            let hook = self.quit_hook.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook();
+            }
             *self.exited.lock().unwrap() = true;
             Quit::Terminated { waited: Duration::ZERO }
         }
@@ -1953,13 +2029,21 @@ pub(crate) mod tests {
         pub(crate) asked: Mutex<Vec<String>>,
         pub(crate) leases: Mutex<Vec<String>>,
         pub(crate) lease_reads: Mutex<usize>,
+        /// Runs before every liveness answer, so a test can hold one agent's reading open (a
+        /// slow `agent-liveness.sh`) and see what the host does meanwhile.
+        pub(crate) before_liveness: Mutex<Option<LivenessHook>>,
     }
+    pub(crate) type LivenessHook = Arc<dyn Fn(&str) + Send + Sync>;
     impl OperatorEngine for FakeEngine {
         fn stop_words(&self, names: &[String], words: &str) -> Result<String, String> {
             self.stop_words.lock().unwrap().push((names.to_vec(), words.to_string()));
             Ok(String::new())
         }
         fn liveness(&self, agent_id: &str) -> AgentLiveness {
+            let hook = self.before_liveness.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook(agent_id);
+            }
             self.asked.lock().unwrap().push(agent_id.to_string());
             if self.not_alive.lock().unwrap().contains(agent_id) { AgentLiveness::NotAlive } else { AgentLiveness::Alive }
         }
@@ -2858,6 +2942,120 @@ pub(crate) mod tests {
         let registry = r.engine.registry.lock().unwrap().clone();
         assert_eq!(registry, [(lead.session.clone(), "mark-sonnet-a".to_string(), "stop a".to_string())]);
         assert_eq!(results[0].sentence(), "Stopped mark-sonnet-a.");
+    }
+
+    /// **Every named agent is asked to stop before any one of them is waited for** (hunt
+    /// 2026-09-29 part 1, finding 33). The first agent's resolver reading is held open until
+    /// the second agent's `stop_task` has gone out. A host that waits for the first agent's
+    /// death before reaching the second never sends it, and the hold lets go by itself after
+    /// 10 s and says so; a host that stops them independently sends it at once. Each agent
+    /// is still reported stopped only on its own witnessed death and registry step.
+    #[test]
+    fn a_slow_first_stop_does_not_hold_back_the_stop_of_the_next_agent() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        let lead = lead_of(&r, "a");
+        agent(&lead, "t-a", "mark-sonnet-a", "task-a");
+        agent(&lead, "t-b", "mark-sonnet-b", "task-b");
+        for task in ["task-a", "task-b"] {
+            r.engine.not_alive.lock().unwrap().insert(task.into());
+            lead.feed(json!({"type":"system","subtype":"task_notification","task_id":task,"status":"stopped"}));
+        }
+        let forced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (watched, flag) = (lead.clone(), forced.clone());
+        *r.engine.before_liveness.lock().unwrap() = Some(Arc::new(move |agent_id: &str| {
+            if agent_id != "task-a" {
+                return;
+            }
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !watched.stops.lock().unwrap().iter().any(|t| t == "task-b") {
+                if Instant::now() >= deadline {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }));
+        let results = r.host.stop_named(&["mark-sonnet-a".into(), "mark-sonnet-b".into()], "stop a and b", Origin::DeskTyped);
+        assert!(!forced.load(std::sync::atomic::Ordering::SeqCst),
+                "the second agent's stop was sent only after the first agent's stop had been waited out: {:?}",
+                lead.stops.lock().unwrap());
+        assert!(matches!(&results[0], StopResult::Stopped { name, registry: Ok(()), .. } if name == "mark-sonnet-a"), "{results:?}");
+        assert!(matches!(&results[1], StopResult::Stopped { name, registry: Ok(()), .. } if name == "mark-sonnet-b"), "{results:?}");
+        let mut stops = lead.stops.lock().unwrap().clone();
+        stops.sort();
+        assert_eq!(stops, ["task-a", "task-b"], "each named task once, nothing else");
+        assert_eq!(r.engine.stop_words.lock().unwrap().len(), 1, "his words are recorded once, for both names");
+        assert_eq!(r.engine.registry.lock().unwrap().len(), 2);
+    }
+
+    /// **An agent already witnessed ended is not asked about again on every reading** (hunt
+    /// 2026-09-29 part 1, finding 34). While an update waits for him, the gate reads his team
+    /// every five seconds, and every reading launched `agent-liveness.sh` for every agent the
+    /// leads ever started, finished ones included. The resolver stays the authority: an agent
+    /// is taken as ended without asking only after the resolver itself said NOT-ALIVE while the
+    /// stream said it had ended, and only for as long as the stream still says so. A running
+    /// agent is asked every time, and one the stream sees start again is asked again.
+    #[test]
+    fn an_agent_the_resolver_saw_end_is_not_asked_about_again_while_the_stream_says_it_ended() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        let lead = lead_of(&r, "a");
+        agent(&lead, "t-done", "done-agent", "task-done");
+        agent(&lead, "t-live", "live-agent", "task-live");
+        lead.feed(json!({"type":"system","subtype":"task_notification","task_id":"task-done","status":"completed"}));
+        r.engine.not_alive.lock().unwrap().insert("task-done".into());
+        let asked = |task: &str| r.engine.asked.lock().unwrap().iter().filter(|t| *t == task).count();
+        for _ in 0..3 {
+            assert_eq!(r.host.team().alive, ["live-agent"]);
+        }
+        assert_eq!(asked("task-done"), 1, "an agent already witnessed ended was asked about again on every reading");
+        assert_eq!(asked("task-live"), 3, "a running agent is asked on every reading");
+
+        // The stream sees it start again: the resolver is asked again, and its answer counts.
+        lead.feed(json!({"type":"system","subtype":"task_updated","task_id":"task-done","patch":{"status":"running"}}));
+        r.engine.not_alive.lock().unwrap().remove("task-done");
+        let reading = r.host.team();
+        assert_eq!(asked("task-done"), 2);
+        let mut alive = reading.alive.clone();
+        alive.sort();
+        assert_eq!(alive, ["done-agent", "live-agent"]);
+    }
+
+    /// **Quit asks every lead to end at once** (hunt 2026-09-29 part 1, finding 35). Each lead's
+    /// quit is SIGTERM to its supervisor and up to `QUIT_GRACE` (10 s) for it to reap the lead's
+    /// tree; one after another, those graces added up per conversation. Here each of two leads'
+    /// quits waits until the other's has begun: a quit path that ends them one at a time cannot
+    /// satisfy the first of them, whose wait lets go by itself after 10 s and says so.
+    #[test]
+    fn quit_asks_every_lead_to_end_at_once_rather_than_one_grace_after_another() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "go", Origin::DeskTyped).unwrap();
+        r.host.relay(&key("b"), "B", None, "go", Origin::DeskTyped).unwrap();
+        let (a, b) = (lead_of(&r, "a"), lead_of(&r, "b"));
+        let forced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        for (me, other) in [(&a, &b), (&b, &a)] {
+            let (other, flag) = (Arc::clone(other), Arc::clone(&forced));
+            *me.quit_hook.lock().unwrap() = Some(Arc::new(move || {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while *other.quits.lock().unwrap() == 0 {
+                    if Instant::now() >= deadline {
+                        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }));
+        }
+        let quits = r.host.quit_all();
+        assert!(!forced.load(std::sync::atomic::Ordering::SeqCst),
+                "one lead's quit waited out its grace before the next lead was asked to end");
+        assert_eq!(quits.len(), 2);
+        assert_eq!((*a.quits.lock().unwrap(), *b.quits.lock().unwrap()), (1, 1), "each lead is quit once");
+        assert!(a.exited() && b.exited());
+        for lead in [&a, &b] {
+            *lead.quit_hook.lock().unwrap() = None;
+        }
     }
 
     #[test]

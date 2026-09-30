@@ -726,6 +726,11 @@ pub trait TurnCancel: Send + Sync {
     fn cancel(&self) -> bool;
     /// Settle owned processes on app exit even when no turn is in flight.
     fn shutdown(&self) { let _ = self.cancel(); }
+    /// Ask the lease to stop ONE command its provider is running in the background, by the
+    /// provider's own task id. Returns whether the request was delivered. The default is
+    /// `false`, because a lease that cannot stop a command must say so rather than let a
+    /// stop be reported as having reached it (hunt 2026-09-29 part 1, finding 11).
+    fn stop_background_command(&self, _task_id: &str) -> bool { false }
 }
 
 // ---------------------------------------------------------------------------------------

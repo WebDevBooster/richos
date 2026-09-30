@@ -369,6 +369,37 @@ fn an_unknown_session_dir_makes_the_priming_prompt_say_so_instead_of_falling_sil
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// Hunt 2026-09-29 part 1, finding 41, at the surface where it did damage: this session's
+/// own worker log is there and cannot be read (a folder where the file goes). Before, that
+/// read as an empty stream, the directory counted as attributed, and the section was left
+/// out: a successor read the silence as "no workers are running". It now says it does not
+/// know, and it does not claim the directory was unidentified, because it was identified.
+#[test]
+fn an_unreadable_worker_log_makes_the_priming_prompt_say_so_instead_of_falling_silent() {
+    let _guard = env_guard();
+    let home = four_dir_machine("payload-unreadable");
+    let log = home.join(".claude").join("teams").join(MINE_DIR).join("worker-events.jsonl");
+    std::fs::remove_file(&log).unwrap();
+    std::fs::create_dir_all(&log).unwrap();
+    let (path, ledger, thread) = ledger_with_a_thread("unreadable");
+    let binding = ledger.thread_binding(&thread).unwrap();
+
+    let payload = with_home(&home, || {
+        RePrimePayload::assemble(&ledger, &binding, 8, Some(MINE_FULL)).unwrap()
+    });
+    let priming = payload.to_priming_prompt();
+
+    assert_eq!(payload.worker_state_unknown, Some(Unattributed::WorkerLogUnreadable));
+    assert!(priming.contains("LIVE WORKER STATE: NOT AVAILABLE"), "{priming}");
+    assert!(priming.contains("worker log is there but could not be read"), "it says WHY");
+    assert!(priming.contains("NOT A STATEMENT THAT NO WORKERS ARE RUNNING"));
+    assert!(!priming.contains("could not be identified"), "the directory WAS identified: {priming}");
+    assert!(!priming.contains("not-my-worker"), "{priming}");
+
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_dir_all(&home).unwrap();
+}
+
 #[test]
 fn no_lease_never_puts_another_sessions_workers_in_the_prompt() {
     // THE ORIGINAL DEFECT, at the surface where it did damage. Before this commit

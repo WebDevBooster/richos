@@ -215,6 +215,7 @@ impl Listener {
                     }
                 };
                 runtime.block_on(serve_all(channel, tls, https, stop.subscribe()));
+                end_runtime(runtime);
             })
             .map_err(|e| PhoneError::Io(format!("could not start the phone channel thread: {e}")))?;
 
@@ -262,6 +263,7 @@ impl Listener {
                 drain.settle(std::time::Duration::from_millis(HELD_ANSWER_DRAIN_MS)).await;
                 channel.hub.set_live(false);
             });
+            end_runtime(runtime);
         })?;
         Ok(Self { shutdown, thread: Some(thread), bound, devices })
     }
@@ -289,6 +291,24 @@ impl Drop for Listener {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// **End a listener thread's runtime without waiting for its route handlers** (hunt 2026-09-29
+/// part 1, finding 39). Every route runs under `spawn_blocking` ([`run`]), and dropping a Tokio
+/// runtime waits for every blocking task to return (tokio 1.53.1 `Runtime::shutdown_background`
+/// doc: "dropping a runtime will block indefinitely for spawned blocking tasks to complete").
+/// So [`Listener::stop`], which joins this thread, waited for whatever the phone had asked for
+/// last, a voice note being transcribed for up to 90 s among them, and "Forget this phone" waited
+/// with it.
+///
+/// What `stop` promises is kept: the listening sockets are closed inside `block_on`, and the
+/// connection tasks are still dropped here (`Runtime::drop` shuts the current-thread scheduler
+/// down), so the port is free when `stop` returns. The held answers still get their drain, which
+/// is awaited before `block_on` returns. A handler that is still running finishes on its own
+/// thread and its answer goes nowhere; the voice route re-checks the paired phone after
+/// transcribing, so a phone forgotten meanwhile cannot submit a turn from it.
+fn end_runtime(runtime: tokio::runtime::Runtime) {
+    runtime.shutdown_background();
 }
 
 /// **The one guard that makes a wildcard bind impossible.** Plan §2.5 item 2: *"It binds the LAN
@@ -977,6 +997,102 @@ mod tests {
         assert_ne!(accepted, 413, "the confirmed device's upload was refused");
         assert_ne!(accepted, 0, "the confirmed device's upload got no answer");
         listener.stop();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// **STOPPING THE LISTENER DOES NOT WAIT FOR A REQUEST STILL BEING HANDLED** (hunt
+    /// 2026-09-29 part 1, finding 39). Route handlers run under `spawn_blocking`, and dropping a
+    /// Tokio runtime waits for every blocking task to return, so "Forget this phone" waited for
+    /// whatever the phone had asked for last: a voice note can be transcribing for up to 90 s.
+    ///
+    /// Over the real Connect listener: the confirmed phone sends a message, and the bridge
+    /// holds it (a stand-in for the transcriber) until the test lets go. Stop is given 8 s,
+    /// eight times the 1 s held-answer drain; a listener that waits for the handler cannot
+    /// return inside it. What `stop` promises is kept: the port is free when it returns.
+    #[test]
+    fn stopping_the_listener_does_not_wait_for_a_request_still_being_handled() {
+        use crate::phone::{api_base::ApiBaseDesk, device::{DeviceDesk, PairedVia, Platform, PublicKeyForm, signing_string}, routes::{Bridge, Accepted, StopSwitch}, stream::PhoneHub};
+        use std::io::{Read as _, Write as _};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Condvar, Mutex};
+        type Gate = Arc<(Mutex<bool>, Condvar)>;
+        struct Held { entered: Arc<AtomicBool>, gate: Gate }
+        impl Bridge for Held {
+            fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> {
+                self.entered.store(true, Ordering::SeqCst);
+                let (open, changed) = &*self.gate;
+                let mut open = open.lock().unwrap();
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+                while !*open {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() { break; }
+                    open = changed.wait_timeout(open, left).unwrap().0;
+                }
+                Err("the test let this request go".into())
+            }
+            fn snapshot(&self, _: Option<&str>) -> Result<serde_json::Value, String> { Ok(serde_json::json!({})) }
+            fn current_thread(&self) -> Option<(String, String)> { None }
+            fn threads(&self) -> Vec<(String, String)> { vec![] }
+        }
+        let dir = std::env::temp_dir().join(format!("stop-held-{}-{}", std::process::id(), super::super::now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+        let phone = crate::phone::device::tests::Phone::new();
+        let window = devices.open_pairing().unwrap();
+        let device = devices.complete_pairing(&window.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS).unwrap();
+        devices.confirm_on_mac().unwrap();
+        let challenge = devices.issue_challenge().unwrap();
+        let entered = Arc::new(AtomicBool::new(false));
+        let gate: Gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let channel = Arc::new(Channel {
+            devices: Arc::clone(&devices), rejected: StopSwitch::unwired(),
+            api_base: Arc::new(ApiBaseDesk::only("https://example.invalid")), hub: PhoneHub::new(),
+            bridge: Arc::new(Held { entered: Arc::clone(&entered), gate: Arc::clone(&gate) }),
+            assets: super::super::assets::PhoneApp::embedded(), vapid_public: String::new(), fingerprint_hex: String::new(),
+            pairing_path: std::sync::Mutex::new(PairedVia::CONNECT),
+        });
+        let mut listener = Listener::start_connect(Arc::clone(&channel), 0).expect("the Connect listener did not start");
+        let port = listener.bound[0].port();
+        let body = br#"{"client_id":"held-1","text":"hello from the phone"}"#.to_vec();
+        let sig = super::super::b64url(&phone.sign(&signing_string(&challenge, "POST", "/api/messages", &body)));
+        let authorization = format!("RichOS-Device {}.{challenge}.{sig}", device.id);
+        let sender = std::thread::spawn(move || {
+            let mut socket = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(70))).unwrap();
+            let head = format!(
+                "POST /api/messages HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\nAuthorization: {authorization}\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(head.as_bytes()).unwrap();
+            socket.write_all(&body).unwrap();
+            // The connection is dropped when the listener stops; how it ends is not the test.
+            let mut raw = Vec::new();
+            socket.read_to_end(&mut raw).ok();
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !entered.load(Ordering::SeqCst) {
+            assert!(std::time::Instant::now() < deadline, "the phone's message never reached the bridge");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        let (done, stopped) = std::sync::mpsc::channel();
+        let began = std::time::Instant::now();
+        std::thread::spawn(move || {
+            listener.stop();
+            done.send(()).ok();
+        });
+        let returned = stopped.recv_timeout(std::time::Duration::from_secs(8)).is_ok();
+        let took = began.elapsed();
+        let port_free = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok();
+        {
+            let (open, changed) = &*gate;
+            *open.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        sender.join().unwrap();
+        assert!(returned, "stopping the listener was still waiting after {took:?} for a request it was handling");
+        assert!(port_free, "the port was still held when stop returned");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
