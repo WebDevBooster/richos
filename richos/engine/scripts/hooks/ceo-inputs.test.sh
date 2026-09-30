@@ -191,6 +191,28 @@ is_tracked "$REPO_A" "$SPEC_A3" \
     && ok "A9  a path reached through a SYMLINK is captured (one spelling, not two)" \
     || bad "A9  a path reached through a symlink is captured" "$OUT"
 
+# A10 (hunt 2026-09-29 part 3, finding 8): when the REAL index cannot be updated
+# after the commit, HEAD holds his file and the index does not, so the next
+# ordinary commit would delete it. The ingress must say so instead of reporting
+# a clean capture. Fault injection: a stale index.lock makes ONLY the real-index
+# update fail; the ingress commits through a private index and is unaffected.
+SPEC_A4="$REPO_A/docs/index-failure.md"
+printf 'fourth %s\n' "$CANARY" > "$SPEC_A4"
+: > "$REPO_A/.git/index.lock"
+run_hook "$REPO_A" "handle $SPEC_A4"
+rm -f "$REPO_A/.git/index.lock"
+record_output
+case "$OUT" in
+    *"INDEX STALE"*"docs/index-failure.md"*|*"docs/index-failure.md"*"INDEX STALE"*)
+        ok "A10 a failed real-index update is REPORTED, naming the file" ;;
+    *)  bad "A10 a failed real-index update is reported" "$OUT" ;;
+esac
+STAGED_A4="$(git -C "$REPO_A" diff --cached --name-status 2>/dev/null)"
+case "$OUT" in
+    *"update-index --add --cacheinfo"*) ok "A11 ... and the report carries the repair command" ;;
+    *)  bad "A11 the report carries the repair command" "$OUT (staged: $STAGED_A4)" ;;
+esac
+
 echo
 echo "=== B. IT TOUCHES NOBODY ELSE'S WORK ==="
 

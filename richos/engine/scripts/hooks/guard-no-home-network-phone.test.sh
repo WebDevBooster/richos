@@ -279,6 +279,17 @@ expect_silent "E3  'sixteen taps' alone, in a phone brief, PASSES (a weak signal
 expect_rc     "E4  ... and TWO weak signals in one block are REFUSED" 2 \
               "$(payload Write "$SB/docs/briefs/z.md" "Pairing today: the phone installs the self-signed CA profile, sixteen taps.")"
 
+# .local and 8444 are evidence only as a HOST NAME and a PORT (hunt 2026-09-29
+# part 3, finding 6). A settings file name and a pixel width are neither.
+expect_silent "E5  a settings.local.json file name in a phone write PASSES" \
+              "$(payload Write "$SB/docs/briefs/z.md" "The phone client reads its flags from settings.local.json in the app folder.")"
+expect_silent "E6  a pixel width of 8444 in a phone write PASSES" \
+              "$(payload Write "$SB/docs/briefs/z.md" "The mobile screenshot is 8444 pixels tall once stitched.")"
+expect_rc     "E7  ... and a .local host name with a port is still REFUSED" 2 \
+              "$(payload Write "$SB/docs/briefs/z.md" "The phone opens http://mac.local:8443/pair to pair.")"
+expect_rc     "E8  ... and a trust page served on port 8444 is still REFUSED" 2 \
+              "$(payload Write "$SB/docs/briefs/z.md" "The phone downloads the CA from the trust page on port 8444.")"
+
 # --- (f) the hatch is a citation -------------------------------------------
 ACKLOG="$ENTITY/.claude/state/home-network-acks.log"
 : >"$ACKLOG"

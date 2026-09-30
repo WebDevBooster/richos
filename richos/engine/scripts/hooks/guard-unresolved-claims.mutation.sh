@@ -23,6 +23,9 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$ENGINE_ROOT/scripts/lib/mutation-harness.sh"
 
 mutation_begin "the claim check" "scripts/hooks/guard-unresolved-claims.test.sh"
+# Each mutant stops at its named FAIL line (see mutation_focus): in this suite a
+# printed FAIL line always ends the run red, so the rest of the run buys nothing.
+mutation_focus stop-at-want
 
 A="scripts/hooks/guard-unresolved-claims.py"
 

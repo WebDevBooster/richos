@@ -32,6 +32,9 @@ R="scripts/staging-record.sh"
 
 mutation_begin "THE STAGING-STALENESS GATE: every property, proven by removing it" \
                "scripts/hooks/stale-staging.test.sh"
+# Each mutant stops at its named FAIL line (see mutation_focus): in this suite a
+# printed FAIL line always ends the run red, so the rest of the run buys nothing.
+mutation_focus stop-at-want
 
 # --- 1. THE REFUSAL ITSELF -------------------------------------------------
 mutant refusal-does-not-block "2a" "$G" \

@@ -324,6 +324,8 @@ esac
 #              settings.local.json (minus hooks); file deleted.
 #   stripped — file existed with machine-specific non-hook keys; hooks removed,
 #              remainder written back.
+#   quarantined:<path> — file existed but was not valid JSON; moved aside to
+#              <path> (never deleted: it may hold the user's own settings).
 #   absent   — no settings.json to migrate (already single-source).
 ACTION="$(python3 - "$SOURCE" "$TARGET" "$REPO_ROOT" <<'PY'
 import json, os, sys
@@ -350,10 +352,21 @@ try:
     with open(tgt_path, "r", encoding="utf-8") as f:
         target = json.load(f)
 except Exception:
-    # Unreadable/garbage settings.json: remove it so the canonical source
-    # is unambiguously the only settings file.
-    os.remove(tgt_path)
-    print("removed")
+    # Unreadable/garbage settings.json: it must stop being loaded, so the
+    # canonical source is unambiguously the only settings file. But a parse
+    # error (a truncated write, a stray comma) does not mean the file holds
+    # nothing that belongs to the user, so it is MOVED ASIDE, never deleted. Claude Code
+    # only reads the exact name settings.json, and the moved copy keeps every
+    # byte for the user to repair. (No apostrophes in this block: bash 3.2
+    # mis-parses them inside a dollar-paren heredoc.)
+    import time
+    backup = "%s.unparseable-%s.bak" % (tgt_path, time.strftime("%Y%m%dT%H%M%S"))
+    n = 0
+    while os.path.exists(backup):
+        n += 1
+        backup = "%s.unparseable-%s-%d.bak" % (tgt_path, time.strftime("%Y%m%dT%H%M%S"), n)
+    os.replace(tgt_path, backup)
+    print("quarantined:" + backup)
     sys.exit(0)
 
 with open(src_path, "r", encoding="utf-8") as f:
@@ -385,6 +398,8 @@ case "$ACTION" in
         echo "✓ migrated: removed stale hook-duplicating .claude/settings.json (hooks are canonical in settings.local.json)" ;;
     stripped)
         echo "✓ migrated: stripped hook stanzas from .claude/settings.json, kept machine-specific non-hook config" ;;
+    quarantined:*)
+        echo "✓ migrated: .claude/settings.json could not be parsed, so it was moved aside (not deleted) to ${ACTION#quarantined:} — repair or discard it; settings.local.json is the sole settings file now" ;;
     absent)
         echo "✓ no settings.json to migrate — settings.local.json is the sole settings file" ;;
     *)

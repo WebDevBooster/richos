@@ -487,8 +487,14 @@ STRONG = [
     r"\bat home " + PATH_NOUN + r"\b",
     r"\bAtHome\b",
     r"\bhome plan\b",
-    r"[A-Za-z0-9>]\.local(?::\d+)?\b",
-    r"\b8444\b",
+    # A .local HOST NAME (mDNS), not a settings file: "settings.local.json" and
+    # ".env.local" are file names, so a ".local" followed by more file-name
+    # dots is refused as a host. "host.local", "host.local:8443", "host.local."
+    # at a sentence end are hosts.
+    r"[A-Za-z0-9>]\.local(?::\d+)?\b(?!\.[A-Za-z0-9])",
+    # Port 8444 as a PORT: ":8444", "port 8444" or "a listener on 8444", never
+    # a bare number such as a width of 8444 pixels.
+    r"(?::|\bports?\s+|\bon\s+)8444\b(?!\s*(?:px|pixels?)\b)",
     r"\btrust QR\b",
     r"\bcertificate profile\b",
     r"\bRemove Profile\b",

@@ -597,8 +597,14 @@ def detectors_only(stderr_text):
 # ---------------------------------------------------------------------------
 # THE COMMIT
 # ---------------------------------------------------------------------------
+INDEX_STALE = "INDEX-STALE: "
+
+
 def commit(path, repo, session, stamp):
-    """Commit one file, unmodified, via plumbing. (ok, sha_or_reason)."""
+    """Commit one file, unmodified, via plumbing. (ok, sha_or_reason).
+
+    (False, INDEX_STALE + ...) means the commit WAS made but the real index
+    could not be brought in step with it."""
     rel = os.path.relpath(path, repo)
     # BELT AND BRACES, and it is here because the first field replay produced
     # exactly this state and reported it as a bare `update-index rc=128`. A
@@ -716,7 +722,20 @@ def commit(path, repo, session, stamp):
 
     # The REAL index, that one path only, so `git status` does not now report
     # his file as a staged deletion. Every other staged change is untouched.
-    git(["update-index", "--add", "--cacheinfo", "%s,%s,%s" % (mode, blob, rel)], repo)
+    # Its result is NOT discarded: HEAD now holds the input and the real index
+    # does not, so the next ordinary commit would record the file's deletion.
+    # The capture stands (the commit is made and is not undone), but it is not
+    # reported as a clean capture; the failure is named with the repair.
+    rc, _o, undecided = git(
+        ["update-index", "--add", "--cacheinfo", "%s,%s,%s" % (mode, blob, rel)], repo
+    )
+    if undecided or rc != 0:
+        return (False, INDEX_STALE + (
+            "the file IS captured in commit %s, but updating the real index "
+            "failed (%s), so `git status` will show it as a staged deletion "
+            "and the next ordinary commit would delete it. Repair: git "
+            "update-index --add --cacheinfo %s,%s,%s"
+            % (new[:12], undecided or "rc=%d" % rc, mode, blob, rel)))
 
     return (True, new)
 
@@ -1027,10 +1046,11 @@ def main():
                  "relpath": os.path.relpath(p, repo), "source": source}
             )
         else:
-            refused.append(
-                {"path": p, "repo": repo,
-                 "why": "THE COMMIT ITSELF FAILED: %s" % result, "failed": True}
-            )
+            if result.startswith(INDEX_STALE):
+                why = "THE CAPTURE LEFT THE INDEX STALE: %s" % result[len(INDEX_STALE):]
+            else:
+                why = "THE COMMIT ITSELF FAILED: %s" % result
+            refused.append({"path": p, "repo": repo, "why": why, "failed": True})
 
     result = {
         "stamp": stamp,

@@ -14,6 +14,9 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$ENGINE_ROOT/scripts/lib/mutation-harness.sh"
 
 mutation_begin "the Bash rule against other apps' data" "scripts/hooks/guard-foreign-app-data.test.sh"
+# Each mutant stops at its named FAIL line (see mutation_focus): in this suite a
+# printed FAIL line always ends the run red, so the rest of the run buys nothing.
+mutation_focus stop-at-want
 
 L="scripts/lib/foreign_app_data.py"
 H="scripts/hooks/guard-foreign-app-data.sh"

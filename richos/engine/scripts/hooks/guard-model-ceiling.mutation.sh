@@ -30,6 +30,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/mutation-harness.sh
 . "$SCRIPT_DIR/../lib/mutation-harness.sh"
 mutation_begin "guard-model-ceiling (the cost ceiling)" "scripts/hooks/guard-model-ceiling.test.sh"
+# Each mutant stops at its named FAIL line (see mutation_focus): in this suite a
+# printed FAIL line always ends the run red, so the rest of the run buys nothing.
+mutation_focus stop-at-want
 
 G="scripts/hooks/guard-model-ceiling.sh"
 T="scripts/hooks/guard-model-ceiling.test.sh"

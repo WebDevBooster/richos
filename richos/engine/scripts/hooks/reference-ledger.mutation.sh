@@ -65,6 +65,8 @@ PYEOF
 . "$ENGINE_ROOT/scripts/lib/stopwatch.sh"
 # shellcheck source=../lib/mutation-pool.sh
 . "$ENGINE_ROOT/scripts/lib/mutation-pool.sh"
+# shellcheck source=../lib/mutant-suite-run.sh
+. "$ENGINE_ROOT/scripts/lib/mutant-suite-run.sh"
 mut_pool_init
 MUT_WALL_T0="$(sw_now_ms)"
 
@@ -91,9 +93,15 @@ _mutant_body() {
         return 1
     fi
 
-    RICHOS_MUTATION_INNER=1 bash "$dir/scripts/hooks/guard-reference-ledger.test.sh" \
-        >"$dir/out.txt" 2>&1
-    local rc=$?
+    # The run stops at the mutant's named FAIL line (mutant-suite-run.sh): in this
+    # suite a printed FAIL line always ends the run red, and the rest of the run
+    # buys nothing the verdict reads.
+    mutant_suite_run "$dir/out.txt" "$want" env RICHOS_MUTATION_INNER=1 bash "$dir/scripts/hooks/guard-reference-ledger.test.sh"
+    if [ "$MUTANT_STOPPED" = 1 ]; then
+        printf '  PASS  %s — removing it turns %s red (stopped at that line)\n' "$name" "$want"
+        return 0
+    fi
+    local rc=$MUTANT_RC
     if [ "$rc" -eq 0 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
         printf '          %s\n' "$why"

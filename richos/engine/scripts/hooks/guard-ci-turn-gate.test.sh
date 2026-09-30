@@ -466,6 +466,13 @@ cases = [
     ("git push origin --delete stale", "/g/h", []),
     ("git status && echo push", "/i/j", []),
     ("git commit -m 'push it'", "/k/l", []),
+    # `git` only as an ARGUMENT is text, not a push
+    ("printf '%s\\n' git push origin main", "/m/n", []),
+    ("echo git push origin main", "/o/p", []),
+    # ... while a wrapped or assigned command word still is one
+    ("GIT_TRACE=1 git push origin main", "/q/r", [("/q/r", "main")]),
+    ("env -i HOME=/x git push origin main", "/s/t", [("/s/t", "main")]),
+    ("sudo -n git push origin HEAD:main", "/u/v", [("/u/v", "main")]),
 ]
 bad = []
 for cmd, cwd, want in cases:
