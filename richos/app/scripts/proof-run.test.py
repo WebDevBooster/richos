@@ -803,6 +803,20 @@ try:
     check(uncapped41.state == "passed" and exists(marker41),
           "P41c without --cap the same check runs, whatever its planned weight", uncapped41.state)
 
+    # P42 — under --cap the cheapest checks start first (2026-09-30: in the merge of 4e73fd89 the
+    # longest check started first and everything behind it waited). One lane makes the start
+    # order visible; without --cap the order stays longest first.
+    def start_order(args, name):
+        record = os.path.join(tmp, name + ".order")
+        lane = [pr.Item(label, os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "echo %s >> %s" % (label, record)],
+                        "one-lane", weight) for label, weight in (("fifty", 50.0), ("five", 5.0), ("twenty", 20.0))]
+        with contextlib.redirect_stdout(io.StringIO()):
+            pr.run(lane, args, os.path.join(tmp, name), sampler=idle)
+        return open(record).read().split() if exists(record) else None
+    capped42, uncapped42 = start_order(Args(cap=600), "p42-capped"), start_order(Args(), "p42-uncapped")
+    check(capped42 == ["five", "twenty", "fifty"] and uncapped42 == ["fifty", "twenty", "five"],
+          "P42 under --cap checks start cheapest first; without it, longest first", (capped42, uncapped42))
+
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.
     class Held:

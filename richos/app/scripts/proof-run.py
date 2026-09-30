@@ -126,7 +126,9 @@ ADMISSION, TWO CONDITIONS, BOTH CHECKED BEFORE EVERY START:
     apart) and the wait is reported beside its time. --admission-wait bounds only the time the Mac
     refused it while nothing of this run was running; time queued behind this run's own checks,
     including a CPU or pressure refusal while they run, is reported, never charged (refusal_counts).
-Checks start longest-expected first, so the long poles are not the ones left waiting. While the
+Checks start longest-expected first, so the long poles are not the ones left waiting; under --cap
+(the merge gate) cheapest first, and a check planned past the cap is not started (start_key,
+leave_over_cap). While the
 run goes, a sampler records total CPU and the tokens held; the summary prints both, which is the
 evidence of host use, not a guarantee that running compilers stay under the admission line.
 
@@ -899,6 +901,20 @@ def leave_over_cap(items, args):
     return left
 
 
+def start_key(item, args):
+    """The order checks are started in. Without --cap, longest-expected first: every check will
+    run, and the long poles must not be the ones left waiting at the end.
+
+    UNDER --cap (the merge gate), CHEAPEST FIRST (2026-09-30). The gate's run ends at its own cap,
+    so its question is how many of the change's checks reach a verdict inside it, and
+    longest-first answered it worst: in the merge of 4e73fd89 the first check started was the
+    1408 s mutation unit, and the checks queued behind it were mostly under a minute. Started
+    cheapest first, the short checks finish and free their token, lane and CPU for the next
+    within seconds, every lane starts on its own cheapest unit, and what the run's cap can still
+    cut is the longest work, last."""
+    return item.weight if getattr(args, "cap", None) else -item.weight
+
+
 def run(items, args, logdir, sampler=None):
     args.managed_verification = cpu_guard.verification_enabled()
     remaining = list(items)
@@ -940,7 +956,7 @@ def run(items, args, logdir, sampler=None):
         os.path.abspath(logdir), limit=engine_pass.INTEGRATION_PLAN_SECONDS)
         if args.integration_intent and not nested else None)
     reserved = reserved_tokens(args.capacity)
-    order = sorted(items, key=lambda it: (not getattr(it, "retry_first", False), -it.weight))
+    order = sorted(items, key=lambda it: (not getattr(it, "retry_first", False), start_key(it, args)))
     running = []
     units = {it.argv[it.argv.index("--only-units") + 1] for it in items if it.engine_unit and it.state != "not-run"}
     args.engine_gate = (engine_pass.PlanGate(len(units), "proof-run", ROOT, sorted(units),
