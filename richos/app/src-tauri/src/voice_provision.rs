@@ -195,7 +195,8 @@ pub fn offer() -> Option<serde_json::Value> {
     let pin = provision::pin_for(model_id)?;
     let dir = provision::install_dir()?;
     let free = provision::free_bytes_for(&dir);
-    let need = pin.required_free_bytes();
+    // The room a fetch will ask for: only the missing bytes when a partial will be resumed.
+    let need = pin.required_free_bytes_resuming(provision::resumable_bytes(&pin, &dir));
     let part = dir.join(format!("{}.part", pin.file));
     let already = provision::file_bytes(&part).min(pin.bytes);
 
@@ -339,9 +340,15 @@ async fn attempt_once(
     if from > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={from}-"));
     }
-    let res = match req.send().await {
-        Ok(r) => r,
-        Err(e) => {
+    let res = match until_cancelled(&state.cancel, req.send()).await {
+        None => {
+            return Err(Finding {
+                detail: Some("stopped on request".to_string()),
+                ..failure_of(provision::Failure::Network)
+            })
+        }
+        Some(Ok(r)) => r,
+        Some(Err(e)) => {
             return Err(Finding {
                 detail: Some(e.to_string()),
                 ..failure_of(provision::Failure::Network)
@@ -384,8 +391,14 @@ async fn attempt_once(
     let mut peek: Vec<u8> = Vec::new();
     if declared.map(|d| d != pin.bytes).unwrap_or(false) {
         while peek.len() < provision::SNIFF_BYTES {
-            match stream.next().await {
-                Some(Ok(chunk)) => peek.extend_from_slice(&chunk),
+            match until_cancelled(&state.cancel, stream.next()).await {
+                Some(Some(Ok(chunk))) => peek.extend_from_slice(&chunk),
+                None => {
+                    return Err(Finding {
+                        detail: Some("stopped on request".to_string()),
+                        ..failure_of(provision::Failure::Network)
+                    })
+                }
                 _ => break,
             }
         }
@@ -407,13 +420,16 @@ async fn attempt_once(
         }
     }
 
-    while let Some(chunk) = stream.next().await {
-        if state.cancel.load(Ordering::SeqCst) {
+    loop {
+        // The stop is honored while WAITING for a chunk too, not only when one arrives.
+        let next = until_cancelled(&state.cancel, stream.next()).await;
+        if state.cancel.load(Ordering::SeqCst) || next.is_none() {
             // The string is the ENGINEER's detail, not the CEO's: it reaches `describe` on
             // stderr and never `ceo_message`. What he reads is the sentence composed below,
             // after the loop, which says his stop was honored and what it cost him.
             return Err(file.interrupted("stopped on request"));
         }
+        let Some(chunk) = next.flatten() else { break };
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => return Err(file.interrupted(&e.to_string())),
@@ -481,7 +497,65 @@ pub(crate) fn ensure_crypto_provider() {
     }
 }
 
+/// How often a network wait looks at the stop flag.
+const CANCEL_POLL: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Await `fut`, but give up as soon as `cancel` is set. `None` means the stop won.
+///
+/// The request and every body read can wait on a peer that says nothing, and reqwest sets no
+/// deadline by default. Testing the flag only after a chunk arrives left Stop unable to release a
+/// stalled download. The flag is polled between short timeouts on the SAME pinned future, so no
+/// progress of the wait is lost when it is not set. Dropping the future on stop closes the socket;
+/// the partial file is untouched and stays resumable.
+pub(crate) async fn until_cancelled<F: std::future::Future>(cancel: &AtomicBool, fut: F) -> Option<F::Output> {
+    let mut fut = std::pin::pin!(fut);
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return None;
+        }
+        if let Ok(v) = tokio::time::timeout(CANCEL_POLL, fut.as_mut()).await {
+            return Some(v);
+        }
+    }
+}
+
 /// A finding with no numbers — for the two kinds the transport itself produces.
 fn failure_of(kind: provision::Failure) -> Finding {
     Finding { kind, have: None, want: None, detail: None, resumable: false }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread().enable_time().build().expect("runtime")
+    }
+
+    /// A wait on a peer that never answers is released by the stop flag, not by the peer.
+    #[test]
+    fn a_stalled_wait_is_released_by_the_stop_flag() {
+        // The stop is pressed only once the wait has actually started: the first poll of the peer
+        // sets the flag and then stays pending forever, exactly as a silent socket does. A wait
+        // that ignored the flag would never return (a hang, not a clock verdict).
+        let cancel = AtomicBool::new(false);
+        let silent_peer = std::future::poll_fn(|_cx| {
+            cancel.store(true, Ordering::SeqCst);
+            std::task::Poll::<u8>::Pending
+        });
+        let out = rt().block_on(until_cancelled(&cancel, silent_peer));
+        assert!(out.is_none(), "the stop must win over a wait that never ends");
+    }
+
+    /// POSITIVE CONTROL: with the flag clear, a wait that completes returns its value.
+    #[test]
+    fn a_wait_that_completes_returns_its_value() {
+        let cancel = AtomicBool::new(false);
+        let out = rt().block_on(until_cancelled(&cancel, async {
+            tokio::time::sleep(Duration::from_millis(450)).await;
+            7u8
+        }));
+        assert_eq!(out, Some(7), "slower than one poll interval still completes");
+    }
 }
