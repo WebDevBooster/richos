@@ -721,7 +721,7 @@ def for_the_nightly(repo, commands):
     return kept, moved
 
 
-def land_check(repo, what, staged, range_argv, changed_lint=True):
+def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
     """Run the suites proof-for.sh assigns plus the lint on the working tree, which the
     caller has established IS the tree being landed. Returns 0 and writes the receipt when
     nothing it ran failed. `changed_lint`: HEAD is the main being landed onto, so the lint
@@ -827,7 +827,10 @@ def land_check(repo, what, staged, range_argv, changed_lint=True):
         ])
         return 1
     tree = repo.index_tree()
-    repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1), not_run=not_run))
+    if receipt:
+        repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1), not_run=not_run))
+    else:
+        tree = "(none: a measurement is not a land)"
     if not_run:
         names = ", ".join(f"{row['check']} ({row['why']})" for row in not_run)
         banner(f"{what.upper()} ALLOWED WITH {len(not_run)} CHECK(S) NOT RUN, WHICH IS NOT A PASS", [
@@ -913,8 +916,9 @@ def refuse_selection(what, rc):
     return 1
 
 
-def land_from_index(repo, what):
-    """pre-commit or pre-merge-commit on main: the index is the tree being landed."""
+def land_from_index(repo, what, receipt=True):
+    """pre-commit or pre-merge-commit on main: the index is the tree being landed. `measure`
+    runs the same check, written nowhere (receipt=False)."""
     dirty = git("diff", "--quiet", check=False)
     if dirty.returncode:
         banner(f"{what.upper()} REFUSED: the working tree differs from what is being committed", [
@@ -925,7 +929,7 @@ def land_from_index(repo, what):
     staged = [p for p in git("diff", "--cached", "--name-only", "--no-renames").splitlines() if p]
     heads = merge_heads(repo)
     range_argv = [f"HEAD..{heads[0]}"] if len(heads) == 1 else []
-    return land_check(repo, what, staged, range_argv)
+    return land_check(repo, what, staged, range_argv, receipt=receipt)
 
 
 def pre_push(repo, stdin_text):
@@ -1071,6 +1075,15 @@ def post_merge(repo, squash):
 
 def main(argv):
     hook = argv[0] if argv else ""
+    if hook == "measure":
+        # `autocheck.py measure`, run by hand in a checkout: the land check of what is staged
+        # there against HEAD, exactly as a commit onto main runs it, with no land receipt
+        # written. How a merge is replayed through the gate to measure it (README.md).
+        try:
+            return land_from_index(Repo(), "measure", receipt=False)
+        except (RuntimeError, OSError) as exc:
+            banner("MEASURE REFUSED: the check could not run", [str(exc)])
+            return 1
     if hook not in ("pre-commit", "pre-merge-commit", "post-commit", "post-merge", "pre-push"):
         return 0
     stdin_text = sys.stdin.read() if hook == "pre-push" else ""

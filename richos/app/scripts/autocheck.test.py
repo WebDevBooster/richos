@@ -713,6 +713,25 @@ class Land(Fixture):
         self.assertIn("iPhone simulator", whys["native-ios-ui.test.sh"])
         self.assertIn("screen", whys["front-door.test.sh"])
 
+    def test_measure_runs_the_land_check_on_what_is_staged_and_writes_no_receipt(self):
+        # How the gate is measured on a replayed merge: the land check of the staged change,
+        # run by hand on a branch, with its verdict and time and no land receipt.
+        self.make()
+        self.git("checkout", "-q", "-b", "replay")
+        measure = [sys.executable, str(self.repo / "richos/app/scripts/autocheck/autocheck.py"), "measure"]
+        self.write("richos/app/src/thing.txt", "BROKEN\n")
+        self.git("add", "-A")
+        out = self.run_(measure)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn("MEASURE REFUSED: a check it owns failed", out.stderr)
+        self.write("richos/app/src/thing.txt", "fine, replayed\n")
+        self.git("add", "-A")
+        out = self.run_(measure)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("autocheck: measure: every selected check passed", out.stderr)
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 2)
+        self.assertFalse((self.repo / ".git/richos-autocheck/land").exists())
+
     def test_a_failing_check_blocks_and_so_does_an_invalid_result_that_hid_a_failure(self):
         self.make()
         self.branch_with("feature", "richos/app/src/state.txt",
