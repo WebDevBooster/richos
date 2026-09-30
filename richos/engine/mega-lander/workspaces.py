@@ -2778,6 +2778,9 @@ def _gate_deadline(default_seconds):
     return now() + max(0.0, secs)
 
 
+_UNOPENED_DIR = re.compile(r"warning: could not open directory '(.+)': (.+)$")
+
+
 def uncommitted(path, deadline=None):
     """([uncommitted entries], [ignored entries the main checkout does not have]).
 
@@ -2797,6 +2800,20 @@ def uncommitted(path, deadline=None):
     if rc != 0:
         raise SpecError("git status failed in %s: %s" % (path, err.strip()[:200]))
     dirty, ignored = [], []
+    # GIT ITSELF SKIPS A DIRECTORY IT CANNOT OPEN, exits 0 and says so only on
+    # stderr (measured here: `warning: could not open directory 'build/':
+    # Permission denied`, and no `!!` entry at all). What is in it is unknown,
+    # so it is named (hunt part 4, finding 5): with the ignored entries when
+    # git's own rules ignore that path, so `--ignored-not-needed` can still
+    # waive it; otherwise with the uncommitted ones, which nothing waives.
+    for line in err.splitlines():
+        m = _UNOPENED_DIR.match(line.strip())
+        if not m:
+            continue
+        rel, why = m.group(1), m.group(2)
+        entry = "%s/ (unreadable: %s)" % (rel.rstrip("/"), why)
+        ic, _o, _e = git(path, "check-ignore", "-q", "--no-index", "--", rel)
+        (ignored if ic == 0 else dirty).append(entry)
     main = main_checkout(path)
     for n, ent in enumerate([e for e in out.split("\0") if e]):
         if deadline is not None and (n & 63) == 0 and _past(deadline):
@@ -2829,7 +2846,8 @@ def uncommitted(path, deadline=None):
             ignored.append(rel)
         else:
             dirty.append(ent)
-    return dirty, ignored
+    # git's warning and the walk below can both name one unreadable directory
+    return dirty, list(dict.fromkeys(ignored))
 
 
 def _ignored_dir_diff(mine, other, rel, deadline=None):
@@ -2838,10 +2856,26 @@ def _ignored_dir_diff(mine, other, rel, deadline=None):
     workspace. Symlinks are compared by target and never followed; a nested
     repository's `.git` is walked like anything else, so a commit that exists
     only in the workspace's copy shows up as an object file the main checkout
-    does not have. Bounded by the gate's deadline like the rest of the walk."""
+    does not have. Bounded by the gate's deadline like the rest of the walk.
+
+    A DIRECTORY THAT CANNOT BE LISTED IS NAMED, NEVER PASSED OVER (hunt part
+    4, finding 5). `os.walk` drops a directory it cannot read unless it is
+    given `onerror`, and nothing inside was then compared: an ignored
+    directory made unreadable came back "no differences" while it held the
+    only copy of a file. What is in it is unknown, so it is reported as a
+    difference, by path, with the reason; the land then refuses it like any
+    other, and `--ignored-not-needed` is still the way to say it is not needed.
+    The partial-cleanup check (`_landed_residue`) already refuses the same
+    error; this is the same rule for the normal comparison."""
     out = []
     n = 0
-    for root, dirs, files in os.walk(mine, followlinks=False):
+
+    def unreadable(error):
+        where = getattr(error, "filename", None) or mine
+        sub = os.path.normpath(os.path.join(rel, os.path.relpath(where, mine)))
+        out.append("%s/ (unreadable: %s)" % (sub, error.strerror or error))
+
+    for root, dirs, files in os.walk(mine, followlinks=False, onerror=unreadable):
         dirs.sort()
         for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(root, d))]:
             n += 1

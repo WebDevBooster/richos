@@ -323,6 +323,16 @@ mutant p14-failed-read-counts-as-landed "test_point_14_a_failed_read_of_a_worker
     '                elif False:{NL}                    missing.append("HEAD of %s could not be read{AND}        if False:{NL}            missing.append("branch %s: %s" % (b, unread))' \
     "a worker HEAD and branch tip that git could not READ would be passed over, so a commit in no integration branch would be counted as landed and its workspace deleted (points 4, 8, 14; hunt part 4, finding 4)."
 
+mutant p08-unreadable-ignored-directory-passed-over "test_point_08_an_unreadable_ignored_directory_is_never_certified_unchanged" "$W" \
+    '    for root, dirs, files in os.walk(mine, followlinks=False, onerror=unreadable):' \
+    '    for root, dirs, files in os.walk(mine, followlinks=False):' \
+    "an ignored directory that cannot be listed would be skipped by the walk and reported as having no differences, although it may hold the only copy of a needed file (point 8; hunt part 4, finding 5)."
+
+mutant p08-directory-git-could-not-open-passed-over "test_point_08_an_unreadable_ignored_directory_is_never_certified_unchanged" "$W" \
+    '        (ignored if ic == 0 else dirty).append(entry)' \
+    '        pass' \
+    "a directory git status could not open -- it warns on stderr, exits 0 and lists nothing -- would count as nothing to compare, so an unreadable ignored directory would be certified unchanged (point 8; hunt part 4, finding 5)."
+
 mutant p13-unreadable-branch-recorded-deleted "test_point_13_a_branch_whose_tip_cannot_be_read_is_never_recorded_deleted" "$W" \
     '    if unread:{NL}        return False, "branch %s: %s" % (b, unread)' \
     '    if False:{NL}        return False, "branch %s: %s" % (b, unread)' \

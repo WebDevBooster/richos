@@ -2698,6 +2698,42 @@ class UnknownIsNeverClean(Base):
         self.assertIn("could not be read", why)
         self.assertIn("worktree-agent-unreadable0", branches(self.entity))
 
+    def test_point_08_an_unreadable_ignored_directory_is_never_certified_unchanged(self):
+        """Finding 5. An ignored directory whose name the main checkout also
+        has is compared by content; one that cannot be LISTED has content
+        nobody has compared, so it is named, never passed over. Two places
+        can skip it: `git status` itself (the ignored directory is unreadable:
+        git warns on stderr, exits 0 and lists nothing), and the content walk
+        (a directory inside it is unreadable)."""
+        aid, npath = self.spawn("zach-opus-ur")
+        mine = os.path.join(npath, "build")
+        other = os.path.join(self.entity, "build")
+        os.makedirs(os.path.join(mine, "private"))
+        with open(os.path.join(mine, "private", "only-copy.txt"), "w") as f:
+            f.write("the only copy\n")
+        os.makedirs(other)                                       # the main checkout has the name
+        for d in (mine, other):
+            with open(os.path.join(d, "same.txt"), "w") as f:
+                f.write("identical in both\n")
+        _dirty, readable_ignored = ws.uncommitted(npath)
+        self.assertEqual(readable_ignored, ["build/private/only-copy.txt"])   # the control
+        self.finish(aid)
+        for locked in (os.path.join(mine, "private"), mine):   # a directory inside it, then the ignored one itself
+            rel = os.path.relpath(locked, npath)
+            os.chmod(locked, 0)
+            try:
+                if locked != mine:                               # the walk, on its own
+                    walked = ws._ignored_dir_diff(mine, other, "build")
+                    self.assertEqual(walked, ["build/private/ (unreadable: Permission denied)"])
+                _dirty, ignored = ws.uncommitted(npath)
+                self.assertEqual(ignored, ["%s/ (unreadable: Permission denied)" % rel])
+                with self.assertRaises(ws.SpecError) as e:
+                    ws.land("zach-opus-ur", self.sid)
+                self.assertIn("ignored", str(e.exception))
+            finally:
+                os.chmod(locked, 0o755)
+        self.assertTrue(os.path.isfile(os.path.join(mine, "private", "only-copy.txt")))
+
 
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
