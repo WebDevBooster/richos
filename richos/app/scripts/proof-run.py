@@ -21,6 +21,12 @@
       --budget S           a check running past S seconds is named while the run goes (600)
       --deadline S         a check still running at max(S, 3 x its expected seconds), capped
                            at an hour, is stopped with its whole tree and fails (1800)
+      --cap S              a HARD cap instead: every check, engine units included, is stopped
+                           with its whole tree at S seconds, whatever it was expected to take
+                           (TIMED-OUT, "stopped at its S s cap"). The merge gate passes 600.
+      --run-cap S          the whole run stops at S seconds: running checks are stopped with
+                           their trees and waiting ones never start, all `cancelled` with the
+                           reason, and the summary is written as for any other end. Unset: none.
       --sample-every S     how often the host is sampled for the run's summary (10)
       --log-dir DIR        an empty directory for evidence (default: per-checkout SSD storage
                            on macOS; retain failed/unfinished runs and the last 3 green runs)
@@ -29,7 +35,8 @@
 
       --summary-out F      also write summary.json to F (the land gate reads its verdict there)
 Exit: 0 every check passed; 1 a check failed, timed out, was not admitted, the run was not
-admitted to a proof-run slot within --slot-wait, or proof-for.sh
+admitted to a proof-run slot within --slot-wait (every check is then `not-admitted` in the
+summary, which is written all the same), or proof-for.sh
 found a changed code path no suite covers (nothing is run then); 2 usage or an unreadable
 selection; 3 nothing failed, and at least one check was NOT RUN (see below). 3 is not 0: a
 caller that reads any non-zero exit as "not green" stays right.
@@ -801,7 +808,15 @@ def deadline_for(item, args):
     whichever is later, never past an hour (ci-shard.sh's own rule for a unit). None for an engine
     shard: a shard is a list of units run one after another, and ci-shard.sh already stops EACH
     unit at its own deadline, with its whole tree. A deadline on the list as well killed two
-    healthy shards in the third full run, at 3 x the shard's stale planned weight."""
+    healthy shards in the third full run, at 3 x the shard's stale planned weight.
+
+    --cap is the exception to all of that (the merge gate, 2026-09-30): one number for every
+    check, engine units included (each is ONE unit now, exact unit admission), independent of
+    any planned weight. A weight is dated data (`workspace-spec-fourteen` was planned at 2812 s
+    and ran in 172-554 s), so a cap derived from it is not a cap."""
+    cap = getattr(args, "cap", None)
+    if cap:
+        return float(cap)
     if item.label.startswith("engine ") and any(flag in item.argv for flag in ("--shard", "--only-units")):
         return None
     return min(3600.0, max(args.deadline, 3 * item.weight))
@@ -873,6 +888,7 @@ def run(items, args, logdir, sampler=None):
                         if engine_pass.needs_slot(len(units)) and not engine_pass.held_by_ancestor()
                         else None)
     t0 = time.monotonic()
+    args.run_started = t0   # --run-cap's clock (schedule moves it by any pause)
     for item in items:
         item.queued_at = t0
     monitor = Monitor(args.sample_every, budget, sampler)
@@ -1003,6 +1019,13 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
         interval, previous_loop = now - previous_loop, now
         held = discount_held_gap(interval, running)
         heartbeat += held
+        run_cap = getattr(args, "run_cap", None)
+        if run_cap:
+            # A pause is nobody's time here either: the run's clock moves with it.
+            args.run_started = getattr(args, "run_started", now) + held
+            if now - args.run_started >= run_cap:
+                end_run_at_cap(items, running, args, logdir, run_cap)
+                break
         for it in order:
             if it.state == "waiting":
                 it.wait_times[it.wait_reason] = it.wait_times.get(it.wait_reason, 0.0) + interval
@@ -1021,8 +1044,9 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                 left = stop_item(it)
                 rc = 124
                 it.state = "timed-out"
-                it.notes.append("stopped at its %.0f s deadline%s" % (
-                    deadline, "" if not left else "; pids %s survived SIGKILL" % left))
+                it.notes.append("stopped at its %.0f s %s%s" % (
+                    deadline, "cap" if getattr(args, "cap", None) else "deadline",
+                    "" if not left else "; pids %s survived SIGKILL" % left))
             elif rc is None and age >= args.budget and not it.over_budget:
                 it.over_budget = True
                 print("[%s] OVER BUDGET %-34s running %.0f s, past the %.0f s budget; %s" % (
@@ -1297,6 +1321,35 @@ def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, 
                     if not running and s is not None:
                         print("[%s] wait   %-40s admission: %s" % (stamp(), it.label, reserve.describe(s)), flush=True)
         time.sleep(0.2)
+
+
+# The state a check ends in when the run ends it before it could finish.
+CANCELED = "cancelled"  # dialect-exempt: the state value summary.json, progress.json and every caller already read
+
+
+def end_run_at_cap(items, running, args, logdir, run_cap):
+    """--run-cap reached (the merge gate, 2026-09-30): the run ends ON ITS OWN CLOCK, which
+    end_priority_turn deliberately does not do for a land's selection. Every running check is
+    stopped with its whole tree and every waiting one never starts; both end in CANCELED with the
+    reason, so the caller can tell a check that did not finish in the time it was given from one
+    that failed. What already finished keeps its result."""
+    for it in list(running):
+        left = stop_item(it)
+        it.state, it.rc, it.ended = CANCELED, 125, time.monotonic()
+        it.notes.append("stopped at the run's %.0f s cap (--run-cap)%s" % (
+            run_cap, "" if not left else "; pids %s survived SIGKILL" % left))
+        finish_attempt(it)
+        it.token.release()
+        print("[%s] RUN CAP  %-40s stopped at the run's %.0f s cap" % (stamp(), it.label, run_cap), flush=True)
+    running.clear()
+    for it in items:
+        if it.state == "waiting":
+            it.finish_queue()
+            it.state, it.rc = CANCELED, 125
+            it.notes.append("not started: the run's %.0f s cap (--run-cap) was reached" % run_cap)
+    print("[%s] proof-run: the run's %.0f s cap (--run-cap) is reached; what did not finish is ended, "
+          "not failed" % (stamp(), run_cap), flush=True)
+    checkpoint(items, logdir)
 
 
 SHOWN_FAILURES = 20
@@ -1697,6 +1750,8 @@ def main(argv=None):
     p.add_argument("--max-cpu", type=float, default=reserve.DEFAULT_MAX_CPU)
     p.add_argument("--budget", type=float, default=BUDGET_SECONDS)
     p.add_argument("--deadline", type=float, default=3 * BUDGET_SECONDS)
+    p.add_argument("--cap", type=float, help="a hard cap in seconds on every check (the merge gate: 600)")
+    p.add_argument("--run-cap", type=float, help="the whole run ends at this many seconds")
     p.add_argument("--sample-every", type=float, default=10)
     p.add_argument("--log-dir")
     p.add_argument("--summary-out", help="also write summary.json to this file")
@@ -1712,6 +1767,10 @@ def main(argv=None):
             p.error("--" + name.replace("_", "-") + " must be finite and positive")
     if args.max_cpu > 100:
         p.error("--max-cpu must be at most 100")
+    for name in ("cap", "run_cap"):
+        value = getattr(args, name)
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            p.error("--" + name.replace("_", "-") + " must be finite and positive")
     if args.engine_slot_wait is not None and (not math.isfinite(args.engine_slot_wait) or args.engine_slot_wait < 0):
         p.error("--engine-slot-wait must be finite and nonnegative")
     parent = args.log_dir or default_logdir()
@@ -1760,6 +1819,14 @@ def main(argv=None):
             args.slot_wait, say=lambda line: print("[%s] %s" % (stamp(), line), flush=True))
     except TimeoutError as exc:
         print("proof-run: NOT ADMITTED: %s. Nothing was run. Logs: %s" % (exc, logdir), flush=True)
+        # Written like any other end (2026-09-30): a caller reading summary.json sees every check
+        # NOT ADMITTED by name, instead of no verdict at all, which it cannot tell from a crash.
+        for it in items:
+            it.state, it.rc = "not-admitted", 75
+            it.notes.append("the run was not admitted to a proof-run slot: %s" % exc)
+        summarize(items, 0.0, logdir, args.budget, ["not admitted to a proof-run slot: %s" % exc])
+        if args.summary_out:
+            shutil.copyfile(os.path.join(logdir, "summary.json"), args.summary_out)
         return 1
     try:
         slot_line = ("inside its caller's proof-run slot (a proof run started by a check of one)" if SLOT.borrowed
