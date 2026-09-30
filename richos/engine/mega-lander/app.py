@@ -212,6 +212,57 @@ def git(repo, *args):
     return run(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false", "-C", str(repo), *args]).strip()
 
 
+def _git_answer(repo, *args):
+    return subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false", "-C", str(repo), *args],
+                          text=True, capture_output=True, timeout=120)
+
+
+def is_ancestor(repo, older, newer):
+    """True or False from Git, and a refusal when Git could not answer: a failed
+    read is never taken to mean either one."""
+    result = _git_answer(repo, "merge-base", "--is-ancestor", older, newer)
+    if result.returncode in (0, 1):
+        return result.returncode == 0
+    raise ValueError("Git could not tell whether %s is contained in %s in %s, so nothing was merged: %s"
+                     % (older[:12], newer[:12], repo, (result.stderr or result.stdout).strip()[-2000:]))
+
+
+def merge_tree(repo, tip, commit, branch):
+    """The tree of merging `commit` into `tip`, computed without touching any
+    checkout, index or ref. A conflict is refused by name and nothing is left
+    half merged, because nothing was written."""
+    result = _git_answer(repo, "merge-tree", "--write-tree", "--name-only", "--no-messages", tip, commit)
+    lines = result.stdout.splitlines()
+    if result.returncode == 1:
+        conflicted = sorted(set(line for line in lines[1:] if line.strip()))
+        raise ValueError(
+            "%s moved since this work started, and the reviewed commit %s conflicts with it in %s. Nothing "
+            "was merged. Conflicts are never resolved here: this work needs a new implementation and a "
+            "fresh review against the current %s." % (branch, commit[:12], ", ".join(conflicted[:20]) or
+                                                      "files Git did not name", branch))
+    if result.returncode != 0 or not lines or not re.fullmatch(r"[0-9a-f]{40,64}", lines[0].strip()):
+        raise ValueError("Git could not test whether the reviewed commit %s merges cleanly into %s, so nothing "
+                         "was merged: %s" % (commit[:12], branch, (result.stderr or result.stdout).strip()[-2000:]))
+    return lines[0].strip()
+
+
+def merge_commit(repo, tip, commit, branch, reviewer_id):
+    """A merge commit with parents (tip, reviewed commit) and the clean merged
+    tree. It is only an object until the caller fast-forwards the branch to it,
+    so an interruption here leaves the branch and the checkout exactly as they
+    were. Its author is whoever this repository's own Git configuration names;
+    nothing supplies one."""
+    tree = merge_tree(repo, tip, commit, branch)
+    message = ("Merge reviewed work %s into %s\n\nReviewed commit: %s\nReviewer receipt: %s\n"
+               % (commit[:12], branch, commit, reviewer_id))
+    try:
+        return git(repo, "commit-tree", tree, "-p", tip, "-p", commit, "-m", message)
+    except RunFailure as error:
+        raise ValueError("Git could not record the merge commit for %s in %s, so nothing was merged. If Git "
+                         "names no user, set this repository's user.name and user.email. %s"
+                         % (commit[:12], repo, str(error).strip()[-2000:]))
+
+
 def refresh(record):
     canonical = W.load_agent(W.named_key(record["binding"]["session_id"], record["name"]))
     if canonical:
@@ -766,8 +817,10 @@ def verification_evidence(scope, identity):
 # Nothing was CORRUPTED by that: the recorded-tip compare-and-swap below
 # ("integration target moved after intent") fails the loser safe. But the loser
 # is then thrown back to a fresh implementation and a fresh review, because this
-# function infers no rebase and no merge commit — so a lost race costs the work
-# twice over. THE POINT OF THE LOCK IS THAT A LOST RACE BECOMES A WAIT.
+# function then inferred no rebase and no merge commit — so a lost race cost the
+# work twice over. THE POINT OF THE LOCK IS THAT A LOST RACE BECOMES A WAIT.
+# (Since part 4, finding 3, the waiter that finds the branch moved records a
+# merge commit when Git merges the two cleanly; a conflict is still refused.)
 #
 # Keyed to the REPOSITORY, not machine-wide. Two conversations landing into two
 # different repositories are the case the CEO says he will actually run, and
@@ -1043,20 +1096,42 @@ def integrate(scope_path,scope,args):
                     for marker in ("MERGE_HEAD","CHERRY_PICK_HEAD","REVERT_HEAD","rebase-merge","rebase-apply"):
                         if Path(git(tree,"rev-parse","--path-format=absolute","--git-path",marker)).exists():
                             raise ValueError("finish or explicitly abandon the existing Git operation first")
-                # No rebase, conflict resolution or merge commit is inferred here. A
-                # moved target requiring new changes needs another implementation/review.
+                # A MOVED BRANCH IS MERGED, NEVER REBASED OR RESOLVED (part 4,
+                # finding 3). The reviewed commit is landed exactly as reviewed:
+                # by fast-forward when the branch has not moved, and otherwise by
+                # a merge commit whose second parent IS that commit, recorded only
+                # when Git merges the two without a conflict. No rebase rewrites
+                # it and no conflict is resolved here, so a moved target that
+                # needs new changes still goes back for another implementation
+                # and review -- and is told which files conflict. Until this, a
+                # second independently reviewed change was refused the moment the
+                # first one landed, even when the two touched different files.
+                already=is_ancestor(repo,commit,tip)
+                if not already and not is_ancestor(repo,tip,commit):
+                    merge_tree(repo,tip,commit,branch)   # refuses a conflict before any intent is written
                 if not existing:
-                    git(repo,"merge-base","--is-ancestor",tip,commit)
                     worker["integration"]={"reviewer_id":reviewer["id"],"commit":commit,"branch":branch,
                         "before":tip,"instruction_ref":scope.get("user_instruction",{}).get("ledger_ref"),"verified":False}
                     save(path,worker)
                 elif existing["commit"]!=commit or existing["branch"]!=branch:
                     raise ValueError("prepared integration identity changed")
+                elif not already and existing["before"]!=tip:
+                    # An intent recorded before another land moved the branch is
+                    # re-recorded against the tip it will actually merge onto;
+                    # otherwise the retry of an interrupted integrate could never
+                    # land at all.
+                    worker["integration"]["before"]=tip
+                    save(path,worker)
                 read_scope(scope_path)
-                if tip!=commit:
+                if not already:
                     if tip!=worker["integration"]["before"]:
                         raise ValueError("integration target moved after intent; reconcile before retrying")
-                    git(repo,"merge","--ff-only",commit)
+                    landed=commit
+                    if not is_ancestor(repo,tip,commit):
+                        landed=merge_commit(repo,tip,commit,branch,reviewer["id"])
+                        worker["integration"]["merge_commit"]=landed
+                        save(path,worker)
+                    git(repo,"merge","--ff-only",landed)
                     # THE LAND RECORD, WRITTEN AT THE MOMENT THE REF ACTUALLY
                     # MOVED and while this repository's land lock is still held.
                     # APPENDED, never a field on the lock: two lands in a row
@@ -1067,8 +1142,11 @@ def integrate(scope_path,scope,args):
                     # because a crash between the two would leave a ref that
                     # moved with no record of who moved it -- and a REPEATED
                     # integrate, which merges nothing, must not record a second
-                    # land it did not perform.
-                    land["landed"]={"schema":1,"branch":branch,"before":tip,"commit":commit,"at":W.iso(),
+                    # land it did not perform. `commit` is where the ref now
+                    # points (the merge commit when one was recorded), because
+                    # that is what `land_by_another_conversation` matches;
+                    # `reviewed_commit` is the work itself.
+                    land["landed"]={"schema":1,"branch":branch,"before":tip,"commit":landed,"reviewed_commit":commit,"at":W.iso(),
                         "thread_id":scope["binding"].get("thread_id") or "","entity_id":scope["binding"].get("entity_id") or "",
                         "session_id":scope["binding"].get("session_id") or "","pid":os.getpid()}
                     W.append_land_record(repository,land["landed"])
@@ -1383,7 +1461,7 @@ TOOLS = [
     {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Your connection already knows which assignment you are carrying, so leave obligation_id out; never invent one. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. An assignment you handled yourself, with no worker, is closed by the app from your report: do not call this for it. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["worker_ids"],"additionalProperties":False}},
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
     {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for the assignment this connection is carrying. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. A failed preparation that never dispatched is settled when a new request_id prepares a replacement: anything it created is withdrawn, and dirty files are refused rather than discarded. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief"],"additionalProperties":False}},
-    {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. No push, rebase or conflict resolution. Dirty or moved targets are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
+    {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. If the branch moved since the work started, the reviewed commit is merged with a merge commit only when Git merges the two without a conflict. No push, rebase or conflict resolution. Dirty targets and conflicting changes are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
     {"name":"inspect","description":"Reconcile scoped dispatch receipts against actual provider and workspace observations. A run ending is not task completion. Inspect unresolved work before retrying after a restart.","inputSchema":{"type":"object","properties":{"offset":{"type":"integer"},"limit":{"type":"integer"}},"additionalProperties":False}},
 ]
 if __name__ == "__main__":

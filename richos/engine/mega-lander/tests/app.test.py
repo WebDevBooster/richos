@@ -911,15 +911,15 @@ class DesktopWork(unittest.TestCase):
             holder.kill()
         holder.wait(timeout=30)
 
-    def reviewed_pair(self,tag,repo=None):
+    def reviewed_pair(self,tag,repo=None,file="result.txt"):
         """A worker and a passing reviewer, both run-ended: the exact state
         `integrate` is called from."""
         spec={**self.args,"request_id":"prepare-"+tag}
         if repo: spec["repo"]=str(repo)
         worker=self.call("prepare",spec)
         target=self.start_fixture_worker(worker,tag+"-worker")
-        (target/"result.txt").write_text("FICTIONAL "+tag)
-        self.app.git(target,"add","result.txt")
+        (target/file).write_text("FICTIONAL "+tag)
+        self.app.git(target,"add",file)
         self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional "+tag)
         commit=self.app.git(target,"rev-parse","HEAD")
         self.finish_fixture_worker(tag+"-worker")
@@ -929,6 +929,92 @@ class DesktopWork(unittest.TestCase):
         self.finish_fixture_worker(tag+"-reviewer","RICHOS_REVIEW "+json.dumps(
             {"commit":commit,"verdict":"passed","checks":["synthetic reviewer observation"]}))
         return {"worker_id":worker["id"],"reviewer_id":reviewer["id"]}
+
+    def concurrent_reviewed_pairs(self,*jobs):
+        """Two assignments whose workers RUN AT THE SAME TIME from the same tip,
+        each then reviewed: the ordinary concurrent case. Every worker starts
+        before any ends, because the engine refuses a new worker while finished
+        work is pending (point 5) and one assignment has one unresolved worker.
+        `jobs` is (tag, file); the first job is fixture-task and each later one
+        gets its own accepted obligation. The committer is the repository's own
+        configuration, which a merge commit needs; nothing supplies one."""
+        for key,value in (("user.name","Fixture"),("user.email","fixture@example.invalid")):
+            subprocess.run(["git","-C",str(self.repo),"config",key,value],check=True)
+        started=[]
+        for number,(tag,file) in enumerate(jobs):
+            obligation="fixture-task" if number==0 else "fixture-task-"+tag
+            if number:
+                self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"checkpoint","binding":self.scope["binding"],
+                    "request_id":"accept-"+obligation,"checkpoint":{"statements":[{"verb":"commitment",
+                    "fields":{"id":obligation,"title":"Create fictional "+tag}}]}})
+            spec={**self.args,"request_id":"prepare-"+tag,"obligation_id":obligation}
+            worker=self.call("prepare",spec)
+            started.append((tag,file,spec,worker,self.start_fixture_worker(worker,tag+"-worker")))
+        pairs=[]
+        for tag,file,spec,worker,target in started:
+            (target/file).write_text("FICTIONAL "+tag)
+            self.app.git(target,"add",file)
+            self.app.git(target,"commit","-qm","Fictional "+tag)
+            commit=self.app.git(target,"rev-parse","HEAD")
+            self.finish_fixture_worker(tag+"-worker")
+            pairs.append((tag,spec,worker,commit))
+        out=[]
+        for tag,spec,worker,commit in pairs:
+            reviewer=self.call("prepare",{**spec,"request_id":"review-"+tag,"role":"reviewer","review_of":worker["id"],
+                "title":"Review "+tag,"brief":"Review the exact change; do not modify any files."})
+            self.start_fixture_worker(reviewer,tag+"-reviewer")
+            self.finish_fixture_worker(tag+"-reviewer","RICHOS_REVIEW "+json.dumps(
+                {"commit":commit,"verdict":"passed","checks":["synthetic reviewer observation"]}))
+            out.append(({"worker_id":worker["id"],"reviewer_id":reviewer["id"]},commit,spec["obligation_id"]))
+        return out
+
+    def test_a_second_reviewed_change_is_merged_after_the_first_moved_the_branch(self):
+        """Part 4, finding 3. Two workers start from the same tip and change
+        different files. The first lands by fast-forward. The second used to be
+        refused by an ancestry check whose whole message was Git's empty output
+        ("engine operation refused"), which sent finished, reviewed work back for
+        another implementation and review. It now lands by a merge commit whose
+        second parent IS the reviewed commit, because Git merges the two cleanly."""
+        (first,first_commit,first_task),(second,second_commit,second_task)=self.concurrent_reviewed_pairs(
+            ("one","one.txt"),("two","two.txt"))
+        start=self.app.git(self.repo,"rev-parse","main")
+        # CONTROL: both really started from the same tip, and neither contains the other.
+        self.assertEqual(self.app.git(self.repo,"merge-base",first_commit,second_commit),start)
+        self.call("integrate",first)
+        self.assertEqual(self.app.git(self.repo,"rev-parse","main"),first_commit)     # a fast-forward, as before
+        landed_second=self.call("integrate",second)
+        self.assertTrue(landed_second["work_integrated"])
+        self.assertEqual(landed_second["commit"],second_commit)
+        self.assertEqual(landed_second["cleanup_pending"],[])
+        tip=self.app.git(self.repo,"rev-parse","main")
+        self.assertEqual(self.app.git(self.repo,"rev-parse",tip+"^1"),first_commit)
+        self.assertEqual(self.app.git(self.repo,"rev-parse",tip+"^2"),second_commit)   # the reviewed commit, unrewritten
+        self.assertEqual((self.repo/"one.txt").read_text(),"FICTIONAL one")
+        self.assertEqual((self.repo/"two.txt").read_text(),"FICTIONAL two")
+        self.assertEqual(self.app.git(self.repo,"status","--porcelain"),"")
+        record=self.app.W.land_records(self.repo)[-1]
+        self.assertEqual((record["before"],record["commit"],record["reviewed_commit"]),(first_commit,tip,second_commit))
+        # A repeated integrate merges nothing and records no second land.
+        self.assertTrue(self.call("integrate",second)["work_integrated"])
+        self.assertEqual(self.app.git(self.repo,"rev-parse","main"),tip)
+        self.assertEqual(self.app.W.land_records(self.repo)[-1],record)
+        self.assertIn(second_commit,landed_second["evidence_ref"])
+        for task,args in ((first_task,first),(second_task,second)):
+            self.assertTrue(self.call("complete",{"obligation_id":task,"worker_ids":[args["worker_id"]]})["obligation_closed"])
+
+    def test_a_reviewed_change_that_conflicts_with_the_moved_branch_is_refused_by_name(self):
+        """The reason the code gave still holds where it applies: no conflict is
+        ever resolved here. The refusal now names the conflict instead of Git's
+        empty ancestry answer, and nothing is left half merged."""
+        (first,_,_),(second,_,_)=self.concurrent_reviewed_pairs(("left","result.txt"),("right","result.txt"))
+        self.call("integrate",first)
+        tip=self.app.git(self.repo,"rev-parse","main")
+        with self.assertRaisesRegex(ValueError,"conflicts with it in result.txt"):
+            self.call("integrate",second)
+        self.assertEqual(self.app.git(self.repo,"rev-parse","main"),tip)
+        self.assertEqual(self.app.git(self.repo,"status","--porcelain"),"")
+        self.assertFalse(Path(self.app.git(self.repo,"rev-parse","--path-format=absolute","--git-path","MERGE_HEAD")).exists())
+        self.assertEqual((self.repo/"result.txt").read_text(),"FICTIONAL left")
 
     def test_two_conversations_landing_in_one_repository_take_one_lock_and_the_merge_is_under_it(self):
         args=self.reviewed_pair("onelock")
