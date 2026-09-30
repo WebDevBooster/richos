@@ -109,9 +109,14 @@ mutant read-tool-ignored "FT31" "$S" \
     "reading the register with the Read tool, the plainest way, would not count."
 
 mutant any-mention-is-a-read "FT47" "$S" \
-    '            if base in cmd and READER_VERBS.search(cmd):' \
-    '            if base in cmd:' \
-    "\`git add\` of the register would count as having read it."
+    '        if verb not in _READER_WORDS:' \
+    '        if False:' \
+    "a command that is not a reader (\`git add\` of the register) would count as having read it."
+
+mutant any-argument-is-the-register "FT57" "$S" \
+    '    return path_is_register(arg, reg_path, rel) or os.path.basename(arg) == base' \
+    '    return True' \
+    "a reader run on some OTHER file (\`cat notes.md\`) would count as having read the register."
 
 mutant errored-read-counts "FT47" "$S" \
     '        if res is None or res.get("is_error"):' \
