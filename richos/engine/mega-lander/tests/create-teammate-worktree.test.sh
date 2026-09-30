@@ -380,6 +380,28 @@ fi
 # the suite's own leftover, by the PID the setup it ran recorded, never by name
 [ "$ALIVE" = yes ] && kill -9 "$CHILD" 2>/dev/null
 
+# HUNT PART 4, FINDING 18: the setup bound fits inside the CALLER's deadline.
+# The app gives the whole preparation 120 s and the setup alone was allowed
+# 120 s; a caller now says when it gives up (RICHOS_OPERATION_DEADLINE, epoch
+# seconds) and the setup is bounded by what is left of that, less the time
+# the confirmation needs. Default setup bound (120 s), a 20 s hanging setup,
+# and a deadline 14 s out: the creation must finish well inside 14 s.
+T0="$(date +%s)"
+OUT="$(RICHOS_OPERATION_DEADLINE="$((T0 + 14))" "$HELPER" "$REPO3" zach-opus-ct46 --base hanging 2>&1)"; rc=$?
+T1="$(date +%s)"
+if [ "$rc" -eq 0 ] && [ "$((T1 - T0))" -lt 14 ] && [ -d "$SANDBOX/repo3-wt/zach-opus-ct46" ] \
+   && printf '%s' "$OUT" | grep -q "the caller's deadline"; then
+    ok "C46  the setup is bounded by the caller's deadline, and the creation answers inside it ($((T1 - T0))s < 14s)"
+else
+    bad "C46  caller deadline (rc=$rc, took $((T1 - T0))s): $OUT"
+fi
+OUT="$(RICHOS_OPERATION_DEADLINE="$(($(date +%s) - 1))" "$HELPER" "$REPO3" zach-opus-ct47 2>&1)"; rc=$?
+if [ "$rc" -eq 3 ] && [ ! -e "$SANDBOX/repo3-wt/zach-opus-ct47" ] && printf '%s' "$OUT" | grep -q "deadline"; then
+    ok "C47  a caller whose deadline has already passed gets a refusal and nothing is created"
+else
+    bad "C47  passed deadline (rc=$rc): $OUT"
+fi
+
 if ! grep -qE 'worktree (remove|prune)|branch -D|rm -rf' "$HELPER"; then
     ok "C23  the helper contains no deletion: land and discard are the only deleters (points 4, 7)"
 else

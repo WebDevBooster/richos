@@ -63,7 +63,7 @@ mutant setup-never-run "C40" "$F" \
     "a repository's own .worktree-setup would be ignored — every worktree would build for itself whatever the repository says it shares."
 
 mutant setup-unbounded "C42" "$F" \
-    '    while kill -0 "$SETUP_PID" 2>/dev/null && [ "$SETUP_WAITED" -lt "$WORKTREE_SETUP_TIMEOUT" ]; do' \
+    '    while kill -0 "$SETUP_PID" 2>/dev/null && [ "$SETUP_WAITED" -lt "$SETUP_BOUND" ]; do' \
     '    while kill -0 "$SETUP_PID" 2>/dev/null; do' \
     "a setup script that hangs would hang the creation, and therefore every spawn into that repository, forever."
 
@@ -77,5 +77,10 @@ mutant setup-children-survive "C45" "$F" \
     '        kill -9 -- "-$SETUP_PID" 2>/dev/null{NL}        for _p in $_SETUP_TREE; do kill -9 "$_p" 2>/dev/null; done' \
     '        kill -9 "$SETUP_PID" 2>/dev/null' \
     "a timed-out setup's children would keep running in the workspace after the summary said it was killed (finding 17)."
+
+mutant caller-deadline-ignored "C46" "$F" \
+    'if [ -n "$SETUP" ] && [ -n "$_left" ] && [ "$_left" != invalid ] && [ "$_left" -lt "$SETUP_BOUND" ]; then' \
+    'if false; then' \
+    "the setup would be allowed its own 120 s inside a caller that gives the whole preparation 120 s, so the caller's bound would expire first (finding 18)."
 
 mutation_end

@@ -143,6 +143,25 @@ if ! _name_msg="$(teammate_name_check "$NAME" "$ALLOWED_MODELS")"; then
     refuse "$_name_msg"
 fi
 
+# --- the caller's deadline (hunt part 4, finding 18) --------------------------
+# A caller that stops waiting at a known moment says so: RICHOS_OPERATION_DEADLINE
+# is that moment in epoch seconds. The app gives a whole preparation 120 s and
+# this script alone allowed its setup 120 s, so the outer bound could expire
+# first, leaving a creation the caller can only record as "unknown". Every
+# bound below is now the smaller of its own and what is left of the caller's,
+# less CALLER_RESERVE for the confirmation and report that follow. A deadline
+# already passed is refused here, before anything exists. Unset: unchanged.
+CALLER_RESERVE=10
+_caller_left() { # seconds left before the caller's deadline, less the reserve; "" when there is none
+    [ -n "${RICHOS_OPERATION_DEADLINE:-}" ] || return 0
+    python3 -c 'import sys, time; print(int(float(sys.argv[1]) - time.time()) - int(sys.argv[2]))' \
+        "$RICHOS_OPERATION_DEADLINE" "$CALLER_RESERVE" 2>/dev/null || echo "invalid"
+}
+case "$(_caller_left)" in
+    invalid) refuse "RICHOS_OPERATION_DEADLINE='$RICHOS_OPERATION_DEADLINE' is not a time in epoch seconds; nothing was created" ;;
+    -*)      refuse "the caller's deadline (RICHOS_OPERATION_DEADLINE=$RICHOS_OPERATION_DEADLINE) leaves no time to create a workspace; nothing was created" ;;
+esac
+
 # --- the repository's MAIN checkout, from git, never from the argument -------
 [ -d "$REPO_ARG" ] || refuse "'$REPO_ARG' is not a directory"
 MAIN="$(git -C "$REPO_ARG" worktree list --porcelain 2>/dev/null | sed -n '1s|^worktree ||p')"
@@ -276,6 +295,24 @@ SETUP_STATUS="none"
 SETUP="$DIR/.richos/${WORKTREE_SETUP_DECLARATION#.}"
 [ -f "$SETUP" ] || SETUP="$DIR/$WORKTREE_SETUP_DECLARATION"
 [ -f "$SETUP" ] || SETUP=""
+# Bounded. 120s is many times what any setup here takes and still finite; an
+# unbounded child would make one bad commit hang every spawn after it. The
+# bound is a variable so the suite can prove the kill without waiting two
+# minutes for it — never so a caller can switch it off. And it never runs past
+# the caller's own deadline (finding 18, see the top of this file).
+: "${WORKTREE_SETUP_TIMEOUT:=120}"
+SETUP_BOUND="$WORKTREE_SETUP_TIMEOUT"
+SETUP_BOUND_WHY=""
+_left="$(_caller_left)"
+if [ -n "$SETUP" ] && [ -n "$_left" ] && [ "$_left" != invalid ] && [ "$_left" -lt "$SETUP_BOUND" ]; then
+    SETUP_BOUND=$(( _left > 0 ? _left : 0 ))
+    SETUP_BOUND_WHY=" (bounded by the caller's deadline)"
+fi
+if [ -n "$SETUP" ] && [ "$SETUP_BOUND" -le 0 ]; then
+    SETUP_STATUS="SKIPPED: no time was left before the caller's deadline"
+    echo "create-teammate-worktree.sh: $SETUP $SETUP_STATUS. The workspace is fine and the teammate can work in it; whatever that script shares between worktrees is simply not shared here." >&2
+    SETUP=""
+fi
 if [ -n "$SETUP" ]; then
     SETUP_LOG="$(mktemp -t worktree-setup)"
     # ITS OWN PROCESS GROUP, so the timeout below can stop everything it
@@ -288,13 +325,8 @@ if [ -n "$SETUP" ]; then
     # processes this script started, never ones matched by a name or a path.
     ( cd "$DIR" && exec python3 -c 'import os, sys; os.setpgid(0, 0); os.execvp("bash", ["bash", sys.argv[1]])' "$SETUP" ) > "$SETUP_LOG" 2>&1 &
     SETUP_PID=$!
-    # Bounded. 120s is many times what any setup here takes and still finite;
-    # an unbounded child would make one bad commit hang every spawn after it.
-    # The bound is a variable so the suite can prove the kill without waiting
-    # two minutes for it — never so a caller can switch it off.
-    : "${WORKTREE_SETUP_TIMEOUT:=120}"
     SETUP_WAITED=0
-    while kill -0 "$SETUP_PID" 2>/dev/null && [ "$SETUP_WAITED" -lt "$WORKTREE_SETUP_TIMEOUT" ]; do
+    while kill -0 "$SETUP_PID" 2>/dev/null && [ "$SETUP_WAITED" -lt "$SETUP_BOUND" ]; do
         sleep 1
         SETUP_WAITED=$((SETUP_WAITED + 1))
     done
@@ -315,9 +347,9 @@ if [ -n "$SETUP" ]; then
         done
         _SETUP_N="$(printf '%s\n' $_SETUP_TREE | grep -c .)"
         if [ -z "$_SETUP_LEFT" ]; then
-            SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s and was killed, with every process it started ($_SETUP_N)"
+            SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s${SETUP_BOUND_WHY} and was killed, with every process it started ($_SETUP_N)"
         else
-            SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s; killed, but STILL RUNNING: $(printf '%s ' $_SETUP_LEFT)"
+            SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s${SETUP_BOUND_WHY}; killed, but STILL RUNNING: $(printf '%s ' $_SETUP_LEFT)"
         fi
     elif wait "$SETUP_PID"; then
         SETUP_STATUS="ok"
