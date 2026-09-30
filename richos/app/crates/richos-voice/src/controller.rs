@@ -960,7 +960,9 @@ pub struct VoiceController {
     /// word any more.
     aec_state: Arc<AecShared>,
     diagnostics: Diagnostics,
-    _capture: Capture,
+    /// `Option` so `Drop` can close the microphone BEFORE joining the worker threads: the
+    /// joins can wait on a recognition or an AI turn, and the CEO's Off must not.
+    capture: Option<Capture>,
     threads: Vec<std::thread::JoinHandle<()>>,
 }
 
@@ -1747,7 +1749,7 @@ impl VoiceController {
             force_barge,
             aec_state: aec_state_read,
             diagnostics,
-            _capture: capture,
+            capture: Some(capture),
             threads,
         })
     }
@@ -1926,6 +1928,19 @@ impl VoiceController {
     }
 }
 
+/// Drop `held` (the microphone) FIRST, then join the workers.
+///
+/// The recognition and submission threads drain their queues, so a join can last as long as a
+/// transcription or an assistant turn. Holding the capture stream through that wait kept the
+/// microphone open after the CEO had already said stop listening. The capture callback only
+/// sends on channels, so closing it first cannot strand a worker: the channels just end.
+fn release_then_join<T>(held: T, threads: Vec<std::thread::JoinHandle<()>>) {
+    drop(held);
+    for t in threads {
+        let _ = t.join();
+    }
+}
+
 impl Drop for VoiceController {
     fn drop(&mut self) {
         self.shared.running.store(false, Ordering::SeqCst);
@@ -1938,9 +1953,7 @@ impl Drop for VoiceController {
         // Close the speaker channel first: the speaker thread blocks on recv() and can only
         // exit when every sender is gone. Joining before this would deadlock.
         self.speak_tx.take();
-        for t in self.threads.drain(..) {
-            let _ = t.join();
-        }
+        release_then_join(self.capture.take(), self.threads.drain(..).collect());
     }
 }
 
@@ -4068,5 +4081,30 @@ mod tests {
         );
         drop(ctl2);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Turning voice off must close the microphone before it waits for queued work.
+    #[test]
+    fn the_microphone_is_released_before_the_workers_are_joined() {
+        struct Mic(Arc<AtomicBool>);
+        impl Drop for Mic {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let released = Arc::new(AtomicBool::new(false));
+        let seen_by_worker = Arc::new(AtomicBool::new(false));
+        let (r, seen) = (released.clone(), seen_by_worker.clone());
+        // A worker that is "mid-turn" until the microphone is gone; joining first would hang.
+        let worker = std::thread::spawn(move || {
+            // load-bound: the deadline only bounds a hang; the verdict is the released flag, never elapsed time
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !r.load(Ordering::SeqCst) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            seen.store(r.load(Ordering::SeqCst), Ordering::SeqCst);
+        });
+        release_then_join(Mic(released), vec![worker]);
+        assert!(seen_by_worker.load(Ordering::SeqCst), "the worker finished before the microphone was released");
     }
 }
