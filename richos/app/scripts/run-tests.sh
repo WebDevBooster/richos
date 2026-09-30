@@ -510,18 +510,70 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/run-tests.XXXXXX")" || {
   echo "run-tests.sh: cannot create a scratch directory." >&2; exit 2; }
 PIDS=()
 
-kill_tree() {  # every descendant first, then the process itself
+# THE PROMISE IS KEPT, NOT ASSUMED. The first version of `cleanup` sent TERM to each suite's
+# process tree and deleted the scratch directory on the very next line. It never waited for
+# anything to exit and never escalated, so a child that ignored TERM (or was merely slow to
+# unwind) kept running against a scratch directory that no longer existed, after the runner
+# had reported that it was finished. Found by the 2026-09-29 hunt, part 2, section 15, with an
+# owned child that ignores TERM. So cleanup now: collects the whole tree FIRST (a child whose
+# parent dies is re-parented and can no longer be found through it), sends TERM, waits up to
+# RUN_TESTS_KILL_GRACE seconds (default 10) for all of it to exit, sends KILL to what is left,
+# and deletes the scratch only once nothing it started is running. A process that survives even
+# KILL is named and the scratch is KEPT: deleting it under a live process is the defect.
+KILL_GRACE="${RUN_TESTS_KILL_GRACE:-10}"
+case "$KILL_GRACE" in ''|*[!0-9]*) KILL_GRACE=10 ;; esac
+CLEANED=""
+
+tree_of() {  # every descendant first, then the process itself; one pid per line
   local pid="$1" child
-  for child in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$child"; done
-  kill -TERM "$pid" 2>/dev/null || true
+  for child in $(pgrep -P "$pid" 2>/dev/null); do tree_of "$child"; done
+  echo "$pid"
+}
+
+is_running() {  # a zombie awaiting its parent's wait is finished, whatever kill -0 says
+  local st
+  st="$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ')"
+  [ -n "$st" ] && [ "${st#Z}" = "$st" ]
+}
+
+any_running() {  # any_running <pid>... -> 0 when at least one is still running
+  local p
+  for p in "$@"; do is_running "$p" && return 0; done
+  return 1
 }
 
 cleanup() {
-  local pid
+  [ -z "$CLEANED" ] || return 0
+  CLEANED=1
+  local pid p waited victims=() left=()
   for pid in ${PIDS[@]+"${PIDS[@]}"}; do
     [ -n "$pid" ] || continue
-    kill -0 "$pid" 2>/dev/null && kill_tree "$pid"
+    is_running "$pid" || continue
+    for p in $(tree_of "$pid"); do victims+=("$p"); done
   done
+  if [ "${#victims[@]}" -gt 0 ]; then
+    for p in "${victims[@]}"; do kill -TERM "$p" 2>/dev/null || true; done
+    waited=0
+    # Tenths of a second, so a well-behaved tree costs a tenth of a second and not a whole one.
+    while any_running "${victims[@]}" && [ "$waited" -lt $((KILL_GRACE * 10)) ]; do
+      sleep 0.1; waited=$((waited + 1))
+    done
+    for p in "${victims[@]}"; do
+      if is_running "$p"; then kill -KILL "$p" 2>/dev/null || true; fi
+    done
+    waited=0
+    while any_running "${victims[@]}" && [ "$waited" -lt 30 ]; do
+      sleep 0.1; waited=$((waited + 1))
+    done
+    for p in "${victims[@]}"; do
+      if is_running "$p"; then left+=("$p"); fi
+    done
+  fi
+  if [ "${#left[@]}" -gt 0 ]; then
+    echo "run-tests.sh: process(es) ${left[*]} survived TERM and KILL; keeping $WORK because they" >&2
+    echo "              may still be using it. Remove it by hand once they are gone." >&2
+    return 0
+  fi
   rm -rf "$WORK"
 }
 trap cleanup EXIT
