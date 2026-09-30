@@ -122,7 +122,8 @@ class GitFixture(unittest.TestCase):
             # commit whose `nightly.py` predates the stable channel, because that commit
             # cannot build a stable release of itself -- so the fixture carries the marker
             # that check looks for.
-            n.APP / "scripts/nightly.py": "CHANNEL_ENDPOINTS = {}  # fixture tooling\n",
+            n.APP / "scripts/nightly.py":
+                "CHANNEL_ENDPOINTS = {}\nstable_reservation_holds = None  # fixture tooling\n",
         }.items():
             file = self.repo / name
             file.parent.mkdir(parents=True, exist_ok=True)
@@ -1057,6 +1058,24 @@ class StableChannelTests(GitFixture):
         self.assertIn('version = "5.1.0"\n', files[str(n.MANIFEST)])
         self.assertNotIn("-nightly.", files[str(n.MANIFEST)])
         self.assertNotIn("-nightly.", files[str(n.LOCK)])
+
+    def test_tooling_that_spends_the_public_tag_in_prepare_cannot_build_a_stable_release(self):
+        """R05: the historical commit's own prepare is what runs, so it must hold the fix."""
+        info = self.publish_a_nightly()
+        # The stable-capable but pre-reservation tooling: it names the channel and nothing else.
+        old = self.repo / n.APP / "scripts/nightly.py"
+        old.write_text("CHANNEL_ENDPOINTS = {}  # pre-reservation tooling\n")
+        n.git("add", ".")
+        n.git("commit", "-qm", "tooling before the hidden reservation")
+        n.git("push", "-q", "origin", "main")
+        # Re-point the nightly's provenance at that commit by publishing a fresh nightly.
+        second = n.prepare(self.plan(force=True))
+        n.ensure_version_tag(second)
+        n.git("checkout", "-q", "main")
+        decision = n.json_text([{**self.DECISION[0], "tag": second["tag"]}])
+        with self.assertRaisesRegex(ValueError, "reserves the public version tag"):
+            n.stable_plan(second["tag"], decision, now=NOW)
+        self.assertNotEqual(info["tag"], second["tag"])
 
     def test_no_decision_of_his_means_no_stable_release(self):
         """CEO §69, and the substitutes it names are each refused here by construction."""

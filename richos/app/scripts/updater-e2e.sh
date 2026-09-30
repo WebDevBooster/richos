@@ -180,6 +180,16 @@ build() { # build <version> -> leaves the bundle + artifacts in the target dir
 . "$here/lib/cargo-target.sh"
 BUNDLE_DIR="$(cargo_target_dir "$src_tauri")/release/bundle/macos"
 
+# THE BUNDLE OUTPUT IS THIS TEST'S from the first build to the last copy out of it. package-app.sh
+# holds the release-directory lock only while it runs, and every `cp` below reads the same shared
+# directory AFTER it returns, so a second checkout could repackage in between and this test
+# would serve, or install, the other run's archive. Held by THIS shell for its whole life (as
+# make-release.sh does), so each package-app.sh child sees its caller holds it (hunt part 2,
+# section 21, and its recheck R21).
+. "$here/lib/output-lock.sh"
+hold_output_lock "$(cargo_target_dir "$src_tauri")/release" 8 "updater-e2e.sh" \
+  || { warn "the bundle output is another packaging run's until it finishes; nothing was built"; exit 1; }
+
 # ---------------------------------------------------------------------------
 # 1. Build the NEW version first, and take its artifacts away before building the
 #    old one — both builds write to the same target directory.
@@ -230,7 +240,7 @@ reinstall_old() {
 # ---------------------------------------------------------------------------
 rule
 say "serving $SERVE on $BASE ..."
-(cd "$SERVE" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >"$LOGS/http.log" 2>&1) &
+(cd "$SERVE" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >"$LOGS/http.log" 2>&1 8<&-) &
 SERVER_PID=$!
 for _ in $(seq 1 50); do
   curl -fsS "$BASE/latest.json" >/dev/null 2>&1 && break

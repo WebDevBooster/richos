@@ -209,6 +209,55 @@ else
         "exit $CODE: $(printf '%s' "$OUT" | grep -v '^ *$' | tail -3 | tr '\n' ' ')"
 fi
 
+# ---------------------------------------------------------------------------------------
+# O10-O11: updater-e2e.sh reads the bundle output AFTER package-app.sh returns (recheck R21)
+# ---------------------------------------------------------------------------------------
+# updater-e2e.sh copies the archive, signature and manifest out of the shared bundle directory
+# once package-app.sh has exited, and package-app.sh's own hold ended with it. So the test
+# takes the lock itself, as make-release.sh does. The sandbox is the real updater-e2e.sh beside
+# a package-app.sh that only records whether its caller held the bundle output, then fails the
+# build, so no case compiles, signs or installs anything.
+SB="$WORK/updater-sandbox"; mkdir -p "$SB/scripts" "$SB/src-tauri"
+cp "$DIR/updater-e2e.sh" "$SB/scripts/updater-e2e.sh"
+ln -s "$DIR/lib" "$SB/scripts/lib"
+printf 'fixture key\n' > "$SB/key"
+# The cargo wrapper keys the private output on the Cargo workspace, so the sandbox needs one.
+printf '[package]\nname = "sandbox"\nversion = "0.0.0"\n' > "$SB/src-tauri/Cargo.toml"
+cat > "$SB/scripts/package-app.sh" <<EOF
+#!/usr/bin/env bash
+printf 'called\n' >> "$SB/called"
+printf '%s\n' "\${RICHOS_OUTPUT_LOCKS:-}" >> "$SB/locks-seen"
+exit 1
+EOF
+UPD_TARGET="$WORK/updater-cargo-target"
+UPD_PRIVATE="$(CARGO_TARGET_DIR="$UPD_TARGET" cargo_target_dir "$SB/src-tauri")"
+mkdir -p "$UPD_PRIVATE/release"
+UPD_PHYSICAL="$(cd "$UPD_PRIVATE/release" && pwd -P)"
+run_updater() {
+    PATH="$SHIM:$PATH" CARGO_TARGET_DIR="$UPD_TARGET" TAURI_SIGNING_PRIVATE_KEY_PATH="$SB/key" \
+        RICHOS_OUTPUT_LOCK_WAIT=2 bash "$SB/scripts/updater-e2e.sh" 2>&1
+}
+
+hold_from_outside "$UPD_PRIVATE/release" "$WORK/release-5" || bad "O10 fixture holder" "never took the lock"
+OUT="$(run_updater)"; CODE=$?
+if [ "$CODE" -ne 0 ] && printf '%s' "$OUT" | grep -q 'another packaging run' && [ ! -e "$SB/called" ]; then
+    ok "O10 updater-e2e.sh builds nothing while another run holds the bundle output"
+else
+    bad "O10 updater-e2e.sh builds nothing while another run holds the bundle output" \
+        "exit $CODE, package-app.sh called: $([ -e "$SB/called" ] && echo yes || echo no); $(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
+fi
+rm -f "$WORK/release-5"
+wait "${HOLDERS[${#HOLDERS[@]}-1]}" 2>/dev/null
+
+rm -f "$SB/called" "$SB/locks-seen"
+OUT="$(run_updater)"; CODE=$?
+if [ -e "$SB/called" ] && grep -qF "$UPD_PHYSICAL" "$SB/locks-seen" 2>/dev/null; then
+    ok "O11 updater-e2e.sh holds the bundle output across its package-app.sh builds"
+else
+    bad "O11 updater-e2e.sh holds the bundle output across its package-app.sh builds" \
+        "package-app.sh saw RICHOS_OUTPUT_LOCKS='$(cat "$SB/locks-seen" 2>/dev/null | tr '\n' ' ')', wanted $UPD_PHYSICAL"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== output-lock tests: $FAIL FAILED, $PASS passed ==="

@@ -422,7 +422,11 @@ EOF
 [ -z "$CLAIMED_NO_TEXT" ] \
     || die "skill(s) in the archive declare a license with no license file beside it:$CLAIMED_NO_TEXT"
 
-TP_COUNT="$(license_files_under "$VERIFY/engine" | wc -l | tr -d ' ')"
+# COUNTED FROM THE TRACKED SET, NOT THE UNPACKED DIRECTORY. The extraction has no .git, so
+# `git ls-files` on it fails and the summary used to say "0 ... intact" under a fatal
+# diagnostic. The MISSING_TERMS loop above has just proved every file in this inventory is
+# present in the archive, so its length IS the number of bundled license files intact.
+TP_COUNT="$(license_files_under "$ENGINE_DIR" | wc -l | tr -d ' ')"
 FILES="$(find "$VERIFY/engine" -type f | wc -l | tr -d ' ')"
 rm -rf "$VERIFY"
 
