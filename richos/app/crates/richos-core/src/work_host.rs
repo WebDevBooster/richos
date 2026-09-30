@@ -188,6 +188,10 @@ struct Watched {
     told: Option<String>,
     /// The lease session the commands run under; a different one cannot report them.
     session: Option<String>,
+    /// That lease's cancel handle, kept so his Stop can tell these commands to stop while
+    /// another job holds the lease (hunt 2026-09-29 part 1, finding 11). `None` for a lease
+    /// that has no handle, which then says it could not reach them.
+    stopper: Option<Arc<dyn TurnCancel>>,
 }
 
 /// What a watched job's report turn starts from: which of its commands ended, and what he
@@ -1757,7 +1761,9 @@ impl WorkHost {
         if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
             let _ = lease.revoke_work_assignment();
         }
-        backend.inner.lock().unwrap().cancel = None;
+        // Off the back end, as before: nothing may cancel a turn that has ended. A job handed
+        // to the watch below keeps it, for its commands only.
+        let stopper = backend.inner.lock().unwrap().cancel.take();
 
         // 5. What state it is in is read from evidence, never from the turn ending.
         //
@@ -1827,6 +1833,7 @@ impl WorkHost {
                 commands,
                 told: told_while_running,
                 session,
+                stopper,
             });
             backend.wake.notify_all();
             return;
@@ -3227,10 +3234,28 @@ impl WorkHost {
                 // **A job watched for its command** ([`Watched`]): its turn is long over, so
                 // it ends the way a stop inside its wait does, and its finish is not asked for.
                 if let Some(at) = inner.watching.iter().position(|watched| watched.record.id == id) {
-                    inner.watching.remove(at);
+                    let watched = inner.watching.remove(at);
                     drop(inner);
-                    assignment::advance(&self.state, entity, thread, id, AssignmentState::Interrupted,
-                        "Stopped. The workspace and the receipts are kept.")
+                    // **And its commands are told to stop** (hunt 2026-09-29 part 1, finding
+                    // 11). Taking the job off the watch alone left them running and changing
+                    // his workspace after he saw it stopped. Each is stopped by the provider's
+                    // own task id on the lease it runs on, so no turn is interrupted and no
+                    // other job's command is touched. Where one could not be reached, he is
+                    // told it may still be running rather than that it stopped.
+                    let mut reached = watched.stopper.is_some();
+                    for (task, what) in &watched.commands {
+                        if !watched.stopper.as_ref().is_some_and(|stop| stop.stop_background_command(task)) {
+                            reached = false;
+                            eprintln!("[richos] work: a stopped job's command could not be told to stop ({what})");
+                        }
+                    }
+                    let detail = if reached {
+                        "Stopped. The workspace and the receipts are kept."
+                    } else {
+                        "Stopped. A command it started could not be told to stop, so it may still be running. \
+                         The workspace and the receipts are kept."
+                    };
+                    assignment::advance(&self.state, entity, thread, id, AssignmentState::Interrupted, detail)
                         .map_err(|e| e.to_string())?;
                     if let Err(error) = assignment::raise_notice(&self.state, entity, thread, id, NoticeKind::Interrupted,
                         &assignment::says::interrupted(&record.title))
@@ -3821,6 +3846,8 @@ mod tests {
         /// (every lease with an engine profile), so the turn comes back as the reader's
         /// `NativeError::Closed`, never as the `cancelled` result the default fake returns.
         stop_ends_child: AtomicBool,
+        /// Every background command this lease was asked to stop, by task id, in order.
+        commands_stopped: Mutex<Vec<String>>,
     }
     impl TurnCancel for Fence {
         fn cancel(&self) -> bool {
@@ -3830,6 +3857,10 @@ mod tests {
         fn shutdown(&self) {
             self.shutdowns.fetch_add(1, Ordering::SeqCst);
             self.cancel();
+        }
+        fn stop_background_command(&self, task_id: &str) -> bool {
+            self.commands_stopped.lock().unwrap().push(task_id.to_string());
+            true
         }
     }
 
@@ -6286,6 +6317,38 @@ mod tests {
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "his Stop did not reach the wait");
         let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
         assert_eq!(row.state, AssignmentState::Interrupted, "{}", row.detail);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **His Stop of a watched job tells its command to stop** (hunt 2026-09-29 part 1,
+    /// finding 11). A job whose background command outlived its wait is watched between jobs;
+    /// Stop used to take it off the watch and mark it `interrupted` without ever telling the
+    /// command, which kept running and changing the workspace after he saw it stopped. The
+    /// command is now told, by the provider's own task id, on the lease it runs on; and the
+    /// rest is as before: `interrupted`, the same words, and its later ending asks nothing.
+    #[test]
+    fn a_stop_of_a_watched_job_tells_its_command_to_stop() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+        *h.answer_reply.lock().unwrap() = "Started.".into();
+        h.start_in_turn.lock().unwrap().push_back(vec![background_command("blong", "sleep 3600")]);
+        h.host.start();
+        let job = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert!(h.fence.commands_stopped.lock().unwrap().is_empty(), "nothing is stopped before he asks");
+        h.host.stop_assignment("depot", "thread-one", &job.id).unwrap();
+        assert_eq!(*h.fence.commands_stopped.lock().unwrap(), ["blong"],
+                   "Stop took the job off the watch and never told its command to stop");
+        let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept."));
+        background_command_ends(&h, "blong", false);
+        assert!(!h.host.wait_for_completed(2, std::time::Duration::from_millis(400)), "a stopped job was asked for a report");
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1);
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }

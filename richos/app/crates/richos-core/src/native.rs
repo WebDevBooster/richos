@@ -3199,6 +3199,18 @@ impl TurnCancel for NativeCancelHandle {
         if self.settle_workers_on_stop { self.process_fence.kill(); }
         wrote && woke
     }
+
+    /// `control_request{stop_task}` for one of the provider's own background tasks, the same
+    /// frame the operator client writes for a named agent (`operator_lead::stop_task_request`,
+    /// measured on this wire in operator probe P12). Written without waiting for its reply: a
+    /// reply that arrives is retained as between-turn traffic like any unmatched one, and the
+    /// task's own `task_notification` is what says it ended. No turn is interrupted and no
+    /// other command is touched (hunt 2026-09-29 part 1, finding 11).
+    fn stop_background_command(&self, task_id: &str) -> bool {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let request = crate::operator_lead::stop_task_request(&format!("richos_stop_task_{id}"), task_id);
+        NativeClient::write_line(&self.stdin, &request).is_ok()
+    }
 }
 
 impl Drop for NativeClient {
