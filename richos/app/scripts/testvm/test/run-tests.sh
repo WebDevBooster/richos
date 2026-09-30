@@ -1555,6 +1555,10 @@ t "AX search avoids history before first hit and keeps explicit matching semanti
   node "$HERE/ax-search.test.js" >"$TMP/search.log" 2>&1; ok $? "$(cat "$TMP/search.log")"
 t_done
 
+t "hand-file: a drag of an updated file never hands over the older Desktop copy of the same name"
+  node "$HERE/hand-file.test.js" >"$TMP/handfile-node.log" 2>&1; ok $? "$(cat "$TMP/handfile-node.log")"
+t_done
+
 t "keychain: a GUI setting that did not take is a failed prerequisite"
   out="$(STUB_KEYCHAIN_SETTINGS='lock-on-sleep timeout=300s' "$TESTVM_DIR/keychain.sh" prepare richos-test-a "$GUEST_HOME_UNDER_TEST" 2>&1)"
   no $?; has "$out" "did not retain no-timeout"

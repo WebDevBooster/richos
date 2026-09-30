@@ -68,8 +68,19 @@ function run() {
   if (P.mode === "drag") {
     var desktop = $.NSHomeDirectory().js + "/Desktop";
     var placed = desktop + "/" + name;
-    if (!fm.fileExistsAtPath(placed)) {
-      if (!fm.copyItemAtPathToPathError(P.path, placed, $())) return error("copyfailed", "could not place the file on the Desktop");
+    // A Desktop file of the same NAME is reused only when it holds the same BYTES. A second
+    // import of an updated file, or of a different file with the same name, would otherwise drag
+    // the old one and report the requested file handed over.
+    var placement = "copied";
+    if (fm.fileExistsAtPath(placed)) {
+      if (fm.contentsEqualAtPathAndPath(P.path, placed)) {
+        placement = "reused";
+      } else if (!fm.removeItemAtPathError(placed, $())) {
+        return error("replacefailed", "the Desktop already has a different " + name + " and it could not be replaced");
+      }
+    }
+    if (placement === "copied" && !fm.copyItemAtPathToPathError(P.path, placed, $())) {
+      return error("copyfailed", "could not place the file on the Desktop");
     }
     // The icon's on-screen box comes from the ACCESSIBILITY tree of Finder's desktop, read
     // through System Events, which the guest is already granted. NEVER from Finder's own
@@ -110,7 +121,7 @@ function run() {
     delay(0.3);
     mouse(2, P.tox, P.toy);
     delay(0.8);
-    return out({ handed: "drag", file: name, from: at, to: { x: P.tox, y: P.toy }, pid: P.pid });
+    return out({ handed: "drag", file: name, placed: placement, from: at, to: { x: P.tox, y: P.toy }, pid: P.pid });
   }
   return error("usage", "mode must be paste or drag");
 }
