@@ -134,7 +134,7 @@ mutant R-p03-unregistered-branch-never-listed "C3.8 " "$W" \
 
 # --- point 4 ---------------------------------------------------------------
 mutant R-p04-branch-left-after-land "C4.3 " "$W" \
-    '    if branches and not processes.get("survivors"):{NL}        for repo, b in _branch_targets([rec]):' \
+    '    if branches and not held:{NL}        for repo, b in _branch_targets([rec]):' \
     '    if False:{NL}        for repo, b in _branch_targets([rec]):' \
     "RECORDED [lifecycle-failure-record-2026-09-12.md §2c, 2026-09-12: 'git branch --contains 6fd5aef8' returned cc/frank-opus-c6, cc/sage-opus-c6, cc/zach-opus-g4 after their workspaces were cut and left; and the same record's addendum §A2: 22 cc/ branches deleted by hand today, none by the system]: a land would delete the workspace and leave the branch."
 mutant R-p04-quarantine-instead-of-delete "C4.4 " "$W" \

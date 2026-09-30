@@ -2642,7 +2642,7 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
         if dry:
             fin, paused_, why = finished_state(rec, cache)
             if not fin:
-                if paused_ and rec.get("session_id") == me and not (rec.get("pause") or {}).get("until"):
+                if paused_ and not (rec.get("pause") or {}).get("until") and rec.get("session_id") == me:
                     items.append(_item(rec, "paused with nothing named that ends it (point 11)", cache, me))
                 continue
             if not _claimable(rec, me, cache):
@@ -4586,10 +4586,12 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
                 event("landing-reopened", key=rec["key"], why=str(e))
                 return False
 
-        for w in (workspaces if not held else []):
+        for w in workspaces:
             # Point 3: the branches the agent created are its branches too, and
             # they are recorded (observe_created_refs) rather than read back out of
             # the directory here — the record survives the directory.
+            if held:
+                break
             if _past(deadline):
                 deferred = "the budget ran out before %s was deleted" % w.get("path")
                 held = True
