@@ -10,7 +10,7 @@ scratch ledger through the real escalate.sh. Nothing touches this repository or 
   COMMIT   a failing lint refuses the commit; a clean change commits with no record;
            --no-verify is recorded; a linked worktree, `commit -a`, a cherry-pick, a branch
            older than the check and a forged exemption behave; before the check exists the
-           hooks do nothing.
+           hooks do nothing; bytes written while the check runs are never overwritten.
   LAND     a merge that breaks its owning suite is refused before main moves; a good one
            lands with a receipt; --no-verify and a fast-forward are recorded and the push
            then runs the checks; an uncovered path, a direct commit and a dirty tree are
@@ -36,6 +36,8 @@ LINT = """#!/usr/bin/env bash
 # Fixture lint: refuses when a file under richos/app/src says LINT-BAD.
 cd "$(dirname "$0")/../../.."
 printf 'lint %s\\n' "$*" >> "$AUTOCHECK_FIXTURE_LOG"
+# A write made while the check runs: by the check itself, or by an editor saving.
+if [ -n "${AUTOCHECK_FIXTURE_DURING_CHECK:-}" ]; then eval "$AUTOCHECK_FIXTURE_DURING_CHECK"; fi
 if grep -rq LINT-BAD richos/app/src; then
     echo "Lint refused: lint growth: fixture-rule: 1 > 0" >&2
     exit 1
@@ -489,6 +491,63 @@ class Commit(Fixture):
         self.assertEqual(self.git("show", "HEAD:richos/app/src/claims.txt").stdout, "true\n")
         self.assertEqual((self.repo / "richos/app/src/claims.txt").read_text(), "true\nLINT-BAD not in this commit\n")
         self.assertEqual(self.git("status", "--porcelain").stdout, " M richos/app/src/claims.txt\n")
+        self.assert_aside_restored()
+
+    # Recheck N01 (2026-09-30): when the patch did not apply because a check wrote into a file
+    # it edits, the restore reset the WHOLE tree to the index, erasing a newer editor save in a
+    # file the patch never names, and dropped the bytes it overwrote, with no error.
+    def test_bytes_written_while_the_check_runs_are_never_overwritten(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, staged\n")
+        self.git("add", "-A")
+        self.write("richos/app/src/thing.txt", "fine, unstaged edit\n")
+        before = self.head()
+        env = dict(self.env, AUTOCHECK_FIXTURE_DURING_CHECK=(
+            "printf 'fine, written during the check\\n' > richos/app/src/thing.txt; "
+            "printf 'true\\neditor save during the check\\n' > richos/app/src/claims.txt"))
+        out = self.git("commit", "-m", "a save lands while the check runs", env=env, expect=None)
+        # The editor's save in a file the patch does not edit is left exactly as found.
+        self.assertEqual((self.repo / "richos/app/src/claims.txt").read_text(), "true\neditor save during the check\n",
+                         "a save made while the check ran was reset:\n" + out.stderr)
+        # The engineer's edit from before the check is back, and the bytes that collided with it
+        # are kept, not overwritten; the commit is refused so both are seen.
+        self.assertEqual((self.repo / "richos/app/src/thing.txt").read_text(), "fine, unstaged edit\n")
+        kept = self.repo / ".git/richos-autocheck-aside/changed-during-check/richos/app/src/thing.txt"
+        self.assertTrue(kept.is_file(), "the bytes written during the check were dropped:\n" + out.stderr)
+        self.assertEqual(kept.read_text(), "fine, written during the check\n")
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn("richos/app/src/thing.txt changed while the check ran", out.stderr)
+        self.assertIn(str(kept), out.stderr)
+        self.assertEqual(self.head(), before)
+        self.assertEqual(self.git("show", ":richos/app/src/thing.txt").stdout, "fine, staged\n")
+        self.assertFalse((self.repo / ".git/richos-autocheck-aside/unstaged.patch").exists())
+        # Until the engineer has looked and removed it, nothing is set aside on top of it.
+        again = self.git("commit", "-m", "again", expect=None)
+        self.assertEqual(again.returncode, 1, again.stderr)
+        self.assertIn("compare each file under", again.stderr)
+        self.assertEqual(kept.read_text(), "fine, written during the check\n")
+        shutil.rmtree(self.repo / ".git/richos-autocheck-aside")
+        self.assertEqual(self.git("commit", "-m", "after comparing", expect=None).returncode, 0)
+        self.assertEqual((self.repo / "richos/app/src/thing.txt").read_text(), "fine, unstaged edit\n")
+        self.assertEqual((self.repo / "richos/app/src/claims.txt").read_text(), "true\neditor save during the check\n")
+        self.assert_aside_restored()
+
+    def test_a_save_elsewhere_while_the_check_runs_commits_and_is_named(self):
+        # The ordinary case: editing goes on during the commit, in a file the commit's unstaged
+        # edits do not touch. It is not refused, nothing is reset, and the save is named.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, staged\n")
+        self.git("add", "-A")
+        self.write("richos/app/src/thing.txt", "fine, unstaged edit\n")
+        env = dict(self.env, AUTOCHECK_FIXTURE_DURING_CHECK=(
+            "printf 'true\\neditor save during the check\\n' > richos/app/src/claims.txt"))
+        out = self.git("commit", "-m", "a save elsewhere", env=env, expect=None)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("written while the check ran, left exactly as found: richos/app/src/claims.txt", out.stderr)
+        self.assertEqual((self.repo / "richos/app/src/thing.txt").read_text(), "fine, unstaged edit\n")
+        self.assertEqual((self.repo / "richos/app/src/claims.txt").read_text(), "true\neditor save during the check\n")
         self.assert_aside_restored()
 
     def test_an_interrupted_set_aside_refuses_the_next_commit_and_touches_nothing(self):

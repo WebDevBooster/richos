@@ -27,6 +27,14 @@ If a check is killed while work is set aside, or it cannot be put back, it stays
 directory, whose `README.txt` says how to restore it, and every later commit check refuses
 until it is gone.
 
+**Putting work back never overwrites a later save** (recheck N01, 2026-09-30). Editing goes
+on while a commit is checked. A tracked file written during the check, by the check or by
+an editor, is left exactly as found and named, unless the set-aside edits also touch it.
+In that case the newer bytes are first moved to `changed-during-check/` in the same
+directory, your edit from before the check is put back, and the commit is refused so you
+can compare the two and keep what you want. Until 2026-09-30 that collision reset the whole
+working tree to the index, which erased saves in files the edits never touched.
+
 **The one escape is `--no-verify`.** Git cannot be stopped from honoring it, so it is recorded:
 a commit whose tree the commit check never passed, or a main that moved to a tree with no land
 receipt, raises an escalation in the lead's ledger (`richos/engine/scripts/escalate.sh`, read
