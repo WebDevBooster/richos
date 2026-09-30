@@ -44,15 +44,46 @@ pub fn set_actions_allowed(path: &Path, allowed: bool) -> Result<(), String> {
     scope.actions_allowed = allowed;
     write_scope(path, &scope)
 }
+type Fingerprint = (std::time::SystemTime, u64, u64);
+type AskedKey = (PathBuf, String, String, String);
+/// The last answer per asking turn, with the history fingerprint it was computed from.
+static ASKED: std::sync::Mutex<Vec<(AskedKey, Fingerprint, bool)>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether the front desk's turn has raised a question. The native turn loop polls this every
+/// 40 ms, so the question history is reloaded only when `store.json` has actually changed
+/// (its fingerprint differs); an unchanged file answers from the last result. The
+/// fingerprint is taken BEFORE the load, so a write racing the load leaves a stale
+/// fingerprint and the next poll reloads.
 pub fn has_asked(path: &Path) -> bool {
-    read_scope(path)
-        .ok()
-        .filter(|s| s.context.asker == "front_desk")
-        .is_some_and(|s| {
-            Store::new(&s.context.root)
-                .list(&s.context.entity_id, &s.context.thread_id)
-                .is_ok_and(|qs| qs.iter().any(|q| q.turn_id == s.context.turn_id))
-        })
+    let Some(s) = read_scope(path).ok().filter(|s| s.context.asker == "front_desk") else {
+        return false;
+    };
+    let store = Store::new(&s.context.root);
+    let key: AskedKey = (
+        s.context.root.clone(),
+        s.context.entity_id.clone(),
+        s.context.thread_id.clone(),
+        s.context.turn_id.clone(),
+    );
+    let fingerprint = store.fingerprint();
+    if let Some(fp) = fingerprint {
+        let cache = ASKED.lock().unwrap();
+        if let Some((_, _, asked)) = cache.iter().find(|(k, f, _)| *k == key && *f == fp) {
+            return *asked;
+        }
+    }
+    let asked = store
+        .list(&s.context.entity_id, &s.context.thread_id)
+        .is_ok_and(|qs| qs.iter().any(|q| q.turn_id == s.context.turn_id));
+    if let Some(fp) = fingerprint {
+        let mut cache = ASKED.lock().unwrap();
+        cache.retain(|(k, _, _)| *k != key);
+        if cache.len() >= 64 {
+            cache.remove(0);
+        }
+        cache.push((key, fp, asked));
+    }
+    asked
 }
 pub fn tools() -> Value {
     let option = json!({"type":"object","properties":{"label":{"type":"string"},"description":{"type":"string"}},"required":["label","description"],"additionalProperties":false});
