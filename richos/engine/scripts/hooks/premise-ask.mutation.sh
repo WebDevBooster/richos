@@ -25,6 +25,9 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$ENGINE_ROOT/scripts/lib/mutation-harness.sh"
 
 mutation_begin "the premise check" "scripts/hooks/premise-ask.test.sh"
+# Each mutant stops at its named FAIL line (see mutation_focus): in this suite a
+# printed FAIL line always ends the run red, so the rest of the run buys nothing.
+mutation_focus stop-at-want
 
 LIB="scripts/lib/premise-ask.sh"
 PY="scripts/lib/premise-ask.py"

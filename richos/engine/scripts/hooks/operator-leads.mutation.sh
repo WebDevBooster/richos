@@ -15,6 +15,9 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$ENGINE_ROOT/scripts/lib/mutation-harness.sh"
 
 mutation_begin "the operator claim, shared writes and live names" "scripts/hooks/operator-leads.test.sh"
+# Each mutant stops at its named FAIL line (see mutation_focus): in this suite a
+# printed FAIL line always ends the run red, so the rest of the run buys nothing.
+mutation_focus stop-at-want
 
 L="scripts/lib/operator_leads.py"
 M="scripts/lib/operator-mode.sh"

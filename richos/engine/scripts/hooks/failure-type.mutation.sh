@@ -24,6 +24,9 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$ENGINE_ROOT/scripts/lib/mutation-harness.sh"
 
 mutation_begin "failure type: read, name, commit" "scripts/hooks/failure-type.test.sh"
+# Each mutant stops at its named FAIL line (see mutation_focus): in this suite a
+# printed FAIL line always ends the run red, so the rest of the run buys nothing.
+mutation_focus stop-at-want
 
 S="scripts/lib/failure-type.py"
 U="scripts/hooks/failure-type-lookup.sh"

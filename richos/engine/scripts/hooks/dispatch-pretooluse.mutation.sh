@@ -32,6 +32,9 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 mutation_begin "THE PreToolUse RUNNER" \
                "scripts/hooks/dispatch-pretooluse.test.sh"
+# Each mutant stops at its named FAIL line (see mutation_focus): in this suite a
+# printed FAIL line always ends the run red, so the rest of the run buys nothing.
+mutation_focus stop-at-want
 
 D="scripts/hooks/dispatch-pretooluse.sh"
 R="scripts/lib/resolve-roots.sh"
