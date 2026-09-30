@@ -1699,13 +1699,7 @@ impl PhoneRuntime {
         runtime.block_on(async move {
             let Ok(client) = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build() else { return };
             match push::send(&client, &vapid, &subscription, body.as_bytes(), "high").await {
-                Ok(delivery) if delivery.gone => {
-                    eprintln!(
-                        "[richos] the phone's push subscription has lapsed ({}). It will be asked \
-                         for a new one the next time it connects.",
-                        delivery.status
-                    );
-                }
+                Ok(delivery) if delivery.gone => forget_a_lapsed_subscription(&devices, &subscription, delivery.status),
                 Ok(delivery) if delivery.status >= 300 => {
                     eprintln!(
                         "[richos] a push was refused with {}: {}",
@@ -1721,6 +1715,26 @@ impl PhoneRuntime {
                 Err(e) => eprintln!("[richos] a push could not be sent: {e}"),
             }
         });
+    }
+}
+
+/// **The push service said this subscription is gone, so stop sending to it** (hunt 2026-09-29,
+/// part 1, finding 36). Until now this only logged that a new one "will be asked for", while the
+/// dead address stayed on file: every later reply repeated a request that could not succeed, and
+/// the settings payload kept reporting `pushReady`. Clearing it makes `pushReady` false, and the
+/// phone registers a fresh subscription the next time it connects, as the log line always said.
+fn forget_a_lapsed_subscription(devices: &device::DeviceDesk, subscription: &push::Subscription, status: u16) {
+    match devices.clear_push_if_still(subscription) {
+        Ok(true) => eprintln!(
+            "[richos] the phone's push subscription has lapsed ({status}) and was forgotten. It will \
+             be asked for a new one the next time it connects."
+        ),
+        Ok(false) => eprintln!(
+            "[richos] a push subscription that has lapsed ({status}) had already been replaced; the new one is kept."
+        ),
+        Err(error) => eprintln!(
+            "[richos] the phone's push subscription has lapsed ({status}) but could not be forgotten: {error}"
+        ),
     }
 }
 
@@ -1811,6 +1825,38 @@ mod tests {
         let end = start + source[start..].find("\n    }\n").expect("status() ends");
         let body = &source[start..end];
         assert_eq!(body.matches("self.rejected.lock()").count(), 1, "status() must lock `rejected` exactly once");
+    }
+
+    /// **A PUSH SUBSCRIPTION THE PUSH SERVICE SAYS IS GONE IS FORGOTTEN** (hunt 2026-09-29, part 1,
+    /// finding 36). A 404 or 410 used to be logged and nothing else: the dead address stayed on
+    /// file, every later reply tried it again, and the settings payload kept saying `pushReady`.
+    #[test]
+    fn a_push_subscription_the_service_reports_gone_is_forgotten_and_a_replacement_is_not() {
+        let dir = std::env::temp_dir().join(format!("richos-phone-lapsed-{}-{}", std::process::id(), now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let devices = device::DeviceDesk::open(&dir).unwrap();
+        let phone = device::tests::Phone::new();
+        let window = devices.open_pairing().unwrap();
+        devices
+            .complete_pairing(&window.code, &device::PublicKeyForm::Jwk(phone.jwk()), "iPhone", device::PairedVia::CONNECT, device::Platform::IOS)
+            .unwrap();
+        let subscription = |tag: &str| push::Subscription {
+            endpoint: format!("https://web.push.apple.com/{tag}"),
+            keys: push::SubscriptionKeys { p256dh: "BA".into(), auth: "AA".into() },
+        };
+
+        // The service says the subscription on file is gone: it is forgotten.
+        devices.set_push(Some(subscription("old"))).unwrap();
+        assert!(devices.paired().unwrap().push.is_some());
+        forget_a_lapsed_subscription(&devices, &subscription("old"), 410);
+        assert!(devices.paired().unwrap().push.is_none(), "a subscription reported gone stayed on file");
+
+        // A late answer about an OLD address does not erase the NEW one the phone registered.
+        devices.set_push(Some(subscription("new"))).unwrap();
+        forget_a_lapsed_subscription(&devices, &subscription("old"), 404);
+        assert_eq!(devices.paired().unwrap().push, Some(subscription("new")), "the replacement was erased by a late answer");
+        drop(devices);
+        std::fs::remove_dir_all(&dir).expect("the test's own folder could not be removed");
     }
 
     /// Finding 14 at the record: a read mark belongs to its conversation, survives a restart, and

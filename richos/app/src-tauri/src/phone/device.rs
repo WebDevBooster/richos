@@ -1367,6 +1367,22 @@ impl DeviceDesk {
         Ok(())
     }
 
+    /// **Forget a web push subscription the push service has said is gone** (404 or 410), and
+    /// only that one: the phone may have registered a fresh subscription while the push that
+    /// found this one gone was in flight, and a late answer about the old address must not erase
+    /// the new one. Returns whether anything was cleared.
+    pub fn clear_push_if_still(&self, gone: &Subscription) -> Result<bool, PhoneError> {
+        let mut state = self.state.lock().unwrap();
+        match state.device.as_mut() {
+            Some(device) if device.push.as_ref() == Some(gone) => {
+                device.push = None;
+                self.write(&state)?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     pub fn set_push(&self, sub: Option<Subscription>) -> Result<(), PhoneError> {
         let mut state = self.state.lock().unwrap();
         if let Some(device) = state.device.as_mut() {
