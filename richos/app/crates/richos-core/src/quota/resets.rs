@@ -486,18 +486,31 @@ impl Service {
             return self.view();
         };
         let v = &record.view;
-        if record.poll_after.is_some_and(|t| t > now)
-            || v.retry_at.is_some_and(|t| t > now)
-            || v.checked_at.is_some_and(|t| {
-                t <= now
-                    && now - t
-                        < if force {
-                            5000
-                        } else {
-                            super::REFRESH_INTERVAL_MS
-                        }
-            })
-        {
+        let waiting = if force {
+            // **A manual check is not an automatic one.** The automatic reservation (`poll_after`)
+            // and the failure wait (`retry_at`) exist so the monitor does not hit the provider
+            // every tick; a person who just fixed the problem and asked again must not be handed
+            // the old answer for five minutes. What still holds for him is the short cooldown
+            // that stops a double-click from hitting the provider twice, measured from the last
+            // attempt of any kind: a reading, a failure (whose wait was set five minutes past
+            // it) or the monitor's reservation (set five minutes ahead of its attempt).
+            let interval = super::REFRESH_INTERVAL_MS;
+            let last_attempt = [
+                v.checked_at,
+                v.retry_at.map(|t| t.saturating_sub(interval)),
+                record.poll_after.map(|t| t.saturating_sub(interval)),
+            ]
+            .into_iter()
+            .flatten()
+            .filter(|t| *t <= now)
+            .max();
+            last_attempt.is_some_and(|t| now - t < 5000)
+        } else {
+            record.poll_after.is_some_and(|t| t > now)
+                || v.retry_at.is_some_and(|t| t > now)
+                || v.checked_at.is_some_and(|t| t <= now && now - t < super::REFRESH_INTERVAL_MS)
+        };
+        if waiting {
             return Self::visible(record.view, now);
         }
         // Tests supply a Transport explicitly. Unit tests must never touch real credentials.
@@ -870,6 +883,39 @@ mod tests {
         assert_eq!(transport.posts, 1);
         assert!(service.use_approved(&mut transport, || true).is_err());
         assert_eq!(transport.posts, 1);
+    }
+
+    /// Hunt part 1 finding 23: a manual reset-offer check is not held by the monitor's
+    /// five-minute reservation or by the failure wait, but the 5 s double-click cooldown holds.
+    /// (In tests the connection is a fixture that always fails, which is what makes a real
+    /// attempt visible: it sets `retry_at`.)
+    #[test]
+    fn a_manual_offer_check_is_not_held_by_the_automatic_reservation_or_failure_wait() {
+        let root = Scratch::new();
+        let mut transport = Fake::new(20.);
+        let service = seeded(root.path(), &mut transport);
+        let interval = super::super::REFRESH_INTERVAL_MS;
+        let now = crate::util::now_millis();
+        // The monitor reserved its poll a minute ago; nothing has been read since.
+        let mut record = service.read().unwrap();
+        record.view.checked_at = None;
+        record.view.retry_at = None;
+        record.poll_after = Some(now + interval - 60_000);
+        service.save(&record).unwrap();
+        assert!(service.refresh(Path::new("/nonexistent/claude"), false).retry_at.is_none(),
+            "the automatic check still waits for the reservation");
+        let asked = service.refresh(Path::new("/nonexistent/claude"), true);
+        assert!(asked.retry_at.is_some(), "his manual check went to the provider");
+        let again = service.refresh(Path::new("/nonexistent/claude"), true);
+        assert_eq!(again.retry_at, asked.retry_at, "a double-click straight after is absorbed");
+        // A failure a minute ago is five minutes of automatic wait; he still gets a real check.
+        let mut record = service.read().unwrap();
+        record.poll_after = None;
+        let stale = now + interval - 60_000;
+        record.view.retry_at = Some(stale);
+        service.save(&record).unwrap();
+        let asked = service.refresh(Path::new("/nonexistent/claude"), true);
+        assert!(asked.retry_at.unwrap() > stale, "the failure wait did not hold his manual check");
     }
 
     #[test]
