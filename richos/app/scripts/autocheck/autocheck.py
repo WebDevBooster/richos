@@ -44,6 +44,7 @@ import json
 import hashlib
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
@@ -660,6 +661,65 @@ def select(repo, argv, gate=False):
 CHECK_CAP_SECONDS = 600
 GATE_CAP_SECONDS = 900
 
+# WHAT THE MERGE NEVER RUNS: a suite that needs a device this Mac has one of. On 2026-09-30 the
+# iPhone suites fought over the one simulator in merge after merge and refused finished fixes
+# that never touched the phone. The nightly (nightly-local.py) runs these, as it runs
+# everything; the merge names each one in its verdict and its receipt as NOT RUN. The iPhone
+# simulator suites are named here (proof-run.py queues the first three on one simulator lane
+# for the same reason); a suite that needs a screen, the host's or the test VM's guest under
+# RICHOS_GUI_HOST, is read off the suite exactly as proof-run.py's is_host_screen reads it.
+SHARED_DEVICE_SUITES = {
+    "native-ios-app.test.sh": "the iPhone simulator",
+    "native-ios-share.test.sh": "the iPhone simulator",
+    "native-ios-ui.test.sh": "the iPhone simulator",
+    "mobile-ios.test.sh": "the iPhone simulator",
+}
+HOST_SCREEN = (re.compile(r"^[ \t]*(\.|source)[ \t]+\S*lib/gui-launch\.sh", re.M),
+               re.compile(r"^# run-tests: host-screen", re.M))
+
+
+def nightly_only(repo, suite):
+    """Why the merge leaves this script suite to the nightly, or None."""
+    if suite in SHARED_DEVICE_SUITES:
+        return f"needs {SHARED_DEVICE_SUITES[suite]}; the nightly runs it"
+    try:
+        text = (repo.top / "richos/app/scripts" / suite).read_text(errors="replace")
+    except OSError:
+        return None
+    if any(pattern.search(text) for pattern in HOST_SCREEN):
+        return "needs a screen (the host's or the test VM's); the nightly runs it"
+    return None
+
+
+def for_the_nightly(repo, commands):
+    """(the commands the merge runs, [{check, why}] it leaves to the nightly). A run-tests.sh
+    line keeps its other suites; a suite run on its own line is dropped whole."""
+    kept, moved = [], []
+    for line in commands:
+        found = re.match(r"^cd (\S+) && (.+)$", line.strip())
+        argv = shlex.split(found.group(2)) if found and found.group(1) == "richos/app" else []
+        if argv[:1] == ["scripts/run-tests.sh"] and "--only" in argv:
+            suites = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == "--only"]
+            flags = [arg for i, arg in enumerate(argv[1:], 1) if arg != "--only" and argv[i - 1] != "--only"]
+            left = []
+            for suite in suites:
+                why = nightly_only(repo, suite)
+                if why:
+                    moved.append({"check": suite, "why": why, "suites": []})
+                else:
+                    left.append(suite)
+            if left:
+                kept.append("cd richos/app && " + " ".join(
+                    ["scripts/run-tests.sh", *flags, *[part for suite in left for part in ("--only", suite)]]))
+            continue
+        if argv[:1] == ["bash"] and len(argv) > 1 and re.fullmatch(r"scripts/[^/]+\.test\.sh", argv[1]):
+            why = nightly_only(repo, argv[1][len("scripts/"):])
+            if why:
+                moved.append({"check": argv[1][len("scripts/"):], "why": why, "suites": []})
+                continue
+        kept.append(line)
+    return kept, moved
+
 
 def land_check(repo, what, staged, range_argv, changed_lint=True):
     """Run the suites proof-for.sh assigns plus the lint on the working tree, which the
@@ -688,6 +748,9 @@ def land_check(repo, what, staged, range_argv, changed_lint=True):
         if found is None:
             return refuse_selection(what, rc)
         commands += [c for c in found if c not in commands]
+    commands, nightly = for_the_nightly(repo, commands)
+    if nightly:
+        say(f"autocheck: {what}: left to the nightly: " + ", ".join(f"{row['check']} ({row['why']})" for row in nightly))
     # The lint checks the application (it lives under richos/app). A land that changes nothing
     # under richos/app has nothing for it to check, as in commit_check, so it does not pay the
     # compiler work (hunt part 2, finding 13). Any application path, a deletion included, runs it.
@@ -750,6 +813,7 @@ def land_check(repo, what, staged, range_argv, changed_lint=True):
             pending.write_text(json.dumps({"directory": str(directory), "identity": identity}))
             os.replace(pending, prior)
         blocking, not_run, why_not = land_verdict(result.returncode, summary_path, directory)
+        not_run = nightly + not_run
     finally:
         os.unlink(plan)
     seconds = time.monotonic() - started
@@ -768,9 +832,10 @@ def land_check(repo, what, staged, range_argv, changed_lint=True):
         names = ", ".join(f"{row['check']} ({row['why']})" for row in not_run)
         banner(f"{what.upper()} ALLOWED WITH {len(not_run)} CHECK(S) NOT RUN, WHICH IS NOT A PASS", [
             f"NOT RUN: {names}.",
-            "Nothing that ran failed. These did not reach a verdict inside the gate's limits (600 s a",
-            "check, 900 s the gate) or could not run here; the receipt records them as NOT RUN, never",
-            "as passed, and the nightly (nightly-local.py) runs them. See autocheck/README.md.",
+            "Nothing that ran failed. These need a device the merge never uses, or did not reach a",
+            "verdict inside the gate's limits (600 s a check, 900 s the gate); the receipt records",
+            "them as NOT RUN, never as passed, and the nightly (nightly-local.py) runs them.",
+            "See autocheck/README.md.",
         ])
         say(f"autocheck: {what}: passed with {len(not_run)} NOT RUN: {names}; "
             f"{seconds:.1f}s; receipt for tree {tree[:12]}")

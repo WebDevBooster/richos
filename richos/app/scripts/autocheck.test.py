@@ -81,6 +81,36 @@ fi
 if printf '%s\\n' "$paths" | grep -q 'state'; then
     echo "  cd richos/app && bash scripts/state.sh"
 fi
+if printf '%s\\n' "$paths" | grep -q 'device'; then
+    runner=scripts/run-tests.sh
+    echo "  cd richos/app && $runner --only phone-unit.test.sh --only front-door.test.sh --only native-ios-share.test.sh --no-host-screen"
+    echo "  cd richos/app && bash scripts/native-ios-ui.test.sh CaseA"
+fi
+"""
+# Fixture run-tests.sh: runs each --only suite in order and records it.
+RUN_TESTS = """#!/usr/bin/env bash
+cd "$(dirname "$0")/.."
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --only) printf 'suite %s\\n' "$2" >> "$AUTOCHECK_FIXTURE_LOG"; bash "scripts/$2" || exit 1; shift 2 ;;
+        *) shift ;;
+    esac
+done
+"""
+# Suites that need a device the merge never uses: they fail here, so running one refuses.
+SIMULATOR_SUITE = """#!/usr/bin/env bash
+# Fixture iPhone-simulator suite.
+printf 'ran-simulator-suite %s\\n' "$(basename "$0")" >> "$AUTOCHECK_FIXTURE_LOG"
+exit 1
+"""
+SCREEN_SUITE = """#!/usr/bin/env bash
+# run-tests: host-screen
+printf 'ran-screen-suite %s\\n' "$(basename "$0")" >> "$AUTOCHECK_FIXTURE_LOG"
+exit 1
+"""
+PHONE_UNIT = """#!/usr/bin/env bash
+# Fixture headless suite beside them.
+exit 0
 """
 # A document-vs-tree check that measures under a second (weight 0): fails when the claim in
 # src/claims.txt says FALSE. And a heavy suite selected beside it, which a commit never runs.
@@ -207,7 +237,11 @@ class Fixture(unittest.TestCase):
         for rel, text, mode in (("scripts/lint.sh", LINT, 0o755), ("scripts/lint/driver.py", DRIVER, 0o644),
                                 ("scripts/proof-for.sh", PROOF_FOR, 0o755), ("scripts/proof-run.py", PROOF_RUN, 0o644),
                                 ("scripts/suite.sh", SUITE, 0o755), ("scripts/screen.sh", SCREEN, 0o755),
-                                ("scripts/state.sh", STATE, 0o755),
+                                ("scripts/state.sh", STATE, 0o755), ("scripts/run-tests.sh", RUN_TESTS, 0o755),
+                                ("scripts/native-ios-share.test.sh", SIMULATOR_SUITE, 0o755),
+                                ("scripts/native-ios-ui.test.sh", SIMULATOR_SUITE, 0o755),
+                                ("scripts/front-door.test.sh", SCREEN_SUITE, 0o755),
+                                ("scripts/phone-unit.test.sh", PHONE_UNIT, 0o755),
                                 ("ui/tests/quick.js", QUICK, 0o644), ("ui/tests/heavy.js", HEAVY, 0o644),
                                 ("ui/tests/suite-weights.tsv", WEIGHTS, 0o644),
                                 ("src/thing.txt", "fine\n", 0o644), ("src/claims.txt", "true\n", 0o644)):
@@ -661,6 +695,24 @@ class Land(Fixture):
                              [("cd richos/app && bash scripts/state.sh", why)])
         self.assertEqual(self.recorded(), "")
 
+    def test_simulator_and_screen_suites_are_left_to_the_nightly_and_named(self):
+        # 2026-09-30: the iPhone suites fought over the one simulator in merge after merge. The
+        # merge never runs a suite that needs a device this Mac has one of: the simulator, or a
+        # screen (the host's, or the test VM's guest). The other suites on the same line run.
+        self.make()
+        self.branch_with("feature", "richos/app/src/device.txt", "a phone change\n")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertIn("suite phone-unit.test.sh", self.tools())
+        self.assertNotIn("ran-simulator-suite", self.tools())
+        self.assertNotIn("ran-screen-suite", self.tools())
+        self.assertIn("MERGE INTO MAIN ALLOWED WITH 3 CHECK(S) NOT RUN, WHICH IS NOT A PASS", out.stderr)
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        whys = {row["check"]: row["why"] for row in receipt["not_run"]}
+        self.assertEqual(sorted(whys), ["front-door.test.sh", "native-ios-share.test.sh", "native-ios-ui.test.sh"])
+        self.assertTrue(all(why.endswith("the nightly runs it") for why in whys.values()), whys)
+        self.assertIn("iPhone simulator", whys["native-ios-ui.test.sh"])
+        self.assertIn("screen", whys["front-door.test.sh"])
+
     def test_a_failing_check_blocks_and_so_does_an_invalid_result_that_hid_a_failure(self):
         self.make()
         self.branch_with("feature", "richos/app/src/state.txt",
@@ -833,6 +885,18 @@ class Land(Fixture):
         self.git("checkout", "-q", "main")
         out = self.git("merge", "--no-ff", "-m", "land intro", "intro", expect=1)
         self.assertIn("MERGE INTO MAIN REFUSED", out.stderr)
+
+
+class Tables(unittest.TestCase):
+    def test_every_suite_the_merge_leaves_to_the_nightly_exists_in_this_tree(self):
+        # A named table rots when a suite is renamed; this reads it against the real tree.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        missing = [suite for suite in module.SHARED_DEVICE_SUITES if not (HERE / suite).is_file()]
+        self.assertEqual(missing, [])
+        self.assertTrue(module.SHARED_DEVICE_SUITES)
 
 
 class Install(Fixture):
