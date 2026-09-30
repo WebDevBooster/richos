@@ -423,6 +423,33 @@ else
     bad "P14 the age is read as UTC" "a row stamped $NOW_UTC came out as: $AGE_LINE"
 fi
 
+# ===========================================================================
+# P15 — UNRELATED TRAFFIC DOES NOT MAKE AN UNANSWERED FINDING DISAPPEAR
+# ===========================================================================
+# The log is shared with every workspace event. An open protected-ref row that
+# has more than MAX_LINES ordinary rows after it must still be reported: the
+# bound is on protected-ref rows, not on the file's last lines (P5-62). The
+# control is the same row with no traffic after it, which is reported either way.
+BUSY="$SANDBOX/busy"
+mk_repo "$BUSY"
+git -C "$BUSY" commit -q --allow-empty -m "b1"
+B_SNAP="$(git -C "$BUSY" rev-parse HEAD)"
+git -C "$BUSY" reset -q --hard "$B_SNAP~1"
+write_event "$BUSY" main "$B_SNAP" "$(git -C "$BUSY" rev-parse HEAD)"
+BEFORE_LINE="$(python3 "$PRED" list 2>/dev/null | grep -c "$BUSY")"
+python3 - "$EVENTS" <<'PY'
+import json, sys
+with open(sys.argv[1], "a", encoding="utf-8") as f:
+    for i in range(20050):
+        f.write(json.dumps({"event": "workspace-heartbeat", "n": i, "ts": "2026-09-30T00:00:00Z"}) + "\n")
+PY
+AFTER_LINE="$(python3 "$PRED" list 2>/dev/null | grep -c "$BUSY")"
+if [ "${BEFORE_LINE:-0}" -ge 1 ] && [ "${AFTER_LINE:-0}" -ge 1 ]; then
+    ok "P15 an unanswered finding is still reported after 20,050 unrelated log rows follow it"
+else
+    bad "P15 unrelated traffic erased an open finding" "reported before=$BEFORE_LINE after=$AFTER_LINE"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '  %s/%s cases passed\n' "$PASS" "$PASS"

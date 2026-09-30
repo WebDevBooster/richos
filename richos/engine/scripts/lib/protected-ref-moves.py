@@ -145,10 +145,10 @@ except Exception as _e:  # reported, never guessed around
 CLASSES = ("protected-ref-moved", "protected-ref-restored", "protected-ref-restore-failed")
 SETTLED = "protected-ref-move-reviewed"
 
-# A bound on the read, not on the truth: the log is append-only and every row
-# this cares about is near its end. 20000 lines is about ninety times the whole
-# log on this machine on the day this was written, and it keeps a Stop hook's
-# cost flat as the log grows.
+# A bound on the read, not on the truth: the newest 20000 PROTECTED-REF rows are
+# read, however much unrelated traffic follows them. That is about ninety times
+# the whole log on this machine on the day this was written, and it keeps what
+# is held in memory flat as the log grows.
 MAX_LINES = 20000
 
 # The age rungs the sentence names, in seconds. The same three the escalation
@@ -166,12 +166,22 @@ def _rows():
     path = os.path.join(workspaces.state_dir(), "events.jsonl")
     if not os.path.exists(path):
         return []
+    # THE BOUND IS ON PROTECTED-REF ROWS, NOT ON THE FILE'S LAST LINES. The log
+    # is shared with every workspace event; cutting it at its last N lines
+    # before filtering let ordinary traffic push an unanswered protected-ref row
+    # off the end, and the Stop warning vanished while commits were still lost.
+    # The file is streamed and only matching lines are kept, so the cost stays
+    # flat in memory and the newest MAX_LINES protected-ref rows survive.
+    from collections import deque
+    kept = deque(maxlen=MAX_LINES)
     with open(path, encoding="utf-8", errors="replace") as f:
-        lines = f.readlines()
+        for line in f:
+            if "protected-ref" in line:
+                kept.append(line)
     out = []
-    for line in lines[-MAX_LINES:]:
+    for line in kept:
         line = line.strip()
-        if not line or ("protected-ref" not in line):
+        if not line:
             continue
         try:
             d = json.loads(line)
