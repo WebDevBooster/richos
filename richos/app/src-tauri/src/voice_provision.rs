@@ -437,6 +437,11 @@ async fn attempt_once(
         if let Err(e) = file.write(&chunk) {
             return Err(Finding { detail: Some(e.to_string()), ..failure_of(provision::Failure::Network) });
         }
+        if file.is_overfull() {
+            // More than the pinned model: stop reading now instead of filling the disk. `finish`
+            // below classifies and deletes it.
+            break;
+        }
         let got = file.received();
         if got >= next_at {
             next_at = got + step;

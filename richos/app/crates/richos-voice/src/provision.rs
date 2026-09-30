@@ -808,6 +808,19 @@ pub fn plan_fetch(pin: &Pin, dir: &Path, free_bytes: Option<u64>) -> FetchPlan {
         let _ = fs::remove_file(&dest);
     }
 
+    // A partial of EXACTLY the pinned size may be a complete download that was interrupted before
+    // its verification and rename (crash, power loss, quit during "Verifying"). `resume_plan` still
+    // calls it unresumable, which is right: appending to it would be wrong. But discarding it
+    // unread costs the whole download when one hash could finish the install. Hash it; give it the
+    // model's name only when size, magic AND sha256 all agree, otherwise fall through to the
+    // restart below.
+    if file_bytes(&part) == pin.bytes
+        && inspect_file(&part, pin, true).is_ok()
+        && fs::rename(&part, &dest).is_ok()
+    {
+        return FetchPlan::AlreadyPresent { path: dest };
+    }
+
     // The room needed depends on what the partial will do: a resume appends in place and needs only
     // the missing bytes; a start or a restart writes the whole model. Decided BEFORE anything is
     // removed, so a refusal leaves the partial exactly where it was.
@@ -903,10 +916,22 @@ impl PartFile {
     }
 
     /// Append one chunk. The caller reports progress from [`PartFile::received`].
+    ///
+    /// NEVER WRITES PAST ONE BYTE OVER THE PINNED SIZE. A response that declared no honest length
+    /// can keep sending forever, and every byte beyond the pin is bytes `finish` will reject, so
+    /// the writer keeps exactly enough to make `finish` classify the file as oversize (pin + 1)
+    /// and drops the rest. The caller stops the transfer when [`PartFile::is_overfull`] is true.
     pub fn write(&mut self, chunk: &[u8]) -> std::io::Result<()> {
-        self.file.write_all(chunk)?;
-        self.received += chunk.len() as u64;
+        let room = (self.pin.bytes + 1).saturating_sub(self.received);
+        let keep = chunk.len().min(room as usize);
+        self.file.write_all(&chunk[..keep])?;
+        self.received += keep as u64;
         Ok(())
+    }
+
+    /// More bytes have arrived than the pinned model has. Nothing more can make this file valid.
+    pub fn is_overfull(&self) -> bool {
+        self.received > self.pin.bytes
     }
 
     /// Bytes on disk for this download, resume offset included.
