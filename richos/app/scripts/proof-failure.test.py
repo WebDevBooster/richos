@@ -300,6 +300,54 @@ class FailurePolicy(unittest.TestCase):
         self.assertLess(queued.refused_wait, self.args.admission_wait)
         self.assertGreaterEqual(queued.started, sibling.ended)
 
+    BUSY_HOST = {"cpu_user_percent": 60, "cpu_system_percent": 38, "cpu_idle_percent": 2,
+                 "memory_pressure": "normal", "memory_free_percent": 50, "swap_used_mb": 0,
+                 "swapout_mb_per_s": 0}
+
+    def run_refused_while(self, items, refuse, kind):
+        """run_items, with the Mac refusing (`kind`: a host sample or machine pressure) whenever
+        `refuse()` is true, and samples 0.1 s apart instead of reserve's 30 s floor."""
+        def host(*_args):
+            return (False, dict(self.BUSY_HOST)) if kind == "host" and refuse() else (True, {})
+
+        def pressure():
+            return "verification pressure: red" if kind == "pressure" and refuse() else None
+        with patch.object(pr, "SETTLE_SECONDS", 0), patch.object(pr, "admitted", side_effect=host), \
+                patch.object(pr.reserve, "MIN_RETRY_SECONDS", .1), \
+                patch.object(pr.cpu_guard, "verification_admission", side_effect=pressure), \
+                contextlib.redirect_stdout(io.StringIO()):
+            pr.run(items, self.args, str(self.root / ("run-" + kind)), sampler=lambda: dict(self.BUSY_HOST))
+
+    def test_host_or_pressure_refusal_while_this_runs_own_check_runs_is_a_queue_not_a_refusal(self):
+        # Part 2 recheck, R01: the Mac's CPU line or its pressure controller refusing while this
+        # run's own sibling still runs cannot be told apart from the load that sibling makes, so
+        # it is this run's queue, as the full worker budget and envelope already are. The queued
+        # check waits past --admission-wait for as long as the sibling runs (its deadline bounds
+        # that) and then gets its turn.
+        for kind in ("host", "pressure"):
+            with self.subTest(kind=kind):
+                self.args.admission_wait = .3
+                sibling = self.item("keeps the Mac busy " + kind, "import time; time.sleep(1.2)")
+                queued = self.item("queued " + kind, "pass")
+                self.run_refused_while([sibling, queued], lambda: sibling.state == "running", kind)
+                self.assertEqual((sibling.state, queued.state), ("passed", "passed"), queued.notes)
+                self.assertGreater(queued.wait_times.get(kind, 0), self.args.admission_wait)
+                self.assertLess(queued.refused_wait, self.args.admission_wait)
+                self.assertGreaterEqual(queued.started, sibling.ended)
+
+    def test_host_or_pressure_refusal_after_this_runs_own_work_ends_still_ends_not_admitted(self):
+        # The other half of R01, kept: once nothing of this run is running, a Mac that keeps
+        # refusing is the Mac refusing, and the check ends NOT ADMITTED at --admission-wait.
+        for kind in ("host", "pressure"):
+            with self.subTest(kind=kind):
+                self.args.admission_wait = .3
+                sibling = self.item("short sibling " + kind, "import time; time.sleep(.6)")
+                queued = self.item("never admitted " + kind, "raise AssertionError('must not execute')")
+                self.run_refused_while([sibling, queued], lambda: sibling.state != "waiting", kind)
+                self.assertEqual((sibling.state, queued.state, queued.rc), ("passed", "not-admitted", 75))
+                self.assertGreaterEqual(queued.refused_wait, self.args.admission_wait)
+                self.assertIsNone(queued.started)
+
     def test_missing_or_failed_cleanup_preserves_attempt_cost_without_green(self):
         for index, record in enumerate((None, {'status': 'completed', 'cleanup': 'failed'})):
             item = self.item('incomplete ' + str(index), 'pass')

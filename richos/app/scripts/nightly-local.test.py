@@ -1375,6 +1375,43 @@ while True: time.sleep(.02)
         proof_path.write_text(json.dumps(full))
         self.assertEqual(r.accept_ui_proof(sha)["checks"], 863)
 
+    def test_a_ui_coverage_proof_that_admits_unrun_suites_never_skips_the_ui_gate(self):
+        """Part 2 recheck, R17: a receipt that says suites were not run does not stand for them.
+
+        run.js writes a PASS proof when a suite was skipped under --allow-skip or excused by
+        a quarantine without any evidence, and it says so honestly: `ran` below `suites`. The
+        gate this proof replaces runs EVERY discovered suite, so skipping it on a proof that
+        ran one of 55 certified 54 suites nobody ran. Each partial proof below is refused and
+        the gate is not skipped; the full proof beside them is still accepted.
+        """
+        sha = "c" * 40
+        r = m.Runner(self.root, self.root / "state",
+                     {"PATH": "/usr/bin", "RICHOS_NAMED_PERSONS_FILE": "/fixture/list"},
+                     io.StringIO())
+        proof_path = r.ui_proof_path(sha)
+        proof_path.parent.mkdir(parents=True, exist_ok=True)
+        full = {"proof": "ui-suite-coverage", "commit": sha, "suites": 55, "ran": 55,
+                "checks": 863, "at": "2026-09-30T00:00:00Z", "quarantined": [],
+                "quarantined_red": []}
+        for body in ({**full, "ran": 1, "checks": 1}, {**full, "ran": 54}):
+            with self.subTest(ran=body["ran"]):
+                proof_path.write_text(json.dumps(body))
+                with self.assertRaisesRegex(ValueError, r"%d of %d" % (body["ran"], body["suites"])):
+                    r.accept_ui_proof(sha)
+                seen = []
+
+                def record(args, **kwargs):
+                    seen.append([str(a) for a in args])
+                    return subprocess.CompletedProcess(args, 0, "", "")
+
+                with patch.object(m, "owned_run", side_effect=record), \
+                        contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+                    r.ui_suite(sha)
+                self.assertNotIn(m.UI_SUITE_GATE, r.skipped)
+
+        proof_path.write_text(json.dumps(full))
+        self.assertEqual(r.accept_ui_proof(sha)["ran"], 55)
+
     def test_a_sha_that_is_not_this_runs_source_is_refused(self):
         """The whole safety of the flag is this comparison.
 

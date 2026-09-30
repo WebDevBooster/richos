@@ -1433,8 +1433,8 @@ class Runner:
         reader checked only the `proof` tag and a commit PREFIX, so `{proof, commit}` with no
         counts at all, or a one-character commit, skipped the whole UI gate and announced
         "None suite(s), None checks". A proof skips the gate only when it names this exact
-        commit in full and records at least one suite run and at least one check observed,
-        no more suites run than it discovered. Anything less claims coverage it does not show,
+        commit in full and records at least one check observed and every discovered suite
+        run (part 2 recheck, R17). Anything less claims coverage it does not show,
         and is refused like a proof for another tree, never quietly run over.
         """
         path = self.ui_proof_path(sha)
@@ -1465,6 +1465,17 @@ class Runner:
                 f"ran={proof.get('ran')!r}, checks={proof.get('checks')!r}). run.js writes this "
                 "file only after at least one suite ran and at least one check was observed; "
                 "a proof without those counts proves nothing, so the UI gate is not skipped.")
+        # A PASS IS NOT THE SAME CLAIM AS THE GATE IT REPLACES (part 2 recheck, R17). run.js
+        # writes a PASS proof with `ran` below `suites` when a suite was skipped under
+        # --allow-skip or excused by a quarantine without evidence, and says so. The gate
+        # this proof stands in for runs every discovered suite, so a proof may skip it only
+        # when it ran every one; otherwise it certifies suites nobody ran.
+        if ran != suites:
+            raise ValueError(
+                f"{path} names {sha} but ran only {ran} of {suites} discovered UI suite(s); "
+                f"{suites - ran} were not run. The UI gate runs every suite, so a proof of "
+                "fewer does not stand in for it and the UI gate is not skipped. Run the land's "
+                "UI suite over every suite, or build without --checks-done-at-land.")
         return proof
 
     def accept_core_proof(self, sha):
