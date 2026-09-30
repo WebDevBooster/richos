@@ -227,6 +227,17 @@ else
     bad "L7 bundled third-party license files survive into the archive" "a bundled notice was lost in packaging"
 fi
 
+# L7b — the summary counts the files it just verified, without a git diagnostic. The license
+# count used to be taken with `git ls-files` on the UNPACKED archive, which has no .git, so it
+# printed "0 ... intact" under "fatal: not a git repository".
+if printf '%s' "$OUT" | grep -q 'present, 2 bundled license file(s) intact' \
+   && ! printf '%s' "$OUT" | grep -qi 'fatal:'; then
+    ok "L7b the summary counts the 2 bundled license files, with no git diagnostic"
+else
+    bad "L7b the summary counts the 2 bundled license files, with no git diagnostic" \
+        "$(printf '%s' "$OUT" | grep -iE 'fatal|license file' | head -3 | tr '\n' ' ')"
+fi
+
 # ---------------------------------------------------------------------------------------
 # L8 — a claim with nothing behind it. THE defect the audit found, three times over.
 # ---------------------------------------------------------------------------------------
