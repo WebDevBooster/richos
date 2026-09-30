@@ -320,6 +320,40 @@ else
     bad "C43  no-setup repository (rc=$rc): $OUT"
 fi
 
+# HUNT PART 4, FINDING 16: a seed that FAILS is a failed creation, never an
+# empty successful one. The file .worktreeinclude names is unreadable, so the
+# copy fails; the helper used to hide that and print "seeded: 0 file(s)".
+REPO4="$SANDBOX/repo4"
+mkdir -p "$REPO4"
+git -C "$REPO4" init -q -b main
+printf '.env.secret\n' >"$REPO4/.worktreeinclude"
+printf '.env.secret\n' >"$REPO4/.gitignore"
+printf 'seed\n' >"$REPO4/seed.txt"
+git -C "$REPO4" add -A
+git -C "$REPO4" commit -q -m seed
+python3 "$WS_PY" --entity "$REPO4" --session "$RICHOS_SESSION_ID" integration \
+    --repo "$REPO4" --branch main --why "the seed-failure case" >/dev/null
+printf 'TOKEN=1\n' >"$REPO4/.env.secret"
+chmod 000 "$REPO4/.env.secret"
+OUT="$("$HELPER" "$REPO4" zach-opus-ct44 2>&1)"; rc=$?
+chmod 600 "$REPO4/.env.secret"
+if [ "$rc" -eq 4 ] && printf '%s' "$OUT" | grep -q "seeding the .worktreeinclude files" \
+   && printf '%s' "$OUT" | grep -q ".env.secret" \
+   && ! printf '%s' "$OUT" | grep -q "^seeded:" \
+   && python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r.get("creation_failed"), r' "$(REC zach-opus-ct44)" 2>/dev/null; then
+    ok "C44  a FAILED seed is a failed creation (exit 4, recorded, the unreadable file named), never \"seeded: 0\""
+else
+    bad "C44  seed failure (rc=$rc): $OUT"
+fi
+# and the positive control, same repository, once the file can be read
+OUT="$("$HELPER" "$REPO4" zach-opus-ct44b 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'seeded:     1 file(s)' \
+   && [ -f "$SANDBOX/repo4-wt/zach-opus-ct44b/.env.secret" ]; then
+    ok "C44b POSITIVE CONTROL: the readable file is seeded and counted"
+else
+    bad "C44b seed control (rc=$rc): $OUT"
+fi
+
 if ! grep -qE 'worktree (remove|prune)|branch -D|rm -rf' "$HELPER"; then
     ok "C23  the helper contains no deletion: land and discard are the only deleters (points 4, 7)"
 else

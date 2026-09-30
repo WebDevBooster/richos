@@ -166,9 +166,19 @@ git -C "$MAIN" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' 
 # The same contract native isolation honors: gitignore-style patterns, matched
 # against files that are IGNORED in the main checkout, copied with their
 # relative paths. Done in python so `**/` means what .gitignore means by it.
+#
+# A FAILED SEED IS A FAILED CREATION, never "0 file(s)" (hunt part 4, finding
+# 16). Its errors used to go to /dev/null and its failure became `echo 0`, so an
+# unreadable .env, a copy that stopped half way or a git that could not list the
+# ignored files read exactly like a repository with nothing to seed, and the
+# teammate started without the files its repository needs. Nothing justified
+# hiding it, unlike the setup below, whose failure leaves a workspace that
+# merely rebuilds more. It now goes through _fail: recorded, exit 4, and
+# spawn.sh rolls the workspace back.
 SEEDED=0
 if [ -f "$MAIN/.worktreeinclude" ]; then
-    SEEDED="$(MAIN="$MAIN" DIR="$DIR" python3 - <<'PY' 2>/dev/null || echo 0
+    SEED_ERR="$(mktemp -t worktree-seed)"
+    SEEDED="$(MAIN="$MAIN" DIR="$DIR" python3 - <<'PY' 2>"$SEED_ERR"
 import os, re, shutil, subprocess, sys
 main = os.environ["MAIN"]; dest = os.environ["DIR"]
 pats = []
@@ -199,6 +209,10 @@ def to_regex(pat):
 regs = [to_regex(p) for p in pats]
 res = subprocess.run(["git", "-C", main, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
                      capture_output=True, text=True)
+if res.returncode != 0:
+    sys.stderr.write("git could not list the main checkout's ignored files (exit %d): %s\n"
+                     % (res.returncode, res.stderr.strip()[:300]))
+    sys.exit(1)
 n = 0
 for rel in res.stdout.split("\0"):
     if not rel or not any(r.match(rel) for r in regs):
@@ -207,12 +221,23 @@ for rel in res.stdout.split("\0"):
     if not os.path.isfile(src):
         continue
     dst = os.path.join(dest, rel)
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copy2(src, dst)
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+    except OSError as e:
+        sys.stderr.write("%s could not be copied after %d file(s) were: %s\n" % (rel, n, e))
+        sys.exit(1)
     n += 1
 print(n)
 PY
 )"
+    SEED_RC=$?
+    if [ "$SEED_RC" -ne 0 ]; then
+        _seed_why="$(tr '\n' ' ' <"$SEED_ERR" | cut -c1-600)"
+        rm -f "$SEED_ERR"
+        _fail "seeding the .worktreeinclude files into $DIR FAILED (exit $SEED_RC): ${_seed_why:-no error text}"
+    fi
+    rm -f "$SEED_ERR"
 fi
 
 # --- 4b. the repository's own per-worktree setup ----------------------------

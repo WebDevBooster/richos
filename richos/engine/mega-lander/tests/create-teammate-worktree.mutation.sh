@@ -67,4 +67,10 @@ mutant setup-unbounded "C42" "$F" \
     '    while kill -0 "$SETUP_PID" 2>/dev/null; do' \
     "a setup script that hangs would hang the creation, and therefore every spawn into that repository, forever."
 
+# Hunt part 4, findings 16-18.
+mutant seed-failure-hidden "C44" "$F" \
+    '    if [ "$SEED_RC" -ne 0 ]; then' \
+    '    if false; then' \
+    "a seed that failed would be reported as \"seeded: 0 file(s)\" and the teammate would start without the files its repository needs (finding 16)."
+
 mutation_end
