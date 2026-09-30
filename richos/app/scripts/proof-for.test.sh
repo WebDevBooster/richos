@@ -500,6 +500,17 @@ else
   bad "I1 generated engine command and prerequisite contract"
 fi
 
+# -----------------------------------------------------------------------------------------
+# L. A SHELL MODULE WITH NO TEST IS NOT COVERED BY ITS OWN EMPTY FILTER (hunt 2026-09-29,
+#    part 2, section 14). `--bin richos-tauri events::` matches zero tests and exits 0.
+# -----------------------------------------------------------------------------------------
+run_pf "$WORK/l1.out" --paths richos/app/src-tauri/src/events.rs; L1_RC=$RC
+if [ "$L1_RC" -eq 1 ] && grep -q 'UNCOVERED' "$WORK/l1.out" && ! grep -q 'richos-tauri events::' "$WORK/l1.out"; then
+  ok "L1 a shell module with no test is UNCOVERED, not covered by an empty filter"
+else
+  bad "L1 an untested shell module is UNCOVERED" "exit $L1_RC: $(tr '\n' ' ' < "$WORK/l1.out")"
+fi
+
 echo
 TAIL=""
 [ "$NOTRUN" -gt 0 ] && TAIL=", $NOTRUN NOT RUN"
