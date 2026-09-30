@@ -177,6 +177,12 @@ mkdir -p "$SAMPLE_ROOT/scripts/hooks" "$SAMPLE_ROOT/scripts/lib" "$SAMPLE_ROOT/h
 # exactly what a real session's CLAUDE_PROJECT_DIR does for a real adopter.
 CLAUDE_PROJECT_DIR="$SAMPLE_ROOT"
 export CLAUDE_PROJECT_DIR
+# RICHOS_ENTITY_ROOT outranks CLAUDE_PROJECT_DIR in the shared resolver (an
+# explicit declaration is exclusive intent), so one inherited from the caller's
+# session would make every hook below judge THAT entity, or refuse its override,
+# instead of the sample. The demo names its own governed repository above; drop
+# the caller's.
+unset RICHOS_ENTITY_ROOT
 
 # ---------------------------------------------------------------------------
 # THE SAMPLE REPO'S FILE SET IS DERIVED, NEVER TYPED.

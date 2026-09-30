@@ -74,6 +74,7 @@ SID="sess-accept-1111"
 payload() { python3 -c 'import json,sys; d=json.loads(sys.argv[2]); d["hook_event_name"]=sys.argv[1]; print(json.dumps(d))' "$1" "$2"; }
 lifecycle() { bash "$HOOKS/workspace-lifecycle.sh"; }
 LEAD="$(sh -c 'sleep 3600 >/dev/null 2>&1 & echo $!')"
+OURS+=("$LEAD")   # started by this test, so cleaned up by it
 export RICHOS_SESSION_PID="$LEAD"
 payload SessionStart "{\"session_id\":\"$SID\",\"cwd\":\"$ENT\"}" | lifecycle >/dev/null 2>>"$T/hooks.err"
 python3 "$ENGINE/mega-lander/workspaces.py" --entity "$ENT" --session "$SID" integration --repo "$ENT" --branch main \

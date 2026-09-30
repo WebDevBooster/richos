@@ -311,7 +311,14 @@ DECL_BASH = re.compile(r""":\s*"\$\{([A-Z][A-Z0-9_]*_DECLARATION):=([^}"'\s]+)\}
 DECL_ASSIGN = re.compile(r"""^\s*([A-Z][A-Z0-9_]*_DECLARATION)\s*=\s*["']([^"'\s]+)["']""",
                          re.MULTILINE)
 SOURCE_SUFFIXES = (".sh", ".py", ".mjs", ".js", ".rb", ".ps1")
-MD_LINK = re.compile(r"\]\(([^)\s#]{1,200})\)")
+# A link target may carry a #fragment; the fragment is not part of the path.
+MD_LINK = re.compile(r"\]\(([^)\s#]{1,200})(?:#[^)\s]*)?\)")
+# What may NOT be followed as navigation. Unlike CITE_REJECT (a filter for path
+# citations in prose, which must stay conservative), a markdown link legitimately
+# climbs out of its directory with `../`; the target is resolved against the
+# linking file and must exist in the tree, so `..` is followed and an escape from
+# the tree simply finds nothing.
+MD_LINK_REJECT = re.compile(r"""[*?<>{}$|\\"'\s]|https?:|^~|^/|^-""")
 
 
 # A TEST FIXTURE IS NOT A SHIPPED CAPABILITY. Suites and mutation testers build
@@ -384,7 +391,7 @@ def onboarding_set(tree):
         base = os.path.dirname(cur)
         for m in MD_LINK.finditer(text):
             t = m.group(1)
-            if not t.endswith(".md") or CITE_REJECT.search(t):
+            if not t.endswith(".md") or MD_LINK_REJECT.search(t):
                 continue
             nxt = os.path.normpath(os.path.join(base, t)) if base else t
             if tree.has(nxt) and nxt not in seen:
@@ -533,13 +540,31 @@ RUN_TOKEN = re.compile(r"[\w./-]+\.(?:sh|py|ps1|bash)\b")
 
 
 def _wf_entrypoints(text):
+    """Every script a workflow's `run:` steps invoke: the one-line form and the
+    block-scalar form (`run: |` / `run: >-`), whose commands are the indented
+    lines that follow."""
     eps = set()
-    for line in (text or "").splitlines():
-        s = line.strip()
+    lines = (text or "").splitlines()
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
+        s = raw.strip()
+        i += 1
         if not (s.startswith("run:") or s.startswith("- run:") or s.startswith("-run:")):
             continue
         for m in RUN_TOKEN.finditer(s):
             eps.add(os.path.basename(m.group(0)))
+        value = s.split("run:", 1)[1].strip()
+        if re.match(r"^[|>][+-]?[0-9]?\s*(#.*)?$", value):
+            # The body is every following line indented deeper than the key.
+            key_indent = len(raw) - len(raw.lstrip(" ")) + (2 if s.startswith("- ") else 0)
+            while i < len(lines):
+                body = lines[i]
+                if body.strip() and len(body) - len(body.lstrip(" ")) <= key_indent:
+                    break
+                for m in RUN_TOKEN.finditer(body):
+                    eps.add(os.path.basename(m.group(0)))
+                i += 1
     return eps
 
 
@@ -570,13 +595,14 @@ def check_workflows(tree, exempt, used, explain):
                     "never executed and cannot. A workflow that has not run verifies "
                     "nothing.")
             continue
-        if eps and not (eps & root_eps):
+        uncovered = eps - root_eps
+        if uncovered:
             finding("UNREACHABLE", f,
                     "runs %s, which no root-level workflow runs. Actions discovers "
                     "workflows only at `.github/workflows/` in the repository root, so "
                     "this copy never executes here — it is a template for an adopter, "
                     "and nothing in THIS repository proves it works."
-                    % ", ".join(sorted(eps)))
+                    % ", ".join(sorted(uncovered)))
 
 
 # ---------------------------------------------------------------------------

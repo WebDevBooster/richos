@@ -430,11 +430,18 @@ pb_load_declaration() {
         esac
     done < "$f"
 
-    case "$PB_MIN_SPEECH_LINES$PB_MIN_QUOTE_WORDS$PB_CORPUS_MAX_FILES$PB_CORPUS_MAX_BYTES" in
-        *[!0-9]*|'')
-            PB_BROKEN_REASON="MIN_SPEECH_LINES, MIN_QUOTE_WORDS, CORPUS_MAX_FILES and CORPUS_MAX_BYTES must all be non-negative integers"
-            return 2 ;;
-    esac
+    # Each setting is checked on its own. Checked as one concatenation, digits in
+    # three of them hid an empty fourth, which the scan job then failed to turn
+    # into a number.
+    local _pb_name _pb_val
+    for _pb_name in MIN_SPEECH_LINES MIN_QUOTE_WORDS CORPUS_MAX_FILES CORPUS_MAX_BYTES; do
+        eval "_pb_val=\"\$PB_$_pb_name\""
+        case "$_pb_val" in
+            *[!0-9]*|'')
+                PB_BROKEN_REASON="MIN_SPEECH_LINES, MIN_QUOTE_WORDS, CORPUS_MAX_FILES and CORPUS_MAX_BYTES must all be non-negative integers; $_pb_name is '$_pb_val'"
+                return 2 ;;
+        esac
+    done
     if [ "$PB_MIN_QUOTE_WORDS" -lt 6 ] 2>/dev/null; then
         PB_BROKEN_REASON="MIN_QUOTE_WORDS=$PB_MIN_QUOTE_WORDS is below the floor of 6; runs that short collide with ordinary English, and a guard that blocks ordinary work gets switched off and then protects nothing"
         return 2

@@ -20,14 +20,21 @@ LIB="$SCRIPT_DIR/lib/entrypoints.sh"
 
 PASS=0
 FAIL=0
-SANDBOXES=""
+# Sandboxes are made inside `$(sandbox)`, a subshell, so a shell variable appended
+# to there is lost to this parent (the cleanup then removed nothing). The record
+# is a FILE: an append in the subshell survives it.
+TMPBASE="${TMPDIR:-/tmp}"
+TMPBASE="${TMPBASE%/}"
+SANDBOX_LEDGER="$(mktemp "$TMPBASE/ep-lint-ledger.XXXXXX")"
 
 cleanup() {
-    for d in $SANDBOXES; do
+    local d
+    while IFS= read -r d; do
         case "$d" in
             /*/ep-lint.*) rm -rf "$d" ;;
         esac
-    done
+    done < "$SANDBOX_LEDGER"
+    rm -f "$SANDBOX_LEDGER"
 }
 trap cleanup EXIT
 
@@ -37,8 +44,8 @@ no() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n     %s\n' "$1" "${2:-}"; }
 # sandbox <name> — a throwaway repository root with an orchestration.config.
 sandbox() {
     local d
-    d="$(mktemp -d -t ep-lint.XXXXXX)"
-    SANDBOXES="$SANDBOXES $d"
+    d="$(mktemp -d "$TMPBASE/ep-lint.XXXXXX")"
+    printf '%s\n' "$d" >> "$SANDBOX_LEDGER"
     mkdir -p "$d/scripts/hooks" "$d/skills/demo" "$d/.claude/agents"
     printf '%s' "$d"
 }

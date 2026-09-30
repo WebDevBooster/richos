@@ -59,7 +59,10 @@ command -v lsof >/dev/null 2>&1 || {
 . "$ENGINE/scripts/lib/scratch.sh"
 SANDBOX="$(scratch_new appinstances-test --ttl 60)"
 
-PIDS=""
+# PIDS is a FILE, one pid per line: launch() runs inside `$(launch ...)`, a
+# subshell, so a shell variable appended to there never reaches this parent.
+PIDS_FILE="$SANDBOX/launched.pids"
+: > "$PIDS_FILE"
 OUTSIDE=""     # anything this suite creates outside $SANDBOX, so the trap can
                # remove it even when a case fails half way through
 cleanup() {
@@ -70,9 +73,10 @@ cleanup() {
     #
     # SIGKILL, NOT SIGTERM: one variant here traps TERM on purpose, so a polite
     # teardown would leave exactly the deaf process it was built to model.
-    for p in $PIDS; do
-        kill -9 "$p" 2>/dev/null || true
-    done
+    local p
+    while IFS= read -r p; do
+        [ -n "$p" ] && kill -9 "$p" 2>/dev/null || true
+    done < "$PIDS_FILE"
     for d in $OUTSIDE; do
         rm -rf "$d" 2>/dev/null || true
     done
@@ -166,7 +170,7 @@ launch() {
     APP_STATE="$state" APP_DEAF="$deaf" APP_TTL_SECONDS="${APP_TTL_SECONDS:-120}" \
         "$exedir/richos-tauri" >/dev/null 2>&1 &
     local pid=$!
-    PIDS="$PIDS $pid"
+    printf '%s\n' "$pid" >> "$PIDS_FILE"
     # Wait until the descriptor is actually open, so no case races the app's
     # own startup and then reports a signal the module never had a chance to
     # see. A test that races is a test that is flaky and then deleted.

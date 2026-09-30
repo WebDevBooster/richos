@@ -96,8 +96,14 @@ tw_witness_list() {
 tw_witness_tree() {
     local root="$1"; shift
     [ -d "$root" ] || return 1
-    find "$root" -type f "$@" -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r p; do
+    # The listing is captured before it is sorted so find's own status is seen:
+    # in a pipeline it is discarded, and a failed traversal then witnessed as an
+    # empty tree that compares equal to another empty tree.
+    local listing p
+    listing="$(find "$root" -type f "$@" -print 2>/dev/null)" || return 1
+    [ -n "$listing" ] || return 0
+    while IFS= read -r p; do
         printf '%s\t%s\n' "${p#"$root"/}" "$(tw_file_witness "$p")"
-    done
+    done < <(printf '%s\n' "$listing" | LC_ALL=C sort)
     return 0
 }
