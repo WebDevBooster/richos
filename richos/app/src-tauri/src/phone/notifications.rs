@@ -188,7 +188,7 @@ fn device_body(revision:u64,generation:u64,target:Option<&Target>)->Value {
 pub fn queue_reply(desk:&mut Desk,device:&Device,thread:&str,payload:&Value)->Result<(),String> {
     let rows=super::rows::rows_from_payload(payload);
     let Some(row)=rows.iter().rev().find(|r|r["role"]=="rich" && r["kind"]!="question" && r["complete"]!=false) else {return Ok(())};
-    if device.delivered_cursor>=row["cursor"].as_u64() {return Ok(())}
+    if device.has_read(thread,row["cursor"].as_u64()) {return Ok(())}
     let Some(event)=row["id"].as_str() else {return Ok(())};
     desk.enqueue(device,thread,event)?;
     let event=hex(&sha256(event.as_bytes()));
@@ -289,6 +289,33 @@ mod tests {
         assert_eq!(key.open_in_place(Nonce::assume_unique_for_key(nonce),Aad::from(aad.as_bytes()),&mut bytes).unwrap(),"The supplier accepted £42,000.".as_bytes());
         let mut bytes=unb64url(sealed["body"].as_str().unwrap()).unwrap();
         assert!(key.open_in_place(Nonce::assume_unique_for_key(nonce),Aad::from(b"wrong reply"),&mut bytes).is_err());
+    }
+    /// **A DELIVERED MARK IN ONE CONVERSATION DOES NOT SILENCE ANOTHER** (hunt 2026-09-29, part 1,
+    /// finding 14). Row cursors number each conversation from 1, but the mark was one number for
+    /// the whole phone: having read row 100 of a long thread suppressed the push for row 3 of a
+    /// new one. Built from JSON so the same test runs against the old record shape.
+    #[test] fn a_reply_in_a_short_conversation_is_not_suppressed_by_reading_a_long_one() {
+        let (dir,_,registration)=fixture();
+        let device_with=|extra:Value|{
+            let mut record=json!({"id":"phone","name":"iPhone","public_key":super::super::b64url(&[4;65]),"paired_at":1,"push":null,"delivered_cursor":null,"fingerprint_confirmed":true,"paired_via":"connect"});
+            for (key,value) in extra.as_object().unwrap() {record[key]=value.clone();}
+            serde_json::from_value::<Device>(record).unwrap()
+        };
+        let reply=|id:&str,count:usize|{
+            let items:Vec<Value>=(1..=count).map(|n|json!({"kind":"rich_message","id":format!("{id}-{n}"),"threadId":id,"text":"Done.","createdAt":n})).collect();
+            json!({"items":items})
+        };
+        // He has read 100 rows of thread A. The old record says so device-wide; the new one says so for A.
+        let read_a_long_thread=device_with(json!({"delivered_cursor":100,"delivered_cursors":{"thread-a":100}}));
+        let mut desk=Desk::open(&dir.0).unwrap();desk.set(&read_a_long_thread,Some(registration)).unwrap();
+        queue_reply(&mut desk,&read_a_long_thread,"thread-b",&reply("thread-b",3)).unwrap();
+        assert_eq!(desk.state.jobs.len(),1,"row 3 of another conversation was suppressed by row 100 of thread A");
+        // POSITIVE CONTROL: the guard still does its job for the conversation it was recorded for.
+        queue_reply(&mut desk,&read_a_long_thread,"thread-a",&reply("thread-a",100)).unwrap();
+        assert_eq!(desk.state.jobs.len(),1,"a reply he had already read in thread A was announced again");
+        // And in its own conversation a NEWER row is still announced.
+        queue_reply(&mut desk,&read_a_long_thread,"thread-a",&reply("thread-a",101)).unwrap();
+        assert_eq!(desk.state.jobs.len(),2);
     }
     #[test] fn malformed_native_registrations_are_rejected() {
         let (_,_,mut r)=fixture();assert!(r.validate());r.topic="unrelated.app".into();assert!(!r.validate());

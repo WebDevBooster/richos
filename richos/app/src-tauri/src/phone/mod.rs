@@ -1704,15 +1704,15 @@ impl PhoneRuntime {
             let Some(subscription) = device.push.clone() else { return };
             Gathered {
                 devices: Arc::clone(&running.channel.devices),
-                device_id: device.id,
+                device_id: device.id.clone(),
                 subscription,
-                delivered_cursor: device.delivered_cursor,
+                device,
                 vapid: Arc::clone(&running.vapid),
                 api_base: running.channel.api_base.current().map(|o| o.api_base),
                 bridge: Arc::clone(&running.bridge),
             }
         };
-        let Gathered { devices, device_id, subscription, delivered_cursor, vapid, api_base, bridge } = gathered;
+        let Gathered { devices, device_id, subscription, device, vapid, api_base, bridge } = gathered;
         // Through the trait, deliberately: `push_last_reply` reads exactly what the phone reads,
         // through the same gated door, so a push can never carry something the stream could not.
         let bridge: &dyn routes::Bridge = bridge.as_ref();
@@ -1720,7 +1720,7 @@ impl PhoneRuntime {
         let Ok(payload) = bridge.snapshot(Some(&thread_id)) else { return };
         let rows = rows::rows_from_payload(&payload);
         let Some(last) = rows.iter().rev().find(|r| r["role"] == "rich" && r["kind"] != "question") else { return };
-        if delivered_cursor >= last["cursor"].as_u64() || !push::should_notify(&devices, &device_id, thread_id, last["id"].as_str().unwrap_or("")) {
+        if device.has_read(thread_id, last["cursor"].as_u64()) || !push::should_notify(&devices, &device_id, thread_id, last["id"].as_str().unwrap_or("")) {
             // He has already seen it. A push here would be the second time he was told.
             return;
         }
@@ -1759,13 +1759,7 @@ impl PhoneRuntime {
         runtime.block_on(async move {
             let Ok(client) = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build() else { return };
             match push::send(&client, &vapid, &subscription, body.as_bytes(), "high").await {
-                Ok(delivery) if delivery.gone => {
-                    eprintln!(
-                        "[richos] the phone's push subscription has lapsed ({}). It will be asked \
-                         for a new one the next time it connects.",
-                        delivery.status
-                    );
-                }
+                Ok(delivery) if delivery.gone => forget_a_lapsed_subscription(&devices, &subscription, delivery.status),
                 Ok(delivery) if delivery.status >= 300 => {
                     eprintln!(
                         "[richos] a push was refused with {}: {}",
@@ -1784,6 +1778,26 @@ impl PhoneRuntime {
     }
 }
 
+/// **The push service said this subscription is gone, so stop sending to it** (hunt 2026-09-29,
+/// part 1, finding 36). Until now this only logged that a new one "will be asked for", while the
+/// dead address stayed on file: every later reply repeated a request that could not succeed, and
+/// the settings payload kept reporting `pushReady`. Clearing it makes `pushReady` false, and the
+/// phone registers a fresh subscription the next time it connects, as the log line always said.
+fn forget_a_lapsed_subscription(devices: &device::DeviceDesk, subscription: &push::Subscription, status: u16) {
+    match devices.clear_push_if_still(subscription) {
+        Ok(true) => eprintln!(
+            "[richos] the phone's push subscription has lapsed ({status}) and was forgotten. It will \
+             be asked for a new one the next time it connects."
+        ),
+        Ok(false) => eprintln!(
+            "[richos] a push subscription that has lapsed ({status}) had already been replaced; the new one is kept."
+        ),
+        Err(error) => eprintln!(
+            "[richos] the phone's push subscription has lapsed ({status}) but could not be forgotten: {error}"
+        ),
+    }
+}
+
 /// What [`PhoneRuntime::push_last_reply`] takes out of the lock before it does any network work.
 ///
 /// A struct rather than a tuple of five, so the thing that makes the lock's scope a BLOCK is
@@ -1792,7 +1806,8 @@ struct Gathered {
     devices: Arc<device::DeviceDesk>,
     device_id: String,
     subscription: push::Subscription,
-    delivered_cursor: Option<u64>,
+    /// The paired phone, for the question "has he already read this row of this conversation".
+    device: device::Device,
     vapid: Arc<push::VapidKey>,
     api_base: Option<String>,
     bridge: Arc<bridge::PhoneBridge>,
@@ -1904,6 +1919,64 @@ mod tests {
         let end = start + source[start..].find("\n    }\n").expect("status() ends");
         let body = &source[start..end];
         assert_eq!(body.matches("self.rejected.lock()").count(), 1, "status() must lock `rejected` exactly once");
+    }
+
+    /// **A PUSH SUBSCRIPTION THE PUSH SERVICE SAYS IS GONE IS FORGOTTEN** (hunt 2026-09-29, part 1,
+    /// finding 36). A 404 or 410 used to be logged and nothing else: the dead address stayed on
+    /// file, every later reply tried it again, and the settings payload kept saying `pushReady`.
+    #[test]
+    fn a_push_subscription_the_service_reports_gone_is_forgotten_and_a_replacement_is_not() {
+        let dir = std::env::temp_dir().join(format!("richos-phone-lapsed-{}-{}", std::process::id(), now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let devices = device::DeviceDesk::open(&dir).unwrap();
+        let phone = device::tests::Phone::new();
+        let window = devices.open_pairing().unwrap();
+        devices
+            .complete_pairing(&window.code, &device::PublicKeyForm::Jwk(phone.jwk()), "iPhone", device::PairedVia::CONNECT, device::Platform::IOS)
+            .unwrap();
+        let subscription = |tag: &str| push::Subscription {
+            endpoint: format!("https://web.push.apple.com/{tag}"),
+            keys: push::SubscriptionKeys { p256dh: "BA".into(), auth: "AA".into() },
+        };
+
+        // The service says the subscription on file is gone: it is forgotten.
+        devices.set_push(Some(subscription("old"))).unwrap();
+        assert!(devices.paired().unwrap().push.is_some());
+        forget_a_lapsed_subscription(&devices, &subscription("old"), 410);
+        assert!(devices.paired().unwrap().push.is_none(), "a subscription reported gone stayed on file");
+
+        // A late answer about an OLD address does not erase the NEW one the phone registered.
+        devices.set_push(Some(subscription("new"))).unwrap();
+        forget_a_lapsed_subscription(&devices, &subscription("old"), 404);
+        assert_eq!(devices.paired().unwrap().push, Some(subscription("new")), "the replacement was erased by a late answer");
+        drop(devices);
+        std::fs::remove_dir_all(&dir).expect("the test's own folder could not be removed");
+    }
+
+    /// Finding 14 at the record: a read mark belongs to its conversation, survives a restart, and
+    /// says nothing about any other conversation.
+    #[test]
+    fn a_read_mark_is_kept_per_conversation_and_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("richos-phone-marks-{}-{}", std::process::id(), now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let devices = device::DeviceDesk::open(&dir).unwrap();
+        let phone = device::tests::Phone::new();
+        let window = devices.open_pairing().unwrap();
+        devices
+            .complete_pairing(&window.code, &device::PublicKeyForm::Jwk(phone.jwk()), "iPhone", device::PairedVia::CONNECT, device::Platform::IOS)
+            .unwrap();
+        devices.set_delivered_cursor("thread-a", 100).unwrap();
+        devices.set_delivered_cursor("thread-b", 3).unwrap();
+        drop(devices);
+        let reopened = device::DeviceDesk::open(&dir).unwrap();
+        let device = reopened.paired().unwrap();
+        assert!(device.has_read("thread-a", Some(100)));
+        assert!(device.has_read("thread-b", Some(3)));
+        assert!(!device.has_read("thread-b", Some(4)), "a newer reply in thread B was taken as read");
+        assert!(!device.has_read("thread-c", Some(1)), "reading A and B said something about C");
+        assert!(!device.has_read("thread-a", None), "a reply with no cursor was taken as read");
+        drop(reopened);
+        std::fs::remove_dir_all(&dir).expect("the test's own folder could not be removed");
     }
 
     /// **The seven key names `ui/phone.js` reads.** A rename on this side is a screen that draws

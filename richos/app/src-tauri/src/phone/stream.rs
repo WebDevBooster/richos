@@ -81,13 +81,17 @@ struct HubState {
     cursor: u64,
     recent: VecDeque<Frame>,
     live: bool,
+    /// How many frames this hub has ever published. `recent` is always the newest
+    /// `recent.len()` of them, so this number names a position in the stream that stays true after
+    /// the buffer rolls: the first retained frame is number `published - recent.len()`.
+    published: u64,
 }
 
 impl PhoneHub {
     pub fn new() -> Arc<Self> {
         let (tx, _rx) = broadcast::channel(BROADCAST_DEPTH);
         Arc::new(PhoneHub {
-            state: Mutex::new(HubState { cursor: 0, recent: VecDeque::new(), live: false }),
+            state: Mutex::new(HubState { cursor: 0, recent: VecDeque::new(), live: false, published: 0 }),
             tx,
         })
     }
@@ -125,7 +129,9 @@ impl PhoneHub {
         self.state.lock().unwrap().cursor
     }
 
-    /// Subscribe an open stream.
+    /// Subscribe without a position. Tests only: a real stream subscribes with
+    /// [`subscribe_from`](Self::subscribe_from), which cannot lose the frames published before it.
+    #[cfg(test)]
     pub fn subscribe(&self) -> broadcast::Receiver<Frame> {
         self.tx.subscribe()
     }
@@ -146,14 +152,21 @@ impl PhoneHub {
         }
         let frame = Frame { cursor, kind, data };
         state.recent.push_back(frame.clone());
+        state.published += 1;
         while state.recent.len() > REPLAY_MEMORY {
             state.recent.pop_front();
         }
-        drop(state);
+        // **SENT WHILE THE LOCK IS STILL HELD**, so that "recorded in `recent`" and "delivered to
+        // every subscriber that exists" happen as one step. [`PhoneHub::subscribe_from`] takes
+        // the same lock to read `recent` and to subscribe, so a frame is either in what it read
+        // or in what it will receive, never in neither and never in both (hunt 2026-09-29, part 1,
+        // finding 13). `send` does not block: the channel is bounded and drops its oldest.
+        //
         // A send with no subscribers is not an error: the phone is not always looking, and
         // §13's rule that "missed UI events never block the spine" applies to this observer
         // exactly as it applies to the webview's.
         let _ = self.tx.send(frame.clone());
+        drop(state);
         Some(frame)
     }
 
@@ -165,31 +178,161 @@ impl PhoneHub {
     }
 
     /// What to send a client that presented `since` (from the query, or from `Last-Event-ID`).
+    ///
+    /// Tests only: a real stream asks [`replay_after_marked`](Self::replay_after_marked), because
+    /// it needs the position as well as the answer.
+    #[cfg(test)]
     pub fn replay_after(&self, since: Option<u64>) -> Replay {
-        let Some(since) = since else { return Replay::Hello };
+        self.replay_after_marked(since).0
+    }
+
+    /// [`replay_after`](Self::replay_after), and the position in the stream the answer is exact
+    /// up to. Hand that position to [`subscribe_from`](Self::subscribe_from) when the stream
+    /// actually opens: everything published in between is then delivered, once.
+    ///
+    /// The position is read under the same lock as the answer, and BEFORE the caller builds a
+    /// `hello` from the ledger, so a `hello` can only be older than the position, never newer.
+    pub fn replay_after_marked(&self, since: Option<u64>) -> (Replay, u64) {
         let state = self.state.lock().unwrap();
+        let mark = state.published;
+        let Some(since) = since else { return (Replay::Hello, mark) };
         if !state.live {
             // No channel is running, so there is nothing to be the tail OF. Without this, a
             // buffer just cleared by an unpair would answer "you are up to date" about a stream
             // that no longer exists — a test caught exactly that.
-            return Replay::Hello;
+            return (Replay::Hello, mark);
         }
         if since > state.cursor {
             // A cursor from the future: this run never issued it.
-            return Replay::Hello;
+            return (Replay::Hello, mark);
         }
         let oldest_held = state.recent.front().map(|f| f.cursor);
         match oldest_held {
             Some(oldest) if oldest <= since + 1 => {
-                Replay::Tail(state.recent.iter().filter(|f| f.cursor > since).cloned().collect())
+                // **A CURSOR NAMES A ROW, NOT A FRAME** (hunt 2026-09-29, part 1, finding 12):
+                // a reply's opening, its deltas and its completion all carry the one cursor. A
+                // phone that saw the opening and dropped presents that cursor, and "everything
+                // after it" would be nothing, leaving the reply stuck at its first word. So the
+                // row AT the cursor is caught up first, unless it is plainly finished.
+                let at_cursor: Vec<Frame> = state.recent.iter().filter(|f| f.cursor == since).cloned().collect();
+                let mut frames = match catch_up_row(at_cursor, &state.recent) {
+                    Some(frames) => frames,
+                    // Part of that row is gone from the buffer; the truth is better than a gap.
+                    None => return (Replay::Hello, mark),
+                };
+                frames.extend(state.recent.iter().filter(|f| f.cursor > since).cloned());
+                (Replay::Tail(frames), mark)
             }
             // The buffer has rolled past what it asked for. A partial tail would be a silent
             // gap, so it gets the truth instead.
-            Some(_) => Replay::Hello,
-            None if since == state.cursor => Replay::Tail(Vec::new()),
-            None => Replay::Hello,
+            Some(_) => (Replay::Hello, mark),
+            None if since == state.cursor => (Replay::Tail(Vec::new()), mark),
+            None => (Replay::Hello, mark),
         }
     }
+
+    /// **Subscribe at a position, losing nothing and repeating nothing** (hunt 2026-09-29, part 1,
+    /// finding 13). `mark` is what [`replay_after_marked`](Self::replay_after_marked) returned.
+    /// The frames published since then are returned, and the receiver that follows them is
+    /// subscribed under the same lock that publishing takes, so the two halves meet exactly.
+    ///
+    /// The returned frames are made safe to repeat (see [`coalesce_rows`]), because the opening a
+    /// `hello` was built from may already include some of them.
+    ///
+    /// `Err` means the position can no longer be answered: the buffer rolled past it, or a delta
+    /// has no row to fold into. The caller tells the phone to start again.
+    pub fn subscribe_from(&self, mark: u64) -> Result<(Vec<Frame>, broadcast::Receiver<Frame>), ()> {
+        let state = self.state.lock().unwrap();
+        let first_held = state.published - state.recent.len() as u64;
+        if mark < first_held || mark > state.published {
+            return Err(());
+        }
+        let missed: Vec<Frame> = state.recent.iter().skip((mark - first_held) as usize).cloned().collect();
+        let missed = coalesce_rows(missed, &state.recent).ok_or(())?;
+        Ok((missed, self.tx.subscribe()))
+    }
+}
+
+/// The frames that bring a phone whose last cursor is `frames`' row up to date, or `None` when
+/// the row cannot be reconstructed from what is held.
+///
+/// Nothing at all for a row that is finished and was sent whole (his own message, a stand-in);
+/// otherwise the row's current state as [`coalesce_rows`] builds it.
+fn catch_up_row(frames: Vec<Frame>, history: &VecDeque<Frame>) -> Option<Vec<Frame>> {
+    let still_arriving = frames.iter().any(|f| f.kind == "delta" || is_incomplete_row(f));
+    if !still_arriving {
+        return Some(Vec::new());
+    }
+    coalesce_rows(frames, history)
+}
+
+fn data_of(frame: &Frame) -> serde_json::Value {
+    serde_json::from_str(&frame.data).unwrap_or_default()
+}
+
+/// A `message` frame that says its row is still being written.
+fn is_incomplete_row(frame: &Frame) -> bool {
+    frame.kind == "message" && data_of(frame)["complete"] == false
+}
+
+/// **Make a run of frames safe to apply to a phone that may already have some of them.**
+///
+/// The phone APPENDS a delta to its row and REPLACES a row by id. So a delta sent twice prints
+/// twice, while a whole row sent twice is harmless. For each reply that appears in `frames`:
+///
+/// * if its completion is there, the completion (the whole text, by design) stands alone;
+/// * otherwise its opening and deltas are folded into ONE row holding everything held for it so
+///   far, which `history` (the hub's buffer) supplies, placed where the reply first appeared.
+///
+/// `None` when a delta belongs to a reply whose opening is no longer held.
+fn coalesce_rows(frames: Vec<Frame>, history: &VecDeque<Frame>) -> Option<Vec<Frame>> {
+    use std::collections::{HashMap, HashSet};
+    let id_of = |f: &Frame| -> Option<String> {
+        let data = data_of(f);
+        match f.kind {
+            "delta" => data["message_id"].as_str().map(str::to_string),
+            "message" => data["id"].as_str().map(str::to_string),
+            _ => None,
+        }
+    };
+    // The replies this run of frames touches while they are still being written.
+    let mut streaming: Vec<String> = Vec::new();
+    let mut finished: HashSet<String> = HashSet::new();
+    for f in &frames {
+        let Some(id) = id_of(f) else { continue };
+        if f.kind == "message" && data_of(f)["complete"] == true {
+            finished.insert(id);
+        } else if (f.kind == "delta" || is_incomplete_row(f)) && !streaming.contains(&id) {
+            streaming.push(id);
+        }
+    }
+    let mut folded: HashMap<String, Frame> = HashMap::new();
+    for id in streaming.iter().filter(|id| !finished.contains(*id)) {
+        // The row as it was opened, and every delta held for it since.
+        let opening = history.iter().find(|f| is_incomplete_row(f) && id_of(f).as_deref() == Some(id.as_str()))?;
+        let text: String = history
+            .iter()
+            .filter(|f| f.kind == "delta" && id_of(f).as_deref() == Some(id.as_str()))
+            .map(|f| data_of(f)["text"].as_str().unwrap_or("").to_string())
+            .collect();
+        let mut row = data_of(opening);
+        row["text"] = serde_json::Value::String(text);
+        folded.insert(id.clone(), Frame { cursor: opening.cursor, kind: "message", data: row.to_string() });
+    }
+    let mut out: Vec<Frame> = Vec::new();
+    for f in frames {
+        let Some(id) = id_of(&f) else { out.push(f); continue };
+        let streaming_part = f.kind == "delta" || is_incomplete_row(&f);
+        if !streaming_part {
+            out.push(f);
+        } else if finished.contains(&id) {
+            // The completion carries the whole text; the pieces before it add nothing.
+        } else if let Some(row) = folded.remove(&id) {
+            out.push(row);
+        }
+        // else: this reply's folded row was already placed at its first appearance.
+    }
+    Some(out)
 }
 
 /// **The phone's emitter, beside `TauriLiveEmitter`.**
@@ -370,6 +513,126 @@ mod tests {
         hub.seed_cursor(4);
         hub.publish("message", 5, "{}".into()).unwrap();
         assert_eq!(hub.replay_after(Some(5)), Replay::Tail(Vec::new()));
+    }
+
+    /// Publishes one reply the way [`PhoneLiveEmitter`] does: the opening, two deltas and the
+    /// completion, all under ONE cursor (a cursor names a row, not a frame).
+    fn publish_one_reply(hub: &PhoneHub, cursor: u64, id: &str) {
+        let opening = serde_json::json!({ "id": id, "cursor": cursor, "role": "rich", "text": "", "complete": false });
+        hub.publish("message", cursor, opening.to_string()).unwrap();
+        for piece in ["Here is ", "the answer."] {
+            let delta = serde_json::json!({ "message_id": id, "cursor": cursor, "text": piece });
+            hub.publish("delta", cursor, delta.to_string()).unwrap();
+        }
+        let done = serde_json::json!({ "id": id, "cursor": cursor, "role": "rich", "text": "Here is the answer.", "complete": true });
+        hub.publish("message", cursor, done.to_string()).unwrap();
+    }
+
+    fn texts(replay: Replay) -> Vec<(String, String, bool)> {
+        match replay {
+            Replay::Tail(frames) => frames
+                .iter()
+                .map(|f| {
+                    let v: serde_json::Value = serde_json::from_str(&f.data).unwrap();
+                    (f.kind.to_string(), v["text"].as_str().unwrap_or("").to_string(), v["complete"] == true)
+                })
+                .collect(),
+            other => panic!("expected a tail, got {other:?}"),
+        }
+    }
+
+    /// **A RECONNECTION IN THE MIDDLE OF A REPLY GETS THE REST OF IT** (hunt 2026-09-29, part 1,
+    /// finding 12). A cursor names a ROW, so the opening, every delta and the completion of one
+    /// reply share it. A phone that saw the opening (cursor 7) and dropped used to present
+    /// `since=7` and be told it was up to date, with the reply stuck at its first word.
+    #[test]
+    fn a_reconnection_partway_through_a_reply_gets_the_rest_of_that_reply() {
+        let hub = live_hub();
+        hub.seed_cursor(6);
+        publish_one_reply(&hub, 7, "reply-7");
+
+        let got = texts(hub.replay_after(Some(7)));
+        assert!(!got.is_empty(), "since=7 was answered as up to date, but the reply at cursor 7 was still arriving");
+        // Whatever shape the catch-up takes, the phone must end with the whole reply, complete.
+        let (_, text, complete) = got.last().unwrap();
+        assert_eq!((text.as_str(), *complete), ("Here is the answer.", true), "{got:?}");
+
+        // And the phone that had everything is still told nothing NEW happened after it.
+        assert_eq!(texts(hub.replay_after(Some(6))).last().unwrap().1, "Here is the answer.");
+    }
+
+    /// A reply still being written: the catch-up is ONE row holding everything so far, not the raw
+    /// deltas, because the phone APPENDS a delta to its row and a delta it already applied would
+    /// print twice.
+    #[test]
+    fn a_reconnection_during_a_live_reply_is_caught_up_without_repeating_a_delta() {
+        let hub = live_hub();
+        hub.seed_cursor(6);
+        let opening = serde_json::json!({ "id": "r7", "cursor": 7, "role": "rich", "text": "", "complete": false });
+        hub.publish("message", 7, opening.to_string()).unwrap();
+        for piece in ["Here is ", "the "] {
+            let delta = serde_json::json!({ "message_id": "r7", "cursor": 7, "text": piece });
+            hub.publish("delta", 7, delta.to_string()).unwrap();
+        }
+        let got = texts(hub.replay_after(Some(7)));
+        assert_eq!(got, vec![("message".to_string(), "Here is the ".to_string(), false)], "{got:?}");
+    }
+
+    /// The other half of finding 12's reason: a phone whose last cursor is a finished ROW OF HIS
+    /// (one frame, nothing more to come) is still told it is up to date.
+    #[test]
+    fn a_finished_single_frame_row_leaves_nothing_to_replay() {
+        let hub = live_hub();
+        let his = serde_json::json!({ "id": "t:user", "cursor": 3, "role": "ceo", "text": "hi", "complete": true });
+        hub.publish("message", 3, his.to_string()).unwrap();
+        assert_eq!(hub.replay_after(Some(3)), Replay::Tail(Vec::new()));
+    }
+
+    /// Finding 13, at the hub: what is published between answering the route and subscribing is
+    /// handed over once, and what follows comes through the receiver.
+    #[test]
+    fn subscribing_from_a_position_loses_nothing_and_repeats_nothing() {
+        let hub = live_hub();
+        hub.publish("message", 1, "{\"n\":1}".into()).unwrap();
+        let (_, mark) = hub.replay_after_marked(Some(1));
+        hub.publish("message", 2, "{\"n\":2}".into()).unwrap();
+        let (missed, mut rx) = hub.subscribe_from(mark).unwrap();
+        assert_eq!(missed.iter().map(|f| f.data.as_str()).collect::<Vec<_>>(), vec!["{\"n\":2}"]);
+        assert!(rx.try_recv().is_err(), "the frame handed over as missed was also delivered live");
+        hub.publish("message", 3, "{\"n\":3}".into()).unwrap();
+        assert_eq!(rx.try_recv().unwrap().data, "{\"n\":3}");
+    }
+
+    /// A `hello` built from the ledger after the position may already hold part of a reply that
+    /// is still arriving; handing over its raw deltas would append them twice. They are handed
+    /// over folded into one row, which replaces instead of appending.
+    #[test]
+    fn frames_handed_over_after_a_hello_are_safe_to_apply_twice() {
+        let hub = live_hub();
+        let (_, mark) = hub.replay_after_marked(None);
+        let opening = serde_json::json!({ "id": "r1", "cursor": 1, "role": "rich", "text": "", "complete": false });
+        hub.publish("message", 1, opening.to_string()).unwrap();
+        for piece in ["One ", "two"] {
+            let delta = serde_json::json!({ "message_id": "r1", "cursor": 1, "text": piece });
+            hub.publish("delta", 1, delta.to_string()).unwrap();
+        }
+        let (missed, _rx) = hub.subscribe_from(mark).unwrap();
+        assert!(missed.iter().all(|f| f.kind != "delta"), "a raw delta would be appended twice: {missed:?}");
+        let row: serde_json::Value = serde_json::from_str(&missed.last().unwrap().data).unwrap();
+        assert_eq!((row["id"].as_str(), row["text"].as_str(), row["complete"].as_bool()), (Some("r1"), Some("One two"), Some(false)));
+    }
+
+    #[test]
+    fn a_position_the_buffer_has_rolled_past_cannot_be_subscribed_from() {
+        let hub = live_hub();
+        let (_, mark) = hub.replay_after_marked(None);
+        for n in 1..=REPLAY_MEMORY as u64 + 10 {
+            hub.publish("message", n, "{}".into()).unwrap();
+        }
+        assert!(hub.subscribe_from(mark).is_err(), "a gap the phone cannot see was papered over");
+        // POSITIVE CONTROL: a current position is fine.
+        let (_, now) = hub.replay_after_marked(None);
+        assert!(hub.subscribe_from(now).is_ok());
     }
 
     #[test]

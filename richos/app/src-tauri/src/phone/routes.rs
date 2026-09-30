@@ -62,7 +62,11 @@ pub enum Outcome {
     Json { status: u16, body: String },
     Bytes { status: u16, content_type: String, body: Vec<u8>, download_as: Option<String> },
     /// Open an event stream. The listener writes these frames, then follows the hub.
-    Stream { opening: Vec<String>, since: Option<u64> },
+    ///
+    /// `mark` is the hub's position the opening frames were prepared at; the stream subscribes
+    /// from there, so nothing published between preparing the opening and subscribing is lost
+    /// ([`PhoneHub::subscribe_from`]).
+    Stream { opening: Vec<String>, since: Option<u64>, mark: u64 },
     /// **The answer to nearly everything.** One answer to every question a caller that is not the
     /// paired phone can ask, so the surface cannot be mapped by the shape of the refusals.
     NotFound,
@@ -413,8 +417,14 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
             return Outcome::NotFound;
         }
     }
-    if let Some(cursor) = body.get("delivered_cursor").and_then(|v| v.as_u64()) {
-        let _ = channel.devices.set_delivered_cursor(cursor);
+    // **A cursor is only meaningful inside the conversation that numbered it**, so it is recorded
+    // per conversation (`thread_id` beside it, hunt 2026-09-29 part 1 finding 14). A bare cursor
+    // says nothing about which conversation was read and is not recorded.
+    if let (Some(cursor), Some(thread)) = (
+        body.get("delivered_cursor").and_then(|v| v.as_u64()),
+        body.get("thread_id").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 256),
+    ) {
+        let _ = channel.devices.set_delivered_cursor(thread, cursor);
     }
 
     // **THE SIX WORDS, ANSWERED** — Ray's nightly `.7` walk, defect 2, and the half of it that
@@ -938,7 +948,9 @@ fn events(channel: &Channel, request: &Incoming) -> Outcome {
         .or_else(|| request.last_event_id.as_deref().and_then(|v| v.parse::<u64>().ok()));
 
     let mut opening: Vec<String> = Vec::new();
-    match channel.hub.replay_after(since) {
+    // The hub's position is taken WITH the answer and before any `hello` is built from the ledger.
+    let (replay, mark) = channel.hub.replay_after_marked(since);
+    match replay {
         Replay::Tail(frames) => {
             for frame in frames {
                 opening.push(frame.to_wire());
@@ -949,7 +961,7 @@ fn events(channel: &Channel, request: &Incoming) -> Outcome {
             opening.push(hello.to_wire());
         }
     }
-    Outcome::Stream { opening, since }
+    Outcome::Stream { opening, since, mark }
 }
 
 /// `duration_ms` on the CEO rows that were phone voice notes, joined exactly through
@@ -1922,7 +1934,7 @@ mod tests {
     fn the_stream_opens_with_a_hello_that_carries_everything_the_phone_needs_to_start() {
         let f = fixture("stream-open");
         match dispatch(&f.channel, &signed_stream(&f, "thread_id=thr_5c1e")) {
-            Outcome::Stream { opening, since } => {
+            Outcome::Stream { opening, since, .. } => {
                 assert_eq!(since, None);
                 assert_eq!(opening.len(), 1);
                 let wire = &opening[0];
@@ -1995,7 +2007,7 @@ mod tests {
         f.channel.hub.seed_cursor(4);
         f.channel.hub.publish("message", 5, "{\"n\":5}".into()).unwrap();
         match dispatch(&f.channel, &signed_stream(&f, "thread_id=thr_5c1e&since=4")) {
-            Outcome::Stream { opening, since } => {
+            Outcome::Stream { opening, since, .. } => {
                 assert_eq!(since, Some(4));
                 assert_eq!(opening.len(), 1);
                 assert!(opening[0].contains("event: message"), "{}", opening[0]);
@@ -2015,7 +2027,7 @@ mod tests {
         let mut request = signed_stream(&f, "thread_id=thr_5c1e");
         request.last_event_id = Some("4".into());
         match dispatch(&f.channel, &request) {
-            Outcome::Stream { opening, since } => {
+            Outcome::Stream { opening, since, .. } => {
                 assert_eq!(since, Some(4));
                 assert!(opening[0].contains("event: message"), "{}", opening[0]);
             }

@@ -632,7 +632,7 @@ async fn handle(channel: Arc<Channel>, drain: Arc<Drain>, request: Request<Hyper
     }
     match (outcome, guard) {
         // A stream is long-lived; the drain never waits on one.
-        (Outcome::Stream { opening, .. }, _) => open_stream(channel, opening),
+        (Outcome::Stream { opening, mark, .. }, _) => open_stream(channel, opening, mark),
         (other, Some(guard)) => {
             render(&channel, other).map(|inner| GuardedBody { inner, _guard: guard }.boxed())
         }
@@ -749,21 +749,35 @@ impl hyper::body::Body for StreamBody {
 
 /// Open an event stream: write the opening frames, then follow the hub until the phone goes away
 /// or the channel stops.
-fn open_stream(channel: Arc<Channel>, opening: Vec<String>) -> Response<BoxBody> {
+///
+/// `mark` is the hub position the opening frames were prepared at. The stream subscribes FROM
+/// there ([`super::stream::PhoneHub::subscribe_from`]): whatever was published between preparing
+/// the opening and this subscription is sent after it, once, and everything later follows live.
+/// Subscribing afterwards instead lost that window (hunt 2026-09-29, part 1, finding 13).
+fn open_stream(channel: Arc<Channel>, opening: Vec<String>, mark: u64) -> Response<BoxBody> {
     let slot = match channel.devices.claim_stream() {
         Ok(slot) => slot,
         Err(_) => return render(&channel, Outcome::RateLimited),
     };
     let (mut sender, body) =
         http_body_util::channel::Channel::<Bytes, std::convert::Infallible>::new(32);
-    let mut live = channel.hub.subscribe();
+    // `None`: the position can no longer be answered exactly (the hub's memory rolled past it).
+    // The phone is sent the opening, told to start again, and the stream ends.
+    let (missed, live) = match channel.hub.subscribe_from(mark) {
+        Ok((missed, live)) => (missed, Some(live)),
+        Err(()) => (Vec::new(), None),
+    };
 
     tokio::spawn(async move {
-        for frame in opening {
+        for frame in opening.into_iter().chain(missed.iter().map(|f| f.to_wire())) {
             if sender.send_data(Bytes::from(frame)).await.is_err() {
                 return;
             }
         }
+        let Some(mut live) = live else {
+            sender.send_data(Bytes::from(": re-snapshot 0\n\n")).await.ok();
+            return;
+        };
         loop {
             // `timeout` rather than a three-way `select!`: the keep-alive IS the timeout, and
             // shutdown needs no arm here because dropping the channel's runtime ends this task.
@@ -985,13 +999,67 @@ mod tests {
             pairing_path:std::sync::Mutex::new(super::super::device::PairedVia::CONNECT)});
         let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(async {
-            let response=open_stream(channel.clone(),vec![]);
+            let response=open_stream(channel.clone(),vec![],0);
             assert_eq!(devices.open_streams(),1,"A live body must still suppress duplicate foreground push");
             tokio::task::yield_now().await; // Producer is now waiting for its next frame.
             drop(response);
             assert_eq!(devices.open_streams(),0,"A closed body must not suppress background push for 15 seconds");
-            for _ in 0..10 {drop(open_stream(channel.clone(),vec![]));}
+            for _ in 0..10 {drop(open_stream(channel.clone(),vec![],0));}
             assert_eq!(devices.open_streams(),0,"Rapid reopen/close must not exhaust the stream slots");
+        });
+        drop(runtime);std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// **AN EVENT PUBLISHED BETWEEN PREPARING THE OPENING AND OPENING THE STREAM REACHES THE
+    /// PHONE** (hunt 2026-09-29, part 1, finding 13). The opening frames are built in the route
+    /// and the subscription is made afterwards, when the response is written; a frame published
+    /// in that gap was in neither. It arrives now, after the opening, exactly once, and the
+    /// frame after that arrives live.
+    #[test]
+    fn an_event_published_between_preparing_the_opening_and_opening_the_stream_is_delivered_once() {
+        use crate::phone::{api_base::ApiBaseDesk, device::DeviceDesk, routes::{Bridge,Accepted,StopSwitch}, stream::{PhoneHub, Replay}};
+        struct Quiet;
+        impl Bridge for Quiet {
+            fn submit_text(&self,_:Option<&str>,_:&str)->Result<Accepted,String>{Err("unused".into())}
+            fn snapshot(&self,_:Option<&str>)->Result<serde_json::Value,String>{Ok(serde_json::json!({}))}
+            fn current_thread(&self)->Option<(String,String)>{None}
+            fn threads(&self)->Vec<(String,String)>{vec![]}
+        }
+        let dir=std::env::temp_dir().join(format!("stream-gap-{}-{}",std::process::id(),super::super::now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let hub=PhoneHub::new();
+        hub.set_live(true);
+        let channel=Arc::new(Channel {devices:Arc::new(DeviceDesk::open(&dir).unwrap()),rejected:StopSwitch::unwired(),
+            api_base:Arc::new(ApiBaseDesk::only("https://example.invalid")),hub:Arc::clone(&hub),bridge:Arc::new(Quiet),
+            assets:super::super::assets::PhoneApp::embedded(),vapid_public:String::new(),fingerprint_hex:String::new(),
+            pairing_path:std::sync::Mutex::new(super::super::device::PairedVia::CONNECT)});
+
+        hub.publish("message",1,"{\"n\":1}".into()).unwrap();
+        // The route: the phone is up to date as of now.
+        let (replay,mark)=hub.replay_after_marked(Some(1));
+        assert_eq!(replay,Replay::Tail(Vec::new()));
+        // THE GAP: the route has answered and the response is not written yet.
+        hub.publish("message",2,"{\"n\":\"in the gap\"}".into()).unwrap();
+
+        let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let response=open_stream(channel.clone(),vec![],mark);
+            let mut body=response.into_body();
+            let mut seen=String::new();
+            async fn read(body:&mut BoxBody,seen:&mut String)->bool {
+                use http_body_util::BodyExt;
+                match tokio::time::timeout(std::time::Duration::from_secs(2),body.frame()).await {
+                    Ok(Some(Ok(frame))) => { if let Some(data)=frame.data_ref() { seen.push_str(&String::from_utf8_lossy(data)); } true }
+                    _ => false,
+                }
+            }
+            assert!(read(&mut body,&mut seen).await,"nothing arrived: the event published in the gap was lost");
+            assert!(seen.contains("in the gap"),"the stream did not carry the event published in the gap: {seen:?}");
+            // And what follows is live, and the gap's event is not repeated.
+            hub.publish("message",3,"{\"n\":\"live\"}".into()).unwrap();
+            assert!(read(&mut body,&mut seen).await,"a live event after the gap did not arrive");
+            assert!(seen.contains("live"),"{seen:?}");
+            assert_eq!(seen.matches("in the gap").count(),1,"the gap's event was delivered twice: {seen:?}");
         });
         drop(runtime);std::fs::remove_dir_all(dir).unwrap();
     }
