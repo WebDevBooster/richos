@@ -433,8 +433,13 @@ resolve_selection() {
     # that has to be kept in step with it.
     if [ -n "$UNITS_FILE" ] && [ -n "$SHARD" ]; then
         [ -f "$UNITS_FILE" ] || die "--units-file: no such file: $UNITS_FILE"
-        bash "$UNITS_SH" shards "$SHARDS" --units-file "$UNITS_FILE" \
-            | awk -F'\t' -v i="$SHARD" '$1 == i { print $2 }' | LC_ALL=C sort
+        # The plan is read into a variable first: in a pipeline its failure (a
+        # requested unit the inventory rejects) was swallowed and only the
+        # recognized units carried on. A failed plan is fatal.
+        local plan
+        plan="$(bash "$UNITS_SH" shards "$SHARDS" --units-file "$UNITS_FILE")" \
+            || die "the restricted shard plan could not be built (see the error above); refusing to run a partial selection" 2
+        printf '%s\n' "$plan" | awk -F'\t' -v i="$SHARD" '$1 == i { print $2 }' | LC_ALL=C sort
         return 0
     fi
     if [ -n "$ONLY_UNITS" ] || [ -n "$UNITS_FILE" ]; then
@@ -445,7 +450,10 @@ resolve_selection() {
         return 0
     fi
     if [ -n "$SHARD" ]; then
-        bash "$UNITS_SH" shards "$SHARDS" | awk -F'\t' -v i="$SHARD" '$1 == i { print $2 }' | LC_ALL=C sort
+        local plan
+        plan="$(bash "$UNITS_SH" shards "$SHARDS")" \
+            || die "the shard plan could not be built (see the error above); refusing to run a partial selection" 2
+        printf '%s\n' "$plan" | awk -F'\t' -v i="$SHARD" '$1 == i { print $2 }' | LC_ALL=C sort
         return 0
     fi
     # No selector at all is the WHOLE inventory in one process. Honest, and

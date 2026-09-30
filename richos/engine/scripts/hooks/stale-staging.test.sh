@@ -320,8 +320,8 @@ if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
 else
     bad "7b  the guard did not accept the recorder's own output" "rc=$RC out='$(printf '%s' "$OUT" | head -2 | tr '\n' ' ')'"
 fi
-if bash "$RECORDER" --root "$ENTITY" --sha "not-a-sha" >/dev/null 2>&1; then
-    bad "7c  the recorder accepted something that is not a commit hash"
+if bash "$RECORDER" --root "$ENTITY" --sha "not-a-sha" --outcome success >/dev/null 2>&1; then
+    bad "7c the recorder accepted something that is not a commit hash"
 else
     ok "7c  the recorder refuses a --sha that is not a commit hash — a typed SHA is the failure it prevents"
 fi

@@ -141,7 +141,22 @@ for tree in $STAGING_TREES; do
         echo "STALE      $tree — $BEHIND commit(s) touching $tree/ landed since staging's $SHA"
         STALE=1
     else
-        echo "current    $tree — staging at $SHA has every $tree/ commit on main"
+        # No main commit is missing from staging's history. That is not yet the
+        # same as staging carrying main's product: a deploy that DESCENDS from
+        # main can still have reverted or changed the tree. Compare the content.
+        # Exit 0 = identical, 1 = differs, anything else = could not compare,
+        # which is reported rather than read as "current".
+        DIFF_RC=0
+        git -C "$MAIN_ROOT" diff --quiet "$SHA" "$MAIN_TIP" -- "$tree" 2>/dev/null || DIFF_RC=$?
+        if [ "$DIFF_RC" -eq 0 ]; then
+            echo "current    $tree — staging at $SHA has every $tree/ commit on main"
+        elif [ "$DIFF_RC" -eq 1 ]; then
+            echo "STALE      $tree — staging's $SHA has every main commit in its history but its $tree/ content differs from main's"
+            STALE=1
+        else
+            echo "NO RECORD  $tree — could not compare staging's $SHA with main's $tree/ content"
+            STALE=1
+        fi
     fi
 done
 

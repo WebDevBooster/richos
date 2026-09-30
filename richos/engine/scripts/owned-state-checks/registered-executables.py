@@ -45,8 +45,10 @@ EXIT CODES
 ===========================================================================
   0  every configured script exists and is executable
   1  at least one does not, each named with what is wrong with it
-  2  UNKNOWN — no registration surface could be read at all. Never 0: a
-     question that could not be asked and a clean answer must not look alike.
+  2  UNKNOWN — no registration surface could be read at all, or a table that
+     exists could not be parsed (and nothing else failed). Never 0: a question
+     that could not be asked and a clean answer must not look alike. A table
+     that is simply absent (no settings file) is not a corrupt one.
 """
 
 import argparse
@@ -61,28 +63,64 @@ PLACEHOLDERS = ("${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT",
                 "${CLAUDE_PROJECT_DIR}", "$CLAUDE_PROJECT_DIR")
 
 
-def read_hook_table(path, where, root, paths):
-    """Returns True if the surface was READ, whatever it contained.
+# Interpreters whose argument is a script they READ: such a script needs to be
+# readable, not executable. Anything not preceded by one is run directly and
+# needs the executable bit.
+INTERPRETERS = ("bash", "sh", "zsh", "dash", "python", "python3", "node", "ruby", "perl")
 
-    An empty-but-present table is a surface that was read and configures
-    nothing; an unreadable one is a surface that was not read. Collapsing those
-    two would let a corrupt hooks.json report a clean bill of health."""
+
+def run_directly(tokens, i):
+    """True when tokens[i] is the program being executed, False when an
+    interpreter (optionally followed by flags) is what executes it."""
+    j = i - 1
+    while j >= 0 and tokens[j].startswith("-"):
+        j -= 1
+    return not (j >= 0 and os.path.basename(tokens[j]) in INTERPRETERS)
+
+
+def add_path(paths, p, where, direct):
+    entry = paths.setdefault(p, {"where": set(), "direct": False})
+    entry["where"].add(where)
+    entry["direct"] = entry["direct"] or direct
+
+
+# read_hook_table verdicts
+READ, ABSENT, UNREADABLE = "read", "absent", "unreadable"
+
+
+def read_hook_table(path, where, root, paths):
+    """READ, ABSENT or UNREADABLE.
+
+    Three states, never two. An empty-but-present table is a surface that was
+    read and configures nothing (READ). A file that is not there is a surface
+    that does not exist (ABSENT): an entity need not have a settings file. A file
+    that IS there and cannot be parsed is a surface whose registrations are
+    unknown (UNREADABLE); folding it into ABSENT let a corrupt table report a
+    clean bill of health."""
+    if not os.path.exists(path):
+        return ABSENT
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
+        if not isinstance(doc, dict):
+            return UNREADABLE
+        hooks = doc.get("hooks") or {}
+        if not isinstance(hooks, dict):
+            return UNREADABLE
     except Exception:
-        return False
-    for event, matchers in (doc.get("hooks") or {}).items():
+        return UNREADABLE
+    for event, matchers in hooks.items():
         for m in matchers or []:
             for h in (m.get("hooks") or []):
                 cmd = str(h.get("command", "") or "")
-                for token in cmd.replace('"', " ").replace("'", " ").split():
+                tokens = cmd.replace('"', " ").replace("'", " ").split()
+                for i, token in enumerate(tokens):
                     for ph in PLACEHOLDERS:
                         if token.startswith(ph):
                             p = os.path.normpath(root + token[len(ph):])
-                            paths.setdefault(p, set()).add("%s[%s]" % (where, event))
+                            add_path(paths, p, "%s[%s]" % (where, event), run_directly(tokens, i))
                             break
-    return True
+    return READ
 
 
 def read_launchd(engine, paths):
@@ -97,12 +135,12 @@ def read_launchd(engine, paths):
         if not args and doc.get("Program"):
             args = [doc["Program"]]
         hit = False
-        for a in args:
-            a = str(a)
+        argv = [str(a) for a in args]
+        for i, a in enumerate(argv):
             if a.startswith("/") and (a.startswith(engine + os.sep)
                                       or "/engine/scripts/" in a):
-                paths.setdefault(os.path.normpath(a), set()).add(
-                    "launchd:" + os.path.basename(plist))
+                add_path(paths, os.path.normpath(a), "launchd:" + os.path.basename(plist),
+                         run_directly(argv, i))
                 hit = True
         if hit:
             read += 1
@@ -131,12 +169,15 @@ def main(argv=None):
 
     paths = {}
     surfaces = 0
-    if read_hook_table(os.path.join(engine, "hooks", "hooks.json"), "hooks.json",
-                       engine, paths):
-        surfaces += 1
-    if read_hook_table(os.path.join(entity, ".claude", "settings.local.json"),
-                       "settings.local.json", entity, paths):
-        surfaces += 1
+    unreadable = []
+    for table, where, root in (
+            (os.path.join(engine, "hooks", "hooks.json"), "hooks.json", engine),
+            (os.path.join(entity, ".claude", "settings.local.json"), "settings.local.json", entity)):
+        state = read_hook_table(table, where, root, paths)
+        if state == READ:
+            surfaces += 1
+        elif state == UNREADABLE:
+            unreadable.append(table)
     if args.launch_agents is None:
         surfaces += read_launchd(engine, paths)
     else:
@@ -146,14 +187,14 @@ def main(argv=None):
                     doc = plistlib.load(fh)
             except Exception:
                 continue
-            for a in (doc.get("ProgramArguments") or []):
-                a = str(a)
+            argv = [str(a) for a in (doc.get("ProgramArguments") or [])]
+            for i, a in enumerate(argv):
                 if a.startswith("/"):
-                    paths.setdefault(os.path.normpath(a), set()).add(
-                        "launchd:" + os.path.basename(plist))
+                    add_path(paths, os.path.normpath(a), "launchd:" + os.path.basename(plist),
+                             run_directly(argv, i))
                     surfaces += 1
 
-    if surfaces == 0:
+    if surfaces == 0 and not unreadable:
         sys.stderr.write(
             "UNKNOWN: no registration surface could be read (looked for "
             "%s/hooks/hooks.json and %s/.claude/settings.local.json)\n"
@@ -162,14 +203,28 @@ def main(argv=None):
 
     bad = 0
     for p in sorted(paths):
-        where = ", ".join(sorted(paths[p]))
+        where = ", ".join(sorted(paths[p]["where"]))
         if not os.path.exists(p):
             print("MISSING      %s — configured by %s, and it is not on disk" % (p, where))
             bad += 1
-        elif not os.access(p, os.X_OK):
+        elif paths[p]["direct"] and not os.access(p, os.X_OK):
             print("NOT RUNNABLE %s — configured by %s, and it carries no executable "
                   "bit. It is counted, it is loaded, and it runs nothing." % (p, where))
             bad += 1
+        elif not paths[p]["direct"] and not os.access(p, os.R_OK):
+            print("NOT RUNNABLE %s — configured by %s as an interpreter's script, and it "
+                  "is not readable." % (p, where))
+            bad += 1
+
+    for table in unreadable:
+        print("UNREADABLE   %s — the file is there and could not be parsed as a hook "
+              "table, so what it configures is UNKNOWN" % table)
+
+    if unreadable and not bad:
+        sys.stderr.write(
+            "UNKNOWN: %d registration table(s) could not be read, so the clean result "
+            "above covers only the rest\n" % len(unreadable))
+        return 2
 
     if not bad:
         print("all %d configured script(s) across %d surface(s) exist and are executable"

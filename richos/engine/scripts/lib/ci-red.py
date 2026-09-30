@@ -125,8 +125,17 @@ def probe(slug, branch, timeout):
     # Newest first is what the API gives; keep the first per workflow id, and
     # keep walking so the STREAK (how long it has been failing) is available
     # from the same page rather than from a second call.
+    # A SKIPPED run says nothing about whether the workflow is repaired: it ran
+    # no job. Taking it as the workflow's latest run let it erase an earlier,
+    # unrepaired failure (state "clear" with the failure still standing), and
+    # counting it in the streak walk would date the failure by a run that never
+    # tested anything. So skipped runs are set aside for the verdict; the
+    # never-ran question stays ci-surface.py's, exactly as NOT_GREEN says.
+    workflows = {r.get("workflow_id") for r in runs}
     latest, history = {}, {}
     for r in runs:
+        if r.get("conclusion") == "skipped":
+            continue
         wid = r.get("workflow_id")
         history.setdefault(wid, []).append(r)
         latest.setdefault(wid, r)
@@ -174,7 +183,7 @@ def probe(slug, branch, timeout):
     return {
         "repo": slug, "branch": branch,
         "read_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "workflows_seen": len(latest),
+        "workflows_seen": len(workflows),
         "red": red,
         "state": "red" if red else "clear",
     }, None

@@ -244,6 +244,13 @@ if [ "$RC" = "2" ]; then
 elif [ "${FAILURES:-0}" -gt 0 ] 2>/dev/null; then
     OK=false; EXIT=1
     REASON="$FAILURES deletion(s) FAILED — this is the CEO rule's clean-up-failed case and needs a person"
+elif [ "$RC" != "0" ] && [ "$RC" != "3" ]; then
+    # Any other exit is the cleaner failing, not a verdict: 4 is "a deletion
+    # failed" (when its log line could not be read here), and 1, 125, 127 and
+    # the signals are a crash before any result was written. swept=0 and
+    # failures=0 over a crashed cleaner would read as a successful sweep.
+    OK=false; EXIT=1
+    REASON="the reaper exited $RC before reporting a result, so nothing is known to have been cleaned"
 elif [ "$RC" = "3" ] || [ "${UNDEC:-0}" -gt 0 ] 2>/dev/null; then
     # NOT ok:false. Undecidable means a live owner or a wall protected
     # something, which is the mechanism working. It is reported so the watchdog
