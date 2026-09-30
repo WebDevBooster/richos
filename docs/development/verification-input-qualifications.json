@@ -1799,10 +1799,11 @@
       }
     },
     "make-engine-asset": {
-      "review": "Synthetic refusal and proof-cache cases create private Git repositories. Real cases build two archives from the working engine, tracked member inventory, canonical LICENSE, third-party notices and the supplied verified runtime. The engine commit epoch affects archive mtimes and is explicit. HEAD is printed in the pin comment only, never used by a verdict. Literal Node model fixtures and an ephemeral loopback HTTP server exercise the extracted runtime; no remote service or installed models are used. Free disk is an operational precondition, with the refusal case supplying explicit low space. Private execution clears runtime/Node/Git overrides except the declared RICHOS_RUNTIME_DIR and preserves the complete assertions. Node executable and dependencies are included in the runtime tree identity.",
+      "review": "Synthetic refusal and proof-cache cases create private Git repositories. Real cases build two archives from the working engine, tracked member inventory, canonical LICENSE, third-party notices and the supplied verified runtime. The engine commit epoch affects archive mtimes and is explicit. HEAD is printed in the pin comment only, never used by a verdict. Literal Node model fixtures and an ephemeral loopback HTTP server exercise the extracted runtime; no remote service or installed models are used. Free disk is an operational precondition, with the refusal case supplying explicit low space. Private execution clears runtime/Node/Git overrides except the declared RICHOS_RUNTIME_DIR and preserves the complete assertions. Node executable and dependencies are included in the runtime tree identity. The script holds lib/output-lock.sh on its output directory, and every case's output directory is its own under the suite's scratch; a wait for another run is announced and never changes a verdict.",
       "sources": {
-        "richos/app/scripts/make-engine-asset.test.sh": "741cd3441db9b925d517c3e4d80ae012541826b783872084d4183ec4c90e5014",
-        "richos/app/scripts/make-engine-asset.sh": "4ac0d5231662458f79162d6de1c30d56f7bd5bbf7ccd2c924ad29f60dd872aae",
+        "richos/app/scripts/make-engine-asset.test.sh": "63251d126c27990c977978278d77f44e5b62d4c082daf8018e4f57f07192158f",
+        "richos/app/scripts/make-engine-asset.sh": "32484b8a9173de36c8372fa345be1485538f8488e4e88d301a9c01a97272257c",
+        "richos/app/scripts/lib/output-lock.sh": "d58823a5ddc7fa31e0aae4053f1ccf0a9c10e0c83c72c5f8ac9e9a84f19362f6",
         "richos/app/scripts/verify-engine-asset-members.sh": "505257f5135f9c77f989245b61f162d990137e3949eb06fa17d341a762854ff6",
         "richos/app/scripts/verify-runtime.py": "cbbaf6b2d50e7a8e648dce3217950742046e216be08a93ab7afb6969853f6f34",
         "richos/engine/voice/tests/run.mjs": "81674da73960594c74b3de2331a0c193e7434a5a0bec87be2eb6b3cec2e64610",
@@ -2500,8 +2501,9 @@
       "review": "The complete R1-R10 refusal journeys copy the release script, version/config and real name scanner into a private tracked repository. A private literal deny-list includes both clean and planted-hit controls. Downloads are exclusively from an owned loopback fixture server. Every app case refuses before any compiler, signing or publication step. Private HOME clears signing/proxy/config overrides; the worktree-derived port is operational allocation, not asserted data. Receipt timestamps are output only. Source Git history, live release hosts and operator records are not consulted.",
       "sources": {
         "richos/app/scripts/make-release.test.sh": "354dab37039aaba443d108821fe51405142e66710ab5c8285013a62f5f17ffe8",
-        "richos/app/scripts/make-release.sh": "04e32f8f81a0921b9788492e78d81f0a07995a035b8a5ee9e043f2160a43af89",
+        "richos/app/scripts/make-release.sh": "3cad06ac6ce5b06ba62f1248c9bfb101eabc224fb19769291e1d8815a0ed1541",
         "richos/app/scripts/lib/cargo-target.sh": "5e3c3c1c09f357a7a6691be9ef9d1ecd0e92601092be7700975f7c43e41770ec",
+        "richos/app/scripts/lib/output-lock.sh": "d58823a5ddc7fa31e0aae4053f1ccf0a9c10e0c83c72c5f8ac9e9a84f19362f6",
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
         "richos/engine/scripts/named-persons.sh": "0c672c2e9cc4b61f9c0262df9c251692a30d1f110a335c718365c5a69cd126ca",
         "richos/engine/scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",

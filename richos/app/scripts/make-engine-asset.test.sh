@@ -133,10 +133,12 @@ fixture_commit() {
 
 make_fixture() {
     local r="$1"
-    mkdir -p "$r/richos/app/scripts" "$r/docs/legal" \
+    mkdir -p "$r/richos/app/scripts/lib" "$r/docs/legal" \
              "$r/richos/engine/scripts/hooks" "$r/richos/engine/skills/demo-skill" "$r/richos/engine/tools/demo-tool"
     cp "$SCRIPT" "$r/richos/app/scripts/make-engine-asset.sh"
     cp "$MEMBERS" "$r/richos/app/scripts/verify-engine-asset-members.sh"
+    # The lock the script holds on its output directory (output-lock.test.sh is its suite).
+    cp "$DIR/lib/output-lock.sh" "$r/richos/app/scripts/lib/output-lock.sh"
     cp "$ROOT/LICENSE" "$r/LICENSE"
     printf 'notices for the fixture\n' > "$r/docs/legal/THIRD-PARTY-NOTICES.md"
     printf '1.0.0\n' > "$r/richos/engine/VERSION"

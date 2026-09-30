@@ -1208,16 +1208,65 @@ class Runner:
         if sha is None:
             sha = self.command("git", "rev-parse", "FETCH_HEAD", cwd=self.repo, capture=True)
         if self.source.exists():
-            common = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", capture=True)
-            expected = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=self.repo, capture=True)
-            if common != expected or Path(self.command("git", "rev-parse", "--show-toplevel", capture=True)) != self.source:
-                raise ValueError("nightly source is not the dedicated worktree for this repository")
-            if self.command("git", "status", "--porcelain", capture=True):
-                raise ValueError("nightly worktree has changes; inspect it before continuing")
+            self.require_clean_dedicated_source()
             self.command("git", "checkout", "--detach", sha)
         else:
             self.command("git", "worktree", "add", "--detach", self.source, sha, cwd=self.repo)
         return sha
+
+    def require_clean_dedicated_source(self):
+        """Refuse unless `self.source` is this repository's dedicated worktree, unchanged.
+
+        Moving it never discards anything: changes in it are somebody's, so they stop the
+        move and are left where they are.
+        """
+        common = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", capture=True)
+        expected = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=self.repo, capture=True)
+        if common != expected or Path(self.command("git", "rev-parse", "--show-toplevel", capture=True)) != self.source:
+            raise ValueError("nightly source is not the dedicated worktree for this repository")
+        if self.command("git", "status", "--porcelain", capture=True):
+            raise ValueError("nightly worktree has changes; inspect it before continuing")
+
+    def restore_build_commit(self, info):
+        """Put the dedicated worktree back on the commit `info`'s candidate was built from.
+
+        `build` and `publish` are separate commands an arbitrary time apart, sharing the one
+        dedicated worktree, and every `check` or `build` in between checks it out on main.
+        `nightly.py finish` refuses a checkout that is not the build commit, rightly: it runs
+        that checkout's make-release.sh and reads its engine VERSION, and this command runs
+        that checkout's nightly.py. But the candidate's files are digested on their own and
+        the build commit is immutable, so the repair is that commit back, not a second build
+        and a second walk (hunt part 2, section 16). A candidate recorded before the field
+        existed carries no build commit, and `finish`'s own guard decides for it.
+        """
+        commit = info.get("build_commit")
+        if not commit or not self.source.exists():
+            return
+        if self.command("git", "rev-parse", "HEAD", capture=True) == commit:
+            return
+        self.require_clean_dedicated_source()
+        # The release commit is on no branch. A fresh clone, or a pruned repository, has it
+        # only on the remote's hidden reservation ref, which verify_candidate_ref checks is
+        # still this commit before anything is published.
+        ref = info.get("candidate_ref") or info.get("reservation_ref")
+        if not self._has_commit(commit) and ref:
+            self.command("git", "fetch", "origin", ref, cwd=self.repo, timeout=120)
+        if not self._has_commit(commit):
+            raise ValueError(f"{commit}, the commit run {info.get('run_id')} was built from, is not "
+                             f"in this repository{' or on ' + ref if ref else ''}, so it cannot "
+                             "be checked out again to publish from; build it again")
+        moved_from = self.command("git", "rev-parse", "HEAD", capture=True)
+        self.command("git", "checkout", "--detach", commit)
+        self.announce(f"The dedicated worktree was at {moved_from[:12]} (checked out since this "
+                      f"candidate was built); put back on its build commit {commit[:12]}. "
+                      "Nothing was rebuilt.")
+
+    def _has_commit(self, commit):
+        try:
+            self.command("git", "cat-file", "-e", f"{commit}^{{commit}}", cwd=self.repo)
+        except RuntimeError:
+            return False
+        return True
 
     def identity(self):
         """The identity the release commit will carry, resolved the way git resolves it.
@@ -2329,6 +2378,9 @@ class Runner:
             if proof:
                 print(f"gui-boot proof accepted: {proof.get('result')} at {proof.get('where')}, "
                       f"commit {proof.get('commit')}, taken {proof.get('at')}", flush=True)
+            # A `check` or another `build` since this candidate was built moved the worktree
+            # that `finish` runs from; put its build commit back rather than refuse.
+            self.restore_build_commit(info)
             print(f"Publishing {info['tag']} from run {run_id}...", flush=True)
             # finish() only uploads, verifies and promotes -- no signing identity or
             # notarization credential is needed here, unlike the build step below.

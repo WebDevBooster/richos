@@ -719,6 +719,24 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# ONE PACKAGING RUN AT A TIME IN THIS BUNDLE OUTPUT, from any checkout.
+# ---------------------------------------------------------------------------
+# `app/src-tauri/target` is a symlink into one cache for every checkout
+# (`shared-build-cache.sh`), and CARGO_TARGET_DIR can name one directory for several.
+# Cargo's own lock covers the compile and ends when cargo returns; everything after it
+# here (the host-path check, the commit stamp, both signatures, the updater archive) reads
+# and rewrites `release/bundle` by name. So a second checkout's build could replace the
+# bundle this run is signing. Held until this script and everything it started have exited;
+# a caller that holds it already (make-release.sh app) is not blocked by it (hunt part 2,
+# section 21). Taken before the signing mode is resolved, so no step below runs unheld. A
+# --dry-run stops at that resolution and writes nothing, so it neither waits nor holds.
+. "$here/lib/cargo-target.sh"
+. "$here/lib/output-lock.sh"
+if [ -z "$dry_run" ]; then
+  hold_output_lock "$(cargo_target_dir "$src_tauri")/release" 9 "package-app.sh" || exit 3
+fi
+
+# ---------------------------------------------------------------------------
 # Signing mode: resolved before the build, so a refusal costs no compile time.
 # ---------------------------------------------------------------------------
 identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"

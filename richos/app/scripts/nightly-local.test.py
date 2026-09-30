@@ -911,6 +911,73 @@ while True: time.sleep(.02)
         self.assertEqual(Path(args[args.index("--out") + 1]), out)
         self.assertNotIn("credentials", kwargs)
 
+    def moved_worktree(self):
+        """A real repository whose dedicated worktree built a release commit, then moved.
+
+        The release commit exists only on the remote's candidate ref, the way a fresh clone
+        of this repository sees it; the worktree is then checked out on main, which is what a
+        `check` or another `build` does to it (hunt part 2, section 16).
+        """
+        git = ["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+               "-c", "core.hooksPath=/dev/null"]
+        def run(*args, cwd):
+            return subprocess.run([*git, *args], cwd=cwd, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+        remote, repo, other = self.root / "remote.git", self.root / "repo", self.root / "other"
+        run("init", "-q", "--bare", str(remote), cwd=self.root)
+        run("init", "-q", "-b", "main", str(repo), cwd=self.root)
+        (repo / "VERSION").write_text("1.2.0\n")
+        run("add", ".", cwd=repo)
+        run("commit", "-qm", "source", cwd=repo)
+        run("remote", "add", "origin", str(remote), cwd=repo)
+        run("push", "-q", "origin", "main", cwd=repo)
+        run("clone", "-q", str(remote), str(other), cwd=self.root)
+        (other / "nightly-build.json").write_text("{}\n")
+        run("add", ".", cwd=other)
+        run("commit", "-qm", "Build v1.2.0-nightly.20260916.1", cwd=other)
+        build_commit = run("rev-parse", "HEAD", cwd=other)
+        run("push", "-q", "origin", f"{build_commit}:refs/candidates/1", cwd=other)
+        source = self.root / "state" / "source"
+        run("worktree", "add", "-q", "--detach", str(source), "main", cwd=repo)
+        info = {**self.CANDIDATE_INFO, "build_commit": build_commit}
+        r = self.runner()
+        r.repo = repo
+        at_finish = []
+        def command(*args, cwd=None, capture=False, **kwargs):
+            if len(args) > 2 and args[2] == "finish":
+                at_finish.append(run("rev-parse", "HEAD", cwd=source))
+                return None
+            result = subprocess.run([str(a) for a in args], cwd=cwd or r.source,
+                                    capture_output=True, text=True)
+            if result.returncode:
+                raise RuntimeError(f"{Path(str(args[0])).name} failed (exit {result.returncode})")
+            return result.stdout.strip() if capture else None
+        r.command = Mock(side_effect=command)
+        out = self.root / "state" / "releases" / info["tag"]
+        out.mkdir(parents=True)
+        (out / "candidate.json").write_text(json.dumps({"info": info, "files": {}}))
+        r.record_run(info["run_id"], out)
+        return r, source, build_commit, at_finish, run
+
+    def test_publish_puts_the_build_commit_back_instead_of_asking_for_a_rebuild(self):
+        r, source, build_commit, at_finish, run = self.moved_worktree()
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"])
+        # finish ran, from the commit the candidate was built from; nothing was rebuilt.
+        self.assertEqual(at_finish, [build_commit])
+        self.assertFalse([c for c in r.command.call_args_list
+                          if len(c.args) > 2 and c.args[2] in ("build", "run")])
+        self.assertIn(build_commit[:12], r.log.getvalue())
+
+    def test_publish_never_discards_changes_in_the_dedicated_worktree(self):
+        r, source, build_commit, at_finish, run = self.moved_worktree()
+        (source / "VERSION").write_text("someone's edit\n")
+        with contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaisesRegex(ValueError, "nightly worktree has changes"):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"])
+        self.assertEqual(at_finish, [])
+        self.assertEqual((source / "VERSION").read_text(), "someone's edit\n")
+
     def test_candidate_prints_without_touching_anything(self):
         r = self.runner()
         out = self.root / "state" / "releases" / self.CANDIDATE_INFO["tag"]
@@ -1565,6 +1632,10 @@ while True: time.sleep(.02)
         must not be refused for naming it."""
         r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True,
                                   build_commit="abc123def456")
+        # Putting the worktree back on the build commit has its own tests
+        # (test_publish_puts_the_build_commit_back_...); this one is about the proof, and
+        # the mocked `command` cannot answer the git questions that restore asks.
+        r.restore_build_commit = Mock()
         with contextlib.redirect_stdout(io.StringIO()):
             r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
                       gui_proof=str(self.proof(commit="abc123def456")))
