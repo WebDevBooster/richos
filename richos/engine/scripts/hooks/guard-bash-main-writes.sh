@@ -238,8 +238,31 @@ def check_targets(tokens):
 # 1) write-verb clauses — only THAT verb's own argument list (up to the next
 #    ; & | control operator) is checked, never the whole command line.
 VERB_CLAUSE = re.compile(r'(?:^|[;&|]\s*|\s)(mkdir|cp|mv|rm|tee|touch|rsync)\b(?P<args>[^;&|]*)')
+def write_targets(verb, toks):
+    # cp and rsync only READ their sources: just the destination is a write.
+    # mv removes its source and rm/tee/touch/mkdir write every argument, so
+    # those keep checking them all. A copy OUT of a protected file into scratch
+    # is therefore allowed; a copy INTO a protected tree is still blocked.
+    if verb not in ('cp', 'rsync'):
+        return toks
+    dest = []
+    plain = []
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        if t in ('-t', '--target-directory') and i + 1 < len(toks):
+            dest.append(toks[i + 1]); i += 2; continue
+        if t.startswith('--target-directory='):
+            dest.append(t.split('=', 1)[1]); i += 1; continue
+        if t.startswith('-') and t != '-':
+            i += 1; continue
+        plain.append(t); i += 1
+    if dest:
+        return dest
+    return plain[-1:]  # the last operand is the destination
+
 for vm in VERB_CLAUSE.finditer(cmd):
-    hit = check_targets(re.findall(r'\S+', vm.group('args')))
+    hit = check_targets(write_targets(vm.group(1), re.findall(r'\S+', vm.group('args'))))
     if hit:
         print('BLOCK ' + hit); raise SystemExit
 

@@ -137,6 +137,16 @@ run_case "still blocks: real write after a read"  2 "$(json_cmd "ls $FIRST_PROTE
 run_case "still blocks: redirect into protected"  2 "$(json_cmd "python3 gen.py 2>&1 > $FIRST_PROTECTED/out.txt" "$ROOT")"
 run_case "still blocks: unrelated read + real write" 2 "$(json_cmd "cat /tmp/x && touch $FIRST_PROTECTED/y" "$ROOT")"
 
+# --- cp/rsync only READ their sources: the destination alone decides ---
+run_case "cp OUT of protected abs into scratch"  0 "$(json_cmd "cp $ROOT/$FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
+run_case "cp OUT of protected rel into scratch"  0 "$(json_cmd "cp -r $FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
+run_case "rsync OUT of protected into scratch"   0 "$(json_cmd "rsync -a $ROOT/$FIRST_PROTECTED/ /tmp/scratch/" "$ROOT")"
+run_case "cp -t scratch from protected"          0 "$(json_cmd "cp -t /tmp/scratch $ROOT/$FIRST_PROTECTED/a" "$ROOT")"
+run_case "still blocks: cp INTO protected abs"   2 "$(json_cmd "cp /tmp/a $ROOT/$FIRST_PROTECTED/a" "$ROOT")"
+run_case "still blocks: cp -t protected"         2 "$(json_cmd "cp -t $ROOT/$FIRST_PROTECTED /tmp/a" "$ROOT")"
+run_case "still blocks: rsync INTO protected"    2 "$(json_cmd "rsync -a /tmp/scratch/ $ROOT/$FIRST_PROTECTED/" "$ROOT")"
+run_case "still blocks: mv OUT of protected (removes source)" 2 "$(json_cmd "mv $ROOT/$FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
+
 # --- ALLOWED: scratchpad + non-source writes in main ---
 run_case "scratchpad write"                     0 "$(json_cmd "mkdir -p /tmp/x && echo hi > /tmp/x/y" "$ROOT")"
 run_case "docs write in main (not source)"      0 "$(json_cmd "echo x > $ROOT/docs/foo.md")"
