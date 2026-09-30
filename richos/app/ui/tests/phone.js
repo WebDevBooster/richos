@@ -2185,7 +2185,11 @@ async function openSheet(browser, theme, preset) {
       // **THE STATE IS PRODUCED THE WAY A PERSON PRODUCES IT**: scroll down, close, reopen. It is
       // not injected by setting `scrollTop` after the open, which would test the assignment
       // rather than the behavior.
-      const reopen = async (page) => {
+      // `expectCode: false` is a reopen with NO live code (the expired state): `#phone-code-block`
+      // is deliberately `hidden` there (`phone.js` `codeBlock.hidden = !live || ...`), its
+      // rectangle is zero, and the geometry below can never become true. Waiting for it spent the
+      // whole 10 s guard on every normal run and swallowed the timeout (hunt part 2, finding 43).
+      const reopen = async (page, { expectCode = true } = {}) => {
         await page.click("#phone-close");
         // `state: "hidden"` rather than a `[hidden]` selector: the default wait is for a VISIBLE
         // match, which a hidden sheet can never be, and the check would time out at 30 s green-
@@ -2199,6 +2203,11 @@ async function openSheet(browser, theme, preset) {
         // it sets on the back of that draw — is one turn later than the click. That scroll landing
         // the code in view is the fact waited for (hang guard), not 250ms (audit R10); on a build
         // that never scrolls, this runs out and the assertion below names where the code is.
+        if (!expectCode) {
+          // The fact to wait for here is the screen that IS drawn: the expired card.
+          await page.waitForSelector("#phone-expired:not([hidden])");
+          return;
+        }
         await page
           .waitForFunction(
             () => {
@@ -2296,7 +2305,7 @@ async function openSheet(browser, theme, preset) {
         const panel = document.getElementById("phone-scroll");
         panel.scrollTop = panel.scrollHeight;
       });
-      await reopen(expired);
+      await reopen(expired, { expectCode: false });
       const rest = await where(expired);
       await expired.close();
       assertEqual(rest.scrollTop, 0, "a reopen with no live code did not land at the top of the sheet");
