@@ -128,7 +128,24 @@
 # One JSON line per question actually put to the user, written by the witness
 # inside the orchestrator's own tool call. Keyed on session_id, because the rule
 # is per-session: a question asked yesterday did not reach the person who opened
-# a session today. It lives in the governed repository's state directory — the
+# a session today.
+#
+# THE ONE WIDENING: THE APP RUN (operator contract notes §4 item 2, Frank's F10).
+# In the RichOS app every conversation has its own lead, so every conversation
+# is its own session, and a per-session key made each new conversation's lead
+# refuse its first dispatch until it had put the SAME top item to him again. He
+# is one person looking at one running app, so there the unit is the app run:
+# the claim id the app gives every lead it starts (RICHOS_OPERATOR_LEAD, one
+# `app-<uuid>` per launch, operator_claim.rs) and writes onto every question it
+# witnesses as `app_run`. An ask witnessed in this run discharges the gate for
+# every lead in this run. What that does NOT widen, and why (§17): the key comes
+# from the lead's process environment, which the app set and the lead's model
+# cannot change, and from a ledger line only the witness writes. No sentence a
+# lead writes ("another conversation already asked him") is read by anything
+# here. A terminal session has no RICHOS_OPERATOR_LEAD and stays per-session;
+# the next launch has a new claim id, so yesterday's run discharges nothing.
+#
+# It lives in the governed repository's state directory — the
 # same place main-checkout-runs.log, resume-acks.log and the other opt-out
 # ledgers live — rather than in the session team directory, because the guard,
 # the notice and the session-start announcement all resolve that root the same
@@ -142,7 +159,8 @@
 #     ca_resolve "<entity-root>"     # -> CA_STATUS / CA_REPOS / CA_REASON
 #     ca_items_json "<out.json>"     # -> the prepared items, one parse per repo
 #     ca_ledger_path "<entity-root>"
-#     ca_assess "<entity-root>" "<session-id>"   # -> CA_VERDICT / CA_* counts
+#     ca_assess "<entity-root>" "<session-id>" ["<app-run>"]  # -> CA_VERDICT / CA_* counts
+#     ca_app_run                     # -> this process's app run, or nothing
 #
 # Safe to source repeatedly. Never changes the caller's cwd.
 
@@ -366,9 +384,22 @@ ca_ledger_path() {
 }
 
 # ---------------------------------------------------------------------------
-# ca_assess <entity-root> <session-id>
+# ca_app_run — the RichOS app run this process belongs to, or nothing.
 # ---------------------------------------------------------------------------
-# The verdict for THIS session. Requires ca_resolve to have succeeded.
+# The claim id the app put in its lead's environment (operator_profile.rs
+# LEAD_CLAIM_ENV). A hook inherits it from the lead's `claude`; a terminal
+# session has none. Read from the environment only, never from a payload or a
+# prompt, so nothing the lead writes can supply it (see THE ONE WIDENING above).
+ca_app_run() {
+    printf '%s' "${RICHOS_OPERATOR_LEAD:-}" | tr -d '[:space:]'
+}
+
+# ---------------------------------------------------------------------------
+# ca_assess <entity-root> <session-id> [<app-run>]
+# ---------------------------------------------------------------------------
+# The verdict for THIS session, or for this app run. Requires ca_resolve to
+# have succeeded. <app-run> defaults to ca_app_run when it is not given at all;
+# pass "" to assess the session alone.
 #
 # Sets:
 #   CA_VERDICT    OPEN | SATISFIED | NOTHING-PREPARED
@@ -380,7 +411,8 @@ ca_ledger_path() {
 #
 # rc 0 SATISFIED or NOTHING-PREPARED; 1 OPEN; 2 broken (CA_BROKEN set).
 ca_assess() {
-    local root="${1:-}" sid="${2:-}" items job out rc ledger
+    local root="${1:-}" sid="${2:-}" items job out rc ledger run
+    if [ "$#" -ge 3 ]; then run="$3"; else run="$(ca_app_run)"; fi
     CA_BROKEN=""; CA_VERDICT=""; CA_ASK_LINES=""
     CA_PREPARED=0; CA_ASKED=0; CA_UNASKED=0
 
@@ -393,13 +425,14 @@ ca_assess() {
     fi
 
     ledger="$(ca_ledger_path "$root")"
-    CA_J_ITEMS="$items" CA_J_LEDGER="$ledger" CA_J_SID="$sid" python3 -c '
+    CA_J_ITEMS="$items" CA_J_LEDGER="$ledger" CA_J_SID="$sid" CA_J_RUN="$run" python3 -c '
 import json, os, sys
 
 with open(os.environ["CA_J_ITEMS"], encoding="utf-8") as fh:
     items = json.load(fh)
 
 sid = os.environ.get("CA_J_SID") or ""
+run = os.environ.get("CA_J_RUN") or ""
 asks = []
 path = os.environ.get("CA_J_LEDGER") or ""
 try:
@@ -426,7 +459,11 @@ try:
             # that cannot be attributed to this session is not evidence about
             # this session.
             if not sid or str(rec.get("session_id") or "") != sid:
-                continue
+                # THE APP RUN: another conversation of the SAME running app
+                # (see THE ONE WIDENING in the header). Both sides must carry
+                # it; an empty run never matches, exactly like the session.
+                if not (run and str(rec.get("app_run") or "") == run):
+                    continue
             asks.append(rec)
 except FileNotFoundError:
     pass                      # no ledger yet: nothing has been asked

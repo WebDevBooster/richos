@@ -298,6 +298,24 @@ impl ProfileLauncher {
         Ok(claim)
     }
 
+    /// **The report scope one lead is started with.** `claim_id` is this launch's claim, which
+    /// is also the app run his questions are witnessed under (F10): an ask one conversation's
+    /// lead put to him counts for every lead of this run, and for no other run.
+    fn report_scope(&self, key: &ConversationKey, paths: &ConversationPaths, claim_id: &str, session_id: &str)
+                    -> ReportScope {
+        ReportScope {
+            version: 1, outbox: paths.outbox.clone(), attachments: paths.attachments.clone(),
+            file_roots: self.declaration.file_roots.clone(), state_root: self.state_root.clone(),
+            entity_id: key.entity_id.clone(), thread_id: key.thread_id.clone(), lead: claim_id.to_string(),
+            question_context: Some(crate::questions::AskScope {
+                root: self.state_root.clone(), entity_id: key.entity_id.clone(), thread_id: key.thread_id.clone(),
+                turn_id: format!("operator:{session_id}"), asker: "operator:conversation".into(), session_id: session_id.to_string(),
+                engine: Some(self.declaration.engine_root.clone()), entity_root: Some(self.declaration.entity_root.clone()),
+                app_run: Some(claim_id.to_string()),
+            }),
+        }
+    }
+
     /// Give the claim up at quit, after every lead has quit.
     pub fn release(&self) {
         if let Some(claim) = self.claim.lock().unwrap().take() {
@@ -341,16 +359,7 @@ impl LeadLauncher for ProfileLauncher {
             .with_supervisor_files(&self.log, &paths.reap_state);
         std::fs::create_dir_all(&paths.dir).map_err(|e| format!("Your team's folder could not be made ({e})."))?;
         let session_id = match start { LeadStart::New(id) | LeadStart::Resume(id) => id.clone() };
-        write_scope(&paths.scope, &ReportScope {
-            version: 1, outbox: paths.outbox.clone(), attachments: paths.attachments.clone(),
-            file_roots: self.declaration.file_roots.clone(), state_root: self.state_root.clone(),
-            entity_id: key.entity_id.clone(), thread_id: key.thread_id.clone(), lead: claim.claim_id().to_string(),
-            question_context: Some(crate::questions::AskScope {
-                root: self.state_root.clone(), entity_id: key.entity_id.clone(), thread_id: key.thread_id.clone(),
-                turn_id: format!("operator:{session_id}"), asker: "operator:conversation".into(), session_id: session_id.clone(),
-                engine: Some(self.declaration.engine_root.clone()), entity_root: Some(self.declaration.entity_root.clone()),
-            }),
-        })?;
+        write_scope(&paths.scope, &self.report_scope(key, paths, claim.claim_id(), &session_id))?;
         let command = profile.command(start, &mcp_config(&self.executable, &paths.scope));
         let lead = OperatorLead::spawn(command, &session_id, sink, Arc::new(QuestionRoute { scope: paths.scope.clone(), fallback: self.route.clone() }))
             .map_err(|e| format!("Your team could not be started ({e})."))?;
@@ -644,7 +653,7 @@ mod tests {
             file_roots:vec![f.root.clone()],state_root:state.clone(),entity_id:"entity".into(),thread_id:"thread".into(),lead:"lead".into(),
             question_context:Some(crate::questions::AskScope {
                 root:state.clone(),entity_id:"entity".into(),thread_id:"thread".into(),asker:"operator:conversation".into(),
-                turn_id:"turn".into(),session_id:"original-session".into(),engine:None,entity_root:None,
+                turn_id:"turn".into(),session_id:"original-session".into(),engine:None,entity_root:None,app_run:None,
             }),
         }).unwrap();
         let route=QuestionRoute { scope,fallback:Arc::new(NeverPermission) };
@@ -961,6 +970,8 @@ mod tests {
         let claim: Value = serde_json::from_str(&std::fs::read_to_string(&d.claim.file).unwrap()).unwrap();
         assert_eq!(claim["owner"], "app");
         assert_eq!(scope["lead"], claim["claim_id"], "the report scope names the lead as the claim does");
+        assert_eq!(scope["question_context"]["app_run"], claim["claim_id"],
+                   "F10: his questions are witnessed under this launch's claim, the run every lead of it shares");
         assert_eq!(claim["leads"][0]["title"], "Landing the fix");
         assert_eq!(claim["leads"][0]["session_id"], "session-1");
         assert_eq!(claim["processes"].as_array().unwrap().len(), 3, "app, supervisor, lead: {claim}");

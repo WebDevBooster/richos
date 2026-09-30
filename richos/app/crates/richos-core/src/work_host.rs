@@ -4518,6 +4518,7 @@ mod tests {
             session_id: "work-session-one".into(),
             engine: None,
             entity_root: None,
+            app_run: None,
         }, vec![QuestionInput {
             text: "When should the release ship?".into(),
             options: vec![
@@ -6579,7 +6580,7 @@ mod tests {
         Store::new(&h.state).ask(&AskScope {
             root: h.state.clone(), entity_id: "depot".into(), thread_id: "thread-one".into(),
             turn_id: "turn-7".into(), asker: record.obligation_id.clone(), session_id: "work-session-one".into(),
-            engine: None, entity_root: None,
+            engine: None, entity_root: None, app_run: None,
         }, vec![QuestionInput {
             text: "Who should review it?".into(),
             options: vec![

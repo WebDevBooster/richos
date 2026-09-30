@@ -31,6 +31,7 @@ fn polling_an_unchanged_question_history_does_not_reload_it() {
         session_id: "s".into(),
         engine: None,
         entity_root: None,
+        app_run: None,
     };
     let store = Store::new(&root);
     // History from an earlier turn, so the store file exists and has content.

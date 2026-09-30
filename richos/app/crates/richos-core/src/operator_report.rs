@@ -670,7 +670,7 @@ mod tests {
         let mut f=fixture();
         let args=json!({"kind":"question","text":"Release timing", "questions":[{"text":"When should the release ship?","options":[{"label":"Ship today","description":"Earlier fixes"},{"label":"Ship tomorrow","description":"More testing"}]}]});
         assert!(report(&f,args.clone()).unwrap_err().contains("runtime"));
-        f.scope.question_context=Some(crate::questions::AskScope{root:f.scope.state_root.clone(),entity_id:f.scope.entity_id.clone(),thread_id:f.scope.thread_id.clone(),turn_id:"operator-turn".into(),asker:"unused".into(),session_id:"original-lead-session".into(),engine:None,entity_root:None});
+        f.scope.question_context=Some(crate::questions::AskScope{root:f.scope.state_root.clone(),entity_id:f.scope.entity_id.clone(),thread_id:f.scope.thread_id.clone(),turn_id:"operator-turn".into(),asker:"unused".into(),session_id:"original-lead-session".into(),engine:None,entity_root:None,app_run:None});
         write_scope(&f.scope_path,&f.scope).unwrap();
         let receipt=report(&f,args.clone()).unwrap();
         assert_eq!(receipt["recorded"],true);

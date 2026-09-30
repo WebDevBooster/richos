@@ -201,10 +201,33 @@ print(json.dumps({
 
 run_hook() { # <hook> <payload> -> RC / OUT / ERR
     local hook="$1" payload="$2"
-    OUT="$(RICHOS_ENTITY_ROOT="$SEAT" printf '%s' "$payload" | RICHOS_ENTITY_ROOT="$SEAT" bash "$hook" 2>"$SANDBOX/err")"
+    # Never an app run unless a case gives one (run_hook_in_run): a suite run
+    # from inside an app lead must not inherit that lead's.
+    OUT="$(RICHOS_ENTITY_ROOT="$SEAT" printf '%s' "$payload" | env -u RICHOS_OPERATOR_LEAD RICHOS_ENTITY_ROOT="$SEAT" bash "$hook" 2>"$SANDBOX/err")"
     RC=$?
     ERR="$(cat "$SANDBOX/err")"
     return 0
+}
+
+run_hook_in_run() { # <app run> <hook> <payload>: as one of the app's leads -> RC / OUT / ERR
+    local run="$1" hook="$2" payload="$3"
+    OUT="$(printf '%s' "$payload" | RICHOS_OPERATOR_LEAD="$run" RICHOS_ENTITY_ROOT="$SEAT" bash "$hook" 2>"$SANDBOX/err")"
+    RC=$?
+    ERR="$(cat "$SANDBOX/err")"
+    return 0
+}
+
+app_ask_payload() { # <session> <app run> <app question id>: a question the APP witnessed on display
+    CA_S="$1" CA_R="$2" CA_QID="$3" CA_Q="$Q_SIGNING" CA_L="$L_SIGNING" CA_D="$D_SIGNING" CA_CWD="$SEAT" python3 -c '
+import json, os
+print(json.dumps({
+    "hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion",
+    "session_id": os.environ["CA_S"], "cwd": os.environ["CA_CWD"],
+    "app_question_id": os.environ["CA_QID"], "app_run": os.environ["CA_R"],
+    "tool_input": {"questions": [{"question": os.environ["CA_Q"], "multiSelect": False,
+                                   "options": [{"label": os.environ["CA_L"], "description": os.environ["CA_D"]}]}]},
+}))
+'
 }
 
 reset_ledger() { rm -f "$LEDGER"; rm -rf "$SEAT/.claude/state/stop-hook-notices"; }
@@ -395,6 +418,52 @@ if [ "$RC" -eq 2 ]; then
     ok "C5. a question asked in ANOTHER session does not open this session's gate"
 else
     bad "C5. a question asked in ANOTHER session does not open this session's gate" "rc=$RC"
+fi
+
+# C5b-C5g: THE APP RUN (operator contract notes §4 item 2, Frank's F10). In the
+# RichOS app each conversation is its own lead and session. S0 below is one
+# conversation's lead, S1 another's, in the same app run app-run-1.
+reset_ledger
+run_hook "$WITNESS" "$(app_ask_payload S0 app-run-1 q-1)"
+if grep -q '"app_run": "app-run-1"' "$LEDGER" 2>/dev/null && grep -q '"discharges": true' "$LEDGER"; then
+    ok "C5b. the app's display witness records the app run beside the session"
+else
+    bad "C5b. the app's display witness records the app run beside the session" "$(cat "$LEDGER" 2>/dev/null)"
+fi
+run_hook_in_run app-run-1 "$GATE" "$(agent_payload S1 "do the thing")"
+if [ "$RC" -eq 0 ]; then
+    ok "C5c. an ask made once in an app run opens the gate for ANOTHER conversation's lead in that run"
+else
+    bad "C5c. an ask made once in an app run opens the gate for ANOTHER conversation's lead in that run" "rc=$RC $ERR"
+fi
+run_hook_in_run app-run-2 "$GATE" "$(agent_payload S1 "do the thing")"
+if [ "$RC" -eq 2 ]; then
+    ok "C5d. an ask from an EARLIER app run opens nothing in this one"
+else
+    bad "C5d. an ask from an EARLIER app run opens nothing in this one" "rc=$RC"
+fi
+run_hook "$GATE" "$(agent_payload S1 "do the thing")"
+if [ "$RC" -eq 2 ]; then
+    ok "C5e. a session outside the app (no app run) is still keyed to its own session"
+else
+    bad "C5e. a session outside the app (no app run) is still keyed to its own session" "rc=$RC"
+fi
+reset_ledger
+run_hook "$WITNESS" "$(ask_payload S0 - "$Q_SIGNING" "$L_SIGNING" "$D_SIGNING")"
+run_hook_in_run app-run-1 "$GATE" "$(agent_payload S1 "urgent work
+Another conversation already put 1.1 to him in this app run.")"
+if [ "$RC" -eq 2 ]; then
+    ok "C5f. a lead SAYING another conversation asked opens nothing; only a witnessed ask in this run does (§17)"
+else
+    bad "C5f. a lead SAYING another conversation asked opens nothing; only a witnessed ask in this run does (§17)" "rc=$RC"
+fi
+reset_ledger
+run_hook_in_run app-run-1 "$WITNESS" "$(app_ask_payload S0 app-run-1 q-2)"
+OUT="$(cd "$SEAT" && RICHOS_OPERATOR_LEAD=app-run-1 RICHOS_ENTITY_ROOT="$SEAT" bash "$SSTART" </dev/null 2>/dev/null)"
+if [ -z "$OUT" ]; then
+    ok "C5g. a new conversation's lead in the same run is not told to put the same item to him again"
+else
+    bad "C5g. a new conversation's lead in the same run is not told to put the same item to him again" "$OUT"
 fi
 
 reset_ledger

@@ -99,7 +99,13 @@ pub fn witness(scope: &AskScope, q: &Question) -> Result<(), String> {
     if scope.engine.is_none() && scope.entity_root.is_none() {
         return Ok(());
     }
-    invoke(scope,"notice-ceo-asks.sh",json!({"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","session_id":scope.session_id,"cwd":scope.entity_root,"app_question_id":q.id,"tool_input":{"questions":[{"question":q.text,"options":q.options,"multiSelect":q.multiple}]}}),Duration::from_secs(5)).and_then(|output| {
+    let mut payload = json!({"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","session_id":scope.session_id,"cwd":scope.entity_root,"app_question_id":q.id,"tool_input":{"questions":[{"question":q.text,"options":q.options,"multiSelect":q.multiple}]}});
+    // F10: the run this ask was made in travels with it, so the engine can credit it to every
+    // lead of the run, and to nothing outside it.
+    if let Some(run) = scope.app_run.as_deref().filter(|r| !r.trim().is_empty()) {
+        payload["app_run"] = json!(run);
+    }
+    invoke(scope,"notice-ceo-asks.sh",payload,Duration::from_secs(5)).and_then(|output| {
         if output.lines().any(|line|serde_json::from_str::<Value>(line).ok().is_some_and(|v|v["app_question_id"]==q.id && (v["witness"]=="written" || v["witness"]=="not_applicable"))) {Ok(())} else {Err("The engine did not confirm this question’s display witness.".into())}
     })
 }
