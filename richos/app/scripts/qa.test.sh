@@ -438,6 +438,26 @@ expect "T6 capture refuses to photograph this machine's screen" 1 "never a test 
 run env -u RICHOS_QA_CAPTURE "$QA/ocr-watch.sh" "$TMP/watch" --region 0,0,10,10 --count 1
 expect "T7 ocr-watch refuses to photograph this machine's screen" 2 "never a test surface"
 
+# ocr-watch must FAIL (exit 2) when the capture or the reader fails; it used to turn both into
+# empty text and report an unchanged screen, exit 0. Stand-ins first on PATH: no screen is read.
+mkdir -p "$TMP/failbin"
+printf '#!/bin/sh\nexit 7\n' > "$TMP/failbin/screencapture"
+printf '#!/bin/sh\nexit 9\n' > "$TMP/failbin/tess-fail"
+cat > "$TMP/failbin/screencapture-ok" <<'SH'
+#!/bin/sh
+for a in "$@"; do o="$a"; done
+printf x > "$o"
+SH
+chmod +x "$TMP/failbin/screencapture" "$TMP/failbin/tess-fail" "$TMP/failbin/screencapture-ok"
+run env PATH="$TMP/failbin:$PATH" RICHOS_QA_CAPTURE=allow RICHOS_QA_TESSERACT="$TMP/failbin/tess-fail" \
+    "$QA/ocr-watch.sh" "$TMP/watchf" --region 0,0,10,10 --count 1 --stop-on-repeat 1
+expect "T12 ocr-watch: a failed capture is a failure, not an unchanged screen" 2 "capture failed"
+mkdir -p "$TMP/failbin2"
+cp "$TMP/failbin/screencapture-ok" "$TMP/failbin2/screencapture"
+run env PATH="$TMP/failbin2:$PATH" RICHOS_QA_CAPTURE=allow RICHOS_QA_TESSERACT="$TMP/failbin/tess-fail" \
+    "$QA/ocr-watch.sh" "$TMP/watchg" --region 0,0,10,10 --count 1
+expect "T13 ocr-watch: a failed text reader is a failure, not empty text" 2 "reader failed"
+
 run "$QA/timeline.py" at "$TMP/tl" 0007.png
 expect "T10 a frame chosen by reading is dated off the capture's own clock" 0 "+450.0 ms"
 
