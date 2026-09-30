@@ -770,6 +770,21 @@ class Point05_Guarantee(Base):
             self.spawn("zach-opus-during-merge")
             self.assertIsNone(proc.poll(), "merge check ended before the unrelated spawn")
             self.assertIn("zach-opus-p5", self.names())
+            registry = ws.state_dir()
+            before = {os.path.relpath(os.path.join(root, name), registry): open(os.path.join(root, name), "rb").read()
+                      for root, _dirs, files in os.walk(registry) for name in files}
+            ok, message = ws.gate_stop({"session_id": self.sid}, self.entity)
+            self.assertTrue(ok, message)
+            self.assertIn("Git is merging", message)
+            after = {os.path.relpath(os.path.join(root, name), registry): open(os.path.join(root, name), "rb").read()
+                     for root, _dirs, files in os.walk(registry) for name in files}
+            self.assertEqual(before, after, "the active merge allowance wrote a registry wait")
+            with patch.object(ws, "branch_tip_read", return_value=("", "unreadable ref")):
+                self.assertFalse(ws._active_merge(self.rec("zach-opus-p5"), {}))
+            with patch.object(ws, "integration_target", return_value=("dev/another-target", "", "")):
+                self.assertFalse(ws._active_merge(self.rec("zach-opus-p5"), {}))
+            self.assertFalse(ws._active_merge(self.rec("zach-opus-p5"),
+                                             {"merge-processes": [(proc.pid, ["cc/unrelated-work"])]}))
         finally:
             with open(release, "w") as f:
                 f.write("finish the check\n")
