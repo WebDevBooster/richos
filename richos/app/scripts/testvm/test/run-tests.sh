@@ -1082,6 +1082,58 @@ t "claude login: run.sh starts ONE keeper after a successful push and records it
   if [ -n "$kk" ] && [ -n "$rs" ] && [ "$kk" -lt "$rs" ]; then ok 0; else ok 1 "the keeper is ended before the state goes"; fi
 t_done
 
+# ===========================================================================
+# stop.sh — the host-side runner, by its recorded pid AND its own command line
+# ===========================================================================
+# run.sh records the pid of `caffeinate -is <tart> run <vm> --no-graphics`. A run
+# state can outlive that process (a crashed harness, a reboot), and macOS reuses
+# pids, so a recorded pid alone may name somebody else's work by the time stop.sh
+# reads it. Both cases run stop.sh against their own root and their own processes,
+# started here; nothing else on this Mac is signaled.
+STOP_ROOT="$TMP/stoproot"; STOP_VM="richos-test-stoppid"
+STOP_TART="$STOP_ROOT/bin/tart.app/Contents/MacOS/tart"
+
+t "stop: a recorded runner pid that now belongs to other work is left alone"
+  mkdir -p "$STOP_ROOT/run/$STOP_VM"
+  sleep 60 &                 # owned stand-in: alive, and NOT a VM runner
+  BYSTANDER=$!
+  echo "$BYSTANDER" > "$STOP_ROOT/run/$STOP_VM/vm.pid"
+  out="$(env TESTVM_ROOT="$STOP_ROOT" TART_HOME="$STOP_ROOT/tart" "$TESTVM_DIR/stop.sh" "$STOP_VM" 2>&1)"; ok $? "$out"
+  kill -0 "$BYSTANDER" 2>/dev/null; ok $? "stop.sh signaled pid $BYSTANDER, which was not this VM's runner: $out"
+  has "$out" "left alone"
+  kill -TERM "$BYSTANDER" 2>/dev/null; wait "$BYSTANDER" 2>/dev/null
+t_done
+
+t "stop: the recorded runner, identified by its command line, is ended with its child"
+  mkdir -p "$(dirname "$STOP_TART")" "$STOP_ROOT/run/$STOP_VM"
+  cat > "$STOP_TART" <<'EOF'
+#!/usr/bin/env bash
+# A stand-in tart: lists no VMs, and `run` holds one child, the way caffeinate holds tart.
+case "${1:-}" in
+  list) echo '[]' ;;
+  run)  sleep 60 & echo $! > "$STUB_RUNNER_CHILD"; wait ;;
+esac
+EOF
+  chmod 755 "$STOP_TART"
+  rm -f "$TMP/runner.child"
+  STUB_RUNNER_CHILD="$TMP/runner.child" "$STOP_TART" run "$STOP_VM" --no-graphics &
+  RUNNER=$!
+  for _ in $(seq 1 50); do [ -s "$TMP/runner.child" ] && break; sleep 0.1; done
+  RUNNER_CHILD="$(cat "$TMP/runner.child" 2>/dev/null)"
+  echo "$RUNNER" > "$STOP_ROOT/run/$STOP_VM/vm.pid"
+  out="$(env TESTVM_ROOT="$STOP_ROOT" TART_HOME="$STOP_ROOT/tart" "$TESTVM_DIR/stop.sh" "$STOP_VM" 2>&1)"; ok $? "$out"
+  has "$out" "reaping the host-side VM runner"
+  kill -0 "$RUNNER" 2>/dev/null; no $? "the runner (pid $RUNNER) survived stop.sh: $out"
+  if [ -n "$RUNNER_CHILD" ]; then
+    kill -0 "$RUNNER_CHILD" 2>/dev/null; no $? "the runner's child (pid $RUNNER_CHILD) survived stop.sh"
+  else
+    ok 1 "the stand-in runner never recorded its child"
+  fi
+  # Owned pids only, captured above, in case the assertion failed and they live on.
+  kill -TERM "$RUNNER" ${RUNNER_CHILD:+"$RUNNER_CHILD"} 2>/dev/null; wait "$RUNNER" 2>/dev/null
+  rm -f "$STOP_TART"
+t_done
+
 t "claude login: run.sh copies the login in after the keychain exists, and prints the line"
   src="$(cat "$TESTVM_DIR/run.sh")"
   has "$src" 'claude-login.sh" push "$VM" "$GUEST_HOME"'

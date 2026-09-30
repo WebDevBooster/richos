@@ -79,20 +79,40 @@ if vm_running "$VM" 2>/dev/null; then
 fi
 # The host-side `tart run` process is what actually holds the VM's memory.
 # A stopped VM whose runner survives is 7 GB of RAM nobody can see.
+#
+# ONLY THE RECORDED PID, AND ONLY IF IT IS STILL THIS VM'S RUNNER. A run state
+# can outlive its runner (a crashed harness, a reboot), and macOS reuses pids,
+# so by the time this reads vm.pid the number may belong to somebody else's
+# work. run.sh launched `caffeinate -is "$TART_BIN" run "$VM" --no-graphics`,
+# so that command line is what the pid must still show; anything else is left
+# alone, the same rule the login keeper below follows. If the real runner were
+# gone and the VM still up, the vm_running check after this block says so.
 VMPID="$(cat "$STATE/vm.pid" 2>/dev/null || true)"
-if [ -n "$VMPID" ] && kill -0 "$VMPID" 2>/dev/null; then
-  # The recorded pid is `caffeinate`, with `tart run` as its CHILD. Killing the
-  # parent alone would leave the VM running and holding its memory, with
-  # nothing pointing at it any more — the worst kind of leftover. So the
-  # children go first, then the parent.
-  log "reaping the host-side VM runner (caffeinate pid $VMPID and its tart child)"
-  CHILDREN="$(pgrep -P "$VMPID" 2>/dev/null || true)"
-  for c in $CHILDREN; do kill -TERM "$c" 2>/dev/null; done
-  sleep 2
-  for c in $CHILDREN; do kill -0 "$c" 2>/dev/null && kill -KILL "$c" 2>/dev/null; done
-  kill -TERM "$VMPID" 2>/dev/null; sleep 1
-  kill -0 "$VMPID" 2>/dev/null && kill -KILL "$VMPID" 2>/dev/null
-fi
+case "$VMPID" in
+  *[!0-9]*|"") ;;
+  *)
+    VMCMD="$(ps -ww -p "$VMPID" -o command= 2>/dev/null || true)"
+    case "$VMCMD" in
+      "") ;;   # the recorded runner has exited
+      *"$TART_BIN run $VM --no-graphics"*)
+        # The recorded pid is `caffeinate`, with `tart run` as its CHILD. Killing the
+        # parent alone would leave the VM running and holding its memory, with
+        # nothing pointing at it any more — the worst kind of leftover. So the
+        # children go first, then the parent.
+        log "reaping the host-side VM runner (caffeinate pid $VMPID and its tart child)"
+        CHILDREN="$(pgrep -P "$VMPID" 2>/dev/null || true)"
+        for c in $CHILDREN; do kill -TERM "$c" 2>/dev/null; done
+        sleep 2
+        for c in $CHILDREN; do kill -0 "$c" 2>/dev/null && kill -KILL "$c" 2>/dev/null; done
+        kill -TERM "$VMPID" 2>/dev/null; sleep 1
+        kill -0 "$VMPID" 2>/dev/null && kill -KILL "$VMPID" 2>/dev/null
+        ;;
+      *)
+        log "recorded runner pid $VMPID is no longer this VM's runner (it is now: $VMCMD); left alone"
+        ;;
+    esac
+    ;;
+esac
 vm_running "$VM" 2>/dev/null && PROBLEMS+=("VM $VM is still running")
 
 # --- 2b. end this run's login keeper, by its recorded pid ---------------------
