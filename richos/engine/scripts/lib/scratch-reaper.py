@@ -1129,8 +1129,17 @@ class Reaper(object):
                 continue
 
             snapshot = self.open_under_tmp()
-            if snapshot is not None and os.path.dirname(path) == \
-                    os.path.realpath(os.environ.get("TMPDIR") or "/tmp") and \
+            in_tmp = os.path.dirname(path) == \
+                os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
+            if snapshot is None and in_tmp:
+                # The normal arms refuse when they cannot tell whether a tree is in
+                # use (hunt part 5, P5-05); a retry has no more right to guess.
+                self.add(path, "standing-failure", size, INDETERMINATE,
+                         "a previous run failed to delete it, but the open-file table "
+                         "could not be read, and a tree something is reading must never "
+                         "be deleted from under it")
+                continue
+            if snapshot is not None and in_tmp and \
                     self.held_in_snapshot(path, snapshot):
                 self.add(path, "standing-failure", size, KEEP,
                          "a process has opened a file inside it since the "
