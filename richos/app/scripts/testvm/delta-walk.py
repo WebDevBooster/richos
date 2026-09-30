@@ -71,6 +71,16 @@ class Walk:
         return [json.loads(s) for s in out.splitlines() if s.startswith('{')]
     def press(self,title,app=None,role='AXButton'):
         return self.ax('click','--title',title,'--role',role,'--contains','--first',app=app)
+    def press_when_present(self,title,app=None,budget=20):
+        # Safari has just been asked to open a URL: press the moment the button exists, looking
+        # first, instead of sleeping a fixed 2 s that costs full price when Safari is already up
+        # and is still too short when it is slow.
+        end=time.monotonic()+budget
+        while True:
+            try:return self.press(title,app=app)
+            except Failure as exc:
+                if 'notfound' not in str(exc) or time.monotonic()>=end:raise
+            time.sleep(.5)
     def optional_press(self,title):
         try:self.press(title)
         except Failure as exc:
@@ -107,7 +117,7 @@ class Walk:
         self.settings();self.press('Use Rich from your phone',role='AXMenuItem');self.press('Set my phone up')
         self.url=self.pairing_url()
         guest(self.vm,shlex.join(['open','-a','Safari',self.url]))
-        time.sleep(2);self.press('They match',app='Safari')
+        self.press_when_present('They match',app='Safari')
         self.press('Close')
         # A fixed layout gives the two frame streams nonoverlapping rectangles.
         script='tell application "System Events"\n tell process "richos-tauri"\n set position of window 1 to {0,25}\n set size of window 1 to {1024,700}\n end tell\n tell process "Safari"\n set position of window 1 to {1024,25}\n set size of window 1 to {656,700}\n end tell\nend tell'
@@ -262,11 +272,14 @@ class Walk:
     def rejected_phone(self,step,budget):
         self.settings();self.press('Use Rich from your phone',role='AXMenuItem');self.press('Forget this phone')
         self.press('Set my phone up');url=self.pairing_url()
-        guest(self.vm,shlex.join(['open','-a','Safari',url]));time.sleep(2)
-        self.press('They do not match',app='Safari')
+        guest(self.vm,shlex.join(['open','-a','Safari',url]))
+        self.press_when_present('They do not match',app='Safari')
         rejected=self.home+'/Library/Application Support/com.richos.app/phone/rejected.json'
         before=guest(self.vm,'shasum -a 256 '+shlex.quote(rejected)).split()[0]
-        started=relaunch(self.vm);time.sleep(2)
+        started=relaunch(self.vm)
+        # No signal to poll: the check is that the file did NOT change, so this is a settle margin
+        # (2 s) for the app to have rewritten it if it were going to. Kept on purpose, recorded here.
+        time.sleep(2)
         after=guest(self.vm,'shasum -a 256 '+shlex.quote(rejected)).split()[0]
         if before!=after:raise Failure('product failure','rejected-phone record changed across relaunch')
         self.settings();self.press('Use Rich from your phone',role='AXMenuItem')

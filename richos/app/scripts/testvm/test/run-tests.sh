@@ -31,9 +31,25 @@
 # ===========================================================================
 set -uo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="${RUN_TESTS_HERE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 TESTVM_DIR="$(cd "$HERE/.." && pwd)"
 FILTER="${1:-}"
+
+# A named run runs ONLY the named bodies. The filter used to sit in t_done, after the body
+# had already executed, so `run-tests.sh "claude login"` still paid for every unrelated
+# body (crypto, sleeps, samplers), five times over under the mutation runner, and a failure in
+# an unselected body never showed. Here the script re-executes a copy of itself with the
+# `t "name"` ... `t_done` blocks whose name does not contain the pattern cut out before
+# bash sees them. Setup code between blocks is kept. (Header: "run the tests whose names match".)
+if [ -n "$FILTER" ] && [ -z "${RUN_TESTS_FILTERED:-}" ]; then
+  export RUN_TESTS_FILTERED=1 RUN_TESTS_HERE="$HERE"
+  exec bash <(awk -v pat="$FILTER" '
+    /^t "/ { name = $0; sub(/^t "/, "", name); sub(/".*$/, "", name)
+             skipping = (index(name, pat) == 0) }
+    !skipping { print }
+    /^t_done$/ { skipping = 0 }
+  ' "${BASH_SOURCE[0]}") "$FILTER"
+fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/testvm-tests.XXXXXX")"
 # §54: this scratch directory goes however this script ends — pass, fail, or
@@ -605,6 +621,50 @@ t "summary: run.sh carries the refusal block and the escape hatch, in that order
   has "$src" "tailnet_cause_from_join_output"
   has "$src" "--no-tailnet"
   hasnt "$src" 'JOIN_OUT="$("$HERE/tailnet.sh" join "$VM" 2>&1)" && true'
+t_done
+
+t "window wait: a boot with zero windows FAILS after its polls (finding 40), it is not 'ready'"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_for_app_window inside the subshell
+  out="$( guest_ssh() { echo "call" >> "$TMP/ww-calls"; echo 0; }
+          rm -f "$TMP/ww-calls"
+          wait_for_app_window vm 123 3 0; echo "rc=$? windows=$WINDOWS calls=$(wc -l < "$TMP/ww-calls" | tr -d ' ')" )"
+  eq "$out" "rc=1 windows=0 calls=3"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  # shellcheck disable=SC2016  # the $ names are literal source text
+  has "$src" 'if ! wait_for_app_window "$VM" "$PID" 45 1; then'
+  hasnt "$src" 'WARNING: the app is running'
+t_done
+
+t "window wait: a window that is already there returns at the first look, with no sleep before it"
+  start=$SECONDS
+  # shellcheck disable=SC2329  # the stub is invoked by wait_for_app_window inside the subshell
+  out="$( guest_ssh() { echo 2; }
+          wait_for_app_window vm 123 45 30; echo "rc=$? windows=$WINDOWS" )"
+  eq "$out" "rc=0 windows=2"
+  elapsed=$((SECONDS - start))
+  quick=0; [ "$elapsed" -lt 5 ] || quick=1
+  ok "$quick" "waited ${elapsed}s instead of returning at once"
+t_done
+
+t "readiness waits: the base stop and the reboot are polled, not slept (finding 41)"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_until_vm_stopped inside the subshell
+  out="$( vm_running() { return 1; }
+          start=$SECONDS; wait_until_vm_stopped base 60 30; echo "rc=$? took=$((SECONDS - start))" )"
+  eq "$out" "rc=0 took=0"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_until_vm_stopped inside the subshell
+  out="$( vm_running() { return 0; }
+          wait_until_vm_stopped base 3 0; echo "rc=$?" )"
+  eq "$out" "rc=1"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_for_guest_reboot inside the subshell
+  out="$( n=0; ssh() { n=$((n+1)); [ "$n" -ge 3 ] && [ "$n" -lt 5 ] && return 255; [ "$n" -ge 5 ] && return 0; return 0; }
+          wait_for_guest_reboot 10.0.0.1 30 90 0 2>&1; echo "rc=$?" )"
+  eq "$out" "rc=0"
+  # shellcheck disable=SC2329  # the stub is invoked by wait_for_guest_reboot inside the subshell
+  out="$( ssh() { return 255; }; wait_for_guest_reboot 10.0.0.1 2 3 0 2>&1; echo "rc=$?" )"
+  has "$out" "rc=1"
+  src="$(cat "$TESTVM_DIR/setup.sh" "$TESTVM_DIR/run.sh")"
+  hasnt "$src" "sleep 25"
+  hasnt "$src" "    sleep 3"
 t_done
 
 t "summary: the join's exit status survives set -e, so the refusal block is reachable at all"

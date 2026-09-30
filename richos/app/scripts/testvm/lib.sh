@@ -220,6 +220,58 @@ guest_ssh() {
   ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" "$TESTVM_GUEST_USER@$ip" "$@"
 }
 
+# wait_until_vm_stopped <vm> [polls] [interval-seconds]
+# Returns 0 the moment tart no longer reports <vm> running, looking BEFORE any sleep (a base
+# that is already stopped costs nothing), 1 when the polls run out.
+wait_until_vm_stopped() {
+  local vm="$1" polls="${2:-60}" interval="${3:-0.5}" i
+  for i in $(seq 1 "$polls"); do
+    vm_running "$vm" || return 0
+    [ "$i" -lt "$polls" ] && sleep "$interval"
+  done
+  return 1
+}
+
+# wait_for_guest_reboot <ip> [down-polls] [up-polls] [interval-seconds]
+# After `shutdown -r now`: first see the guest go DOWN (ssh stops answering), then see it come
+# back UP (ssh answers). Replaces a fixed 25 s sleep that cost its full price when the guest was
+# back in ten and was too short when it was slow. A guest that never goes down within the first
+# polls is reported on stderr and still gets the up check, so a shutdown that did not take
+# is not mistaken for a completed reboot silently. Returns 0 up, 1 never came back.
+wait_for_guest_reboot() {
+  local ip="$1" down_polls="${2:-30}" up_polls="${3:-90}" interval="${4:-1}" i seen_down=0
+  for i in $(seq 1 "$down_polls"); do
+    if ! ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" "$TESTVM_GUEST_USER@$ip" true >/dev/null 2>&1; then
+      seen_down=1; break
+    fi
+    [ "$i" -lt "$down_polls" ] && sleep "$interval"
+  done
+  [ "$seen_down" -eq 1 ] || printf '[testvm] WARN: the guest never stopped answering ssh after the reboot request\n' >&2
+  for i in $(seq 1 "$up_polls"); do
+    if ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" "$TESTVM_GUEST_USER@$ip" true >/dev/null 2>&1; then
+      return 0
+    fi
+    [ "$i" -lt "$up_polls" ] && sleep "$interval"
+  done
+  return 1
+}
+
+# wait_for_app_window <vm> <pid> [polls] [interval-seconds]
+# A pid is not a proof of a started app: it can be running and drawing nothing, which is what
+# a screenshot would photograph and call a pass. Polls the guest for a window of <pid>, checking
+# BEFORE any sleep. Sets WINDOWS to the last count read; returns 0 once it is at least 1 and 1
+# when the polls run out, so a caller can refuse a windowless boot.
+wait_for_app_window() {
+  local vm="$1" pid="$2" polls="${3:-45}" interval="${4:-1}" i
+  WINDOWS=0
+  for i in $(seq 1 "$polls"); do
+    WINDOWS="$(guest_ssh "$vm" "osascript -e 'tell application \"System Events\" to count windows of (first process whose unix id is $pid)' 2>/dev/null || echo 0" | tr -d '[:space:]')" || WINDOWS=0
+    [ "${WINDOWS:-0}" -gt 0 ] 2>/dev/null && return 0
+    [ "$i" -lt "$polls" ] && sleep "$interval"
+  done
+  return 1
+}
+
 guest_scp() {
   local vm="$1"; shift
   local ip

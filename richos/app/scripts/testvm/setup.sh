@@ -176,7 +176,7 @@ fi
 log "rebooting the guest so the TCC grants take effect..."
 ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" "$TESTVM_GUEST_USER@$IP" \
   'sudo shutdown -r now' >/dev/null 2>&1 || true
-sleep 25
+wait_for_guest_reboot "$IP" 30 90 1 || die "guest did not come back after reboot"
 IP="$(vm_ip "$TESTVM_BASE_VM")" || die "guest did not come back after reboot"
 
 # --- 7. prove the capture path, HERE, before anyone depends on it -------------

@@ -96,7 +96,8 @@ if ! vm_exists "$VM"; then
   if vm_running "$TESTVM_BASE_VM"; then
     log "stopping the base VM so the clone is consistent..."
     tart stop "$TESTVM_BASE_VM" 2>/dev/null || true
-    sleep 3
+    # Clone the moment the base reports stopped, not after a fixed 3 s; 30 s is the ceiling.
+    wait_until_vm_stopped "$TESTVM_BASE_VM" 60 0.5 || die "$TESTVM_BASE_VM did not stop within 30s; not cloning an inconsistent disk"
   fi
   tart clone "$TESTVM_BASE_VM" "$VM"
   echo ephemeral > "$STATE/ephemeral"
@@ -449,18 +450,18 @@ done
 echo "$PID" > "$STATE/app.pid"
 echo "$PAYLOAD" > "$STATE/payload"
 
-WINDOWS=0
-for i in $(seq 1 45); do
-  WINDOWS="$(guest_ssh "$VM" "osascript -e 'tell application \"System Events\" to count windows of (first process whose unix id is $PID)' 2>/dev/null || echo 0" | tr -d '[:space:]')"
-  [ "${WINDOWS:-0}" -gt 0 ] 2>/dev/null && break
-  sleep 1
-done
+if ! wait_for_app_window "$VM" "$PID" 45 1; then
+  # A windowless boot is a failed boot: a walk that carried on would spend its captures and
+  # deadlines on an app already known not to draw. The guest's log is shown BEFORE the clone
+  # is cleaned up, because the cleanup takes it with it.
+  log "the app is running (pid $PID) but reports ${WINDOWS:-0} windows after 45s - refusing."
+  log "guest log tail ($LOGFILE):"
+  guest_ssh "$VM" "tail -n 20 '$LOGFILE' 2>/dev/null || true" 2>&1 | sed 's/^/[testvm]   /' >&2 || true
+  clean_up_this_runs_clone
+  exit 1
+fi
 
 ELAPSED=$(( $(date +%s) - START ))
-if [ "${WINDOWS:-0}" -lt 1 ] 2>/dev/null; then
-  log "WARNING: the app is running (pid $PID) but reports 0 windows after 45s."
-  log "         Check the log:  ssh $TESTVM_GUEST_USER@$IP cat '$LOGFILE'"
-fi
 
 log "ready in ${ELAPSED}s"
 echo "vm=$VM ip=$IP pid=$PID ssh=$TESTVM_GUEST_USER@$IP windows=${WINDOWS:-0} elapsed=${ELAPSED}s"
