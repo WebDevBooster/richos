@@ -3283,7 +3283,16 @@ def snapshot_refs(rec, call=""):
     clobber the other.
 
     A snapshot lost to a crash costs one window of attribution, and
-    under-attribution loses nothing — so this never fails a tool call."""
+    under-attribution loses nothing — so this never fails a tool call.
+
+    A BACKGROUND WINDOW WHOSE SHELL HAS ENDED IS SETTLED HERE FIRST, at the
+    earliest moment the engine sees the agent again (`_settle_ended_background`):
+    judged one last time and closed before this call can do anything, so the
+    window it no longer needs cannot claim a ref cut after it."""
+    try:
+        _settle_ended_background(rec)
+    except (OSError, ValueError, SpecError):
+        pass
     try:
         snap = {}
         tips = {}
@@ -3614,7 +3623,7 @@ def _restore_protected_refs(rec, priors, latest):
     return findings
 
 
-def _take_snapshots(key, call="", all_open=False, background=False):
+def _take_snapshots(key, call="", all_open=False, background=False, rec=None):
     """CONSUME this call's window — or, at the end of the run, every open one —
     and return what was in it. Consumed whatever the outcome: one creation is
     attributed once, and a Post whose own Pre never ran attributes nothing.
@@ -3624,12 +3633,15 @@ def _take_snapshots(key, call="", all_open=False, background=False):
     stamped field, never the text of the command — the call's process is, by
     the platform's own word, still running after this Post. Its window is
     read and compared now, then written BACK marked `background`, and every
-    later observation of this agent (the next call's Post, an unkeyed Post,
-    the end of the run) consumes the background windows as well as its own.
-    That is what lets a ref the backgrounded process creates AFTER its call's
-    Post — measured on this machine: a Bash call returned 3 s before its
-    process finished (certification-frank-recorded-attribution-2026-09-12-
-    probe.py) — be judged against the window the process actually belongs to.
+    later observation of this agent judges it again, until the process is
+    CONFIRMED ended (`_background_windows`) or the run ends. That is what lets
+    a ref the backgrounded process creates AFTER its call's Post — measured on
+    this machine: a Bash call returned 3 s before its process finished
+    (certification-frank-recorded-attribution-2026-09-12-probe.py) — be judged
+    against the window the process actually belongs to, however many calls
+    the agent makes in between (hunt part 4, finding 6: the window used to be
+    consumed at the next observation, and a ref the process made after a
+    second, whole call was attributed to nobody).
     Returns (priors, background_priors): the two are judged apart, because a
     background window must NOT be unioned with a later snapshot that already
     contains what its process created (see `observe_created_refs`)."""
@@ -3650,7 +3662,8 @@ def _take_snapshots(key, call="", all_open=False, background=False):
     else:
         own = [p for p in _open_slots(key) if os.path.basename(p).startswith("u.") and not _is_background(p)][:1] \
             or [q for q in _open_slots(key) if not _is_background(q)][:1]
-    bg = [q for q in _open_slots(key) if _is_background(q) and q not in own]
+    rec = rec or {"key": key}
+    cache = {}
     priors, bg_priors = [], []
     for p in own:
         prior = read_json(p)
@@ -3660,27 +3673,131 @@ def _take_snapshots(key, call="", all_open=False, background=False):
             else:
                 priors.append(prior)
         if background and not all_open and prior and isinstance(prior.get("repos"), dict):
-            prior["background"] = True                  # the process outlives the call: keep the window
-            write_json(p, prior)
-            continue
+            state = _background_call_state(rec, prior.get("call") or call, cache)
+            if state != "ended":
+                prior["background"] = True              # the process outlives the call: keep the window
+                # agent_hold's record of this call's shell was READ here, so
+                # its later disappearance is agent_hold pruning an ended call
+                prior["hold_seen"] = state == "running"
+                write_json(p, prior)
+                continue
+            # its shell already ended before this Post: nothing outlives the call
         try:
             os.unlink(p)
         except OSError:
             pass
-    for p in bg:
-        prior = read_json(p)
-        try:
-            os.unlink(p)
-        except OSError:
-            pass
-        if prior and isinstance(prior.get("repos"), dict):
-            bg_priors.append(prior)
+    bg_priors += _background_windows(rec, all_open=all_open, exclude=own, cache=cache)
     return priors, bg_priors
 
 
 def _is_background(slot_path):
     prior = read_json(slot_path)
     return bool(prior and prior.get("background"))
+
+
+def _background_call_state(rec, call, cache=None):
+    """What agent_hold's own record of this background call's shell says:
+    "running", "ended", "absent" (no record) or "unknown".
+
+    Every Bash call of a subagent is recorded by agent_hold (its PreToolUse
+    rewrite, then the shell records ITSELF: pid, parent and start time). A
+    call is "ended" only when that record exists with its shell's pid and the
+    shell is gone, a zombie, or the pid now belongs to another process; it is
+    the one fact the engine has that says a background command FINISHED.
+    Anything unreadable is "unknown", never "ended"."""
+    if not call:
+        return "unknown"
+    cache = {} if cache is None else cache
+    try:
+        ah = _agent_hold()
+        session, agent = str(rec.get("session_id") or ""), str(rec.get("agent_id") or "")
+        if not ah._valid_ids(session, agent, call):
+            return "unknown"
+        stem = os.path.join(ah._shell_dir(session, agent), call)
+        if not os.path.exists(stem + ".json"):
+            return "absent"
+        if ah._read_pid(stem + ".pid") is None:
+            return "unknown"                 # recorded, but its shell has not recorded itself
+        if "table" not in cache:
+            cache["table"] = ah.snapshot()
+        table = cache["table"]
+        live = [c for c in ah.calls(session, agent, table)
+                if c["tid"] == call and not table[c["pid"]]["stat"].startswith("Z")]
+        return "running" if live else "ended"
+    except Exception:
+        return "unknown"
+
+
+def _background_windows(rec, all_open=False, exclude=(), cache=None, ended_only=False):
+    """The agent's open background windows, for the observation that is now
+    judging them. A window whose call is CONFIRMED ended — agent_hold's record
+    shows its shell gone, or that record, once read with a shell in it, has
+    been pruned (agent_hold prunes only a call whose shell and tagged children
+    are gone) — or every window at the end of the run, is returned for its
+    last judgment and consumed. Any other is returned and KEPT: its process
+    may still be running, and a ref it makes later is still its (finding 6).
+
+    Each returned row carries `judged` as it was BEFORE this observation, so
+    the protected-ref check sees a window once, as before; attribution judges
+    it every time, and attribution never records one ref twice.
+
+    `ended_only` (the start of a call) leaves still-running windows untouched."""
+    key = rec["key"]
+    cache = {} if cache is None else cache
+    out = []
+    for p in _open_slots(key):
+        if p in exclude or not _is_background(p):
+            continue
+        prior = read_json(p)
+        if not (prior and isinstance(prior.get("repos"), dict)):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+            continue
+        ended = all_open
+        if not ended:
+            state = _background_call_state(rec, prior.get("call"), cache)
+            ended = state == "ended" or (state == "absent" and bool(prior.get("hold_seen")))
+        if ended_only and not ended:
+            continue
+        if ended:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        elif not prior.get("judged"):
+            write_json(p, dict(prior, judged=True))
+        out.append(prior)
+    return out
+
+
+def _background_before(bg_priors):
+    """ONE before-set for every background window judged together: per
+    repository, the INTERSECTION of theirs. A ref is new when ANY background
+    call whose process may still be running started without it, and the
+    intersection is exactly that. (The union `_before_set` takes is for
+    ordinary windows, where a window leaked by a refused call must not widen
+    the comparison; a background window is not leaked, its Post stamped it.)"""
+    repos = {}
+    for prior in bg_priors:
+        for repo, names in (prior.get("repos") or {}).items():
+            s = set(names or [])
+            repos[repo] = s if repo not in repos else (repos[repo] & s)
+    return {"key": (bg_priors[0] or {}).get("key", ""), "call": "", "background": True,
+            "repos": {r: sorted(s) for r, s in repos.items()}}
+
+
+def _settle_ended_background(rec):
+    """At the START of a call: every background window whose call is
+    confirmed ended is judged one last time and closed, before the call can
+    do anything. Still-running windows are left for the Post to judge."""
+    settled = _background_windows(rec, ended_only=True)
+    if not settled:
+        return []
+    latest = read_json(_latest_path(rec["key"]))
+    _restore_protected_refs(rec, [p for p in settled if not p.get("judged")], latest)
+    return _attribute_new_refs(rec, [_background_before(settled)], None)
 
 
 def _before_set(priors, latest, repo):
@@ -3859,10 +3976,11 @@ def observe_created_refs(rec, call="", all_open=False, background=False):
     (`_take_snapshots`).
 
     The window is CONSUMED here, whatever the outcome: one creation is
-    attributed once. A background window is the one exception, and it is
-    consumed by the next observation of this agent, judged against ITS OWN
-    before-set: a later snapshot already holds what its process created, so
-    the union rule would call that ref old, and it is not.
+    attributed once. A background window is the one exception: it is judged
+    at every later observation of this agent against ITS OWN before-set — a
+    later snapshot already holds what its process created, so the union rule
+    would call that ref old, and it is not — and consumed only once its
+    process is confirmed ended or the run ends (`_background_windows`).
 
     IT DOES NOT NEED AN INTEGRATION BRANCH TO BE RECORDED. The record is a
     filter on what is at stake, never a gate on whether the observation happens
@@ -3872,22 +3990,27 @@ def observe_created_refs(rec, call="", all_open=False, background=False):
     # windows are thrown away, or the end-of-run pass is judged against the
     # leaked window alone -- which is the widening this whole change ends.
     latest = read_json(_latest_path(rec["key"]))
-    priors, bg_priors = _take_snapshots(rec["key"], call, all_open, background)
+    priors, bg_priors = _take_snapshots(rec["key"], call, all_open, background, rec=rec)
     if all_open:
         _drop_snapshots(rec["key"])
     # The effects check runs FIRST, on the snapshots as taken: a protected ref
     # the call DELETED is put back, and one it MOVED is reported and left where
     # it is (it never moves a ref back — see _restore_protected_refs), before
-    # anything is attributed.
-    _restore_protected_refs(rec, priors + bg_priors, latest)
+    # anything is attributed. A background window kept open across several
+    # observations takes part the first time only, as it did when the next
+    # observation consumed it, so a move is reported once.
+    _restore_protected_refs(rec, priors + [p for p in bg_priors if not p.get("judged")], latest)
     added = []
     if bg_priors:
         # THE BACKGROUND WINDOWS, JUDGED APART: against their own before-sets,
         # never unioned with `latest` — the next call's snapshot was taken
         # while the backgrounded process was still running, so it already
         # holds what that process created, and the union would call it old.
+        # Several open at once are judged as one, against the intersection of
+        # their before-sets (`_background_before`).
         # The four filters still apply (own unlanded work, not somebody
         # else's, at stake), which is what keeps a second agent's refs out.
+        bg_priors = [_background_before(bg_priors)]
         added += _attribute_new_refs(rec, bg_priors, None)
     # THE END OF THE RUN COMPARES ONCE MORE AGAINST THE LAST SNAPSHOT, WHETHER
     # OR NOT A WINDOW IS STILL OPEN (round 8, item 8). A backgrounded process

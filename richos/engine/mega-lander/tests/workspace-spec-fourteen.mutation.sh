@@ -90,7 +90,7 @@ mutant R-p02-codex-deleter-passes-the-guard "C2.13" "$G" \
     '    if False:{NL}        spec.append("%s deleting the codex/ ref %s' \
     "RECORDED [richos-hq lifecycle-failure-record-2026-09-13.md §5, 2026-09-13: 'Point 2 of the CEO's page is violable today — an agent can delete a codex/ branch'; brief-audit-frank-round8-2026-09-13.md §3, executed in a fixture on the base: git update-ref -d refs/heads/codex/bare, push --delete . codex/bare, push . :codex/bare, push . :refs/heads/codex/bare and branch -M codex/bare not-codex all passed the guard at rc=0 and the branch was GONE; the CEO's ruling ceo-decisions.md §31 and RICH-TODOs.md:175 (5fb3e5b9, 2026-09-12): 'codex/ is closed as a topic'. No real codex/ ref has been lost on this machine (lifecycle-failure-record-2026-09-12.md: eight codex/ workspaces measured clean) — the incident is the measured violability]: the five deleters would pass the guard again."
 mutant S-p02-codex-ref-not-seen-at-all "C2.9 " "$W" \
-    '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
+    '    _restore_protected_refs(rec, priors + [p for p in bg_priors if not p.get("judged")], latest)' \
     '    pass' \
     "SPEC-DERIVED (point 2 negated, 'a codex/ workspace or branch is never deleted'; constructed after both round-8 reviewers showed a verb list cannot close the unnamed doorway): a codex/ ref moved or deleted during an agent's call by a verb the guard missed, by the doorway or by a non-git write would go unseen — no report for a move, and a deleted one never re-created. (C2.10, C2.11 and C14.13 go red under it too.)"
 mutant S-p02-a-move-is-written-back-again "C2.9 " "$W" \
@@ -401,7 +401,7 @@ mutant S-p14-agent-may-push-into-the-recorded-branch "C14.11" "$G" \
     '            if pdelete or src == "":{NL}                _refuse_delete(kind, "git %s" % sub, dst){NL}            else:{NL}                pass' \
     "SPEC-DERIVED (point 14 negated; certification-frank-round6 §4: 'git push . HEAD:dev/workspace-spec' → 0): an agent's call could push its own tip into the recorded integration branch."
 mutant S-p14-recorded-branch-not-reported "C14.13" "$W" \
-    '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
+    '    _restore_protected_refs(rec, priors + [p for p in bg_priors if not p.get("judged")], latest)' \
     '    pass' \
     "SPEC-DERIVED (point 14 negated, 'The branch a body of work integrates on is RECORDED ... Nothing infers it and nothing guesses it' — and both round-8 reviewers measured that no verb list closes the doorway: checkout <it>, then commit/reset/merge/rebase move it naming nothing, from either checkout): a recorded branch moved by an unnamed verb in an agent's call would go unseen — nobody would be told, and every in-flight agent's land would be measured against a tip an agent chose with no record that it happened."
 mutant S-p14-a-move-is-written-back-again "C14.13" "$W" \

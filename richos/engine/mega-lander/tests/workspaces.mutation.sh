@@ -338,6 +338,21 @@ mutant p13-unreadable-branch-recorded-deleted "test_point_13_a_branch_whose_tip_
     '    if False:{NL}        return False, "branch %s: %s" % (b, unread)' \
     "a branch whose tip git could not READ would be reported already gone, and the record would call it deleted while it still exists (points 10, 13; hunt part 4, finding 4)."
 
+mutant p03-background-window-consumed-at-the-next-observation "test_point_03_a_background_window_outlives_the_next_observation" "$W" \
+    '        ended = all_open{NL}        if not ended:' \
+    '        ended = True{NL}        if not ended:' \
+    "a backgrounded call's window would be consumed at the agent's next observation while its process may still run, so a branch the process makes after a second, whole call would be attributed to nobody and left outside every integration branch by a land that reports success (points 3, 9, 10; hunt part 4, finding 6)."
+
+mutant p08-background-window-never-closes "test_point_08_a_background_window_closes_when_its_shell_is_confirmed_ended_and_not_before" "$W" \
+    '            ended = state == "ended" or (state == "absent" and bool(prior.get("hold_seen")))' \
+    '            ended = False' \
+    "a background window would stay open after agent_hold's record shows its shell ended, so a ref Rich cuts at the agent's tip afterwards would be attributed to the agent and deleted by its discard (point 8; the reason the window used to close, kept where it holds)."
+
+mutant p08-ended-background-window-settled-late "test_point_08_a_background_window_closes_when_its_shell_is_confirmed_ended_and_not_before" "$W" \
+    '        _settle_ended_background(rec){NL}    except (OSError, ValueError, SpecError):' \
+    '        pass{NL}    except (OSError, ValueError, SpecError):' \
+    "a background window whose shell has ended would stay open until the next PostToolUse, so a ref Rich cuts at the agent's tip after the next call has started would be judged against it and attributed to the agent (point 8)."
+
 mutant p03-known-stray-narrows-the-scan "test_point_03_a_known_stray_in_one_repository_never_hides_one_in_another" "$W" \
     '        its_repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))' \
     '        repos = its_repos = sorted(set(w.get("repo") for w in live_workspaces(r) if w.get("repo")))' \
@@ -364,7 +379,7 @@ mutant p03-borrowed-tip-counts-as-own-work "test_point_14_a_tip_the_agent_only_b
     "every commit the workspace's HEAD ever MOVED TO would count as the agent's own work, checkouts included, so a ref Rich cut at a tip the agent merely BORROWED would be on the agent's line of work and would be deleted with it (points 3, 8)."
 
 mutant p14-moved-recorded-branch-not-reported "test_point_14_a_recorded_branch_moved_in_an_agents_call_is_reported_and_left_alone" "$W" \
-    '    _restore_protected_refs(rec, priors + bg_priors, latest)' \
+    '    _restore_protected_refs(rec, priors + [p for p in bg_priors if not p.get("judged")], latest)' \
     '    pass' \
     "a recorded branch (or a codex/ ref) moved or deleted during an agent's call by an unnamed verb, a verb the guard missed or a non-git write would go unseen: no report, and a deleted one never re-created — the doorway class no verb list can close (points 2, 14)."
 

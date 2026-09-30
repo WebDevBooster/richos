@@ -2734,6 +2734,76 @@ class UnknownIsNeverClean(Base):
                 os.chmod(locked, 0o755)
         self.assertTrue(os.path.isfile(os.path.join(mine, "private", "only-copy.txt")))
 
+    def _bg_post(self, aid, call):
+        ws.observe({"session_id": self.sid, "agent_id": aid, "tool_name": "Bash",
+                    "hook_event_name": "PostToolUse", "tool_use_id": call,
+                    "tool_input": {"command": "sleep 30 && git branch later", "run_in_background": True}})
+
+    def test_point_03_a_background_window_outlives_the_next_observation(self):
+        """Finding 6, the report's own witness. A backgrounded call's Post, a
+        whole call after it while its process may still run, THEN the process
+        makes a branch carrying a commit, another whole call, and the end of
+        the run. Nothing says the process ended at the intervening call, so
+        its window is still open when the branch appears."""
+        aid, npath = self.spawn("zach-opus-bgl")
+        self.commit(npath, "bgl.txt")
+        self.pre(aid, "tu-bgl")
+        self._bg_post(aid, "tu-bgl")
+        self.tool_call(aid, "tu-bgl-mid")                   # nothing made yet
+        run("git", "-C", npath, "checkout", "-q", "-b", "bg/later")
+        self.commit(npath, "later.txt")                     # the process, after that call
+        run("git", "-C", npath, "checkout", "-q", "worktree-agent-" + aid)
+        self.tool_call(aid, "tu-bgl-after")
+        self.finish(aid)
+        self.assertEqual(self.created("zach-opus-bgl"), ["bg/later"])
+        self.merge(self.entity, "worktree-agent-" + aid)
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-bgl", self.sid)
+        self.assertIn("bg/later", str(e.exception))
+        self.assertTrue(os.path.isdir(npath))
+
+    def test_point_08_a_background_window_closes_when_its_shell_is_confirmed_ended_and_not_before(self):
+        """Finding 6, both directions, on agent_hold's own record of the call's
+        shell (the record every subagent Bash call gets). While that shell
+        runs, a branch it makes is the agent's; once the record shows it gone,
+        the window is judged once more and closed, so a ref Rich cuts at the
+        agent's tip afterwards stays his (the reason the window used to close
+        at the next observation, kept where it holds)."""
+        hold_env = patch.dict(os.environ, {"RICHOS_AGENT_HOLD_DIR": os.path.join(self.env.root, "agent-hold")})
+        hold_env.start()                                    # the fixture's own, never the operator's
+        self.addCleanup(hold_env.stop)
+        aid, npath = self.spawn("zach-opus-bge")
+        self.commit(npath, "bge.txt")
+        ah = ws._agent_hold()
+        call = "tu-bge"
+        payload = {"session_id": self.sid, "agent_id": aid, "tool_use_id": call, "tool_name": "Bash",
+                   "tool_input": {"command": "sleep 30", "run_in_background": True}}
+        stem, _held = ah._record(payload, "bg", "sleep 30")
+        self.pre(aid, call)
+        shell = subprocess.Popen(["bash", "-c", "%s %s mark --state %s %s && exec sleep 30"
+                                  % (sys.executable, ah.__file__, ah.state_dir(), stem)])
+        self.env.procs.append(shell)
+        for _ in range(100):
+            if os.path.exists(stem + ".pid"):
+                break
+            time.sleep(0.05)
+        self.assertTrue(os.path.exists(stem + ".pid"), "agent_hold's mark never recorded the shell")
+        self._bg_post(aid, call)
+        self.tool_call(aid, "tu-bge-1")                     # the shell still runs
+        run("git", "-C", npath, "branch", "bg/while-running")
+        self.tool_call(aid, "tu-bge-2")
+        self.assertEqual(self.created("zach-opus-bge"), ["bg/while-running"])
+        shell.kill()
+        shell.wait()                                        # the record now shows the shell gone
+        self.pre(aid, "tu-bge-3")                           # the next call starts: judged once more, closed
+        key = self.rec("zach-opus-bge")["key"]
+        self.assertEqual([p for p in ws._open_slots(key) if ws._is_background(p)], [])
+        # Rich, in the main checkout, at the agent's tip, while that call is open
+        run("git", "-C", self.entity, "branch", "rich/keep", run("git", "-C", npath, "rev-parse", "HEAD").stdout.strip())
+        self.tool_call(aid, "tu-bge-4")
+        self.finish(aid)
+        self.assertEqual(self.created("zach-opus-bge"), ["bg/while-running"])
+
     def test_point_03_a_known_stray_in_one_repository_never_hides_one_in_another(self):
         """Finding 7. A stray already known in the first repository must not
         narrow the scan of the repositories it was asked to look at."""

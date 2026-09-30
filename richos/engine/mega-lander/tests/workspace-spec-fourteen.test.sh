@@ -226,6 +226,26 @@ agent_call_post_bg() { # <agent-id> <tool_use_id> -> the PostToolUse of a Bash c
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[4],"tool_input":{"command":"sleep 3 && git branch side/bg","run_in_background":True},"tool_response":{"status":"running"}}))' "$CUR_SID" "$1" "$2" "$ENT" \
         | bash "$HOOKS/observe-created-refs.sh" >/dev/null 2>>"$T/observe.err"
 }
+hold_shell_start() { # <agent-id> <tool_use_id> -> agent_hold's own record of that call's shell, made as its PreToolUse rewrite and the shell's own `mark` make it; the shell runs until hold_shell_end
+    local lib="$ENGINE/scripts/lib" stem state pid
+    stem="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import agent_hold as ah
+r = ah._record({"session_id": sys.argv[2], "agent_id": sys.argv[3], "tool_use_id": sys.argv[4]}, "bg", "sleep 3 && git branch side/bg")
+print(r[0] if r else "")' "$lib" "$CUR_SID" "$1" "$2")"
+    state="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import agent_hold as ah; print(ah.state_dir())' "$lib")"
+    [ -n "$stem" ] || return 1
+    bash -c 'python3 "$1" mark --state "$2" "$3" && exec sleep 600' _ "$lib/agent_hold.py" "$state" "$stem" &
+    pid=$!
+    FIXTURE_PIDS+=("$pid")
+    printf '%s\n' "$pid" > "$T/hold-shell-$2.pid"
+    while [ ! -e "$stem.pid" ] && kill -0 "$pid" 2>/dev/null; do sleep 0.05; done   # a fact, not a clock
+    [ -e "$stem.pid" ]
+}
+hold_shell_end() { # <tool_use_id> -> that call's process finishes: agent_hold's record then shows its shell gone
+    local pid
+    pid="$(cat "$T/hold-shell-$1.pid")"
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null || true                          # reaped, so no zombie stands in for it
+}
 task_completed() { # <agent-id> <name>  — TaskCompleted through the lifecycle hook: the agent handed in its work (point 11)
     payload TaskCompleted "{\"session_id\":\"$CUR_SID\",\"agent_id\":\"$1\",\"teammate_name\":\"$2\",\"cwd\":\"$ENT\"}" \
         | bash "$HOOKS/workspace-lifecycle.sh" >/dev/null 2>>"$T/hooks.err"
@@ -956,19 +976,22 @@ sub "C10.8 and it goes with the work: after the land ($rt3) that branch is gone 
 # platform stamps the call `run_in_background`, its PostToolUse arrives while the process
 # still runs, the process then creates the ref, and the agent's NEXT call opens with the ref
 # already there. The background window stays open and is judged, against its OWN before-set,
-# at the next observation. The stamped field decides, never the text of the command.
+# at the next observation and every one after it, until agent_hold's own record of the call's
+# shell shows the process ended (hunt part 4, finding 6); C10.7c and C10.7d run after it has.
+# The stamped field decides, never the text of the command.
 spawn "zach-opus-t4" "create a side branch from a backgrounded call"
 platform_spawn "zach-opus-t4" "at4t4t4t4t4t4t4t4"
 NPT4="$ENT/.claude/worktrees/agent-at4t4t4t4t4t4t4t4"
 commit_in "$NPT4" t4.txt
-agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-bg"; agent_call_post_bg "at4t4t4t4t4t4t4t4" "tu-t4-bg"   # a backgrounded call: Pre, then its Post while the process runs
+agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-bg"; hold_shell_start "at4t4t4t4t4t4t4t4" "tu-t4-bg"; agent_call_post_bg "at4t4t4t4t4t4t4t4" "tu-t4-bg"   # a backgrounded call: Pre, its shell, then its Post while the process runs
 git -C "$NPT4" branch side/t4                                # created by that process, after its call's Post
 agent_call_pre "at4t4t4t4t4t4t4t4" "tu-t4-call-2"; rp4=$?   # the next call: its snapshot already holds side/t4
 RECT4="$(agent_rec zach-opus-t4)"
 T4_AT_PRE="$(jget "$RECT4" created_branches)"
-agent_call_post "at4t4t4t4t4t4t4t4" "tu-t4-call-2"            # the next observation consumes the background window
+agent_call_post "at4t4t4t4t4t4t4t4" "tu-t4-call-2"            # the next observation judges the background window (its shell still runs, so it stays open)
 sub "C10.7b a branch created by a BACKGROUNDED call's process after that call's PostToolUse (nothing recorded at the next Pre: [$T4_AT_PRE]) is attributed at the next observation ($rp4), judged against the background window's own before-set" \
     "[ $rp4 -eq 0 ] && grep -q 'side/t4' '$RECT4'" "$(jget "$RECT4" created_branches) $(tail -3 "$T/observe.err" 2>/dev/null)"
+hold_shell_end "tu-t4-bg"                                     # the process finishes; the next call's start closes its window
 # PRECISION, the other direction (certification-sage-window-and-target case D): with a call
 # still OPEN, a ref cut at the agent's tip between two PreToolUse calls is NOT the agent's —
 # it may be Rich's, and the union rule under-attributes inside an overlap on purpose.
