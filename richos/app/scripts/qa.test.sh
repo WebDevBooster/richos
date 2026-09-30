@@ -39,7 +39,7 @@
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
 #   R5-R8   redact --phones: the gate flags a phone-shaped fixture, the redactor
 #           covers it, the gate then passes the output, the evidence survives
-#   A1-A17  phone-android: taps by the words on screen, refuses an unnamed or
+#   A1-A19  phone-android: taps by the words on screen, refuses an unnamed or
 #           unattached phone, times out as a failure, reads a closure state and
 #           an idle-frame rhythm, types through a key map, reads the editable
 #           field, runs one closure cell, finds unnamed controls, all against a
@@ -438,8 +438,37 @@ expect "T6 capture refuses to photograph this machine's screen" 1 "never a test 
 run env -u RICHOS_QA_CAPTURE "$QA/ocr-watch.sh" "$TMP/watch" --region 0,0,10,10 --count 1
 expect "T7 ocr-watch refuses to photograph this machine's screen" 2 "never a test surface"
 
+# ocr-watch must FAIL (exit 2) when the capture or the reader fails; it used to turn both into
+# empty text and report an unchanged screen, exit 0. Stand-ins first on PATH: no screen is read.
+mkdir -p "$TMP/failbin"
+printf '#!/bin/sh\nexit 7\n' > "$TMP/failbin/screencapture"
+printf '#!/bin/sh\nexit 9\n' > "$TMP/failbin/tess-fail"
+cat > "$TMP/failbin/screencapture-ok" <<'SH'
+#!/bin/sh
+for a in "$@"; do o="$a"; done
+printf x > "$o"
+SH
+chmod +x "$TMP/failbin/screencapture" "$TMP/failbin/tess-fail" "$TMP/failbin/screencapture-ok"
+run env PATH="$TMP/failbin:$PATH" RICHOS_QA_CAPTURE=allow RICHOS_QA_TESSERACT="$TMP/failbin/tess-fail" \
+    "$QA/ocr-watch.sh" "$TMP/watchf" --region 0,0,10,10 --count 1 --stop-on-repeat 1
+expect "T12 ocr-watch: a failed capture is a failure, not an unchanged screen" 2 "capture failed"
+mkdir -p "$TMP/failbin2"
+cp "$TMP/failbin/screencapture-ok" "$TMP/failbin2/screencapture"
+run env PATH="$TMP/failbin2:$PATH" RICHOS_QA_CAPTURE=allow RICHOS_QA_TESSERACT="$TMP/failbin/tess-fail" \
+    "$QA/ocr-watch.sh" "$TMP/watchg" --region 0,0,10,10 --count 1
+expect "T13 ocr-watch: a failed text reader is a failure, not empty text" 2 "reader failed"
+
 run "$QA/timeline.py" at "$TMP/tl" 0007.png
 expect "T10 a frame chosen by reading is dated off the capture's own clock" 0 "+450.0 ms"
+
+# The frame's path is checked, not just its number: capture B's 0007.png must not be dated
+# against capture A's clock. A copy of the capture stands in for "another capture".
+mkdir -p "$TMP/tl-other"
+cp "$TMP/tl/0007.png" "$TMP/tl-other/0007.png" 2>/dev/null || : > "$TMP/tl-other/0007.png"
+run "$QA/timeline.py" at "$TMP/tl" "$TMP/tl-other/0007.png"
+expect "T14 a frame path from another capture is refused, not dated off this clock" 1 "another capture"
+run "$QA/timeline.py" at "$TMP/tl" "$TMP/tl/0007.png"
+expect "T15 a frame path inside the capture is still dated" 0 "+450.0 ms"
 
 run "$QA/timeline.py" at "$TMP/tl" 99
 expect "T11 a frame that clock does not cover is refused, not dated anyway" 1 "not in"
@@ -614,6 +643,17 @@ case "\$1 \$2" in
   "exec-out screencap") cat "$FIX/pair-pass.png"; exit 0 ;;
 esac
 cmd="\$2"
+# FAKE_FAIL_READS: every read after the package and uptime ones fails, as on a phone whose adb
+# shell is denied them. FAKE_FAIL_PACKAGE: the package dump itself fails.
+if [ -n "\${FAKE_FAIL_PACKAGE:-}" ]; then
+  case "\$cmd" in "dumpsys package "*) echo "permission denied" >&2; exit 1 ;; esac
+fi
+if [ -n "\${FAKE_FAIL_READS:-}" ]; then
+  case "\$cmd" in
+    "dumpsys package "*|"cat /proc/uptime"|"input "*) ;;
+    *) echo "permission denied" >&2; exit 1 ;;
+  esac
+fi
 case "\$cmd" in
   "input "*) echo "\$cmd" >> "\$LOG" ;;
   "dumpsys package "*) printf '    appId=10359\n    User 0: installed=true stopped=false\n' ;;
@@ -656,6 +696,21 @@ run "$PA" --adb "$FAKE" --serial FAKE123 type-file "$TMP/abc.txt"
 if [ "$CODE" = 0 ] && [ "$(grep -c '^input text' "$TMP/adb.log")" = 4 ] && grep -Fxq "input text %s" "$TMP/adb.log"; then
   ok "A6 type-file sends one input per character, a space as %s"
 else bad "A6 type-file sends one input per character, a space as %s" "exit $CODE, log: $(tr '\n' ' ' < "$TMP/adb.log")"; fi
+# A read that FAILED is null with its reason, never an empty list, a zero or a false: "no
+# processes, no foreground service, microphone not running" would otherwise read as a clean closure.
+run env FAKE_FAIL_READS=1 "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect --out "$TMP/s-fail.json"
+if [ "$CODE" = 0 ] && python3 - "$TMP/s-fail.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+for key in ("processes", "services", "foregroundServices", "wakeLocks", "microphoneRunning", "microphoneAppOp",
+            "jobs", "pendingAlarms", "ownNotifications", "resumedActivity", "recentRecordingEvents", "charger"):
+    assert s[key] is None, (key, s[key])
+assert "processes" in s["unreadable"] and "microphone" in s["unreadable"] and "permission denied" in s["unreadable"]["jobs"], s.get("unreadable")
+PY
+then ok "A18 state: reads that failed are null with the reason, never empty, zero or false"
+else bad "A18 state: reads that failed are null with the reason" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+run env FAKE_FAIL_PACKAGE=1 "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect
+expect "A19 state: a package dump that failed cannot answer, it is not 'not installed'" 2 "cannot tell whether"
 run "$PA" --adb "$FAKE" --serial FAKE123 state --package dev.richos.connect --out "$TMP/s1.json"
 if [ "$CODE" = 0 ] && python3 - "$TMP/s1.json" <<'PY'
 import json, sys

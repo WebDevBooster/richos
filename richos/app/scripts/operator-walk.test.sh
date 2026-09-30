@@ -93,5 +93,18 @@ else
   bad "W5 $out"
 fi
 
+# W6: a name that is no mutant is refused (exit 2) before anything runs, alone or among valid
+# names; it used to select nothing, print "0 of 0 proven" and exit 0.
+FIRST="$(python3 "$APP/scripts/operator-mutations.py" --list | head -1 | cut -d' ' -f1)"
+for SELECTION in "definitely-not-a-mutant" "$FIRST,definitely-not-a-mutant"; do
+  out="$(python3 "$APP/scripts/operator-mutations.py" --only "$SELECTION" 2>&1)"
+  code=$?
+  if [ "$code" = 2 ] && printf '%s' "$out" | grep -Fq "NOT A MUTANT: definitely-not-a-mutant"; then
+    ok "W6 --only $SELECTION is refused, exit 2"
+  else
+    bad "W6 --only $SELECTION exit $code: $(printf '%s' "$out" | head -c 200)"
+  fi
+done
+
 echo "operator-walk.test.sh: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

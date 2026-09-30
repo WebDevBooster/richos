@@ -86,19 +86,31 @@ class Phone:
     def __init__(self, adb, serial):
         self.adb, self.serial = adb, serial
 
-    def run(self, *args, check=True, timeout=60, binary=False):
+    def _completed(self, args, timeout):
         try:
-            p = subprocess.run([self.adb, "-s", self.serial, *args], capture_output=True, timeout=timeout)
+            return subprocess.run([self.adb, "-s", self.serial, *args], capture_output=True, timeout=timeout)
         except FileNotFoundError:
             raise CannotAnswer(f"no adb at {self.adb}")
         except subprocess.TimeoutExpired:
             raise CannotAnswer(f"adb {' '.join(args)[:80]} did not answer in {timeout} s")
+
+    def run(self, *args, check=True, timeout=60, binary=False):
+        p = self._completed(args, timeout)
         if check and p.returncode != 0:
             raise CannotAnswer(f"adb {' '.join(args)[:80]} exited {p.returncode}: {p.stderr.decode(errors='replace').strip()[:160]}")
         return p.stdout if binary else p.stdout.decode(errors="replace")
 
     def sh(self, command, **kw):
         return self.run("shell", command, **kw)
+
+    def read(self, command, timeout=60):
+        """(output, None) when the command succeeded; (None, reason) when it failed. A failed read
+        is not an empty answer: empty output from a command that exited 0 is a real empty."""
+        p = self._completed(("shell", command), timeout)
+        if p.returncode != 0:
+            why = p.stderr.decode(errors="replace").strip()[:160] or p.stdout.decode(errors="replace").strip()[:160]
+            return None, f"exited {p.returncode}" + (f": {why}" if why else "")
+        return p.stdout.decode(errors="replace"), None
 
     def attached(self):
         try:
@@ -188,7 +200,21 @@ def sockets(text, uid):
 
 
 def state(phone, package):
-    pkg_dump = phone.sh(f"dumpsys package {package}", check=False)
+    unreadable = {}
+
+    def read(name, command):
+        """The command's output, or None (with the reason kept) when it FAILED. `state` is the
+        closure matrix's evidence that nothing is left running, so a read that failed must never
+        look like an empty one: null with the reason, as the module doc promises."""
+        text, why = phone.read(command)
+        if why is not None:
+            unreadable[name] = why
+        return text
+
+    pkg_text, why = phone.read(f"dumpsys package {package}")
+    if why is not None:
+        raise CannotAnswer(f"cannot tell whether {package} is installed: dumpsys package {why}")
+    pkg_dump = pkg_text
     # Android 14 names it appId; older releases userId.
     uid_m = re.search(r"\b(?:appId|userId)=(\d+)", pkg_dump)
     if not uid_m:
@@ -196,60 +222,73 @@ def state(phone, package):
                 "at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     uid = int(uid_m.group(1))
     stopped = re.search(r"\bstopped=(true|false)", pkg_dump)
+    bucket = read("standbyBucket", f"am get-standby-bucket {package}")
     rec = {"package": package, "installed": True, "uid": uid,
            "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
            "uptimeSeconds": float(phone.sh("cat /proc/uptime").split()[0]),
            "stoppedFlag": (stopped.group(1) == "true") if stopped else None,
-           "standbyBucket": phone.sh(f"am get-standby-bucket {package}", check=False).strip() or None}
-    power = phone.sh("dumpsys power", check=False)
-    wake = re.search(r"mWakefulness=(\w+)", power)
+           "standbyBucket": (bucket.strip() or None) if bucket is not None else None}
+    power = read("power", "dumpsys power")
+    wake = re.search(r"mWakefulness=(\w+)", power) if power is not None else None
     rec["screen"] = wake.group(1) if wake else None
-    window = phone.sh("dumpsys window", check=False)
-    kg = re.search(r"isKeyguardShowing=(true|false)", window) or re.search(r"mShowingLockscreen=(true|false)", window)
+    window = read("window", "dumpsys window")
+    kg = (re.search(r"isKeyguardShowing=(true|false)", window) or re.search(r"mShowingLockscreen=(true|false)", window)) if window is not None else None
     rec["keyguardShowing"] = (kg.group(1) == "true") if kg else None
-    focus = re.search(r"mCurrentFocus=(.*)", window)
-    rec["appHasFocus"] = bool(focus and package in focus.group(1))
-    battery = phone.sh("dumpsys battery", check=False)
-    rec["charger"] = {k: v for k, v in re.findall(r"^\s*(AC powered|USB powered|Wireless powered|level|status): (\S+)", battery, re.M)}
+    focus = re.search(r"mCurrentFocus=(.*)", window) if window is not None else None
+    rec["appHasFocus"] = bool(focus and package in focus.group(1)) if window is not None else None
+    battery = read("battery", "dumpsys battery")
+    rec["charger"] = ({k: v for k, v in re.findall(r"^\s*(AC powered|USB powered|Wireless powered|level|status): (\S+)", battery, re.M)}
+                      if battery is not None else None)
 
-    procs = []
-    ps = phone.sh("ps -A -o PID,NAME", check=False)
-    for line in ps.splitlines():
-        cols = line.split()
-        if len(cols) == 2 and cols[0].isdigit() and (cols[1] == package or cols[1].startswith(package + ":")):
-            pid = int(cols[0])
-            ticks, birth = proc_stat(phone.sh(f"cat /proc/{pid}/stat", check=False))
-            threads = thread_switches(phone.sh(
-                f"for t in /proc/{pid}/task/*; do echo \"${{t##*/}}|$(cat $t/comm)|$(grep -E '^(voluntary|nonvoluntary)_ctxt_switches' $t/status | tr -s ' \\t\\n' ' ')\"; done",
-                check=False))
-            procs.append({"pid": pid, "name": cols[1], "birth": birth, "cpuTicks": ticks,
-                          "threads": threads or None, "threadCount": len(threads) if threads else None})
+    ps = read("processes", "ps -A -o PID,NAME")
+    if ps is None:
+        procs = None
+    else:
+        procs = []
+        for line in ps.splitlines():
+            cols = line.split()
+            if len(cols) == 2 and cols[0].isdigit() and (cols[1] == package or cols[1].startswith(package + ":")):
+                pid = int(cols[0])
+                ticks, birth = proc_stat(read(f"process {pid} stat", f"cat /proc/{pid}/stat") or "")
+                threads = thread_switches(read(f"process {pid} threads",
+                    f"for t in /proc/{pid}/task/*; do echo \"${{t##*/}}|$(cat $t/comm)|$(grep -E '^(voluntary|nonvoluntary)_ctxt_switches' $t/status | tr -s ' \\t\\n' ' ')\"; done") or "")
+                procs.append({"pid": pid, "name": cols[1], "birth": birth, "cpuTicks": ticks,
+                              "threads": threads or None, "threadCount": len(threads) if threads else None})
     rec["processes"] = procs
-    acts = phone.sh("dumpsys activity activities", check=False)
-    rec["resumedActivity"] = any(package in l for l in acts.splitlines() if "ResumedActivity" in l)
+    acts = read("resumedActivity", "dumpsys activity activities")
+    rec["resumedActivity"] = (any(package in l for l in acts.splitlines() if "ResumedActivity" in l)
+                              if acts is not None else None)
 
-    services = phone.sh(f"dumpsys activity services {package}", check=False)
-    rec["services"] = sorted(set(re.findall(r"ServiceRecord\{\w+ u\d+ ([^}\s]+)", services)))
-    rec["foregroundServices"] = len(re.findall(r"isForeground=true", services))
-    rec["wakeLocks"] = [l.strip() for l in power.splitlines()
-                        if "WAKE_LOCK" in l and (f"uid={uid}" in l or package in l)]
-    rec["microphoneAppOp"] = phone.sh(f"cmd appops get {package} RECORD_AUDIO", check=False).strip()
+    services = read("services", f"dumpsys activity services {package}")
+    rec["services"] = sorted(set(re.findall(r"ServiceRecord\{\w+ u\d+ ([^}\s]+)", services))) if services is not None else None
+    rec["foregroundServices"] = len(re.findall(r"isForeground=true", services)) if services is not None else None
+    rec["wakeLocks"] = ([l.strip() for l in power.splitlines()
+                         if "WAKE_LOCK" in l and (f"uid={uid}" in l or package in l)]
+                        if power is not None else None)
+    appop = read("microphone", f"cmd appops get {package} RECORD_AUDIO")
+    rec["microphoneAppOp"] = appop.strip() if appop is not None else None
     # AppOps marks an access that is still open "(running)": that, and only that, is live capture.
-    rec["microphoneRunning"] = "(running)" in rec["microphoneAppOp"]
-    audio = phone.sh("dumpsys audio", check=False)
+    rec["microphoneRunning"] = ("(running)" in rec["microphoneAppOp"]) if appop is not None else None
+    audio = read("recentRecordingEvents", "dumpsys audio")
     # The audio service's recent start/stop/release history for this uid: history, not live state.
-    rec["recentRecordingEvents"] = [l.strip() for l in audio.splitlines()
-                                    if re.search(r"(session|riid).*uid[:=]\s*%d\b" % uid, l) and "rec" in l.lower()]
-    jobs = phone.sh(f"dumpsys jobscheduler {package}", check=False)
-    rec["jobs"] = [l.strip() for l in jobs.splitlines() if re.search(r"JOB #\S*" + re.escape(package), l)]
-    alarms = phone.sh("dumpsys alarm", check=False)
-    rec["pendingAlarms"] = [l.strip() for l in alarms.splitlines() if re.search(r"Alarm\{[^}]*" + re.escape(package), l)]
+    rec["recentRecordingEvents"] = ([l.strip() for l in audio.splitlines()
+                                     if re.search(r"(session|riid).*uid[:=]\s*%d\b" % uid, l) and "rec" in l.lower()]
+                                    if audio is not None else None)
+    jobs = read("jobs", f"dumpsys jobscheduler {package}")
+    rec["jobs"] = ([l.strip() for l in jobs.splitlines() if re.search(r"JOB #\S*" + re.escape(package), l)]
+                   if jobs is not None else None)
+    alarms = read("pendingAlarms", "dumpsys alarm")
+    rec["pendingAlarms"] = ([l.strip() for l in alarms.splitlines() if re.search(r"Alarm\{[^}]*" + re.escape(package), l)]
+                            if alarms is not None else None)
     net = phone.sh("cat /proc/net/tcp /proc/net/tcp6 /proc/net/udp /proc/net/udp6", check=False)
     rec["openSockets"] = sockets(net, uid)
     if rec["openSockets"] is None:
         rec["openSocketsWhy"] = "/proc/net is not readable to the adb shell on this phone"
-    notes = phone.sh("dumpsys notification", check=False)
-    rec["ownNotifications"] = len(re.findall(r"NotificationRecord\([^)]*pkg=" + re.escape(package) + r"\b", notes))
+    notes = read("ownNotifications", "dumpsys notification")
+    rec["ownNotifications"] = (len(re.findall(r"NotificationRecord\([^)]*pkg=" + re.escape(package) + r"\b", notes))
+                               if notes is not None else None)
+    if unreadable:
+        rec["unreadable"] = unreadable
     return rec
 
 
@@ -289,9 +328,9 @@ def compare(a, b):
     out = {"from": a.get("at"), "to": b.get("at"), "package": b.get("package")}
     if a.get("uptimeSeconds") is not None and b.get("uptimeSeconds") is not None:
         out["seconds"] = round(b["uptimeSeconds"] - a["uptimeSeconds"], 3)
-    before = {(p["pid"], p["birth"]): p for p in a.get("processes", [])}
+    before = {(p["pid"], p["birth"]): p for p in a.get("processes") or []}
     same = []
-    for p in b.get("processes", []):
+    for p in b.get("processes") or []:
         q = before.get((p["pid"], p["birth"]))
         if q is None:
             continue
@@ -303,8 +342,8 @@ def compare(a, b):
                                         for tid, t in p["threads"].items())
         same.append(row)
     out["sameProcess"] = same
-    out["processesAtStart"] = [p["pid"] for p in a.get("processes", [])]
-    out["processesAtEnd"] = [p["pid"] for p in b.get("processes", [])]
+    out["processesAtStart"] = [p["pid"] for p in a["processes"]] if a.get("processes") is not None else None
+    out["processesAtEnd"] = [p["pid"] for p in b["processes"]] if b.get("processes") is not None else None
     for key in ("services", "wakeLocks", "jobs", "pendingAlarms"):
         out[key] = {"start": a.get(key), "end": b.get(key)}
     for key in ("stoppedFlag", "standbyBucket", "screen", "keyguardShowing", "resumedActivity",
@@ -388,7 +427,7 @@ def main(argv):
             if a.out:
                 Path(a.out).write_text(json.dumps(rec, indent=2))
                 rec = dict(rec, processes=[{k: v for k, v in pr.items() if k != "threads"}
-                                           for pr in rec.get("processes", [])])
+                                           for pr in rec.get("processes") or []]) if rec.get("processes") is not None else rec
             return emit({"ok": True, "state": rec})
         if a.command == "shot":
             if not a.value or not a.value.endswith(".png"):

@@ -75,8 +75,17 @@ while [ "$i" -lt "$COUNT" ]; do
     N="$(printf '%03d' "$i")"
     F="$OUT/w$N.png"
     TS="$(python3 -c 'import time;print("%.0f"%(time.time()*1000))')"
-    screencapture -x -o -R"$REGION" "$F" 2>/dev/null || true
-    TXT="$("$TESS" "$F" stdout 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//' || true)"
+    # A capture or a read that FAILED is not an empty screen. Turning either into empty text let
+    # --stop-on-repeat call a dead tool "unchanged" and a plain watch exit 0 having seen nothing.
+    if ! screencapture -x -o -R"$REGION" "$F" 2>/dev/null || [ ! -s "$F" ]; then
+        echo "ocr-watch.sh: sample $N: the screen capture failed, so nothing was seen." >&2
+        exit 2
+    fi
+    if ! RAW="$("$TESS" "$F" stdout 2>/dev/null)"; then
+        echo "ocr-watch.sh: sample $N: the text reader failed on $F, so nothing was read." >&2
+        exit 2
+    fi
+    TXT="$(printf '%s' "$RAW" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')"
     echo "$N $TS :: $TXT"
 
     if [ -n "$UNTIL" ] && printf '%s' "$TXT" | grep -qiE -- "$UNTIL"; then

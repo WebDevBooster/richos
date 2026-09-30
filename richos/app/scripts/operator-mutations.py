@@ -501,6 +501,12 @@ def main():
                     help='no cargo: every mutant applies exactly once and names tests that exist')
     a = ap.parse_args()
     wanted = [x for x in a.only.split(',') if x]
+    # A name that matches no mutant selected nothing, and "0 of 0 proven" with exit 0 read as a
+    # pass. An unknown name is refused before anything runs, whether or not others are valid.
+    unknown = [x for x in wanted if x not in [m[0] for m in MUTANTS]]
+    if unknown:
+        print('NOT A MUTANT: %s (known: %s)' % (', '.join(unknown), ', '.join(m[0] for m in MUTANTS)))
+        return 2
     mutants = [m for m in MUTANTS if not wanted or m[0] in wanted]
     if a.list:
         for m in mutants:
