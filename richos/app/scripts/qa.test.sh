@@ -654,6 +654,11 @@ if [ -n "\${FAKE_FAIL_READS:-}" ]; then
     *) echo "permission denied" >&2; exit 1 ;;
   esac
 fi
+# FAKE_FAIL_DUMP: uiautomator dump fails (idle-state error) while the file from an earlier read is
+# still on the phone, so the cat below would return a layout that is no longer on screen.
+if [ -n "\${FAKE_FAIL_DUMP:-}" ]; then
+  case "\$cmd" in "uiautomator dump "*) echo "ERROR: could not get idle state." >&2; exit 1 ;; esac
+fi
 case "\$cmd" in
   "input "*) echo "\$cmd" >> "\$LOG" ;;
   "dumpsys package "*) printf '    appId=10359\n    User 0: installed=true stopped=false\n' ;;
@@ -758,6 +763,8 @@ expect "A16 unlabeled finds the one clickable control with no name and exits 1" 
         0,'
 run "$PA" --adb "$FAKE" --serial FAKE123 unlabeled --package com.example.other
 expect "A17 unlabeled is clean for a package with no unnamed controls" 0 '"unnamed": []'
+run env FAKE_FAIL_DUMP=1 "$PA" --adb "$FAKE" --serial FAKE123 texts
+expect "A20 a failed fresh dump never returns the layout left by an earlier read" 2 "the screen could not be read"
 
 echo ""
 echo "=== L. lab-ledger: exactly once, word for word ==="

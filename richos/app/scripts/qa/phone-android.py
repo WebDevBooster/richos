@@ -121,8 +121,12 @@ class Phone:
 
     def nodes(self):
         for _ in range(5):
-            self.sh("uiautomator dump /sdcard/qa-phone-ui.xml", check=False)
-            raw = self.run("exec-out", "cat", "/sdcard/qa-phone-ui.xml", check=False)
+            # The file name is fixed, so an interrupted earlier read or a failed cleanup can leave
+            # an old layout behind. It is removed first, and a dump that did not exit 0 is not
+            # read at all: the coordinates would be those of a screen that is no longer there.
+            cleared = self._completed(("shell", "rm -f /sdcard/qa-phone-ui.xml"), 60).returncode == 0
+            dumped = self._completed(("shell", "uiautomator dump /sdcard/qa-phone-ui.xml"), 60).returncode == 0
+            raw = self.run("exec-out", "cat", "/sdcard/qa-phone-ui.xml", check=False) if cleared and dumped else ""
             self.sh("rm -f /sdcard/qa-phone-ui.xml", check=False)
             if raw.startswith("<?xml"):
                 try:
