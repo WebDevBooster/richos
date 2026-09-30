@@ -119,13 +119,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHA=""; IMPACT=""; DETAIL=""; PATHS=""; WT=""; TEAMMATE=""; REPO=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --sha)      SHA="${2:-}"; shift 2 ;;
-        --impact)   IMPACT="${2:-}"; shift 2 ;;
-        --detail)   DETAIL="${2:-}"; shift 2 ;;
-        --paths)    PATHS="${2:-}"; shift 2 ;;
-        --worktree) WT="${2:-}"; shift 2 ;;
-        --teammate) TEAMMATE="${2:-}"; shift 2 ;;
-        --repo)     REPO="${2:-}"; shift 2 ;;
+        --sha)      SHA="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --impact)   IMPACT="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --detail)   DETAIL="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --paths)    PATHS="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --worktree) WT="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --teammate) TEAMMATE="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --repo)     REPO="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         -h|--help)  sed -n '3,113p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)          echo "inflight-ack.sh: unrecognized argument '$1'" >&2; exit 2 ;;
     esac

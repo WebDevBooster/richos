@@ -112,7 +112,7 @@ build_fixture() {
         gitq "$ENTITY" worktree add -q -b "worktree-agent-$aid" \
             "$ENTITY/.claude/worktrees/agent-$aid" main
         git -C "$ENTITY" worktree lock \
-            --reason "claude agent agent-$aid (pid $RUNNING_PID start Sun Sep 20 05:30:00 2026)" \
+            --reason "claude agent agent-$aid (pid $RUNNING_PID start $(TZ=UTC LC_ALL=C ps -o lstart= -p "$RUNNING_PID"))" \
             "$ENTITY/.claude/worktrees/agent-$aid" >/dev/null 2>&1
     done
 

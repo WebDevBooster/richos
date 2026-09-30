@@ -468,8 +468,15 @@ def complete(payload):
         tx=rec;aid=segment(rec.get('agent_id') or ('unbound-'+owner))
         if payload.get('agent_id') and rec.get('agent_id') and payload['agent_id']!=rec['agent_id']:
             raise CompletionError('Task completion comes from a different agent than the registered worker')
-        members=[{'path':w['path'],'repo':w['repo'],'branch':w.get('branch') or ''}
-                 for w in ws.live_workspaces(rec) if w.get('path') and os.path.isdir(w['path'])]
+        live=[w for w in ws.live_workspaces(rec) if w.get('path')]
+        # A workspace the registry still lists as live (no deleted_at) whose path has
+        # vanished is damage or an outage, not a worker that never had local scope:
+        # its commits were never checked, so the task stays unfinished (hunt part 5,
+        # P5-28). A workspace recorded deleted is excluded by live_workspaces.
+        missing=[w['path'] for w in live if not os.path.isdir(w['path'])]
+        if missing:
+            raise CompletionError('Registered workspace is not on disk and the registry does not record its deletion: '+', '.join(missing))
+        members=[{'path':w['path'],'repo':w['repo'],'branch':w.get('branch') or ''} for w in live]
         if not members:
             proofs=[]  # a worker with no workspace on disk (a main-checkout run, a remote one) has no local scope
         else:

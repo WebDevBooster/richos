@@ -402,7 +402,9 @@ def claim_pattern(rid):
     alts = [base]
     if "." in rid:
         alts.append(re.escape(rid.lower().replace(".", "-")))
-    return re.compile(r"(?<![a-z0-9])row[-_]?(?:%s)(?![a-z0-9.])" % "|".join(alts))
+    # A dash or underscore followed by a digit continues the id as a dashed child
+    # (`row-3-1` is row 3.1), so it must not claim the parent `3` either.
+    return re.compile(r"(?<![a-z0-9])row[-_]?(?:%s)(?![a-z0-9.]|[-_][0-9])" % "|".join(alts))
 
 
 def claimed_by(rid, worktrees):

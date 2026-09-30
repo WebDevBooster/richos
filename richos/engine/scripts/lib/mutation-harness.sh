@@ -503,7 +503,14 @@ _mutant_body() { # <name> <want> <rel> <old> <new> <why>
     # EACH MUTANT ALREADY HAD ITS OWN DIRECTORY, and that is why this loop is
     # safe to run concurrently at all: the sandbox is per-name, built from the
     # read-only shipped tree, and no two workers share a path.
-    _mut_copy_engine "$dir"
+    # A copy that stopped part-way is not a sandbox: the suite would go red on the
+    # missing dependency and print the expected FAIL line, crediting the mutation
+    # for a failure it did not cause (hunt part 5, P5-17).
+    if ! _mut_copy_engine "$dir"; then
+        el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
+        printf '  FAIL  %s — the engine copy for this mutant FAILED part-way, so no red result from it could be credited to the mutation  [%s]\n' "$name" "$el"
+        return 1
+    fi
     # THE FOCUSED CONTROL, BEFORE ANYTHING IS MUTATED (want-as-argument only; see
     # mutation_focus). The focused run must be GREEN on the unmutated copy and
     # must show the named case PASSING, so a red below is the mutation's doing:

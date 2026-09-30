@@ -1104,16 +1104,33 @@ def poll_loop(a, out, alive=None):
     it belongs to has ended (0) or it cannot watch at all (2): an event is
     printed and the loop goes on. A poll that raises is reported and the
     polling goes on: nothing but the end of its session stops it."""
+    # Consecutive failed polls. Each failure restarts the inner loop and its blind
+    # timers, so the inner loop cannot notice an outage made of exceptions; this one
+    # does (hunt part 5, P5-15): once the failures span one poll's worth of time, the
+    # lead is told the watcher is blind, once per episode. A completed poll ends the episode.
+    health = {"first": None, "woken": False, "count": 0}
     with contextlib.redirect_stdout(out):
         while True:
             try:
-                return _poll_loop(a, out, alive)
+                return _poll_loop(a, out, alive, health)
             except Exception as e:  # noqa: BLE001 — any failure is one lost poll, never the end of polling
                 print("quota-watch: a poll failed (%s: %s); polling goes on" % (e.__class__.__name__, e), flush=True)
+                now = int(time.time())
+                health["count"] += 1
+                if health["first"] is None:
+                    health["first"] = now
+                if not health["woken"] and now - health["first"] >= a.stale:
+                    health["woken"] = True
+                    out.wake("UNKNOWN",
+                             "QUOTA-UNKNOWN: the quota watcher is blind. %d polls in a row have failed since %s"
+                             " (latest: %s: %s), so whether the threshold was crossed is UNKNOWN.\n"
+                             "  The watcher cannot tell whether the threshold was crossed.\n"
+                             "  Workers are not being paused or released by it until a poll completes.\n"
+                             % (health["count"], _hms(health["first"]), e.__class__.__name__, e), now)
                 _nap(a.poll, alive)
 
 
-def _poll_loop(a, out, alive):
+def _poll_loop(a, out, alive, health=None):
     if a.threshold is None:
         out.wake("CANNOT-WATCH", "QUOTA-UNKNOWN: cannot watch: %s is %s in %s\n" % (
             CONFIG_KEY, a.threshold_problem, a.config or "(no config)"), int(time.time()))
@@ -1176,10 +1193,21 @@ def _poll_loop(a, out, alive):
                 lambda: rule_verdict(r, a.threshold, a.stale, now)[0])
         if weekly_event:
             text = weekly_text.getvalue()
-            key = (text.split("\n", 1)[0], tuple(w["working"]), tuple(w.get("weekly_paused", [])))
+            # The key names the weekly WINDOW as well as the headline and the workers
+            # (hunt part 5, P5-16): the next window's crossing is a new alarm for the
+            # same workers. A threshold and a release each end the other's dedupe, so
+            # a hold that is released and then needed again wakes the lead again.
+            kind = "threshold" if weekly_blocked else "release"
+            this_window = quota_weekly.weekly(r)
+            key = (kind, text.split("\n", 1)[0], tuple(w["working"]), tuple(w.get("weekly_paused", [])),
+                   this_window["resets_at"] if this_window else None)
             if key not in weekly_seen:
+                weekly_seen = {k for k in weekly_seen if k[0] == kind}
                 weekly_seen.add(key)
                 out.wake("WEEKLY-THRESHOLD" if weekly_blocked else "WEEKLY-RELEASE", text, now)
+        if health is not None:
+            # The poll read and judged the quota without raising: a failure episode is over.
+            health["first"], health["woken"], health["count"] = None, False, 0
         if weekly_blocked:
             print(quota_weekly.describe(r, now), flush=True)
             _nap(a.poll, alive)

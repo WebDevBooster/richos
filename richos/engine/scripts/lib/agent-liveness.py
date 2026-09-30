@@ -117,11 +117,13 @@ It is the exact signal that mattered on 2026-08-31, so it is reported by name.
 """
 
 import argparse
+import calendar
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 
 ALIVE = "ALIVE"
 NOT_ALIVE = "NOT-ALIVE"
@@ -191,6 +193,51 @@ def _pid_alive(pid):
         return True
     except Exception:
         return None
+
+
+# The lock reason records when the holder started: `(pid 94086 start Mon Aug 31
+# 19:39:29 2026)`. A running pid whose REAL start time is not that one is another
+# process that was handed a recycled pid (hunt part 5, P5-18), so the lock is stale.
+LOCK_START_RE = re.compile(r"\(pid\s+\d+\s+start\s+([^)]+)\)")
+START_TOLERANCE_SECONDS = 10
+
+
+def _parse_start(text):
+    """Epoch for a `Mon Aug 31 19:39:29 2026` start string, read as UTC, or None.
+
+    UTC because the platform writes the lock's start with `TZ=UTC ps -o lstart`
+    (measured 2026-09-30 on a live lock: recorded 22:12:51, local `ps` 23:12:51,
+    one hour apart in BST). Reading it in local time called every live session's
+    pid "reused"."""
+    try:
+        return float(calendar.timegm(time.strptime(text.strip(), "%a %b %d %H:%M:%S %Y")))
+    except (ValueError, OverflowError):
+        return None
+
+
+def _pid_start_epoch(pid):
+    """When the running process `pid` started (UTC, like the lock), or None."""
+    try:
+        res = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))],
+                             capture_output=True, text=True, timeout=10,
+                             env=dict(os.environ, LC_ALL="C", TZ="UTC"))
+    except Exception:
+        return None
+    if res.returncode != 0:
+        return None
+    return _parse_start(res.stdout)
+
+
+def _pid_reused(pid, lock_line):
+    """True only when BOTH start times are readable and differ: reuse is then
+    proven. Anything unreadable on either side is None -- it proves nothing, and
+    the caller keeps the plain running-pid answer."""
+    m = LOCK_START_RE.search(lock_line or "")
+    recorded = _parse_start(m.group(1)) if m else None
+    actual = _pid_start_epoch(pid)
+    if recorded is None or actual is None:
+        return None
+    return abs(recorded - actual) > START_TOLERANCE_SECONDS
 
 
 # --------------------------------------------------------------------------
@@ -445,14 +492,22 @@ def resolve(entity_root, target):
     if reg:
         rec["evidence"]["registry_finished"] = reg["finished"]
         rec["evidence"]["registry_why"] = reg["why"]
-    if reg and reg["finished"] and rec["verdict"] == ALIVE:
-        rec["evidence"]["lock_verdict"] = ALIVE
+    # A lock that names nobody (held, no pid) leaves the verdict INDETERMINATE; the
+    # registry is authoritative for "finished", so it settles that case too (hunt
+    # part 5, P5-19). An empty lock ALONE still proves nothing -- live agents have had
+    # empty locks -- which is why only a FINISHED record changes the answer.
+    lock_names_nobody = (rec["verdict"] == INDETERMINATE and rec["evidence"].get("locked")
+                         and "pid" not in rec["evidence"])
+    if reg and reg["finished"] and (rec["verdict"] == ALIVE or lock_names_nobody):
+        was = rec["verdict"]
+        rec["evidence"]["lock_verdict"] = was
         rec["evidence"]["lock_reason"] = rec["reason"]
         rec["verdict"] = NOT_ALIVE
         rec["reason"] = ("the workspace registry records %s as FINISHED — %s (point 11). Its "
                          "worktree is still locked because the lock is the SESSION's (pid %s), not "
                          "the agent's; the lock proves the session runs, not that this agent does"
-                         % (reg["name"] or rec.get("agent_id"), reg["why"], rec["evidence"].get("pid", "?")))
+                         % (reg["name"] or rec.get("agent_id"), reg["why"],
+                            rec["evidence"].get("pid", "unrecorded")))
     elif reg and not reg["finished"] and rec["verdict"] == NOT_ALIVE:
         rec.setdefault("disagreements", []).append(
             "the workspace registry records %s as not finished (%s) while the lock reads NOT-ALIVE "
@@ -572,6 +627,11 @@ def _lock_resolve(entity_root, target):
     ev["pid_shared_with"] = shared - 1
     alive = _pid_alive(pid)
     ev["pid_alive"] = alive
+    if alive:
+        reused = _pid_reused(pid, locked)
+        ev["pid_reused"] = reused
+        if reused:
+            alive = False
 
     if alive is None:
         rec["verdict"] = INDETERMINATE
@@ -583,8 +643,13 @@ def _lock_resolve(entity_root, target):
                          "is running" % (path, pid))
     else:
         rec["verdict"] = NOT_ALIVE
-        rec["reason"] = ("entity worktree %s carries a STALE lock (pid %d is "
-                         "dead)" % (path, pid))
+        if ev.get("pid_reused"):
+            rec["reason"] = ("entity worktree %s carries a STALE lock (pid %d is running, but it "
+                             "started at a different time than the lock recorded, so that pid was "
+                             "reused by another process)" % (path, pid))
+        else:
+            rec["reason"] = ("entity worktree %s carries a STALE lock (pid %d is "
+                             "dead)" % (path, pid))
     _attach_sources(rec)
     return rec
 

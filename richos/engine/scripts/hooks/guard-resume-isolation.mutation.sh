@@ -221,7 +221,7 @@ fi' \
 mutant fixture-preflight-honest "fixture: the live agent worktree is NOT locked" \
     scripts/hooks/guard-resume-isolation.test.sh \
     'git -C "$BG_REPO" worktree lock \
-    --reason "claude agent agent-$LIVE_ID (pid $$ start Tue Sep  2 09:00:00 2026)" \
+    --reason "claude agent agent-$LIVE_ID (pid $$ start $(TZ=UTC LC_ALL=C ps -o lstart= -p "$$"))" \
     "$BG_REPO/.claude/worktrees/agent-$LIVE_ID" >/dev/null 2>&1' \
     ': skip the lock entirely' \
     "A fixture that never locked would let the live-agent cases pass for the wrong reason."

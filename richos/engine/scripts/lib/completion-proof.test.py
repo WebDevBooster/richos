@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -265,6 +266,17 @@ class Completion(unittest.TestCase):
         with self.assertRaisesRegex(proof.CompletionError,'digest'):proof.receipts_for_member(self.sid,self.aid,self.worker)
     def test_a_registered_worker_with_no_workspace_is_explicit_nonlocal_scope(self):
         self.rec['workspaces']=[];ws.save_agent(self.rec)
+        receipt=proof.complete(self.payload);self.assertEqual(receipt['members'],[]);self.assertEqual(receipt['non_code_evidence'],'no-local-workspace')
+    def test_a_registered_live_workspace_missing_from_disk_is_not_proof_of_no_scope(self):
+        # Hunt part 5, P5-28: the registry still lists the workspace as live (no
+        # deleted_at), so a path that has vanished is damage or an outage, not a
+        # worker that never had local scope. The task stays unfinished.
+        shutil.rmtree(self.worker)
+        with self.assertRaisesRegex(proof.CompletionError,'not on disk'):proof.complete(self.payload)
+        self.assertFalse((proof.receipt_root()/self.sid/(self.tid+'.json')).exists())
+    def test_a_workspace_the_registry_recorded_deleted_is_still_explicit_nonlocal_scope(self):
+        shutil.rmtree(self.worker)
+        self.rec['workspaces'][0]['deleted_at']='2026-09-30T00:00:00Z';ws.save_agent(self.rec)
         receipt=proof.complete(self.payload);self.assertEqual(receipt['members'],[]);self.assertEqual(receipt['non_code_evidence'],'no-local-workspace')
     def test_post_removal_replay_allows_exact_branch_absence_not_substitution(self):
         value=proof.prove_member(self.member);self.git(self.repo,'worktree','remove',str(self.worker))

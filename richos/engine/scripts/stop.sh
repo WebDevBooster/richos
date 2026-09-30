@@ -71,7 +71,7 @@ ENTITY="${RICHOS_STOP_ENTITY:-}"
 ARGS=()
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --entity) ENTITY="${2:-}"; shift 2 ;;
+        --entity) ENTITY="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         *) ARGS+=("$1"); shift ;;
     esac
 done

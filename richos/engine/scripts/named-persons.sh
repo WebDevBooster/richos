@@ -59,8 +59,8 @@ HQ=""
 ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
-        --repo) REPO="${2:-}"; shift 2 ;;
-        --hq)   HQ="${2:-}";   shift 2 ;;
+        --repo) REPO="${2:-}"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --hq)   HQ="${2:-}";   shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         *)      ARGS+=("$1");  shift ;;
     esac
 done

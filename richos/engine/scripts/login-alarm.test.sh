@@ -243,6 +243,42 @@ tick "$NOW"
 check "L12  the alarm line states how long after the failure it fired" \
     "$(printf '%s' "$OUT" | grep -qE '7\.[0-9] s after the failure'; echo $?)" "out=$OUT"
 
+# --- L14: an escalation write that failed is retried during the same outage ----
+# (hunt part 5, P5-13) The notification went, the ledger did not: the next tick,
+# with the ledger writable again, writes the ONE missing row, records its id in
+# the episode, and does not notify a second time.
+reset_all
+mdat_at $((NOW - 7200))
+row "$LEAD" $((NOW - 4)) "$EXPIRED"
+mkdir -p "$SB/escalations.jsonl"           # a directory where the ledger file belongs: the write fails
+tick "$NOW"
+L14_FIRST="$OUT"; L14_ESC0="$(nesc)"
+rmdir "$SB/escalations.jsonl"               # the store recovers during the same outage
+tick $((NOW + 30))
+tick $((NOW + 60))
+L14_ID="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["open"].get("escalation",""))' "$LOGIN_ALARM_STATE" 2>/dev/null)"
+check "L14  a failed escalation write is retried once the ledger recovers: one row, its id recorded, no second notification" \
+    "$(printf '%s' "$L14_FIRST" | grep -q 'COULD NOT WRITE THE ESCALATION LEDGER' && [ "$L14_ESC0" = 0 ] \
+       && [ "$(nesc)" = 1 ] && [ -n "$L14_ID" ] && [ "$(nnotified)" = 1 ] && [ "$(state_open)" = open ]; echo $?)" \
+    "first=$L14_FIRST esc0=$L14_ESC0 esc=$(nesc) id=$L14_ID notified=$(nnotified)"
+
+# --- L15: a credential write older than the latest failure does not renew ------
+# (hunt part 5, P5-14) Failures at T-4 and T+200; the credential was written at
+# T+100, BETWEEN them. The later failure shows the write did not restore work,
+# so when that failure leaves the scan window the episode stays open.
+reset_all
+mdat_at $((NOW - 7200))
+row "$LEAD" $((NOW - 4)) "$EXPIRED"
+tick "$NOW"
+mdat_at $((NOW + 100))
+row "$LEAD" $((NOW + 200)) "$EXPIRED"
+tick $((NOW + 210))
+tick $((NOW + 3000))
+tick $((NOW + 5000))                        # the later failure is long out of the scan window
+check "L15  a credential write older than the latest failure does not close the episode or acknowledge the escalation" \
+    "$([ "$(state_open)" = open ] && [ "$(nack)" = 0 ] && ! printf '%s' "$OUT" | grep -q 'LOGIN-RENEWED'; echo $?)" \
+    "state=$(state_open) acks=$(nack) out=$OUT"
+
 # --- L13: the schedule --------------------------------------------------------
 PL="$(bash "$A" --print-plist 2>&1)"
 bash "$A" --install >/dev/null 2>&1; IRC=$?

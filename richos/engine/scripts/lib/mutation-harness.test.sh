@@ -486,6 +486,36 @@ for h in guard-worktree-isolation guard-worktree-removal root-contract; do
     fi
 done
 
+# ---------------------------------------------------------------------------
+# 6. A MUTANT WHOSE ENGINE COPY FAILED IS NOT A MUTANT THAT WAS KILLED.
+#    (hunt part 5, P5-17) _mutant_body ignored the status of the engine copy, so
+#    a copy that stopped part-way (a dependency missing from the sandbox) let an
+#    unfocused mutant "turn the named case red" for the wrong reason: the suite
+#    died on the missing dependency, printing the expected FAIL line. The fixture
+#    suite below ALWAYS prints the expected FAIL line and exits 1, so the only
+#    thing that can make the mutant honest is the copy's own status.
+# ---------------------------------------------------------------------------
+BROKEN_ENG="$SANDBOX/fake-engine-broken-copy"
+cp -R "$FAKE_ENG" "$BROKEN_ENG"
+rm -rf "$BROKEN_ENG/agents"          # mutation_copy_engine's `cp -R agents` now fails
+printf '#!/usr/bin/env bash\necho "  FAIL  W1 the named case"\nexit 1\n' > "$BROKEN_ENG/scripts/fake-suite.sh"
+cat > "$SANDBOX/broken-copy-harness.sh" <<BCEOF
+#!/usr/bin/env bash
+set -uo pipefail
+. "$BROKEN_ENG/scripts/lib/mutation-harness.sh"
+mutation_begin "broken-copy fixture" "scripts/fake-suite.sh"
+mutant broken-copy "W1" "scripts/hooks/fake-guard.sh" "THE_LOAD_BEARING_LINE=1" "THE_LOAD_BEARING_LINE=0" "fixture"
+mutation_end
+BCEOF
+bash "$SANDBOX/broken-copy-harness.sh" >"$SANDBOX/broken-copy.out" 2>&1; BC_RC=$?
+if [ "$BC_RC" -ne 0 ] && grep -q '  FAIL  broken-copy' "$SANDBOX/broken-copy.out" \
+        && ! grep -q '  PASS  broken-copy' "$SANDBOX/broken-copy.out"; then
+    ok "6a  a mutant whose engine copy failed is reported FAILED and the harness exits non-zero, not credited as killed"
+else
+    bad "6a  a failed engine copy is not credited as a killed mutant" \
+        "rc=$BC_RC; output: $(tail -8 "$SANDBOX/broken-copy.out" | tr '\n' '|')"
+fi
+
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

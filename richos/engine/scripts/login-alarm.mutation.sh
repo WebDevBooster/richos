@@ -29,9 +29,15 @@ mutant alarm-every-tick "L02" "$L" \
 
 # 2. HIS /login CLOSES IT.
 mutant never-closes "L03" "$L" \
-    'if written is not None and written > first_ts + RENEW_MARGIN and not newer:' \
+    'if written is not None and written > last_failure + RENEW_MARGIN and not newer:' \
     'if False:' \
     "A renewed login would leave the escalation open and the next expiry would never alarm."
+
+# 2b. ONLY A WRITE NEWER THAN THE LATEST FAILURE RENEWS (hunt part 5, P5-14).
+mutant renews-on-first-failure "L15" "$L" \
+    'last_failure = max([episode.get("last_error", first_ts)] + [e["ts"] for e in events])' \
+    'last_failure = first_ts' \
+    "A credential write between two failures would close the episode while the later failure proves login is still broken."
 
 # 4. A FAILURE ALREADY FIXED IS NOT NEWS.
 mutant alarms-on-renewed "L06" "$L" \
@@ -67,5 +73,11 @@ mutant no-retry "L11" "$L" \
     '            if not episode.get("notified"):' \
     '            if False:' \
     "An osascript refusal at the moment of failure would leave him never told."
+
+# 9. A LEDGER WRITE THAT FAILED IS RETRIED (hunt part 5, P5-13).
+mutant no-ledger-retry "L14" "$L" \
+    '            if not episode.get("escalation"):' \
+    '            if False:' \
+    "A ledger outage at the moment of failure would leave the lead with a notification and no durable escalation."
 
 mutation_end
