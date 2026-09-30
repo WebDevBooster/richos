@@ -2868,6 +2868,349 @@ class UnknownIsNeverClean(Base):
         self.assertEqual([w.get("branch") for w in ws.load_agent(second[0])["workspaces"]], ["cc/stray-b"])
 
 
+class Finding11_ContainerCleanupIsRetried(Base):
+    """Hunt part 4, finding 11 (richos-hq docs/audits/2026-09-29-hunt/
+    part-4-codex.md): a workspace's containers that could not be stopped are a
+    deletion failure like any other (point 13), whatever the disposition, and
+    a reaper that could not even run is not a success."""
+
+    FAILED = {"available": True, "removed": [], "kept": [],
+              "failed": [{"name": "agent-ct-redis-1", "id": "c0ffee", "why": "simulated daemon refusal"}]}
+
+    def _discarded_with(self, containers_result):
+        aid, npath = self.spawn("zach-opus-ct11")
+        self.finish(aid)
+        with patch.object(ws, "stop_containers", return_value=containers_result):
+            ws.discard("zach-opus-ct11", "the reviewer rejected the approach",
+                       not_ceo_ordered="an internal experiment", me=self.sid)
+        return npath
+
+    def test_finding_11_a_discard_whose_containers_survived_keeps_a_retry(self):
+        npath = self._discarded_with(self.FAILED)
+        key = ws.named_key(self.sid, "zach-opus-ct11")
+        self.assertTrue(os.path.exists(ws.agent_path(key)), "the record was filed as done")
+        self.assertFalse(os.path.exists(ws.done_path(key)))
+        d = self.rec("zach-opus-ct11")["deletion"]
+        self.assertTrue(d, "no deletion retry was recorded")
+        self.assertIn("agent-ct-redis-1", d["last_error"])
+        # Held like a process that survived its stop: nothing of the workspace
+        # is deleted while something may still be running against it.
+        self.assertTrue(os.path.isdir(npath))
+        # The retry asks about the SAME workspace again, and once its
+        # containers are gone the deletion completes and the record is filed.
+        seen = []
+        with patch.object(ws, "stop_containers", side_effect=lambda paths: seen.append(list(paths)) or {}):
+            ws.retry_due()
+        self.assertIn([npath], seen)
+        self.assertFalse(os.path.exists(npath))
+        self.assertFalse(os.path.exists(ws.agent_path(key)))
+        self.assertTrue(os.path.exists(ws.done_path(key)))
+        self.assertIsNone(ws.load_agent(key)["deletion"])
+
+    def test_finding_11_a_reaper_that_could_not_run_is_never_a_success(self):
+        class Broken(object):
+            @staticmethod
+            def reap_for_workspaces(paths, ending=False):
+                raise RuntimeError("simulated reaper crash")
+        with patch.dict(sys.modules, {"containers": Broken}):
+            res = ws.stop_containers(["/nonexistent/ws-finding-11"])
+        self.assertTrue(res.get("error"), res)
+        self.assertIn("simulated reaper crash", res["error"])
+        # ...and it is carried into the deletion record like a failed container
+        aid, npath = self.spawn("zach-opus-ct11b")
+        self.finish(aid)
+        with patch.dict(sys.modules, {"containers": Broken}):
+            ws.discard("zach-opus-ct11b", "the reviewer rejected the approach",
+                       not_ceo_ordered="an internal experiment", me=self.sid)
+        d = self.rec("zach-opus-ct11b")["deletion"]
+        self.assertTrue(d, "a crashed reaper left no retry")
+        self.assertIn("simulated reaper crash", d["last_error"])
+
+
+class Finding12_MentionIsNotOwnership(Base):
+    """Hunt part 4, finding 12: a process whose command line merely MENTIONS a
+    workspace path is not the workspace's process. Point 9 stops what the agent
+    started; the second selection loop used to add every process naming the
+    path — a reviewer, a log reader, an editor — to the same stop list."""
+
+    def _sleeper(self, argv_path, cwd, **kw):
+        """A python process that names `argv_path` in its arguments and does
+        nothing else, started by this test (so owned by it, for cleanup)."""
+        pr = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)", argv_path],
+                              cwd=cwd, **kw)
+        self.env.procs.append(pr)
+        return pr
+
+    def _detached(self, argv_path, cwd):
+        """The residue point 9 exists for: a detached child left behind by a
+        run that ended, reparented to launchd, in a session with no terminal,
+        working from OUTSIDE the workspace but on it. Its pid is recorded by
+        the shell that started it, so the test stops only that pid."""
+        pidfile = os.path.join(self.env.root, "detached-%d.pid" % len(self.env.procs))
+        sh = subprocess.Popen(["sh", "-c", '"$0" -c "import time; time.sleep(300)" "$1" & echo $! > "$2"',
+                               sys.executable, argv_path, pidfile], cwd=cwd, start_new_session=True)
+        sh.wait(timeout=30)
+        pid = int(open(pidfile).read().strip())
+        self.addCleanup(lambda: ws._alive(pid) and os.kill(pid, signal.SIGKILL))
+        return pid
+
+    def test_finding_12_a_process_that_only_names_the_workspace_keeps_running(self):
+        aid, npath = self.spawn("zach-opus-ment")
+        stranger = self._sleeper(npath, self.env.root)        # a reader elsewhere, naming the path
+        detached = self._detached(npath, self.env.root)       # and one nobody's parent any more
+        time.sleep(0.3)
+        self.finish(aid)
+        self.assertEqual(self.names(), [])                     # it produced nothing: landed
+        self.assertFalse(os.path.exists(npath))                # and the workspace is still deleted
+        self.assertIsNone(stranger.poll(), "a process that only named the workspace was stopped")
+        self.assertTrue(ws._alive(detached), "a detached process that only named the workspace was stopped")
+        # Not stopped, and not silent either: the land names what it spared.
+        ev = [json.loads(l) for l in open(os.path.join(ws.state_dir(), "events.jsonl"))]
+        named = [e for e in ev if e.get("event") == "processes-named-only"]
+        self.assertTrue(named, "the spared processes were not recorded")
+        self.assertIn(stranger.pid, named[-1]["pids"])
+        self.assertIn(detached, named[-1]["pids"])
+
+    def test_finding_12_a_child_of_a_process_in_the_workspace_is_still_stopped(self):
+        """The reason for the second loop, kept where it holds: a command
+        working on the workspace from elsewhere. A process the workspace's own
+        process started is owned by that ancestry, wherever it works."""
+        aid, npath = self.spawn("zach-opus-left")
+        # a shell working IN the workspace, whose child works from `/`
+        parent = subprocess.Popen(["sh", "-c", '(cd / && exec "$0" -c "import time; time.sleep(300)" "$1"); :',
+                                   sys.executable, npath], cwd=npath, stdout=subprocess.PIPE)
+        self.env.procs.append(parent)
+        time.sleep(0.5)
+        rows = [l.split() for l in run("ps", "-axo", "pid=,ppid=").stdout.splitlines()]
+        child = [int(r[0]) for r in rows if len(r) == 2 and r[1] == str(parent.pid)]
+        self.assertEqual(len(child), 1, "the shell's child was not found by its parent pid")
+        self.finish(aid)
+        self.assertEqual(self.names(), [])
+        parent.wait(timeout=15)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and ws._alive(child[0]):
+            time.sleep(0.1)
+        self.assertFalse(ws._alive(child[0]), "the workspace process's own child, working elsewhere, survived")
+
+
+class Finding13_NoSpeculativeShutdown(Base):
+    """Hunt part 4, finding 13: an automatic land attempt stopped a finished
+    worker's processes BEFORE finding its commits were not merged, so a status
+    request, a spawn check or a turn end killed a test or server whose work
+    could not be cleaned up anyway."""
+
+    def _unmerged_with_process(self, name):
+        aid, npath = self.spawn(name)
+        self.commit(npath, "unmerged.txt")
+        pr = subprocess.Popen(["sleep", "300"], cwd=npath)
+        self.env.procs.append(pr)
+        time.sleep(0.2)
+        self.finish(aid)
+        return aid, npath, pr
+
+    def test_finding_13_a_pending_scan_leaves_unmerged_work_running(self):
+        aid, npath, pr = self._unmerged_with_process("zach-opus-spec")
+        self.assertEqual(self.names(), ["zach-opus-spec"])       # the automatic attempt
+        self.assertFalse(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
+        self.assertIsNone(pr.poll(), "an automatic land attempt stopped a process of unmerged work")
+        with self.assertRaises(ws.SpecError) as e:              # and a land by hand says why
+            ws.land("zach-opus-spec", self.sid)
+        self.assertIn("is not in", str(e.exception))
+        self.assertIsNone(pr.poll())
+        self.assertTrue(os.path.isdir(npath))
+
+    def test_finding_13_once_merged_the_land_still_stops_and_rechecks(self):
+        """The reason for the order, kept: once the work IS merged, processes
+        are stopped first and landing is proved after (LandingShutdown)."""
+        aid, npath, pr = self._unmerged_with_process("zach-opus-spec2")
+        self.merge(self.entity, "worktree-agent-" + aid)
+        self.assertEqual(self.names(), [])
+        pr.wait(timeout=15)
+        self.assertFalse(os.path.exists(npath))
+
+
+class Finding29_AskingChangesNothing(Base):
+    """Hunt part 4, finding 29: `workspaces.sh status` and the dry spawn check
+    (`check-spawn`) ask what WOULD happen. They used to land and delete
+    eligible work, stopping its processes, on the way to the answer."""
+
+    def _landable_with_process(self, name):
+        aid, npath = self.spawn(name)
+        self.commit(npath, "landable.txt")
+        pr = subprocess.Popen(["sleep", "300"], cwd=npath)
+        self.env.procs.append(pr)
+        time.sleep(0.2)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        return aid, npath, pr
+
+    def _untouched(self, name, npath, pr):
+        self.assertIsNone(pr.poll(), "asking stopped a process of %s" % name)
+        self.assertTrue(os.path.isdir(npath), "asking deleted %s's workspace" % name)
+        self.assertIsNone(self.rec(name)["disposition"], "asking landed %s" % name)
+
+    def test_finding_29_status_reports_and_changes_nothing(self):
+        aid, npath, pr = self._landable_with_process("zach-opus-st")
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ws._print_status(self.sid, self.entity)
+        self._untouched("zach-opus-st", npath, pr)
+        out = buf.getvalue()
+        self.assertIn("zach-opus-st", out)
+        self.assertIn("LANDABLE", out)                          # and it says what WOULD happen
+        # The operation that is asked to act still acts.
+        self.assertEqual(self.names(), [])
+        pr.wait(timeout=15)
+        self.assertFalse(os.path.exists(npath))
+
+    def test_finding_29_a_dry_spawn_check_changes_nothing(self):
+        pa, ppath = self.spawn("zach-opus-cont")
+        self.commit(ppath, "unmerged.txt")
+        self.finish(pa)                                         # the work the new spawn continues
+        aid, npath, pr = self._landable_with_process("zach-opus-bystander")
+        payload = {"session_id": self.sid, "tool_name": "Agent", "richos_spawn_check": {"planned": []},
+                   "tool_input": {"name": "zach-opus-next", "subagent_type": "zach", "isolation": "worktree",
+                                  "prompt": "do it\ncontinues: zach-opus-cont\n"}}
+        self.assertTrue(ws.is_spawn_check(payload))
+        ws.register_spawn(payload, self.entity, dry=True)
+        self._untouched("zach-opus-bystander", npath, pr)
+        self.assertIsNone(self.rec("zach-opus-next"), "a dry check wrote a registration")
+
+
+class Finding14_WhatTheEngineMadeIsNotTheAgentsWork(Base):
+    """Hunt part 4, finding 14: the creator's own setup leaves ignored content
+    no main checkout has (richos: a per-workspace link to its own build cache),
+    and the cleanliness check held every such workspace until somebody typed
+    --ignored-not-needed. What the ENGINE made at creation is recorded when the
+    workspace is confirmed, and only that, exactly as it was, needs no waiver.
+    Everything else ignored is still compared and still refused (point 8):
+    notes, nested repositories, and a setup product the agent then changed."""
+
+    def _created_with_setup_link(self, name):
+        with open(os.path.join(self.other, ".gitignore"), "a") as f:
+            f.write("cache-link\n")
+        run("git", "-C", self.other, "commit", "-qam", "ignore the setup's cache link")
+        path = os.path.join(self.env.root, "other-wt", name)
+        ws.register_cc(self.sid, name, self.other, path, "cc/" + name)
+        run("git", "-C", self.other, "worktree", "add", "-q", path, "-b", "cc/" + name)
+        cache = os.path.join(self.env.root, "cache-" + name)
+        os.makedirs(cache)
+        os.symlink(cache, os.path.join(path, "cache-link"))        # what .worktree-setup does
+        ws.confirm_cc(self.sid, name, path, True)                   # the creator's step 5
+        aid, _native = self.spawn(name, path, native=False)
+        return aid, path
+
+    def test_finding_14_the_setups_own_link_needs_no_waiver(self):
+        aid, path = self._created_with_setup_link("zach-opus-gen")
+        self.finish(aid)
+        self.assertEqual(self.names(), [], "the engine's own setup product held the land")
+        self.assertFalse(os.path.exists(path))
+
+    def test_finding_14_anything_else_ignored_still_needs_the_waiver(self):
+        aid, path = self._created_with_setup_link("zach-opus-gen2")
+        os.makedirs(os.path.join(path, "build"))
+        with open(os.path.join(path, "build", "notes.txt"), "w") as f:
+            f.write("the only copy of the agent's notes\n")
+        self.finish(aid)
+        self.assertEqual(self.names(), ["zach-opus-gen2"])
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-gen2", self.sid)
+        self.assertIn("build/", str(e.exception))
+        self.assertNotIn("cache-link", str(e.exception))
+        self.assertTrue(os.path.isfile(os.path.join(path, "build", "notes.txt")))
+
+    def test_finding_14_a_setup_product_the_agent_changed_is_its_own(self):
+        aid, path = self._created_with_setup_link("zach-opus-gen3")
+        link = os.path.join(path, "cache-link")
+        os.unlink(link)
+        os.symlink(os.path.join(self.env.root, "somewhere-else"), link)
+        self.finish(aid)
+        self.assertEqual(self.names(), ["zach-opus-gen3"])
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-gen3", self.sid)
+        self.assertIn("cache-link", str(e.exception))
+
+
+class Finding15_TheBudgetReachesTheWork(Base):
+    """Hunt part 4, finding 15: the gate's budget exists so the platform never
+    cancels the hook before it answers. The deletion's second landing proof
+    ran with no deadline, a retry could overrun its budget inside one attempt,
+    the Stop gate started its retries before making its deadline, and a file
+    comparison read whole files without looking at the clock. The second
+    proof itself stays: shutdown or partial deletion can change eligibility."""
+
+    FILES = 20
+    SLOW = 0.3
+
+    def _landed_with_pending_deletion(self, name):
+        aid, npath = self.spawn(name)
+        self.commit(npath)
+        for root in (npath, self.entity):                   # identical ignored files, compared one by one
+            os.makedirs(os.path.join(root, "build"), exist_ok=True)
+            for i in range(self.FILES):
+                with open(os.path.join(root, "build", "f%02d.txt" % i), "w") as f:
+                    f.write("same %d\n" % i)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        with patch.object(ws, "remove_workspace", return_value=(False, "simulated disk refusal")):
+            self.assertEqual(self.names(), [])
+        rec = self.rec(name)
+        self.assertEqual(rec["disposition"]["kind"], "landed")
+        self.assertTrue(rec["deletion"])
+        return npath
+
+    def _slow_same_file(self):
+        real = ws._same_file
+
+        def slow(a, b, *args, **kw):
+            time.sleep(self.SLOW)
+            return real(a, b, *args, **kw)
+        return slow
+
+    def test_finding_15_a_retry_stops_at_its_budget_inside_the_attempt(self):
+        npath = self._landed_with_pending_deletion("zach-opus-bud")
+        t0 = time.monotonic()
+        with patch.object(ws, "_same_file", self._slow_same_file()):
+            ws.retry_due(budget=1.0)
+        took = time.monotonic() - t0
+        self.assertLess(took, self.FILES * self.SLOW * 0.6,
+                        "one retry attempt ran %.1fs past a 1s budget" % took)
+        rec = self.rec("zach-opus-bud")
+        # Out of time is not "eligibility changed": the land stands and the
+        # deletion is simply retried later.
+        self.assertEqual(rec["disposition"]["kind"], "landed")
+        self.assertTrue(rec["deletion"])
+        self.assertTrue(os.path.isdir(npath))
+        ws.retry_due()                                       # with time, it finishes
+        self.assertFalse(os.path.exists(npath))
+
+    def test_finding_15_the_stop_gate_puts_its_retries_inside_its_budget(self):
+        self._landed_with_pending_deletion("zach-opus-bud2")
+        os.environ["RICHOS_WORKSPACES_GATE_BUDGET"] = "1"
+        try:
+            t0 = time.monotonic()
+            with patch.object(ws, "_same_file", self._slow_same_file()):
+                ok, _msg = ws.gate_stop({"session_id": self.sid}, self.entity)
+            took = time.monotonic() - t0
+        finally:
+            os.environ.pop("RICHOS_WORKSPACES_GATE_BUDGET", None)
+        self.assertTrue(ok)
+        self.assertLess(took, self.FILES * self.SLOW * 0.6,
+                        "the Stop gate took %.1fs on a 1s budget" % took)
+
+    def test_finding_15_a_file_comparison_looks_at_the_clock(self):
+        a = os.path.join(self.env.root, "big-a")
+        b = os.path.join(self.env.root, "big-b")
+        for p in (a, b):
+            with open(p, "wb") as f:
+                f.write(b"x" * (8 << 20))
+        self.assertTrue(ws._same_file(a, b))
+        with self.assertRaises(ws.Deadline):
+            ws._same_file(a, b, deadline=ws.now() - 1)
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""

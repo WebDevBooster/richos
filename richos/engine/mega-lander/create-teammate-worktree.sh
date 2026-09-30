@@ -101,6 +101,31 @@ command -v python3 >/dev/null 2>&1 || { echo "create-teammate-worktree.sh: pytho
 
 refuse() { echo "create-teammate-worktree.sh: REFUSED — $*" >&2; exit 3; }
 
+# The setup's own processes (step 4b): the PID this script started, every
+# process in the group it made for itself, and every descendant of either.
+_setup_tree() { # <setup pid>
+    ps -axo pid=,ppid=,pgid= 2>/dev/null | awk -v root="$1" '
+        { pid[NR] = $1; ppid[NR] = $2; pgid[NR] = $3; n = NR }
+        END {
+            keep[root] = 1
+            grew = 1
+            while (grew) {
+                grew = 0
+                for (i = 1; i <= n; i++)
+                    if (!(pid[i] in keep) && ((ppid[i] in keep) || pgid[i] == root)) { keep[pid[i]] = 1; grew = 1 }
+            }
+            for (p in keep) print p
+        }'
+}
+# Which of these PIDs are still running (a zombie has already stopped).
+_setup_alive() { # <pid>...
+    local _q
+    for _q in "$@"; do
+        kill -0 "$_q" 2>/dev/null || continue
+        case "$(ps -o stat= -p "$_q" 2>/dev/null)" in *Z*) ;; *) printf '%s\n' "$_q" ;; esac
+    done
+}
+
 # --- 1. the name is the spawn contract's name --------------------------------
 # THE RULE ITSELF LIVES IN scripts/lib/teammate-name.sh — shared with
 # guard-worktree-isolation.sh, which used to carry a LOOSER shape check of its
@@ -117,6 +142,25 @@ ALLOWED_MODELS="$(teammate_name_engine_allowed_models "$SCRIPT_DIR/..")"
 if ! _name_msg="$(teammate_name_check "$NAME" "$ALLOWED_MODELS")"; then
     refuse "$_name_msg"
 fi
+
+# --- the caller's deadline (hunt part 4, finding 18) --------------------------
+# A caller that stops waiting at a known moment says so: RICHOS_OPERATION_DEADLINE
+# is that moment in epoch seconds. The app gives a whole preparation 120 s and
+# this script alone allowed its setup 120 s, so the outer bound could expire
+# first, leaving a creation the caller can only record as "unknown". Every
+# bound below is now the smaller of its own and what is left of the caller's,
+# less CALLER_RESERVE for the confirmation and report that follow. A deadline
+# already passed is refused here, before anything exists. Unset: unchanged.
+CALLER_RESERVE=10
+_caller_left() { # seconds left before the caller's deadline, less the reserve; "" when there is none
+    [ -n "${RICHOS_OPERATION_DEADLINE:-}" ] || return 0
+    python3 -c 'import sys, time; print(int(float(sys.argv[1]) - time.time()) - int(sys.argv[2]))' \
+        "$RICHOS_OPERATION_DEADLINE" "$CALLER_RESERVE" 2>/dev/null || echo "invalid"
+}
+case "$(_caller_left)" in
+    invalid) refuse "RICHOS_OPERATION_DEADLINE='$RICHOS_OPERATION_DEADLINE' is not a time in epoch seconds; nothing was created" ;;
+    -*)      refuse "the caller's deadline (RICHOS_OPERATION_DEADLINE=$RICHOS_OPERATION_DEADLINE) leaves no time to create a workspace; nothing was created" ;;
+esac
 
 # --- the repository's MAIN checkout, from git, never from the argument -------
 [ -d "$REPO_ARG" ] || refuse "'$REPO_ARG' is not a directory"
@@ -166,9 +210,19 @@ git -C "$MAIN" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' 
 # The same contract native isolation honors: gitignore-style patterns, matched
 # against files that are IGNORED in the main checkout, copied with their
 # relative paths. Done in python so `**/` means what .gitignore means by it.
+#
+# A FAILED SEED IS A FAILED CREATION, never "0 file(s)" (hunt part 4, finding
+# 16). Its errors used to go to /dev/null and its failure became `echo 0`, so an
+# unreadable .env, a copy that stopped half way or a git that could not list the
+# ignored files read exactly like a repository with nothing to seed, and the
+# teammate started without the files its repository needs. Nothing justified
+# hiding it, unlike the setup below, whose failure leaves a workspace that
+# merely rebuilds more. It now goes through _fail: recorded, exit 4, and
+# spawn.sh rolls the workspace back.
 SEEDED=0
 if [ -f "$MAIN/.worktreeinclude" ]; then
-    SEEDED="$(MAIN="$MAIN" DIR="$DIR" python3 - <<'PY' 2>/dev/null || echo 0
+    SEED_ERR="$(mktemp -t worktree-seed)"
+    SEEDED="$(MAIN="$MAIN" DIR="$DIR" python3 - <<'PY' 2>"$SEED_ERR"
 import os, re, shutil, subprocess, sys
 main = os.environ["MAIN"]; dest = os.environ["DIR"]
 pats = []
@@ -199,6 +253,10 @@ def to_regex(pat):
 regs = [to_regex(p) for p in pats]
 res = subprocess.run(["git", "-C", main, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
                      capture_output=True, text=True)
+if res.returncode != 0:
+    sys.stderr.write("git could not list the main checkout's ignored files (exit %d): %s\n"
+                     % (res.returncode, res.stderr.strip()[:300]))
+    sys.exit(1)
 n = 0
 for rel in res.stdout.split("\0"):
     if not rel or not any(r.match(rel) for r in regs):
@@ -207,12 +265,23 @@ for rel in res.stdout.split("\0"):
     if not os.path.isfile(src):
         continue
     dst = os.path.join(dest, rel)
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copy2(src, dst)
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+    except OSError as e:
+        sys.stderr.write("%s could not be copied after %d file(s) were: %s\n" % (rel, n, e))
+        sys.exit(1)
     n += 1
 print(n)
 PY
 )"
+    SEED_RC=$?
+    if [ "$SEED_RC" -ne 0 ]; then
+        _seed_why="$(tr '\n' ' ' <"$SEED_ERR" | cut -c1-600)"
+        rm -f "$SEED_ERR"
+        _fail "seeding the .worktreeinclude files into $DIR FAILED (exit $SEED_RC): ${_seed_why:-no error text}"
+    fi
+    rm -f "$SEED_ERR"
 fi
 
 # --- 4b. the repository's own per-worktree setup ----------------------------
@@ -226,23 +295,62 @@ SETUP_STATUS="none"
 SETUP="$DIR/.richos/${WORKTREE_SETUP_DECLARATION#.}"
 [ -f "$SETUP" ] || SETUP="$DIR/$WORKTREE_SETUP_DECLARATION"
 [ -f "$SETUP" ] || SETUP=""
+# Bounded. 120s is many times what any setup here takes and still finite; an
+# unbounded child would make one bad commit hang every spawn after it. The
+# bound is a variable so the suite can prove the kill without waiting two
+# minutes for it — never so a caller can switch it off. And it never runs past
+# the caller's own deadline (finding 18, see the top of this file).
+: "${WORKTREE_SETUP_TIMEOUT:=120}"
+SETUP_BOUND="$WORKTREE_SETUP_TIMEOUT"
+SETUP_BOUND_WHY=""
+_left="$(_caller_left)"
+if [ -n "$SETUP" ] && [ -n "$_left" ] && [ "$_left" != invalid ] && [ "$_left" -lt "$SETUP_BOUND" ]; then
+    SETUP_BOUND=$(( _left > 0 ? _left : 0 ))
+    SETUP_BOUND_WHY=" (bounded by the caller's deadline)"
+fi
+if [ -n "$SETUP" ] && [ "$SETUP_BOUND" -le 0 ]; then
+    SETUP_STATUS="SKIPPED: no time was left before the caller's deadline"
+    echo "create-teammate-worktree.sh: $SETUP $SETUP_STATUS. The workspace is fine and the teammate can work in it; whatever that script shares between worktrees is simply not shared here." >&2
+    SETUP=""
+fi
 if [ -n "$SETUP" ]; then
     SETUP_LOG="$(mktemp -t worktree-setup)"
-    ( cd "$DIR" && bash "$SETUP" ) > "$SETUP_LOG" 2>&1 &
+    # ITS OWN PROCESS GROUP, so the timeout below can stop everything it
+    # started (hunt part 4, finding 17). The kill used to reach SETUP_PID
+    # alone, while a child the setup had started kept running in the workspace
+    # and the summary said "killed". The group is made by the process itself
+    # (setpgid, then exec: the PID does not change) because macOS has no
+    # setsid(1) and job control would print notices into this script's output.
+    # Everything signaled below is this PID, its group, or a descendant of it:
+    # processes this script started, never ones matched by a name or a path.
+    ( cd "$DIR" && exec python3 -c 'import os, sys; os.setpgid(0, 0); os.execvp("bash", ["bash", sys.argv[1]])' "$SETUP" ) > "$SETUP_LOG" 2>&1 &
     SETUP_PID=$!
-    # Bounded. 120s is many times what any setup here takes and still finite;
-    # an unbounded child would make one bad commit hang every spawn after it.
-    # The bound is a variable so the suite can prove the kill without waiting
-    # two minutes for it — never so a caller can switch it off.
-    : "${WORKTREE_SETUP_TIMEOUT:=120}"
     SETUP_WAITED=0
-    while kill -0 "$SETUP_PID" 2>/dev/null && [ "$SETUP_WAITED" -lt "$WORKTREE_SETUP_TIMEOUT" ]; do
+    while kill -0 "$SETUP_PID" 2>/dev/null && [ "$SETUP_WAITED" -lt "$SETUP_BOUND" ]; do
         sleep 1
         SETUP_WAITED=$((SETUP_WAITED + 1))
     done
     if kill -0 "$SETUP_PID" 2>/dev/null; then
-        kill -9 "$SETUP_PID" 2>/dev/null
-        SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s and was killed"
+        # Read the tree BEFORE anything dies: a child whose parent is killed is
+        # reparented and no longer looks like a descendant. The group catches
+        # what the tree then misses; the tree catches a child that left the
+        # group while its parent still lived.
+        _SETUP_TREE="$(_setup_tree "$SETUP_PID")"
+        kill -9 -- "-$SETUP_PID" 2>/dev/null
+        for _p in $_SETUP_TREE; do kill -9 "$_p" 2>/dev/null; done
+        wait "$SETUP_PID" 2>/dev/null
+        _SETUP_LEFT=""
+        for _i in 1 2 3 4 5 6 7 8 9 10; do
+            _SETUP_LEFT="$(_setup_alive "$SETUP_PID" $_SETUP_TREE)"
+            [ -z "$_SETUP_LEFT" ] && break
+            sleep 0.5
+        done
+        _SETUP_N="$(printf '%s\n' $_SETUP_TREE | grep -c .)"
+        if [ -z "$_SETUP_LEFT" ]; then
+            SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s${SETUP_BOUND_WHY} and was killed, with every process it started ($_SETUP_N)"
+        else
+            SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s${SETUP_BOUND_WHY}; killed, but STILL RUNNING: $(printf '%s ' $_SETUP_LEFT)"
+        fi
     elif wait "$SETUP_PID"; then
         SETUP_STATUS="ok"
     else

@@ -134,7 +134,7 @@ mutant R-p03-unregistered-branch-never-listed "C3.8 " "$W" \
 
 # --- point 4 ---------------------------------------------------------------
 mutant R-p04-branch-left-after-land "C4.3 " "$W" \
-    '    if branches and not processes.get("survivors"):{NL}        for repo, b in _branch_targets([rec]):' \
+    '    if branches and not held:{NL}        for repo, b in _branch_targets([rec]):' \
     '    if False:{NL}        for repo, b in _branch_targets([rec]):' \
     "RECORDED [lifecycle-failure-record-2026-09-12.md §2c, 2026-09-12: 'git branch --contains 6fd5aef8' returned cc/frank-opus-c6, cc/sage-opus-c6, cc/zach-opus-g4 after their workspaces were cut and left; and the same record's addendum §A2: 22 cc/ branches deleted by hand today, none by the system]: a land would delete the workspace and leave the branch."
 mutant R-p04-quarantine-instead-of-delete "C4.4 " "$W" \
@@ -256,11 +256,11 @@ mutant R-p08-ignored-needed-files-landed "C8.3 " "$W" \
     '            if False:' \
     "RECORDED [lifecycle-failure-record-2026-09-10.md §3b.2, 2026-09-10: an ignored nested repository under a 'disposable' path deleted with no copy taken; scripts/inflight-ack.sh header, 2026-09-05: echo-opus-529's three gitignored acks deleted with its unchanged worktree]: a workspace with ignored files it needs would be landed and the files lost."
 mutant S-p08-same-name-is-same-file "C8.8 " "$W" \
-    'def _same_file(a, b):{NL}    try:' \
-    'def _same_file(a, b):{NL}    return True{NL}    try:' \
+    'def _same_file(a, b, deadline=None):{NL}    """Byte-identical?' \
+    'def _same_file(a, b, deadline=None):{NL}    return True{NL}    """Byte-identical?' \
     "SPEC-DERIVED (point 8 negated, 'Deletion therefore never loses anything that was meant to land'; constructed by frank-fable-b3 as F-A, brief-audit-frank-round8 §5, which survived the round-7 fourteen): an ignored file the main checkout has under the same NAME with different bytes would be deleted by a land that reports success."
 mutant S-p08-same-size-is-same-file "C8.8 " "$W" \
-    '        with open(a, "rb") as fa, open(b, "rb") as fb:{NL}            return hashlib.sha1(fa.read()).digest() == hashlib.sha1(fb.read()).digest()' \
+    '        return _file_digest(a, deadline) == _file_digest(b, deadline)' \
     '        return True' \
     "SPEC-DERIVED (point 8 negated; constructed by frank-fable-b3 as F-H, brief-audit-frank-round8 §5, and the reason C8.8's two files are the same SIZE): same size would mean identical, so a rotated key of equal length would be deleted by a land that reports success."
 mutant S-p08-uncommitted-landed "C8.1 " "$W" \

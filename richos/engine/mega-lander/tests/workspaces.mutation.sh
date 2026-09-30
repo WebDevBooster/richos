@@ -166,6 +166,51 @@ mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stop
     '    pids = []' \
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 
+mutant p09-named-path-stopped "test_finding_12_a_process_that_only_names_the_workspace_keeps_running" "$W" \
+    '    hits -= keep{NL}' \
+    '    hits -= keep{NL}    hits.update(p for p, a in _process_args().items() if _names_a_path(a, paths) and p not in keep){NL}' \
+    "a process whose command line merely names the workspace (a reviewer, a log reader) would be stopped by a land it has nothing to do with (hunt part 4, finding 12)."
+
+mutant p09-descendant-spared "test_finding_12_a_child_of_a_process_in_the_workspace_is_still_stopped" "$W" \
+    '    grew = bool(hits)' \
+    '    grew = False' \
+    "a command the workspace's own process started, working on it from elsewhere, would outlive the land (point 9; the reason the argument match existed)."
+
+mutant p09-stopped-before-the-ancestry-check "test_finding_13_a_pending_scan_leaves_unmerged_work_running" "$W" \
+    '    if early:{NL}        raise SpecError(_not_landed_message(rec, early))' \
+    '    if False:{NL}        raise SpecError(_not_landed_message(rec, early))' \
+    "an automatic land attempt would stop a finished worker's tests and servers before finding its commits unmerged, and then leave it pending anyway (hunt part 4, finding 13)."
+
+mutant p05-status-lands "test_finding_29_status_reports_and_changes_nothing" "$W" \
+    '    items = pending(me, entity, scan=True, dry=True)' \
+    '    items = pending(me, entity, scan=True)' \
+    "asking for the status would land and delete eligible work and stop its processes on the way to the answer (hunt part 4, finding 29)."
+
+mutant p05-dry-check-lands "test_finding_29_a_dry_spawn_check_changes_nothing" "$W" \
+    '    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET), dry=dry)' \
+    '    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET))' \
+    "a dry spawn check, which promises to write nothing, would land and delete other eligible work before answering (hunt part 4, finding 29)."
+
+mutant p08-setup-product-held "test_finding_14_the_setups_own_link_needs_no_waiver" "$W" \
+    '            ignored = _minus_generated(w, ignored, deadline)' \
+    '            pass' \
+    "the workspace creator's own setup product (a per-workspace cache link) would hold every automatic land until somebody typed --ignored-not-needed (hunt part 4, finding 14)."
+
+mutant p08-changed-setup-product-waived "test_finding_14_a_setup_product_the_agent_changed_is_its_own" "$W" \
+    '        if rel in made and _fingerprint(os.path.join(w["path"], rel.rstrip("/")), deadline) == made[rel]:' \
+    '        if rel in made:' \
+    "an entry the engine made at creation and the agent then changed would be waived by name, and the agent's change deleted with the workspace (point 8)."
+
+mutant p05-retry-proof-has-no-deadline "test_finding_15_a_retry_stops_at_its_budget_inside_the_attempt" "$W" \
+    '                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "", deadline)' \
+    '                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "")' \
+    "a deletion retry would repeat the whole landing proof with no deadline, so one attempt could run any length of time past its stated budget (hunt part 4, finding 15)."
+
+mutant p05-gate-retries-on-their-own-clock "test_finding_15_the_stop_gate_puts_its_retries_inside_its_budget" "$W" \
+    '    retry_due(deadline=deadline)' \
+    '    retry_due()' \
+    "the Stop gate's retries would run on their own clock before its budget applies, so the hook could be canceled before it answers (hunt part 4, finding 15)."
+
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}{NL}        write_json(_slot_path(rec["key"], call), row)' \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}' \

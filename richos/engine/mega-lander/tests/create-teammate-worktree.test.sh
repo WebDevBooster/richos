@@ -320,6 +320,88 @@ else
     bad "C43  no-setup repository (rc=$rc): $OUT"
 fi
 
+# HUNT PART 4, FINDING 16: a seed that FAILS is a failed creation, never an
+# empty successful one. The file .worktreeinclude names is unreadable, so the
+# copy fails; the helper used to hide that and print "seeded: 0 file(s)".
+REPO4="$SANDBOX/repo4"
+mkdir -p "$REPO4"
+git -C "$REPO4" init -q -b main
+printf '.env.secret\n' >"$REPO4/.worktreeinclude"
+printf '.env.secret\n' >"$REPO4/.gitignore"
+printf 'seed\n' >"$REPO4/seed.txt"
+git -C "$REPO4" add -A
+git -C "$REPO4" commit -q -m seed
+python3 "$WS_PY" --entity "$REPO4" --session "$RICHOS_SESSION_ID" integration \
+    --repo "$REPO4" --branch main --why "the seed-failure case" >/dev/null
+printf 'TOKEN=1\n' >"$REPO4/.env.secret"
+chmod 000 "$REPO4/.env.secret"
+OUT="$("$HELPER" "$REPO4" zach-opus-ct44 2>&1)"; rc=$?
+chmod 600 "$REPO4/.env.secret"
+if [ "$rc" -eq 4 ] && printf '%s' "$OUT" | grep -q "seeding the .worktreeinclude files" \
+   && printf '%s' "$OUT" | grep -q ".env.secret" \
+   && ! printf '%s' "$OUT" | grep -q "^seeded:" \
+   && python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r.get("creation_failed"), r' "$(REC zach-opus-ct44)" 2>/dev/null; then
+    ok "C44  a FAILED seed is a failed creation (exit 4, recorded, the unreadable file named), never \"seeded: 0\""
+else
+    bad "C44  seed failure (rc=$rc): $OUT"
+fi
+# and the positive control, same repository, once the file can be read
+OUT="$("$HELPER" "$REPO4" zach-opus-ct44b 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'seeded:     1 file(s)' \
+   && [ -f "$SANDBOX/repo4-wt/zach-opus-ct44b/.env.secret" ]; then
+    ok "C44b POSITIVE CONTROL: the readable file is seeded and counted"
+else
+    bad "C44b seed control (rc=$rc): $OUT"
+fi
+
+# HUNT PART 4, FINDING 17: a timed-out setup is stopped WITH what it started.
+# The setup starts a child that outlives it, records the child's PID, and hangs;
+# the kill used to reach the setup's own PID only.
+git -C "$REPO3" checkout -q -b spawning main
+cat >"$REPO3/.richos/worktree-setup" <<'SETUPEOF'
+sleep 30 &
+echo "$!" > "$PWD/child.pid"
+sleep 20
+SETUPEOF
+git -C "$REPO3" commit -q -am "a setup that starts a child and hangs"
+OUT="$(WORKTREE_SETUP_TIMEOUT=2 "$HELPER" "$REPO3" zach-opus-ct45 --base spawning 2>&1)"; rc=$?
+WT3D="$SANDBOX/repo3-wt/zach-opus-ct45"
+CHILD="$(cat "$WT3D/child.pid" 2>/dev/null || true)"
+ALIVE=no
+if [ -n "$CHILD" ] && kill -0 "$CHILD" 2>/dev/null; then
+    case "$(ps -o stat= -p "$CHILD" 2>/dev/null)" in *Z*) ;; *) ALIVE=yes ;; esac
+fi
+if [ "$rc" -eq 0 ] && [ -n "$CHILD" ] && [ "$ALIVE" = no ] \
+   && printf '%s' "$OUT" | grep -q "TIMED OUT after 2s and was killed, with every process it started"; then
+    ok "C45  a timed-out setup is killed WITH the child it started, and the summary says so"
+else
+    bad "C45  setup child (rc=$rc, child=${CHILD:-none}, alive=$ALIVE): $OUT"
+fi
+# the suite's own leftover, by the PID the setup it ran recorded, never by name
+[ "$ALIVE" = yes ] && kill -9 "$CHILD" 2>/dev/null
+
+# HUNT PART 4, FINDING 18: the setup bound fits inside the CALLER's deadline.
+# The app gives the whole preparation 120 s and the setup alone was allowed
+# 120 s; a caller now says when it gives up (RICHOS_OPERATION_DEADLINE, epoch
+# seconds) and the setup is bounded by what is left of that, less the time
+# the confirmation needs. Default setup bound (120 s), a 20 s hanging setup,
+# and a deadline 14 s out: the creation must finish well inside 14 s.
+T0="$(date +%s)"
+OUT="$(RICHOS_OPERATION_DEADLINE="$((T0 + 14))" "$HELPER" "$REPO3" zach-opus-ct46 --base hanging 2>&1)"; rc=$?
+T1="$(date +%s)"
+if [ "$rc" -eq 0 ] && [ "$((T1 - T0))" -lt 14 ] && [ -d "$SANDBOX/repo3-wt/zach-opus-ct46" ] \
+   && printf '%s' "$OUT" | grep -q "the caller's deadline"; then
+    ok "C46  the setup is bounded by the caller's deadline, and the creation answers inside it ($((T1 - T0))s < 14s)"
+else
+    bad "C46  caller deadline (rc=$rc, took $((T1 - T0))s): $OUT"
+fi
+OUT="$(RICHOS_OPERATION_DEADLINE="$(($(date +%s) - 1))" "$HELPER" "$REPO3" zach-opus-ct47 2>&1)"; rc=$?
+if [ "$rc" -eq 3 ] && [ ! -e "$SANDBOX/repo3-wt/zach-opus-ct47" ] && printf '%s' "$OUT" | grep -q "deadline"; then
+    ok "C47  a caller whose deadline has already passed gets a refusal and nothing is created"
+else
+    bad "C47  passed deadline (rc=$rc): $OUT"
+fi
+
 if ! grep -qE 'worktree (remove|prune)|branch -D|rm -rf' "$HELPER"; then
     ok "C23  the helper contains no deletion: land and discard are the only deleters (points 4, 7)"
 else

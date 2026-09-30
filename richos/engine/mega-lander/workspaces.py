@@ -1473,6 +1473,14 @@ def register_cc(session_id, name, repo, path, branch, identity=None):
 
 def confirm_cc(session_id, name, path, ok, why=""):
     key = named_key(session_id, name)
+    # WHAT THE ENGINE ITSELF MADE (hunt part 4, finding 14). The creator
+    # confirms only after it has seeded the workspace and run the repository's
+    # own setup, so every ignored entry the workspace has now, and the main
+    # checkout does not, is the engine's product and nobody's work: richos's
+    # setup links each workspace to its own build cache, and that link held
+    # every such land until somebody typed --ignored-not-needed. It is recorded
+    # here, exactly, so the land can tell it from the agent's own ignored files.
+    generated = _generated_manifest(realpath(path)) if ok else {}
     with Lock():
         rec = load_agent(key)
         if not rec:
@@ -1480,6 +1488,8 @@ def confirm_cc(session_id, name, path, ok, why=""):
         for w in rec["workspaces"]:
             if w.get("path") == realpath(path):
                 w["created"] = bool(ok)
+                if generated:
+                    w["generated"] = generated
         if not ok:
             rec["creation_failed"] = {"at": now(), "why": why}
         save_agent(rec)
@@ -1605,8 +1615,13 @@ def register_spawn(payload, entity, dry=False):
     # pending integration. Only a continuation needs the pending list, because
     # it replaces finished work and must validate that work before cleanup.
     # Normal spawns must not scan or auto-land other agents' workspaces.
-    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET))
+    # A DRY check asks the same question and acts on nothing (finding 29): it
+    # used to auto-land and delete other eligible work, stopping its
+    # processes, before reaching `if dry: return`. What WOULD land is left out
+    # here exactly as the live call's land leaves it out.
+    items = (pending(sid, entity, deadline=_gate_deadline(GATE_SPAWN_BUDGET), dry=dry)
              if continues else [])
+    items = [i for i in items if not i.get("would_land") and not i.get("unregistered")]
     continuation_keys = []
     for c in continues:
         match = [i for i in items if i["name"] == c or i["key"] == c]
@@ -2459,17 +2474,20 @@ def wait(ref, kind, on, todo="", session_id=""):
 # point 5 — the pending list, and who handles which item (point 12)
 # ---------------------------------------------------------------------------
 
-def scan_unregistered(repos):
+def scan_unregistered(repos, record=True):
     """Point 3, hole 6: a cc/ or native workspace with no registration, and any
     such branch, is finished work of an ended session. codex/ and every other
-    name is not the system's concern (points 1, 2) and is never listed."""
+    name is not the system's concern (points 1, 2) and is never listed.
+
+    `record=False` only looks (finding 29): nothing is bound and no record is
+    made, and what was found is returned as (repo, path, branch, kind)."""
     paths, branches = set(), set()
     # Point 14: a record that was never spawned through the guard — an orphan
     # this sweep made, or a provisional native start no spawn registered — had
     # no spawn at which to be refused for a missing record. It binds to its
     # repository's body of work at the first sweep after one exists, recorded
     # on it by id, once; until then its land refuses and names the command.
-    for r in all_agents():
+    for r in (all_agents() if record else []):
         if not (r.get("orphan") or r.get("provisional")) or r.get("disposition"):
             continue
         # ITS OWN name, never `repos`: reusing the parameter's name narrowed
@@ -2527,6 +2545,8 @@ def scan_unregistered(repos):
             if b in attached or (repo, b) in branches or b.startswith(CODEX_PREFIX):
                 continue
             found.append((repo, "", b, classify("", b)))
+    if not record:
+        return found
     made = []
     for repo, path, branch, kind in found:
         key = "orphan--" + hashlib.sha1(("%s\0%s\0%s" % (repo, path, branch)).encode()).hexdigest()[:16]
@@ -2581,23 +2601,64 @@ def _claimable(rec, me, cache):
     return True
 
 
-def pending(me, entity="", scan=False, auto=True, deadline=None, report=None):
+def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dry=False):
     """The finished work this session must land or discard (point 5), after
     landing automatically everything that already is landed (point 4).
 
     With a deadline, the AUTO-LAND is what gets dropped when the budget runs
     out — never the list. An item that could not be checked stays pending and
     keeps blocking, which is the safe answer; the names of the items that were
-    not checked go into `report` so the gate can say so rather than go quiet."""
+    not checked go into `report` so the gate can say so rather than go quiet.
+
+    `dry=True` IS THE SAME QUESTION ASKED WITHOUT ACTING ON THE ANSWER (hunt
+    part 4, finding 29). `workspaces.sh status` and the dry spawn check ask
+    what WOULD happen, and both used to take this function's automatic land on
+    the way: work that was eligible was landed and deleted, its processes
+    stopped, and other sessions' records claimed. Dry, nothing is written:
+    no land, no claim, no adoption of the platform's records, no orphan record
+    for an unregistered workspace. Eligibility is still proved, by the same
+    read-only proof the land uses after shutdown, and an item that WOULD land
+    is returned marked `would_land` rather than left out, so the caller can
+    say so. An unregistered workspace the scan finds is returned marked
+    `unregistered`. The operations that are asked to act (the Stop gate, a
+    live spawn, `land`) still act."""
     cache = {}
+    items = []
     if scan:
         repos = set(known_repos())
         if entity:
             repos.add(main_checkout(entity) or realpath(entity))
-        scan_unregistered(sorted(r for r in repos if r))
-    items = []
+        found = scan_unregistered(sorted(r for r in repos if r), record=not dry)
+        if dry:
+            for repo, path, branch, kind in found:
+                items.append({"key": "", "name": "orphan-" + os.path.basename(path or branch.replace("/", "-")),
+                              "why": "it has no registration: finished work of an ended session (point 3)",
+                              "waiting": "", "waiting_on": "", "blocks_new_work": False,
+                              "blocks_turn_end": True, "unregistered": True,
+                              "workspaces": [(path or "(branch only)", branch)]})
     for rec in all_agents():
         if rec.get("disposition"):
+            continue
+        if dry:
+            fin, paused_, why = finished_state(rec, cache)
+            if not fin:
+                if paused_ and not (rec.get("pause") or {}).get("until") and rec.get("session_id") == me:
+                    items.append(_item(rec, "paused with nothing named that ends it (point 11)", cache, me))
+                continue
+            if not _claimable(rec, me, cache):
+                continue
+            it = _item(rec, why, cache, me)
+            if auto and not _past(deadline):
+                try:
+                    _require_landed(rec, _chain(rec), "", deadline)
+                    it["would_land"] = True
+                except Deadline:
+                    _deferred(report, rec)
+                except SpecError:
+                    pass
+            elif auto:
+                _deferred(report, rec)
+            items.append(it)
             continue
         # Point 11: an ending the platform recorded itself and gave no hook for
         # (a stopped agent) becomes finished HERE, before anything asks whether
@@ -2826,7 +2887,7 @@ def uncommitted(path, deadline=None):
                 for sub in _ignored_dir_diff(mine, other, rel.rstrip("/"), deadline):
                     ignored.append(sub)
                 continue
-            if other and os.path.isfile(mine) and os.path.isfile(other) and _same_file(mine, other):
+            if other and os.path.isfile(mine) and os.path.isfile(other) and _same_file(mine, other, deadline):
                 continue
             ignored.append(rel)
         else:
@@ -2864,7 +2925,9 @@ def _ignored_dir_diff(mine, other, rel, deadline=None):
         dirs.sort()
         for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(root, d))]:
             n += 1
-            if deadline is not None and (n & 63) == 0 and _past(deadline):
+            # Every entry, not every 64th: one comparison can be slow (a large
+            # file, slow storage), and the clock is only a clock read.
+            if _past(deadline):
                 raise Deadline("the gate's budget ran out while comparing the ignored directory %s" % rel)
             a = os.path.join(root, name)
             b = os.path.join(other, os.path.relpath(a, mine))
@@ -2875,7 +2938,7 @@ def _ignored_dir_diff(mine, other, rel, deadline=None):
                 except OSError:
                     same = False
             else:
-                same = os.path.isfile(b) and not os.path.islink(b) and _same_file(a, b)
+                same = os.path.isfile(b) and not os.path.islink(b) and _same_file(a, b, deadline)
             if not same:
                 out.append(sub)
         # a symlinked directory is compared above as a link and never descended
@@ -2883,12 +2946,14 @@ def _ignored_dir_diff(mine, other, rel, deadline=None):
     return out
 
 
-def _same_file(a, b):
+def _same_file(a, b, deadline=None):
+    """Byte-identical? Read in pieces with the gate's clock checked between
+    them (hunt part 4, finding 15): one whole-file read of a large file used
+    to be a step no deadline could interrupt."""
     try:
         if os.path.getsize(a) != os.path.getsize(b):
             return False
-        with open(a, "rb") as fa, open(b, "rb") as fb:
-            return hashlib.sha1(fa.read()).digest() == hashlib.sha1(fb.read()).digest()
+        return _file_digest(a, deadline) == _file_digest(b, deadline)
     except OSError:
         return False
 
@@ -2946,7 +3011,7 @@ def _landed_residue(rec, w, deadline=None):
                         return False
                 elif os.path.isfile(source):
                     executable = bool(os.stat(source).st_mode & 0o111)
-                    if (os.path.isfile(target) and not os.path.islink(target) and _same_file(source, target)
+                    if (os.path.isfile(target) and not os.path.islink(target) and _same_file(source, target, deadline)
                             and executable == bool(os.stat(target).st_mode & 0o111)):
                         continue
                     if mode != ("100755" if executable else "100644"):
@@ -2960,6 +3025,86 @@ def _landed_residue(rec, w, deadline=None):
     except (OSError, UnicodeError):
         return False
     return True
+
+
+GENERATED_TREE_CAP = 2000
+
+
+def _file_digest(p, deadline=None):
+    """SHA-1 of a file, read in pieces with the clock checked between them."""
+    h = hashlib.sha1()
+    with open(p, "rb") as f:
+        while True:
+            if _past(deadline):
+                raise Deadline("the gate's budget ran out while reading %s" % p)
+            chunk = f.read(1 << 20)
+            if not chunk:
+                return h.hexdigest()
+            h.update(chunk)
+
+
+def _fingerprint(p, deadline=None):
+    """What an ignored entry IS, precisely enough to tell it changed: a link by
+    its target, a file by size and content, a directory by every entry under
+    it (links by target, never followed). None when it cannot be read, or a
+    directory is larger than GENERATED_TREE_CAP entries: an entry with no
+    fingerprint is never waived, so the answer is the safe one."""
+    try:
+        if os.path.islink(p):
+            return ["link", os.readlink(p)]
+        if os.path.isfile(p):
+            return ["file", os.path.getsize(p), _file_digest(p, deadline)]
+        if not os.path.isdir(p):
+            return None
+        rows = []
+
+        def unreadable(error):
+            raise error
+        for root, dirs, files in os.walk(p, followlinks=False, onerror=unreadable):
+            dirs.sort()
+            for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(root, d))]:
+                if len(rows) >= GENERATED_TREE_CAP:
+                    return None
+                a = os.path.join(root, name)
+                rows.append([os.path.relpath(a, p), _fingerprint(a, deadline)])
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        return ["dir", len(rows), hashlib.sha1(json.dumps(rows).encode()).hexdigest()]
+    except OSError:
+        return None
+
+
+def _generated_manifest(path):
+    """{relative ignored entry: fingerprint} for every ignored entry of a
+    just-created workspace that the main checkout does not have (finding 14).
+    Never raises: a workspace whose products could not be recorded is one
+    whose ignored entries all need the waiver, exactly as before."""
+    try:
+        _dirty, ignored = uncommitted(path)
+    except SpecError:
+        return {}
+    out = {}
+    for rel in ignored:
+        if " (unreadable" in rel:
+            continue
+        fp = _fingerprint(os.path.join(path, rel.rstrip("/")))
+        if fp is not None:
+            out[rel] = fp
+    return out
+
+
+def _minus_generated(w, ignored, deadline=None):
+    """`ignored` without the entries the engine made at creation and nobody has
+    changed since (finding 14). Anything else — the agent's notes, a nested
+    repository, a setup product the agent then altered — is still named."""
+    made = w.get("generated") or {}
+    if not made:
+        return ignored
+    out = []
+    for rel in ignored:
+        if rel in made and _fingerprint(os.path.join(w["path"], rel.rstrip("/")), deadline) == made[rel]:
+            continue
+        out.append(rel)
+    return out
 
 
 def _require_clean(rec, doing, ignored_ok="", deadline=None):
@@ -2979,6 +3124,7 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
                 if residue:
                     preserved.append(w["path"])
             dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
+            ignored = _minus_generated(w, ignored, deadline)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
                     w["path"], len(dirty), "y" if len(dirty) == 1 else "ies", ", ".join(dirty[:5])))
@@ -4271,6 +4417,18 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
                     "already": kind, "cleanup_pending": not clean}
         return {"landed": True, "already": kind}
     chain = _chain(rec)
+    # NOTHING IS STOPPED FOR WORK THAT PLAINLY CANNOT LAND (hunt part 4,
+    # finding 13). An automatic attempt (a status, a spawn check, a turn end)
+    # used to stop a finished worker's tests and servers and only then find
+    # its commits were not merged, so it stayed pending with its useful work
+    # killed. Shutdown can only ADD commits, never merge them, so a HEAD or a
+    # branch already read to be outside the integration branch cannot become
+    # landed by stopping anything: that is refused first. Only a definite
+    # answer refuses here; whatever could not be read is left to the full
+    # proof below.
+    early = _not_in_integration(rec, chain, deadline=deadline, definite_only=True)
+    if early:
+        raise SpecError(_not_landed_message(rec, early))
     # Shutdown can flush files or create commits. Prove landing only after it.
     paths = [w["path"] for r in chain for w in live_workspaces(r) if w.get("path")]
     stopped = stop_processes(paths)
@@ -4288,7 +4446,7 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
                                     "ignored_not_needed": ignored_ok or None, "as_part_of": rec["key"]}
             save_agent(fresh)
         event("landed", key=r["key"], auto=bool(auto), as_part_of=rec["key"])
-    clean = _delete_chain(chain, "landed", processes=stopped)
+    clean = _delete_chain(chain, "landed", processes=stopped, deadline=deadline)
     if not clean:
         if not (load_agent(rec["key"]) or {}).get("disposition"):
             raise SpecError("landing eligibility changed during cleanup; the work was preserved")
@@ -4300,7 +4458,26 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
     preserved = set()
     for r in chain:
         preserved.update(_require_clean(r, "land %s" % r["name"], ignored_ok, deadline) or [])
+    missing = _not_in_integration(rec, chain, preserved, deadline)
+    if missing:
+        raise SpecError(_not_landed_message(rec, missing))
+
+
+def _not_landed_message(rec, missing):
+    return ("%s is not landed yet: %s. Merge it onto the branch this work integrates on, then land it; or "
+            "discard it (point 7)." % (rec["name"], "; ".join(missing)))
+
+
+def _not_in_integration(rec, chain, preserved=(), deadline=None, definite_only=False):
+    """What of this work is not shown to be in the branch it integrates on.
+
+    `definite_only` keeps only what was READ and found outside it (a HEAD or a
+    branch tip that is not an ancestor of the integration tip) and drops every
+    unknown: a read that failed, a target that is not recorded. That is the
+    cheap question land() asks before it stops anything (finding 13); the full
+    question, after shutdown, still counts every unknown as not landed."""
     missing = []
+    definite = []
     targets = {}
 
     def _target(repo):
@@ -4334,6 +4511,7 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
                 elif not is_ancestor(repo, out.strip(), tip):
                     missing.append("HEAD of %s (%s) is not in %s of %s at %s"
                                    % (w["path"], out.strip()[:12], branch, repo, tip[:12]))
+                    definite.append(missing[-1])
     for repo, b in _branch_targets(chain):
         if _past(deadline):
             raise Deadline("the gate's budget ran out before %s's branches could be proved to be in the "
@@ -4350,9 +4528,8 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
             missing.append("branch %s: %s" % (b, unread))
         elif t and not is_ancestor(repo, t, tip):
             missing.append("%s (%s) is not in %s of %s at %s" % (b, t[:12], branch, repo, tip[:12]))
-    if missing:
-        raise SpecError("%s is not landed yet: %s. Merge it onto the branch this work integrates on, "
-                        "then land it; or discard it (point 7)." % (rec["name"], "; ".join(missing)))
+            definite.append(missing[-1])
+    return definite if definite_only else missing
 
 
 def discard(ref, reason, ceo_word="", not_ceo_ordered="", me=""):
@@ -4392,31 +4569,39 @@ def discard(ref, reason, ceo_word="", not_ceo_ordered="", me=""):
     return {"discarded": True, "tips": tips}
 
 
-def _delete_chain(chain, why, processes=None):
+def _delete_chain(chain, why, processes=None, deadline=None):
     allw = [(r, w) for r in chain for w in live_workspaces(r) if w.get("path")]
     stopped = processes if processes is not None else stop_processes([w["path"] for _r, w in allw])
     complete = True
     for r in chain:
         if not _delete(r, [w for w in live_workspaces(r) if w.get("path")], branches=True, why=why,
-                       processes=stopped):
+                       processes=stopped, deadline=deadline):
             complete = False
             if why == "landed" and not (load_agent(r["key"]) or {}).get("disposition"):
                 return False
     return complete
 
 
-def _delete(rec, workspaces, branches, why, processes=None):
+def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
     """Points 9, 10, 13: stop every process, then delete every workspace (and
-    branch) as one; whatever fails is retried automatically."""
+    branch) as one; whatever fails is retried automatically.
+
+    `deadline` is the caller's budget (hunt part 4, finding 15). The second
+    landing proof below used to run without it, so a gate or a retry with a
+    stated budget could spend any amount of time comparing files. Running out
+    is not a failure and not a change of eligibility: the deletion is simply
+    deferred to the next retry, with nothing deleted and no attempt counted."""
     if processes is None:
         processes = stop_processes([w["path"] for w in workspaces])
     failures = []
+    deferred = ""
+    held = False
     if processes.get("survivors"):
         failures.append("processes still running in its workspaces: %s" % processes["survivors"])
+        held = True
     else:
         # Containers first, directories second: a workspace's containers are
-        # part of it, and stop_containers never raises, so this cannot cost a
-        # deletion that would otherwise have succeeded. See stop_containers.
+        # part of it, and stop_containers never raises. See stop_containers.
         containers = stop_containers([w["path"] for w in workspaces])
         # §54 addendum 4, and it sits here rather than beside stop_processes
         # for the same reason containers do: it never raises and it never
@@ -4424,15 +4609,31 @@ def _delete(rec, workspaces, branches, why, processes=None):
         # have worked. A window that will not close is recorded for the alert,
         # not made into a reason to keep a landed worktree on disk.
         stop_test_instances([w["path"] for w in workspaces])
+        # A CONTAINER THAT COULD NOT BE STOPPED IS A SURVIVOR (hunt part 4,
+        # finding 11). It used to be checked for a LANDED disposition only, so
+        # a discard deleted the workspace, filed the record as done and left
+        # the containers running with no retry at all, and a reaper that
+        # crashed was indistinguishable from one that found nothing. Whatever
+        # the disposition, it is now what a surviving process is: nothing of
+        # the workspace is deleted, the failure is recorded and retried (point
+        # 13), and after RETRY_TELL_CEO_AFTER attempts the CEO is told. The
+        # deleter still never raises: tidying up cannot break it, and it can
+        # no longer be forgotten either.
+        unstopped = _containers_unstopped(containers)
+        if unstopped:
+            failures.append(unstopped)
+            held = True
+    if not held:
         current = load_agent(rec["key"]) or rec
         disposition = current.get("disposition") or {}
         if disposition.get("kind") == "landed":
             owner = load_agent(disposition.get("as_part_of") or rec["key"]) or current
             chain = _chain(owner)
             try:
-                if containers.get("failed"):
-                    raise SpecError("workspace containers could not be stopped")
-                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "")
+                _require_landed(owner, chain, disposition.get("ignored_not_needed") or "", deadline)
+            except Deadline as e:
+                deferred = str(e)
+                held = True
             except SpecError as e:
                 # Eligibility expired. Return surviving work to the pending gate,
                 # instead of retrying a forced deletion under an old verdict.
@@ -4456,13 +4657,21 @@ def _delete(rec, workspaces, branches, why, processes=None):
             # Point 3: the branches the agent created are its branches too, and
             # they are recorded (observe_created_refs) rather than read back out of
             # the directory here — the record survives the directory.
+            if held:
+                break
+            if _past(deadline):
+                deferred = "the budget ran out before %s was deleted" % w.get("path")
+                held = True
+                break
             ok, err = remove_workspace(w)
             if ok:
                 w["deleted_at"] = iso()
             else:
                 failures.append(err)
+    if deferred:
+        failures.append(deferred)
     untouched = []
-    if branches and not processes.get("survivors"):
+    if branches and not held:
         for repo, b in _branch_targets([rec]):
             ok, err = delete_branch(repo, b)
             if ok is None:
@@ -4497,7 +4706,16 @@ def _delete(rec, workspaces, branches, why, processes=None):
         fresh["created_branches"] = rec.get("created_branches") or []
         if untouched:
             fresh.setdefault("history", []).extend(untouched)
-        if failures:
+        if failures and failures == [deferred]:
+            # Out of budget only: due again at once, and no attempt counted,
+            # so a busy gate never walks a healthy deletion toward the CEO's
+            # "keeps failing" notice.
+            d = fresh.get("deletion") or {"attempts": 0}
+            d["deferred"] = deferred[:400]
+            d["next_at"] = now()
+            d["branches"] = bool(branches)
+            fresh["deletion"] = d
+        elif failures:
             d = fresh.get("deletion") or {"attempts": 0, "first_failed_at": now()}
             d["attempts"] = d.get("attempts", 0) + 1
             d["last_error"] = "; ".join(failures)[:2000]
@@ -4519,18 +4737,25 @@ def _delete(rec, workspaces, branches, why, processes=None):
     return not failures
 
 
-def retry_due(budget=5.0):
-    """Point 13: a failed deletion is retried with no one's involvement."""
+def retry_due(budget=5.0, deadline=None):
+    """Point 13: a failed deletion is retried with no one's involvement.
+
+    The budget bounds the attempts, not only the gaps between them (hunt part
+    4, finding 15): each attempt is given what is left of it, and a caller
+    with its own deadline (the Stop gate) passes that, so the retries spend
+    the gate's budget instead of adding to it."""
     t0 = now()
+    stop_at = t0 + budget if deadline is None else min(t0 + budget, deadline)
     out = []
     for rec in all_agents():
         d = rec.get("deletion")
         if not d or d.get("next_at", 0) > now():
             continue
-        if now() - t0 > budget:
+        if now() - t0 > budget or _past(stop_at):
             break
         targets = [w for w in live_workspaces(rec) if w.get("path")]
-        ok = _delete(rec, targets, branches=d.get("branches", True), why="retry %d" % (d.get("attempts", 0) + 1))
+        ok = _delete(rec, targets, branches=d.get("branches", True), why="retry %d" % (d.get("attempts", 0) + 1),
+                     deadline=stop_at)
         out.append((rec["key"], ok))
     return out
 
@@ -4671,17 +4896,29 @@ def _process_cwds():
     return out
 
 
-def _process_args():
+def process_table():
+    """{pid: {"ppid": int, "args": str}} for every process the OS shows, in one
+    `ps` call."""
     try:
-        r = subprocess.run(["ps", "-axo", "pid=,args="], capture_output=True, text=True, timeout=30, env=_ps_env())
+        r = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,args="], capture_output=True, text=True,
+                           timeout=30, env=_ps_env())
     except (OSError, subprocess.TimeoutExpired):
         return {}
     out = {}
     for line in r.stdout.splitlines():
-        parts = line.strip().split(None, 1)
-        if len(parts) == 2 and parts[0].isdigit():
-            out[int(parts[0])] = parts[1]
+        parts = line.strip().split(None, 2)
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            out[int(parts[0])] = {"ppid": int(parts[1]), "args": parts[2] if len(parts) > 2 else ""}
     return out
+
+
+def _process_args():
+    return dict((pid, p["args"]) for pid, p in process_table().items())
+
+
+def _names_a_path(args, paths):
+    return any((" " + p + os.sep) in (" " + args + os.sep) or (" " + p + " ") in (" " + args + " ")
+               or args.endswith(" " + p) for p in paths)
 
 
 def _protected_pids():
@@ -4700,6 +4937,20 @@ def _protected_pids():
 
 
 def processes_in(paths):
+    """The processes that are the workspace's own: every process WORKING in one
+    of `paths` (its directory is inside), and every descendant of one, wherever
+    that descendant works. Never this process, its ancestors or claude.
+
+    A COMMAND LINE THAT MERELY NAMES THE PATH IS NOT OWNERSHIP (hunt part 4,
+    finding 12). A second loop used to add every process whose arguments named
+    the workspace to the same stop list, so a reviewer, a log reader or an
+    editor working from somewhere else lost its running work to a land it had
+    nothing to do with. The reason for that loop holds, and is kept where it
+    holds: a command the workspace's own process starts can work on the
+    workspace from elsewhere (`cd / && cargo --manifest-path ...`), and that
+    one is owned by its ANCESTRY, which is a fact the OS reports. A process
+    whose only tie is its arguments is left running and named in the record
+    (`_named_only`), never signaled."""
     paths = [realpath(p) for p in paths if p]
     if not paths:
         return []
@@ -4709,15 +4960,39 @@ def processes_in(paths):
         c = realpath(cwd)
         if any(c == p or c.startswith(p + os.sep) for p in paths):
             hits.add(pid)
+    hits -= keep
+    table = process_table()
+    grew = bool(hits)
+    while grew:
+        grew = False
+        for pid, info in table.items():
+            if pid not in hits and pid not in keep and info["ppid"] in hits:
+                hits.add(pid)
+                grew = True
+    return sorted(hits)
+
+
+def _named_only(paths, owned):
+    """Processes whose command line names one of `paths` and that are not the
+    workspace's own: reported, never stopped (finding 12)."""
+    paths = [realpath(p) for p in paths if p]
+    keep = _protected_pids()
+    out = []
     for pid, args in _process_args().items():
-        if any((" " + p + os.sep) in (" " + args + os.sep) or (" " + p + " ") in (" " + args + " ")
-               or args.endswith(" " + p) for p in paths):
-            hits.add(pid)
-    return sorted(h for h in hits if h not in keep)
+        if pid in owned or pid in keep:
+            continue
+        if _names_a_path(args, paths):
+            out.append((pid, args[:200]))
+    return sorted(out)
 
 
 def stop_processes(paths):
     pids = processes_in(paths)
+    spared = _named_only(paths, set(pids))
+    if spared:
+        event("processes-named-only", pids=[p for p, _a in spared], args=[a for _p, a in spared],
+              why="their command line names the workspace, but nothing shows the workspace started them; "
+                  "left running (hunt part 4, finding 12)")
     if not pids:
         return {"stopped": [], "survivors": []}
     for p in pids:
@@ -4762,10 +5037,12 @@ def stop_test_instances(paths):
     still on his screen after the handoff.
 
     WHY stop_processes DOES NOT ALREADY DO THIS, measured rather than assumed.
-    stop_processes matches a process by its cwd or by its workspace path
-    appearing in argv. A test instance launched the way this engine launches
-    one has NEITHER: scripts/lib/gui-launch.sh runs it `cd /` with `env -i`, so
-    its cwd is `/`, and the candidate-.7 instance's argv was the relative
+    stop_processes matches a process by its cwd (and, since hunt part 4
+    finding 12, by descent from such a process; its workspace path appearing
+    in argv, which it used to match too, is no longer ownership). A test
+    instance launched the way this engine launches one has NEITHER: scripts/
+    lib/gui-launch.sh runs it `cd /` with `env -i`, so its cwd is `/`, and the
+    candidate-.7 instance's argv was the relative
     `./RichOS.app/Contents/MacOS/richos-tauri`, which names no absolute path at
     all. Both tests miss it, which is exactly how it survived its own land.
 
@@ -4873,14 +5150,34 @@ def stop_containers(paths):
         # other live workspace keeps its protection. See reap_for_workspaces.
         res = containers.reap_for_workspaces(paths, ending=True)
     except Exception as e:
-        # Tidying up must never be able to break the deleter it is attached to.
+        # Tidying up must never be able to break the deleter it is attached to,
+        # so this still does not raise. But it is not a success either: an
+        # empty result here used to be indistinguishable from "no containers",
+        # so the deleter went on and nothing ever retried (hunt part 4, finding
+        # 11). The error is returned, and _delete holds the workspace and
+        # retries it like a process that survived its stop.
         event("containers-unreaped", why=str(e)[:200], paths=paths or None)
-        return {}
+        return {"error": "container cleanup could not run: %s" % (str(e)[:200] or type(e).__name__)}
     if res.get("removed") or res.get("failed") or res.get("kept"):
         event("containers-reaped", removed=[r["name"] for r in res.get("removed") or []] or None,
               failed=[r["name"] for r in res.get("failed") or []] or None,
               kept=[r["name"] for r in res.get("kept") or []] or None)
     return res
+
+
+def _containers_unstopped(res):
+    """"" when stop_containers left nothing behind that it knows of, else the
+    failure to record: named containers it could not remove, or the reason the
+    reaper could not run at all. A machine without Docker is neither: the
+    reaper reports it unavailable, and there is nothing to stop."""
+    res = res or {}
+    names = ["%s (%s)" % (r.get("name") or r.get("id") or "?", r.get("why") or "no reason given")
+             for r in res.get("failed") or []]
+    if names:
+        return "workspace containers could not be stopped: %s" % ", ".join(names)
+    if res.get("error"):
+        return str(res["error"])
+    return ""
 
 
 def _alive(pid):
@@ -5244,9 +5541,12 @@ def gate_stop(payload, entity):
         why = forbidden_now(sid, s)
         if why:
             return True, _refused_session_notice(sid, why)
-    retry_due()
+    # ONE BUDGET FOR THE WHOLE GATE (hunt part 4, finding 15): the retries used
+    # to run first, on their own clock, before the gate's deadline existed.
+    deadline = _gate_deadline(GATE_STOP_BUDGET)
+    retry_due(deadline=deadline)
     report = {}
-    items = pending(sid, entity, scan=True, deadline=_gate_deadline(GATE_STOP_BUDGET), report=report)
+    items = pending(sid, entity, scan=True, deadline=deadline, report=report)
     loud = keeps_failing()
     notes = []
     if report.get("deferred"):
@@ -5460,7 +5760,10 @@ def current_session():
 
 
 def _print_status(me, entity):
-    items = pending(me, entity, scan=True)
+    # A status is a question: it lands nothing, deletes nothing, stops nothing
+    # and claims nothing (hunt part 4, finding 29). What the next gate or land
+    # WOULD land is shown as LANDABLE instead.
+    items = pending(me, entity, scan=True, dry=True)
     print("session: %s" % (me or "(none)"))
     for repo in sorted(all_integration_records()):
         r = all_integration_records()[repo]
@@ -5468,9 +5771,11 @@ def _print_status(me, entity):
     if not items:
         print("pending: none")
     for i in items:
-        print("PENDING  %s  %s%s%s" % (i["name"], i["why"],
-                                       ("  [waiting %s: %s]" % (i["waiting"], i["waiting_on"])) if i["waiting"] else "",
-                                       "  [independent spawns allowed]"))
+        label = "LANDABLE" if i.get("would_land") else ("UNREGISTERED" if i.get("unregistered") else "PENDING ")
+        note = ("  [lands at the next gate, or: workspaces.sh land %s]" % i["name"]) if i.get("would_land") else ""
+        print("%s %s  %s%s%s%s" % (label, i["name"], i["why"],
+                                    ("  [waiting %s: %s]" % (i["waiting"], i["waiting_on"])) if i["waiting"] else "",
+                                    "  [independent spawns allowed]", note))
         for p, b in i["workspaces"]:
             print("           %s  %s" % (p, b or ""))
     for r in all_agents():
