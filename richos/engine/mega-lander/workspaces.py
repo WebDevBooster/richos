@@ -4618,17 +4618,29 @@ def _process_cwds():
     return out
 
 
-def _process_args():
+def process_table():
+    """{pid: {"ppid": int, "args": str}} for every process the OS shows, in one
+    `ps` call."""
     try:
-        r = subprocess.run(["ps", "-axo", "pid=,args="], capture_output=True, text=True, timeout=30, env=_ps_env())
+        r = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,args="], capture_output=True, text=True,
+                           timeout=30, env=_ps_env())
     except (OSError, subprocess.TimeoutExpired):
         return {}
     out = {}
     for line in r.stdout.splitlines():
-        parts = line.strip().split(None, 1)
-        if len(parts) == 2 and parts[0].isdigit():
-            out[int(parts[0])] = parts[1]
+        parts = line.strip().split(None, 2)
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            out[int(parts[0])] = {"ppid": int(parts[1]), "args": parts[2] if len(parts) > 2 else ""}
     return out
+
+
+def _process_args():
+    return dict((pid, p["args"]) for pid, p in process_table().items())
+
+
+def _names_a_path(args, paths):
+    return any((" " + p + os.sep) in (" " + args + os.sep) or (" " + p + " ") in (" " + args + " ")
+               or args.endswith(" " + p) for p in paths)
 
 
 def _protected_pids():
@@ -4647,6 +4659,20 @@ def _protected_pids():
 
 
 def processes_in(paths):
+    """The processes that are the workspace's own: every process WORKING in one
+    of `paths` (its directory is inside), and every descendant of one, wherever
+    that descendant works. Never this process, its ancestors or claude.
+
+    A COMMAND LINE THAT MERELY NAMES THE PATH IS NOT OWNERSHIP (hunt part 4,
+    finding 12). A second loop used to add every process whose arguments named
+    the workspace to the same stop list, so a reviewer, a log reader or an
+    editor working from somewhere else lost its running work to a land it had
+    nothing to do with. The reason for that loop holds, and is kept where it
+    holds: a command the workspace's own process starts can work on the
+    workspace from elsewhere (`cd / && cargo --manifest-path ...`), and that
+    one is owned by its ANCESTRY, which is a fact the OS reports. A process
+    whose only tie is its arguments is left running and named in the record
+    (`_named_only`), never signaled."""
     paths = [realpath(p) for p in paths if p]
     if not paths:
         return []
@@ -4656,15 +4682,39 @@ def processes_in(paths):
         c = realpath(cwd)
         if any(c == p or c.startswith(p + os.sep) for p in paths):
             hits.add(pid)
+    hits -= keep
+    table = process_table()
+    grew = bool(hits)
+    while grew:
+        grew = False
+        for pid, info in table.items():
+            if pid not in hits and pid not in keep and info["ppid"] in hits:
+                hits.add(pid)
+                grew = True
+    return sorted(hits)
+
+
+def _named_only(paths, owned):
+    """Processes whose command line names one of `paths` and that are not the
+    workspace's own: reported, never stopped (finding 12)."""
+    paths = [realpath(p) for p in paths if p]
+    keep = _protected_pids()
+    out = []
     for pid, args in _process_args().items():
-        if any((" " + p + os.sep) in (" " + args + os.sep) or (" " + p + " ") in (" " + args + " ")
-               or args.endswith(" " + p) for p in paths):
-            hits.add(pid)
-    return sorted(h for h in hits if h not in keep)
+        if pid in owned or pid in keep:
+            continue
+        if _names_a_path(args, paths):
+            out.append((pid, args[:200]))
+    return sorted(out)
 
 
 def stop_processes(paths):
     pids = processes_in(paths)
+    spared = _named_only(paths, set(pids))
+    if spared:
+        event("processes-named-only", pids=[p for p, _a in spared], args=[a for _p, a in spared],
+              why="their command line names the workspace, but nothing shows the workspace started them; "
+                  "left running (hunt part 4, finding 12)")
     if not pids:
         return {"stopped": [], "survivors": []}
     for p in pids:
@@ -4709,10 +4759,12 @@ def stop_test_instances(paths):
     still on his screen after the handoff.
 
     WHY stop_processes DOES NOT ALREADY DO THIS, measured rather than assumed.
-    stop_processes matches a process by its cwd or by its workspace path
-    appearing in argv. A test instance launched the way this engine launches
-    one has NEITHER: scripts/lib/gui-launch.sh runs it `cd /` with `env -i`, so
-    its cwd is `/`, and the candidate-.7 instance's argv was the relative
+    stop_processes matches a process by its cwd (and, since hunt part 4
+    finding 12, by descent from such a process; its workspace path appearing
+    in argv, which it used to match too, is no longer ownership). A test
+    instance launched the way this engine launches one has NEITHER: scripts/
+    lib/gui-launch.sh runs it `cd /` with `env -i`, so its cwd is `/`, and the
+    candidate-.7 instance's argv was the relative
     `./RichOS.app/Contents/MacOS/richos-tauri`, which names no absolute path at
     all. Both tests miss it, which is exactly how it survived its own land.
 

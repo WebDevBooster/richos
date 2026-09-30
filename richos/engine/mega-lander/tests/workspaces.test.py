@@ -2912,6 +2912,72 @@ class Finding11_ContainerCleanupIsRetried(Base):
         self.assertIn("simulated reaper crash", d["last_error"])
 
 
+class Finding12_MentionIsNotOwnership(Base):
+    """Hunt part 4, finding 12: a process whose command line merely MENTIONS a
+    workspace path is not the workspace's process. Point 9 stops what the agent
+    started; the second selection loop used to add every process naming the
+    path — a reviewer, a log reader, an editor — to the same stop list."""
+
+    def _sleeper(self, argv_path, cwd, **kw):
+        """A python process that names `argv_path` in its arguments and does
+        nothing else, started by this test (so owned by it, for cleanup)."""
+        pr = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)", argv_path],
+                              cwd=cwd, **kw)
+        self.env.procs.append(pr)
+        return pr
+
+    def _detached(self, argv_path, cwd):
+        """The residue point 9 exists for: a detached child left behind by a
+        run that ended, reparented to launchd, in a session with no terminal,
+        working from OUTSIDE the workspace but on it. Its pid is recorded by
+        the shell that started it, so the test stops only that pid."""
+        pidfile = os.path.join(self.env.root, "detached-%d.pid" % len(self.env.procs))
+        sh = subprocess.Popen(["sh", "-c", '"$0" -c "import time; time.sleep(300)" "$1" & echo $! > "$2"',
+                               sys.executable, argv_path, pidfile], cwd=cwd, start_new_session=True)
+        sh.wait(timeout=30)
+        pid = int(open(pidfile).read().strip())
+        self.addCleanup(lambda: ws._alive(pid) and os.kill(pid, signal.SIGKILL))
+        return pid
+
+    def test_finding_12_a_process_that_only_names_the_workspace_keeps_running(self):
+        aid, npath = self.spawn("zach-opus-ment")
+        stranger = self._sleeper(npath, self.env.root)        # a reader elsewhere, naming the path
+        detached = self._detached(npath, self.env.root)       # and one nobody's parent any more
+        time.sleep(0.3)
+        self.finish(aid)
+        self.assertEqual(self.names(), [])                     # it produced nothing: landed
+        self.assertFalse(os.path.exists(npath))                # and the workspace is still deleted
+        self.assertIsNone(stranger.poll(), "a process that only named the workspace was stopped")
+        self.assertTrue(ws._alive(detached), "a detached process that only named the workspace was stopped")
+        # Not stopped, and not silent either: the land names what it spared.
+        ev = [json.loads(l) for l in open(os.path.join(ws.state_dir(), "events.jsonl"))]
+        named = [e for e in ev if e.get("event") == "processes-named-only"]
+        self.assertTrue(named, "the spared processes were not recorded")
+        self.assertIn(stranger.pid, named[-1]["pids"])
+        self.assertIn(detached, named[-1]["pids"])
+
+    def test_finding_12_a_child_of_a_process_in_the_workspace_is_still_stopped(self):
+        """The reason for the second loop, kept where it holds: a command
+        working on the workspace from elsewhere. A process the workspace's own
+        process started is owned by that ancestry, wherever it works."""
+        aid, npath = self.spawn("zach-opus-left")
+        # a shell working IN the workspace, whose child works from `/`
+        parent = subprocess.Popen(["sh", "-c", '(cd / && exec "$0" -c "import time; time.sleep(300)" "$1"); :',
+                                   sys.executable, npath], cwd=npath, stdout=subprocess.PIPE)
+        self.env.procs.append(parent)
+        time.sleep(0.5)
+        rows = [l.split() for l in run("ps", "-axo", "pid=,ppid=").stdout.splitlines()]
+        child = [int(r[0]) for r in rows if len(r) == 2 and r[1] == str(parent.pid)]
+        self.assertEqual(len(child), 1, "the shell's child was not found by its parent pid")
+        self.finish(aid)
+        self.assertEqual(self.names(), [])
+        parent.wait(timeout=15)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and ws._alive(child[0]):
+            time.sleep(0.1)
+        self.assertFalse(ws._alive(child[0]), "the workspace process's own child, working elsewhere, survived")
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""

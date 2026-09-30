@@ -166,6 +166,16 @@ mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stop
     '    pids = []' \
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 
+mutant p09-named-path-stopped "test_finding_12_a_process_that_only_names_the_workspace_keeps_running" "$W" \
+    '    hits -= keep{NL}' \
+    '    hits -= keep{NL}    hits.update(p for p, a in _process_args().items() if _names_a_path(a, paths) and p not in keep){NL}' \
+    "a process whose command line merely names the workspace (a reviewer, a log reader) would be stopped by a land it has nothing to do with (hunt part 4, finding 12)."
+
+mutant p09-descendant-spared "test_finding_12_a_child_of_a_process_in_the_workspace_is_still_stopped" "$W" \
+    '    grew = bool(hits)' \
+    '    grew = False' \
+    "a command the workspace's own process started, working on it from elsewhere, would outlive the land (point 9; the reason the argument match existed)."
+
 mutant p03-no-snapshot-no-pair "test_point_10_a_side_branch_switched_away_from_blocks_the_land" "$W" \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}{NL}        write_json(_slot_path(rec["key"], call), row)' \
     '        row = {"key": rec["key"], "call": call or "", "at": now(), "repos": snap, "tips": tips}' \
