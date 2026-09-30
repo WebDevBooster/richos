@@ -1225,6 +1225,17 @@ impl WorkHost {
                 &assignment::says::failure(record.kind, &record.title, &honest(&why), false),
             );
             self.let_go_if_ended(record);
+            // **The back end did not open, and it is the same back end for every job already
+            // waiting behind this one.** Each of them used to pop, try the same provider and
+            // fail the same way; the first failure has established the shared problem, so the
+            // ones that were queued when it happened are settled with it, each as its own
+            // Failed assignment with its own notice (a failed attempt must never be left
+            // looking live), but without another start. A job registered after this moment
+            // finds the queue empty and tries the provider afresh — the provider may well have
+            // recovered. An answer run keeps its own bounded retry (C10), so it stays queued.
+            if !reporting {
+                self.fail_waiting_with(backend, &why);
+            }
             return;
         }
 
@@ -2969,6 +2980,35 @@ impl WorkHost {
         }
     }
 
+    /// Settle the jobs already waiting on this back end as "did not start" for the reason the
+    /// back end just failed to open (see `run_one`). Only fresh jobs are taken: an answer run
+    /// (`resumed`) has its own bounded retry and stays queued.
+    fn fail_waiting_with(self: &Arc<Self>, backend: &Arc<Backend>, why: &str) {
+        let taken: Vec<Scheduled> = {
+            let mut inner = backend.inner.lock().unwrap();
+            let (taken, kept): (VecDeque<Scheduled>, VecDeque<Scheduled>) =
+                std::mem::take(&mut inner.queue).into_iter().partition(|job| !job.resumed);
+            inner.queue = kept;
+            taken.into_iter().collect()
+        };
+        for Scheduled { record, .. } in taken {
+            assignment::advance(
+                &self.state, &record.entity_id, &record.thread_id, &record.id,
+                AssignmentState::Failed, &honest(why),
+            )
+            .ok();
+            self.raise(
+                &record,
+                NoticeKind::Failed,
+                &assignment::says::failure(record.kind, &record.title, &honest(why), false),
+            );
+            self.let_go_if_ended(&record);
+            let mut inner = backend.inner.lock().unwrap();
+            inner.completed += 1;
+            backend.wake.notify_all();
+        }
+    }
+
     /// **This conversation's back end opens once and stands** (the Two Riches spec). The
     /// second assignment on the same thread finds the same connection; a second THREAD gets
     /// its own, because the CEO's unit is the conversation and not the app.
@@ -4030,6 +4070,10 @@ mod tests {
         /// The next `spawn_work` fails once, so the "a successor that cannot be opened
         /// leaves the incumbent working" branch has a way to happen.
         refuse_next: Arc<AtomicBool>,
+        /// While set, EVERY `spawn_work` fails (a provider that stays down); `attempts` counts
+        /// each one, success or not.
+        broken: Arc<AtomicBool>,
+        attempts: Arc<AtomicUsize>,
         /// How many back-end leases this host has asked for. The CEO's §51 shape is ONE,
         /// standing, for every assignment — so this is an observable rather than a counter
         /// nobody reads.
@@ -4056,6 +4100,10 @@ mod tests {
             // BEFORE the counter and before the refusal, because this is the point the one
             // test that shuts the gate needs to be able to say has not been reached.
             self.start_gate.wait_until_open();
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            if self.broken.load(Ordering::SeqCst) {
+                return Err(CognitionError::Protocol("the provider is down".into()));
+            }
             if self.refuse_next.swap(false, Ordering::SeqCst) {
                 return Err(CognitionError::Protocol("no second connection could be opened".into()));
             }
@@ -4117,6 +4165,8 @@ mod tests {
         handoff_reply: Arc<Mutex<String>>,
         answer_reply: Arc<Mutex<String>>,
         refuse_next: Arc<AtomicBool>,
+        broken: Arc<AtomicBool>,
+        attempts: Arc<AtomicUsize>,
         readiness: Arc<Mutex<Option<String>>>,
         turn_error: Arc<Mutex<Option<String>>>,
         work_prompts: Arc<Mutex<Vec<String>>>,
@@ -4170,7 +4220,11 @@ mod tests {
         let first_item_gate = StartGate::open_now();
         let unrun = Arc::new(Mutex::new(VecDeque::new()));
         let fail_next = Arc::new(Mutex::new(VecDeque::new()));
+        let broken = Arc::new(AtomicBool::new(false));
+        let attempts = Arc::new(AtomicUsize::new(0));
         let factory = WorkFactory {
+            broken: broken.clone(),
+            attempts: attempts.clone(),
             silent: silent.clone(),
             first_item_gate: first_item_gate.clone(),
             unrun: unrun.clone(),
@@ -4203,7 +4257,7 @@ mod tests {
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
             work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies,
-            silent, first_item_gate, unrun, fail_next }
+            silent, first_item_gate, unrun, fail_next, broken, attempts }
     }
 
     /// **A second lease factory over the SAME scripted state as `h`'s** — every knob and every
@@ -4211,6 +4265,8 @@ mod tests {
     /// (design §4.1 tests 2 and 3), or a host with a different notifier.
     fn factory_over(h: &Harness, step_ms: u64) -> WorkFactory {
         WorkFactory {
+            broken: h.broken.clone(),
+            attempts: h.attempts.clone(),
             start_gate: h.start_gate.clone(),
             bound: h.bound.clone(),
             revoked: h.revoked.clone(),
@@ -4575,6 +4631,40 @@ mod tests {
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
         assert_ne!(row.state, AssignmentState::Registered, "the runner never picked it up");
         assert_eq!(h.bound.lock().unwrap().len(), 1, "the assignment never reached the work lease");
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A provider that stays down is opened once for the jobs already waiting, not once per
+    /// job** (hunt part 1 finding 22). The gate holds the first job at its first step so three
+    /// are queued behind one back end; released, every one ends Failed with its own notice,
+    /// and the factory was asked once.
+    #[test]
+    fn a_broken_provider_is_tried_once_for_the_jobs_already_waiting() {
+        let h = harness(5);
+        h.host.start();
+        h.broken.store(true, Ordering::SeqCst);
+        h.start_gate.shut();
+        let mut receipts = Vec::new();
+        for n in 0..3 {
+            let reg = Registration { obligation_id: format!("obligation-q{n}"), ..registration(&h) };
+            receipts.push(h.host.register(&h.binding, &reg).unwrap());
+        }
+        h.start_gate.release();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        assert_eq!(h.attempts.load(Ordering::SeqCst), 1, "the same broken provider was opened once per job");
+        for receipt in &receipts {
+            let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+            assert_eq!(row.state, AssignmentState::Failed, "every waiting job is settled, none left live");
+        }
+        assert_eq!(h.notices.0.lock().unwrap().len(), 3, "each job still says what happened to it");
+        // A job registered afterwards tries the provider afresh: it may have recovered.
+        h.broken.store(false, Ordering::SeqCst);
+        let late = Registration { obligation_id: "obligation-late".into(), ..registration(&h) };
+        h.host.register(&h.binding, &late).unwrap();
+        assert!(h.host.wait_for_completed(4, std::time::Duration::from_secs(10)));
+        assert_eq!(h.attempts.load(Ordering::SeqCst), 2, "a later job is not refused on the strength of the earlier failure");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "and the recovered provider opened");
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
