@@ -136,6 +136,13 @@
 #   engine/scripts/publication-completeness.sh --explain    also show what was
 #                                                           derived, and from where
 #   engine/scripts/publication-completeness.sh --root DIR   check another tree
+#   engine/scripts/publication-completeness.sh --skip-private-trees
+#                                                           Check 4 is not run:
+#                                                           the commit arm's mode
+#                                                           (see guard-completeness-
+#                                                           commits.sh); the push
+#                                                           arm, the land and CI
+#                                                           run it
 #
 # Exit codes
 #   0  complete — every capability the public tree claims is delivered
@@ -153,10 +160,12 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
 
 EXPLAIN=0
+SKIP_PRIVATE=0
 START_DIR="$PWD"
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --explain) EXPLAIN=1 ;;
+        --skip-private-trees) SKIP_PRIVATE=1 ;;
         --root)
             shift
             [ "$#" -gt 0 ] || { echo "ERROR: --root needs a directory." >&2; exit 2; }
@@ -252,7 +261,14 @@ if [ "$PB_RC" -ne 0 ]; then
 fi
 
 PRIVATE_JSON="[]"
-if pb_resolve_sources "$DECL_ROOT"; then
+if [ "$SKIP_PRIVATE" = 1 ]; then
+    # The commit arm's mode. Check 4's subject is another repository's committed
+    # content, which a commit to THIS tree neither changed nor can fix; the push
+    # arm, the land's run and CI judge it (guard-completeness-commits.sh).
+    if [ "$EXPLAIN" = 1 ]; then
+        echo "private trees: not checked (--skip-private-trees); the push arm and the land check them" >&2
+    fi
+elif pb_resolve_sources "$DECL_ROOT"; then
     PRIVATE_JSON="$(
         printf '%s' "$PB_SOURCES_OK" | tr '\t' '\n' | python3 -c '
 import json,os,sys
@@ -378,7 +394,11 @@ if [ "$RC" -eq 0 ]; then
     printf '%s✓ Every capability this tree claims is delivered: no dangling citation, no\n' "$C_GREEN"
     printf '  declaration-gated mechanism without its declaration and its documentation,\n'
     printf '  no unreachable workflow, no public contract with its mechanism left behind\n'
-    printf '  in the private tree.%s\n' "$C_RESET"
+    if [ "$SKIP_PRIVATE" = 1 ]; then
+        printf '  in the private tree (not checked here: --skip-private-trees).%s\n' "$C_RESET"
+    else
+        printf '  in the private tree.%s\n' "$C_RESET"
+    fi
     exit 0
 fi
 

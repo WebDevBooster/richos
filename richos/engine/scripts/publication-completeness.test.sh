@@ -496,6 +496,49 @@ commit_all "$T"
 assert_clean "a private mechanism coupled to nothing public is NOT misplaced" "$T"
 
 # ---------------------------------------------------------------------------
+echo "--- (c2) a private tree that is a REPOSITORY is judged by what it COMMITTED"
+# ---------------------------------------------------------------------------
+# 2026-10-01: a teammate's commit in its own richos workspace was refused over
+# a Codex audit probe STAGED, not committed, in richos-hq's main checkout. The
+# walk read another repository's work in progress. A private root that is the
+# top of its own repository is now read at its HEAD: uncommitted work there is
+# nobody's finding, and a COMMITTED misplaced mechanism is still caught.
+T="$(mktree private_repo)"
+P6="$(mkprivate hq_repo)"
+git -C "$P6" init -q 2>/dev/null || git init -q "$P6"
+printf '# HQ\n' > "$P6/README.md"
+git -C "$P6" add -A >/dev/null 2>&1
+git -C "$P6" commit -qm "hq" >/dev/null 2>&1
+printf 'PRIVATE_RECORD="hq"\nPRIVATE_SOURCES="%s"\n' "$P6" > "$T/.publication-boundary"
+commit_all "$T"
+cat > "$P6/scripts/probes-v2.py" <<'EOF'
+#!/usr/bin/env python3
+# An audit probe that reads .widget, work in progress in the private checkout.
+print(open(".widget").read())
+EOF
+assert_clean "an UNTRACKED executable in the private repository is not judged" "$T"
+git -C "$P6" add scripts/probes-v2.py >/dev/null 2>&1
+assert_clean "a STAGED, uncommitted executable in the private repository is not judged (the 2026-10-01 case)" "$T"
+git -C "$P6" commit -qm "probe" >/dev/null 2>&1
+assert_finding "once COMMITTED to the private repository it is MISPLACED" "$T" MISPLACED "probes-v2.py"
+# The committed state is the verdict in both directions: an uncommitted marker
+# excuses nothing, and a committed one does.
+printf '# instance-mechanism: one Codex audit window ran it against this checkout.\n' >> "$P6/scripts/probes-v2.py"
+assert_finding "an UNCOMMITTED marker on a committed mechanism excuses nothing" "$T" MISPLACED "probes-v2.py"
+git -C "$P6" commit -qam "excuse it" >/dev/null 2>&1
+assert_clean "a COMMITTED marker excuses it" "$T"
+# The commit arm's mode: Check 4 is left to the push arm and the land.
+printf '#!/usr/bin/env bash\necho .widget\n' > "$P6/scripts/unexcused.sh"
+git -C "$P6" add -A >/dev/null 2>&1
+git -C "$P6" commit -qm "unexcused" >/dev/null 2>&1
+assert_finding "a committed unexcused mechanism is MISPLACED" "$T" MISPLACED "unexcused.sh"
+SKIP_OUT="$("$CHECK" --root "$T" --skip-private-trees 2>&1)"; SKIP_RC=$?
+if [ "$SKIP_RC" -eq 0 ] && grep -q 'not checked here: --skip-private-trees' <<<"$SKIP_OUT"; then
+    ok "--skip-private-trees leaves Check 4 out and says so"
+else
+    bad "--skip-private-trees should pass and say so (rc=$SKIP_RC)"; printf '%s\n' "$SKIP_OUT" | sed 's/^/        /'
+fi
+# ---------------------------------------------------------------------------
 echo "--- (f) exemptions work, and a STALE exemption FAILS"
 # ---------------------------------------------------------------------------
 T="$(mktree exempt_ok)"
