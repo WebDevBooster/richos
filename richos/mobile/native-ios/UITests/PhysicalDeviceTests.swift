@@ -328,6 +328,12 @@ final class PhysicalDeviceTests: XCTestCase {
         // The route under test (PRD §5): only its connect switch is ever read or pressed. The
         // host refuses a shot or tree there, because its screen shows the person's own account.
         case "tailscale": return XCUIApplication(bundleIdentifier: "io.tailscale.ipn.ios")
+        // iOS Settings, for what only Settings can change on a test phone: this app's own
+        // permissions (Settings > Apps > RichConnect) and Wi-Fi. The walker sets each back.
+        case "settings": return XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        // The one share-sheet source: Safari shows a test image (`open`), and its Share sheet
+        // reaches RichConnect's Share extension, which runs inside Safari's window.
+        case "safari": return XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         default: return app
         }
     }
@@ -363,6 +369,13 @@ final class PhysicalDeviceTests: XCTestCase {
             }
             app.launch()
         case "activate": root(step, springboard).activate()
+        case "open":
+            // An https link, opened the way a person's tap on a link opens it: in Safari. The host
+            // accepts only https, so this never opens another app's own URL scheme.
+            guard let text = step["url"] as? String, text.hasPrefix("https://"), let url = URL(string: text) else {
+                return "open needs an https url"
+            }
+            XCUIDevice.shared.system.open(url)
         case "terminate": app.terminate()
         case "home":
             XCUIDevice.shared.press(.home)
@@ -468,7 +481,8 @@ final class PhysicalDeviceTests: XCTestCase {
         case "shot":
             // `screen: true` keeps the whole screen (lock screen, a system alert); the default keeps
             // only this app, so nothing else on a person's phone lands in a record by accident.
-            let image = (step["screen"] as? Bool == true) ? XCUIScreen.main.screenshot() : app.screenshot()
+            // With "in", only that app's window (Settings, Safari with its share sheet).
+            let image = (step["screen"] as? Bool == true) ? XCUIScreen.main.screenshot() : root(step, springboard).screenshot()
             let shot = XCTAttachment(screenshot: image)
             shot.name = step["name"] as? String ?? "shot"
             shot.lifetime = .keepAlways
@@ -487,7 +501,7 @@ final class PhysicalDeviceTests: XCTestCase {
             }
             detail["issues"] = issues
         case "tree":
-            let tree = XCTAttachment(string: app.debugDescription)
+            let tree = XCTAttachment(string: root(step, springboard).debugDescription)
             tree.name = step["name"] as? String ?? "tree"
             tree.lifetime = .keepAlways
             add(tree)

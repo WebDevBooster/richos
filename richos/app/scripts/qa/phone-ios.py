@@ -70,9 +70,12 @@ the person searching for a trust profile that is absent or repeatedly retry the 
 
 Steps are JSON objects with "do" and, where needed, "id" (accessibility identifier), "label"
 (substring of the accessibility label) or "kind" ("switch" or "button": the first one), "in":
-"springboard" for system UI or "tailscale" for the route's own app, "timeout" (s) and "optional":
-true (a failure is logged, the list continues). A list that touches Tailscale may not take a shot,
-tree or audit: that screen is the person's own account.
+"springboard" for system UI, "tailscale" for the route's own app, "settings" for iOS Settings (this
+app's permissions under Settings > Apps > RichConnect, and Wi-Fi: set back what you change) or
+"safari" for the one share-sheet source, "timeout" (s) and "optional": true (a failure is logged,
+the list continues). `tree` and `shot` keep the "in" app's window. A list that touches Tailscale may
+not take a shot, tree or audit: that screen is the person's own account. Settings' first page names
+the phone's Apple Account, so `ocr-gate.sh` every Settings frame before it enters a record.
 
     launch{textSize} activate terminate home lock{person: true} sleep{seconds} mark{label} state audit
     waitState{state: background|suspended|foreground|notRunning}
@@ -83,6 +86,8 @@ tree or audit: that screen is the person's own account.
     orientation{set: portrait|landscapeLeft|landscapeRight|portraitUpsideDown}
                                   turn the phone; the step reports the app window's size, so a
                                   portrait-only app is seen to stay upright. End on portrait.
+    open{url}                     an https link, opened as a person's tap opens one: in Safari
+                                  (test content only, e.g. an isolated lab's own image).
 
 An "id" names the FIRST element carrying that identifier (SwiftUI repeats a container's identifier
 on its children).
@@ -125,13 +130,13 @@ ACTIONS = {
     "value": {"equals"}, "type": {"text", "delete", "focus"}, "press": {"seconds", "drag"},
     "swipe": {"direction"}, "count": {"label", "equals"}, "alert": {"button"},
     "shot": {"name", "screen"}, "tree": {"name"},
-    "appearance": {"set"}, "orientation": {"set"},
+    "appearance": {"set"}, "orientation": {"set"}, "open": {"url"},
 }
 APPEARANCES = ("light", "dark")
 ORIENTATIONS = ("portrait", "landscapeLeft", "landscapeRight", "portraitUpsideDown")
 NEEDS_TARGET = {"wait", "tap", "exists", "gone", "value", "type", "press", "swipe"}
 COMMON = {"do", "id", "label", "kind", "in", "timeout", "optional"}
-PLACES = ("springboard", "tailscale")
+PLACES = ("springboard", "tailscale", "settings", "safari")
 # The Tailscale app shows the person's own account and devices: a list that touches it may press
 # and read its switch, and may not keep a picture or a tree of anything.
 KEEPS_SCREEN = {"shot", "tree", "audit"}
@@ -180,8 +185,10 @@ def validate(steps):
             raise CannotAnswer(f"step {i} (appearance) may only set light or dark")
         if action == "orientation" and "set" in step and step["set"] not in ORIENTATIONS:
             raise CannotAnswer(f"step {i} (orientation) may only set {', '.join(ORIENTATIONS)}")
+        if action == "open" and not (isinstance(step.get("url"), str) and step["url"].startswith("https://")):
+            raise CannotAnswer(f"step {i} (open) needs an https url: it opens Safari, never another app's own scheme")
         if "in" in step and step["in"] not in PLACES:
-            raise CannotAnswer(f"step {i}: 'in' may only be 'springboard' or 'tailscale'")
+            raise CannotAnswer(f"step {i}: 'in' may only be one of {', '.join(PLACES)}")
     if any(s.get("in") == "tailscale" for s in steps) and any(s["do"] in KEEPS_SCREEN for s in steps):
         raise CannotAnswer("a list that touches Tailscale may not keep a shot, tree or audit: its screen is the person's account")
     return steps

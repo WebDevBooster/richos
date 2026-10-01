@@ -54,7 +54,8 @@
 #           I19-I23 appearance and orientation steps, summary of a finished run;
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
 #           knows every step the host validates, a drifted runner FAILS; I27-I28
-#           syslog-rate counts one process's log entries per bucket, refuses a non-log
+#           syslog-rate counts one process's log entries per bucket, refuses a non-log;
+#           I31-I32 Settings and Safari places and an https-only open step
 #   J1-J7   phone-ios approval: the UI-automation approval forecast from the phone's
 #           own sessions, and a run expected to ask refused until the CEO was told
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
@@ -813,6 +814,14 @@ expect "I8 a list that touches the person's Tailscale account may keep no pictur
 printf '%s' '[{"do":"activate","in":"tailscale"},{"do":"value","kind":"switch","in":"tailscale"}]' > "$TMP/ios-switch.json"
 run python3 "$QA/phone-ios.py" check "$TMP/ios-switch.json"
 expect "I9 reading the route's switch by kind alone validates" 0 '"steps": 2'
+
+printf '%s' '[{"do":"activate","in":"settings"},{"do":"tap","label":"Wi-Fi","in":"settings"},{"do":"tree","name":"s","in":"settings"},{"do":"open","url":"https://example.com/i.png"},{"do":"press","label":"i.png","in":"safari"},{"do":"shot","name":"x","in":"safari"}]' > "$TMP/ios-places.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-places.json"
+expect "I31 Settings and Safari (the share-sheet source) and an https open validate" 0 '"steps": 6'
+
+printf '%s' '[{"do":"open","url":"tel:5550100"}]' > "$TMP/ios-scheme.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-scheme.json"
+expect "I32 open refuses anything but an https link: no other app's own scheme" 2 "needs an https url"
 
 run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt
 expect "I10 reusing an earlier build without its stamp is refused" 2 "--prebuilt needs --stamp"
