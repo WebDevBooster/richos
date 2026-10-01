@@ -218,7 +218,15 @@ def cmd_compare(args):
     for path in args.records:
         with open(path) as f:
             records.append(json.load(f))
-    result = benchmark.compare(records, benchmark.load(args.benchmark), args.benchmark)
+    try:
+        result = benchmark.compare(records, benchmark.load(args.benchmark), args.benchmark)
+    except benchmark.NoBenchmarkFile as e:
+        result = {"verdict": benchmark.VERDICT_NONE, "why": str(e), "metrics": {
+            name: {"status": benchmark.NOT_COMPARED, "why": benchmark.NO_FILE} for name in benchmark.METRICS}}
+        if not args.json:
+            print("\n".join(f"{name:11s} {benchmark.NOT_COMPARED:12s} {benchmark.NO_FILE}" for name in benchmark.METRICS))
+            print(f"verdict: {benchmark.VERDICT_NONE} ({e})")
+            return EXIT_NOT_COMPARED
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -227,7 +235,7 @@ def cmd_compare(args):
 
 
 def cmd_benchmark_update(args):
-    path = args.benchmark or benchmark.DEFAULT
+    path = benchmark.resolve(args.benchmark)
     bench = benchmark.load(path)
     changes = benchmark.update(bench, args.records, allow_slower=args.allow_slower)
     with open(path, "w") as f:
@@ -674,7 +682,7 @@ def parse_args(argv):
     a.add_argument("--type-text", default="measuredtypingcost")
     a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")
-    a.add_argument("--benchmark", help="the benchmark file the record is judged against (default: benchmarks.json here)")
+    a.add_argument("--benchmark", help="the benchmark file the record is judged against (default: the private benchmark file, see benchmark.py)")
     i = sub.add_parser("ios", help="measure an iOS build with explicit evidence boundaries")
     target = i.add_mutually_exclusive_group(required=True)
     target.add_argument("--simulator", help="a simulator UDID (never 'booted')")
@@ -695,7 +703,7 @@ def parse_args(argv):
                    help="an argument for the app's launches (a Debug fixture on a simulator; none on a phone)")
     i.add_argument("--background-seconds", type=float, default=60.0)
     i.add_argument("--background-settle", type=float, default=5.0)
-    i.add_argument("--benchmark", help="the benchmark file the record is judged against (default: benchmarks.json here)")
+    i.add_argument("--benchmark", help="the benchmark file the record is judged against (default: the private benchmark file, see benchmark.py)")
     s = sub.add_parser("stamp", help="the identity of a build artifact")
     s.add_argument("--artifact", required=True)
     s.add_argument("--checkout", required=True)
@@ -709,11 +717,11 @@ def parse_args(argv):
     mg.add_argument("--benchmark", help="the benchmark file the merged record is judged against")
     cp = sub.add_parser("compare", help="cold launch and warm resume p95 against the established benchmark")
     cp.add_argument("records", nargs="+", help="one record, or the cold and warm records of one build")
-    cp.add_argument("--benchmark", help="default: benchmarks.json beside this tool")
+    cp.add_argument("--benchmark", help="default: the private benchmark file (see benchmark.py: $RICHOS_MOBILE_PERF_BENCHMARKS, else richos-hq/docs/mobile-perf/benchmarks.json)")
     cp.add_argument("--json", action="store_true", help="the whole comparison as JSON")
     bu = sub.add_parser("benchmark-update", help="establish or raise benchmarks from sound records; commit the file after")
     bu.add_argument("records", nargs="+")
-    bu.add_argument("--benchmark", help="default: benchmarks.json beside this tool")
+    bu.add_argument("--benchmark", help="default: the private benchmark file (see benchmark.py: $RICHOS_MOBILE_PERF_BENCHMARKS, else richos-hq/docs/mobile-perf/benchmarks.json)")
     bu.add_argument("--allow-slower", metavar="REASON",
                     help="let a slower series replace a benchmark; the reason is written beside the number")
     return p.parse_args(argv)

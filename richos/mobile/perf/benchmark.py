@@ -1,6 +1,7 @@
 """benchmark — a new perf record against the start times RichConnect has already achieved.
 
-`benchmarks.json` beside this file holds, per device class (platform, device kind, model, build
+The private benchmark file (found through RICHOS_MOBILE_PERF_BENCHMARKS, else the default in `DEFAULT`;
+this public tree holds no phone-derived number) holds, per device class (platform, device kind, model, build
 configuration and route), the best p95 measured so far for cold launch and warm resume, each with
 the record, the build commit and the date it came from, and the run-to-run noise allowance derived
 from the repeated series of that class. A class that was never measured as a distribution says so
@@ -19,11 +20,8 @@ than that about one time in forty. That is the series' two-run bound, as a perce
 series' bounds: one series dominated by a single long-tail trial cannot widen it for everyone.
 A record is SLOWER when its p95 exceeds benchmark x (1 + allowance). Nothing else loosens it.
 
-Why not the spread between the series: on 2026-09-24 the three physical Android series measured
-three different builds (c6cdd8a8, 7dd8b373, e768c515) with about 1,300 changed lines of Android
-source between them (git diff --stat over richos/mobile/native-android: 1,082 then 215), and cold p95 rose 849.55 -> 880.80 -> 936.73 ms with p50 rising alongside
-(808.51 -> 844.79 -> 892.15 ms). That spread is the kind of change this check exists to catch, so
-it cannot also be the allowance.
+Why not the spread between the series: series measured on different builds differ by real code
+changes, and that is the kind of slowdown this check exists to catch, so it cannot also be the allowance.
 """
 import hashlib
 import json
@@ -37,7 +35,10 @@ from perfcore import Refused
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-DEFAULT = os.path.join(HERE, "benchmarks.json")
+ENV_VAR = "RICHOS_MOBILE_PERF_BENCHMARKS"
+# Where the benchmark file lives by default on this Mac: the private record repository, never this one.
+DEFAULT = os.path.expanduser("~/ab/richos-hq/docs/mobile-perf/benchmarks.json")
+NO_FILE = "no private benchmark file"
 SCHEMA = "richos-mobile-perf-benchmarks/1"
 METRICS = ("coldLaunch", "warmResume")
 BOOTSTRAP_RESAMPLES = 2000
@@ -79,8 +80,19 @@ def allowance(series):
     return round(statistics.median(bounds), 2) if bounds else None
 
 
+class NoBenchmarkFile(Refused):
+    """The private benchmark file is absent (a public clone): nothing can be compared."""
+
+
+def resolve(path=None):
+    """The benchmark file: the explicit path, else the environment variable, else DEFAULT."""
+    return path or os.environ.get(ENV_VAR) or DEFAULT
+
+
 def load(path=None):
-    path = path or DEFAULT
+    path = resolve(path)
+    if not os.path.isfile(path):
+        raise NoBenchmarkFile(f"{NO_FILE} (looked at {path}; set {ENV_VAR} or pass --benchmark)")
     try:
         with open(path) as f:
             bench = json.load(f)
@@ -148,7 +160,7 @@ def compare(records, bench, bench_path=None):
         raise Refused("no record to compare")
     table = _metrics(records)
     cls, why = find_class(records[0], bench)
-    out = {"benchmarkFile": _display(bench_path or DEFAULT), "class": cls["name"] if cls else None,
+    out = {"benchmarkFile": _display(resolve(bench_path)), "class": cls["name"] if cls else None,
            "rule": "SLOWER when p95 > benchmark p95 x (1 + allowancePercent/100); allowance = median over "
                    "the class's repeated series of 1.96 x sqrt(2) x bootstrap SE of p95 (benchmark.py)",
            "metrics": {}}

@@ -1384,7 +1384,7 @@ def _():
         assert out.returncode == 3 and "appears in two records" in out.stderr, (out.returncode, out.stderr)
 
 
-@case("G5 the noise allowance is reproducible from the records; the committed file covers four classes and says why where it has no number")
+@case("G5 the noise allowance is reproducible from the samples; no benchmark file is committed in this public tree")
 def _():
     samples = [float(800 + (i * 37) % 120) for i in range(98)]
     a, b = benchmark.p95_noise(samples), benchmark.p95_noise(list(samples))
@@ -1392,29 +1392,10 @@ def _():
     assert abs(a["twoRunBoundMs"] - 1.96 * 2 ** 0.5 * a["bootstrapSeMs"]) < 0.02, a
     assert benchmark.p95_noise(samples[:19]) is None
     assert benchmark.allowance([{"twoRunBoundPercent": x} for x in (3.53, 2.9, 7.37)]) == 3.53
-    committed = benchmark.load()  # the committed benchmarks.json, validated
-    names = {c["name"]: c for c in committed["classes"]}
-    assert set(names) == {"android-physical", "android-emulator", "ios-physical", "ios-simulator"}, names
-    for cls in committed["classes"]:
-        if not cls["metrics"]:
-            assert "Never measured" in cls["neverEstablished"], cls["name"]
-        for name, m in cls["metrics"].items():
-            assert m["allowancePercent"] == benchmark.allowance(m["noiseSeries"]), (cls["name"], name)
-            assert m["p95Ms"] == min(s["p95Ms"] for s in m["noiseSeries"]), (cls["name"], name)  # the best series
-            assert re.fullmatch(r"[0-9a-f]{40}", m["source"]["commit"]) and m["source"]["date"], m["source"]
-    # the one source record that is in this repository: its numbers recompute exactly
-    with open(os.path.join(BASELINES, "2026-09-24-richconnect-android-perf-baseline", "record.json")) as f:
-        baseline = json.load(f)
-    for name in ("coldLaunch", "warmResume"):
-        entry = names["android-emulator"]["metrics"][name]
-        again = benchmark.p95_noise(baseline["metrics"][name]["samplesMs"])
-        assert entry["noiseSeries"][0]["twoRunBoundPercent"] == again["twoRunBoundPercent"] and entry["p95Ms"] == again["p95Ms"], name
-    # nothing identifying a phone: no serial or UDID value, no sample list (richos is public)
-    with open(benchmark.DEFAULT) as f:
-        text = f.read()
-    assert '"serial"' not in text and '"udid"' not in text and "samplesMs" not in text, "a device field or samples"
-    udid = re.search(r"[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{16}|[0-9A-Fa-f]{4}-)", text)
-    assert udid is None, f"a UDID-shaped value: {udid.group(0) if udid else ''}"
+    # phone-measured numbers are private (richos-hq): the default is outside this repository and no
+    # benchmark file is tracked in the public perf directory
+    assert not os.path.realpath(benchmark.DEFAULT).startswith(os.path.realpath(benchmark.REPO) + os.sep), benchmark.DEFAULT
+    assert not os.path.exists(os.path.join(PERF, "benchmarks.json")), "a benchmark file in the public perf directory"
 
 
 @case("G6 benchmark-update establishes, raises when faster, keeps when slower unless a reason is given, refuses a dirty build")
@@ -1453,17 +1434,28 @@ def _():
     parts_dir = os.path.join(BASELINES, "2026-09-24-richconnect-android-perf-baseline", "parts")
     parts = [os.path.join(parts_dir, p) for p in sorted(os.listdir(parts_dir))]
     with tempfile.TemporaryDirectory() as tmp:
-        # against the committed benchmarks.json: the baseline equals its own benchmark
-        out = run_perf("merge", *parts, "--out", os.path.join(tmp, "same.json"))
+        # a fixture benchmark of the baseline's own class, established from the baseline itself
+        absent = os.path.join(tmp, "absent.json")
+        out = run_perf("merge", *parts, "--out", os.path.join(tmp, "first.json"), "--benchmark", absent)
+        assert out.returncode == 0 and "no private benchmark file" in out.stderr, (out.returncode, out.stderr)
+        with open(os.path.join(tmp, "first.json")) as f:
+            first = json.load(f)
+        match = {k: benchmark.lookup(first, k) for k in ("platform", "device.kind", "device.model", "build.configuration",
+                                                          "route.name", "conditions.networkCondition")}
+        fixture = {"schema": benchmark.SCHEMA, "classes": [{"name": "fixture-emulator", "match": match, "metrics": {},
+                                                              "neverEstablished": "fixture"}]}
+        benchmark.update(fixture, [os.path.join(tmp, "first.json")])
+        same_bench = write(tmp, "same-bench.json", fixture)
+        out = run_perf("merge", *parts, "--out", os.path.join(tmp, "same.json"), "--benchmark", same_bench)
         assert out.returncode == 0, (out.returncode, out.stderr)
         with open(os.path.join(tmp, "same.json")) as f:
             same = json.load(f)
-        assert same["benchmark"]["class"] == "android-emulator", same["benchmark"]
+        assert same["benchmark"]["class"] == "fixture-emulator", same["benchmark"]
         assert {r["status"] for r in same["benchmark"]["metrics"].values()} == {"WITHIN NOISE"}, same["benchmark"]
         assert "benchmark: coldLaunch" in out.stderr and "benchmark: warmResume" in out.stderr, out.stderr
         # against a benchmark this emulator has to beat
-        stricter = benchmark.load()
-        emu = next(c for c in stricter["classes"] if c["name"] == "android-emulator")
+        stricter = benchmark.load(same_bench)
+        emu = stricter["classes"][0]
         emu["metrics"]["coldLaunch"]["p95Ms"] = 1000
         strict = write(tmp, "strict.json", stricter)
         out = run_perf("merge", *parts, "--out", os.path.join(tmp, "slow.json"), "--benchmark", strict)
@@ -1485,6 +1477,31 @@ def _():
             run = json.load(f)
         assert code == 4 and run["benchmark"]["metrics"]["coldLaunch"]["status"] == "SLOWER", (code, run.get("benchmark"))
         assert run["acceptance"]["verdict"].startswith("REFUSED"), run["acceptance"]
+
+
+@case("G9 no private benchmark file (a public clone): every metric NOT COMPARED with the reason, exit 5, never a pass")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = write(tmp, "r.json", bench_record(cold=p95_of(800.0), warm=p95_of(100.0)))
+        absent = os.path.join(tmp, "nope.json")
+        out = run_perf("compare", rec, "--benchmark", absent)
+        assert out.returncode == 5, (out.returncode, out.stdout, out.stderr)
+        assert out.stdout.count("NOT COMPARED") >= 3 and out.stdout.count("no private benchmark file") >= 2, out.stdout
+        js = json.loads(run_perf("compare", rec, "--benchmark", absent, "--json").stdout)
+        assert js["verdict"] == benchmark.VERDICT_NONE and all(
+            r["status"] == "NOT COMPARED" and r["why"] == "no private benchmark file" for r in js["metrics"].values()), js
+        # the environment variable is the documented setting
+        good = bench_file(tmp)
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", benchmark.ENV_VAR: good}
+        out = subprocess.run([sys.executable, PERF_PY, "compare", rec], capture_output=True, text=True, env=env)
+        assert out.returncode == 0 and "WITHIN NOISE" in out.stdout, (out.returncode, out.stdout)
+        env[benchmark.ENV_VAR] = absent
+        out = subprocess.run([sys.executable, PERF_PY, "compare", rec], capture_output=True, text=True, env=env)
+        assert out.returncode == 5 and "no private benchmark file" in out.stdout, (out.returncode, out.stdout)
+        # a record the tool writes is stamped NOT COMPARED too, and is not refused
+        got = {}
+        slower = perf.judge(bench_record(cold=p95_of(800.0)), absent, log=lambda line: got.setdefault("log", line))
+        assert slower is False and "no private benchmark file" in got["log"], got
 
 
 @case("G8 a record judged slower whose acceptance is not REFUSED is unsound")

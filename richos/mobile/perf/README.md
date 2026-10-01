@@ -106,26 +106,25 @@ because the emulator's timings depend on it.
 ## Start times never get slower: the benchmark
 
 The apps must stay fast: the cold launch and warm resume times already achieved are kept, and
-faster is welcome. `benchmarks.json` holds, per device class, the best p95 measured so far for
+faster is welcome. The benchmark file holds, per device class, the best p95 measured so far for
 `coldLaunch` and `warmResume`, the record, build commit and date it came from, and every repeated
 series of that class with its noise. The numbers were written by `benchmark-update` from the
-records themselves, never typed:
+records themselves, never typed.
 
-| Class | Cold launch p95 | Warm resume p95 | Source |
-|---|---|---|---|
-| `android-physical` (release, managed route, live network) | 849.55 ms, allowance 3.53% (limit 879.54 ms) | 127.01 ms, allowance 14.73% (limit 145.72 ms) | `c6cdd8a8`, 2026-09-24, 98 and 96 trials |
-| `android-emulator` (debug, scripted Mac unreachable) | 2,105 ms, allowance 51.99% | 302 ms, allowance 36.3% | `3065ac96`, 2026-09-24, 20 trials (the committed baseline) |
-| `ios-physical` | never measured as a distribution | never measured as a distribution | two single-trial pilots only |
-| `ios-simulator` | never measured as a distribution | never measured as a distribution | dry runs of the trace path only |
+**The file is private.** It holds numbers measured on the CEO's own phones, so it lives in the private
+record repository, never in this one. `perf.py` finds it through `$RICHOS_MOBILE_PERF_BENCHMARKS`, else
+the default `~/ab/richos-hq/docs/mobile-perf/benchmarks.json` on the Mac that runs the phones, and
+`--benchmark FILE` overrides both. In a public clone the file is absent: every comparison is reported
+NOT COMPARED with the reason "no private benchmark file", and `perf.py compare` exits 5. It never
+passes silently. The tests here use only fixture benchmarks with made-up numbers.
 
 **The noise allowance** comes from the repeated series, not from a guess. For each series,
 `benchmark.py` resamples its own samples 2,000 times (seeded), takes the p95 of each resample and
 uses the spread of those p95s as the series' standard error (SE). Two runs of one build differ by
 more than 1.96 x √2 x SE only about one time in forty in the slower direction. The class's allowance
 is the median of its series' bounds, so one series with a long tail cannot widen it. The spread
-*between* the three physical Android series is deliberately not used: they are three builds with
-about 1,300 changed lines of Android source between them, and their cold p95 rose 849.55 → 880.80 →
-936.73 ms with the median rising too. That is a slowdown, the thing this check exists to catch.
+*between* series of different builds is deliberately not used: it is the kind of change (a slowdown
+across builds) this check exists to catch, so it cannot also be the allowance.
 
 **Where it runs.** Every record `perf.py android`, `perf.py ios` (including `--reparse`) and
 `perf.py merge` write is compared before it is written. That covers `rios perf`, `randroid emu perf`
@@ -145,9 +144,9 @@ runs a phone. The fixture suite (`mobile-perf.test.sh`) runs on any change to th
 
 **Raising a number.** A faster series is reported as FASTER and changes nothing by itself.
 `perf.py benchmark-update <record.json>...` raises a benchmark when the series is faster, adds every
-series to the noise list and recomputes the allowance; the person then commits `benchmarks.json`.
+series to the noise list and recomputes the allowance; the person then commits the private benchmark file in richos-hq.
 A slower series replaces a benchmark only with `--allow-slower "<reason>"`, and the reason is written
-beside the number. Pass the private record (`richos-hq/...`) so the file names where it lives. The
+beside the number. The
 file holds no serial, UDID, sample or trace.
 
 ## §7 budgets this cannot measure yet, and what would settle each
