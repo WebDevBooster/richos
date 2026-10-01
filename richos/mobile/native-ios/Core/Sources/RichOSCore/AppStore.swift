@@ -37,6 +37,10 @@ public final class AppStore {
     @ObservationIgnored private var committing: Set<String> = []
     /// The OS's extra time after Home (`BackgroundContinuation`), held for the current batch.
     @ObservationIgnored public var backgroundContinuation: (any BackgroundContinuation)?
+    /// One line per step of a send's life around Home (the batch, the request, its answer), for the
+    /// phone's own log. Fixed words and counts only: never a message, an id or anything the Mac said.
+    /// Without it a message that stayed on the phone left no account of why (iPhone re-walk D3).
+    @ObservationIgnored public var sendLog: @Sendable (String) -> Void = { _ in }
     @ObservationIgnored private var continuationHeld = false
     @ObservationIgnored private var completionSpent = false
     @ObservationIgnored private var completionExpired = false
@@ -44,6 +48,8 @@ public final class AppStore {
     @ObservationIgnored private var completionRequests = 0
     @ObservationIgnored private var completionBytes = 0
     @ObservationIgnored private var completionDeadline: Task<Void, Never>?
+    /// When this batch's bound after Home runs out (ms since 1970); `nil` until it has started.
+    @ObservationIgnored private var completionBoundEndsAt: Int64?
     @ObservationIgnored private var deliveryTask: Task<[Action], Never>?
     @ObservationIgnored private var delivering: OutboxItem?
     /// The delivery given up because the stream to the Mac was lost (`connectionLost`).
@@ -154,9 +160,14 @@ public final class AppStore {
             historyTask = nil
             macWaitTask?.cancel()
             macWaitTask = nil
+            sendLog("left the screen: batch \(completionActive ? "open" : "none"), request \(deliveryTask != nil ? "in flight" : "none"), saving \(committing.count), sending \(state.outbox.filter { $0.state == .sending }.count), waiting \(state.outbox.filter { $0.state == .waiting }.count)")
             startCompletionDeadline()
-        case .foregrounded: foreground = true
+        case .foregrounded:
+            foreground = true
+            sendLog("back on screen: waiting \(state.outbox.filter { $0.state == .waiting }.count)")
+        case .connected: sendLog("stream open")
         case .connectionLost:
+            sendLog("stream lost")
             // The stream to the Mac is lost (dropped, or silent past `LiveConnection.silenceLimitMs`)
             // while a message is on its way: the request is given up and the message waits, saying
             // so, and goes again under the same id when the stream reopens (`connected` pumps; the
@@ -165,6 +176,7 @@ public final class AppStore {
             // timeout (iPhone walk D5). Only on screen: in the background no stream is open, and the
             // bounded completion owns what is in flight.
             if foreground, let delivering, deliveryTask != nil {
+                sendLog("stream lost on screen: request given up")
                 linkLostDelivery = delivering.clientID
                 deliveryTask?.cancel()
             }
@@ -258,6 +270,7 @@ public final class AppStore {
         let fresh = next.outbox.filter { !known.contains($0.clientID) }
         let freshIDs = Set(fresh.map(\.clientID))
         committing.formUnion(freshIDs)
+        sendLog("send pressed: stream \(state.linkOpen ? "open" : "closed"), \(foreground ? "on screen" : "hidden")")
         var completes = fresh.contains { !Self.isQuestionOperation($0) }
         #if DEBUG
         if effectsSuspended { completes = false }
@@ -444,6 +457,7 @@ public final class AppStore {
         guard !completionActive, foreground else { return }
         completionActive = true
         completionBatch &+= 1
+        sendLog("batch began on screen")
         completionReservation = Task { [runner] in
             _ = await save?.value
             return await runner.reserveCompletion()
@@ -458,6 +472,7 @@ public final class AppStore {
     /// in flight is given up so the message waits on the phone.
     private func backgroundTimeExpired() {
         continuationHeld = false
+        sendLog("iOS took the background time back: batch \(completionActive ? "open" : "none"), request \(deliveryTask != nil ? "in flight" : "none")")
         guard completionActive else { return }
         completionExpired = true
         if !foreground { deliveryTask?.cancel() }
@@ -490,16 +505,73 @@ public final class AppStore {
         completionDeadline = Task { [weak self] in
             // No lease left (six an hour, 24 a day): the batch ends now, as before.
             let leased = await reservation?.value != nil
+            self?.sendLog(leased ? "hidden: 5 s bound started" : "hidden: no background lease left, bound ends now")
             if leased {
-                guard (try? await Task.sleep(for: .seconds(5))) != nil else { return }
+                if let self, self.completionBatch == batch {
+                    self.completionBoundEndsAt = SystemClock().nowMs() + Self.completionBoundMs
+                }
+                guard (try? await Task.sleep(for: .milliseconds(Self.completionBoundMs))) != nil else { return }
             }
             guard let self, self.completionActive, self.completionBatch == batch, !Task.isCancelled else { return }
             self.completionExpired = true
+            self.sendLog("hidden: bound ran out, request \(self.deliveryTask != nil ? "in flight, given up" : "none")")
             if !self.foreground { self.deliveryTask?.cancel() }
         }
     }
 
+    /// The bound after Home: how long a batch begun on screen may keep going once the app is hidden.
+    static let completionBoundMs: Int64 = 5000
+
+    /// One delivery, and, while the app is hidden inside a started bound, the same message again
+    /// after a transient failure (iPhone re-walk D3, on the phone, three of three tries: the request
+    /// in flight at Home came back a fault 1.4 s into the bound, the batch ended there with the
+    /// message unsent and gave the time back, and the message waited until the app was next opened).
+    /// Off screen nothing else would try it: a waiting message is moved by the tick or by `connected`,
+    /// and both need the Mac's stream, which is closed off screen. So the pause the outbox would wait
+    /// on screen (1 s doubling, or the Mac's own Retry-After) is waited here, inside the bound and the
+    /// batch's three requests, under the same id (the Mac keeps one copy per id). The pause is the
+    /// request slot, so the bound running out or iOS taking the time back cancels it.
     private func deliver(_ id: String, snapshot: AppState) async -> [Action] {
+        var actions = await deliverOnce(id, snapshot: snapshot)
+        var again = 0
+        while let pause = hiddenRetryPause(id, snapshot: snapshot, after: actions, again: again) {
+            again += 1
+            sendLog("hidden: going again in \(pause) ms")
+            let wait = Task<[Action], Never> { _ = try? await Task.sleep(for: .milliseconds(pause)); return [] }
+            deliveryTask = wait
+            _ = await wait.value
+            deliveryTask = nil
+            if wait.isCancelled {
+                sendLog("hidden: bound ran out before going again")
+                return actions
+            }
+            actions = await deliverOnce(id, snapshot: snapshot)
+        }
+        return actions
+    }
+
+    /// The pause before the same message goes again while hidden, or `nil` when it does not: the
+    /// answer was a transient failure at the Mac or the network (never the phone's own deferral), the
+    /// batch's bound has started and still has room for the pause, and the batch has a request and the
+    /// bytes left for it.
+    private func hiddenRetryPause(_ id: String, snapshot: AppState, after actions: [Action], again: Int) -> Int64? {
+        guard !foreground, completionActive, !completionExpired, let endsAt = completionBoundEndsAt,
+              actions.count == 1, case .deliveryFailed(let failed, .retryable(let reason, let afterMs), _) = actions[0],
+              failed == id, !ConversationReducer.deferralReasons.contains(reason ?? ""),
+              let item = snapshot.outbox.first(where: { $0.clientID == id }), !Self.isQuestionOperation(item) else { return nil }
+        guard completionRequests < 3, Self.completionCost(item) <= 256 * 1024 - completionBytes else {
+            sendLog("hidden: not going again (requests \(completionRequests))")
+            return nil
+        }
+        let pause = max(0, afterMs ?? ConversationReducer.retryDelayMs(attempt: item.attempts + again + 1))
+        guard SystemClock().nowMs() + pause < endsAt else {
+            sendLog("hidden: not going again (the bound ends first)")
+            return nil
+        }
+        return pause
+    }
+
+    private func deliverOnce(_ id: String, snapshot: AppState) async -> [Action] {
         guard let item = snapshot.outbox.first(where: { $0.clientID == id }) else { return [] }
         let questionOperation = Self.isQuestionOperation(item)
         if questionOperation && !foreground {
@@ -512,17 +584,21 @@ public final class AppStore {
             let leased = await completionReservation?.value != nil
             guard leased, completionActive, !completionExpired, completionIDs.contains(id),
                   completionRequests < 3, Self.completionCost(item) <= 256 * 1024 - completionBytes else {
+                sendLog("hidden: not sent (lease \(leased), batch \(completionActive), bound \(completionExpired ? "ran out" : "left"), sent on screen \(completionIDs.contains(id)), requests \(completionRequests))")
                 return [.deliveryFailed(clientID: id, failure: .retryable(reason: "background-budget", afterMs: 0), at: SystemClock().nowMs())]
             }
             completionRequests += 1
             completionBytes += Self.completionCost(item)
         }
         delivering = item
+        let startedAt = SystemClock().nowMs()
+        sendLog("request started \(foreground ? "on screen" : "hidden")")
         let task = Task { [runner] in (try? await runner.run([.deliver(clientID: id)], state: snapshot)) ?? [] }
         deliveryTask = task
         let actions = await task.value
         deliveryTask = nil
         delivering = nil
+        sendLog("answer: \(Self.answerWord(actions, canceled: task.isCancelled)) after \(SystemClock().nowMs() - startedAt) ms, \(foreground ? "on screen" : "hidden")")
         let lostLink = linkLostDelivery == id
         if lostLink { linkLostDelivery = nil }
         // Given up because the stream was lost: waiting, not a failed attempt, unless the Mac's
@@ -545,11 +621,30 @@ public final class AppStore {
         await finishCompletion()
     }
 
+    /// The kind of answer, in fixed words for the phone's log; a reason is named only when it is one
+    /// of the phone's own (never text the Mac sent).
+    static func answerWord(_ actions: [Action], canceled: Bool) -> String {
+        let known: Set<String> = ["unreachable", "fault", "refused", "revoked", "background", "background-budget", "link-lost", "local-storage"]
+        let kind: String
+        switch actions.first {
+        case .deliveryAccepted?, .questionAnswered?: kind = "accepted"
+        case .deliveryFailed(_, .retryable(let reason, _), _)?: kind = "retryable (\(reason.map { known.contains($0) ? $0 : "other" } ?? "none"))"
+        case .deliveryFailed(_, .refused, _)?: kind = "refused"
+        case .deliveryFailed(_, .refusedStopQueue, _)?: kind = "refused, queue stopped"
+        case .deliveryFailed(_, .revoked, _)?: kind = "revoked"
+        case nil: kind = "none"
+        default: kind = "other"
+        }
+        return canceled ? kind + ", canceled" : kind
+    }
+
     private func finishCompletion() async {
+        sendLog("batch ended: \(completionSpent ? "after leaving the screen" : "on screen"), still to send \(state.outbox.filter { $0.state != .blocked }.count)")
         let reservation = completionReservation
         let spent = completionSpent
         completionDeadline?.cancel()
         completionDeadline = nil
+        completionBoundEndsAt = nil
         completionActive = false
         completionBatch &+= 1
         completionReservation = nil

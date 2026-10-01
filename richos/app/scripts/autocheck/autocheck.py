@@ -179,6 +179,12 @@ def commit_check(repo, what):
     if not app:
         say(f"autocheck: {what}: nothing under richos/app changed, so no lint applies "
             f"({time.monotonic() - started:.1f}s)")
+        if what == "commit" and policy_applies(repo, staged):
+            with StagedOnly(repo) as aside:
+                if aside.summary:
+                    say(f"autocheck: {what}: {aside.summary} set aside for the check, so it sees only what is committed")
+                if release_policy(repo, what):
+                    return 1
         # The land's coverage rule applies to every code path, not only richos/app (2026-10-01:
         # a Swift file under richos/mobile and step lists under docs/verification passed here
         # and were refused at the merge). Lookup only: no suite runs for a change outside the app.
@@ -189,9 +195,56 @@ def commit_check(repo, what):
         if aside.summary:
             say(f"autocheck: {what}: {aside.summary} set aside for the check, so it sees only what is committed")
         rc = lint_and_select(repo, what, app)
+        if rc == 0 and what == "commit" and policy_applies(repo, staged):
+            rc = release_policy(repo, what)
     if rc == 0:
         say(f"autocheck: {what}: passed in {time.monotonic() - started:.1f}s")
     return rc
+
+
+# THE PHONE APPS' RELEASE POLICY RUNS AT THE COMMIT (2026-10-01). A `Logger` added to
+# richos/mobile/native-ios/App/Platform/BackgroundSendTime.swift (84f1ec3af) broke rule L1
+# ("no log call in production code") of native-release-policy.test.sh, and two agents built on
+# it for hours: the suite is a script suite, and the commit check ran only the weight-0 UI
+# suites (quick_suites, which keeps `cd richos/app/ui/tests && node ...` lines), so it never ran.
+# The suite reads text files only and takes about 3 s, so a commit touching one of its own
+# `# run-tests: inputs` runs it, alone, and a failure refuses the commit. The inputs are read
+# from the suite's header, so the commit and the land never disagree about which files it owns.
+
+RELEASE_POLICY = "richos/app/scripts/native-release-policy.test.sh"
+INPUTS_LINE = re.compile(r"^# run-tests: inputs[ \t]+(.+)$", re.M)
+
+
+def policy_inputs(repo):
+    try:
+        text = (repo.top / RELEASE_POLICY).read_text(errors="replace")
+    except OSError:
+        return []
+    return [p.rstrip("/") for line in INPUTS_LINE.findall(text) for p in line.split()]
+
+
+def policy_applies(repo, staged):
+    inputs = policy_inputs(repo)
+    return any(path == i or path.startswith(i + "/") for path in staged for i in inputs)
+
+
+def release_policy(repo, what):
+    say(f"+ bash {RELEASE_POLICY}")
+    try:
+        result = subprocess.run(["bash", RELEASE_POLICY], cwd=repo.top, env=repo.env,
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        banner(f"{what.upper()} REFUSED: native-release-policy did not finish in 120 s",
+               ["It measures about 3 s; a hang is a failure, not a pass."])
+        return 1
+    if result.returncode:
+        sys.stderr.write((result.stdout + result.stderr)[-4000:])
+        banner(f"{what.upper()} REFUSED: this change breaks the phone apps' release policy", [
+            "The rule and the file are printed just above. The merge runs the same suite and would refuse it.",
+            "Fix the change and commit again.",
+        ])
+        return 1
+    return 0
 
 
 def lint_and_select(repo, what, app):

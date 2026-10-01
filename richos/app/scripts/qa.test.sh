@@ -52,7 +52,9 @@
 #   I1-I16  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
-#           person to open it, a bounded log capture kept on the SSD; I17-I18
+#           person to open it, a bounded log capture kept on the SSD; I35-I36 a
+#           list the XCUITest allowance cannot hold is refused before the phone
+#           is touched (later shots would be lost); I17-I18
 #           pair-steps for pairing v2 waits for each word and holds before the press;
 #           I19-I23 appearance and orientation steps, summary of a finished run;
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
@@ -881,6 +883,12 @@ expect "I33 Settings starts fresh, and one permission switch is named by kind an
 printf '%s' '[{"do":"terminate","in":"springboard"}]' > "$TMP/ios-sbkill.json"
 run python3 "$QA/phone-ios.py" check "$TMP/ios-sbkill.json"
 expect "I34 the system UI is never launched or terminated" 2 "never launched or terminated"
+
+python3 -c 'import json; print(json.dumps([{"do": "launch"}] + [{"do": "sleep", "seconds": 1}] * 200))' > "$TMP/ios-long.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-long.json"
+expect "I35 check states a list's expected time at the measured median step times and the allowance it needs" 0 '"allowanceNeeded": 254'
+run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-long.json" --out /Volumes/E1TB/nonexistent-qa-test
+expect "I36 a list the default allowance cannot hold is refused before the phone is touched" 2 "Pass --allowance 254"
 
 run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt
 expect "I10 reusing an earlier build without its stamp is refused" 2 "--prebuilt needs --stamp"

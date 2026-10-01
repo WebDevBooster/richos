@@ -18,6 +18,10 @@ public enum ConversationReducer {
         min(firstRetryMs << Int64(max(0, attempt - 1)), maxRetryMs)
     }
 
+    /// Retryable reasons that are the phone's own deferral (leaving the screen, the background
+    /// budget, storage, a lost stream), not a failed attempt at the Mac: they add no back-off.
+    static let deferralReasons: Set<String> = ["background", "background-budget", "local-storage", "link-lost"]
+
     static func reduce(_ s: inout AppState, _ action: Action, _ effects: inout [Effect]) {
         switch action {
         case .answerQuestion(let id, let options, let text, let revision, let clientID, let at):
@@ -48,7 +52,7 @@ public enum ConversationReducer {
                 // next real transient failure wait longer merely because the user switched apps.
                 // Nor does a request given up because the Mac's stream was lost (`link-lost`): it
                 // goes again the moment the stream reopens.
-                if !["background", "background-budget", "local-storage", "link-lost"].contains(reason) {
+                if !deferralReasons.contains(reason ?? "") {
                     s.outbox[i].attempts += 1
                 }
                 s.outbox[i].state = .waiting
