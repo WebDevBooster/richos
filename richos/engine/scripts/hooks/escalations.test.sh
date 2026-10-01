@@ -980,6 +980,22 @@ if [ "$RC" -eq 0 ] && [ "$HAS19" = "False" ]; then
 else bad "19e no needs" "rc=$RC has_needs=$HAS19: $OUT"; fi
 
 # ===========================================================================
+# 20. THE DELIVERY UNIT CASES RUN HERE (2026-10-01).
+#     scripts/lib/escalations-delivery.test.py holds the cases that need host
+#     transcript rows (P5-37's host cap; D01-D07, what the stall watcher's
+#     wake already put in front of the model). No suite named it, so none of
+#     them ran in any build: proof-for.sh refused the change that added D01
+#     with "named by NO suite". It writes only under its own temporary
+#     directories, and it runs inside case 17's canary window.
+# ===========================================================================
+OUT="$(python3 "$SRC_DIR/../lib/escalations-delivery.test.py" 2>&1)"
+RC=$?
+say "20 escalations-delivery.test.py" "$OUT"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^OK'; then
+    ok "20  escalations-delivery.test.py: $(printf '%s\n' "$OUT" | grep -m1 '^Ran ')"
+else bad "20  escalations-delivery.test.py" "rc=$RC: $(printf '%s' "$OUT" | tail -20)"; fi
+
+# ===========================================================================
 # 16. SOURCE MUTATION — is the LOUDNESS carried by the age buckets, or by luck?
 #
 # Case 6 shows an aged escalation speaking again. That is worth nothing until
