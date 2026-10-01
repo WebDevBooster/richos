@@ -33,6 +33,17 @@ public actor LiveConnection {
     /// history cursor or `latest_cursor`, which drift apart (Echo's measurement: three live cursors
     /// per phone message, two history positions).
     private var lastFrameID: Int?
+    /// **WHETHER `lastFrameID` IS A `hello`'S AND NO LIVE FRAME HAS COME SINCE.** A `hello`'s id is the
+    /// Mac's cursor when it was built, and the Mac may hold no frame at or after it: right after pairing
+    /// (nothing published yet), or after its cursor was seeded from the conversation's row count. A
+    /// resume from there (`since` = id - 1) is answered with an EMPTY opening, and the Mac's listener
+    /// sends no response head until the stream's first bytes, which are its keep-alive 15 s later
+    /// (`app/src-tauri/src/phone/listen.rs` `open_stream`, `KEEPALIVE_MS`). For those 15 s the phone is
+    /// not connected: a waiting message is not sent and a reply that arrived while it was away is not
+    /// shown (the headless lab with this core: 15.3 s after the return, `Tools/LabPhone --away-before`).
+    /// So after a `hello` the stream is opened without `since`: the Mac answers with a `hello`, which is
+    /// never empty, and the thread model merges it by row id, so nothing is shown twice.
+    private var lastFrameIsHello = false
     private var task: Task<Void, Never>?
     private var generation = 0
     /// Once stopped, never started again: a new connection is a new owner. A `stop` that reaches
@@ -80,17 +91,27 @@ public actor LiveConnection {
         var told: [String: StreamRow]
         var lastFrameID: Int?
         var threadID: String?
+        var lastFrameIsHello = false
     }
 
     func restore(_ replay: Replay) {
         guard task == nil, !stopped else { return }
         model = replay.model; told = replay.told
         lastFrameID = replay.lastFrameID; threadID = replay.threadID
+        lastFrameIsHello = replay.lastFrameIsHello
     }
 
     func stopAndCheckpoint() -> Replay {
         stop()
-        return Replay(model: model, told: told, lastFrameID: lastFrameID, threadID: threadID)
+        return Replay(model: model, told: told, lastFrameID: lastFrameID, threadID: threadID, lastFrameIsHello: lastFrameIsHello)
+    }
+
+    /// Where a stream resumes: one frame before the last one seen, so the Mac's opening repeats that
+    /// row and is never empty; `nil` (a `hello`) when nothing was seen, or when the last thing seen was
+    /// a `hello` (see `lastFrameIsHello`).
+    private func resumePoint() -> Int? {
+        guard !lastFrameIsHello else { return nil }
+        return lastFrameID.map { max(0, $0 - 1) }
     }
 
     public func start() {
@@ -129,7 +150,7 @@ public actor LiveConnection {
 
     private func run(_ mine: Int) async {
         var delay = Self.firstRetryMs
-        var since = lastFrameID.map { max(0, $0 - 1) }
+        var since = resumePoint()
         var first = true
         while mine == generation, !Task.isCancelled {
             // A retry asks for a live challenge first (link.js rule 2). So does a first attempt with
@@ -184,10 +205,11 @@ public actor LiveConnection {
             if resnapshot {
                 since = nil
                 lastFrameID = nil
+                lastFrameIsHello = false
                 told = [:]
                 model = ThreadModel(selectedThread: threadID)
             } else {
-                since = lastFrameID.map { max(0, $0 - 1) }
+                since = resumePoint()
                 await sink(.connectionLost(at: clock.nowMs()))
                 if await probeRevoked() {
                     await sink(.pairingRevoked)
@@ -256,7 +278,10 @@ public actor LiveConnection {
     }
 
     private func apply(_ event: SSEParser.Event) async throws {
-        if let id = event.id { lastFrameID = id }
+        if let id = event.id {
+            lastFrameID = id
+            lastFrameIsHello = event.event == "hello"
+        }
         if event.event == "hello" {
             let hello = try CoreJSON.decode(StreamHello.self, from: Data(event.data.utf8))
             if let version = hello.protocolVersion, version != 1 {
