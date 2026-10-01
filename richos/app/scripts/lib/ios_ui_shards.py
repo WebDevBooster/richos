@@ -38,6 +38,31 @@ def norm(ident):
     return ident[:-2] if ident.endswith("()") else ident
 
 
+def selector(arg):
+    """The `-only-testing:` form Xcode 26.3 actually matches for a `--only` argument.
+
+    Both frameworks list a case with a trailing `()` and match it only with the `()`; the
+    same id without it selects nothing. A case is `<Class-or-Suite>/<case>` under the bundle
+    (UI bundle is implied; the unit bundle is named in full), so two components below the
+    bundle are a case and get the `()`; a class, suite or bundle stays as typed."""
+    bundle = arg if arg.split("/")[0] == "RichOSNativeTests" else "RichOSNativeUITests/" + arg
+    parts = bundle.split("/")
+    if len(parts) == 3 and not parts[2].endswith(")"):
+        bundle += "()"
+    return "-only-testing:" + bundle
+
+
+def unmatched(select, ids):
+    """Selectors (`-only-testing:X`) that match none of the enumerated ids."""
+    out = []
+    for sel in select:
+        # Exact, as Xcode 26.3 matches: a case without its () selects nothing, so it is not normalized.
+        want = sel.split(":", 1)[1] if ":" in sel else sel
+        if not any(k == want or k.startswith(want + "/") for k in ids):
+            out.append(sel)
+    return out
+
+
 def enumerated(tests_json):
     data = json.load(open(tests_json))
     if data.get("errors"):
@@ -259,9 +284,17 @@ def cmd_retry(work, previous, i, runner=subprocess.run):
     """Prepare one device's exact unresolved cases from its enumerated selection."""
     i = int(i)
     work = Path(work)
-    expected = [norm(t) for t in enumerated(work / ("tests-%d.json" % i))]
+    raw = {norm(t): t for t in enumerated(work / ("tests-%d.json" % i))}
+    expected = sorted(raw)
+    asked = [a.strip() for f in sorted(work.glob("shard-*.args")) for a in f.read_text().splitlines() if a.strip()]
     if not expected:
-        raise ValueError("xcodebuild listed no tests")
+        print("native-ios-ui: FAIL: the selection (%s) matched 0 tests; 0 of what was asked will run" % ", ".join(asked))
+        return 1
+    missing = unmatched(asked, list(raw.values()))
+    if missing:
+        print("native-ios-ui: FAIL: %d of %d selectors matched 0 tests (Xcode matches a case only as it lists it, "
+              "with its trailing parentheses): %s" % (len(missing), len(asked), ", ".join(missing)))
+        return 1
     (work / ("expected-%d.txt" % i)).write_text("\n".join(expected) + "\n")
     saved, provenance = {}, {}
     if previous and Path(previous).is_dir():
@@ -280,7 +313,7 @@ def cmd_retry(work, previous, i, runner=subprocess.run):
             sources.setdefault(provenance[t], []).append(t)
     (work / ("reuse-%d.json" % i)).write_text(json.dumps([
         {"bundle": b, "cases": cases} for b, cases in sources.items()]))
-    (work / ("retry-%d.args" % i)).write_text("".join("-only-testing:%s\n" % t for t in pending))
+    (work / ("retry-%d.args" % i)).write_text("".join("-only-testing:%s\n" % raw[t] for t in pending))
     print("native-ios-ui: device %d: %d retained cases, %d unresolved/control cases" % (i + 1, len(expected) - len(pending), len(pending)))
     return 0
 
@@ -557,6 +590,34 @@ def selftest():
           "a test that carries no stamp is a FAILURE: nothing proves whose bundle ran it")
     check(rc_lost == 2 and "NOT RUN" in lost_said.split("onlyOnTheOtherBranch")[-1],
           "a run whose lease was lost is NOT RUN (exit 2) even when its bundle looks green")
+    # XCODE 26.3 SELECTION (esc-20261001T084051Z-c38f7283): a case is matched only as listed, with
+    # its trailing `()`, in BOTH frameworks; stripped ids select nothing and the run is "0 tests".
+    check(selector("AccessibilityLayoutTests/testX") == "-only-testing:RichOSNativeUITests/AccessibilityLayoutTests/testX()"
+          and selector("AccessibilityLayoutTests/testX()") == "-only-testing:RichOSNativeUITests/AccessibilityLayoutTests/testX()"
+          and selector("AccessibilityLayoutTests") == "-only-testing:RichOSNativeUITests/AccessibilityLayoutTests"
+          and selector("RichOSNativeTests/Suite/case") == "-only-testing:RichOSNativeTests/Suite/case()"
+          and selector("RichOSNativeTests/Suite/case()") == "-only-testing:RichOSNativeTests/Suite/case()"
+          and selector("RichOSNativeTests/Suite") == "-only-testing:RichOSNativeTests/Suite"
+          and selector("RichOSNativeTests") == "-only-testing:RichOSNativeTests",
+          "--only ids get the trailing () the XCTest and Swift Testing cases are matched by")
+    listed = ["RichOSNativeUITests/A/testX()", "RichOSNativeTests/Suite/case()",
+              "RichOSNativeTests/BuildStampTests/testTheBundleCarriesItsBuildStamp()"]
+    with tempfile.TemporaryDirectory() as work, contextlib.redirect_stdout(io.StringIO()) as said:
+        work = Path(work)
+        (work / "build-stamp.txt").write_text("k\n")
+
+        def retry(ids, select):
+            json.dump({"values": [{"enabledTests": [{"identifier": i} for i in ids]}]}, open(work / "tests-0.json", "w"))
+            (work / "shard-1.args").write_text("".join(a + "\n" for a in select))
+            return cmd_retry(str(work), "", 0)
+        rc = retry(listed, ["-only-testing:RichOSNativeUITests", "-only-testing:RichOSNativeTests"])
+        args = (work / "retry-0.args").read_text().split()
+        check(rc == 0 and sorted(args) == sorted("-only-testing:" + i for i in listed),
+              "a full run hands xcodebuild every case with its (): XCTest and Swift Testing alike")
+        check(retry(listed, ["-only-testing:RichOSNativeUITests/A/testX"]) == 1
+              and "matched 0 tests" in said.getvalue(), "a selector that matches nothing is a FAILURE, named")
+        check(retry([], ["-only-testing:RichOSNativeUITests/A/testX()"]) == 1
+              and "matched 0 tests; 0 of what was asked will run" in said.getvalue(), "an empty enumeration is a FAILURE with the count")
     print("  shards selftest: %d passed, %d failed" % (ok, bad))
     return 1 if bad else 0
 
@@ -571,6 +632,9 @@ def main(argv):
     if cmd == "identity":
         root, runtime, devices, *selectors = rest
         print(retry_identity(root, runtime, json.loads(devices), selectors))
+        return 0
+    if cmd == "selector":
+        print(selector(rest[0]))
         return 0
     if cmd == "split":
         return cmd_split(rest[0], rest[1], rest[2], rest[3:])

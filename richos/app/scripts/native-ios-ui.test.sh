@@ -48,10 +48,7 @@ while [ $# -gt 0 ]; do
     --only)
       # The UI bundle is implied; the unit bundle (UnitTests/) is named in full, so a scoped run can
       # still reach it (a full device run is longer than one foreground call).
-      case "$2" in
-        RichOSNativeTests|RichOSNativeTests/*) ONLY+=("-only-testing:$2") ;;
-        *) ONLY+=("-only-testing:RichOSNativeUITests/$2") ;;
-      esac
+      ONLY+=("$(python3 "$DIR/lib/ios_ui_shards.py" selector "$2")")
       shift 2 ;;
     --device)
       case "$2" in
