@@ -7541,7 +7541,7 @@
     },
     "scripts/hooks/waiver-repetition.test.sh": {
       "source": "scripts/hooks/waiver-repetition.test.sh",
-      "sha256": "4c5c4f770d35162469da58979c38c5ddfaa84e3b781344dfe0339bb8795bf71b",
+      "sha256": "c578cf2fb01c66c1d45607f90abbd5cd74089488d3c6f4b1a6e17753fb5a7e04",
       "evidence": "Full suite creates literal entity config, fake source guards and private ledgers under isolated CLAUDE_CONFIG_DIR. The fake guard source is analyzer data, never executed. Real hooks JSON is grep-checked for notice-waiver-repetition.sh. Nested fixed driver preserves the same fixture-only config obligations.",
       "keys": [],
       "edges": [
@@ -16332,7 +16332,7 @@
       ],
       "evidence": "Suite greps the raw hooks JSON for this literal script name; the nested mutation renames that registration. Binds every copied/executed helper and the driver.",
       "sources": {
-        "scripts/hooks/waiver-repetition.test.sh": "4c5c4f770d35162469da58979c38c5ddfaa84e3b781344dfe0339bb8795bf71b",
+        "scripts/hooks/waiver-repetition.test.sh": "c578cf2fb01c66c1d45607f90abbd5cd74089488d3c6f4b1a6e17753fb5a7e04",
         "scripts/hooks/notice-waiver-repetition.sh": "db7a0e6b1e6a2603d93955f5624de15dd5a010112049f898c6dbb4379b7ce6e7",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
