@@ -27,7 +27,17 @@ public final class AppStore {
     @ObservationIgnored private var foreground = true
     public private(set) var savingSend = false
     @ObservationIgnored private var completionActive = false
-    @ObservationIgnored private var completionReservation: Int64?
+    /// The durable lease for this batch, being written or written (`nil` inside: no lease left this
+    /// hour or day). Started when the batch begins on screen and never awaited there, so a Home that
+    /// arrives while it is written finds the batch begun (iPhone walk D3).
+    @ObservationIgnored private var completionReservation: Task<Int64?, Never>?
+    /// Counts batches, so a deadline that outlives its batch cannot expire the next one.
+    @ObservationIgnored private var completionBatch = 0
+    /// Messages whose Send is being saved right now: already sent on screen, not yet in `state`.
+    @ObservationIgnored private var committing: Set<String> = []
+    /// The OS's extra time after Home (`BackgroundContinuation`), held for the current batch.
+    @ObservationIgnored public var backgroundContinuation: (any BackgroundContinuation)?
+    @ObservationIgnored private var continuationHeld = false
     @ObservationIgnored private var completionSpent = false
     @ObservationIgnored private var completionExpired = false
     @ObservationIgnored private var completionIDs: Set<String> = []
@@ -36,6 +46,8 @@ public final class AppStore {
     @ObservationIgnored private var completionDeadline: Task<Void, Never>?
     @ObservationIgnored private var deliveryTask: Task<[Action], Never>?
     @ObservationIgnored private var delivering: OutboxItem?
+    /// The delivery given up because the stream to the Mac was lost (`connectionLost`).
+    @ObservationIgnored private var linkLostDelivery: String?
     @ObservationIgnored private var historyTask: Task<[Action], Never>?
     @ObservationIgnored private var historyGeneration = 0
     /// Pairing v2's probe for the press on the Mac, while one is in flight. Leaving the screen
@@ -144,6 +156,18 @@ public final class AppStore {
             macWaitTask = nil
             startCompletionDeadline()
         case .foregrounded: foreground = true
+        case .connectionLost:
+            // The stream to the Mac is lost (dropped, or silent past `LiveConnection.silenceLimitMs`)
+            // while a message is on its way: the request is given up and the message waits, saying
+            // so, and goes again under the same id when the stream reopens (`connected` pumps; the
+            // Mac keeps one copy per id, `app/src-tauri/src/phone/delivery.rs` `Duplicate`). Left to
+            // run, a request to a Mac that stopped answering drew "Sending…" until its own 30 s
+            // timeout (iPhone walk D5). Only on screen: in the background no stream is open, and the
+            // bounded completion owns what is in flight.
+            if foreground, let delivering, deliveryTask != nil {
+                linkLostDelivery = delivering.clientID
+                deliveryTask?.cancel()
+            }
         default: break
         }
         if let transaction {
@@ -226,21 +250,38 @@ public final class AppStore {
         #if DEBUG
         if effectsSuspended { cleanup = [] }
         #endif
-        let task = Task { [self] in
+        // The Send is pressed now, on screen: its bounded completion begins now, not when its request
+        // starts. Home commonly arrives while the Send is still being saved, and a batch begun only at
+        // the request found the app already hidden and refused the message ("background-budget"); it
+        // then stayed on the phone until the app was next opened (iPhone walk D3).
+        let known = Set(state.outbox.map(\.clientID))
+        let fresh = next.outbox.filter { !known.contains($0.clientID) }
+        let freshIDs = Set(fresh.map(\.clientID))
+        committing.formUnion(freshIDs)
+        var completes = fresh.contains { !Self.isQuestionOperation($0) }
+        #if DEBUG
+        if effectsSuspended { completes = false }
+        #endif
+        let persisted = Task<Bool, Never> { [self] in
             // Stopping capture must not wait for disk I/O, including when the disk fails.
             _ = try? await runner.run(cleanup, state: next)
             await previous?.value
-            var saved = false
-            do {
-                guard !storageIsReadOnly else { throw CoreError("Saved data is read-only") }
-                try await runner.run([.persist], state: next)
+            guard !storageIsReadOnly else { return false }
+            do { try await runner.run([.persist], state: next) } catch { return false }
+            return true
+        }
+        // The lease is written after the message: the Send is durable first.
+        if completes { beginCompletion(after: persisted) }
+        let task = Task { [self] in
+            let saved = await persisted.value
+            if saved {
                 performance("durable-queued")
                 state = next
                 persistenceProblem = nil
-                saved = true
-            } catch {
+            } else {
                 persistenceProblem = "This iPhone could not save your message. Your work has been kept; free storage and try again."
             }
+            committing.subtract(freshIDs)
             transaction = nil
             savingSend = false
             var waiting = deferred
@@ -262,10 +303,22 @@ public final class AppStore {
             for action in waiting { apply(action) }
             if saved {
                 await perform(effects.filter { $0 != .persist && !Self.isCleanup($0) }, snapshot: next).value
+            } else {
+                // Nothing was queued, so nothing will be sent: give the time back now.
+                await finishCompletionIfIdle()
             }
         }
         transaction = task
         return task
+    }
+
+    private static func isQuestionOperation(_ item: OutboxItem) -> Bool {
+        item.questionID != nil || item.clientID.hasPrefix("seen-question:")
+    }
+
+    private static func isRetryableFailure(_ action: Action) -> Bool {
+        if case .deliveryFailed(_, .retryable, _) = action { return true }
+        return false
     }
 
     private static func isCleanup(_ effect: Effect) -> Bool {
@@ -377,13 +430,43 @@ public final class AppStore {
                 }
                 for action in followUps { apply(action) }
             }
-            if completionActive, deliveryTask == nil, !state.outbox.contains(where: { $0.state == .sending }) {
-                await finishCompletion()
-            }
+            await finishCompletionIfIdle()
         }
     }
     private static func completionCost(_ item: OutboxItem) -> Int {
         item.kind == .text ? (item.body?.utf8.count ?? 256 * 1024) + 4096 : 256 * 1024 + 1
+    }
+
+    /// Begins a bounded completion batch for a send started on screen: the durable lease is asked for
+    /// (after `save`, when a Send is being saved; never awaited here) and the OS is asked for time
+    /// after Home. A no-op off screen or while a batch is open.
+    private func beginCompletion(after save: Task<Bool, Never>? = nil) {
+        guard !completionActive, foreground else { return }
+        completionActive = true
+        completionBatch &+= 1
+        completionReservation = Task { [runner] in
+            _ = await save?.value
+            return await runner.reserveCompletion()
+        }
+        if !continuationHeld, let backgroundContinuation {
+            continuationHeld = true
+            backgroundContinuation.begin(expired: { [weak self] in self?.backgroundTimeExpired() })
+        }
+    }
+
+    /// The OS took the time back (its adapter ends the task itself): the batch is over, and the request
+    /// in flight is given up so the message waits on the phone.
+    private func backgroundTimeExpired() {
+        continuationHeld = false
+        guard completionActive else { return }
+        completionExpired = true
+        if !foreground { deliveryTask?.cancel() }
+    }
+
+    private func endBackgroundTime() {
+        guard continuationHeld else { return }
+        continuationHeld = false
+        backgroundContinuation?.end()
     }
 
     private func startCompletionDeadline() {
@@ -391,19 +474,26 @@ public final class AppStore {
         if completionExpired { deliveryTask?.cancel(); return }
         guard completionDeadline == nil else { return }
         completionSpent = true
-        completionIDs = Set(state.outbox.map(\.clientID))
+        // What was sent on screen: the queue, and a Send still being saved.
+        completionIDs = Set(state.outbox.map(\.clientID)).union(committing)
         if let item = delivering {
             completionRequests += 1
             completionBytes += Self.completionCost(item)
         }
-        if completionReservation == nil || completionBytes > 256 * 1024 {
+        if completionBytes > 256 * 1024 {
             completionExpired = true
             deliveryTask?.cancel()
             return
         }
+        let batch = completionBatch
+        let reservation = completionReservation
         completionDeadline = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            guard let self else { return }
+            // No lease left (six an hour, 24 a day): the batch ends now, as before.
+            let leased = await reservation?.value != nil
+            if leased {
+                guard (try? await Task.sleep(for: .seconds(5))) != nil else { return }
+            }
+            guard let self, self.completionActive, self.completionBatch == batch, !Task.isCancelled else { return }
             self.completionExpired = true
             if !self.foreground { self.deliveryTask?.cancel() }
         }
@@ -411,16 +501,16 @@ public final class AppStore {
 
     private func deliver(_ id: String, snapshot: AppState) async -> [Action] {
         guard let item = snapshot.outbox.first(where: { $0.clientID == id }) else { return [] }
-        let questionOperation = item.questionID != nil || item.clientID.hasPrefix("seen-question:")
+        let questionOperation = Self.isQuestionOperation(item)
         if questionOperation && !foreground {
             return [.deliveryFailed(clientID: id, failure: .retryable(reason: "background", afterMs: 0), at: SystemClock().nowMs())]
         }
-        if !completionActive, foreground, !questionOperation {
-            completionActive = true
-            completionReservation = await runner.reserveCompletion()
-        }
+        if !questionOperation { beginCompletion() }
         if !foreground {
-            guard completionReservation != nil, !completionExpired, completionIDs.contains(id),
+            // The lease was asked for when the batch began on screen; its answer is awaited only here.
+            // Awaiting it before the request (on screen) let a Home in the meantime refuse the message.
+            let leased = await completionReservation?.value != nil
+            guard leased, completionActive, !completionExpired, completionIDs.contains(id),
                   completionRequests < 3, Self.completionCost(item) <= 256 * 1024 - completionBytes else {
                 return [.deliveryFailed(clientID: id, failure: .retryable(reason: "background-budget", afterMs: 0), at: SystemClock().nowMs())]
             }
@@ -433,25 +523,48 @@ public final class AppStore {
         let actions = await task.value
         deliveryTask = nil
         delivering = nil
-        // A cancelled adapter may have no result. Preserve the durable entry as waiting.
+        let lostLink = linkLostDelivery == id
+        if lostLink { linkLostDelivery = nil }
+        // Given up because the stream was lost: waiting, not a failed attempt, unless the Mac's
+        // answer (an acceptance or a refusal) arrived before the cancel did.
+        if task.isCancelled, lostLink, actions.allSatisfy(Self.isRetryableFailure) {
+            return [.deliveryFailed(clientID: id, failure: .retryable(reason: "link-lost", afterMs: 0), at: SystemClock().nowMs())]
+        }
+        // A canceled adapter may have no result. Preserve the durable entry as waiting.
         if task.isCancelled, actions.isEmpty {
             return [.deliveryFailed(clientID: id, failure: .retryable(reason: "background-budget", afterMs: 0), at: SystemClock().nowMs())]
         }
         return actions
     }
 
+    /// Ends the batch once nothing of it is left: no Send being saved, no request in flight, nothing
+    /// marked sending.
+    private func finishCompletionIfIdle() async {
+        guard completionActive, committing.isEmpty, deliveryTask == nil,
+              !state.outbox.contains(where: { $0.state == .sending }) else { return }
+        await finishCompletion()
+    }
+
     private func finishCompletion() async {
-        let refund = completionSpent ? nil : completionReservation
+        let reservation = completionReservation
+        let spent = completionSpent
         completionDeadline?.cancel()
         completionDeadline = nil
         completionActive = false
+        completionBatch &+= 1
         completionReservation = nil
         completionSpent = false
         completionExpired = false
         completionIDs = []
         completionRequests = 0
         completionBytes = 0
-        if let refund { await runner.refundCompletion(refund) }
+        // The Mac's answer is saved before the time goes back: suspended first, the phone kept the
+        // message marked unsent on disk until it was next opened (seen in the simulator check).
+        let batch = completionBatch
+        await lastWrite?.value
+        // A batch begun meanwhile keeps the time and gives it back itself.
+        if completionBatch == batch, !completionActive { endBackgroundTime() }
+        if !spent, let token = await reservation?.value { await runner.refundCompletion(token) }
     }
 
 }

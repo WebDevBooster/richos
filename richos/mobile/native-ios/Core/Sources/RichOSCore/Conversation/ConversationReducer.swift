@@ -46,7 +46,9 @@ public enum ConversationReducer {
             case .retryable(let reason, let afterMs):
                 // Lifecycle/storage deferral is not a failed network attempt. Do not make the
                 // next real transient failure wait longer merely because the user switched apps.
-                if !["background", "background-budget", "local-storage"].contains(reason) {
+                // Nor does a request given up because the Mac's stream was lost (`link-lost`): it
+                // goes again the moment the stream reopens.
+                if !["background", "background-budget", "local-storage", "link-lost"].contains(reason) {
                     s.outbox[i].attempts += 1
                 }
                 s.outbox[i].state = .waiting
