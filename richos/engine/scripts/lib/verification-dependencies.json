@@ -3387,7 +3387,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#fixture-records": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "Resolves seat adoption by presence but reads TODO governance from the payload target. Fixtures supply that target and all records, staged blobs and artifacts. Calls root/jurisdiction/payload helpers and the TODO predicate, never sources orchestration settings.",
       "keys": [],
       "edges": [
@@ -3425,7 +3425,7 @@
     },
     "scripts/hooks/ceo-todos.test.sh": {
       "source": "scripts/hooks/ceo-todos.test.sh",
-      "sha256": "4ce8bf99eb39a587d86364a1f3beab8128abc85b3b008d0101398dbd51a9ff61",
+      "sha256": "456edf169779e0b78ae8d3ffba553ded91e72bb0ff61573fccd1ec80ed648cc6",
       "evidence": "mk_repo and write_record construct every TODO declaration, record and artifact. The real engine is only the adoption seat and source of registration data; it supplies no config values. Cold-open calls are --record, init calls skip cold reading and nested mutants rerun these same fixed constructors.",
       "keys": [],
       "edges": [
@@ -6418,7 +6418,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#benign-bash": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
       "keys": [],
       "edges": [
@@ -9213,7 +9213,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#operator-lease-payload": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
       "keys": [],
       "edges": [
@@ -10421,7 +10421,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#inventory-write": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
       "keys": [],
       "edges": [
@@ -14083,7 +14083,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#find-payload": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
       "keys": [],
       "edges": [
@@ -16001,7 +16001,7 @@
         "scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
         "scripts/hooks/guard-ci-turn-gate.py": "5885c97b0fa8dd1eba44e16361166149e0e0108ebb773994870cf91dff22ba18",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
@@ -16278,7 +16278,7 @@
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
         "scripts/hooks/guard-bash-main-writes.sh": "17813a0bf3a26cd016d0c641c71825c282d443af06325b31d3622b0910a7f039",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
@@ -16508,7 +16508,7 @@
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
         "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
@@ -16728,7 +16728,7 @@
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
         "scripts/hooks/verify-agent-prompt.sh": "862ddf86cca9e7c3b9039d656165f2f4b2afa655d0bc834bc25a59b6371aafda",
         "scripts/hooks/guard-bash-main-writes.sh": "17813a0bf3a26cd016d0c641c71825c282d443af06325b31d3622b0910a7f039",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
         "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
@@ -16979,7 +16979,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16989,7 +16989,7 @@
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
-        "scripts/hooks/ceo-todos.test.sh": "4ce8bf99eb39a587d86364a1f3beab8128abc85b3b008d0101398dbd51a9ff61",
+        "scripts/hooks/ceo-todos.test.sh": "456edf169779e0b78ae8d3ffba553ded91e72bb0ff61573fccd1ec80ed648cc6",
         "scripts/ceo-todos-render.sh": "63b00d5fde2eb129df925749ae9967521d9251936f5f19db627bded6049fddc3",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
