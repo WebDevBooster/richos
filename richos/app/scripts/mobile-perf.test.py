@@ -1260,6 +1260,194 @@ def _():
     assert 'perf.py" ios "$@"' in script
 
 
+# ---------------------------------------------------------------------------------------------
+# the start-time benchmark: a build slower than what was already achieved is refused
+# ---------------------------------------------------------------------------------------------
+
+import benchmark  # noqa: E402
+
+PERF_PY = os.path.join(PERF, "perf.py")
+
+
+def bench_record(cold=None, warm=None, model="Fixture Phone", kind="physical", built="a" * 64, dirty=False):
+    """A sound record of the fixture class; `cold` and `warm` are sample lists (None leaves the metric out)."""
+    r = {"schema": perfcore.SCHEMA, "platform": "android", "startedAt": "2026-10-01T12:00:00Z",
+         "build": {"commit": "b" * 40, "dirty": dirty, "builtSha256": built, "installedSha256": built, "configuration": "release"},
+         "device": {"kind": kind, "model": model}, "route": {"name": "managed"},
+         "conditions": {"networkCondition": "live"}, "metrics": {}, "notMeasured": [],
+         "acceptance": {"verdict": "NOT VERIFIED", "why": ["fixture"]}}
+    for name, samples in (("coldLaunch", cold), ("warmResume", warm)):
+        if samples is not None:
+            r["metrics"][name] = {"method": "fixture", "samplesMs": samples, "stats": perfcore.stats(samples)}
+    return r
+
+
+def p95_of(value, n=100):
+    """n samples whose nearest-rank p95 is exactly `value` (the 95th of 100 sorted)."""
+    return [value - 50.0] * 94 + [value] * 6
+
+
+def bench_file(tmp, cold=800.0, warm=100.0, cold_allow=5.0, warm_allow=10.0):
+    source = {"record": "fixture.json", "recordSha256": "0" * 64, "commit": "c" * 40, "date": "2026-09-24"}
+    def entry(p95, allow):
+        return {"p95Ms": p95, "allowancePercent": allow, "source": source,
+                "noiseSeries": [dict(source, n=100, p95Ms=p95, bootstrapSeMs=1.0, twoRunBoundMs=1.0, twoRunBoundPercent=allow)]}
+    bench = {"schema": benchmark.SCHEMA, "classes": [
+        {"name": "fixture-phone", "match": {"platform": "android", "device.kind": "physical", "device.model": "Fixture Phone",
+                                             "build.configuration": "release", "route.name": "managed",
+                                             "conditions.networkCondition": "live"},
+         "metrics": {"coldLaunch": entry(cold, cold_allow), "warmResume": entry(warm, warm_allow)}},
+        {"name": "fixture-never", "match": {"platform": "ios", "device.kind": "physical"}, "metrics": {},
+         "neverEstablished": "never measured as a distribution: fixture"}]}
+    path = os.path.join(tmp, "benchmarks.json")
+    with open(path, "w") as f:
+        json.dump(bench, f)
+    return path
+
+
+def write(tmp, name, obj):
+    path = os.path.join(tmp, name)
+    with open(path, "w") as f:
+        json.dump(obj, f)
+    return path
+
+
+def run_perf(*argv):
+    return subprocess.run([sys.executable, PERF_PY, *argv], capture_output=True, text=True,
+                          env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+
+
+@case("G1 a record slower than the benchmark by more than its noise allowance is refused (exit 4), every metric reported")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = bench_file(tmp)  # cold 800 ms + 5% -> limit 840; warm 100 ms + 10% -> limit 110
+        result = benchmark.compare([bench_record(cold=p95_of(841.0), warm=p95_of(100.0))], benchmark.load(path))
+        assert result["verdict"] == benchmark.VERDICT_SLOWER, result
+        cold, warm = result["metrics"]["coldLaunch"], result["metrics"]["warmResume"]
+        assert cold["status"] == "SLOWER" and cold["limitMs"] == 840.0 and cold["deltaMs"] == 41.0, cold
+        assert warm["status"] == "WITHIN NOISE", warm
+        assert cold["benchmarkSource"] == {"record": "fixture.json", "commit": "c" * 40, "date": "2026-09-24"}
+        out = run_perf("compare", write(tmp, "slow.json", bench_record(cold=p95_of(841.0), warm=p95_of(100.0))), "--benchmark", path)
+        assert out.returncode == 4, (out.returncode, out.stdout, out.stderr)
+        assert re.search(r"^coldLaunch\s+SLOWER", out.stdout, re.M) and re.search(r"^warmResume\s+WITHIN NOISE", out.stdout, re.M), out.stdout
+        assert "verdict: SLOWER THAN THE ESTABLISHED BENCHMARK" in out.stdout, out.stdout
+
+
+@case("G2 an equal or faster record passes (exit 0); faster says so and never changes the benchmark file")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = bench_file(tmp)
+        before = open(path).read()
+        for cold, want in ((800.0, "WITHIN NOISE"), (840.0, "WITHIN NOISE"), (700.0, "FASTER")):
+            result = benchmark.compare([bench_record(cold=p95_of(cold), warm=p95_of(100.0))], benchmark.load(path))
+            assert result["verdict"] == benchmark.VERDICT_OK and result["metrics"]["coldLaunch"]["status"] == want, (cold, result)
+        assert "benchmark-update" in result["metrics"]["coldLaunch"]["note"], result
+        out = run_perf("compare", write(tmp, "fast.json", bench_record(cold=p95_of(700.0), warm=p95_of(90.0))), "--benchmark", path)
+        assert out.returncode == 0 and out.stdout.count("FASTER") == 2, (out.returncode, out.stdout, out.stderr)
+        assert open(path).read() == before, "a compare must never write the benchmark"
+        js = run_perf("compare", os.path.join(tmp, "fast.json"), "--benchmark", path, "--json")
+        assert json.loads(js.stdout)["verdict"] == "NOT SLOWER", js.stdout
+
+
+@case("G3 a missing metric, a series too short for a p95, an unmatched device or a never-measured class is NOT COMPARED, said why")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = bench_file(tmp)
+        bench = benchmark.load(path)
+        cold_only = benchmark.compare([bench_record(cold=p95_of(800.0))], bench)
+        assert cold_only["verdict"] == benchmark.VERDICT_OK, cold_only
+        assert cold_only["metrics"]["warmResume"] == {"status": "NOT COMPARED", "why": "the record has no warmResume"}, cold_only
+        short = benchmark.compare([bench_record(cold=[500.0] * 5, warm=[90.0] * 5)], bench)
+        assert short["verdict"] == benchmark.VERDICT_NONE and "cannot place a p95" in short["metrics"]["coldLaunch"]["why"], short
+        other = benchmark.compare([bench_record(cold=p95_of(800.0), model="Another Phone")], bench)
+        assert other["verdict"] == benchmark.VERDICT_NONE and other["class"] is None, other
+        assert "device.model is 'Another Phone'" in other["metrics"]["coldLaunch"]["why"], other
+        never = bench_record(cold=p95_of(800.0))
+        never["platform"] = "ios"
+        never_result = benchmark.compare([never], bench)
+        assert never_result["metrics"]["coldLaunch"]["why"] == "never measured as a distribution: fixture", never_result
+        out = run_perf("compare", write(tmp, "short.json", bench_record(cold=[500.0] * 5)), "--benchmark", path)
+        assert out.returncode == 5 and "NOT COMPARED" in out.stdout and "verdict: NOT COMPARED" in out.stdout, (out.returncode, out.stdout)
+
+
+@case("G4 an iOS cold series and its warm series are judged as one build; other bytes or a metric twice are refused")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = bench_file(tmp)
+        cold, warm = bench_record(cold=p95_of(800.0)), bench_record(warm=p95_of(130.0))
+        pair = benchmark.compare([cold, warm], benchmark.load(path))
+        assert pair["metrics"]["coldLaunch"]["status"] == "WITHIN NOISE" and pair["metrics"]["warmResume"]["status"] == "SLOWER", pair
+        other = bench_record(warm=p95_of(100.0), built="f" * 64)
+        assert "different build bytes" in raises(perfcore.Refused, benchmark.compare, [cold, other], benchmark.load(path))
+        assert "appears in two records" in raises(perfcore.Refused, benchmark.compare, [cold, cold], benchmark.load(path))
+        out = run_perf("compare", write(tmp, "c.json", cold), write(tmp, "c2.json", cold), "--benchmark", path)
+        assert out.returncode == 3 and "appears in two records" in out.stderr, (out.returncode, out.stderr)
+
+
+@case("G5 the noise allowance is reproducible from the records; the committed file covers four classes and says why where it has no number")
+def _():
+    samples = [float(800 + (i * 37) % 120) for i in range(98)]
+    a, b = benchmark.p95_noise(samples), benchmark.p95_noise(list(samples))
+    assert a == b and a["n"] == 98 and a["twoRunBoundPercent"] > 0, (a, b)
+    assert abs(a["twoRunBoundMs"] - 1.96 * 2 ** 0.5 * a["bootstrapSeMs"]) < 0.02, a
+    assert benchmark.p95_noise(samples[:19]) is None
+    assert benchmark.allowance([{"twoRunBoundPercent": x} for x in (3.53, 2.9, 7.37)]) == 3.53
+    committed = benchmark.load()  # the committed benchmarks.json, validated
+    names = {c["name"]: c for c in committed["classes"]}
+    assert set(names) == {"android-physical", "android-emulator", "ios-physical", "ios-simulator"}, names
+    for cls in committed["classes"]:
+        if not cls["metrics"]:
+            assert "Never measured" in cls["neverEstablished"], cls["name"]
+        for name, m in cls["metrics"].items():
+            assert m["allowancePercent"] == benchmark.allowance(m["noiseSeries"]), (cls["name"], name)
+            assert m["p95Ms"] == min(s["p95Ms"] for s in m["noiseSeries"]), (cls["name"], name)  # the best series
+            assert re.fullmatch(r"[0-9a-f]{40}", m["source"]["commit"]) and m["source"]["date"], m["source"]
+    # the one source record that is in this repository: its numbers recompute exactly
+    with open(os.path.join(BASELINES, "2026-09-24-richconnect-android-perf-baseline", "record.json")) as f:
+        baseline = json.load(f)
+    for name in ("coldLaunch", "warmResume"):
+        entry = names["android-emulator"]["metrics"][name]
+        again = benchmark.p95_noise(baseline["metrics"][name]["samplesMs"])
+        assert entry["noiseSeries"][0]["twoRunBoundPercent"] == again["twoRunBoundPercent"] and entry["p95Ms"] == again["p95Ms"], name
+    # nothing identifying a phone: no serial or UDID value, no sample list (richos is public)
+    with open(benchmark.DEFAULT) as f:
+        text = f.read()
+    assert '"serial"' not in text and '"udid"' not in text and "samplesMs" not in text, "a device field or samples"
+    udid = re.search(r"[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{16}|[0-9A-Fa-f]{4}-)", text)
+    assert udid is None, f"a UDID-shaped value: {udid.group(0) if udid else ''}"
+
+
+@case("G6 benchmark-update establishes, raises when faster, keeps when slower unless a reason is given, refuses a dirty build")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = bench_file(tmp)
+        bench = benchmark.load(path)
+        bench["classes"][0]["metrics"] = {}
+        bench["classes"][0]["neverEstablished"] = "fixture"
+        first = write(tmp, "first.json", bench_record(cold=p95_of(800.0), warm=p95_of(100.0)))
+        changes = benchmark.update(bench, [first])
+        cls = bench["classes"][0]
+        assert any("established at 800.0" in c for c in changes) and "neverEstablished" not in cls, changes
+        slower = write(tmp, "slower.json", bench_record(cold=p95_of(820.0), warm=p95_of(100.0)))
+        changes = benchmark.update(bench, [slower])
+        assert cls["metrics"]["coldLaunch"]["p95Ms"] == 800.0 and len(cls["metrics"]["coldLaunch"]["noiseSeries"]) == 2, changes
+        assert any("kept 800.0" in c for c in changes), changes
+        faster = write(tmp, "faster.json", bench_record(cold=p95_of(760.0), warm=p95_of(100.0)))
+        changes = benchmark.update(bench, [faster])
+        assert cls["metrics"]["coldLaunch"]["p95Ms"] == 760.0 and cls["metrics"]["coldLaunch"]["source"]["record"].endswith("faster.json")
+        assert any("raised 800.0 -> 760.0" in c for c in changes), changes
+        changes = benchmark.update(bench, [slower], allow_slower="the phone's OS update")
+        assert cls["metrics"]["coldLaunch"]["p95Ms"] == 820.0 and cls["metrics"]["coldLaunch"]["loweredBecause"] == "the phone's OS update"
+        assert len(cls["metrics"]["coldLaunch"]["noiseSeries"]) == 3, "a record already in the series is replaced, not added twice"
+        dirty = write(tmp, "dirty.json", bench_record(cold=p95_of(700.0), dirty=True))
+        assert "uncommitted" in raises(perfcore.Refused, benchmark.update, bench, [dirty])
+        stranger = write(tmp, "stranger.json", bench_record(cold=p95_of(700.0), model="Another Phone"))
+        assert "add the class" in raises(perfcore.Refused, benchmark.update, bench, [stranger])
+        out = run_perf("benchmark-update", faster, "--benchmark", path)
+        assert out.returncode == 0 and "commit it" in out.stdout, (out.returncode, out.stdout, out.stderr)
+        assert benchmark.load(path)["classes"][0]["metrics"]["coldLaunch"]["p95Ms"] == 760.0
+
+
 if __name__ == "__main__":
     total = sum(1 for line in open(__file__) if line.startswith("@case("))
     if failures:

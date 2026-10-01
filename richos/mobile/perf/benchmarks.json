@@ -1,0 +1,193 @@
+{
+  "schema": "richos-mobile-perf-benchmarks/1",
+  "about": "The best p95 RichConnect has measured per device class for cold launch and warm resume. `perf.py compare` and every record `perf.py android|ios|merge` writes are judged against it; a p95 over benchmark x (1 + allowancePercent/100) is SLOWER and refused (exit 4). Numbers change only through `perf.py benchmark-update` and a commit of this file. Records named here are private (richos-hq or the external SSD); this file holds no serials, UDIDs, samples or traces.",
+  "noiseRule": "allowancePercent = median, over the class's noiseSeries, of twoRunBoundPercent = 100 x 1.96 x sqrt(2) x bootstrapSeMs / p95Ms, where bootstrapSeMs is the standard deviation of the nearest-rank p95 over 2000 resamples (seed 95) of that series' own samples (benchmark.py p95_noise)",
+  "classes": [
+    {
+      "name": "android-physical",
+      "match": {
+        "platform": "android",
+        "device.kind": "physical",
+        "device.model": "JDY-LX1",
+        "build.configuration": "release",
+        "route.name": "managed",
+        "conditions.networkCondition": "live"
+      },
+      "conditions": "Android 14 phone, release build, --production through real controls, managed Connect route, live network; system launch trace start to DisplayPresentTime of the useful frame",
+      "metrics": {
+        "coldLaunch": {
+          "p95Ms": 849.55,
+          "allowancePercent": 3.53,
+          "source": {
+            "record": "richos-hq/docs/verification/2026-09-24-richconnect-speed-implementation/honor-managed-launch-100.json",
+            "recordSha256": "cbb4a48f72acd11aa43bec42b75111e0ebf4b30b1541c3bc39b5051915808ee8",
+            "commit": "c6cdd8a8bb7ede15123d76f4cfff020d512b9737",
+            "date": "2026-09-24"
+          },
+          "noiseSeries": [
+            {
+              "record": "richos-hq/docs/verification/2026-09-24-richconnect-speed-implementation/honor-managed-launch-100.json",
+              "recordSha256": "cbb4a48f72acd11aa43bec42b75111e0ebf4b30b1541c3bc39b5051915808ee8",
+              "commit": "c6cdd8a8bb7ede15123d76f4cfff020d512b9737",
+              "date": "2026-09-24",
+              "n": 98,
+              "p95Ms": 849.55,
+              "bootstrapSeMs": 10.82,
+              "twoRunBoundMs": 29.98,
+              "twoRunBoundPercent": 3.53
+            },
+            {
+              "record": "richos-hq/docs/verification/2026-09-24-richconnect-speed-implementation/honor-7dd8b373-launch-100.json",
+              "recordSha256": "7a616fff5b1452e2b15dfb57c4485633e983c25dc7e1c5afd417d6423c345c1c",
+              "commit": "7dd8b3733944049a1608bc7c60c9cd59622a7038",
+              "date": "2026-09-24",
+              "n": 98,
+              "p95Ms": 880.8,
+              "bootstrapSeMs": 9.22,
+              "twoRunBoundMs": 25.56,
+              "twoRunBoundPercent": 2.9
+            },
+            {
+              "record": "richos-hq/docs/verification/2026-09-24-native-acceptance-r1/evidence/honor-perf-e768c515-managed-live-100.json",
+              "recordSha256": "d028f947d21f7fec1143bd4365a38dea8523208a8f0eae48c2f79a0c4ac7c5d0",
+              "commit": "e768c515c6e052ae157fcb8e89880d67f93c3d9a",
+              "date": "2026-09-24",
+              "n": 98,
+              "p95Ms": 936.73,
+              "bootstrapSeMs": 24.9,
+              "twoRunBoundMs": 69.01,
+              "twoRunBoundPercent": 7.37
+            }
+          ]
+        },
+        "warmResume": {
+          "p95Ms": 127.01,
+          "allowancePercent": 14.73,
+          "source": {
+            "record": "richos-hq/docs/verification/2026-09-24-richconnect-speed-implementation/honor-managed-launch-100.json",
+            "recordSha256": "cbb4a48f72acd11aa43bec42b75111e0ebf4b30b1541c3bc39b5051915808ee8",
+            "commit": "c6cdd8a8bb7ede15123d76f4cfff020d512b9737",
+            "date": "2026-09-24"
+          },
+          "noiseSeries": [
+            {
+              "record": "richos-hq/docs/verification/2026-09-24-richconnect-speed-implementation/honor-managed-launch-100.json",
+              "recordSha256": "cbb4a48f72acd11aa43bec42b75111e0ebf4b30b1541c3bc39b5051915808ee8",
+              "commit": "c6cdd8a8bb7ede15123d76f4cfff020d512b9737",
+              "date": "2026-09-24",
+              "n": 96,
+              "p95Ms": 127.01,
+              "bootstrapSeMs": 6.75,
+              "twoRunBoundMs": 18.71,
+              "twoRunBoundPercent": 14.73
+            },
+            {
+              "record": "richos-hq/docs/verification/2026-09-24-richconnect-speed-implementation/honor-7dd8b373-launch-100.json",
+              "recordSha256": "7a616fff5b1452e2b15dfb57c4485633e983c25dc7e1c5afd417d6423c345c1c",
+              "commit": "7dd8b3733944049a1608bc7c60c9cd59622a7038",
+              "date": "2026-09-24",
+              "n": 94,
+              "p95Ms": 127.8,
+              "bootstrapSeMs": 3.31,
+              "twoRunBoundMs": 9.19,
+              "twoRunBoundPercent": 7.19
+            },
+            {
+              "record": "richos-hq/docs/verification/2026-09-24-native-acceptance-r1/evidence/honor-perf-e768c515-managed-live-100.json",
+              "recordSha256": "d028f947d21f7fec1143bd4365a38dea8523208a8f0eae48c2f79a0c4ac7c5d0",
+              "commit": "e768c515c6e052ae157fcb8e89880d67f93c3d9a",
+              "date": "2026-09-24",
+              "n": 97,
+              "p95Ms": 132.0,
+              "bootstrapSeMs": 26.02,
+              "twoRunBoundMs": 72.12,
+              "twoRunBoundPercent": 54.63
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "android-emulator",
+      "match": {
+        "platform": "android",
+        "device.kind": "emulator",
+        "device.model": "sdk_gphone64_arm64",
+        "build.configuration": "debug",
+        "route.name": "development fixture"
+      },
+      "conditions": "API 34 google_apis arm64 emulator (Pixel 7 profile, headless, software GPU) on this Mac, debug build, the scripted Mac unreachable; am start -W, 'Fully drawn' for cold, TotalTime for warm. A pilot that certifies nothing (PRD §8); its timings depend on the Mac's load",
+      "metrics": {
+        "coldLaunch": {
+          "p95Ms": 2105,
+          "allowancePercent": 51.99,
+          "source": {
+            "record": "docs/verification/2026-09-24-richconnect-android-perf-baseline/record.json",
+            "recordSha256": "7a564dd4adc3dca3ccc0656d76c7a7bf92d3f5101a2ddb487c2eab590e91e929",
+            "commit": "3065ac961a371313484f3be990ad13fc904010e0",
+            "date": "2026-09-24"
+          },
+          "noiseSeries": [
+            {
+              "record": "docs/verification/2026-09-24-richconnect-android-perf-baseline/record.json",
+              "recordSha256": "7a564dd4adc3dca3ccc0656d76c7a7bf92d3f5101a2ddb487c2eab590e91e929",
+              "commit": "3065ac961a371313484f3be990ad13fc904010e0",
+              "date": "2026-09-24",
+              "n": 20,
+              "p95Ms": 2105,
+              "bootstrapSeMs": 394.79,
+              "twoRunBoundMs": 1094.31,
+              "twoRunBoundPercent": 51.99
+            }
+          ]
+        },
+        "warmResume": {
+          "p95Ms": 302,
+          "allowancePercent": 36.3,
+          "source": {
+            "record": "docs/verification/2026-09-24-richconnect-android-perf-baseline/record.json",
+            "recordSha256": "7a564dd4adc3dca3ccc0656d76c7a7bf92d3f5101a2ddb487c2eab590e91e929",
+            "commit": "3065ac961a371313484f3be990ad13fc904010e0",
+            "date": "2026-09-24"
+          },
+          "noiseSeries": [
+            {
+              "record": "docs/verification/2026-09-24-richconnect-android-perf-baseline/record.json",
+              "recordSha256": "7a564dd4adc3dca3ccc0656d76c7a7bf92d3f5101a2ddb487c2eab590e91e929",
+              "commit": "3065ac961a371313484f3be990ad13fc904010e0",
+              "date": "2026-09-24",
+              "n": 20,
+              "p95Ms": 302,
+              "bootstrapSeMs": 39.55,
+              "twoRunBoundMs": 109.63,
+              "twoRunBoundPercent": 36.3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "ios-physical",
+      "match": {
+        "platform": "ios",
+        "device.kind": "physical",
+        "device.model": "iPhone SE",
+        "build.configuration": "release"
+      },
+      "conditions": "iPhone on USB, stamped Release build, Instruments App Launch: process creation (cold) or UIKit AppResume (warm) to the presented, input-ready viewport",
+      "metrics": {},
+      "neverEstablished": "Never measured as a distribution, so no number is established. The only records are two single-trial pilots on 2026-09-24, build 536c3456 (Release): cold launch 1381.72 ms and warm return 520.75 ms (richos-hq/docs/verification/2026-09-24-native-acceptance-r1-iphone/evidence/timing/pilot-cold.json and pilot-warm.json); one sample places no p95. Settle: the README's two 100-trial commands on the iPhone (rios perf --device ... --cold 100, then --cold 0 --warm 100) with a stamped Release build, then perf.py benchmark-update on both records and a commit."
+    },
+    {
+      "name": "ios-simulator",
+      "match": {
+        "platform": "ios",
+        "device.kind": "simulator",
+        "build.configuration": "debug"
+      },
+      "conditions": "a named iOS Simulator on this Mac, Debug build with a fixture conversation",
+      "metrics": {},
+      "neverEstablished": "Never measured as a distribution. The only simulator records are the 2026-09-24 trace-path dry runs of a Debug build (richos-hq/docs/verification/2026-09-24-ios-timing-tool/simulator-dryrun/): two warm trials and no completed cold trial. The README says that path proves the capture, never a phone number. Settle: rios perf --simulator <UDID> --stamp <stamp> --cold 20 --warm 20, then perf.py benchmark-update and a commit."
+    }
+  ]
+}
