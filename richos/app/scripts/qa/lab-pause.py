@@ -57,10 +57,23 @@ def lab_pid(cache):
     pid = state.get("pid")
     if not isinstance(pid, int) or pid <= 1:
         raise CannotAnswer(f"{state_file} names no listener pid")
-    command = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True).stdout
-    if LISTENER not in command:
+    check_listener(pid, data)
+    return pid, data
+
+
+def check_listener(pid, data):
+    """Refuse unless PID is this lab's listener: the listener's command AND this lab's own data
+    directory (mac-server.mjs gives each lab its RICHOS_MOBILE_MAC_DIR in the environment; every
+    lab runs the same command name, so the name alone names no lab). `ps -E` appends the
+    environment, which this user's own processes show."""
+    done = subprocess.run(["ps", "-E", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
+    command = done.stdout
+    if done.returncode != 0 or LISTENER not in command:
         raise CannotAnswer(f"pid {pid} is not the lab's listener ({LISTENER}): refusing to pause it")
-    return pid
+    # Path() collapses a doubled slash (a TMPDIR that ends in "/"), so the environment's spelling is collapsed too.
+    command = re.sub(r"/{2,}", "/", command)
+    if not re.search(r"(?:^|\s)RICHOS_MOBILE_MAC_DIR=" + re.escape(re.sub(r"/{2,}", "/", str(data))) + r"(?:\s|$)", command):
+        raise CannotAnswer(f"pid {pid} is a listener of another lab, not the one whose data is {data}: refusing to pause it")
 
 
 def newest_log(directory, since, deadline):
@@ -115,7 +128,7 @@ def main(argv):
             raise CannotAnswer("give exactly one of --log or --log-dir")
         if a.times < 1 or a.cont_delay < 0 or a.timeout <= 0:
             raise CannotAnswer("--times must be 1 or more, --cont-delay 0 or more, --timeout above 0")
-        pid = lab_pid(a.lab)
+        pid, data = lab_pid(a.lab)
         result["pid"] = pid
         started = time.time()
         deadline = started + a.timeout
@@ -146,6 +159,7 @@ def main(argv):
                 result["error"] = f"try {n}: no line matching the stop mark within {a.timeout:g} s"
                 print(json.dumps(result, indent=2))
                 return 1
+            check_listener(pid, data)  # the wait above may have been long: still the same lab's listener?
             os.kill(pid, signal.SIGSTOP)
             try_record.update(stopped=round(time.time(), 3), stopMark=line[-200:])
             try:
