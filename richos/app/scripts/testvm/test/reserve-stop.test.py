@@ -24,6 +24,10 @@ HERE = Path(os.environ.get('RESERVE_MODULE_DIR') or Path(__file__).resolve().par
 sys.path.insert(0, str(HERE))
 import reserve  # noqa: E402
 
+if hasattr(reserve, 'STOP_GRACE'):
+    reserve.STOP_GRACE = 0.5  # load-bound: the child ignores SIGTERM, so the grace always elapses
+    reserve.KILL_GRACE = 3
+
 failures = []
 real_killpg = os.killpg
 
