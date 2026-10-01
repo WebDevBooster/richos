@@ -66,7 +66,10 @@ pub enum Outcome {
     /// `mark` is the hub's position the opening frames were prepared at; the stream subscribes
     /// from there, so nothing published between preparing the opening and subscribing is lost
     /// ([`PhoneHub::subscribe_from`]).
-    Stream { opening: Vec<String>, since: Option<u64>, mark: u64 },
+    ///
+    /// `device` is the verified device id the stream is for: its newer stream replaces its older
+    /// ones ([`super::device::DeviceDesk::claim_stream`]).
+    Stream { opening: Vec<String>, since: Option<u64>, mark: u64, device: String },
     /// **The answer to nearly everything.** One answer to every question a caller that is not the
     /// paired phone can ask, so the surface cannot be mapped by the shape of the refusals.
     NotFound,
@@ -903,9 +906,10 @@ fn events(channel: &Channel, request: &Incoming) -> Outcome {
     let Some(auth) = query_value(&request.query, "auth") else { return Outcome::NotFound };
     let Ok(decoded) = percent_decode_component(auth) else { return Outcome::NotFound };
     let path = signed_path(&request.path, &request.query);
-    if let Err(refusal) = verified(channel, request, &decoded, &path) {
-        return refusal;
-    }
+    let device = match verified_device(channel, request, &decoded, &path, false) {
+        Ok(device) => device,
+        Err(refusal) => return refusal,
+    };
 
     let thread_id = query_value(&request.query, "thread_id")
         .map(|s| s.to_string())
@@ -961,7 +965,7 @@ fn events(channel: &Channel, request: &Incoming) -> Outcome {
             opening.push(hello.to_wire());
         }
     }
-    Outcome::Stream { opening, since, mark }
+    Outcome::Stream { opening, since, mark, device: device.id }
 }
 
 /// `duration_ms` on the CEO rows that were phone voice notes, joined exactly through
@@ -1391,7 +1395,7 @@ mod tests {
         let f=fixture("push-disable");
         let body=r#"{"push":{"endpoint":"https://fcm.googleapis.com/test","keys":{"p256dh":"public","auth":"secret"}},"reply_receipts":true}"#;
         assert!(matches!(dispatch(&f.channel,&signed(&f,"POST","/api/pair","",body)),Outcome::Json{status:200,..}));
-        let slot=f.channel.devices.claim_stream().unwrap();
+        let slot=f.channel.devices.claim_stream(&f.device_id).unwrap();
         // A stale connection cannot suppress a reply this browser has not acknowledged.
         assert!(super::super::push::should_notify(&f.channel.devices,&f.device_id,"a","r"));
         f.channel.devices.record_reply_receipt(Some(("a","r"))).unwrap();

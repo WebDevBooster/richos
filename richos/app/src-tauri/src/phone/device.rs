@@ -157,6 +157,16 @@ const LIVE_CHALLENGES: usize = 256;
 /// cannot restart the Mac, so a restart gives nobody an extra window they could have asked for.
 const RATE_WINDOW_MS: u64 = 60_000;
 const RATE_LIMIT: usize = 60;
+/// At most this many event streams at once, across every device id together.
+///
+/// **ONE LIVE STREAM PER DEVICE, AND THE NEWEST WINS** (2026-10-01 iPhone walk, defect D4). A
+/// phone process that is killed sends no close — over RichOS Connect, `cloudflared` keeps its
+/// connection to this Mac open whatever the phone did — so its stream stayed counted while this
+/// Mac wrote keep-alives into it. Four quick relaunches filled all four slots with streams of
+/// processes that no longer existed, and the fifth launch was answered 429 for a minute.
+/// [`DeviceDesk::claim_stream`] now ends the same device's older streams and returns their
+/// slots BEFORE the cap is counted. A device's streams are never ended by another device's, so
+/// this cap still bounds how many streams this Mac carries at once.
 pub const MAX_STREAMS: usize = 4;
 
 /// The pairing code's alphabet: **no `I`, `L`, `O`, `U`, `0` or `1`.** He is reading this off
@@ -551,7 +561,9 @@ struct State {
     /// Every caller whose device id is not the paired phone's, together.
     stranger_requests: VecDeque<u64>,
     pairing_requests: VecDeque<u64>,
-    streams: usize,
+    /// The event streams counted against [`MAX_STREAMS`], oldest first.
+    streams: Vec<OpenStream>,
+    next_stream: u64,
     /// Audio blobs the Mac has minted, by the message id the phone was given. Contract: *"no
     /// id it did not mint"* — the table is the authority and the request is only an index.
     audio: VecDeque<(String, PathBuf)>,
@@ -789,7 +801,8 @@ impl DeviceDesk {
                 device_requests: VecDeque::new(),
                 stranger_requests: VecDeque::new(),
                 pairing_requests: VecDeque::new(),
-                streams: 0,
+                streams: Vec::new(),
+                next_stream: 0,
                 audio: VecDeque::new(),
                 redeemed: None,
                 code_reused: false,
@@ -1451,19 +1464,41 @@ impl DeviceDesk {
         Ok(())
     }
 
-    /// Claim one of the concurrent-stream slots. The returned guard releases it on `Drop`, so a
-    /// stream that ends by the client walking out of range still gives its slot back.
-    pub fn claim_stream(self: &std::sync::Arc<Self>) -> Result<StreamSlot, Refusal> {
+    /// Claim one of the concurrent-stream slots for `device_id`, the AUTHENTICATED device the
+    /// stream is for. The returned guard releases it on `Drop`, so a stream that ends by the
+    /// client walking out of range still gives its slot back.
+    ///
+    /// **The same device's older streams are ended first, and their slots returned before the
+    /// cap is counted** (see [`MAX_STREAMS`]): a phone opens one stream per process, so a newer
+    /// one means the older belongs to a process that is gone or is about to replace it. Each one
+    /// ended is told through its [`StreamSlot::ended`], and its slot is no longer counted from
+    /// this moment, whether or not its socket ever notices. Another device's streams are never
+    /// touched; with [`MAX_STREAMS`] distinct devices streaming, the next one is still refused,
+    /// and a refused open ends nothing.
+    pub fn claim_stream(self: &std::sync::Arc<Self>, device_id: &str) -> Result<StreamSlot, Refusal> {
         let mut state = self.state.lock().unwrap();
-        if state.streams >= MAX_STREAMS {
+        let others = state.streams.iter().filter(|open| open.device != device_id).count();
+        if others >= MAX_STREAMS {
             return Err(Refusal::TooManyStreams);
         }
-        state.streams += 1;
-        Ok(StreamSlot { desk: std::sync::Arc::clone(self) })
+        state.streams.retain(|open| {
+            let same = open.device == device_id;
+            if same {
+                // `notify_one` keeps the permit if nobody is waiting yet, so a producer that has
+                // not reached its wait still ends at it.
+                open.end.ring();
+            }
+            !same
+        });
+        let id = state.next_stream;
+        state.next_stream += 1;
+        let end = std::sync::Arc::new(EndSignal::default());
+        state.streams.push(OpenStream { id, device: device_id.to_string(), end: std::sync::Arc::clone(&end) });
+        Ok(StreamSlot { desk: std::sync::Arc::clone(self), id, end })
     }
 
     pub fn open_streams(&self) -> usize {
-        self.state.lock().unwrap().streams
+        self.state.lock().unwrap().streams.len()
     }
 
     /// Record the audio blob for one message id, so `GET /api/audio/<message_id>` can serve it.
@@ -1505,15 +1540,72 @@ impl DeviceDesk {
     }
 }
 
+/// A one-shot "this stream was replaced" signal. **Plain `std`, no runtime**, for the same reason
+/// as [`HeldAnswer`]: this module is compiled on its own by `mobile/conformance/verifier`, which
+/// has no tokio. Ringing before anyone waits is kept (the flag), so a producer that has not reached
+/// its wait still ends at it.
+#[derive(Default)]
+struct EndSignal {
+    state: Mutex<(bool, Option<Waker>)>,
+}
+
+impl EndSignal {
+    fn ring(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.0 = true;
+        if let Some(waker) = state.1.take() {
+            waker.wake();
+        }
+    }
+}
+
+/// The future [`StreamSlot::ended`] returns.
+struct EndWait {
+    end: std::sync::Arc<EndSignal>,
+}
+
+impl Future for EndWait {
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let mut state = self.end.state.lock().unwrap();
+        if state.0 {
+            Poll::Ready(())
+        } else {
+            state.1 = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+}
+
+/// One stream counted against [`MAX_STREAMS`]: whose it is, and how to end it.
+struct OpenStream {
+    id: u64,
+    device: String,
+    end: std::sync::Arc<EndSignal>,
+}
+
 /// Releases a concurrent-stream slot when the stream ends, however it ends.
 pub struct StreamSlot {
     desk: std::sync::Arc<DeviceDesk>,
+    id: u64,
+    end: std::sync::Arc<EndSignal>,
+}
+
+impl StreamSlot {
+    /// Completes when a newer stream from the same device has replaced this one. The slot is
+    /// already returned by then; the stream's producer ends at this and its response with it.
+    /// Owns what it waits on, so the producer can hold it while the response holds the slot.
+    pub fn ended(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        EndWait { end: std::sync::Arc::clone(&self.end) }
+    }
 }
 
 impl Drop for StreamSlot {
+    /// A replaced stream was already removed by [`DeviceDesk::claim_stream`], so this finds
+    /// nothing and returns nobody else's slot.
     fn drop(&mut self) {
         let mut state = self.desk.state.lock().unwrap();
-        state.streams = state.streams.saturating_sub(1);
+        state.streams.retain(|open| open.id != self.id);
     }
 }
 
@@ -2738,15 +2830,59 @@ pub(crate) mod tests {
     #[test]
     fn a_stream_slot_comes_back_when_the_stream_ends_however_it_ends() {
         let (_dir, desk, _phone, _device, _c) = paired("slots");
+        // Distinct devices, so no stream replaces another and the cap itself is what is measured.
         let mut held = Vec::new();
         for i in 0..MAX_STREAMS {
-            held.push(desk.claim_stream().unwrap_or_else(|e| panic!("slot {i}: {e:?}")));
+            held.push(desk.claim_stream(&format!("dev_{i}")).unwrap_or_else(|e| panic!("slot {i}: {e:?}")));
         }
         assert_eq!(desk.open_streams(), MAX_STREAMS);
-        assert_eq!(desk.claim_stream().err(), Some(Refusal::TooManyStreams));
+        assert_eq!(desk.claim_stream("dev_new").err(), Some(Refusal::TooManyStreams));
         held.clear();
         assert_eq!(desk.open_streams(), 0, "a slot was not returned");
-        assert!(desk.claim_stream().is_ok());
+        assert!(desk.claim_stream("dev_new").is_ok());
+    }
+
+    /// **A DEVICE'S NEW STREAM REPLACES ITS OWN OLD ONES AND NOBODY ELSE'S** (2026-10-01 iPhone
+    /// walk, defect D4). Four streams held for one phone, as four killed processes leave them:
+    /// the fifth from that phone is admitted, the four are told to end and stop being counted,
+    /// and another device's stream is neither ended nor uncounted. The cap still refuses the
+    /// stream past [`MAX_STREAMS`] distinct devices.
+    #[test]
+    fn a_devices_new_stream_replaces_its_own_old_ones_and_never_another_devices() {
+        let (_dir, desk, _phone, _device, _c) = paired("newest-wins");
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let ended_within = |slot: &StreamSlot| {
+            // The timer is built inside the runtime: `timeout` registers with the reactor it is made in.
+            runtime.block_on(async { tokio::time::timeout(std::time::Duration::from_millis(50), slot.ended()).await }).is_ok()
+        };
+
+        let other = desk.claim_stream("dev_other").unwrap();
+        let mut old = Vec::new();
+        for i in 0..MAX_STREAMS - 1 {
+            old.push(desk.claim_stream("dev_phone").unwrap_or_else(|e| panic!("open {i}: {e:?}")));
+        }
+        assert_eq!(desk.open_streams(), 2, "each open from one phone replaced the one before it");
+        let newest = desk.claim_stream("dev_phone").expect("the phone was refused by its own earlier streams");
+        assert_eq!(desk.open_streams(), 2, "the phone's newest stream and the other device's");
+        for (i, slot) in old.iter().enumerate() {
+            assert!(ended_within(slot), "the phone's stream {i} was replaced but never told to end");
+        }
+        assert!(!ended_within(&newest), "the newest stream was ended");
+        assert!(!ended_within(&other), "another device's stream was ended by this phone's");
+
+        // A replaced slot dropping late returns nobody else's slot.
+        old.clear();
+        assert_eq!(desk.open_streams(), 2, "a replaced stream's late drop uncounted a live one");
+
+        // The flood bound holds across devices: at MAX_STREAMS distinct devices the next is refused.
+        let mut more = Vec::new();
+        for i in 0..MAX_STREAMS - 2 {
+            more.push(desk.claim_stream(&format!("dev_more_{i}")).unwrap());
+        }
+        assert_eq!(desk.claim_stream("dev_one_too_many").err(), Some(Refusal::TooManyStreams));
+        assert!(!ended_within(&other), "a refused open ended somebody's stream");
+        drop((newest, other, more));
+        assert_eq!(desk.open_streams(), 0);
     }
 
     // --- the key forms -------------------------------------------------------------------------
