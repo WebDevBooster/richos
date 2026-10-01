@@ -320,7 +320,16 @@ class RichCore private constructor(
                 is SseItem.Frame -> {
                     if (item.frame.event == "delta") ports.performance.mark("text-received")
                     next = apply(next, item.frame)
-                    item.frame.id?.toLongOrNull()?.let { next = next.copy(streamCursor = it) }
+                    // A `hello` is never a place to resume from: its id is the hub's cursor, which
+                    // the Mac may have seeded from the conversation's row count above every frame it
+                    // holds, and a resume from there (`since` = id - 1) is answered with an EMPTY
+                    // opening that the Mac's listener sends nothing for until its keep-alive, 15 s
+                    // later (`app/src-tauri/src/phone/stream.rs` `replay_after_marked`, `listen.rs`
+                    // `KEEPALIVE_MS`; the iPhone's 15.3 s return, Isaac 980c49473). So after a
+                    // `hello` the next stream asks for a `hello` (no cursor, see
+                    // [ConnectionOwner.eventsPath]), which is never empty; a live frame sets it again.
+                    if (item.frame.event == "hello") next = next.copy(streamCursor = null)
+                    else item.frame.id?.toLongOrNull()?.let { next = next.copy(streamCursor = it) }
                 }
                 SseItem.KeepAlive -> Unit
                 is SseItem.Resnapshot -> resnapshotRequested = true

@@ -464,7 +464,10 @@ class ConnectionOwnerTest {
         assertEquals("/api/events?thread_id=general", ConnectionOwner.eventsPath(core.state))
         // Echo's measured drift: after 3 phone messages the rows' latest cursor is 6, the frame id 9.
         val rows = (1..6).joinToString(",") { """{"id":"r$it","thread_id":"general","cursor":$it,"role":"ceo","kind":"text","text":"m$it"}""" }
-        val s = core.receive("id: 9\nevent: hello\ndata: {\"thread_id\":\"general\",\"latest_cursor\":6,\"capabilities\":[\"text\"],\"messages\":[$rows]}\n\n".toByteArray())
+        core.receive("id: 8\nevent: hello\ndata: {\"thread_id\":\"general\",\"latest_cursor\":6,\"capabilities\":[\"text\"],\"messages\":[$rows]}\n\n".toByteArray())
+        // The live row that follows: its frame id is the hub's, far from the rows' cursor 7.
+        val live = """{"id":"r7","thread_id":"general","cursor":7,"role":"rich","kind":"text","text":"m7","complete":true}"""
+        val s = core.receive("id: 9\nevent: message\ndata: $live\n\n".toByteArray())
         assertEquals(9L, s.streamCursor)
         assertEquals("/api/events?thread_id=general&since=8", ConnectionOwner.eventsPath(s))
         assertEquals("/api/events?thread_id=general", ConnectionOwner.eventsPath(s, resnapshot = true))

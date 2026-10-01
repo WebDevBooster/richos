@@ -241,7 +241,9 @@ class ConnectionOwner(
          * reconnect gets a frame at once. Never from a row's cursor, hello's `latest_cursor` or a
          * send's answer: those are history positions and drift from the hub (Echo's measurement:
          * after 3 phone messages `latest_cursor` is 6 while the frame id is 9). No `since` after a
-         * re-snapshot or before any frame arrived.
+         * re-snapshot, before any frame arrived, or when the last frame was a `hello` (the core
+         * clears [AppState.streamCursor] on a `hello`: resuming from its id can be answered with an
+         * empty opening the Mac holds until its 15 s keep-alive).
          */
         fun eventsPath(state: AppState, resnapshot: Boolean = false): String {
             val thread = state.selectedThreadId
