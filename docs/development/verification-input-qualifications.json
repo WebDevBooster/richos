@@ -123,7 +123,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -185,7 +188,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -243,7 +249,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -309,7 +318,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -1402,7 +1414,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1449,7 +1464,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1494,7 +1512,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1578,7 +1599,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": [
           "CEO_RULED_LIVE_DIR"
         ]
@@ -1627,7 +1651,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1749,7 +1776,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1794,7 +1824,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1886,7 +1919,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -1956,7 +1992,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "external_paths": [
@@ -2064,7 +2103,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2183,7 +2225,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2306,7 +2351,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2358,7 +2406,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2445,7 +2496,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2496,7 +2550,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },

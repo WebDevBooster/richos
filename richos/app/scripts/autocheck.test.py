@@ -1002,6 +1002,20 @@ class Tables(unittest.TestCase):
         self.assertTrue(module.mutation_unit(real, "scripts/operator-fences-mutation.test.sh"))
         self.assertFalse(module.mutation_unit(real, "scripts/lib/mutation-pool.test.sh"))
 
+    def test_every_qualified_unit_that_reads_a_harness_lets_the_switch_through(self):
+        # A qualified engine unit runs under proof-run's private profile, whose environment holds
+        # only the names its reviewed contract declares (lib/proof_evidence.py
+        # prepare_environment). Undeclared, RICHOS_MUTATION_PASSES=0 never reaches the harness
+        # and the pass runs in the merge after all: found replaying the merge of 4e73fd89.
+        data = json.loads((HERE.parents[2] / "docs/development/verification-input-qualifications.json").read_text())
+        reading = {name: unit for name, unit in data["units"].items()
+                   if any(s.endswith((".mutation.sh", ".mutation.py")) for s in unit.get("sources", {}))}
+        self.assertTrue(reading)
+        undeclared = sorted(name for name, unit in reading.items()
+                            if not {"RICHOS_MUTATION_PASSES", "RICHOS_FOURTEEN_MUTANTS"}
+                            <= set(unit.get("requires", {}).get("environment", [])))
+        self.assertEqual(undeclared, [], "qualified units whose harness never sees the merge gate's switch")
+
     def test_every_app_mutation_harness_honors_the_merge_gates_switch(self):
         # The engine's harnesses are held to the same line by the engine's own
         # scripts/mutation-inventory.test.sh (section 3). These are the app's: discovered from
