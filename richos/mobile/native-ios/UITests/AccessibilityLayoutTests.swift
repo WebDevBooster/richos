@@ -452,6 +452,85 @@ final class AccessibilityLayoutTests: XCTestCase {
         }
     }
 
+    /// The least room, in points, the conversation keeps between the header and the cards: enough to see
+    /// the last message (a row is about 61 pt) or the empty state's mark and title. The cards yield first.
+    private static let usableConversation: CGFloat = 100
+
+    /// Where the header's last element ends.
+    private func headerBottom(_ app: XCUIApplication) -> CGFloat {
+        var bottom: CGFloat = 0
+        for part in ["header.nameplate", "header.settings", "connection.line"] {
+            let element = app.descendants(matching: .any)[part]
+            if element.exists { bottom = max(bottom, element.frame.maxY) }
+        }
+        return bottom
+    }
+
+    /// R1, remaining (the iPhone re-walk, 2026-10-01, shot light-33): in the empty conversation above
+    /// three cards the region left to the empty state was about 59 pt, so its line "Your conversation
+    /// will appear here." was cut through its letters. The region keeps a usable height; the cards
+    /// yield, and whatever still does not fit scrolls with a cue.
+    func testTheEmptyConversationKeepsAUsableHeightAboveThreeCards() {
+        for appearance in ["light", "dark"] {
+            let what = "conv-empty + three cards \(appearance)"
+            let app = launchWithMicrophoneOffCard("conv-empty", appearance: appearance, notifications: "not-asked", cards: "camera-denied")
+            XCTAssertTrue(app.descendants(matching: .any)["conversation.empty"].waitForExistence(timeout: 5), "\(what): the empty state is missing")
+            Thread.sleep(forTimeInterval: 0.8)
+            let instructions = region(of: "conversation.empty", in: app)
+            // The mark, the title and the line under it (about 130 pt) fit whole: the line is not left half-faded at the edge.
+            XCTAssertGreaterThanOrEqual(instructions.frame.height, 140, "\(what): the empty state's region \(instructions.frame) is shorter than 140 pt, so its line is cut")
+            let empty = app.descendants(matching: .any)["conversation.empty"]
+            if empty.frame.minY < instructions.frame.minY - 1 || empty.frame.maxY > instructions.frame.maxY + 1 {
+                let cue = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "empty.more")).firstMatch
+                XCTAssertTrue(cue.exists, "\(what): the empty state is cut at the region \(instructions.frame) with no cue")
+            }
+            keepScreenshot(app, name: "r1b-empty-three-cards-\(appearance)")
+        }
+    }
+
+    /// R1, remaining, as the re-walk posed it: a kept recording, the microphone card and the camera card
+    /// over the conversation (empty or not), keyboard down. Between the header and the cards there is a
+    /// usable height, and whatever is cut in it is cut inside a scroll that says so.
+    func testTheConversationKeepsAUsableHeightAboveTheKeptAndTwoPermissionCards() {
+        for appearance in ["light", "dark"] {
+            let what = "kept + microphone + camera \(appearance)"
+            let app = launchWithMicrophoneOffCard("voice-interrupted", appearance: appearance, cards: "camera-denied")
+            XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 5), "\(what): the kept card is missing")
+            Thread.sleep(forTimeInterval: 0.8)
+            let cards = region(of: "kept.send", in: app)
+            let room = cards.frame.minY - headerBottom(app)
+            XCTAssertGreaterThanOrEqual(room, Self.usableConversation, "\(what): the conversation has \(room) pt between the header (\(headerBottom(app))) and the cards (\(cards.frame.minY))")
+            let empty = app.descendants(matching: .any)["conversation.empty"]
+            if empty.exists {
+                let region = region(of: "conversation.empty", in: app)
+                if empty.frame.minY < region.frame.minY - 1 || empty.frame.maxY > region.frame.maxY + 1 {
+                    XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "empty.more")).firstMatch.exists,
+                                  "\(what): the empty state \(empty.frame) is cut at \(region.frame) with no cue")
+                }
+            }
+            keepScreenshot(app, name: "r1b-kept-mic-camera-\(appearance)")
+        }
+    }
+
+    /// R2 (the iPhone re-walk, shot light-34): with the keyboard up and two cards showing, the cards
+    /// started where the header ended and the message just sent sat behind the header. The conversation
+    /// keeps a usable height between the header and the cards, whatever the cards take.
+    func testTheConversationKeepsAUsableHeightWithTwoCardsAndTheKeyboardUp() {
+        for appearance in ["light", "dark"] {
+            let what = "two cards \(appearance), keyboard up"
+            let app = Screen.launch("voice-interrupted", appearance: appearance, cards: "camera-denied")
+            XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 5), "\(what): the kept card is missing")
+            messageField(app).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
+            Thread.sleep(forTimeInterval: 0.8)
+            let cards = region(of: "kept.send", in: app)
+            let room = cards.frame.minY - headerBottom(app)
+            XCTAssertGreaterThanOrEqual(room, Self.usableConversation, "\(what): the conversation has \(room) pt between the header (\(headerBottom(app))) and the cards (\(cards.frame.minY))")
+            XCTAssertLessThanOrEqual(cards.frame.maxY, messageField(app).frame.minY + 0.5, "\(what): the cards run under the field")
+            keepScreenshot(app, name: "r2-two-cards-keyboard-\(appearance)")
+        }
+    }
+
     /// D2 (the iPhone walk, 2026-10-01): with the keyboard up and the field empty, the composer sometimes
     /// grew from one line to three. The trigger was not isolated, so this puts the field through what
     /// the two sightings had in common (a tap on the header's area while the keyboard is up, and Home
