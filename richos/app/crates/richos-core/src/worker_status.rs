@@ -512,10 +512,14 @@ mod tests {
     /// not be read says nothing about whether anyone is running, so the counts must not be
     /// presented as describing it. Here the log's path is a folder, which every read refuses.
     ///
-    /// And one line that is not valid UTF-8 blinds nothing but itself: before, it made the
-    /// whole file unreadable, and a running worker two lines above it vanished.
+    /// And one line that is not valid UTF-8 no longer makes the whole FILE unreadable (the
+    /// read succeeds, decoded lossily). **But it is not skipped as if it said nothing** (v2
+    /// re-check of finding 41): "half a row the emitter never finished" may have been a1's
+    /// `run_ended`, so counting a1 as running would be the stale-active half of the defect.
+    /// The view says the log is damaged and counts nothing, the same answer `app_workers.rs`
+    /// gives for a line it cannot read.
     #[test]
-    fn an_unreadable_worker_log_is_unknown_and_one_bad_line_hides_nothing_else() {
+    fn an_unreadable_or_damaged_worker_log_is_unknown_never_a_count() {
         let dir = session_dir("unreadable-log");
         let log = worker_events::worker_events_path(&dir);
         std::fs::create_dir_all(&log).unwrap();
@@ -534,8 +538,16 @@ mod tests {
         bytes.extend_from_slice(b"\n\xff\xfe half a row the emitter never finished\n");
         std::fs::write(&log, bytes).unwrap();
         let status = read_from_dir_with_probe(&dir, alive);
-        assert!(status.is_attributed(), "{status:?}");
-        assert_eq!(status.active, 1, "the running worker above the bad line vanished: {status:?}");
+        assert_eq!(status.unattributed, Some(Unattributed::WorkerLogDamaged),
+                   "a damaged line was skipped and the rest counted as authoritative: {status:?}");
+        assert_eq!((status.active, status.liveness_unknown), (0, 0), "nothing is counted from a damaged log");
+        // The witness's own case (richos-hq part-1-codex-v2/witness-v2.rs): a valid started
+        // row is one worker; the same row with its closing brace gone is not "no workers".
+        let good = wrow("started", "a1", r#","host_pid":10"#);
+        std::fs::write(&log, format!("{good}\n")).unwrap();
+        assert_eq!(read_from_dir_with_probe(&dir, alive).active, 1);
+        std::fs::write(&log, format!("{}\n", &good[..good.len() - 1])).unwrap();
+        assert_eq!(read_from_dir_with_probe(&dir, alive).unattributed, Some(Unattributed::WorkerLogDamaged));
         std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
     }
 
