@@ -9,7 +9,8 @@ public protocol EventStreamTransport: Sendable {
 /// The one owner of the live stream (build plan §3.2; T3's single connection owner, adoption ledger
 /// §2.8 C1, written for RichOS's signed HTTP + SSE). One stream at a time; a superseded attempt never
 /// publishes; retries wait 1 s doubling to 30 s (the reference `web/web-app/lib/link.js`) and the wait
-/// resets when a stream opens, which is also when the phone is connected; before a retry the challenge is refreshed; after a
+/// resets when a stream opens, which is also when the phone is connected; a stream silent past
+/// `silenceLimitMs` is lost like a dropped one; before a retry the challenge is refreshed; after a
 /// failure a revocation probe tells "removed from the Mac" from "unreachable"; `: re-snapshot` ends
 /// the stream and the next one starts without `since`. Everything the stream learns reaches the
 /// store as actions, so the reducer stays the only place state changes.
@@ -22,6 +23,8 @@ public actor LiveConnection {
     private let clock: any Clock
     private let sink: Sink
     private let sleep: Sleep
+    /// The wait behind the silence limit: the real clock in the app, a clock the test moves in tests.
+    private let silence: Sleep
     private var threadID: String?
     private var model: ThreadModel
     /// What the store has been told, by row id, so only changes are sent.
@@ -48,10 +51,25 @@ public actor LiveConnection {
     public static let firstRetryMs: Int64 = 1000
     public static let maxRetryMs: Int64 = 30000
 
+    /// **HOW LONG AN OPEN STREAM MAY STAY SILENT BEFORE IT IS TREATED AS LOST.** The Mac writes a
+    /// `: keep-alive` comment after every 15 s without a frame (`app/src-tauri/src/phone/mod.rs`
+    /// `KEEPALIVE_MS`, written in `listen.rs` `open_stream`), so a healthy stream is never quiet for
+    /// longer than that; 5 s more covers the route's own delay. Past it, the stream is half-open (the
+    /// Mac stopped answering, or the route dropped it without a word) and is closed and opened again
+    /// like any other loss. Before, the only detector was the stream request's 60 s idle timeout, so a
+    /// Mac that stopped answering with the app open went unexplained for over a minute and a message
+    /// sent meanwhile drew "Sending…" (iPhone walk D5, 2026-10-01). T3's single connection owner treats
+    /// an unanswered keepalive the same way (adoption ledger §2.8 C1, COPY THE DESIGN). Every byte
+    /// starts the wait again, and the wait exists only while a stream is open, on screen: no timer at
+    /// rest or in the background.
+    public static let silenceLimitMs: Int64 = 20_000
+
     public init(api: APIClient, stream: any EventStreamTransport, threadID: String?, clock: any Clock = SystemClock(),
                 sleep: @escaping Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0)) * 1_000_000) },
+                silence: @escaping Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0)) * 1_000_000) },
                 sink: @escaping Sink) {
         self.api = api; self.stream = stream; self.clock = clock; self.sink = sink; self.sleep = sleep
+        self.silence = silence
         self.threadID = threadID
         model = ThreadModel(selectedThread: threadID)
     }
@@ -146,7 +164,8 @@ public actor LiveConnection {
                 wakeOwed = false
                 await sink(.connected(at: clock.nowMs()))
                 var parser = SSEParser()
-                for try await chunk in bytes {
+                let watched = Self.watched(bytes, limitMs: Self.silenceLimitMs, wait: silence)
+                for try await chunk in watched {
                     guard mine == generation else { return }
                     let (events, comments) = parser.feed(chunk)
                     for event in events {
@@ -276,5 +295,80 @@ public actor LiveConnection {
             }
         }
         if !arrived.isEmpty { await sink(.messagesArrived(arrived)) }
+    }
+
+    /// The stream went quiet for longer than `silenceLimitMs`: lost, like a dropped socket.
+    struct StreamWentSilent: Error {}
+
+    /// `bytes`, ended with `StreamWentSilent` when nothing arrives for `limitMs`. Each chunk starts the
+    /// wait again. However this stream ends (silence, the Mac closing it, an error, or its reader
+    /// walking away), the wait is canceled and `bytes` is closed, so neither the timer nor the socket
+    /// outlives it.
+    static func watched(_ bytes: AsyncThrowingStream<Data, Error>, limitMs: Int64, wait: @escaping Sleep) -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            let watchdog = SilenceWatchdog(limitMs: limitMs, wait: wait) {
+                continuation.finish(throwing: StreamWentSilent())
+            }
+            let reader = Task {
+                await watchdog.arm()
+                do {
+                    for try await chunk in bytes {
+                        await watchdog.arm()
+                        continuation.yield(chunk)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+                await watchdog.disarm()
+            }
+            continuation.onTermination = { _ in
+                reader.cancel()
+                Task { await watchdog.disarm() }
+            }
+        }
+    }
+}
+
+/// One silence wait at a time for one open stream. `arm` replaces the wait in progress; a wait that
+/// was replaced or disarmed while it ran never fires.
+private actor SilenceWatchdog {
+    private let limitMs: Int64
+    private let wait: LiveConnection.Sleep
+    private let silent: @Sendable () -> Void
+    private var timer: Task<Void, Never>?
+    private var round = 0
+    private var over = false
+
+    init(limitMs: Int64, wait: @escaping LiveConnection.Sleep, silent: @escaping @Sendable () -> Void) {
+        self.limitMs = limitMs; self.wait = wait; self.silent = silent
+    }
+
+    func arm() {
+        guard !over else { return }
+        timer?.cancel()
+        round += 1
+        let mine = round
+        let wait = self.wait, limitMs = self.limitMs
+        // Written without `do`/`catch` and with a weak capture: the actor-isolated form
+        // (`do { try await wait(limitMs) } catch { return }` capturing `self`) aborted the process
+        // in `swift_task_dealloc` ("freed pointer was not the last allocation") under Xcode 26.3.
+        timer = Task { [weak self] in
+            guard (try? await wait(limitMs)) != nil else { return }
+            await self?.ranOut(mine)
+        }
+    }
+
+    func disarm() {
+        over = true
+        timer?.cancel()
+        timer = nil
+    }
+
+    private func ranOut(_ mine: Int) {
+        guard !over, mine == round else { return }
+        over = true
+        timer = nil
+        silent()
     }
 }

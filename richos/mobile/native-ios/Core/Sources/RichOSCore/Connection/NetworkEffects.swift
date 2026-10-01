@@ -12,6 +12,7 @@ public actor NetworkEffects: EffectHandler {
     private let clock: any Clock
     private let deviceName: String
     private let sleep: LiveConnection.Sleep
+    private let silence: LiveConnection.Sleep
     private var sink: LiveConnection.Sink?
     private var api: APIClient?
     private var live: LiveConnection?
@@ -38,10 +39,11 @@ public actor NetworkEffects: EffectHandler {
     public init(transport: any HTTPTransport, stream: any EventStreamTransport, identities: any IdentityStore,
                 recordings: (any RecordingStore)? = nil, attachments: (any AttachmentStore)? = nil,
                 clock: any Clock = SystemClock(), deviceName: String = "iPhone",
-                sleep: @escaping LiveConnection.Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0)) * 1_000_000) }) {
+                sleep: @escaping LiveConnection.Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0)) * 1_000_000) },
+                silence: @escaping LiveConnection.Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0)) * 1_000_000) }) {
         self.transport = transport; self.stream = stream; self.identities = identities; self.recordings = recordings
         self.attachments = attachments
-        self.clock = clock; self.deviceName = deviceName; self.sleep = sleep
+        self.clock = clock; self.deviceName = deviceName; self.sleep = sleep; self.silence = silence
     }
 
     /// Where the live connection's actions go (the store). Set once, before the first `connect`.
@@ -290,7 +292,8 @@ public actor NetworkEffects: EffectHandler {
         let identity = connectionIdentity(state)
         let checkpoint = replayIdentity == identity ? await replay?.value : nil
         guard mine == lifecycle, live == nil else { return }
-        let connection = LiveConnection(api: api, stream: stream, threadID: state.mac?.threadID, clock: clock, sleep: sleep, sink: sink)
+        let connection = LiveConnection(api: api, stream: stream, threadID: state.mac?.threadID, clock: clock, sleep: sleep,
+                                        silence: silence, sink: sink)
         // Record ownership before actor hops; a later disconnect still wins over start.
         live = connection
         replayIdentity = identity
