@@ -1129,6 +1129,8 @@ else
       PATH) continue ;;
       # The values a build genuinely hands a gate. E1's property is "the environment a
       # build hands it", so these are the build's own values, not invented ones.
+      # The build's own folder (nightly-local.py gate_tmpdir), never the caller's.
+      TMPDIR) E1ENV+=("TMPDIR=$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")") ;;
       PYTHONDONTWRITEBYTECODE) E1ENV+=("PYTHONDONTWRITEBYTECODE=1") ;;
       CARGO_PROFILE_DEV_DEBUG) E1ENV+=("CARGO_PROFILE_DEV_DEBUG=0") ;;
       CARGO_PROFILE_TEST_DEBUG) E1ENV+=("CARGO_PROFILE_TEST_DEBUG=0") ;;

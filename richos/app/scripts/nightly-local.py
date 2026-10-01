@@ -848,12 +848,12 @@ def strip_identity_overrides(env):
 # without it". Values are never listed, only names; what a name holds is the machine's
 # business.
 GATE_PASSTHROUGH = (
-    # The machine's identity and scratch space. cargo, rustup, playwright's browser cache,
-    # git's own config, the login keychain and `gh`'s credential store all live under HOME.
+    # The machine's identity. cargo, rustup, playwright's browser cache, git's own config, the
+    # login keychain and `gh`'s credential store all live under HOME. TMPDIR is NOT here: the
+    # build sets it (gate_tmpdir), so a suite's scratch paths never depend on who started it.
     "HOME",
     "USER",
     "LOGNAME",
-    "TMPDIR",
     # Text encoding. Without these a subprocess can decode its own output differently than
     # the run that measured it, which is a suite that fails on one terminal and not another.
     "LANG",
@@ -888,6 +888,8 @@ GATE_PASSTHROUGH = (
 # next time a variable is added. `nightly-local.py gate-environment` prints it.
 GATE_SET_BY_BUILD = (
     "PATH",
+    # macOS's per-user temporary folder, whatever the launching shell held (gate_tmpdir).
+    "TMPDIR",
     "PYTHONDONTWRITEBYTECODE",
     "CARGO_PROFILE_DEV_DEBUG",
     "CARGO_PROFILE_TEST_DEBUG",
@@ -922,6 +924,31 @@ GATE_SET_PER_STEP = (
 )
 
 
+def gate_tmpdir(environ=None):
+    """The temporary folder every gate's commands get: macOS's per-user one, never the caller's.
+
+    WHY NOT THE LAUNCHING SHELL'S (2026-10-01). Nightly attempt 2 failed cargo-cache-env.test.sh
+    with "sccache: error: path must be shorter than SUN_LEN": a Unix socket under
+    `$TMPDIR/<mktemp>/...` fits in the 104 bytes macOS allows only when TMPDIR is short. A
+    build started from a terminal passes through `/var/folders/<..>/T/` (57 bytes once
+    resolved to /private/var/...); an agent's shell can hand down something shorter, and the
+    same suite then passes for the engineer and fails in the nightly. So the build names ONE
+    folder, the one `getconf DARWIN_USER_TEMP_DIR` reports for this account, and
+    proof-run.py's checks get the same one from this function (gate_conditions). Only when
+    that cannot be read (not macOS) does the caller's TMPDIR stand in.
+    """
+    environ = os.environ if environ is None else environ
+    try:
+        out = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
+                             text=True, timeout=10, stdin=subprocess.DEVNULL)
+        folder = out.stdout.strip() if out.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        folder = ""
+    if folder and Path(folder).is_dir():
+        return folder
+    return environ.get("TMPDIR") or tempfile.gettempdir()
+
+
 def local_environment(run_id=None):
     """Return (environment, credentials). Nothing merges them but the signing steps.
 
@@ -936,9 +963,27 @@ def local_environment(run_id=None):
     # simply never reach a gate. Reading them from `os.environ` rather than popping them out
     # of `env` is what lets both be true at once.
     credentials = split_credentials(os.environ.copy())
-    env = {name: os.environ[name] for name in GATE_PASSTHROUGH if name in os.environ}
+    credentials.pop("TAURI_SIGNING_PRIVATE_KEY", None)  # The key's literal bytes: the path form is used.
+    credentials.update(notary_environment(Path.home() / ".richos-signing/notary.env"))
+    credentials["TAURI_SIGNING_PRIVATE_KEY_PATH"] = str(private_file(
+        credentials.get("TAURI_SIGNING_PRIVATE_KEY_PATH", Path.home() / ".richos-signing/richos-updater.key")))
+    credentials["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"] = credentials.get("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
+    return gate_environment(os.environ, run_id), credentials
+
+
+def gate_environment(environ, run_id=None, strict=True):
+    """What every gate's commands get, built from `environ` (the operator's shell). No credential.
+
+    The one place this environment is built: local_environment() hands it to the gates, and
+    gate_conditions() hands the same values to the checks proof-run.py runs before a nightly.
+    `strict=False` (gate_conditions only) leaves out RICHOS_NAMED_PERSONS_FILE when the
+    privacy list is not an owner-private file here, instead of refusing; the build itself
+    always refuses.
+    """
+    env = {name: environ[name] for name in GATE_PASSTHROUGH if name in environ}
     # Explicit PATH also works from a fresh terminal, without an interactive shell.
     env["PATH"] = f"{Path.home()}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    env["TMPDIR"] = gate_tmpdir(environ)
     # NOT NEEDED ANY MORE, AND KEPT AS A PROOF RATHER THAN A STEP. Every name these two
     # removed -- GIT_AUTHOR_*, GIT_COMMITTER_*, EMAIL, RICHOS_EXTRA_TAURI_CONFIG,
     # TAURI_CONFIG, CARGO_TARGET_DIR, RUN_TESTS_DECLARED_GAPS -- is absent from
@@ -952,15 +997,14 @@ def local_environment(run_id=None):
         raise ValueError(
             f"GATE_PASSTHROUGH admits {', '.join(leaked)}, which a gate must never take from "
             "the operator's shell. Remove the name from the allowlist.")
-    credentials.pop("TAURI_SIGNING_PRIVATE_KEY", None)  # The key's literal bytes: the path form is used.
-    credentials.update(notary_environment(Path.home() / ".richos-signing/notary.env"))
-    credentials["TAURI_SIGNING_PRIVATE_KEY_PATH"] = str(private_file(
-        credentials.get("TAURI_SIGNING_PRIVATE_KEY_PATH", Path.home() / ".richos-signing/richos-updater.key")))
-    credentials["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"] = credentials.get("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
     # Not a credential: the privacy deny-list that engine/scripts/lib/named-persons.py
     # reads (line 297) for the `named-persons.sh --tree` gate. It stays with the gates.
-    env["RICHOS_NAMED_PERSONS_FILE"] = str(private_file(
-        env.get("RICHOS_NAMED_PERSONS_FILE", Path.home() / ".richos-privacy/named-persons")))
+    named = env.pop("RICHOS_NAMED_PERSONS_FILE", Path.home() / ".richos-privacy/named-persons")
+    try:
+        env["RICHOS_NAMED_PERSONS_FILE"] = str(private_file(named))
+    except (OSError, ValueError):
+        if strict:
+            raise
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["CARGO_PROFILE_DEV_DEBUG"] = "0"
     env["CARGO_PROFILE_TEST_DEBUG"] = "0"
@@ -968,7 +1012,91 @@ def local_environment(run_id=None):
     env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=15"
     env["RICHOS_NIGHTLY_RUN_ID"] = run_id or (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
-    return env, credentials
+    return env
+
+
+def script_suites_environment(simulated_phones, skip_unchanged=False):
+    """What the script-suites gate adds for `run-tests.sh`, beyond gate_environment().
+
+    Every value is written here rather than taken from the operator's shell, for the same
+    reason DECLARED_GAPS is: a stray export must not be able to hold back a suite or skip one.
+    The gate and gate_conditions() both call this, so the checks run before a nightly meet
+    exactly these values (nightly attempt 2: merge-check-scope.test.py read the inherited
+    RICHOS_IOS_POOL_WAIT and failed only here).
+    """
+    extra = {"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS,
+             # THE PHONE APPS ARE NOT THIS BUILD (CEO, 2026-09-26: "the native
+             # mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT APPS ... So, WHY
+             # THE FUCK ARE THEY PART OF THE SAME FUCKING BUILD???"). `--for
+             # desktop` leaves out every suite phone-app-suites.tsv names, so
+             # native-ios-app's middle-size case A8 (RICHOS_NATIVE_IOS_APP_A8) is no
+             # longer set here: it runs in the iPhone app's release check, and a
+             # suite that no longer runs here has nothing to be told.
+             #
+             # No suite this build keeps leases an iPhone simulator. The pool's two
+             # settings are still stated here, literally, so that a desktop suite
+             # that someday does lease one queues for this gate's own deadline (run
+             # 20260925T190759Z-2b4b0a7e: two suites gave up at the CLI's 300 s
+             # default) and gets the operator's number, never the shell's.
+             "RICHOS_IOS_POOL_WAIT": str(GATE_BUDGETS["gates/script-suites"]),
+             # The operator's own number, from the command line (never the shell).
+             SIMULATED_PHONES_ENV: str(simulated_phones)}
+    if skip_unchanged:
+        extra["RUN_TESTS_SKIP_UNCHANGED"] = "1"
+    return extra
+
+
+# THE NIGHTLY'S CONDITIONS, MET BEFORE THE NIGHTLY (2026-10-01). Five nightly attempts in one
+# night each failed on a suite that had passed for its engineer: one under the build's long
+# TMPDIR, one under a variable only the build sets (RICHOS_IOS_POOL_WAIT). The suites met the
+# build's environment for the first time inside the build. proof-run.py -- the merge gate,
+# autocheck's land checks and every engineer's proof run -- now hands each check of a suite a
+# nightly gate runs what that gate would hand it, from gate_conditions() below, which is built
+# by the same functions the gates call. Nothing is copied, so the two cannot drift: a value
+# added to gate_environment() or script_suites_environment() reaches the checks with no
+# second edit. A name the gates get that the checks deliberately do NOT is declared here, with
+# the reason, and nightly-local.test.py fails on any other difference.
+CONDITIONS_GATES = ("gates/script-suites", UI_SUITE_GATE)
+CONDITIONS_NOT_REPRODUCED = {
+    "RICHOS_RUNTIME_DIR": "set by Runner.runtime() to <state>/runtime once verify-runtime.py "
+                          "accepts it; proof-run.py's supply_runtime() hands a check that same "
+                          "verified folder itself, or says why it could not",
+    "RUN_TESTS_SKIP_UNCHANGED": "the operator's choice to skip a suite whose inputs passed "
+                                "before; it decides which suites run, not what they run under, "
+                                "and a check that honored it could skip the very suite it was "
+                                "asked to run (autocheck.py removes it for the same reason)",
+}
+# A run id in the build's own shape (local_environment), fixed so that a check's input identity
+# (proof_evidence.checkout_identity hashes RICHOS_* values) is the same from one run to the next.
+CONDITIONS_RUN_ID = "20000101T000000Z-00000000"
+# The smallest number `--simulated-phones` accepts. No suite a nightly gate runs leases a
+# simulator; a check on a shared Mac never claims more than one.
+CONDITIONS_SIMULATED_PHONES = 1
+
+
+def gate_conditions(gate, environ=None):
+    """(conditions, missing): what nightly `gate` sets for its commands, whatever the shell held.
+
+    `conditions` maps each name the build itself sets for that gate (GATE_SET_BY_BUILD and the
+    gate's own per-step values) to the build's value; the names a check inherits from the
+    shell anyway (GATE_PASSTHROUGH) are not repeated. `missing` maps a name the build would set
+    and this machine cannot reproduce here (the privacy list is not an owner-private file) to
+    why, so the caller can say so instead of silently testing less.
+    """
+    if gate not in CONDITIONS_GATES:
+        raise ValueError(f"no nightly conditions are declared for {gate}; "
+                         f"declared: {', '.join(CONDITIONS_GATES)}")
+    environ = os.environ if environ is None else environ
+    env = gate_environment(environ, CONDITIONS_RUN_ID, strict=False)
+    if gate == "gates/script-suites":
+        env.update(script_suites_environment(CONDITIONS_SIMULATED_PHONES))
+    conditions = {name: value for name, value in env.items()
+                  if name not in CONDITIONS_NOT_REPRODUCED
+                  and (name not in GATE_PASSTHROUGH or name in GATE_SET_BY_BUILD)}
+    missing = {name: "the build refuses to start without it; it is not an owner-private file here"
+               for name in GATE_SET_BY_BUILD
+               if name not in env and name not in CONDITIONS_NOT_REPRODUCED}
+    return conditions, missing
 
 
 def walk_recipe(bundle_zip, run_id, temp_root=None):
@@ -1742,29 +1870,10 @@ class Runner:
 
         def script_suites():
             with self.phase("gates/script-suites"):
-                # Every one of these is written literally at this call site rather than taken
-                # from the operator's shell, for the same reason DECLARED_GAPS is: a stray
-                # export must not be able to hold back a suite or skip one.
-                extra = {"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS,
-                         # THE PHONE APPS ARE NOT THIS BUILD (CEO, 2026-09-26: "the native
-                         # mobile apps are 2 COMPLETELY INDEPENDENT DIFFERENT APPS ... So, WHY
-                         # THE FUCK ARE THEY PART OF THE SAME FUCKING BUILD???"). `--for
-                         # desktop` below leaves out every suite phone-app-suites.tsv names, so
-                         # native-ios-app's middle-size case A8 (RICHOS_NATIVE_IOS_APP_A8) is no
-                         # longer set here: it runs in the iPhone app's release check, and a
-                         # suite that no longer runs here has nothing to be told.
-                         #
-                         # No suite this build keeps leases an iPhone simulator. The pool's two
-                         # settings are still stated here, literally, so that a desktop suite
-                         # that someday does lease one queues for this gate's own deadline (run
-                         # 20260925T190759Z-2b4b0a7e: two suites gave up at the CLI's 300 s
-                         # default) and gets the operator's number, never the shell's.
-                         "RICHOS_IOS_POOL_WAIT": str(GATE_BUDGETS["gates/script-suites"]),
-                         # The operator's own number, from the command line (never the shell).
-                         SIMULATED_PHONES_ENV: str(self.simulated_phones)}
-                if skip_unchanged:
-                    extra["RUN_TESTS_SKIP_UNCHANGED"] = "1"
-                args = ["bash", self.source / SCRIPTS / "run-tests.sh", "--for", "desktop",
+                # Written in script_suites_environment(), which gate_conditions() also calls,
+                # so the checks run before a nightly meet these exact values.
+                extra = script_suites_environment(self.simulated_phones, skip_unchanged)
+                args =["bash", self.source / SCRIPTS / "run-tests.sh", "--for", "desktop",
                         "--results-out", results]
                 if no_host_screen:
                     args.append("--no-host-screen")
