@@ -1683,6 +1683,10 @@ t "frame-probe: an all-black frame measures black, a lit one lit, an undecodable
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/frame-probe.test.py" >"$TMP/frame-probe.log" 2>&1; ok $? "$(cat "$TMP/frame-probe.log")"
 t_done
 
+t "steps-walk: steps run in order and are recorded, the first failure stops the walk unless allowed, an unknown step fails"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/steps-walk.test.py" >"$TMP/steps-walk.log" 2>&1; ok $? "$(cat "$TMP/steps-walk.log")"
+t_done
+
 t "adopt-walk: phone-only, left Registered at the boundary, each way to fail named"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/adopt-walk.test.py" >"$TMP/adopt-walk.log" 2>&1; ok $? "$(cat "$TMP/adopt-walk.log")"
 t_done
