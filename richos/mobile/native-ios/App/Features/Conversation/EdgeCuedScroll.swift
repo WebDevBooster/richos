@@ -30,7 +30,10 @@ struct EdgeCuedScroll<Content: View>: View {
                 })
         }
         .coordinateSpace(name: Self.space)
-        .onPreferenceChange(ContentTopKey.self) { offset = max(0, -$0) }
+        .onPreferenceChange(ContentTopKey.self) { top in
+            if #unavailable(iOS 18) { offset = max(0, -top) }
+        }
+        .scrollOffset($offset)
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.hidden)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport = $0 }
@@ -63,4 +66,18 @@ struct EdgeCuedScroll<Content: View>: View {
 private struct ContentTopKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private extension View {
+    /// Where the content has scrolled to, as the system reports it where it can (iOS 18 and later); on
+    /// iOS 17 the content's own frame in the region says it (`ContentTopKey`).
+    @ViewBuilder func scrollOffset(_ offset: Binding<CGFloat>) -> some View {
+        if #available(iOS 18, *) {
+            onScrollGeometryChange(for: CGFloat.self) { max(0, $0.contentOffset.y + $0.contentInsets.top) } action: { _, new in
+                offset.wrappedValue = new
+            }
+        } else {
+            self
+        }
+    }
 }
