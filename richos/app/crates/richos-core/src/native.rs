@@ -942,7 +942,10 @@ enum TurnPhase {
 ///
 /// A child that emits no `command_lifecycle` for our uuid leaves the phase `Unconfirmed`, and
 /// then `queued_turn_count` alone decides — weaker (a count, not an identity) and still
-/// strictly better than "the next result wins". A child that offers NEITHER field does what
+/// strictly better than "the next result wins". **The count is that child's fallback only:**
+/// once a child has named one of our turns, a later prompt it has not named yet is waiting
+/// for admission, and no count decides for it (finding 47). The one turn still on the count
+/// is a lease's first, before the child has shown either way. A child that offers NEITHER field does what
 /// this file did before 2026-09-18: the next `result` is delivered. That is the honest floor,
 /// and it is named here rather than hidden.
 struct PendingTurn {
@@ -953,9 +956,30 @@ struct PendingTurn {
     /// previous turn's message.
     command_uuid: String,
     phase: TurnPhase,
+    /// **Had this child already named a turn THIS client sent, when this one was parked?**
+    /// (`ReaderState::turns_named_by_the_child`, copied at the send.) Hunt 2026-09-29 part 1
+    /// v2, finding 47: on such a child `Unconfirmed` is not "the child says nothing about
+    /// turns", it is "the child has not admitted OUR message yet" — the schema says a command
+    /// sent with a uuid is named (`queued`/`started`, or `completed` before the result on the
+    /// fold path) before any `result` can be its own. So a `result` that arrives first ends a
+    /// turn that was already running, and the count on it is not consulted.
+    child_names_turns: bool,
 }
 
 impl PendingTurn {
+    /// **Is the turn in flight positively NOT ours yet?** True when the child said our
+    /// message is still queued, or when a child that names its turns has not named this one
+    /// yet (finding 47). Every place that decides whether a frame belongs to this prompt asks
+    /// this one question, so the result, the streamed frames, the permission records and the
+    /// background-command reading cannot disagree about whose turn is running.
+    fn not_yet_ours(&self) -> bool {
+        match self.phase {
+            TurnPhase::Queued => true,
+            TurnPhase::Unconfirmed => self.child_names_turns,
+            TurnPhase::Running => false,
+        }
+    }
+
     /// **Does this `result` belong to a turn that is not ours?** The whole decision, in one
     /// place, from the child's own words and nothing else.
     fn result_is_another_turns(&self, result: &Value) -> bool {
@@ -974,7 +998,14 @@ impl PendingTurn {
         // platform's result to this prompt. On the fold path the child says `completed`
         // BEFORE the result (schema, quoted on [`PendingTurn`]), so `Queued` here never means
         // our message was folded into this turn.
-        if self.phase == TurnPhase::Queued {
+        //
+        // **And a child that has named our turns before has not named this one yet** (hunt
+        // 2026-09-29 part 1 v2, finding 47): the closing `result` of an earlier platform or
+        // background turn, still unread when this prompt was parked, carries
+        // `queued_turn_count: 0` because our message had not even been enqueued when it was
+        // produced. Read by the count it ended this prompt empty, and the real answer then
+        // streamed onto the between-turn lane.
+        if self.not_yet_ours() {
             return true;
         }
         match result.get("queued_turn_count").and_then(Value::as_u64) {
@@ -2422,7 +2453,7 @@ impl NativeClient {
                     .lock()
                     .unwrap()
                     .as_ref()
-                    .is_some_and(|pending| pending.phase != TurnPhase::Queued);
+                    .is_some_and(|pending| !pending.not_yet_ours());
                 state.lock().unwrap().note_background(&msg, ours_running);
             }
         }
@@ -2781,7 +2812,9 @@ impl NativeClient {
             // one the platform injected — and streaming it here would attribute another
             // turn's words to this one (§1.4 G4). Retained on the between-turn lane, where
             // it attaches to the THREAD and to no turn at all, which is what it is.
-            Some(pending) if pending.phase == TurnPhase::Queued => false,
+            // The same holds for a child that names its turns and has not named this one yet
+            // (finding 47): what it streams is still the earlier turn's.
+            Some(pending) if pending.not_yet_ours() => false,
             Some(pending) => pending.sink.send(chunk).is_ok(),
             None => false,
         };
@@ -2857,7 +2890,7 @@ impl NativeClient {
             let routed = match current.lock().unwrap().as_ref() {
                 // Same rule as `route`: a turn whose message is still in the child's queue
                 // has not started, so this record is the running turn's and not its.
-                Some(pending) if pending.phase == TurnPhase::Queued => false,
+                Some(pending) if pending.not_yet_ours() => false,
                 Some(pending) => pending.sink.send(m.to_chunk()).is_ok(),
                 None => false,
             };
@@ -2997,11 +3030,15 @@ impl NativeClient {
                 let mut current = self.current_prompt.lock().unwrap();
                 if self.reader_closed.load(Ordering::SeqCst) { return Err(NativeError::Closed); }
                 // Parked with the id it was sent under, and `Unconfirmed` until the child
-                // says otherwise — never assuming the next `result` is this turn's.
+                // says otherwise — never assuming the next `result` is this turn's. Whether
+                // the child has named our turns before is read here, with the park (finding
+                // 47; see `PendingTurn::child_names_turns`).
+                let child_names_turns = self.reader_state.lock().unwrap().turns_named_by_the_child;
                 *current = Some(PendingTurn {
                     sink: tx,
                     command_uuid: command_uuid.clone(),
                     phase: TurnPhase::Unconfirmed,
+                    child_names_turns,
                 });
                 // **Every turn starts with him having heard nothing**, and the reset belongs
                 // here — with the send, under the same lock that decides a turn is in flight —
@@ -6933,6 +6970,58 @@ read -r keep_alive
             })
             .unwrap();
         assert_eq!(said, "It printed bg-marker-done.", "the platform's own turn answered this prompt");
+    }
+
+    /// **An earlier turn's closing `result`, still unread when the next prompt is parked,
+    /// never ends that prompt on a child that names its turns** (hunt 2026-09-29 part 1 v2,
+    /// finding 47; the witness is `part-1-codex-v2/witness-v2.rs` in richos-hq, ported here).
+    ///
+    /// The first turn establishes that this child names our turns. For the second, a platform
+    /// or background turn's `result` with `queued_turn_count: 0` reaches the reader BEFORE any
+    /// lifecycle for our message — the count is 0 because our message had not been enqueued
+    /// when that result was produced.
+    ///
+    /// **RED at `c6cde6cc9`**: the parked prompt was `Unconfirmed`, so the count decided and the
+    /// old result returned `end_turn` with no answer; "actual answer" streamed afterwards onto
+    /// the between-turn lane.
+    #[test]
+    fn an_earlier_turns_result_never_ends_a_prompt_the_naming_child_has_not_named_yet() {
+        let script = write_script("earlier-result-before-our-lifecycle", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+test -n "$ours" || exit 9
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"started\"}"
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+test -n "$ours" || exit 9
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0,"result":"old platform result"}'
+sleep 0.2
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"started\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"actual answer"}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("first", &mut |_| {}).unwrap();
+        let mut said = String::new();
+        let reason = client
+            .prompt("second", &mut |item| {
+                if let TurnItem::Text { text, .. } = item {
+                    said.push_str(text);
+                }
+            })
+            .unwrap();
+        assert_eq!(reason, "end_turn");
+        assert_eq!(said, "actual answer", "an earlier turn's result ended this prompt before its own answer");
+        // The earlier result is retained on the between-turn lane rather than dropped (§1.4 G5).
+        assert!(
+            client.between.lock().unwrap().queue.iter().any(|i| matches!(i,
+                BetweenItem::Frame(f) if f.get("result").and_then(Value::as_str) == Some("old platform result"))),
+            "the earlier turn's result reached neither this turn nor the between-turn lane",
+        );
     }
 
     /// **A background command is read off the provider's own frames, whichever turn they
