@@ -51,9 +51,12 @@ public final class URLSessionTransport: NSObject, HTTPTransport, EventStreamTran
     }
 
     public func open(_ request: HTTPRequest, origin: String) async throws -> (response: HTTPResponse, bytes: AsyncThrowingStream<Data, Error>) {
-        // A stream stays open indefinitely; the Mac's heartbeat keeps it alive, and silence longer
-        // than this is a dead connection the owner reopens.
-        var r = try urlRequest(request, origin: origin, timeout: 60)
+        // A stream stays open indefinitely; the Mac's keep-alive (every 15 s without a frame) keeps it
+        // alive, and silence longer than this is a dead connection the owner reopens. The same limit
+        // as the owner's own watchdog (`LiveConnection.silenceLimitMs`), so it also bounds an open
+        // that never gets its answer; it was 60 s, which left a quiet Mac unexplained for a minute
+        // (iPhone walk D5).
+        var r = try urlRequest(request, origin: origin, timeout: TimeInterval(LiveConnection.silenceLimitMs) / 1000)
         r.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let (bytes, response) = try await session.bytes(for: r, delegate: self)
         let head = try Self.head(response)

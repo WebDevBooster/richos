@@ -36,6 +36,8 @@ public final class AppStore {
     @ObservationIgnored private var completionDeadline: Task<Void, Never>?
     @ObservationIgnored private var deliveryTask: Task<[Action], Never>?
     @ObservationIgnored private var delivering: OutboxItem?
+    /// The delivery given up because the stream to the Mac was lost (`connectionLost`).
+    @ObservationIgnored private var linkLostDelivery: String?
     @ObservationIgnored private var historyTask: Task<[Action], Never>?
     @ObservationIgnored private var historyGeneration = 0
     /// Pairing v2's probe for the press on the Mac, while one is in flight. Leaving the screen
@@ -144,6 +146,18 @@ public final class AppStore {
             macWaitTask = nil
             startCompletionDeadline()
         case .foregrounded: foreground = true
+        case .connectionLost:
+            // The stream to the Mac is lost (dropped, or silent past `LiveConnection.silenceLimitMs`)
+            // while a message is on its way: the request is given up and the message waits, saying
+            // so, and goes again under the same id when the stream reopens (`connected` pumps; the
+            // Mac keeps one copy per id, `app/src-tauri/src/phone/delivery.rs` `Duplicate`). Left to
+            // run, a request to a Mac that stopped answering drew "Sending…" until its own 30 s
+            // timeout (iPhone walk D5). Only on screen: in the background no stream is open, and the
+            // bounded completion owns what is in flight.
+            if foreground, let delivering, deliveryTask != nil {
+                linkLostDelivery = delivering.clientID
+                deliveryTask?.cancel()
+            }
         default: break
         }
         if let transaction {
@@ -266,6 +280,11 @@ public final class AppStore {
         }
         transaction = task
         return task
+    }
+
+    private static func isRetryableFailure(_ action: Action) -> Bool {
+        if case .deliveryFailed(_, .retryable, _) = action { return true }
+        return false
     }
 
     private static func isCleanup(_ effect: Effect) -> Bool {
@@ -433,7 +452,14 @@ public final class AppStore {
         let actions = await task.value
         deliveryTask = nil
         delivering = nil
-        // A cancelled adapter may have no result. Preserve the durable entry as waiting.
+        let lostLink = linkLostDelivery == id
+        if lostLink { linkLostDelivery = nil }
+        // Given up because the stream was lost: waiting, not a failed attempt, unless the Mac's
+        // answer (an acceptance or a refusal) arrived before the cancel did.
+        if task.isCancelled, lostLink, actions.allSatisfy(Self.isRetryableFailure) {
+            return [.deliveryFailed(clientID: id, failure: .retryable(reason: "link-lost", afterMs: 0), at: SystemClock().nowMs())]
+        }
+        // A canceled adapter may have no result. Preserve the durable entry as waiting.
         if task.isCancelled, actions.isEmpty {
             return [.deliveryFailed(clientID: id, failure: .retryable(reason: "background-budget", afterMs: 0), at: SystemClock().nowMs())]
         }
