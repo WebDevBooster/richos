@@ -46,7 +46,7 @@ not-asked|on|off|denied` sets the notification state it starts in (`not-asked` s
 the empty conversation).
 
 **Scenarios** (`compose-draft`, `pair-by-scan`, `pair-mac-wait`, `pair-mac-hold`, `pair-refused-and-rejected`, `outbox-retry`,
-`outbox-refused-continues`, `offline-reconnect`, `voice-hold-send`, `voice-lock-send`,
+`outbox-refused-continues`, `offline-reconnect`, `voice-hold-send`, `voice-lock-send`, `voice-echo-before-receipt`,
 `voice-interrupted`, `voice-mic-denied`, `revoked`) carry their own checks and run identically headless and in the
 simulator (`sim verify` requires byte-identical results).
 
