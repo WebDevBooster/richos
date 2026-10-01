@@ -11,11 +11,12 @@ your scratch directory, for example `esc.json`:
  "state": "work-complete | proceeding | stopped",
  "question": "<the smallest question that would unblock this>",
  "for": "lead | ceo",
+ "needs": "ceo-hands",
  "tried": "<what you already tried>",
  "meanwhile": "<what you are proceeding on>"}
 ```
 
-`for`, `tried` and `meanwhile` are optional. Then run, from your own worktree:
+`for`, `needs`, `tried` and `meanwhile` are optional. Then run, from your own worktree:
 
 ```
 ~/.claude/richos-engine/scripts/escalate.sh raise --fields <path to esc.json>
@@ -39,13 +40,21 @@ the answer. `stopped` — the whole task depends on the answer and work has stop
 notices the lead sees quote whichever you chose, and only `stopped` is framed as blocking, so
 be accurate rather than modest.
 
+**`needs` says whose hands it takes, which `for` cannot.** Add `"needs": "ceo-hands"` when the
+answer needs the CEO physically at a device: an approval, Touch ID, a passcode, a login, a
+cable. `for` stays whose decision it is (usually `lead`, who fetches him). The lead is woken
+with a `ceo-hands` escalation first and again every 10 minutes until it is acknowledged. Any
+other value is refused. If a tool already raised one for the same need (the phone tool does at
+its approval refusal and prints the id), do not raise a second: one need, one id.
+
 **Why this is no longer a file you commit.** On 2026-09-02 two teammates did exactly what the
 old protocol said: each wrote `BLOCKED.md` at the root of its worktree and committed it. Both
 were RIGHT to. Their escalations were found on 2026-09-04 by a worktree cleanup, because a
 file on your branch is read only by whoever merges your branch — and you can never see
 whether your branch was merged. `escalate.sh` writes to a ledger outside every repository and
 every session, which the lead's session reads at every session start and at every turn end
-with nothing merged, and which gets LOUDER at 1h, 24h and 72h until somebody acknowledges it.
+with nothing merged, whose stall watcher wakes an idle lead with it within a minute, and which
+gets LOUDER at 1h, 24h and 72h until somebody acknowledges it.
 Separately, the repository root is nine entries by permanent CEO ruling, so a root
 `BLOCKED.md` would be refused at the write today. The command writes its own record file
 under `docs/verification/`, which is where that ruling says a block record belongs; commit it
