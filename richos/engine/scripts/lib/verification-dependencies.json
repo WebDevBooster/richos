@@ -4619,7 +4619,7 @@
     },
     "scripts/lib/failure-type.py": {
       "source": "scripts/lib/failure-type.py",
-      "sha256": "ce7b83a67ec1960d46b5697bc4aadcfa5fc273ed321200deea71c4ac0da69d38",
+      "sha256": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
       "evidence": "Complete reviewed analyzer reads supplied register/transcript/corpus and fixed Git metadata; payload commands are inspected as strings, never executed. Configuration reaches it only as explicit RICHOS_FT_* wrapper arguments. The fixed left-off import uses just its human classifiers.",
       "keys": [],
       "edges": [
@@ -4696,7 +4696,7 @@
     },
     "scripts/hooks/failure-type.test.sh": {
       "source": "scripts/hooks/failure-type.test.sh",
-      "sha256": "d540d43e3550ab716a362e2effe9f09ebe1bceea2daac8cf1bd2489911030bff",
+      "sha256": "59a268fcbfbe1b56b60e69d59753352931ab690010a7a97041345639881d6459",
       "evidence": "Builds private seat and record repositories, literal FAILURE_TYPE_REGISTER/CHECK_FAILURE_TYPE configuration and private transcripts. Hook calls always use that entity root; direct analyzer calls classify corpus data. The finite nested mutation suite reconstructs these fixtures. No real hook manifest or config contents are read. Optional external corpus remains a data/runtime input, not a reuse grant.",
       "keys": [],
       "edges": [
@@ -15986,9 +15986,9 @@
         "scripts/hooks/detect-nonnative-worktree.sh": "11fe1d4301e448a709fa0117b1b7df797f3dc7750233d275f09b4d749a150dee",
         "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
-        "scripts/lib/failure-type.py": "ce7b83a67ec1960d46b5697bc4aadcfa5fc273ed321200deea71c4ac0da69d38",
+        "scripts/lib/failure-type.py": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
         "scripts/lib/left-off.py": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
-        "scripts/hooks/failure-type.test.sh": "d540d43e3550ab716a362e2effe9f09ebe1bceea2daac8cf1bd2489911030bff",
+        "scripts/hooks/failure-type.test.sh": "59a268fcbfbe1b56b60e69d59753352931ab690010a7a97041345639881d6459",
         "scripts/hooks/failure-type.mutation.sh": "b9bc6705e29fd7b055c3c94e90aaceb978c404693e22ed4888bf3bc20134122f",
         "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
         "scripts/hooks/guard-brief-scope.sh": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
@@ -16626,9 +16626,9 @@
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
-        "scripts/lib/failure-type.py": "ce7b83a67ec1960d46b5697bc4aadcfa5fc273ed321200deea71c4ac0da69d38",
+        "scripts/lib/failure-type.py": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
         "scripts/lib/left-off.py": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
-        "scripts/hooks/failure-type.test.sh": "d540d43e3550ab716a362e2effe9f09ebe1bceea2daac8cf1bd2489911030bff",
+        "scripts/hooks/failure-type.test.sh": "59a268fcbfbe1b56b60e69d59753352931ab690010a7a97041345639881d6459",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
         "scripts/hooks/failure-type.mutation.sh": "b9bc6705e29fd7b055c3c94e90aaceb978c404693e22ed4888bf3bc20134122f",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",

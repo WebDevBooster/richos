@@ -628,24 +628,79 @@ def bash_reads_register(cmd, reg_path, rel, base):
         verb = os.path.basename(words[0])
         args, redirected = [], False
         for w in words[1:]:
-            if w in ("<", "<<", "<<<"):
+            if w in ("<<", "<<<"):
+                redirected = "text"  # a here-document or here-string operand is TEXT on stdin, never a file
+                continue
+            if w == "<":
                 redirected = True
                 continue
             if w.startswith(">") or re.match(r"^\d*>", w):
                 redirected = None  # an output redirect: its operand is written, not read
                 continue
-            if redirected is None:
+            if redirected is None or redirected == "text":
                 redirected = False
                 continue
             args.append(w)
         if verb not in _READER_WORDS:
             continue
-        for a in args:
+        files, program, rest = _reader_operands(verb, args)
+        for a in files:
             if path_matches_register(a, reg_path, rel, base):
                 return True
-            if verb in _INTERPRETERS and base in a:
-                return True
+        if program is not None and _READ_CALL.search(program) and (
+                base in program or any(path_matches_register(a, reg_path, rel, base) for a in rest)):
+            return True
     return False
+
+
+# An interpreter's one-line program READS a file only when it calls something that
+# reads (P5-57). Its text naming the register, as a print string, proves nothing.
+_READ_CALL = re.compile(r"open\s*\(|read_text|read_bytes|\.read\s*\(|readlines|readline|"
+                        r"File\.(?:read|open|foreach)|IO\.(?:read|readlines|foreach)|"
+                        r"fs\.read|readFile|<>|<STDIN>|getline")
+_PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg", "sed", "awk"}
+_OPT_VALUE = {"grep": {"-m", "-A", "-B", "-C", "--max-count", "--include", "--exclude"},
+              "egrep": {"-m", "-A", "-B", "-C"}, "fgrep": {"-m", "-A", "-B", "-C"},
+              "rg": {"-m", "-A", "-B", "-C", "-g", "-t", "--glob", "--type", "--max-count"},
+              "sed": {"-l"}, "awk": {"-v", "-F"}}
+_PROGRAM_FLAGS = {"-e", "--regexp", "--expression"}
+_PROGRAM_FILE_FLAGS = {"-f", "--file"}
+
+
+def _reader_operands(verb, args):
+    """(files read, interpreter program text or None, args after the program) for one reader.
+
+    The first positional of grep, sed, awk and rg is a pattern or program, never a
+    file, unless -e/-f gave it already; an interpreter run with -c/-e carries its
+    program in the next argument. Only the real file operands count as reads."""
+    if verb in _INTERPRETERS:
+        for i, a in enumerate(args):
+            if a in ("-c", "-e", "-E", "-ne", "-pe", "-ane") and i + 1 < len(args):
+                prog, rest = args[i + 1], args[i + 2:]
+                # perl and ruby treat what follows the program as files; python as argv
+                return ([] if verb in ("python", "python3") else rest), prog, rest
+        return [a for a in args if not a.startswith("-")], None, []
+    if verb not in _PATTERN_FIRST:
+        return [a for a in args if not a.startswith("-")], None, []
+    files, have_program, skip = [], False, False
+    valued = _OPT_VALUE.get(verb, set())
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a in _PROGRAM_FLAGS:
+            have_program, skip = True, True
+        elif a in _PROGRAM_FILE_FLAGS:
+            have_program = True  # the pattern or program FILE is itself read: keep the operand
+        elif a in valued:
+            skip = True
+        elif a.startswith("-") and a != "-":
+            continue
+        elif not have_program:
+            have_program = True  # the pattern or program text
+        else:
+            files.append(a)
+    return files, None, []
 
 
 def path_matches_register(arg, reg_path, rel, base):
