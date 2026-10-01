@@ -15,6 +15,10 @@ the one place that decides WHEN.
           branch  the checked-out branch ("" when detached)
           base    the merge base with main (narrow only)
           root    the checkout's top level
+    workspace_scope.py fields <dir> [--full]
+        The same decision as one line, `<scope>:<base>:<branch>`, for a shell that must not
+        `eval` (ci-shard.sh: the engine's input qualifier refuses dynamic evaluation). Git
+        forbids `:` in a branch name, and the branch is last, so `IFS=: read -r` is exact.
     workspace_scope.py changed <root> <base>
         Every path the working tree differs in from <base>, committed or not, plus untracked
         files; repository-relative, one per line.
@@ -157,6 +161,10 @@ def main(argv):
             for key in ("scope", "why", "branch", "base", "root"):
                 print("%s=%s" % (key, shlex.quote(got[key])))
             return 0
+        if cmd == "fields" and rest:
+            got = decide(rest[0], full="--full" in rest[1:])
+            print("%s:%s:%s" % (got["scope"], got["base"], got["branch"]))
+            return 0
         if cmd == "changed" and len(rest) == 2:
             print("\n".join(changed(*rest)))
             return 0
@@ -169,7 +177,7 @@ def main(argv):
     except ValueError as exc:
         print("workspace_scope: %s" % exc, file=sys.stderr)
         return 64
-    print("workspace_scope: usage: decide <dir> [--full] | changed <root> <base> | "
+    print("workspace_scope: usage: decide|fields <dir> [--full] | changed <root> <base> | "
           "lines <root> <base> <path> | inputs <suite>", file=sys.stderr)
     return 64
 

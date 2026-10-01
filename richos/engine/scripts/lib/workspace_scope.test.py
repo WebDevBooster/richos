@@ -101,6 +101,16 @@ class Decide(unittest.TestCase):
         self.assertEqual(ws.lines(str(wt), base, 'new.txt'), [1, 2])
         self.assertEqual(ws.lines(str(wt), base, 'gone.txt'), [])
 
+    def test_w6_the_fields_form_reads_without_eval_even_with_no_branch(self):
+        wt = worktree(self.main, 'wt', 'cc/fixture-four')
+        base = git(self.main, 'rev-parse', 'main')
+        detached = worktree(self.main, 'nightly', None, detach=True)
+        script = 'IFS=: read -r scope base branch <<<"$(python3 "$1" fields "$2")"; printf "%s|%s|%s\\n" "$scope" "$base" "$branch"'
+        for where, want in ((wt, 'narrow|%s|cc/fixture-four' % base), (detached, 'full||')):
+            out = subprocess.run(['bash', '-c', script, 'x', str(HERE / 'workspace_scope.py'), str(where)],
+                                 capture_output=True, text=True, env=CLEAN)
+            self.assertEqual(out.stdout.strip(), want, out.stderr)
+
     def test_w5_a_suites_inputs_claim_files_and_whole_directories(self):
         suite = Path(self.tmp) / 's.test.sh'
         suite.write_text('#!/bin/bash\n# run-tests: inputs dir/sub file.sh\n')

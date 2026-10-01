@@ -438,10 +438,11 @@ SCOPE_TOOL="$SCRIPT_DIR/lib/workspace_scope.py"
 if [ "$FULL" -eq 1 ]; then
     export RICHOS_TEST_SCOPE=full
 elif [ -z "$SHARD" ] && [ -z "$ONLY_UNITS" ] && [ -z "$UNITS_FILE" ] && [ -f "$SCOPE_TOOL" ]; then
-    decided="$(python3 "$SCOPE_TOOL" decide "$ENGINE_ROOT")" \
+    # Read as fields, never eval'd: the engine's input qualifier refuses dynamic evaluation.
+    decided="$(python3 "$SCOPE_TOOL" fields "$ENGINE_ROOT")" \
         || die "could not decide whether this is a workspace run; nothing ran" 2
-    scope=""; why=""; branch=""; base=""; root=""
-    eval "$decided"
+    scope=""; base=""; branch=""
+    IFS=: read -r scope base branch <<<"$decided"
     if [ "$scope" = narrow ]; then
         where="workspace run on ${branch:-this checkout}, compared with main at ${base:0:12}"
         units="$(bash "$SCRIPT_DIR/ci-affected-units.sh" --working --base "$base")" \

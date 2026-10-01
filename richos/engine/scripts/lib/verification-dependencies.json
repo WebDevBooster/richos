@@ -11859,7 +11859,7 @@
     },
     "scripts/ci-shard.sh#synthetic-fixture": {
       "source": "scripts/ci-shard.sh",
-      "sha256": "4b6a4dee7cd05966c06251fd2f5b614a3b39b8b9cd69c303e70b66657d130c3e",
+      "sha256": "bbee6b1bdb8df69393af33929afe06cba2d59760db430611dd38437cb1c3690f",
       "evidence": "Reached through ci-shard.test.sh synthetic inventory only. Executes literal fixture suites and known-red shell predicates supplied by that test. Plan/weights/receipts/canary data do not execute config. The optional target-provenance route is not requested by the fixture. All actual runner helpers are bound below. The teammate-workspace default (2026-10-01: no selector in a cc/ worktree runs what ci-affected-units.sh maps the branch to; reads RICHOS_TEST_SCOPE through lib/workspace_scope.py) is inert here: the fixture copies no lib/workspace_scope.py, so that branch is skipped and neither the library nor ci-affected-units.sh is executed.",
       "keys": [],
       "edges": [
@@ -12109,7 +12109,7 @@
     },
     "scripts/ci-shard.sh#boundary-fixture": {
       "source": "scripts/ci-shard.sh",
-      "sha256": "4b6a4dee7cd05966c06251fd2f5b614a3b39b8b9cd69c303e70b66657d130c3e",
+      "sha256": "bbee6b1bdb8df69393af33929afe06cba2d59760db430611dd38437cb1c3690f",
       "evidence": "Runner-boundaries fixture copies this runner into a synthetic engine and creates literal marker/status suites and known-red data. No target-proof receipt route; all actual runner helper sources remain bound. The teammate-workspace default (2026-10-01; lib/workspace_scope.py, ci-affected-units.sh, RICHOS_TEST_SCOPE) is inert here: the synthetic engine has no lib/workspace_scope.py, so that branch is skipped.",
       "keys": [],
       "edges": [
@@ -14416,7 +14416,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/ci-shard.sh",
-          "sha256": "4b6a4dee7cd05966c06251fd2f5b614a3b39b8b9cd69c303e70b66657d130c3e",
+          "sha256": "bbee6b1bdb8df69393af33929afe06cba2d59760db430611dd38437cb1c3690f",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
