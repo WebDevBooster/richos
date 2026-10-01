@@ -72,11 +72,12 @@ class EchoReconciliationTest {
         suspend fun start(): Phone { open(); receive(history); return this }
     }
 
-    private fun row(id: String, cursor: Int, role: String, text: String, kind: String = "text") = CoreJson.encodeToString(
-        Row.serializer(),
-        Row(id = id, threadId = "general", cursor = cursor.toLong(), role = role, kind = kind, text = text,
-            createdAt = "2026-09-24T13:00:00.000Z", state = "sent", complete = true),
-    )
+    private fun row(id: String, cursor: Int, role: String, text: String, kind: String = "text", clientId: String? = null) =
+        CoreJson.encodeToString(
+            Row.serializer(),
+            Row(id = id, threadId = "general", cursor = cursor.toLong(), role = role, kind = kind, text = text,
+                createdAt = "2026-09-24T13:00:00.000Z", state = "sent", complete = true, clientId = clientId),
+        )
 
     private fun frame(id: Int, event: String, data: String) = "id: $id\nevent: $event\ndata: $data\n\n"
 
@@ -218,23 +219,37 @@ class EchoReconciliationTest {
         assertEquals(listOf("t2:user", "c1"), shown(phone.core.state, "needs you"), "Try again and Discard stay reachable")
     }
 
-    @Test fun `a voice message is matched to its echo by the transcript the Mac made, in either order`() = runTest {
-        for (echoFirst in listOf(false, true)) {
+    /**
+     * A voice message is ONE line from the tap to the Mac's row, whichever of the receipt and the
+     * echo arrives first. The Mac's row names the recording by this phone's own id (`client_id`,
+     * `phone/rows.rs` `client_id_of`), so an echo that beats the receipt is recognized on arrival.
+     * An older Mac sends `client_id: null`: the echo is then matched by the transcript's hash from
+     * the receipt, and the receipt reconciles it to one line, as before. The iPhone's rule:
+     * `EchoBeforeAcceptanceTests.aVoiceMessageEndsAsOneLineWithTheRecordingsIdentity`.
+     */
+    @Test fun `a voice message is one line whichever of its echo and its receipt arrives first`() = runTest {
+        for (echoFirst in listOf(false, true)) for (macKeepsTheId in listOf(true, false)) {
+            val case = "echoFirst=$echoFirst macKeepsTheId=$macKeepsTheId"
             val phone = Phone(hello(*earlier)).start()
             phone.transcript = "call the bank"
             val send = launch { phone.core.dispatch(Action.SendVoice(Recording("rec-1", 4.5), clientId = "v1")) }
             testScheduler.runCurrent()
-            val echo = frame(5, "message", row("t2:user", 3, "ceo", "call the bank"))
-            if (echoFirst) phone.receive(echo)
+            val mine = { phone.core.state.transcript.drop(earlier.size).map { it.key } }
+            assertEquals(listOf("v1"), mine(), "$case: on its way")
+            val echo = frame(5, "message", row("t2:user", 3, "ceo", "call the bank", clientId = if (macKeepsTheId) "v1" else null))
+            if (echoFirst) {
+                phone.receive(echo)
+                if (macKeepsTheId) assertEquals(listOf("v1"), mine(), "$case: the echo beat the receipt: one line, the recording's")
+            }
             phone.gate.complete(Unit)
             send.join()
             if (!echoFirst) {
-                assertTrue(phone.core.state.transcript.last().let { it is Line.Accepted && it.message.kind == "voice" })
+                assertTrue(phone.core.state.transcript.last().let { it is Line.Accepted && it.message.kind == "voice" }, case)
                 phone.receive(echo)
             }
             val line = phone.core.state.transcript.last()
-            assertTrue(line is Line.Mac && line.key == "v1" && line.echo?.kind == "voice" && line.echo?.seconds == 4.5, "echoFirst=$echoFirst")
-            assertEquals(3, phone.core.state.transcript.size, "echoFirst=$echoFirst: one line for the voice message")
+            assertTrue(line is Line.Mac && line.key == "v1" && line.echo?.kind == "voice" && line.echo?.seconds == 4.5, case)
+            assertEquals(3, phone.core.state.transcript.size, "$case: one line for the voice message")
         }
     }
 
