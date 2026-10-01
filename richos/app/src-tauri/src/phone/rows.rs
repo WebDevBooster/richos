@@ -78,7 +78,7 @@ pub fn row_from_item(item: &Value) -> Option<Value> {
                 "thread_id": thread_id,
                 "cursor": 0,
                 "role": "ceo",
-                "kind": if spoken { "voice" } else { "text" },
+                "kind": message_kind(spoken, item),
                 "text": text,
                 "created_at": iso8601(created_at),
                 // The phone's own id for this message when a phone sent it, else `null`.
@@ -131,6 +131,28 @@ fn client_id_of(source: &Value) -> Value {
     }
 }
 
+/// **A CEO row's `kind`: `"voice"` for anything he said rather than typed.** Two facts make it
+/// so, and either is enough:
+///
+/// - `source: "jam"`, a turn spoken at the Mac in voice mode (which also sets
+///   `from_microphone`);
+/// - `voiceNote: true`, the transcript of a voice message he recorded on a phone
+///   (`Turn::voice_note`, kept from the intake record the voice upload wrote).
+///
+/// The second is read off the same gated JSON as everything else here, on the projection and on
+/// the live `ceo-message` alike, so the row that beats the phone's receipt is already a voice
+/// row. Until it was, that row said `"text"` and the phone drew the transcript as a text bubble
+/// until the receipt arrived. `from_microphone` is deliberately left to `jam` alone: it is the
+/// web phone's "Spoken" label for the desk's voice mode, and an older phone reading it must see
+/// exactly what it saw before. Anything that is not the boolean `true` is not a voice note.
+fn message_kind(spoken: bool, source: &Value) -> &'static str {
+    if spoken || source.get("voiceNote") == Some(&Value::Bool(true)) {
+        "voice"
+    } else {
+        "text"
+    }
+}
+
 /// One live event as the phone's `(event name, data)`, or `None` when the phone has no use for
 /// it.
 ///
@@ -164,7 +186,9 @@ pub fn event_from_live(name: &str, payload: &Value, cursor: u64) -> Option<(&'st
                     "thread_id": thread_id,
                     "cursor": cursor,
                     "role": "ceo",
-                    "kind": if spoken { "voice" } else { "text" },
+                    // **THE ROW THAT CAN BEAT THE RECEIPT**, so a voice note is a voice row here
+                    // already — see [`message_kind`].
+                    "kind": message_kind(spoken, payload),
                     "text": payload.get("text").and_then(|v| v.as_str()).unwrap_or(""),
                     // The TURN's instant, not this event's: the projected row carries the same
                     // one, and two timestamps for one message is two orderings for one thread.
@@ -440,6 +464,39 @@ mod tests {
         assert_eq!(row["client_id"], "v1", "the live row for a phone message, which can beat its receipt");
         let (_, row) = live("rich://ceo-message", at);
         assert_eq!(row["client_id"], Value::Null, "typed at the Mac: no id to give");
+    }
+
+    /// **A phone voice note is a voice row from its first appearance on the phone stream.** The
+    /// live `ceo-message` is the row that can beat the phone's receipt; it used to say
+    /// `kind: "text"` for a voice note (only `jam` made a voice row), so the phone drew the
+    /// transcript as a text bubble until the receipt arrived. The fixture is the shape
+    /// `LiveEvent::CeoMessage::payload` writes for a voice note (`source: "text"`, `clientId`,
+    /// `voiceNote: true`), and the projected item (hello, backfill, history after a reconnect)
+    /// is checked by the same rule. Positive controls: a typed phone message and a malformed
+    /// flag stay text, and `from_microphone` stays the desk's voice mode only.
+    #[test]
+    fn a_phone_voice_note_is_a_voice_row_before_and_after_its_receipt_and_a_typed_one_is_text() {
+        let note = json!({ "text": "call the bank", "source": "text", "clientId": "v1", "voiceNote": true,
+                           "createdAt": 1_758_200_000_000u64 });
+        let (name, row) = live("rich://ceo-message", note);
+        assert_eq!(name, "message");
+        assert_eq!(row["kind"], "voice", "the early echo of a voice note: {row}");
+        assert_eq!(row["client_id"], "v1");
+        assert_eq!(row["from_microphone"], false, "not the desk's voice mode; older phones see what they saw");
+
+        let typed = json!({ "text": "call the bank", "source": "text", "clientId": "t1", "createdAt": 1u64 });
+        assert_eq!(live("rich://ceo-message", typed).1["kind"], "text", "a typed phone message stays text");
+        for not_a_flag in [json!(false), json!("true"), json!(1), Value::Null] {
+            let odd = json!({ "text": "x", "source": "text", "voiceNote": not_a_flag.clone(), "createdAt": 1u64 });
+            assert_eq!(live("rich://ceo-message", odd).1["kind"], "text", "voiceNote {not_a_flag} is not a voice note");
+        }
+
+        let mut projected = payload();
+        projected["items"][0]["voiceNote"] = json!(true);
+        let rows = rows_from_payload(&projected);
+        assert_eq!(rows[0]["kind"], "voice", "the projected row of a voice note");
+        assert_eq!(rows[0]["from_microphone"], false);
+        assert_eq!(rows_from_payload(&payload())[0]["kind"], "text", "the same message typed");
     }
 
     #[test]
