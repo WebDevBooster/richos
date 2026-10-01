@@ -209,6 +209,27 @@ for f in Fixture.all {
 }
 check(Set(expect.keys) == Set(Fixture.all.map(\.name)), "every expectation names a fixture the core has")
 
+// R1 (the iPhone re-walk, 2026-10-01): with no internet the waiting card says the phone is offline,
+// not that the Mac is unreachable (the header says the same); and Forget says it also discards an
+// unsent kept recording, only when there is one.
+do {
+    func waitingDetail(_ notice: ConnectionNotice) -> String {
+        var s = try! Fixture.named("conv-retry").state
+        s.connectionNotice = notice
+        for case .waitingToSend(let n, let off) in ScreenModel(state: s).cards { return ScreenModel.Card.waitingDetail(count: n, phoneOffline: off) }
+        return ""
+    }
+    let offline = waitingDetail(.phoneOffline)
+    check(offline.contains("This phone is offline") && !offline.contains("Mac"), "no internet: the waiting card says the phone is offline (\(offline))")
+    let unreachable = waitingDetail(.macUnreachable)
+    check(unreachable.contains("Your Mac isn’t reachable"), "Mac unreachable: the waiting card still says so (\(unreachable))")
+    var forget = try! Fixture.named("settings-forget").state
+    check(ScreenModel(state: forget).dialog == .forget, "Forget with nothing kept: the plain dialog")
+    forget.keptRecordings = [Fixture.kept(.unsent, 5_000)]
+    check(ScreenModel(state: forget).dialog == .forgetDiscardsRecording, "Forget with a kept recording: the dialog that says it discards it too")
+    check(ScreenModel.Dialog.discardedRecordingNote.contains("recorded but did not send"), "the note says the unsent recording is discarded")
+}
+
 // The adopted T3 viewport geometry, with round 12's 80-point threshold.
 do {
     let g = TranscriptViewportGeometry(contentHeight: 1_200, viewportHeight: 400, topInset: 20, bottomInset: 100)
