@@ -36,6 +36,8 @@
 #         "state": "work-complete|proceeding|stopped",
 #         "question": "<the smallest question that would unblock>",
 #         "for": "lead|ceo",                          (optional, default lead)
+#         "needs": "ceo-hands",                       (optional: the answer needs
+#                                                      the CEO AT A DEVICE)
 #         "tried": "<what you already tried>",        (optional)
 #         "meanwhile": "<what you are proceeding on>"} (optional)
 #   2. escalate.sh raise --fields <path to esc.json>
@@ -51,7 +53,7 @@
 #   escalate.sh raise --title "<one line>" \
 #                     --state work-complete|proceeding|stopped \
 #                     --question "<the smallest question that would unblock>" \
-#                     [--for lead|ceo] \
+#                     [--for lead|ceo] [--needs ceo-hands] \
 #                     [--tried "<what you already tried>"] \
 #                     [--meanwhile "<what you are proceeding on>"] \
 #                     [--worktree <path>] [--teammate <name>] [--no-record]
@@ -66,6 +68,11 @@
 #
 #       --for names whose answer it is. `ceo` means only the CEO can decide it;
 #       the lead's job is then to route it or decide, but not neither.
+#
+#       --needs ceo-hands says whose HANDS it takes, which --for cannot: the
+#       answer needs the CEO physically at a device (an approval, Touch ID, a
+#       passcode, a login, a cable). The stall watcher wakes the lead with it
+#       first and again every 10 minutes until it is acknowledged.
 #
 # ===========================================================================
 # USAGE — the lead's half
@@ -119,7 +126,7 @@ case "$CMD" in
     -h|--help|help) usage; exit 0 ;;
 esac
 
-TITLE=""; STATE=""; AUDIENCE="lead"; QUESTION=""; TRIED=""; MEANWHILE=""
+TITLE=""; STATE=""; AUDIENCE="lead"; QUESTION=""; TRIED=""; MEANWHILE=""; NEEDS=""
 WT=""; TEAMMATE=""; DISPOSITION=""; TARGET=""; NO_RECORD=0; FORMAT="text"; UNTIL=""
 FIELDS=""; GIVEN=""
 while [ "$#" -gt 0 ]; do
@@ -127,6 +134,7 @@ while [ "$#" -gt 0 ]; do
         --title)       TITLE="${2:-}"; GIVEN="$GIVEN title"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         --state)       STATE="${2:-}"; GIVEN="$GIVEN state"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         --for)         AUDIENCE="${2:-}"; GIVEN="$GIVEN for"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
+        --needs)       NEEDS="${2:-}"; GIVEN="$GIVEN needs"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         --question)    QUESTION="${2:-}"; GIVEN="$GIVEN question"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         --tried)       TRIED="${2:-}"; GIVEN="$GIVEN tried"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
         --meanwhile)   MEANWHILE="${2:-}"; GIVEN="$GIVEN meanwhile"; shift 2 || { echo "$(basename "$0"): $1 needs a value" >&2; exit 2; } ;;
@@ -166,6 +174,7 @@ if [ -n "$FIELDS" ]; then
             title)       TITLE="$FIELD_VAL" ;;
             state)       STATE="$FIELD_VAL" ;;
             for)         AUDIENCE="$FIELD_VAL" ;;
+            needs)       NEEDS="$FIELD_VAL" ;;
             question)    QUESTION="$FIELD_VAL" ;;
             tried)       TRIED="$FIELD_VAL" ;;
             meanwhile)   MEANWHILE="$FIELD_VAL" ;;
@@ -249,7 +258,7 @@ fi
 # thing that failed before in front of the thing that replaced it.
 OUT="$(python3 "$ESCALATIONS_PY" raise \
     --title "$TITLE" --state "$STATE" --for "$AUDIENCE" --question "$QUESTION" \
-    --tried "$TRIED" --meanwhile "$MEANWHILE" \
+    --tried "$TRIED" --meanwhile "$MEANWHILE" --needs "$NEEDS" \
     --teammate "$TEAMMATE" --worktree "$WT" --branch "$BRANCH" \
     --repo "$REPO_NAME" --head "$HEAD_SHA" --record "$RECORD")"
 RC=$?
@@ -268,7 +277,9 @@ if [ -n "$RECORD" ]; then
             printf -- '- worktree: `%s` (branch `%s`)\n' "$WT" "$BRANCH"
             [ -n "$HEAD_SHA" ] && printf -- '- head: `%s`\n' "$HEAD_SHA"
             printf -- '- state: **%s**\n' "$STATE"
-            printf -- '- for: %s\n\n' "$AUDIENCE"
+            printf -- '- for: %s\n' "$AUDIENCE"
+            if [ -n "$NEEDS" ]; then printf -- '- needs: **%s** (the answer needs the CEO at a device)\n' "$NEEDS"; fi
+            printf '\n'
             printf '## The question\n\n%s\n\n' "$QUESTION"
             if [ -n "$TRIED" ]; then printf '## What was already tried\n\n%s\n\n' "$TRIED"; fi
             if [ -n "$MEANWHILE" ]; then printf '## Proceeding meanwhile\n\n%s\n\n' "$MEANWHILE"; fi
@@ -299,6 +310,9 @@ fi
 [ -n "$RECORD_NOTE" ] && echo "  note    : $RECORD_NOTE"
 echo "  state   : $STATE"
 echo "  for     : $AUDIENCE"
+if [ -n "$NEEDS" ]; then
+    echo "  needs   : $NEEDS (the lead is woken with it first, and again every 10 minutes until acknowledged)"
+fi
 echo ""
 echo "  It is announced to the lead at every session start and at every turn end, and it"
 echo "  gets LOUDER at 1h, 24h and 72h until somebody acknowledges it. You do not have to"

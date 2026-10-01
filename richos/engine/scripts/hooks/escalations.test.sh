@@ -929,6 +929,57 @@ case "$OUT" in
 esac
 
 # ===========================================================================
+# 19. needs: ceo-hands — WHOSE HANDS, which `for` cannot say (2026-10-01).
+#     (Numbered 19 but run here, so case 17's canary watches it.)
+#
+# On 2026-10-01 a teammate's question that needed the CEO at the test iPhone
+# was `for: lead`, rightly: the lead fetches him. `for` names whose DECISION it
+# is; nothing named whose HANDS. The stall watcher tells a `needs: ceo-hands`
+# escalation first and every 10 minutes, so the field must arrive exactly, and
+# any other value must be refused rather than stored as a word nobody reads.
+# ===========================================================================
+L19="$SANDBOX/state/needs.jsonl"
+WT19="$SANDBOX/wt19"
+mkdir -p "$WT19/docs"
+rows19() { [ -f "$L19" ] && grep -c . "$L19" || printf '0'; }
+printf '%s' '{"title": "the test iPhone will ask for Touch ID at the phone", "state": "proceeding", "for": "lead", "needs": "ceo-hands", "question": "Can the CEO be at the test iPhone within the next ten minutes?"}' > "$SANDBOX/esc19.json"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L19" "$ESCALATE" raise --fields "$SANDBOX/esc19.json" \
+        --worktree "$WT19" --teammate zach-opus-e1needs --no-record 2>&1)"
+RC=$?
+NEEDS19="$(python3 -c 'import json,sys; r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; print(r[-1].get("needs",""))' "$L19" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ "$NEEDS19" = "ceo-hands" ]; then
+    ok "19a a fields file with \"needs\": \"ceo-hands\" raises, and the row carries needs=ceo-hands"
+else bad "19a needs from the fields file" "rc=$RC needs='$NEEDS19': $OUT"; fi
+N19="$(rows19)"
+printf '%s' '{"title": "t19b", "state": "proceeding", "needs": "ceo", "question": "a question long enough to pass the floor"}' > "$SANDBOX/esc19-bad.json"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L19" "$ESCALATE" raise --fields "$SANDBOX/esc19-bad.json" \
+        --worktree "$WT19" --teammate zach-opus-e1needs --no-record 2>&1)"
+RC=$?
+if [ "$RC" -eq 2 ] && [ "$(rows19)" = "$N19" ] && printf '%s' "$OUT" | grep -qF "needs must be"; then
+    ok "19b any other needs value is refused (exit 2), nothing appended"
+else bad "19b needs vocabulary" "rc=$RC rows $N19 -> $(rows19): $OUT"; fi
+OUT="$(RICHOS_ESCALATION_LEDGER="$L19" "$ESCALATE" raise --title "t19c by option" --state stopped \
+        --question "a question long enough to pass the floor" --needs ceo-hands \
+        --worktree "$WT19" --teammate zach-opus-e1needs --no-record 2>&1)"
+RC=$?
+NEEDS19="$(python3 -c 'import json,sys; r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; print(r[-1].get("needs",""), r[-1].get("title",""))' "$L19" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ "$NEEDS19" = "ceo-hands t19c by option" ]; then
+    ok "19c --needs ceo-hands on the command line does the same"
+else bad "19c --needs option" "rc=$RC got '$NEEDS19': $OUT"; fi
+CTX19="$(RICHOS_ESCALATION_LEDGER="$L19" python3 "$ENG/scripts/lib/escalations.py" list --format session-context 2>&1)"
+if printf '%s' "$CTX19" | grep -qF "NEEDS THE CEO AT A DEVICE"; then
+    ok "19d the lead's model reads it: the entry says NEEDS THE CEO AT A DEVICE"
+else bad "19d needs in model_entry" "$CTX19"; fi
+printf '%s' '{"title": "t19e", "state": "proceeding", "question": "a question long enough to pass the floor"}' > "$SANDBOX/esc19-none.json"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L19" "$ESCALATE" raise --fields "$SANDBOX/esc19-none.json" \
+        --worktree "$WT19" --teammate zach-opus-e1needs --no-record 2>&1)"
+RC=$?
+HAS19="$(python3 -c 'import json,sys; r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; print("needs" in r[-1])' "$L19" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ "$HAS19" = "False" ]; then
+    ok "19e without needs nothing changes: the row carries no needs key"
+else bad "19e no needs" "rc=$RC has_needs=$HAS19: $OUT"; fi
+
+# ===========================================================================
 # 16. SOURCE MUTATION — is the LOUDNESS carried by the age buckets, or by luck?
 #
 # Case 6 shows an aged escalation speaking again. That is worth nothing until

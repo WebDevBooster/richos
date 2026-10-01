@@ -187,9 +187,18 @@ import re
 import sys
 from datetime import datetime, timezone
 
-# --- the two closed vocabularies ------------------------------------------
+# --- the closed vocabularies -----------------------------------------------
 STATES = ("work-complete", "proceeding", "stopped")
 AUDIENCES = ("lead", "ceo")
+# `needs` (2026-10-01): WHOSE HANDS the answer takes, which `for` cannot say.
+# On 2026-10-01 three escalations that needed the CEO physically at the test
+# iPhone were all `for: lead`, rightly: the lead fetches him. One value, closed:
+# `ceo-hands` means the answer needs the CEO AT A DEVICE (an approval, Touch ID,
+# a passcode, a login, a cable). The stall watcher tells such an escalation
+# first and every 10 minutes (stall_watch.py, ESCALATION). Optional: absent is
+# the ordinary case, and a row without it is exactly as before.
+NEEDS = ("ceo-hands",)
+NEEDS_GLOSS = {"ceo-hands": "NEEDS THE CEO AT A DEVICE (an approval, Touch ID, a passcode, a login, a cable)"}
 
 # Minutes. See the header: one median run segment, one day, past the incident.
 AGE_BUCKETS = ((72 * 60, "72h"), (24 * 60, "24h"), (60, "1h"), (0, "new"))
@@ -444,7 +453,7 @@ def build_row(args, when=None):
     teammate = (args.teammate or "").strip()
     title = (args.title or "").strip()
     worktree = os.path.abspath(os.path.expanduser(args.worktree)) if args.worktree else ""
-    return {
+    row = {
         "event": "Escalation",
         "id": make_id(when, teammate, title, worktree),
         "raised": iso(when),
@@ -463,6 +472,11 @@ def build_row(args, when=None):
         "session_id": (args.session or os.environ.get("CLAUDE_SESSION_ID", "") or "").strip(),
         "actor": _actor(),
     }
+    needs = (getattr(args, "needs", "") or "").strip()
+    if needs:
+        # Only when given: a row without it is exactly the row it always was.
+        row["needs"] = needs
+    return row
 
 
 def validate_raise(args):
@@ -478,6 +492,12 @@ def validate_raise(args):
             "teaches teammates not to raise them." % " ".join(STATES))
     if args.audience not in AUDIENCES:
         problems.append("--for must be one of: %s" % " ".join(AUDIENCES))
+    needs = (getattr(args, "needs", "") or "").strip()
+    if needs and needs not in NEEDS:
+        problems.append(
+            "--needs must be one of: %s, or left out. It says the answer needs the CEO "
+            "physically at a device; any other word would be stored and read by nothing."
+            % " ".join(NEEDS))
     q = (args.question or "").strip()
     if len(q) < MIN_QUESTION:
         problems.append(
@@ -513,6 +533,8 @@ def render_text(rows, bad, now=None):
         out.append("  state    : %s — %s"
                    % (e.get("state", ""), STATE_GLOSS.get(e.get("state", ""), "")))
         out.append("  for      : %s" % e.get("for", "lead"))
+        if e.get("needs"):
+            out.append("  needs    : %s — %s" % (e["needs"], NEEDS_GLOSS.get(e["needs"], "")))
         out.append("  title    : %s" % e.get("title", ""))
         out.append("  question : %s" % e.get("question", ""))
         if e.get("tried"):
@@ -585,10 +607,12 @@ def model_entry(e):
     Shared by the SessionStart block and the turn-end delivery, so the lead
     reads an escalation the same way whichever of the two brought it.
     """
-    return ("  [%s] %s (%s), from %s, state=%s (%s), for=%s. QUESTION: %s%s%s"
+    needs = e.get("needs") or ""
+    return ("  [%s] %s (%s), from %s, state=%s (%s), for=%s%s. QUESTION: %s%s%s"
             % (e["id"], e.get("title", ""), age_phrase(e.get("age_min")),
                e.get("teammate") or "<unnamed>", e.get("state", ""),
                STATE_GLOSS.get(e.get("state", ""), ""), e.get("for", "lead"),
+               (", needs=%s: %s" % (needs, NEEDS_GLOSS.get(needs, needs))) if needs else "",
                e.get("question", ""),
                (" TRIED: %s" % e["tried"]) if e.get("tried") else "",
                (" MEANWHILE: %s" % e["meanwhile"]) if e.get("meanwhile") else ""))
@@ -1080,7 +1104,7 @@ def cmd_show(args):
 # the caller keeps trailing newlines intact. escalate.sh assigns each value
 # through a fixed case statement: nothing from the file is ever evaluated.
 FIELD_NAMES = ("title", "state", "for", "question", "tried", "meanwhile",
-               "teammate", "worktree", "disposition", "until")
+               "teammate", "worktree", "disposition", "until", "needs")
 FIELDS_MAX_BYTES = 65536
 
 
@@ -1162,6 +1186,8 @@ def main(argv=None):
     r.add_argument("--head", default="")
     r.add_argument("--record", default="")
     r.add_argument("--session", default="")
+    r.add_argument("--needs", default="",
+                   help="ceo-hands when the answer needs the CEO physically at a device")
     r.set_defaults(func=cmd_raise)
 
     a = sub.add_parser("ack")
