@@ -449,6 +449,24 @@ try:
     check(a.state == "failed" and b.state == "passed" and b.started >= a.ended,
           "P6 the receipts check waits for the shards and runs even after one failed")
 
+    # P6b — the gate path stays whole. A runner started from a teammate workspace narrows by
+    # default (engine/scripts/lib/workspace_scope.py, 2026-10-01); every check this runner starts
+    # (the merge gate, a land, the engine nightly) is told RICHOS_TEST_SCOPE=full, whatever the
+    # caller's own shell says.
+    saved = os.environ.get("RICHOS_TEST_SCOPE")
+    os.environ["RICHOS_TEST_SCOPE"] = "narrow"
+    try:
+        scope = pr.Item("scope", os.path.join(pr.ROOT, "richos/app"),
+                        ["bash", "-c", 'test "$RICHOS_TEST_SCOPE" = full'], None, 1)
+        pr.run([scope], Args(), tmp, sampler=idle)
+    finally:
+        if saved is None:
+            os.environ.pop("RICHOS_TEST_SCOPE", None)
+        else:
+            os.environ["RICHOS_TEST_SCOPE"] = saved
+    check(scope.state == "passed", "P6b every check runs with RICHOS_TEST_SCOPE=full, so nothing it runs is narrowed",
+          (scope.state, scope.notes))
+
     # P7 — an UNCOVERED selection runs nothing and exits 1.
     r = subprocess.run([sys.executable, os.path.join(HERE, "proof-run.py"), "--log-dir", os.path.join(tmp, "p7"),
                         "--paths", "richos/mobile/zz-uncovered.sh"], capture_output=True, text=True)

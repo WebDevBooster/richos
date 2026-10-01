@@ -273,6 +273,27 @@
 #
 # `--list` prints the suites this run would start, one per line, and starts none. It takes
 # no worker token, so it answers at once even on a busy machine.
+#
+# =======================================================================================
+# A TEAMMATE WORKSPACE RUNS WHAT ITS BRANCH TOUCHES; `--full` IS EVERYTHING (2026-10-01)
+# =======================================================================================
+#
+# The CEO, 2026-10-01, after an engineer ran a whole iPhone UI suite seven times (828 s each)
+# to iterate on one test: the narrow run must be the default, not something each agent has to
+# remember. So in a teammate workspace (a `cc/` branch in a linked worktree; the decision is
+# `engine/scripts/lib/workspace_scope.py`'s, and nowhere else's):
+#
+#   * no `--only` and no `--for`: the suites are the ones `proof-for.sh` maps the branch's
+#     changed paths to (the same map an engineer is told to read), printed in one line with the
+#     command for everything. A branch that maps to no suite is REFUSED (exit 2), never a green
+#     run of nothing;
+#   * `--only <suite>`: that suite, which narrows its own cases where it can (native-ios-ui,
+#     native-android-ui);
+#   * `--full`: every suite, and RICHOS_TEST_SCOPE=full for each, so none of them narrows.
+#
+# The main checkout, the nightly (`--for`, and RICHOS_TEST_SCOPE=full in its gate environment)
+# and proof-run.py (RICHOS_TEST_SCOPE=full for every check: the merge gate, the land, the engine
+# nightly) are never narrowed.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -293,6 +314,7 @@ ONLY=""
 PROOF_OUT=""
 RESULTS_OUT=""
 FOR_BUILD=""
+FULL=""
 NO_HOST_SCREEN="${RUN_TESTS_NO_HOST_SCREEN:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -301,11 +323,12 @@ while [ $# -gt 0 ]; do
     --for)             FOR_BUILD="${2:-}"; shift 2 ;;
     --list)            shift ;;
     --no-host-screen)  NO_HOST_SCREEN=1; shift ;;
+    --full)            FULL=1; shift ;;
     --proof-out)       PROOF_OUT="${2:-}"; shift 2 ;;
     --results-out)     RESULTS_OUT="${2:-}"; shift 2 ;;
     *)
       echo "run-tests.sh: unknown argument '$1'." >&2
-      echo "              [--jobs N] [--only <suite>]... [--for desktop|ios|android|phone]" >&2
+      echo "              [--jobs N] [--only <suite>]... [--for desktop|ios|android|phone] [--full]" >&2
       echo "              [--list] [--no-host-screen] [--proof-out <path>] [--results-out <path>]" >&2
       exit 2 ;;
   esac
@@ -354,6 +377,59 @@ if [ -n "$ONLY" ]; then
   done
 else
   SUITES=("${ALL[@]}")
+fi
+
+# ---------------------------------------------------------------------------------------
+# THE WORKSPACE DEFAULT (CEO, 2026-10-01). See the header's `--full` section.
+# ---------------------------------------------------------------------------------------
+# `--full` is everything, and every suite it starts is told so (a heavy suite started alone
+# from a workspace narrows itself otherwise). With no selection at all in a teammate workspace,
+# the suites are the ones proof-for.sh maps the branch's changed paths to; a suite given by
+# `--only` narrows its own cases. A standalone fixture copy has no engine and no workspace.
+SCOPE_TOOL="$DIR/../../engine/scripts/lib/workspace_scope.py"
+SCOPE_LINE=""
+if [ -n "$FULL" ]; then
+  export RICHOS_TEST_SCOPE=full
+elif [ -z "$ONLY" ] && [ -z "$FOR_BUILD" ] && [ -f "$SCOPE_TOOL" ] && [ -f "$DIR/proof-for.sh" ]; then
+  if ! _decided="$(python3 "$SCOPE_TOOL" decide "$DIR")"; then
+    echo "run-tests.sh: could not decide whether this is a workspace run; nothing ran." >&2
+    exit 2
+  fi
+  scope=""; why=""; branch=""; base=""; root=""
+  eval "$_decided"
+  if [ "$scope" = narrow ]; then
+    _paths="$(python3 "$SCOPE_TOOL" changed "$root" "$base" | tr '\n' ',' | sed 's/,$//')"
+    _where="workspace run on ${branch:-this checkout}, compared with main at ${base:0:12}"
+    _picked=""
+    if [ -n "$_paths" ]; then
+      _errf="$(mktemp "${TMPDIR:-/tmp}/run-tests-scope.XXXXXX")" || { echo "run-tests.sh: cannot create a scratch file." >&2; exit 2; }
+      _mapped="$(bash "$DIR/proof-for.sh" --paths "$_paths" --quiet 2>"$_errf")"; _rc=$?
+      _err="$(cat "$_errf" 2>/dev/null)"; rm -f "$_errf"
+      if [ "$_rc" -ne 0 ] && [ "$_rc" -ne 1 ]; then
+        [ -z "$_err" ] || printf '%s\n' "$_err" >&2
+        echo "run-tests.sh: REFUSED: $_where: proof-for.sh could not map the branch (exit $_rc)." >&2
+        echo "              Everything: scripts/run-tests.sh --full ; chosen suites: --only <suite>" >&2
+        exit 2
+      fi
+      # The suites of its `run-tests.sh --only ...` line and of its `bash scripts/<suite>` lines.
+      _picked="$(printf '%s\n' "$_mapped" | awk '
+        /scripts\/run-tests\.sh/ { for (i = 1; i < NF; i++) if ($i == "--only") print $(i + 1); next }
+        { for (i = 1; i <= NF; i++) if ($i ~ /^scripts\/[^\/]+\.test\.sh$/) { sub(/^scripts\//, "", $i); print $i } }' \
+        | LC_ALL=C sort -u)"
+    fi
+    KEPT=()
+    for t in "${SUITES[@]}"; do
+      if printf '%s\n' "$_picked" | grep -Fxq "$(basename "$t")"; then KEPT+=("$t"); fi
+    done
+    if [ "${#KEPT[@]}" -eq 0 ]; then
+      echo "run-tests.sh: REFUSED: $_where: proof-for.sh maps the branch to no suite under $DIR," >&2
+      echo "              so nothing would run. Everything: scripts/run-tests.sh --full ; chosen: --only <suite>" >&2
+      exit 2
+    fi
+    SUITES=("${KEPT[@]}")
+    _names="$(for t in "${SUITES[@]}"; do basename "$t"; done | tr '\n' ' ' | sed 's/ $//')"
+    SCOPE_LINE="run-tests.sh: $_where: the ${#SUITES[@]} suite(s) proof-for.sh maps it to: $_names. Everything: scripts/run-tests.sh --full"
+  fi
 fi
 
 # ---------------------------------------------------------------------------------------
@@ -451,6 +527,7 @@ if [ -n "$FOR_BUILD" ]; then
 fi
 
 if [ -n "$LISTING" ]; then
+  [ -z "$SCOPE_LINE" ] || echo "$SCOPE_LINE" >&2
   for t in "${SUITES[@]}"; do basename "$t"; done
   exit 0
 fi
@@ -839,6 +916,7 @@ while [ "$i" -lt "$N" ]; do
   i=$((i + 1))
 done
 
+[ -z "$SCOPE_LINE" ] || echo "$SCOPE_LINE"
 echo "${#ALL[@]} suite(s) discovered under $DIR"
 [ -z "$ONLY" ] || [ "$N" -eq "${#ALL[@]}" ] || echo "  --only: running $N of them"
 echo "  pool: $JOBS concurrent (override with --jobs N or RUN_TESTS_JOBS)"

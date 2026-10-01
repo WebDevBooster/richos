@@ -12,6 +12,14 @@
 #                                             (SpeckleOnScreensTest), and SpeckleTest's pinned
 #                                             numbers re-derived from the design system's own
 #                                             engine by bin/speckle-golden.mjs (also in --fast)
+#                                             In a teammate workspace (a cc/ branch in a linked
+#                                             worktree) only the test classes the branch adds or
+#                                             changes, plus those its changed files are claimed by
+#                                             (lib/android_ui_scope.py), with one line saying so;
+#                                             nothing mapped is a refusal (exit 64) naming the full
+#                                             command. proof-run.py and the nightlies set
+#                                             RICHOS_TEST_SCOPE=full and always get everything.
+#   native-android-ui.test.sh --full          everything, wherever it runs
 #   native-android-ui.test.sh <id|gN> …     only those screens (ids from round 12, or gN for a
 #                                             whole group); prints where the PNGs went
 #   native-android-ui.test.sh --list          every screen id, its group and title (no JVM)
@@ -37,6 +45,34 @@ if [ "${1:-}" = "--list" ]; then
   grep -ho 'ScreenSpec("[a-z0-9-]*", [0-9]*, "[^"]*", "[^"]*"' "${CATALOGS[@]}" \
     | sed -E 's/ScreenSpec\("([^"]*)", ([0-9]*), "[^"]*", "([^"]*)"/g\2  \1  \3/'
   exit 0
+fi
+
+PURE=(--tests 'dev.richos.android.design.*' --tests 'dev.richos.android.ui.catalog.*'
+      --tests 'dev.richos.android.ui.conversation.*' --tests 'dev.richos.android.ui.voice.*'
+      --tests 'dev.richos.android.ui.InteractionTest' --tests 'dev.richos.android.ui.pairing.*'
+      --tests 'dev.richos.android.ui.MacNameTest' --tests 'dev.richos.android.ui.SettingsFootnoteTest'
+      --tests 'dev.richos.android.ui.AttachWiringTest' --tests 'dev.richos.android.ui.MockupFidelityTest'
+      --tests 'dev.richos.android.ui.composer.*' --tests 'dev.richos.android.ui.IdleFramesTest'
+      --tests 'dev.richos.android.ui.CardsInViewTest' --tests 'dev.richos.android.ui.OutOfReachLineTest'
+      --tests 'dev.richos.android.ui.HeaderClearsWaitingCardTest')
+EVERYTHING=("${PURE[@]}" --tests 'dev.richos.android.ui.ScreensTest' --tests 'dev.richos.android.ui.SpeckleOnScreensTest')
+
+# The workspace default (CEO, 2026-10-01): with no selection, a teammate workspace runs only the
+# classes its branch touches. `--full` (or RICHOS_TEST_SCOPE=full) is everything, as before.
+FULL=""
+if [ "${1:-}" = "--full" ]; then FULL=1; shift; fi
+NARROW=()
+if [ "$#" -eq 0 ]; then
+  if ! SCOPE_OUT="$(python3 "$DIR/lib/android_ui_scope.py" workspace "$ROOT" "$DIR/$(basename "${BASH_SOURCE[0]}")" \
+       ${FULL:+--full} -- "${EVERYTHING[@]}")"; then
+    echo "native-android-ui: could not decide whether this is a workspace run; nothing ran" >&2
+    exit 64
+  fi
+  SCOPE=""; SCOPE_LINE=""; SCOPE_TESTS=()
+  eval "$SCOPE_OUT"
+  [ -z "$SCOPE_LINE" ] || echo "$SCOPE_LINE"
+  [ "$SCOPE" != refuse ] || exit 64
+  for c in ${SCOPE_TESTS[@]+"${SCOPE_TESTS[@]}"}; do NARROW+=(--tests "$c"); done
 fi
 
 VOLUME=/Volumes/E1TB
@@ -87,15 +123,6 @@ if ! printf '%s' "$golden" | node -e '
 fi
 echo "  ok  speckle-golden: the design system's engine gives exactly SpeckleTest's pinned caps and point fields"
 
-PURE=(--tests 'dev.richos.android.design.*' --tests 'dev.richos.android.ui.catalog.*'
-      --tests 'dev.richos.android.ui.conversation.*' --tests 'dev.richos.android.ui.voice.*'
-      --tests 'dev.richos.android.ui.InteractionTest' --tests 'dev.richos.android.ui.pairing.*'
-      --tests 'dev.richos.android.ui.MacNameTest' --tests 'dev.richos.android.ui.SettingsFootnoteTest'
-      --tests 'dev.richos.android.ui.AttachWiringTest' --tests 'dev.richos.android.ui.MockupFidelityTest'
-      --tests 'dev.richos.android.ui.composer.*' --tests 'dev.richos.android.ui.IdleFramesTest'
-      --tests 'dev.richos.android.ui.CardsInViewTest' --tests 'dev.richos.android.ui.OutOfReachLineTest'
-      --tests 'dev.richos.android.ui.HeaderClearsWaitingCardTest')
-
 if [ "${1:-}" = "--fast" ]; then
   "$RANDROID" test app -q "${PURE[@]}"
   code=$?
@@ -123,9 +150,10 @@ fi
 started=$(date +%s)
 if [ "$#" -gt 0 ]; then
   "$RANDROID" test app -q --rerun --tests 'dev.richos.android.ui.ScreensTest'
+elif [ "${#NARROW[@]}" -gt 0 ]; then
+  "$RANDROID" test app -q --rerun "${NARROW[@]}"
 else
-  "$RANDROID" test app -q --rerun "${PURE[@]}" --tests 'dev.richos.android.ui.ScreensTest' \
-    --tests 'dev.richos.android.ui.SpeckleOnScreensTest'
+  "$RANDROID" test app -q --rerun "${EVERYTHING[@]}"
 fi
 code=$?
 [ "$code" -eq 2 ] && { echo "  NOT RUN  native-android-ui: bin/randroid reported a missing host tool"; exit 2; }
@@ -137,6 +165,8 @@ if [ "$code" -ne 0 ]; then
 fi
 if [ "$#" -gt 0 ]; then
   echo "  PASS  native-android-ui: $* rendered and checked"
+elif [ "${#NARROW[@]}" -gt 0 ]; then
+  echo "  PASS  native-android-ui: the workspace's test classes (${SCOPE_TESTS[*]}); everything: --full"
 else
   echo '  PASS  native-android-ui: every round-12 screen and attachment screen rendered and checked, both themes, two phones, 2x text'
 fi

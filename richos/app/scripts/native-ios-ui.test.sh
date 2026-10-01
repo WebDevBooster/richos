@@ -15,7 +15,16 @@
 #      exclusively leased across checkouts and shut down by UDID after the run — in UTC and en_US so every picture matches the mockup's 8:02 AM.
 #      Screenshots are exported per device.
 #
-#   native-ios-ui.test.sh                        both parts
+#   native-ios-ui.test.sh                        both parts; in a teammate workspace (a cc/ branch in a
+#                                                linked worktree) part 2 runs only the cases the branch
+#                                                adds or changes, plus the cases its changed files are
+#                                                claimed by (lib/ios_ui_scope.py), on the iPhone SE
+#                                                only, and says so in one line; nothing mapped is a
+#                                                refusal (exit 64) naming the full command. The merge
+#                                                gate, proof-run.py and the nightlies set
+#                                                RICHOS_TEST_SCOPE=full, so they always get both parts
+#                                                in full (engine/scripts/lib/workspace_scope.py).
+#   native-ios-ui.test.sh --full                 everything on both devices, wherever it runs
 #   native-ios-ui.test.sh --headless             part 1 only
 #   native-ios-ui.test.sh --only <Class/test>    part 2 scoped (xcodebuild -only-testing), repeatable,
 #                                                e.g. --only ScreenshotTests/testComposerDark; the unit
@@ -42,15 +51,19 @@ SUITE_ARGS=("$@")
 MODE=all
 ONLY=()
 DEVICES=("iPhone SE (3rd generation)" "iPhone 16 Pro Max")
+FULL=""
+HAVE_DEVICE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --headless) MODE=headless; shift ;;
+    --full) FULL=1; shift ;;
     --only)
       # The UI bundle is implied; the unit bundle (UnitTests/) is named in full, so a scoped run can
       # still reach it (a full device run is longer than one foreground call).
       ONLY+=("$(python3 "$DIR/lib/ios_ui_shards.py" selector "$2")")
       shift 2 ;;
     --device)
+      HAVE_DEVICE=1
       case "$2" in
         se) DEVICES=("iPhone SE (3rd generation)") ;;
         pm) DEVICES=("iPhone 16 Pro Max") ;;
@@ -79,6 +92,32 @@ if [ "${RICHOS_SIMULATOR_CACHE_HELD:-}" != "$CACHE" ]; then
   exec python3 "$DIR/lib/simulator_budget.py" cache "$CACHE" -- bash "${BASH_SOURCE[0]}" ${SUITE_ARGS[@]+"${SUITE_ARGS[@]}"}
 fi
 mkdir -p "$CACHE"
+
+# The workspace default (CEO, 2026-10-01: an engineer ran this with no arguments seven times for
+# one layout test, 828 s each on two devices). Decided once, here, inside the cache lock, so the
+# line is printed once: what you did not choose is narrowed to the branch's cases on the iPhone SE.
+if [ "$MODE" != headless ]; then
+  SCOPE_FLAGS=()
+  [ -z "$FULL" ] || SCOPE_FLAGS+=(--full)
+  [ "${#ONLY[@]}" -eq 0 ] || SCOPE_FLAGS+=(--have-only)
+  [ -z "$HAVE_DEVICE" ] || SCOPE_FLAGS+=(--have-device)
+  if ! SCOPE_OUT="$(python3 "$DIR/lib/ios_ui_scope.py" workspace "$ROOT" "$DIR/$(basename "${BASH_SOURCE[0]}")" \
+       ${SCOPE_FLAGS[@]+"${SCOPE_FLAGS[@]}"})"; then
+    echo "native-ios-ui: could not decide whether this is a workspace run; nothing ran" >&2
+    exit 64
+  fi
+  SCOPE=""; SCOPE_LINE=""; SCOPE_DEVICE=""; SCOPE_ONLY=()
+  eval "$SCOPE_OUT"
+  [ -z "$SCOPE_LINE" ] || echo "$SCOPE_LINE"
+  [ "$SCOPE" != refuse ] || exit 64
+  if [ "$SCOPE" = narrow ]; then
+    [ "$SCOPE_DEVICE" != se ] || DEVICES=("iPhone SE (3rd generation)")
+    for c in ${SCOPE_ONLY[@]+"${SCOPE_ONLY[@]}"}; do
+      ONLY+=("$(python3 "$DIR/lib/ios_ui_shards.py" selector "$c")")
+    done
+  fi
+fi
+
 WORK="$(mktemp -d "$CACHE/run.XXXXXX")"
 CREATED=()
 udid=""

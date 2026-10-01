@@ -1025,7 +1025,10 @@ build_check() {  # build_check <directory holding run-tests.sh>  -> sets BC_WHY 
   harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --for phone --list
   [ "$CODE" = 0 ] || { BC_WHY="--for phone --list exited $CODE: $(tail -1 <<<"$OUT")"; return; }
   phone=" $(tr '\n' ' ' <<<"$OUT")"
-  harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --list
+  # The WHOLE inventory, said outright: without a selection in a teammate workspace the harness
+  # lists only what the branch maps to (workspace_scope.py, 2026-10-01), and `harness` runs under
+  # `env -i`, so not even proof-run.py's RICHOS_TEST_SCOPE=full reaches it.
+  harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --full --list
   all="$(tr '\n' ' ' <<<"$OUT")"
   for s in $PHONE_ONLY; do
     case "$desk" in *" $s "*) BC_WHY="$BC_WHY; $s (phone only) is in the desktop build" ;; esac
@@ -1137,6 +1140,7 @@ else
       GIT_TERMINAL_PROMPT) E1ENV+=("GIT_TERMINAL_PROMPT=0") ;;
       GIT_SSH_COMMAND) E1ENV+=("GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=15") ;;
       RICHOS_NIGHTLY_RUN_ID) E1ENV+=("RICHOS_NIGHTLY_RUN_ID=e1-hostile") ;;
+      RICHOS_TEST_SCOPE) E1ENV+=("RICHOS_TEST_SCOPE=full") ;;
       RICHOS_RUNTIME_DIR) E1ENV+=("RICHOS_RUNTIME_DIR=$TMP/e1-runtime") ;;
       RICHOS_NAMED_PERSONS_FILE) E1ENV+=("RICHOS_NAMED_PERSONS_FILE=$TMP/e1-named-persons") ;;
       RUN_TESTS_SKIP_UNCHANGED) E1ENV+=("RUN_TESTS_SKIP_UNCHANGED=1") ;;

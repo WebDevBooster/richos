@@ -896,6 +896,8 @@ GATE_SET_BY_BUILD = (
     "GIT_TERMINAL_PROMPT",
     "GIT_SSH_COMMAND",
     "RICHOS_NIGHTLY_RUN_ID",
+    # Always "full": no suite a nightly runs narrows to a workspace's changes (workspace_scope.py).
+    "RICHOS_TEST_SCOPE",
     "RICHOS_NAMED_PERSONS_FILE",
     # Set by Runner.runtime() once the pinned runtimes are verified.
     "RICHOS_RUNTIME_DIR",
@@ -1010,6 +1012,10 @@ def gate_environment(environ, run_id=None, strict=True):
     env["CARGO_PROFILE_TEST_DEBUG"] = "0"
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes -o ConnectTimeout=15"
+    # A nightly runs every suite whole. Its source is a detached worktree, which a runner never
+    # reads as a teammate workspace; stated outright anyway, so no change to where the source
+    # lives can ever narrow a gate (engine/scripts/lib/workspace_scope.py, CEO 2026-10-01).
+    env["RICHOS_TEST_SCOPE"] = "full"
     env["RICHOS_NIGHTLY_RUN_ID"] = run_id or (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
     return env
