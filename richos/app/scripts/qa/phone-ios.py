@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Drive a PHYSICAL iPhone through its real controls, and read what an app leaves running.
 
-    phone-ios.py check STEPS.json                  validate a step list; touches no device
+    phone-ios.py check STEPS.json                  validate a step list; touches no device. Also prints
+                                                   its expected duration at the phone's measured median
+                                                   step times and the --allowance it needs; `run` refuses
+                                                   a list its allowance cannot hold (XCUITest stops there
+                                                   and every later step, shot and tree is lost)
     phone-ios.py run STEPS.json --out DIR [--allowance S] [--prebuilt --stamp STAMP.json]
                  [--approval-announced]
                                                    run the steps through XCUITest on the phone
@@ -114,6 +118,7 @@ it cannot answer at all, with the sentence in `error`.
 """
 import argparse
 import json
+import math
 import os
 import re
 import stat
@@ -326,6 +331,36 @@ def pair_steps(config_path, v2_hold=None):
     return validate(steps)
 
 
+# Median seconds per step kind on the physical iPhone SE (iOS 26.3.1), measured 2026-10-01
+# from 230 passed steps of two step lists (quint-opus-rewalk3). A `sleep` takes its own seconds;
+# a kind not listed here (mark, waitState, ...) measured ~0 and counts as 0.
+STEP_MEDIAN_S = {"tap": 2.0, "wait": 1.2, "type": 2.9, "press": 2.64, "swipe": 2.69, "launch": 2.64,
+                 "value": 1.48, "appearance": 1.17, "terminate": 1.08, "home": 0.46, "activate": 0.4,
+                 "tree": 0.52, "shot": 0.15, "exists": 0.13}
+# XCUITest stops a test at its execution-time allowance: the steps after it never run and the
+# shots and trees they took are never exported (lost: a 158-step list measured 245 s against the
+# default 240 s, 2026-10-01). Ask for this much headroom over the measured-median estimate.
+ALLOWANCE_HEADROOM = 1.25
+
+
+def expected_seconds(steps):
+    """The list's duration at this phone's measured median step times (sleeps at face value)."""
+    return round(sum(float(s.get("seconds", 0)) if s["do"] == "sleep" else STEP_MEDIAN_S.get(s["do"], 0.0)
+                     for s in steps), 1)
+
+
+def allowance_refusal(steps, allowance):
+    """A sentence when the allowance cannot hold the list, else None."""
+    expected = expected_seconds(steps)
+    needed = math.ceil(expected * ALLOWANCE_HEADROOM)
+    if needed <= allowance:
+        return None
+    return (f"this list of {len(steps)} steps is expected to take about {expected} s at the phone's measured "
+            f"median step times, and the allowance is {allowance} s: XCUITest stops at the allowance and every "
+            f"later step, shot and tree is lost. Pass --allowance {min(max(needed, 60), 1800)}"
+            + (" or split the list" if needed > 1800 else ""))
+
+
 def load_steps(path):
     try:
         return validate(json.loads(Path(path).read_text()))
@@ -493,7 +528,10 @@ def run(args):
         raise CannotAnswer("--out must be on /Volumes/E1TB (the physical check refuses anything else)")
     if not 60 <= args.allowance <= 1800:
         raise CannotAnswer("--allowance must be 60 to 1800 seconds")
-    identity = stamped_identity(args.stamp) if args.prebuilt else None
+    too_short = allowance_refusal(steps, args.allowance)
+    if too_short:
+        raise CannotAnswer(too_short)
+    identity =stamped_identity(args.stamp) if args.prebuilt else None
     device = os.environ["RICHOS_IOS_DEVICE"]
     ahead = forecast(device, passcode=passcode_state(device))
     if ahead["approvalExpected"] and not args.approval_announced:
@@ -724,7 +762,9 @@ def main(argv):
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
-            return emit({"valid": True, "steps": len(load_steps(args.steps))})
+            steps = load_steps(args.steps)
+            return emit({"valid": True, "steps": len(steps), "expectedSeconds": expected_seconds(steps),
+                         "allowanceNeeded": max(60, math.ceil(expected_seconds(steps) * ALLOWANCE_HEADROOM))})
         if args.command == "pair-steps":
             print(json.dumps(pair_steps(args.config, args.v2_hold), indent=1))
             return 0
