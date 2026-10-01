@@ -342,7 +342,15 @@ case_exit "C8. the legacy ROOT declaration still enforces"     2 "$L" 'git commi
 # FAIL-OPEN on a payload this guard cannot parse, matching its Bash-matcher
 # siblings. A hook that refuses every command it cannot read is a hook that is
 # removed the first time the harness changes shape.
-printf 'not json at all' | "$HOOK" >/dev/null 2>&1
+# Seated on a sandbox COPY of the engine's adoption, never the engine itself:
+# an unreadable payload appends a line to <entity>/.claude/state/
+# unevaluated-payloads.log, and with the engine as the entity that line landed
+# in the checkout under test, which the proof gate binds as the input of every
+# engine check running beside this one (2026-10-01).
+ENT_MALFORMED="$SANDBOX/ent-malformed"
+mkdir -p "$ENT_MALFORMED"
+cp "$ENGINE_ROOT/orchestration.config" "$ENT_MALFORMED/orchestration.config"
+printf 'not json at all' | RICHOS_ENTITY_ROOT="$ENT_MALFORMED" "$HOOK" >/dev/null 2>&1
 [ $? -eq 0 ] && ok "C9. an unparseable payload fails OPEN" \
              || bad "C9. an unparseable payload fails OPEN" "expected exit 0"
 
