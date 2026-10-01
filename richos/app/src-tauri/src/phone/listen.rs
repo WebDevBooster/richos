@@ -652,7 +652,7 @@ async fn handle(channel: Arc<Channel>, drain: Arc<Drain>, request: Request<Hyper
     }
     match (outcome, guard) {
         // A stream is long-lived; the drain never waits on one.
-        (Outcome::Stream { opening, mark, .. }, _) => open_stream(channel, opening, mark),
+        (Outcome::Stream { opening, mark, device, .. }, _) => open_stream(channel, &device, opening, mark),
         (other, Some(guard)) => {
             render(&channel, other).map(|inner| GuardedBody { inner, _guard: guard }.boxed())
         }
@@ -774,11 +774,16 @@ impl hyper::body::Body for StreamBody {
 /// there ([`super::stream::PhoneHub::subscribe_from`]): whatever was published between preparing
 /// the opening and this subscription is sent after it, once, and everything later follows live.
 /// Subscribing afterwards instead lost that window (hunt 2026-09-29, part 1, finding 13).
-fn open_stream(channel: Arc<Channel>, opening: Vec<String>, mark: u64) -> Response<BoxBody> {
-    let slot = match channel.devices.claim_stream() {
+///
+/// `device` is the authenticated device the stream is for. Its older streams are ended when this
+/// one is admitted ([`super::device::DeviceDesk::claim_stream`], 2026-10-01 iPhone walk D4): the
+/// producer of a replaced stream stops at `ended`, which drops its sender and ends its response.
+fn open_stream(channel: Arc<Channel>, device: &str, opening: Vec<String>, mark: u64) -> Response<BoxBody> {
+    let slot = match channel.devices.claim_stream(device) {
         Ok(slot) => slot,
         Err(_) => return render(&channel, Outcome::RateLimited),
     };
+    let ended = slot.ended();
     let (mut sender, body) =
         http_body_util::channel::Channel::<Bytes, std::convert::Infallible>::new(32);
     // `None`: the position can no longer be answered exactly (the hub's memory rolled past it).
@@ -788,7 +793,7 @@ fn open_stream(channel: Arc<Channel>, opening: Vec<String>, mark: u64) -> Respon
         Err(()) => (Vec::new(), None),
     };
 
-    tokio::spawn(async move {
+    let produce = async move {
         for frame in opening.into_iter().chain(missed.iter().map(|f| f.to_wire())) {
             if sender.send_data(Bytes::from(frame)).await.is_err() {
                 return;
@@ -829,6 +834,21 @@ fn open_stream(channel: Arc<Channel>, opening: Vec<String>, mark: u64) -> Respon
                 }
             }
         }
+    };
+    // Whichever comes first: the stream ending by itself, or a newer stream from the same device
+    // replacing it. Polled by hand because this crate's tokio has no `macros` feature for
+    // `select!`. Either way `produce` is dropped here, and its sender with it, which ends the body.
+    tokio::spawn(async move {
+        use std::future::Future;
+        let mut produce = std::pin::pin!(produce);
+        let mut ended = std::pin::pin!(ended);
+        std::future::poll_fn(|cx| {
+            if ended.as_mut().poll(cx).is_ready() {
+                return std::task::Poll::Ready(());
+            }
+            produce.as_mut().poll(cx)
+        })
+        .await;
     });
 
     Response::builder()
@@ -1115,12 +1135,12 @@ mod tests {
             pairing_path:std::sync::Mutex::new(super::super::device::PairedVia::CONNECT)});
         let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(async {
-            let response=open_stream(channel.clone(),vec![],0);
+            let response=open_stream(channel.clone(),"dev_test",vec![],0);
             assert_eq!(devices.open_streams(),1,"A live body must still suppress duplicate foreground push");
             tokio::task::yield_now().await; // Producer is now waiting for its next frame.
             drop(response);
             assert_eq!(devices.open_streams(),0,"A closed body must not suppress background push for 15 seconds");
-            for _ in 0..10 {drop(open_stream(channel.clone(),vec![],0));}
+            for _ in 0..10 {drop(open_stream(channel.clone(),"dev_test",vec![],0));}
             assert_eq!(devices.open_streams(),0,"Rapid reopen/close must not exhaust the stream slots");
         });
         drop(runtime);std::fs::remove_dir_all(dir).unwrap();
@@ -1159,7 +1179,7 @@ mod tests {
 
         let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(async {
-            let response=open_stream(channel.clone(),vec![],mark);
+            let response=open_stream(channel.clone(),"dev_test",vec![],mark);
             let mut body=response.into_body();
             let mut seen=String::new();
             async fn read(body:&mut BoxBody,seen:&mut String)->bool {
@@ -3223,6 +3243,12 @@ mod tests {
     }
 
     fn hold_wire(tag: &str) -> HoldWire {
+        wire_with(tag, Arc::new(QuietBridge))
+    }
+
+    /// [`hold_wire`] with the bridge chosen by the caller: a stream's `hello` reads the thread,
+    /// which [`QuietBridge`] refuses.
+    fn wire_with(tag: &str, bridge: Arc<dyn Bridge>) -> HoldWire {
         let dir = std::env::temp_dir().join(format!("richos-phone-hold-{tag}-{}-{}", std::process::id(), super::super::now_millis()));
         std::fs::create_dir_all(&dir).unwrap();
         // A MEMORY SECRET STORE, NEVER THE LOGIN KEYCHAIN. A test may not write to his.
@@ -3237,7 +3263,7 @@ mod tests {
             devices: Arc::clone(&devices),
             api_base: Arc::new(ApiBaseDesk::only(TEST_API_BASE)),
             hub: PhoneHub::new(),
-            bridge: Arc::new(QuietBridge) as Arc<dyn Bridge>,
+            bridge,
             assets: crate::phone::assets::PhoneApp::embedded(),
             vapid_public: vapid.application_server_key(),
             fingerprint_hex: ca.fingerprint_hex(),
@@ -3455,5 +3481,113 @@ mod tests {
             eprintln!("[test] the channel stopped {} ms after They do not match, with the answer delivered", stopped_after.as_millis());
         });
         assert!(std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, wire.port)).is_err(), "the port is still open");
+    }
+
+    /// A thread with nothing in it, so a stream's `hello` can be built.
+    struct EmptyThread;
+    impl Bridge for EmptyThread {
+        fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> {
+            Err("this test never sends a message".into())
+        }
+        fn snapshot(&self, _: Option<&str>) -> Result<Value, String> {
+            Ok(serde_json::json!({}))
+        }
+        fn current_thread(&self) -> Option<(String, String)> {
+            None
+        }
+        fn threads(&self) -> Vec<(String, String)> {
+            Vec::new()
+        }
+    }
+
+    /// One event stream held open from the phone's side: the connection and its socket, kept
+    /// together so the test decides when it goes, the way a killed phone process never does.
+    struct HeldStream {
+        connection: rustls::ClientConnection,
+        socket: std::net::TcpStream,
+    }
+
+    impl HeldStream {
+        /// Read until the Mac ends this response (the last chunk, or the connection closing), or
+        /// until `wait` passes. True when it ended. `wait` is a hang guard only.
+        fn ended_within(&mut self, wait: std::time::Duration) -> bool {
+            let deadline = std::time::Instant::now() + wait;
+            self.socket.set_read_timeout(Some(std::time::Duration::from_millis(50))).unwrap();
+            let mut tls = rustls::Stream::new(&mut self.connection, &mut self.socket);
+            let mut seen = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while std::time::Instant::now() < deadline {
+                match tls.read(&mut buffer) {
+                    Ok(0) => return true,
+                    Ok(n) => {
+                        seen.extend_from_slice(&buffer[..n]);
+                        if seen.windows(7).any(|w| w == b"\r\n0\r\n\r\n") {
+                            return true;
+                        }
+                    }
+                    Err(ref e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                    Err(_) => return true,
+                }
+            }
+            false
+        }
+    }
+
+    impl HoldWire {
+        /// Open `GET url` as an event stream and return its status once the head has arrived,
+        /// with the connection still open.
+        fn open_held_stream(&self, url: &str) -> (u16, HeldStream) {
+            let server_name = rustls::pki_types::ServerName::try_from(HOLD_TAILNET).unwrap().to_owned();
+            let mut held = HeldStream {
+                connection: rustls::ClientConnection::new(Arc::clone(&self.client), server_name).unwrap(),
+                socket: std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).expect("connect"),
+            };
+            held.socket.set_read_timeout(Some(std::time::Duration::from_secs(30))).unwrap();
+            let mut tls = rustls::Stream::new(&mut held.connection, &mut held.socket);
+            let head = format!("GET {url} HTTP/1.1\r\nHost: {HOLD_TAILNET}\r\nAccept: text/event-stream\r\n\r\n");
+            tls.write_all(head.as_bytes()).expect("write request");
+            tls.flush().ok();
+            let mut raw = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !raw.windows(4).any(|w| w == b"\r\n\r\n") {
+                match tls.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => raw.extend_from_slice(&buffer[..n]),
+                }
+            }
+            (parse_response(&raw).0, held)
+        }
+    }
+
+    /// **A PHONE THAT RELAUNCHES IS NEVER LOCKED OUT BY ITS OWN EARLIER STREAMS** — the
+    /// 2026-10-01 iPhone walk, defect D4. A phone process that is killed sends no close, so its
+    /// stream stays counted while this Mac writes keep-alives into it. Four quick relaunches
+    /// filled every slot, and the fifth launch was answered 429 for a minute ("Reconnecting…
+    /// your Mac is out of reach") while this Mac was healthy.
+    ///
+    /// Four streams are held open here exactly as those four dead processes left them, and the
+    /// fifth open from the same phone must be answered 200. The ones it replaced must END, so
+    /// their slots are not merely forgotten while their producers keep running.
+    #[test]
+    fn a_phone_that_reopens_its_stream_replaces_its_own_old_ones_and_is_never_refused() {
+        let wire = wire_with("relaunch", Arc::new(EmptyThread));
+        wire.devices.confirm_on_mac().unwrap();
+        let path = "/api/events?thread_id=thr_relaunch";
+        let signature = super::super::b64url(&wire.phone.sign(&signing_string(&wire.challenge, "GET", path, b"")));
+        let auth = format!("RichOS-Device {}.{}.{signature}", wire.device_id, wire.challenge).replace(' ', "%20");
+        let url = format!("{path}&auth={auth}");
+
+        let mut earlier = Vec::new();
+        for launch in 1..=4 {
+            let (status, held) = wire.open_held_stream(&url);
+            assert_eq!(status, 200, "launch {launch} was refused");
+            earlier.push(held);
+        }
+        let (status, _newest) = wire.open_held_stream(&url);
+        assert_eq!(status, 200, "the fifth launch was refused while its four earlier streams were still held: the phone is locked out by itself");
+        for (i, held) in earlier.iter_mut().enumerate() {
+            assert!(held.ended_within(std::time::Duration::from_secs(10)), "stream {} was replaced but never ended", i + 1);
+        }
+        assert_eq!(wire.devices.open_streams(), 1, "only the newest stream may still be counted");
     }
 }
