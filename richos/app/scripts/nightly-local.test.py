@@ -213,6 +213,51 @@ class LocalTests(unittest.TestCase):
         self.assertNotIn("TMPDIR", m.GATE_PASSTHROUGH)
         self.assertIn("TMPDIR", m.GATE_SET_BY_BUILD)
 
+    def test_the_conditions_proof_run_reads_are_exactly_what_the_gates_hand_their_suites(self):
+        # gate_conditions() is what proof-run.py hands a check of a suite a nightly gate runs.
+        # Its claim is "what the gate hands its command, minus what the shell gives both
+        # anyway". Measured the only way that holds whatever is edited later: by running the
+        # real gates() with a recording owned_run, so a value written inline at a call site
+        # (not through script_suites_environment) turns this red.
+        base = m.gate_environment(os.environ, m.CONDITIONS_RUN_ID, strict=False)
+        r = m.Runner(self.root, self.root / "state", dict(base), io.StringIO(), self.CREDENTIALS,
+                     simulated_phones=m.CONDITIONS_SIMULATED_PHONES)
+        seen = {}
+
+        def record(args, **kwargs):
+            args = [str(a) for a in args]
+            if any(a.endswith("run-tests.sh") for a in args):
+                seen["gates/script-suites"] = kwargs["env"]
+            elif args[:2] == ["node", "run.js"]:
+                seen[m.UI_SUITE_GATE] = kwargs["env"]
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m, "owned_run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
+            r.gates()
+        self.assertEqual(sorted(seen), sorted(m.CONDITIONS_GATES))
+        for gate in m.CONDITIONS_GATES:
+            with self.subTest(gate=gate):
+                conditions, missing = m.gate_conditions(gate)
+                handed = {name: value for name, value in seen[gate].items()
+                          if name not in m.CONDITIONS_NOT_REPRODUCED
+                          and (name not in m.GATE_PASSTHROUGH or name in m.GATE_SET_BY_BUILD)}
+                self.assertEqual(conditions, handed)
+                # Only the privacy list can be unreproducible (a machine without it), and
+                # then it is named, never silently dropped.
+                self.assertEqual(sorted(set(missing) - {"RICHOS_NAMED_PERSONS_FILE"}), [])
+                self.assertEqual("RICHOS_NAMED_PERSONS_FILE" in missing,
+                                 "RICHOS_NAMED_PERSONS_FILE" not in conditions)
+        # The variable nightly attempt 2 tripped on reaches the checks, with the gate's value.
+        conditions, _ = m.gate_conditions("gates/script-suites")
+        self.assertEqual(conditions["RICHOS_IOS_POOL_WAIT"], str(m.GATE_BUDGETS["gates/script-suites"]))
+        self.assertEqual(conditions["TMPDIR"], m.gate_tmpdir())
+        # Every name declared as not reproduced is one the build really sets, so the list
+        # cannot quietly excuse a name that no longer exists.
+        declared = set(m.GATE_SET_BY_BUILD) | set(m.GATE_SET_PER_STEP)
+        self.assertEqual(sorted(set(m.CONDITIONS_NOT_REPRODUCED) - declared), [])
+        with self.assertRaises(ValueError):
+            m.gate_conditions(m.WORKSPACE_MUTANTS_GATE)
+
     def test_the_allowlist_is_the_only_door_and_e1_derives_its_list_from_it(self):
         """`gate-environment` is what run-tests.test.sh case E1 reads instead of copying.
 
