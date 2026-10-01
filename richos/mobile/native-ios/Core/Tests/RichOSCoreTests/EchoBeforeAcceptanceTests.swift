@@ -173,24 +173,35 @@ import Testing
         #expect(s.messages.last?.attachments?.map(\.id) == ["att1", "att2"], "the phone's own references outlive its bubble")
     }
 
-    /// A voice message is matched to its echo by the transcript the Mac made, which the phone only
-    /// learns from the receipt (`text_sha256`). An echo that beats the receipt cannot be recognized
-    /// yet: the Mac's row carries `client_id: null` (`phone/rows.rs`), so nothing on the phone ties
-    /// it to the recording. Android has the same limit (`Echoes.provisional` never matches voice).
-    @Test(arguments: [true, false]) func aVoiceMessageEndsAsOneLineWithTheRecordingsIdentity(echoFirst: Bool) throws {
+    /// A voice message is ONE line from the tap to the Mac's row, whichever of the receipt and the
+    /// echo arrives first. The Mac's row names the recording by the phone's own id (`client_id`,
+    /// kept on the turn since this change: `phone/rows.rs` `client_id_of`), so an echo that beats
+    /// the receipt is recognized on arrival. An older Mac sends `client_id: null`: nothing ties an
+    /// early echo to the recording until the receipt brings the transcript's hash
+    /// (`text_sha256`), and the receipt reconciles it to one line, as it always did. The echo is
+    /// decoded from the Mac's own wire shape, so the `client_id` key is read the way the stream
+    /// reads it. Android: `EchoReconciliationTest`.
+    @Test(arguments: [true, false], [true, false])
+    func aVoiceMessageEndsAsOneLineWithTheRecordingsIdentity(echoFirst: Bool, macKeepsTheID: Bool) throws {
         let transcript = "call the bank"
         let hash = SHA256.hash(data: Data(transcript.utf8)).map { String(format: "%02x", $0) }.joined()
         var s = try start()
         s.outbox = [OutboxItem(clientID: "v1", kind: .voice, body: nil, recordingID: "v1", queuedAt: 10, state: .sending)]
         s.messages.append(Message(id: "v1", author: .me, kind: .voice, text: "", sentAt: 10, delivery: .sending,
                                   durationMs: 4500, levels: [0.2, 0.5], clientID: "v1", echoAfterCursor: 2, echoAfterMessageID: "t1:text:0"))
-        let echo = Action.messagesArrived([row("t2:user", 3, transcript, at: 11)])
+        // The Mac's `ceo-message` row for the recording, as `phone/rows.rs` writes it.
+        let wire = #"{"id":"t2:user","thread_id":"thr_5c1e","cursor":3,"role":"ceo","kind":"text","text":"call the bank","#
+            + #""created_at":"2026-09-24T13:00:00.011Z","client_id":\#(macKeepsTheID ? #""v1""# : "null"),"#
+            + #""has_audio":false,"from_microphone":false,"state":"sent","complete":true}"#
+        let echoRow = try JSONDecoder().decode(StreamRow.self, from: Data(wire.utf8))
+        #expect(echoRow.clientID == (macKeepsTheID ? "v1" : nil))
+        let echo = Action.messagesArrived([echoRow.message])
         let accepted = Action.deliveryAccepted(clientID: "v1", at: 12, textSHA256: hash)
         #expect(mine(s) == ["t1:user", "v1"])
         if echoFirst {
             _ = apply(&s, echo)
-            withKnownIssue("an echo that beats the voice receipt has no transcript hash to match yet") {
-                #expect(mine(s) == ["t1:user", "v1"])
+            if macKeepsTheID {
+                #expect(mine(s) == ["t1:user", "v1"], "the echo beat the receipt: one line, the recording's identity")
             }
             _ = apply(&s, accepted)
         } else {
@@ -198,7 +209,7 @@ import Testing
             #expect(mine(s) == ["t1:user", "v1"], "accepted, not yet echoed")
             _ = apply(&s, echo)
         }
-        #expect(mine(s) == ["t1:user", "v1"], "echoFirst=\(echoFirst): one line, the recording's identity")
+        #expect(mine(s) == ["t1:user", "v1"], "echoFirst=\(echoFirst) macKeepsTheID=\(macKeepsTheID): one line, the recording's identity")
         #expect(s.messages.last?.kind == .voice && s.messages.last?.durationMs == 4500)
     }
 }

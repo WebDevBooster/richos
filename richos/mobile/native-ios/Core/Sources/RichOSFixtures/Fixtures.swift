@@ -479,6 +479,35 @@ public struct Scenario: Sendable {
             try require(s[5].voice?.phase == .locked, "lifting the finger keeps recording")
             try require(s[7].voice?.phase == .ending(.sent) && s[7].following, "sending resumes following")
         }),
+        // A voice message whose echo beats its receipt is ONE line, the recording's, at every step.
+        // The Mac's row names the recording by the phone's own id (`client_id`, `phone/rows.rs`
+        // `client_id_of`); before the Mac kept it, this showed the recording and its transcript as
+        // two lines until the receipt came (`EchoBeforeAcceptanceTests`, known since `bf08f0a64`).
+        Scenario(name: "voice-echo-before-receipt", steps: [
+            Command(.fixture, name: "conv-empty"),
+            Command(.action, action: .messagesArrived([
+                Message(id: "t1:user", author: .me, text: "Where are we on the Portland note?", sentAt: t0 - 60_000, cursor: 1),
+                Message(id: "t1:text:0", author: .rich, text: "Drafted. It goes out at noon.", sentAt: t0 - 59_000, cursor: 2),
+            ])),
+            Command(.action, action: .microphonePermission(.granted)),
+            Command(.action, action: .voicePress(id: "v4", width: 386, at: t0)),
+            Command(.action, action: .tick(at: t0 + 200)),
+            Command(.action, action: .voiceRelease(at: t0 + 2800)),
+            Command(.action, action: .voiceSettled),
+            // The Mac's `ceo-message` row for it, in the shape the stream decodes, before the receipt.
+            Command(.action, action: .messagesArrived([
+                StreamRow(id: "t2:user", threadID: "thr_5c1e", cursor: 3, role: "ceo", kind: "text", text: "Call the bank at four.",
+                          createdAt: "2026-10-01T09:41:03.000Z", clientID: "v4", complete: true).message,
+            ])),
+            Command(.action, action: .deliveryAccepted(clientID: "v4", at: t0 + 3100,
+                                                       textSHA256: ConversationReducer.notificationReference("Call the bank at four."))),
+        ], check: { s in
+            let mine = { (i: Int) in Transcript.visible(s[i]).filter { $0.author == .me }.map(\.lineID) }
+            try require(s[6].outbox.first?.recordingID == "v4" && mine(6) == ["t1:user", "v4"], "the recording is one line, on its way")
+            try require(s[7].outbox.count == 1 && mine(7) == ["t1:user", "v4"], "the Mac's row beat the receipt: still one line, the recording's")
+            try require(s[8].outbox.isEmpty && mine(8) == ["t1:user", "v4"], "the receipt: one line, nothing left to send")
+            try require(s[8].messages.last?.kind == .voice && s[8].messages.last?.durationMs == 2600, "and it is the 2.6 s voice message")
+        }),
         // Interrupted while locked: kept, never sent; then sent from the recovery card.
         Scenario(name: "voice-interrupted", steps: [
             Command(.fixture, name: "comp-idle"),

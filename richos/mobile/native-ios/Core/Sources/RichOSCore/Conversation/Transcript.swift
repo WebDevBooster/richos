@@ -33,8 +33,10 @@ public enum Transcript {
 }
 
 extension ConversationReducer {
-    /// Whether the Mac's `row` is the echo of the phone's own message `local`. The Mac's rows carry
-    /// `client_id: null` (`phone/rows.rs`), so: a row of yours not already claimed by another
+    /// Whether the Mac's `row` is the echo of the phone's own message `local`. A Mac's row for a
+    /// message this phone sent carries the phone's own `client_id` (`phone/rows.rs`
+    /// `client_id_of`), and then that id alone decides, text and voice alike, before or after the
+    /// receipt. An older Mac sends `client_id: null`, and then: a row of yours not already claimed by another
     /// message; newer than what was on screen when Send was pressed (the newest row then is the
     /// boundary, by its id, since a replay may renumber cursors, else by its cursor); never the
     /// Mac's stand-in for a desk message (`intake_<n>`, `phone/stream.rs` `announce_his_words`);

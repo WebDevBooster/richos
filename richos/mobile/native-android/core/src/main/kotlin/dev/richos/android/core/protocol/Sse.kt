@@ -102,6 +102,12 @@ data class Row(
     /** A phone voice note's length (Echo 4ce79d6e): on hello and backfill rows only; absent means "show no length". */
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     @SerialName("duration_ms") val durationMs: Long? = null,
+    /**
+     * This phone's own id for the message the row is, when this phone sent it (`phone/rows.rs`
+     * `client_id_of`); null for everything else and on an older Mac. [Echoes] matches on it first.
+     */
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    @SerialName("client_id") val clientId: String? = null,
 )
 
 @Serializable

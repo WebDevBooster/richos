@@ -134,6 +134,7 @@ fn the_known_tag_table_matches_the_record_type_exactly() {
             text: "x".into(),
             at: 1,
             channel: "phone".into(),
+            client_id: None,
         },
         IntakeRecord::Desk {
             id: 3,

@@ -79,14 +79,14 @@ impl Bridge for IsolatedBridge {
         desk.reconcile(self.push_client.as_ref().ok_or("push unavailable")?.as_ref(),Some(&device))?;Ok(desk.response())
     }
 
-    fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
+    fn submit_text(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String> {
         let thread = thread_id.unwrap_or(&self.thread);
         if thread != self.thread {
             return Err("Unknown isolated conversation".into());
         }
         let record = self
             .control
-            .submit_from_channel(thread, Some(self.entity.clone()), text, "phone")
+            .submit_from_channel_as(thread, Some(self.entity.clone()), text, "phone", Some(client_id))
             .map_err(|e| e.to_string())?;
         let spine = Arc::clone(&self.spine);
         let devices=Arc::clone(&self.devices);let push=Arc::clone(&self.push);let client=self.push_client.clone();

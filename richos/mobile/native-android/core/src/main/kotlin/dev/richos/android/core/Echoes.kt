@@ -50,10 +50,13 @@ data class Echo(
 /**
  * One-to-one reconciliation of this phone's messages with the Mac's rows for them, whatever the
  * order in which the HTTP acceptance and the stream echo arrive. The iPhone's rule (`85b22bd5`,
- * `ceffcd9a`, `ConversationReducer.reconcile`), because the Mac's rows carry `client_id: null`
- * (`phone/rows.rs`) and the receipt's `message_id` is the intake id, not the row's:
+ * `ceffcd9a`, `ConversationReducer.reconcile`, `Transcript.isEcho`):
  *
  *  - only a `ceo` row in the same conversation, not already claimed, can be a message's echo;
+ *  - a row carrying this phone's own id for a message (`client_id`, `phone/rows.rs`
+ *    `client_id_of`) is that message's echo and no other's, text and voice alike, before or after
+ *    the receipt. The rules below are for an older Mac, whose rows carry `client_id: null` and
+ *    whose receipt names the intake id, not the row:
  *  - only a row NEWER than what was on screen when Send was pressed: the newest row then is the
  *    boundary, by its id (a replay may renumber cursors), else by its cursor;
  *  - text: the same words; photos and files: the same caption and number of files in the Mac's
@@ -109,18 +112,20 @@ object Echoes {
         MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
     private class Local(
-        val threadId: String, val kind: String, val text: String, val floorCursor: Long?, val floorId: String?,
-        val transcriptSha256: String?, val files: Int,
+        val clientId: String, val threadId: String, val kind: String, val text: String, val floorCursor: Long?,
+        val floorId: String?, val transcriptSha256: String?, val files: Int,
     )
 
     private fun SentMessage.asLocal() =
-        Local(threadId, kind, text, echoAfterCursor, echoAfterMessageId, transcriptSha256, attachments.orEmpty().size)
+        Local(clientId, threadId, kind, text, echoAfterCursor, echoAfterMessageId, transcriptSha256, attachments.orEmpty().size)
 
     private fun OutboxItem.asLocal() =
-        Local(threadId, kind, text, echoAfterCursor, echoAfterMessageId, null, attachments.orEmpty().size)
+        Local(clientId, threadId, kind, text, echoAfterCursor, echoAfterMessageId, null, attachments.orEmpty().size)
 
     private fun matches(row: Row, local: Local, rows: List<Row>): Boolean {
         if (row.role != "ceo" || row.threadId != local.threadId || isStandIn(row)) return false
+        // The Mac named the message: that is the whole answer.
+        row.clientId?.let { return it == local.clientId }
         val floor = local.floorId?.let { id -> rows.firstOrNull { it.id == id }?.cursor } ?: local.floorCursor
         if (floor != null && row.cursor <= floor) return false
         return when (local.kind) {

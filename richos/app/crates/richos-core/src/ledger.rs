@@ -405,6 +405,18 @@ pub enum Event {
         /// began from being read as one typed at the desk.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         channel: Option<String>,
+        /// **THE SENDER'S OWN ID FOR THESE WORDS** — the `client_id` a paired phone assigned
+        /// at Send (`steering::IntakeRecord::Channel`'s `client_id`), kept so the CEO row the
+        /// Mac sends back names the message the phone is already showing (adoption ledger §2.8
+        /// row C5: the client id is the identity end to end). Without it, a row that beat the
+        /// phone's receipt could only be guessed at, and a voice note could not be matched at
+        /// all until the receipt brought its transcript hash.
+        ///
+        /// `None` for every turn that did not come from a phone and every turn written before
+        /// this field existed. Not a display field and not a de-duplication key: the intake id
+        /// is that, and the phone's own receipt store is what makes its retries free.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_id: Option<String>,
     },
     TurnStarted { turn_id: String, session_id: String, at: u64 },
     /// A streamed partial reply chunk — persisted incrementally so a half-written
@@ -641,6 +653,10 @@ pub struct Turn {
     /// `Event::PromptReceived::channel`: **`None` is "not recorded"**, never "the desk".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
+    /// The phone's own id for these words, when they came from a phone. See
+    /// `Event::PromptReceived::client_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
 }
 
 impl Turn {
@@ -1051,6 +1067,7 @@ impl Ledger {
                 intake_id,
                 rich_audible,
                 channel,
+                client_id,
             } => {
                 self.observe_revision(binding_revision);
                 self.turns.push(Turn {
@@ -1077,6 +1094,7 @@ impl Ledger {
                     interruption: None,
                     rich_audible,
                     channel,
+                    client_id,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -1195,6 +1213,7 @@ impl Ledger {
                     // that was never opened.
                     rich_audible: None,
                     channel: None,
+                    client_id: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -1679,7 +1698,7 @@ impl Ledger {
         text: &str,
         source: Source,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, None, None, None)
+        self.record_prompt_received_with(binding, text, source, None, None, None, None)
     }
 
     /// As above for a SPOKEN turn, stamping what the capture path knew about Rich's own
@@ -1696,7 +1715,7 @@ impl Ledger {
         source: Source,
         rich_audible: bool,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, None, Some(rich_audible), None)
+        self.record_prompt_received_with(binding, text, source, None, Some(rich_audible), None, None)
     }
 
     /// As above, stamping the `steering::IntakeLog` record this turn was drained from
@@ -1709,7 +1728,7 @@ impl Ledger {
         source: Source,
         intake_id: u64,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, Some(intake_id), None, None)
+        self.record_prompt_received_with(binding, text, source, Some(intake_id), None, None, None)
     }
 
     /// **The same record, with the mouth his words came through** (operator back-end spec r3
@@ -1727,9 +1746,28 @@ impl Ledger {
         rich_audible: Option<bool>,
         channel: &str,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, intake_id, rich_audible, Some(channel))
+        self.record_prompt_received_with(binding, text, source, intake_id, rich_audible, Some(channel), None)
     }
 
+    /// **The phone's words, carrying the phone's own id for them** (`client_id`, adoption
+    /// ledger §2.8 row C5). The same record as
+    /// [`record_prompt_received_from_intake`](Self::record_prompt_received_from_intake), or as
+    /// [`record_prompt_received_via`](Self::record_prompt_received_via) when the install keeps
+    /// the channel, plus the one field that lets the CEO row the Mac sends back name the
+    /// message the phone is already showing.
+    pub fn record_prompt_received_from_client(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        intake_id: u64,
+        channel: Option<&str>,
+        client_id: &str,
+    ) -> Result<String, LedgerError> {
+        self.record_prompt_received_with(binding, text, source, Some(intake_id), None, channel, Some(client_id))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn record_prompt_received_with(
         &mut self,
         binding: &ThreadBinding,
@@ -1738,6 +1776,7 @@ impl Ledger {
         intake_id: Option<u64>,
         rich_audible: Option<bool>,
         channel: Option<&str>,
+        client_id: Option<&str>,
     ) -> Result<String, LedgerError> {
         self.verify_binding(binding)?;
         let turn_id = new_id("turn");
@@ -1753,6 +1792,7 @@ impl Ledger {
                 intake_id,
                 rich_audible,
                 channel: channel.map(str::to_string),
+                client_id: client_id.map(str::to_string),
             },
             true, // fsync — never lose the CEO's input
         )?;
@@ -1773,7 +1813,7 @@ impl Ledger {
         if self.turn(&turn_id).is_some(){return Ok(turn_id);}
         self.append(Event::PromptReceived {turn_id:turn_id.clone(),thread_id:binding.thread_id().into(),
             text:delivery.text.clone(),source:Source::Text,at:now_millis(),entity_id:Some(binding.entity_id().clone()),
-            binding_revision:binding.binding_revision(),intake_id:None,rich_audible:None,channel:None},true)?;
+            binding_revision:binding.binding_revision(),intake_id:None,rich_audible:None,channel:None,client_id:None},true)?;
         Ok(turn_id)
     }
 
@@ -2372,6 +2412,7 @@ mod tests {
             interruption: None,
             rich_audible: None,
             channel: None,
+            client_id: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);

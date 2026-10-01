@@ -81,7 +81,8 @@ pub fn row_from_item(item: &Value) -> Option<Value> {
                 "kind": if spoken { "voice" } else { "text" },
                 "text": text,
                 "created_at": iso8601(created_at),
-                "client_id": Value::Null,
+                // The phone's own id for this message when a phone sent it, else `null`.
+                "client_id": client_id_of(item),
                 "has_audio": false,
                 "from_microphone": spoken,
                 "state": "sent",
@@ -107,6 +108,26 @@ pub fn row_from_item(item: &Value) -> Option<Value> {
         // Machinery. Plan §6: absent on the phone, by construction rather than by a renderer
         // remembering to skip it.
         _ => None,
+    }
+}
+
+/// **The `client_id` a CEO row carries: the one the phone sent with the message, or `null`.**
+///
+/// A phone assigns each message an id at Send and keeps it as that message's line from the tap
+/// to the Mac's row (adoption ledger §2.8 row C5: the client id is the identity end to end).
+/// The Mac keeps that id on the turn (`IntakeRecord::Channel` -> `PromptReceived` ->
+/// `Turn::client_id`), and both the projection and the live `ceo-message` carry it as
+/// `clientId`. Until they did, every row here said `null`, so a row that reached the phone
+/// before the phone's receipt could only be matched by its words, and a voice note not at all:
+/// the phone drew the recording and its transcript as two lines until the receipt came.
+///
+/// `null` for everything a phone did not send (typed or spoken at the Mac, a turn from before
+/// this field), and for anything that is not a string, so a phone never matches on a value the
+/// Mac did not mean as an id.
+fn client_id_of(source: &Value) -> Value {
+    match source.get("clientId") {
+        Some(Value::String(id)) if !id.is_empty() => Value::String(id.clone()),
+        _ => Value::Null,
     }
 }
 
@@ -148,7 +169,9 @@ pub fn event_from_live(name: &str, payload: &Value, cursor: u64) -> Option<(&'st
                     // The TURN's instant, not this event's: the projected row carries the same
                     // one, and two timestamps for one message is two orderings for one thread.
                     "created_at": iso8601(payload.get("createdAt").and_then(|v| v.as_u64()).unwrap_or(at)),
-                    "client_id": Value::Null,
+                    // **THE PHONE'S OWN ID, so this row can beat the receipt and still be
+                    // recognized** — see [`client_id_of`].
+                    "client_id": client_id_of(payload),
                     "has_audio": false,
                     "from_microphone": spoken,
                     "state": "sent",
@@ -389,6 +412,34 @@ mod tests {
             payload[k] = v.clone();
         }
         event_from_live(name, &payload, 7).expect("the event was dropped")
+    }
+
+    /// **The phone's own id for its message comes back on the Mac's row for it** (adoption
+    /// ledger §2.8 row C5). Both roads: the projected row (a hello or backfill) and the live
+    /// `ceo-message` (the echo that can beat the phone's receipt). Before this every CEO row
+    /// said `client_id: null`, so the iPhone could not tie an early echo of a voice note to
+    /// the recording and drew two lines (`EchoBeforeAcceptanceTests`, known issue since
+    /// `bf08f0a64`). Positive controls: a row the phone did not send, and a value that is
+    /// not a string, are `null`, the shape every older Mac sends.
+    #[test]
+    fn a_ceo_row_carries_the_phones_own_id_when_a_phone_sent_it_and_null_otherwise() {
+        let mut projected = payload();
+        projected["items"][0]["clientId"] = json!("01JPHONE");
+        projected["items"][5]["clientId"] = json!(7);
+        let rows = rows_from_payload(&projected);
+        assert_eq!(rows[0]["client_id"], "01JPHONE", "the projected row for a phone message");
+        assert_eq!(rows[2]["client_id"], Value::Null, "a value that is not a string is never an id");
+        assert_eq!(rows_from_payload(&payload())[0]["client_id"], Value::Null, "a message the phone did not send");
+
+        let at = json!({ "text": "call the bank", "source": "text", "createdAt": 1_758_200_000_000u64 });
+        let mut from_phone = at.clone();
+        from_phone["clientId"] = json!("v1");
+        let (name, row) = live("rich://ceo-message", from_phone);
+        assert_eq!(name, "message");
+        assert_eq!((row["id"].as_str(), row["role"].as_str()), (Some("msg_1"), Some("ceo")));
+        assert_eq!(row["client_id"], "v1", "the live row for a phone message, which can beat its receipt");
+        let (_, row) = live("rich://ceo-message", at);
+        assert_eq!(row["client_id"], Value::Null, "typed at the Mac: no id to give");
     }
 
     #[test]

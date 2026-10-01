@@ -137,8 +137,13 @@ pub trait Bridge: Send + Sync {
 
     /// Write the CEO's words to the durable intake log, `fsync`, and hand them to the spine.
     /// Returns as soon as the bytes are on disk — never after the turn.
-    fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String>;
-    fn submit_voice(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {self.submit_text(thread_id,text)}
+    ///
+    /// **`client_id` is the phone's own id for the message**, the one it sent with it, and it
+    /// is a parameter rather than something a route may leave out: it goes onto the turn, so
+    /// the CEO row the Mac sends back names the message the phone is already showing, even
+    /// when that row beats the receipt (adoption ledger §2.8 row C5; `rows::client_id_of`).
+    fn submit_text(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String>;
+    fn submit_voice(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String> {self.submit_text(thread_id,text,client_id)}
 
     /// The CEO-gated timeline payload for one thread. **Obtained through `view(ViewMode::Ceo)`
     /// and no other way** — `Timeline` does not implement `Serialize`, so this signature cannot
@@ -732,7 +737,7 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
 
     let Some(device) = channel.devices.paired() else { return Outcome::NotFound; };
     let delivery = channel.devices.deliveries.execute(&device.id, client_id, &request.body, || {
-        let accepted = channel.bridge.submit_text(thread_id, &text)?;
+        let accepted = channel.bridge.submit_text(thread_id, &text, client_id)?;
         Ok(json!({ "message_id": accepted.message_id, "cursor": channel.hub.next_cursor(),
             "thread_id": accepted.thread_id, "accepted_at": super::rows::iso8601(accepted.at), "duplicate": false }).to_string())
     });
@@ -772,7 +777,7 @@ fn voice_message(channel: &Channel, request: &Incoming) -> Outcome {
     let delivery = channel.devices.deliveries.execute_prepared(&device.id,&client,&receipt_body,|| channel.bridge.transcribe(&request.body),|text| {
         // Revocation while recognition was running must prevent a new command.
         if channel.devices.paired().is_none_or(|d| d.id != device.id) { return Err("revoked".into()); }
-        let accepted = channel.bridge.submit_voice(Some(&thread),&text)?;
+        let accepted = channel.bridge.submit_voice(Some(&thread),&text,&client)?;
         // The length is decoration on an accepted message: failing to remember it is logged,
         // never a reason to answer a message the Mac has already taken as anything but taken.
         if let Err(error) = channel.devices.voice_notes.record(&accepted.message_id,&accepted.thread_id,duration_ms) {
@@ -868,7 +873,7 @@ fn attachments_message(channel: &Channel, request: &Incoming, body: &Value, clie
             // Revocation while the files were being checked must prevent a new command.
             if channel.devices.paired().is_none_or(|d| d.id != device.id) { return Err("revoked".into()); }
             let stored = desk.commit(&device.id, client_id, thread, &files).map_err(|e| e.to_string())?;
-            let accepted = channel.bridge.submit_text(Some(thread), &describe(&text, &stored))?;
+            let accepted = channel.bridge.submit_text(Some(thread), &describe(&text, &stored), client_id)?;
             let files: Vec<Value> = stored.iter()
                 .map(|f| json!({"id": f.id, "name": f.name, "media_type": f.media_type, "size": f.size}))
                 .collect();
@@ -1198,6 +1203,8 @@ mod tests {
     /// A bridge that records what it was asked and never touches a spine.
     struct FakeBridge {
         submitted: Mutex<Vec<(Option<String>, String)>>,
+        /// The phone's own id for each submitted message, in order.
+        client_ids: Mutex<Vec<String>>,
         refuse: bool,
         voice: bool,
         rows: usize,
@@ -1212,11 +1219,12 @@ mod tests {
 
         fn voice_available(&self)->bool {self.voice}
         fn transcribe(&self,bytes:&[u8])->Result<String,String> { super::super::voice::validate(bytes)?;Ok("A spoken request".into()) }
-        fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
+        fn submit_text(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String> {
             if self.refuse {
                 return Err("the intake log is not writable".into());
             }
             self.submitted.lock().unwrap().push((thread_id.map(String::from), text.to_string()));
+            self.client_ids.lock().unwrap().push(client_id.to_string());
             Ok(Accepted {
                 message_id: "msg_new".into(),
                 thread_id: thread_id.unwrap_or("thr_5c1e").to_string(),
@@ -1303,7 +1311,7 @@ mod tests {
         let challenge = devices.issue_challenge().unwrap();
         let hub = PhoneHub::new();
         hub.set_live(true);
-        let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), refuse, voice:false, rows, questions:None });
+        let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), client_ids: Mutex::new(Vec::new()), refuse, voice:false, rows, questions:None });
         let channel = Channel {
             // No listener behind these tests, so there is nothing to ring. The route's own
             // behavior on a rejection — the device record going — is asserted here; that the
@@ -1432,6 +1440,8 @@ mod tests {
         let submitted = f.bridge.submitted.lock().unwrap();
         assert_eq!(submitted.len(), 1);
         assert_eq!(submitted[0].1, "where are we on the proposal?");
+        // The phone's own id for the message reaches the turn with the words.
+        assert_eq!(*f.bridge.client_ids.lock().unwrap(), vec!["01J8".to_string()]);
     }
 
     // --- everything else is a 404 ----------------------------------------------------------
@@ -1549,7 +1559,7 @@ mod tests {
     fn bounded_signed_voice_is_durable_and_bound_to_its_thread() {
         let mut f = fixture("voice-enabled");
         // Install a bridge that actually accepts speech, leaving old-Mac coverage intact.
-        let bridge = Arc::new(FakeBridge {submitted:Mutex::new(Vec::new()),refuse:false,voice:true,rows:3,questions:None});
+        let bridge = Arc::new(FakeBridge {submitted:Mutex::new(Vec::new()),client_ids:Mutex::new(Vec::new()),refuse:false,voice:true,rows:3,questions:None});
         f.channel.bridge = bridge.clone();
         let bytes=richos_voice::wav::encode_pcm16_mono(&vec![0.1;16000],16000);
         let query="client_id=spoken-1&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1";
@@ -1559,6 +1569,8 @@ mod tests {
         assert_eq!(dispatch(&f.channel,&request).status(),200);
         assert_eq!(bridge.submitted.lock().unwrap().len(),1);
         assert_eq!(bridge.submitted.lock().unwrap()[0],(Some("thr_5c1e".into()),"A spoken request".into()));
+        // The recording's own id reaches the turn, so the Mac's row for it can name it.
+        assert_eq!(*bridge.client_ids.lock().unwrap(),vec!["spoken-1".to_string()]);
         let mut changed=bytes.clone();changed[45]^=1;
         let mut request=signed(&f,"POST","/api/messages",query,&changed);request.content_type=Some("audio/wav".into());
         assert_eq!(dispatch(&f.channel,&request).status(),409);
@@ -2473,7 +2485,7 @@ mod tests {
     impl Bridge for VoiceHistory {
         fn voice_available(&self) -> bool { true }
         fn transcribe(&self, bytes: &[u8]) -> Result<String, String> { super::super::voice::validate(bytes)?; Ok("A spoken request".into()) }
-        fn submit_text(&self, thread_id: Option<&str>, _text: &str) -> Result<Accepted, String> {
+        fn submit_text(&self, thread_id: Option<&str>, _text: &str, _client_id: &str) -> Result<Accepted, String> {
             Ok(Accepted { message_id: "intake_42".into(), thread_id: thread_id.unwrap_or("thr_5c1e").into(), at: 1_758_200_000_000 })
         }
         fn turn_for_intake(&self, message_id: &str) -> Option<String> {
@@ -2546,7 +2558,7 @@ mod tests {
         let mut f=fixture("question-answers");let store=Store::new(&f.dir.0);
         let scope=AskScope{root:f.dir.0.clone(),entity_id:"femcboost".into(),thread_id:"thr_5c1e".into(),turn_id:"ask".into(),asker:"front_desk".into(),session_id:"session".into(),engine:None,entity_root:None,app_run:None};
         let q=store.ask(&scope,vec![QuestionInput{text:"When should the release ship?".into(),options:vec![OptionInput{label:"Today".into(),description:"Earlier fixes".into()},OptionInput{label:"Tomorrow".into(),description:"More tests".into()}],multiple:false,free_answer:true,recommended:None}]).unwrap().remove(0);
-        f.channel.bridge=Arc::new(FakeBridge{submitted:Mutex::new(vec![]),refuse:false,voice:false,rows:0,questions:Some(store.clone())});
+        f.channel.bridge=Arc::new(FakeBridge{submitted:Mutex::new(vec![]),client_ids:Mutex::new(vec![]),refuse:false,voice:false,rows:0,questions:Some(store.clone())});
         let body=json!({"kind":"answer","client_id":"phone-answer","thread_id":"thr_5c1e","question_id":q.id,"option_ids":[q.options[0].id]}).to_string();
         let signed_request=signed(&f,"POST","/api/messages","",&body);
         let mut unsigned=signed(&f,"POST","/api/messages","",&body);unsigned.authorization=None;

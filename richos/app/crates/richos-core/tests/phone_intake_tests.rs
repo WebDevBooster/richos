@@ -136,11 +136,14 @@ fn a_channel_record_carries_no_steering_turn_id_because_there_is_no_turn_to_attr
         text: "hello".into(),
         at: 1,
         channel: "phone".into(),
+        client_id: None,
     };
     let json = serde_json::to_value(&record).unwrap();
     assert_eq!(json.get("record").unwrap().as_str().unwrap(), "channel");
     assert!(json.get("steering_turn_id").is_none(), "a channel record must not carry a turn id");
     assert_eq!(json.get("channel").unwrap().as_str().unwrap(), "phone");
+    // A record without the phone's id is byte-for-byte the shape every older build reads.
+    assert!(json.get("client_id").is_none(), "no id, no key");
 }
 
 #[test]
@@ -527,4 +530,88 @@ fn a_keeping_spine_records_every_prompt_s_mouth_and_a_product_spine_records_none
         );
         if let Err(error) = std::fs::remove_file(&ledger_path) { eprintln!("fixture cleanup: {error}"); }
     }
+}
+
+// -------------------------------------------------------------------------------------
+// THE PHONE'S OWN ID FOR ITS WORDS (adoption ledger §2.8 row C5: the client id the phone
+// assigns is the identity end to end)
+// -------------------------------------------------------------------------------------
+
+/// **A phone message comes back to the phone under the id the phone gave it.** Before this,
+/// the CEO row the Mac sent for a phone message carried `client_id: null`
+/// (`phone/rows.rs`), so a row that beat the phone's receipt could only be matched by its
+/// words, and a voice note not at all until the receipt brought its transcript hash: the
+/// phone showed the recording AND the transcript as two lines (iPhone
+/// `EchoBeforeAcceptanceTests`, known issue since `bf08f0a64`).
+///
+/// The id is checked at all three places a phone can learn of the row: the turn itself, the
+/// live `ceo-message` (the echo that can beat the receipt), and the projection read back
+/// from disk (a reconnect's snapshot). Positive controls in the same fixture: a phone record
+/// written WITHOUT an id (an older phone, or a record from before this field) and a message
+/// typed at the desk both carry none, so nothing is invented for a turn the phone did not
+/// name.
+#[test]
+fn a_phone_message_keeps_the_phones_own_id_on_its_turn_its_live_row_and_its_projection() {
+    use richos_core::timeline::{Timeline, TimelineItem, ViewMode};
+    let (mut spine, control, thread, ledger_path) = phone_ready("client-id", vec!["On it!", "Noted.", "Done."]);
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+
+    control.submit_from_channel_as(&thread, Some(femcboost()), "call the bank", "phone", Some("v1")).unwrap();
+    control.submit_from_channel(&thread, Some(femcboost()), "sent by an older phone", "phone").unwrap();
+    spine.poll_intake().unwrap();
+    spine.submit_prompt("typed at the desk", Source::Text).unwrap();
+
+    // The turn.
+    let binding = spine.ledger().thread_binding(&thread).unwrap();
+    let ids: Vec<(String, Option<String>)> = spine
+        .ledger()
+        .thread_turns_scoped(&binding)
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.source == Source::Text)
+        .map(|t| (t.user_text.clone(), t.client_id.clone()))
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            ("call the bank".to_string(), Some("v1".to_string())),
+            ("sent by an older phone".to_string(), None),
+            ("typed at the desk".to_string(), None),
+        ]
+    );
+
+    // The live row, which is the one that can reach the phone before the receipt does.
+    let rows = live.of("rich://ceo-message");
+    let live_id = |text: &str| -> Option<Value> {
+        let row = rows.iter().find(|p| p["text"] == text).unwrap_or_else(|| panic!("no ceo-message for {text:?}"));
+        row.get("clientId").cloned()
+    };
+    assert_eq!(live_id("call the bank"), Some(serde_json::json!("v1")));
+    assert_eq!(live_id("sent by an older phone"), None);
+    assert_eq!(live_id("typed at the desk"), None);
+
+    // The projection, from the ledger re-read off disk as a restart reads it.
+    let reopened = Ledger::open(&ledger_path).unwrap();
+    let binding = reopened.thread_binding(&thread).unwrap();
+    let timeline = Timeline::project(&reopened, &binding, &[]).unwrap();
+    let projected: Vec<(String, Option<Value>)> = timeline
+        .view(ViewMode::Ceo)
+        .items()
+        .iter()
+        .filter(|i| matches!(i, TimelineItem::UserMessage { .. }))
+        .map(|i| {
+            let item = serde_json::to_value(i).unwrap();
+            (item["text"].as_str().unwrap().to_string(), item.get("clientId").cloned())
+        })
+        .collect();
+    assert_eq!(
+        projected,
+        vec![
+            ("call the bank".to_string(), Some(serde_json::json!("v1"))),
+            ("sent by an older phone".to_string(), None),
+            ("typed at the desk".to_string(), None),
+        ]
+    );
+    if let Err(error) = std::fs::remove_file(&ledger_path) { eprintln!("fixture cleanup: {error}"); }
 }

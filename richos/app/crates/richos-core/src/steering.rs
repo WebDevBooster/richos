@@ -144,6 +144,15 @@ pub enum IntakeRecord {
         /// channel is a new value here and not a new record type every older build then
         /// cannot read.
         channel: String,
+        /// **THE SENDER'S OWN ID FOR THIS MESSAGE** — the `client_id` the phone assigned at
+        /// Send and keeps for its line from the tap to the Mac's row (adoption ledger §2.8
+        /// row C5: the client id is the identity end to end). Carried onto the turn so the
+        /// row the Mac sends back names the message the phone is already showing, even when
+        /// that row beats the phone's receipt. `None` for every record written before this
+        /// field existed and for a channel that sent no id; an older build reading a record
+        /// that has it ignores the key.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_id: Option<String>,
     },
     /// **The desktop composer's own words, written here because the front desk was being
     /// primed when he pressed Send** — the CEO's §55.
@@ -616,6 +625,20 @@ impl IntakeLog {
         text: &str,
         channel: &str,
     ) -> Result<IntakeRecord, SteeringError> {
+        self.channel_message_from(thread_id, entity_id, text, channel, None)
+    }
+
+    /// As [`Self::channel_message`], keeping the sender's own id for the message
+    /// ([`IntakeRecord::Channel`]'s `client_id`). Written in the same record as the words, in
+    /// the same `fsync`, so no drain can ever turn the words into a turn without it.
+    pub fn channel_message_from(
+        &mut self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+        channel: &str,
+        client_id: Option<&str>,
+    ) -> Result<IntakeRecord, SteeringError> {
         let rec = IntakeRecord::Channel {
             id: self.next_id,
             thread_id: thread_id.to_string(),
@@ -623,6 +646,7 @@ impl IntakeLog {
             text: text.to_string(),
             at: now_millis(),
             channel: channel.to_string(),
+            client_id: client_id.map(str::to_string),
         };
         self.write(&rec)?;
         self.next_id += 1;
@@ -1005,9 +1029,23 @@ impl TurnControl {
         text: &str,
         channel: &str,
     ) -> Result<IntakeRecord, SteeringError> {
+        self.submit_from_channel_as(thread_id, entity_id, text, channel, None)
+    }
+
+    /// As [`Self::submit_from_channel`], with the sender's own id for the message (the phone's
+    /// `client_id`), so the turn and every row of it carry the identity the phone already shows
+    /// ([`IntakeRecord::Channel`]'s `client_id`).
+    pub fn submit_from_channel_as(
+        &self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+        channel: &str,
+        client_id: Option<&str>,
+    ) -> Result<IntakeRecord, SteeringError> {
         let mut guard = self.inner.intake.lock().unwrap();
         let log = guard.as_mut().ok_or(SteeringError::NoDurableIntake)?;
-        log.channel_message(thread_id, entity_id, text, channel)
+        log.channel_message_from(thread_id, entity_id, text, channel, client_id)
     }
 
     /// **The DESK's road in, and it is the same road for the same reason** — the one the
