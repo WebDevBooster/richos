@@ -17,7 +17,9 @@ scratch ledger through the real escalate.sh. Nothing touches this repository or 
            refused; the land that introduces the check is checked by it. The merge gate
            asks for proof-for.sh --gate, lints the change (--changed; the push: --all), caps
            each check at 600 s and the gate at 900 s, and a check that reached no verdict is
-           named NOT RUN and never blocks; a failing one does.
+           named NOT RUN and never blocks; a failing one does. A branch cut before main's
+           last land is asked about only what it brings, read from the tree being landed,
+           and its own unclaimed file is still refused.
   INSTALL  install, --check and --uninstall, a foreign hook left alone, a chain that
            would never call the hook reported.
 """
@@ -64,10 +66,25 @@ if [ "$1" = --paths ]; then
 else
     paths=$(git diff --name-only "$1")
 fi
+printf '%s\\n' "$paths" >> "$AUTOCHECK_FIXTURE_LOG.paths"
 if printf '%s\\n' "$paths" | grep -q uncovered; then
     echo "UNCOVERED: richos/app/src/uncovered.txt" >&2
     exit 1
 fi
+# A file under src/owned/ is covered only by its claim, owners/<name>, in the tree the selection
+# reads: a range's head (the engine's selector reads its suites there), or the working tree for
+# a path list.
+case "$1" in *..*) tree="${1##*..}" ;; *) tree="" ;; esac
+for p in $(printf '%s\\n' "$paths" | grep '^richos/app/src/owned/'); do
+    name="${p##*/}"
+    if [ -n "$tree" ]; then
+        git cat-file -e "$tree:richos/app/owners/$name" 2>/dev/null && continue
+    elif [ -e "richos/app/owners/$name" ]; then
+        continue
+    fi
+    echo "UNCOVERED: $p" >&2
+    exit 1
+done
 if printf '%s\\n' "$paths" | grep -q '^richos/app/'; then
     echo "  cd richos/app && bash scripts/suite.sh"
 fi
@@ -1101,6 +1118,64 @@ class Land(Fixture):
         self.branch_with("feature", "richos/app/src/uncovered.txt", "new code\n", no_verify=True)
         out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
         self.assertIn("covered by no suite", out.stderr)
+
+    # 2026-10-01: cc/echo-opus-voiceecho1, cut at ae55aa0d2 and touching no engine file, was
+    # refused at main bb112ab68 with seven of main's own engine files "named by NO suite": the
+    # gate asked about `HEAD..<branch tip>`, whose diff is the two trees (main's later files
+    # included), read from the branch tip that predates their claims.
+    def land_on_main(self, files):
+        """main moves on: `files` land through an ordinary checked merge."""
+        self.git("checkout", "-q", "-b", "landed")
+        for rel, text in files.items():
+            self.write(rel, text)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "main's next land")
+        self.git("checkout", "-q", "main")
+        self.git("merge", "--no-ff", "-q", "-m", "land landed", "landed")
+        for suffix in ("", ".paths", ".select"):
+            Path(str(self.log) + suffix).unlink(missing_ok=True)
+
+    def asked(self):
+        return {line.strip() for line in self.side_log(".paths").splitlines() if line.strip()}
+
+    def test_a_branch_cut_before_mains_last_land_is_mapped_to_its_own_files_only(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, better\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "the branch's own change")
+        self.git("checkout", "-q", "main")
+        self.land_on_main({"richos/app/src/owned/a.txt": "main's code\n", "richos/app/owners/a.txt": "claim\n"})
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=None)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(self.asked(), {"richos/app/src/thing.txt"})
+
+    def test_a_file_main_claimed_after_the_branch_was_cut_maps_at_the_land(self):
+        # The branch changes a file whose claim main landed after the cut: the tree being landed
+        # holds the claim, so the selection reads it there and the merge lands.
+        self.write("richos/app/src/owned/b.txt", "old\n")
+        self.make()
+        self.branch_with("feature", "richos/app/src/owned/b.txt", "new\n", no_verify=True)
+        self.land_on_main({"richos/app/owners/b.txt": "claim\n"})
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=None)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(self.asked(), {"richos/app/src/owned/b.txt"})
+
+    def test_a_branch_cut_before_mains_last_land_is_still_refused_for_its_own_unclaimed_file(self):
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/owned/c.txt", "nobody claims this\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "unclaimed", "--no-verify")
+        self.git("checkout", "-q", "main")
+        self.land_on_main({"richos/app/src/owned/a.txt": "main's code\n", "richos/app/owners/a.txt": "claim\n"})
+        before = self.head("main")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        self.assertIn("UNCOVERED: richos/app/src/owned/c.txt", out.stderr)
+        self.assertIn("covered by no suite", out.stderr)
+        self.assertNotIn("owned/a.txt", out.stderr)
+        self.assertEqual(self.head("main"), before)
+        self.git("merge", "--abort")
 
     def test_a_direct_commit_on_main_runs_the_land_checks(self):
         self.make()

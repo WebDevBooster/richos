@@ -70,15 +70,17 @@ def validate_config(engine):
 
 
 class Selection:
-    def __init__(self, engine, suites, read, declaration):
-        self.engine, self.read, self.declaration = engine, read, declaration
+    def __init__(self, engine, suites, read, declaration, before=None):
+        # `before` reads the base side of the change (None for a bare path list): with it, a
+        # path the base had and the selected tree lacks is a removal, never an unmapped file.
+        self.engine, self.read, self.declaration, self.before = engine, read, declaration, before
         self.suites = {path: read(path) for path in suites}
         if any(text is None for text in self.suites.values()):
             raise Unsupported("suite disappeared while planning")
         self.bodies = sections(self.suites[SECTIONED]) if SECTIONED in self.suites else {}
         self.units = [unit for suite in self.suites for unit in
                       ([suite + ":" + part for part in self.bodies] if suite == SECTIONED else [suite])]
-        self.selected, self.unmapped = {}, []
+        self.selected, self.unmapped, self.removed = {}, [], []
         self.pinned = pinned_sources(declaration)
 
     def add(self, unit, reason):
@@ -196,8 +198,19 @@ class Selection:
         # test called a claimed script "named by NO suite".
         matched = any(reason.startswith(path + ": ") and "pinned reader in" not in reason
                       for reasons in self.selected.values() for reason in reasons)
+        # A PATH THE CHANGE DELETED has no code left to prove (proof-for.sh's REMOVED rule, hunt
+        # 2026-09-29 part 2 section 03): the suites that still name it are selected above, and it
+        # is never "named by NO suite". It must have existed on the base side: a path that never
+        # existed (a typo, or a path list with no base) stays unmapped. 2026-10-01: four of the
+        # seven files refused at main bb112ab68 were absent from the tree the selector read.
+        # Each path is listed once, however many roads (hooks() and its own turn) visit it. The
+        # selected tree is read only when the answer needs it, as before: with no base side, a
+        # path with an executable suffix is never read here.
         if not matched and (Path(path).suffix in (".sh", ".py", ".bash") or (self.read(path) or "").startswith("#!")):
-            self.unmapped.append(path)
+            removed = self.before is not None and self.read(path) is None and self.before(path) is not None
+            listed = self.removed if removed else self.unmapped
+            if path not in listed:
+                listed.append(path)
         # Decided AFTER `matched`: the pin check proves the pin, not the reader's behavior,
         # so it never turns an unmapped executable into a mapped one.
         if path in self.pinned and PIN_CHECK in self.units:
@@ -332,7 +345,9 @@ def main(argv=None):
             files = (git(root, "ls-files") if new == "INDEX" else git(root, "ls-tree", "-r", "--name-only", after.revision)).splitlines()
             suites = sorted(path[len(prefix):] for path in files if path.startswith(prefix) and path.endswith(".test.sh"))
         declaration = json.loads((engine / "scripts/lib/verification-dependencies.json").read_text())
-        selection = Selection(engine, suites, read, declaration)
+        base = Snapshot(root, old) if old else None
+        selection = Selection(engine, suites, read, declaration,
+                              before=(lambda path: base.read(prefix + str(path))) if base else None)
         for path in changed:
             if not path.startswith(prefix):
                 continue
@@ -356,6 +371,9 @@ def main(argv=None):
         print("%d changed path(s) -> %d unit(s)" % (len(changed), len(selection.selected)), file=sys.stderr)
         if not selection.selected:
             print("NOTHING TO RUN: no affected suite for these paths.", file=sys.stderr)
+        if selection.removed:
+            print("%d removed file(s) no suite names, no code left to prove:" % len(selection.removed), file=sys.stderr)
+            print("\n".join("    " + path for path in selection.removed), file=sys.stderr)
         if selection.unmapped:
             print("%d changed executable file(s) are named by NO suite:" % len(selection.unmapped), file=sys.stderr)
             print("\n".join("    " + path for path in selection.unmapped), file=sys.stderr)

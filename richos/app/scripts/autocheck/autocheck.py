@@ -1104,9 +1104,28 @@ def land_from_index(repo, what, receipt=True):
         ])
         return 1
     staged = [p for p in git("diff", "--cached", "--name-only", "--no-renames").splitlines() if p]
-    heads = merge_heads(repo)
-    range_argv = [f"HEAD..{heads[0]}"] if len(heads) == 1 else []
-    return land_check(repo, what, staged, range_argv, receipt=receipt)
+    return land_check(repo, what, staged, land_range(repo, merge_heads(repo)), receipt=receipt)
+
+
+def land_range(repo, heads):
+    """The range the merge gate asks about: main's tip to the tree being landed, that tree
+    written as a merge commit nothing refers to (parents HEAD and the merged head), as
+    branch_range writes the commit's index. Its diff is what the merge changes on main, which
+    is what the branch brings; its head is the tree main will point at, so the selectors read
+    the suites and files that land; its commits are the branch's (battery-check.py skips merge
+    commits). [] when this is not a merge of one head: the staged paths are then asked alone.
+
+    2026-10-01: the range was `HEAD..<branch tip>`. `git diff A..B` compares the two TREES, so
+    for a branch cut before main's last land it listed every file main had changed since the
+    branch's base, and the engine's selector read those files and the suites from the branch
+    tip, which predates them: cc/echo-opus-voiceecho1 (no engine path) was refused at main
+    bb112ab68 with seven of main's own engine files "named by NO suite"."""
+    if len(heads) != 1:
+        return []
+    tree = git("write-tree", cwd=repo.top)
+    landed = git("-c", "user.name=autocheck", "-c", "user.email=autocheck@invalid", "commit-tree", tree,
+                 "-p", "HEAD", "-p", heads[0], "-m", "autocheck: the merge being landed", cwd=repo.top)
+    return [f"HEAD..{landed}"]
 
 
 def pre_push(repo, stdin_text):
