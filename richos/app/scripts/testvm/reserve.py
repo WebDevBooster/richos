@@ -285,6 +285,19 @@ def _killpg_if_present(pid, sig):
         pass
 
 
+class StopRequested(BaseException):
+    """Raised by the signal handler to unwind out of child.wait() before the group is stopped.
+
+    The handler must not call child.wait() itself: it runs inside the main thread's own
+    child.wait(), which holds Popen's non-reentrant wait lock, so a nested wait can never
+    reap the child (it waited out its timeout, then blocked forever after SIGKILL).
+    """
+
+    def __init__(self, signum):
+        super().__init__(signum)
+        self.signum = signum
+
+
 def stop_group(child, signum):
     """SIGTERM the command's group, SIGKILL it after 10 s, reap it, exit 128+signum."""
     _killpg_if_present(child.pid, signal.SIGTERM)
@@ -334,14 +347,19 @@ def main():
         # Any lock FD stays in the supervisor until the command is reaped.
         child = subprocess.Popen(command, start_new_session=True)
         def stop(signum, frame):
-            stop_group(child, signum)
+            raise StopRequested(signum)
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, stop)
         try:
-            return child.wait()
+            try:
+                return child.wait()
+            except StopRequested as requested:
+                for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                    signal.signal(sig, signal.SIG_IGN)
+                stop_group(child, requested.signum)
         finally:
             if child.poll() is None:
-                os.killpg(child.pid, signal.SIGKILL)
+                _killpg_if_present(child.pid, signal.SIGKILL)
                 child.wait()
 
 
