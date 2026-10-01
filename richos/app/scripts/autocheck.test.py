@@ -523,6 +523,24 @@ class Commit(Fixture):
         self.git("commit", "-q", "-m", "docs")
         self.assertNotIn("ran-release-policy", self.tools())
 
+    def test_an_unstaged_policy_header_does_not_decide_a_non_app_commit(self):
+        # Recheck R10 v2 (2026-10-01): for a commit with no staged richos/app file, whether the
+        # phone policy applied was read from the working-tree header, so an unstaged edit that
+        # drops the phone folder from the inputs let a staged Logger through.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        before = self.head()
+        self.write("richos/mobile/native-ios/App/Platform/BackgroundSendTime.swift",
+                   "let log = Logger(subsystem: \"x\")\n")
+        self.git("add", "-A")
+        policy = self.repo / "richos/app/scripts/native-release-policy.test.sh"
+        policy.write_text(policy.read_text().replace("richos/mobile/native-ios/App ", "nothing "))
+        out = self.git("commit", "-m", "logs", expect=1)
+        self.assertIn("COMMIT REFUSED: this change breaks the phone apps' release policy", out.stderr)
+        self.assertEqual(self.head(), before)
+        self.assertIn("nothing ", policy.read_text())  # the unstaged edit is still there
+        self.assert_aside_restored()
+
     def test_the_whole_branch_is_asked_not_only_the_staged_files(self):
         # An uncovered path committed earlier with --no-verify is still in what the land will
         # diff, so the next ordinary commit on the branch refuses it too.

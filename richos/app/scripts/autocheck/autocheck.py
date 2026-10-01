@@ -181,17 +181,22 @@ def commit_check(repo, what):
     if not app:
         say(f"autocheck: {what}: nothing under richos/app changed, so no lint applies "
             f"({time.monotonic() - started:.1f}s)")
-        if what == "commit" and policy_applies(repo, staged):
-            with StagedOnly(repo) as aside:
-                if aside.summary:
-                    say(f"autocheck: {what}: {aside.summary} set aside for the check, so it sees only what is committed")
-                if release_policy(repo, what):
-                    return 1
-        # The land's coverage rule applies to every code path, not only richos/app (2026-10-01:
-        # a Swift file under richos/mobile and step lists under docs/verification passed here
-        # and were refused at the merge). Lookup only: no suite runs for a change outside the app.
-        if what == "commit" and branch_selection(repo, what, run_quick=False):
-            return 1
+        if what != "commit":
+            return 0
+        # Everything below reads files (the policy suite's header and inputs, proof-for.sh and
+        # its tables), so it runs with only what the commit holds in the tree: an unstaged edit
+        # to any of them must neither call for a check nor excuse one (recheck R10 v2, the same
+        # mistake as the app path's R10 at a new site).
+        with StagedOnly(repo) as aside:
+            if aside.summary:
+                say(f"autocheck: {what}: {aside.summary} set aside for the check, so it sees only what is committed")
+            if policy_applies(repo, staged) and release_policy(repo, what):
+                return 1
+            # The land's coverage rule applies to every code path, not only richos/app (2026-10-01:
+            # a Swift file under richos/mobile and step lists under docs/verification passed here
+            # and were refused at the merge). Lookup only: no suite runs for a change outside the app.
+            if branch_selection(repo, what, run_quick=False):
+                return 1
         return 0
     with StagedOnly(repo) as aside:
         if aside.summary:
