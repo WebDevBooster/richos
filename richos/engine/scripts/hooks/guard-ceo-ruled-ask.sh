@@ -2,8 +2,13 @@
 #
 # guard-ceo-ruled-ask.sh — the PreToolUse gate on the AskUserQuestion tool.
 #
-# TWO CHECKS, ONE TOOL, ONE REGISTRATION — the shape verify-agent-prompt.sh
+# THREE CHECKS, ONE TOOL, ONE REGISTRATION — the shape verify-agent-prompt.sh
 # already carries for Agent spawns:
+#
+#   0. THE DEAF-LEAD CHECK (2026-10-01, blocking) — while a teammate of this
+#      session is live, the question goes as the turn's final message under
+#      `QUESTION FOR YOU:` instead, so the lead can still be woken. FIRST at
+#      runtime. Predicate and reasons: scripts/lib/blocking_ask.py.
 #
 #   1. THE PREMISE CHECK (2026-09-10, not blocking) — before a question reaches
 #      him, ONE interruption per episode asking what it changes for him, with
@@ -171,6 +176,61 @@ if ! resolve_entity_root "$INPUT"; then
     exit 0
 fi
 ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+
+# ===========================================================================
+# CHECK 0 — THE DEAF-LEAD CHECK (2026-10-01, blocking)
+# ===========================================================================
+# 2026-10-01: an AskUserQuestion held the lead's turn open for 37 minutes while
+# the CEO was away. Everything that could have woken the lead (a merge result,
+# a teammate's final report, the stall watcher, the 93% quota rule) waited in
+# the queue behind it. While a teammate of this session is live, the question
+# goes as the turn's FINAL MESSAGE under the fixed lead-in `QUESTION FOR YOU:`
+# instead; notice-unanswered-question.sh repeats it under every later turn
+# until he answers, so it never scrolls away. Allowed with no live teammate,
+# when this turn was already refused at Stop, on unknown liveness (fail open),
+# and after a declaration (blocking-ask-exempt.sh). The predicate and every
+# reason: scripts/lib/blocking_ask.py. It runs FIRST: the premise and ruling
+# checks below would examine a question that is about to be refused, and the
+# same question then goes out as prose, where notice-ceo-ruled-prose.sh reads it.
+_BA_LIB="$SCRIPT_DIR/../lib/blocking_ask.py"
+if [ ! -f "$_BA_LIB" ]; then
+    announce_broken "DEAF-LEAD CHECK IS OFF: scripts/lib/blocking_ask.py is missing at $_BA_LIB. An AskUserQuestion can hold the lead's turn open while teammates' results queue behind it."
+else
+    BA_OUT="$(printf '%s' "$INPUT" | python3 "$_BA_LIB" check --entity "$ENTITY_ROOT" --engine-root "$ENGINE_ROOT" 2>/dev/null || true)"
+    BA_VERDICT="$(printf '%s' "$BA_OUT" | cut -f1)"
+    if [ "$BA_VERDICT" = "REFUSE" ]; then
+        BA_LIVE="$(printf '%s' "$BA_OUT" | cut -f2)"
+        BA_SESSION="$(printf '%s' "$BA_OUT" | cut -f3)"
+        {
+            echo "=== NOT AS AskUserQuestion WHILE TEAMMATES WORK: MAKE IT YOUR TURN'S FINAL MESSAGE ==="
+            echo ""
+            echo "  2026-10-01: an AskUserQuestion held the lead's turn open for 37 minutes while"
+            echo "  the CEO was away. A merge result and a teammate's final report waited behind"
+            echo "  it, and nothing could wake the lead: not a teammate finishing, not the stall"
+            echo "  watcher, not the 93% quota rule."
+            echo ""
+            echo "  Live teammates of this session: $BA_LIVE"
+            echo ""
+            echo "  INSTEAD: end this turn with the question as your FINAL MESSAGE, starting with"
+            echo "  this lead-in on its own line, then the question and its options:"
+            echo ""
+            echo "      QUESTION FOR YOU:"
+            echo ""
+            echo "  He reads the same words in the terminal and his answer arrives as his next"
+            echo "  prompt. Meanwhile finishing teammates and the stall watcher can still wake"
+            echo "  you, and notice-unanswered-question.sh repeats the question under every later"
+            echo "  turn until he answers, so it does not scroll away."
+            echo ""
+            echo "  Allowed with nothing to declare once this turn has been refused at Stop (a"
+            echo "  blocking Stop gate would keep the question from being your final message)."
+            echo "  IF IT MUST BLOCK, declare why, for this session only:"
+            printf '    %s/scripts/blocking-ask-exempt.sh %s "<why this question has to block>"\n' \
+                "$ENGINE_ROOT" "${BA_SESSION:-<session-id>}"
+            echo "(hook: scripts/hooks/guard-ceo-ruled-ask.sh, deaf-lead check)"
+        } >&2
+        exit 2
+    fi
+fi
 
 # ===========================================================================
 # CHECK 2 OF 2 — THE PREMISE CHECK (2026-09-10)
