@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Every committed walk step list is runnable by steps-walk.py, and a malformed one fails the check.
+# run-tests: no-host-screen: JSON validation only; no guest is booted
+# run-tests: inputs richos/app/scripts/steps-walk-data.test.sh richos/app/scripts/testvm/steps-walk.py docs/verification/2026-10-01-nightly-33-candidate-walk/steps/walk3.json docs/verification/2026-10-01-nightly-33-candidate-walk/steps/walk5.json docs/verification/2026-10-01-nightly-33-candidate-walk/steps/walk7.json docs/verification/2026-10-01-nightly-33-candidate-walk/steps/walk8.json
+# run-tests: covers docs/verification/2026-10-01-nightly-33-candidate-walk/steps/walk3.json docs/verification/2026-10-01-nightly-33-candidate-walk/steps/walk5.json docs/verification/2026-10-01-nightly-33-candidate-walk/steps/walk7.json docs/verification/2026-10-01-nightly-33-candidate-walk/steps/walk8.json
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"
+TOOL="$HERE/testvm/steps-walk.py"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/steps-walk-data.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT
+
+# Every step list under a docs/verification/*/steps/ directory is declared above, so a new one
+# cannot be committed without this suite claiming it.
+declared="$(grep '^# run-tests: covers ' "${BASH_SOURCE[0]}" | sed 's/^# run-tests: covers //' | tr ' ' '\n' | sort)"
+cd "$ROOT"
+files=(docs/verification/*/steps/*.json)
+found="$(printf '%s\n' "${files[@]}" | sort)"
+if [ "$declared" != "$found" ]; then
+  echo "FAIL: step lists on disk differ from this suite's covers row" >&2
+  diff <(echo "$declared") <(echo "$found") >&2 || true
+  exit 1
+fi
+echo "ok    covers row names every committed step list"
+
+python3 -B "$TOOL" --check "${files[@]}"
+echo "ok    every committed step list is valid"
+
+# The check must fail on a malformed list: an unknown op, a missing argument, a wrong type.
+for bad in '[{"op":"nonsense"}]' '[{"op":"push","src":"a"}]' '[{"op":"wait","seconds":"6"}]' '{"op":"wait"}' '[]' 'not json'; do
+  printf '%s' "$bad" > "$TMP/bad.json"
+  if python3 -B "$TOOL" --check "$TMP/bad.json" >/dev/null; then
+    echo "FAIL: malformed step list accepted: $bad" >&2
+    exit 1
+  fi
+done
+echo "ok    malformed step lists fail the check"

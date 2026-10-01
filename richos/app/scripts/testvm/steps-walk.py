@@ -20,6 +20,10 @@ its exit status, its output and the clock, so a walk's evidence is one file and 
   push   src dest                      guest.sh VM --push src dest (a fixture file into the guest)
   handfile mode path [to]              hand-file.sh VM paste|drag path [--to x,y]
 
+A step list is checked without a guest: `steps-walk.py --check FILE...` prints each problem (not a
+list, an unknown op, a missing or mistyped argument) and exits 1. The committed walk records'
+step lists are checked by steps-walk-data.test.sh.
+
 "allow_fail": true records a failing step and carries on; otherwise the first failure stops the walk
 (exit 1). The final exit is 0 only when every step that was not allowed to fail passed.
 """
@@ -77,7 +81,55 @@ def step_run(vm, step, out):
     return 2, f'unknown op {op!r}'
 
 
+# op -> {argument: type} every step of that op must carry; OPTIONAL ones are typed when present.
+REQUIRED = {
+    'tree': {'name': str}, 'shot': {'name': str}, 'ax': {'args': list}, 'guest': {'command': str},
+    'keys': {'text': str}, 'push': {'src': str, 'dest': str}, 'handfile': {'mode': str, 'path': str},
+    'wait': {'seconds': (int, float)}, 'until': {'args': list, 'contains': str},
+}
+OPTIONAL = {'tree': {'app': str}, 'shot': {'ocr': bool}, 'handfile': {'to': str},
+            'until': {'seconds': (int, float)}, '*': {'allow_fail': bool}}
+
+
+def problems(steps):
+    """Every defect of a step list, as sentences; an empty list means each step is runnable."""
+    if not isinstance(steps, list) or not steps:
+        return ['a step list is a non-empty JSON list']
+    found = []
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            found.append(f'step {i}: not an object')
+            continue
+        op = step.get('op')
+        if op not in REQUIRED:
+            found.append(f'step {i}: unknown op {op!r}')
+            continue
+        for key, kind in REQUIRED[op].items():
+            if key not in step:
+                found.append(f'step {i} ({op}): missing {key!r}')
+        for key, kind in {**REQUIRED[op], **OPTIONAL.get(op, {}), **OPTIONAL['*']}.items():
+            if key in step and (not isinstance(step[key], kind)
+                                or (isinstance(step[key], bool) and kind != bool)):
+                found.append(f'step {i} ({op}): {key!r} has the wrong type')
+    return found
+
+
+def check_files(paths):
+    bad = 0
+    for path in paths:
+        try:
+            found = problems(json.loads(Path(path).read_text()))
+        except (OSError, ValueError) as e:
+            found = [f'unreadable: {e}']
+        for line in found:
+            print(f'{path}: {line}')
+        bad += bool(found)
+    return 1 if bad else 0
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--check':
+        return check_files(sys.argv[2:]) if sys.argv[2:] else 2
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('vm')
     p.add_argument('--steps', required=True, type=Path)
