@@ -415,6 +415,10 @@ pub enum LiveEvent {
         /// phone's receipt. `clientId` on the wire, the projection's spelling; absent for
         /// anything else.
         client_id: Option<String>,
+        /// The words are the transcript of a voice message he recorded on a phone
+        /// (`Turn::voice_note`), so this row, which can beat the phone's receipt, is already a
+        /// voice row. `voiceNote: true` on the wire, the projection's spelling; absent otherwise.
+        voice_note: bool,
         at: u64,
     },
     /// §13 `rich://thread-summary-updated` — sidebar title, recency and operational status.
@@ -542,7 +546,7 @@ impl LiveEvent {
                 }
                 map.insert("at".into(), json!(at));
             }
-            LiveEvent::CeoMessage { message_id, text, source, created_at, client_id, at, .. } => {
+            LiveEvent::CeoMessage { message_id, text, source, created_at, client_id, voice_note, at, .. } => {
                 map.insert("messageId".into(), json!(message_id));
                 map.insert("text".into(), json!(text));
                 // The SAME spelling the projection serializes (`snake_case` on `Source`), so a
@@ -552,6 +556,10 @@ impl LiveEvent {
                 // Present only when there is one, as the projection serializes it.
                 if let Some(client_id) = client_id {
                     map.insert("clientId".into(), json!(client_id));
+                }
+                // Present only when true, as the projection serializes it.
+                if *voice_note {
+                    map.insert("voiceNote".into(), json!(true));
                 }
                 map.insert("at".into(), json!(at));
             }

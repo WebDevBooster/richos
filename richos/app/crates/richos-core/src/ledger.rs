@@ -417,6 +417,18 @@ pub enum Event {
         /// is that, and the phone's own receipt store is what makes its retries free.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_id: Option<String>,
+        /// **THESE WORDS ARE THE TRANSCRIPT OF A VOICE MESSAGE HE RECORDED** — a phone voice
+        /// note, transcribed by the Mac at intake (`steering::IntakeRecord::Channel`'s
+        /// `voice_note`). `source` stays `Text` for it: `Jam` is the desk's live voice mode, and
+        /// changing it would also change what the engine is told (`native.rs`) and the desk
+        /// voice origin (`operator_host.rs`), which this field leaves alone. Kept so
+        /// every row of the turn, the live one that can beat the phone's receipt included, is a
+        /// voice row from its first appearance instead of a text row that turns into one.
+        ///
+        /// `false`, and no key, for everything else and every turn written before this field
+        /// existed; an older build ignores the key.
+        #[serde(default, skip_serializing_if = "is_false")]
+        voice_note: bool,
     },
     TurnStarted { turn_id: String, session_id: String, at: u64 },
     /// A streamed partial reply chunk — persisted incrementally so a half-written
@@ -657,6 +669,10 @@ pub struct Turn {
     /// `Event::PromptReceived::client_id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
+    /// These words are the transcript of a voice message he recorded (a phone voice note). See
+    /// `Event::PromptReceived::voice_note`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub voice_note: bool,
 }
 
 impl Turn {
@@ -1068,6 +1084,7 @@ impl Ledger {
                 rich_audible,
                 channel,
                 client_id,
+                voice_note,
             } => {
                 self.observe_revision(binding_revision);
                 self.turns.push(Turn {
@@ -1095,6 +1112,7 @@ impl Ledger {
                     rich_audible,
                     channel,
                     client_id,
+                    voice_note,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -1214,6 +1232,7 @@ impl Ledger {
                     rich_audible: None,
                     channel: None,
                     client_id: None,
+                    voice_note: false,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -1754,7 +1773,9 @@ impl Ledger {
     /// [`record_prompt_received_from_intake`](Self::record_prompt_received_from_intake), or as
     /// [`record_prompt_received_via`](Self::record_prompt_received_via) when the install keeps
     /// the channel, plus the one field that lets the CEO row the Mac sends back name the
-    /// message the phone is already showing.
+    /// message the phone is already showing, and the one that says the words are the
+    /// transcript of a voice note (`voice_note`, see `Event::PromptReceived::voice_note`).
+    #[allow(clippy::too_many_arguments)]
     pub fn record_prompt_received_from_client(
         &mut self,
         binding: &ThreadBinding,
@@ -1762,9 +1783,10 @@ impl Ledger {
         source: Source,
         intake_id: u64,
         channel: Option<&str>,
-        client_id: &str,
+        client_id: Option<&str>,
+        voice_note: bool,
     ) -> Result<String, LedgerError> {
-        self.record_prompt_received_with(binding, text, source, Some(intake_id), None, channel, Some(client_id))
+        self.record_prompt_received_inner(binding, text, source, Some(intake_id), None, channel, client_id, voice_note)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1777,6 +1799,21 @@ impl Ledger {
         rich_audible: Option<bool>,
         channel: Option<&str>,
         client_id: Option<&str>,
+    ) -> Result<String, LedgerError> {
+        self.record_prompt_received_inner(binding, text, source, intake_id, rich_audible, channel, client_id, false)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_prompt_received_inner(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        intake_id: Option<u64>,
+        rich_audible: Option<bool>,
+        channel: Option<&str>,
+        client_id: Option<&str>,
+        voice_note: bool,
     ) -> Result<String, LedgerError> {
         self.verify_binding(binding)?;
         let turn_id = new_id("turn");
@@ -1793,6 +1830,7 @@ impl Ledger {
                 rich_audible,
                 channel: channel.map(str::to_string),
                 client_id: client_id.map(str::to_string),
+                voice_note,
             },
             true, // fsync — never lose the CEO's input
         )?;
@@ -1813,7 +1851,7 @@ impl Ledger {
         if self.turn(&turn_id).is_some(){return Ok(turn_id);}
         self.append(Event::PromptReceived {turn_id:turn_id.clone(),thread_id:binding.thread_id().into(),
             text:delivery.text.clone(),source:Source::Text,at:now_millis(),entity_id:Some(binding.entity_id().clone()),
-            binding_revision:binding.binding_revision(),intake_id:None,rich_audible:None,channel:None,client_id:None},true)?;
+            binding_revision:binding.binding_revision(),intake_id:None,rich_audible:None,channel:None,client_id:None,voice_note:false},true)?;
         Ok(turn_id)
     }
 
@@ -2413,6 +2451,7 @@ mod tests {
             rich_audible: None,
             channel: None,
             client_id: None,
+            voice_note: false,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);

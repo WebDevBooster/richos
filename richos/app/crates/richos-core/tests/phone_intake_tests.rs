@@ -137,6 +137,7 @@ fn a_channel_record_carries_no_steering_turn_id_because_there_is_no_turn_to_attr
         at: 1,
         channel: "phone".into(),
         client_id: None,
+        voice_note: false,
     };
     let json = serde_json::to_value(&record).unwrap();
     assert_eq!(json.get("record").unwrap().as_str().unwrap(), "channel");
@@ -144,6 +145,8 @@ fn a_channel_record_carries_no_steering_turn_id_because_there_is_no_turn_to_attr
     assert_eq!(json.get("channel").unwrap().as_str().unwrap(), "phone");
     // A record without the phone's id is byte-for-byte the shape every older build reads.
     assert!(json.get("client_id").is_none(), "no id, no key");
+    // And a typed one carries no voice-note key, for the same reason.
+    assert!(json.get("voice_note").is_none(), "typed, no key");
 }
 
 #[test]
@@ -613,5 +616,85 @@ fn a_phone_message_keeps_the_phones_own_id_on_its_turn_its_live_row_and_its_proj
             ("typed at the desk".to_string(), None),
         ]
     );
+    if let Err(error) = std::fs::remove_file(&ledger_path) { eprintln!("fixture cleanup: {error}"); }
+}
+
+// -------------------------------------------------------------------------------------
+// A PHONE VOICE NOTE IS A VOICE MESSAGE FROM ITS FIRST APPEARANCE
+// -------------------------------------------------------------------------------------
+
+/// **The early echo of a phone voice note says it is a voice note.** The phone's voice upload
+/// writes the transcript into the intake log like typed words, and the drain turned it into an
+/// ordinary typed turn: the live `ceo-message`, which is the row that can reach the phone
+/// before the upload's receipt, then carried nothing a phone could tell a voice note by, and
+/// `phone/rows.rs` projected it as `kind: "text"`. The phone drew the transcript as a text
+/// bubble until the receipt arrived.
+///
+/// The fact is checked where a phone learns of the row: the turn, the live `ceo-message`
+/// (`voiceNote: true`), and the projection re-read from disk (hello, backfill, history after a
+/// reconnect). `source` stays `text`: a voice note is not the desk's voice mode. Positive
+/// controls in the same fixture: a typed phone message, a record from an older phone and a
+/// message typed at the desk carry no voice-note key at all.
+#[test]
+fn a_phone_voice_note_says_so_on_its_turn_its_live_row_and_its_projection() {
+    use richos_core::timeline::{Timeline, TimelineItem, ViewMode};
+    let (mut spine, control, thread, ledger_path) =
+        phone_ready("voice-note", vec!["On it!", "Noted.", "Done.", "Sure."]);
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+
+    control.submit_voice_note_from_channel(&thread, Some(femcboost()), "call the bank", "phone_voice", Some("v1")).unwrap();
+    control.submit_from_channel_as(&thread, Some(femcboost()), "and the landlord", "phone_typed", Some("t1")).unwrap();
+    control.submit_from_channel(&thread, Some(femcboost()), "sent by an older phone", "phone").unwrap();
+    spine.poll_intake().unwrap();
+    spine.submit_prompt("typed at the desk", Source::Text).unwrap();
+    let expected = |voice: Value| {
+        vec![
+            ("call the bank".to_string(), voice),
+            ("and the landlord".to_string(), Value::Null),
+            ("sent by an older phone".to_string(), Value::Null),
+            ("typed at the desk".to_string(), Value::Null),
+        ]
+    };
+
+    // The turn: a voice note, and still `Source::Text`.
+    let binding = spine.ledger().thread_binding(&thread).unwrap();
+    let turns: Vec<(String, Value)> = spine
+        .ledger()
+        .thread_turns_scoped(&binding)
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.source == Source::Text)
+        .map(|t| (t.user_text.clone(), if t.voice_note { Value::Bool(true) } else { Value::Null }))
+        .collect();
+    assert_eq!(turns, expected(Value::Bool(true)));
+
+    // The live row: the one that can beat the receipt.
+    let rows = live.of("rich://ceo-message");
+    let live_rows: Vec<(String, Value)> = ["call the bank", "and the landlord", "sent by an older phone", "typed at the desk"]
+        .iter()
+        .map(|text| {
+            let row = rows.iter().find(|p| p["text"] == *text).unwrap_or_else(|| panic!("no ceo-message for {text:?}"));
+            assert_eq!(row["source"], "text", "{text}: a voice note is not the desk's voice mode");
+            (text.to_string(), row.get("voiceNote").cloned().unwrap_or(Value::Null))
+        })
+        .collect();
+    assert_eq!(live_rows, expected(Value::Bool(true)), "the early echo");
+
+    // The projection, from the ledger re-read off disk as a restart reads it.
+    let reopened = Ledger::open(&ledger_path).unwrap();
+    let binding = reopened.thread_binding(&thread).unwrap();
+    let timeline = Timeline::project(&reopened, &binding, &[]).unwrap();
+    let projected: Vec<(String, Value)> = timeline
+        .view(ViewMode::Ceo)
+        .items()
+        .iter()
+        .filter(|i| matches!(i, TimelineItem::UserMessage { .. }))
+        .map(|i| {
+            let item = serde_json::to_value(i).unwrap();
+            (item["text"].as_str().unwrap().to_string(), item.get("voiceNote").cloned().unwrap_or(Value::Null))
+        })
+        .collect();
+    assert_eq!(projected, expected(Value::Bool(true)), "the projection after a restart");
     if let Err(error) = std::fs::remove_file(&ledger_path) { eprintln!("fixture cleanup: {error}"); }
 }

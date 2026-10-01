@@ -595,6 +595,11 @@ pub enum TimelineItem {
         /// other turn serializes exactly as it did before this field existed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_id: Option<String>,
+        /// The words are the transcript of a voice message he recorded on a phone
+        /// (`Turn::voice_note`). `voiceNote: true` on the wire; absent otherwise, so every other
+        /// turn serializes exactly as it did before this field existed.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        voice_note: bool,
     },
     /// One contiguous run of Rich's prose (§5.2 / §5.4). REAL text; `phase` is `Unknown`
     /// for every CEO turn until a phase signal exists.
@@ -1398,6 +1403,7 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
             text: turn.user_text.clone(),
             source: turn.source,
             client_id: turn.client_id.clone(),
+            voice_note: turn.voice_note,
         });
     }
 
@@ -2296,6 +2302,7 @@ mod tests {
             rich_audible: None,
             channel: None,
             client_id: None,
+            voice_note: false,
         }
     }
 
