@@ -14,7 +14,8 @@ lib="$here/lib/cargo-cache-env.sh"
 sccache_bin="$(command -v sccache || true)"
 [ -z "$sccache_bin" ] && [ -x /Volumes/E1TB/tools/sccache/v0.18.0/sccache ] && sccache_bin=/Volumes/E1TB/tools/sccache/v0.18.0/sccache
 if [ -z "$sccache_bin" ] || ! command -v rustc >/dev/null 2>&1; then
-  echo "SKIP sccache or rustc is not installed here"; exit 0
+  # Exit 2, never 0: nothing was compiled, and exit 0 is recorded as `passed` (hunt R18).
+  echo "  NOT RUN  cargo-cache-env: sccache or rustc is not installed here"; exit 2
 fi
 
 # sccache puts a Unix socket under the temp directories below (limit about 100 bytes), so they must

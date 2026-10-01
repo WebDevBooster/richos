@@ -217,6 +217,39 @@ def verdict_cases(name, label, subcheck):
           "a failure still exits 1" % (label, name), got)
 
 
+def r18_cargo_cache_env_without_a_compiler():
+    """R18 (hunt part 2 v2): with no rustc on PATH, cargo-cache-env.test.sh compiled nothing and
+    printed SKIP over exit 0, which run-tests.sh records as `passed`. It must exit 2 and say NOT RUN."""
+    tmp = tempfile.mkdtemp(prefix="not-run-verdict-r18.", dir=os.environ.get("TMPDIR"))
+    try:
+        r = subprocess.run(["/bin/bash", os.path.join(HERE, "cargo-cache-env.test.sh")], cwd=tmp,
+                           capture_output=True, text=True, env={"HOME": tmp, "PATH": "/usr/bin:/bin"})
+        check(r.returncode == 2 and "NOT RUN" in r.stdout,
+              "R18 cargo-cache-env.test.sh with no compiler exits 2 and names NOT RUN, never 0",
+              (r.returncode, r.stdout, r.stderr))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+SKIP_VERDICT_START = re.compile(r'^if \[ "\$SKIP" -gt 0 \]; then$')
+
+
+def skip_verdict_cases(name, label):
+    """The same rule for a suite that counts skip() cases: from its SKIP branch to the end of the
+    file, with SKIP=2 it exits 2 (a skipped case is a case that did not run); with SKIP=0 it exits 0."""
+    with open(os.path.join(HERE, name)) as fh:
+        lines = fh.read().split("\n")
+    start = next((i for i, line in enumerate(lines) if SKIP_VERDICT_START.match(line)), None)
+    got = []
+    for skipped in (2, 0):
+        if start is None:
+            got.append(None)
+            continue
+        script = "set -uo pipefail\nPASS=9\nFAIL=0\nSKIP=%d\n%s\n" % (skipped, "\n".join(lines[start:]))
+        got.append(subprocess.run(["bash", "-c", script], capture_output=True, text=True).returncode)
+    check(got == [2, 0], "%s %s: skipped cases exit 2 (never a pass); none skipped exits 0" % (label, name), got)
+
+
 # The suites hunt part 2 finding 18 named, each added with its own fix.
 NAMED = [
     "battery-check.test.py",
@@ -233,6 +266,8 @@ if __name__ == "__main__":
     v1_battery_check_in_a_shallow_history()
     verdict_cases("native-ios-share.test.sh", "V2", "S5 (the tag is not in this clone)")
     verdict_cases("native-ios-app.test.sh", "V3", "A8 (no test files)")
+    r18_cargo_cache_env_without_a_compiler()
+    skip_verdict_cases("qa.test.sh", "R18")
     probes()
     static_rule(NAMED)
     every_suite()
