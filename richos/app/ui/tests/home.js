@@ -2335,7 +2335,7 @@ async function main() {
     );
     assertEqual(r.focus, "input", "focus did not follow the surface to the composer");
     assert(!r.forced, "the always-dark clamp is still up in the app UI");
-    await shot(page, "home-app-ui", { fullPage: false });
+    await shot(page, "home-app-ui", { fullPage: false, parkPointer: true });
     publishShotFile(path.join(SHOT_DIR, "home-app-ui.png"), path.join(SHOTS, "home-app-ui.png"));
     // STILL STOPPED, MEASURED IN THE PAGE'S OWN FRAMES rather than 1,500ms of the harness's
     // time: the page renders 90 more frames (1.5s at 60fps) and the loop's counter must not move
@@ -2399,7 +2399,7 @@ async function main() {
     assertEqual(r.field, "live", "the picture went back through its loading state");
     assert(r.forced, "the always-dark clamp did not come back with the screen");
     assertEqual(r.focus, "home-enter", "focus did not follow the surface back");
-    await shot(page, "home-returned", { fullPage: false });
+    await shot(page, "home-returned", { fullPage: false, parkPointer: true });
     publishShotFile(path.join(SHOT_DIR, "home-returned.png"), path.join(SHOTS, "home-returned.png"));
     return `back in ${resumeMs}ms, frames ${before.frames} -> ${r.frames}, still ${r.N} objects, no reload, clamp back up`;
   });
@@ -2602,7 +2602,8 @@ async function main() {
       ]);
       const bad = failures(all);
       assertEqual(bad.length, 0, "under the floor in " + theme + ":\n" + reportRatios(bad));
-      await shot(page, "home-settings-" + theme, { fullPage: false });
+      // The rail wordmark dims to 0.78 under the pointer (home.css `#rail-wordmark[role="button"]:hover`), so a pointer left near it by an earlier step made this picture differ under load.
+      await shot(page, "home-settings-" + theme, { fullPage: false, parkPointer: true });
       publishShotFile(path.join(SHOT_DIR, "home-settings-" + theme + ".png"), path.join(SHOTS, "home-settings-" + theme + ".png"));
       await page.evaluate(() => window.RichHome.closeSettings());
       return reportRatios(all) + `\n          ${shape.foot}`;
