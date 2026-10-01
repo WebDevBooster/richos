@@ -1244,6 +1244,8 @@ def _():
     with open(os.path.join(MOBILE, "native-android", "bin", "randroid")) as f:
         script = f.read()
     assert "install_apk_if_changed" in script and "adb_s install" not in script
+    # HERE is native-android/ (the parent of bin/): the sourced path must exist from it.
+    assert '. "$HERE/bin/apk-install.sh"' in script, "randroid must source the helper from $HERE/bin"
     for rel in (("native-android", "bin", "randroid"), ("native-android", "bin", "apk-install.sh")):
         with open(os.path.join(MOBILE, *rel)) as f:
             code = [l for l in f if not l.lstrip().startswith("#")]

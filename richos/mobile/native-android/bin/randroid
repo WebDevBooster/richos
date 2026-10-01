@@ -223,7 +223,7 @@ emu_awake() {  # $1 = the serial this CLI recorded
   "$ADB" -s "$1" shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
 }
 
-. "$HERE/apk-install.sh"
+. "$HERE/bin/apk-install.sh"
 
 emu_install() {
   local t0 t1 apk
