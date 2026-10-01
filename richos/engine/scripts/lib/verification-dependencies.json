@@ -2123,7 +2123,7 @@
     },
     "scripts/lib/mutation-harness.test.sh": {
       "source": "scripts/lib/mutation-harness.test.sh",
-      "sha256": "001e5d5722e97f24f51f71b5f87ff0dc601fcbfe758d4bcd8e68aa94a8f32edf",
+      "sha256": "f28103a5aad5b061d75c198b9a6d5b85c8114ae06749d9e187a8586d461e382d",
       "evidence": "Executes the real sandbox allocator against a generated engine. The fixture config is literal and never sourced. Tree witnesses cover the generated fake guard, not the real config. Real mutation scripts are checked as source text and directory inventory only. The one real config assertion checks presence.",
       "keys": [],
       "edges": [
