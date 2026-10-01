@@ -72,6 +72,8 @@ struct ScreenView: View {
     @State private var questionJumpToken = 0
     @State private var questionJumpID: String?
     @State private var aboveHeight: CGFloat = 0
+    /// The cards' region's height as laid out, so the cards can be told how much more room they have.
+    @State private var cardsHeight: CGFloat = 0
     /// The empty conversation's own height, measured, so it can sit above the cards instead of under them.
     @State private var emptyHeight: CGFloat = 300
     /// Whether the CURRENT model has a sheet. SwiftUI may call the setter of the binding it was first
@@ -262,7 +264,12 @@ struct ScreenView: View {
                             AboveComposer(cards: model.cards, toast: model.toast, send: send)
                                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
                         }
-                        .frame(maxHeight: min(max(aboveHeight, 1), height * 0.6))
+                        // R2 (the iPhone re-walk): and the conversation keeps `conversationMinimum` between
+                        // the header and the cards, so with the keyboard up the message just sent is not
+                        // behind the header. The cards yield (they scroll, with their cue) before the
+                        // conversation does, down to a floor where a card's title still shows.
+                        .frame(maxHeight: min(max(aboveHeight, 1), height * 0.6, cardsRoom()))
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardsHeight = $0 }
                         // I05: a card raised while another shows is brought into view, the least
                         // scroll that shows it, once, when it is raised: never a timer or a redraw.
                         .onChange(of: model.cards) { before, after in
@@ -285,6 +292,23 @@ struct ScreenView: View {
         }
         .animation(Motion.spring(320), value: model.attach.menuOpen)
     }
+
+    /// The least height, in points, the conversation keeps between the header and the cards: the last
+    /// message (a row is about 61 pt) or the empty state: its mark, title and one line, whole (about 130 pt), plus its own 28 pt of margin above and below.
+    private static let conversationMinimum: CGFloat = 175
+
+    /// What the cards may take: what they take now, plus what the gap between the header and the zone
+    /// holds beyond the conversation's minimum (negative when the gap is already short of it). It reads
+    /// only measured screen positions, so it holds with the keyboard up or down at any text size, and it
+    /// settles where the gap is the minimum. One card is never squeezed (D10: the kept voice card whole
+    /// above the field, with the keyboard up); with several cards the region scrolls, to a floor of
+    /// 80 pt, rather than leaving the conversation less than the minimum.
+    private func cardsRoom() -> CGFloat {
+        guard cardsHeight > 0, zoneTop > headerBottom, aboveHeight > Self.oneCardAtMost else { return .infinity }
+        return max(80, cardsHeight + zoneTop - headerBottom - Self.conversationMinimum)
+    }
+    /// The tallest the cards can be and still be one card (the kept voice card is about 175 pt).
+    private static let oneCardAtMost: CGFloat = 235
 
     /// The thread fades out under the header (`.thread` `mask-image`). `safeTop` is where the header
     /// block's 60 pt begin; the stops sit 30, 64 and 100 pt below it.
