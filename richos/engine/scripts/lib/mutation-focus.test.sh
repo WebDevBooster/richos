@@ -231,8 +231,15 @@ cat > "$FAKE_ENG/mega-lander/tests/par.test.sh" <<'EOF'
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../feature.sh"
 touch "$FOCUS_PROBE/running.$$"
-ls "$FOCUS_PROBE"/running.* 2>/dev/null | wc -l | tr -d ' ' >> "$FOCUS_PROBE/concurrency"
-sleep 1
+# Hold until three suites overlap (or a sibling already saw it), so the peak does not depend on
+# how fast a busy machine starts them; bounded by FOCUS_WAIT tenths of a second.
+for _ in $(seq 1 "${FOCUS_WAIT:-10}"); do
+    [ -f "$FOCUS_PROBE/reached" ] && break
+    n="$(ls "$FOCUS_PROBE"/running.* 2>/dev/null | wc -l | tr -d ' ')"
+    echo "$n" >> "$FOCUS_PROBE/concurrency"
+    [ "$n" -ge 3 ] && { touch "$FOCUS_PROBE/reached"; break; }
+    sleep 0.1
+done
 rm -f "$FOCUS_PROBE/running.$$"
 [ "${RULE_A:-0}" = 1 ] || { echo "      FAIL  P1.1 rule A"; exit 1; }
 EOF
@@ -244,12 +251,12 @@ for n in 1 2 3 4 5 6; do
 done
 harness h9.sh mega-lander/tests/par.test.sh - "${M4[@]}"
 rm -f "$PROBE"/*
-RICHOS_MUTANT_JOBS=4 run_h h9.sh
+FOCUS_WAIT=300 RICHOS_MUTANT_JOBS=4 run_h h9.sh
 FREE_MAX="$(sort -n "$PROBE/concurrency" 2>/dev/null | tail -1)"
 rm -f "$PROBE"/*
 BUDGET="$SANDBOX/budget"
 python3 "$ENGINE_ROOT/scripts/lib/worker_tokens.py" init "$BUDGET" 1
-RICHOS_WORKER_SLOT_HELD=1 RICHOS_WORKER_TOKENS="$BUDGET" RICHOS_MUTANT_JOBS=4 run_h h9.sh
+FOCUS_WAIT=60 RICHOS_WORKER_SLOT_HELD=1 RICHOS_WORKER_TOKENS="$BUDGET" RICHOS_MUTANT_JOBS=4 run_h h9.sh
 BOUND_MAX="$(sort -n "$PROBE/concurrency" 2>/dev/null | tail -1)"
 if [ "${FREE_MAX:-0}" -ge 3 ] && [ "${BOUND_MAX:-9}" -le 2 ] && [ "$RH_RC" -eq 0 ]; then
     ok "F9  a budget of one token holds a four-slot pool to two suites at once (${BOUND_MAX}; ${FREE_MAX} without a budget), and every mutant is still proven"
