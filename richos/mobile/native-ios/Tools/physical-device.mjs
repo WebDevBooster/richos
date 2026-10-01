@@ -68,6 +68,17 @@ export function storeKey({ tree, team, xcode }) {
   return createHash('sha256').update(`${tree}\n${team}\n${xcode}`).digest('hex').slice(0, 24);
 }
 
+// Entries of native-ios that are not build inputs: tooling and prose beside the app. A change to
+// them alone must not re-sign the app or put new runner bytes on the phone.
+export const NOT_BUILD_INPUTS = ['Tools', 'docs', 'bin', 'README.md'];
+
+// The identity of the build inputs: `git ls-tree` of native-ios without NOT_BUILD_INPUTS.
+export function buildTree(lsTree) {
+  const kept = lsTree.split('\n').filter(Boolean).filter(line => !NOT_BUILD_INPUTS.includes(line.split('\t')[1]));
+  if (!kept.length) throw Error('buildTree: git ls-tree listed no build inputs');
+  return createHash('sha256').update(kept.join('\n')).digest('hex');
+}
+
 // What one run does about its products, decided before anything is built or installed.
 //   store    the committed tree was built before: reuse those exact signed bytes (no build, no signing)
 //   checkout RICHOS_PHYSICAL_PREBUILT=1: this checkout's own earlier products (stamp checked by the caller)
@@ -210,7 +221,10 @@ export async function main(args, env = process.env) {
   };
   let xcode;
   const resolved = await resolveProducts({ command, env, team: settings.team, derived, store }, {
-    source: () => ({ tree: git('rev-parse', 'HEAD:./'), commit: git('rev-parse', 'HEAD'), dirty: git('status', '--porcelain', '--', '.') !== '' }),
+    // --full-tree: from a subdirectory, ls-tree would otherwise filter the subtree by that
+    // subdirectory's own path and list nothing.
+    source: () => ({ tree: buildTree(git('ls-tree', '--full-tree', git('rev-parse', 'HEAD:./'))), commit: git('rev-parse', 'HEAD'),
+      dirty: git('status', '--porcelain', '--', '.', ...NOT_BUILD_INPUTS.map(name => `:(exclude)${name}`)) !== '' }),
     xcode: () => (xcode ??= execFileSync('xcodebuild', ['-version'], { encoding: 'utf8', env }).trim().replace(/\s+/g, ' ')),
     hash: hashTree,
     copy: (from, to) => execFileSync('ditto', [from, to]),

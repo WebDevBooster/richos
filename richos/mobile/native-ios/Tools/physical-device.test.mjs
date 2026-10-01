@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { KEEP, allowanceSeconds, configuration, deviceToolSources, plan, prebuilt, prune, resolveProducts, storeKey, verifyPushEnvironment } from './physical-device.mjs';
+import { KEEP, allowanceSeconds, buildTree, configuration, deviceToolSources, plan, prebuilt, prune, resolveProducts, storeKey, verifyPushEnvironment } from './physical-device.mjs';
 
 test('only verify may reuse an earlier build, and only when asked', () => {
   assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'verify'), true);
@@ -139,6 +139,17 @@ test('the store key changes with the tree, the team or Xcode, and with nothing e
   assert.throws(() => storeKey({ tree: 'HEAD', team: 'ABCDEFGHIJ', xcode: 'x' }), /git tree id/);
   assert.equal(plan({ command: 'build', env: { RICHOS_PHYSICAL_PREBUILT: '1' }, source: { dirty: false }, stored: {} }), 'store');
   assert.equal(plan({ command: 'verify', env: { RICHOS_PHYSICAL_PREBUILT: '1' }, source: { dirty: false }, stored: {} }), 'checkout');
+});
+
+test('a change to the tooling or prose beside the app keeps the same build; a change to the app does not', () => {
+  const tree = names => names.map((name, i) => `040000 tree ${String(i).repeat(40).slice(0, 40)}\t${name}`).join('\n');
+  const base = ['App', 'Core', 'Release', 'Tools', 'UITests', 'README.md', 'bin', 'docs'];
+  const before = buildTree(tree(base));
+  const toolsChanged = tree(base).replace(/^040000 tree \S+\tTools$/m, `040000 tree ${'f'.repeat(40)}\tTools`);
+  const appChanged = tree(base).replace(/^040000 tree \S+\tApp$/m, `040000 tree ${'f'.repeat(40)}\tApp`);
+  assert.equal(buildTree(toolsChanged), before, 'a Tools/ change must not re-sign or reinstall the app');
+  assert.notEqual(buildTree(appChanged), before, 'an App/ change must build');
+  assert.match(before, /^[0-9a-f]{64}$/);
 });
 
 test('the store stays bounded without removing a recent entry or the one in use', () => {
