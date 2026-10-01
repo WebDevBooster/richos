@@ -46,6 +46,9 @@
 #           scripted adb (no phone)
 #   L1-L4   lab-ledger: exactly once passes; missing, duplicated or altered
 #           fails; a timeline without the isolated lab's owner marker is refused
+#   LP1-LP4 lab-pause: the lab's listener is held stopped between two marks and
+#           continued; a lab without the owner marker and a pid that is not the
+#           listener are refused; a missing mark times out and still continues
 #   I1-I16  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
@@ -54,7 +57,9 @@
 #           I19-I23 appearance and orientation steps, summary of a finished run;
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
 #           knows every step the host validates, a drifted runner FAILS; I27-I28
-#           syslog-rate counts one process's log entries per bucket, refuses a non-log
+#           syslog-rate counts one process's log entries per bucket, refuses a non-log;
+#           I31-I32 Settings and Safari places and an https-only open step; I33-I34
+#           another app launched fresh, a switch by kind and label, SpringBoard never closed
 #   J1-J7   phone-ios approval: the UI-automation approval forecast from the phone's
 #           own sessions, and a run expected to ask refused until the CEO was told
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
@@ -65,7 +70,7 @@
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
-# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
+# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -107,7 +112,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py phone-ios.py pair-words.py fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py lab-pause.py phone-ios.py pair-words.py fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -788,6 +793,47 @@ expect "L3 an altered message (one character) FAILS, exit 1" 1 '"userRows": 0'
 mkdir -p "$TMP/notlab"; cp "$TMP/lab/timeline.json" "$TMP/notlab/timeline.json"
 run "$QA/lab-ledger.py" --timeline "$TMP/notlab/timeline.json" one
 expect "L4 a timeline that is not the isolated lab's is refused, never read" 2 "owner marker"
+echo "=== P. lab-pause: the isolated lab Mac held silent between two phone marks ==="
+# A stand-in listener: sleep reached through a link whose name carries the listener's test name,
+# so its command line is the one the tool checks for. It is this suite's own child, stopped here.
+mkdir -p "$TMP/lp/data"
+printf 'richos-mobile-isolated-v1' > "$TMP/lp/data/lab-owner"
+ln -sf /bin/sleep "$TMP/lp/mobile_mac_server::serve"
+"$TMP/lp/mobile_mac_server::serve" 60 &
+LPPID=$!
+printf '{"pid": %s, "data": "%s"}' "$LPPID" "$TMP/lp/data" > "$TMP/lp/mac.json"
+: > "$TMP/lp/run-test.log"
+( echo 'PHONE_STEP {"detail":{"label":"PAUSE MAC 1"}}' >> "$TMP/lp/run-test.log"
+  n=0
+  # load-bound: polls for the stopped state itself; the 200 polls are only a hang guard
+  until case "$(ps -p "$LPPID" -o stat= | tr -d ' ')" in T*) true ;; *) false ;; esac || [ "$n" -ge 200 ]; do sleep 0.05; n=$((n + 1)); done
+  ps -p "$LPPID" -o stat= > "$TMP/lp/held"
+  echo 'PHONE_STEP {"detail":{"label":"hidden 1"}}' >> "$TMP/lp/run-test.log" ) &
+run python3 "$QA/lab-pause.py" --lab "$TMP/lp" --log "$TMP/lp/run-test.log" --stop-at 'PAUSE MAC {n}' --cont-at 'hidden {n}' --timeout 20
+HELD="$(tr -d ' \n' < "$TMP/lp/held" 2>/dev/null)"; NOW="$(ps -p "$LPPID" -o stat= | tr -d ' ')"
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -q '"continued"' && case "$HELD" in T*) true ;; *) false ;; esac \
+   && case "$NOW" in T*) false ;; *) true ;; esac; then
+  ok "LP1 the listener is stopped at the first mark (state $HELD) and running again after the second (state $NOW)"
+else
+  bad "LP1 the listener is stopped at the first mark and running again after the second" "exit $CODE, held '$HELD', now '$NOW': $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"
+fi
+mkdir -p "$TMP/lp-notlab/data"; sed "s#$TMP/lp/data#$TMP/lp-notlab/data#" "$TMP/lp/mac.json" > "$TMP/lp-notlab/mac.json"
+run python3 "$QA/lab-pause.py" --lab "$TMP/lp-notlab" --log "$TMP/lp/run-test.log" --stop-at x --cont-at y --timeout 2
+expect "LP2 a cache without the isolated lab's owner marker is refused: nothing is paused" 2 "no isolated lab owner marker"
+printf '{"pid": %s, "data": "%s"}' "$$" "$TMP/lp/data" > "$TMP/lp/other.json"
+mkdir -p "$TMP/lp-other"; cp "$TMP/lp/other.json" "$TMP/lp-other/mac.json"
+run python3 "$QA/lab-pause.py" --lab "$TMP/lp-other" --log "$TMP/lp/run-test.log" --stop-at x --cont-at y --timeout 2
+expect "LP3 a pid that is not the lab's listener is refused, never paused" 2 "is not the lab's listener"
+echo 'PHONE_STEP {"detail":{"label":"PAUSE MAC 2"}}' >> "$TMP/lp/run-test.log"
+run python3 "$QA/lab-pause.py" --lab "$TMP/lp" --log "$TMP/lp/run-test.log" --stop-at 'PAUSE MAC 2' --cont-at 'never written' --timeout 3
+NOW="$(ps -p "$LPPID" -o stat= | tr -d ' ')"
+if [ "$CODE" = 1 ] && printf '%s' "$OUT" | grep -q 'continued anyway' && case "$NOW" in T*) false ;; *) true ;; esac; then
+  ok "LP4 a continue mark that never comes times out, exit 1, and the listener runs again (state $NOW)"
+else
+  bad "LP4 a continue mark that never comes times out and the listener runs again" "exit $CODE, now '$NOW': $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"
+fi
+kill "$LPPID" 2>/dev/null; wait "$LPPID" 2>/dev/null
+
 echo "=== I. phone-ios: a physical iPhone's real controls, validated before any build ==="
 
 printf '%s' '[{"do":"launch"},{"do":"tap","id":"composer.send"},{"do":"sleep","seconds":2},{"do":"alert","button":"Allow","in":"springboard"}]' > "$TMP/ios-ok.json"
@@ -813,6 +859,22 @@ expect "I8 a list that touches the person's Tailscale account may keep no pictur
 printf '%s' '[{"do":"activate","in":"tailscale"},{"do":"value","kind":"switch","in":"tailscale"}]' > "$TMP/ios-switch.json"
 run python3 "$QA/phone-ios.py" check "$TMP/ios-switch.json"
 expect "I9 reading the route's switch by kind alone validates" 0 '"steps": 2'
+
+printf '%s' '[{"do":"activate","in":"settings"},{"do":"tap","label":"Wi-Fi","in":"settings"},{"do":"tree","name":"s","in":"settings"},{"do":"open","url":"https://example.com/i.png"},{"do":"press","label":"i.png","in":"safari"},{"do":"shot","name":"x","in":"safari"}]' > "$TMP/ios-places.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-places.json"
+expect "I31 Settings and Safari (the share-sheet source) and an https open validate" 0 '"steps": 6'
+
+printf '%s' '[{"do":"open","url":"tel:5550100"}]' > "$TMP/ios-scheme.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-scheme.json"
+expect "I32 open refuses anything but an https link: no other app's own scheme" 2 "needs an https url"
+
+printf '%s' '[{"do":"launch","in":"settings"},{"do":"tap","kind":"switch","label":"Camera","in":"settings"},{"do":"value","kind":"switch","label":"Camera","in":"settings","equals":"1"},{"do":"terminate","in":"settings"}]' > "$TMP/ios-perm.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-perm.json"
+expect "I33 Settings starts fresh, and one permission switch is named by kind and label" 0 '"steps": 4'
+
+printf '%s' '[{"do":"terminate","in":"springboard"}]' > "$TMP/ios-sbkill.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-sbkill.json"
+expect "I34 the system UI is never launched or terminated" 2 "never launched or terminated"
 
 run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt
 expect "I10 reusing an earlier build without its stamp is refused" 2 "--prebuilt needs --stamp"

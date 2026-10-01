@@ -328,6 +328,12 @@ final class PhysicalDeviceTests: XCTestCase {
         // The route under test (PRD §5): only its connect switch is ever read or pressed. The
         // host refuses a shot or tree there, because its screen shows the person's own account.
         case "tailscale": return XCUIApplication(bundleIdentifier: "io.tailscale.ipn.ios")
+        // iOS Settings, for what only Settings can change on a test phone: this app's own
+        // permissions (Settings > Apps > RichConnect) and Wi-Fi. The walker sets each back.
+        case "settings": return XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        // The one share-sheet source: Safari shows a test image (`open`), and its Share sheet
+        // reaches RichConnect's Share extension, which runs inside Safari's window.
+        case "safari": return XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         default: return app
         }
     }
@@ -336,6 +342,20 @@ final class PhysicalDeviceTests: XCTestCase {
         let root = root(step, springboard)
         if step["id"] == nil, step["label"] == nil, let kind = step["kind"] as? String {
             return kind == "switch" ? root.switches.firstMatch : root.buttons.firstMatch
+        }
+        // A kind and a label: that control itself (Settings > Apps > RichConnect's "Camera" switch),
+        // never the row's text, which a tap does not toggle.
+        if step["id"] == nil, let kind = step["kind"] as? String, let label = step["label"] as? String {
+            let controls = kind == "switch" ? root.switches : root.buttons
+            let control = controls.matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+            // Settings' permission rows are a labeled switch the width of the row (343 x 52 on an SE)
+            // holding the real, unlabeled toggle (63 x 28); a tap at the row's center does not toggle.
+            // Measured on Settings > Apps > RichConnect, iOS 26.3.1, 2026-10-01.
+            if kind == "switch" {
+                let toggle = control.switches.firstMatch
+                if toggle.exists { return toggle }
+            }
+            return control
         }
         if let id = step["id"] as? String {
             // The first element carrying the identifier: SwiftUI hands a container's identifier to
@@ -355,6 +375,13 @@ final class PhysicalDeviceTests: XCTestCase {
         let timeout = step["timeout"] as? Double ?? 5
         switch action {
         case "launch":
+            // Another app (Settings, Safari) starts fresh on its first page, with no arguments, so a
+            // list never begins on whatever page that app was last left showing.
+            if step["in"] != nil {
+                guard step["in"] as? String != "springboard" else { return "the system UI is never launched or terminated" }
+                root(step, springboard).launch()
+                return nil
+            }
             // Only Apple's own text-size override, never an app fixture: the app stays the Release app.
             if let size = step["textSize"] as? String {
                 app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
@@ -363,7 +390,16 @@ final class PhysicalDeviceTests: XCTestCase {
             }
             app.launch()
         case "activate": root(step, springboard).activate()
-        case "terminate": app.terminate()
+        case "open":
+            // An https link, opened the way a person's tap on a link opens it: in Safari. The host
+            // accepts only https, so this never opens another app's own URL scheme.
+            guard let text = step["url"] as? String, text.hasPrefix("https://"), let url = URL(string: text) else {
+                return "open needs an https url"
+            }
+            XCUIDevice.shared.system.open(url)
+        case "terminate":
+            guard step["in"] as? String != "springboard" else { return "the system UI is never launched or terminated" }
+            root(step, springboard).terminate()
         case "home":
             XCUIDevice.shared.press(.home)
         case "lock":
@@ -468,7 +504,8 @@ final class PhysicalDeviceTests: XCTestCase {
         case "shot":
             // `screen: true` keeps the whole screen (lock screen, a system alert); the default keeps
             // only this app, so nothing else on a person's phone lands in a record by accident.
-            let image = (step["screen"] as? Bool == true) ? XCUIScreen.main.screenshot() : app.screenshot()
+            // With "in", only that app's window (Settings, Safari with its share sheet).
+            let image = (step["screen"] as? Bool == true) ? XCUIScreen.main.screenshot() : root(step, springboard).screenshot()
             let shot = XCTAttachment(screenshot: image)
             shot.name = step["name"] as? String ?? "shot"
             shot.lifetime = .keepAlways
@@ -487,7 +524,7 @@ final class PhysicalDeviceTests: XCTestCase {
             }
             detail["issues"] = issues
         case "tree":
-            let tree = XCTAttachment(string: app.debugDescription)
+            let tree = XCTAttachment(string: root(step, springboard).debugDescription)
             tree.name = step["name"] as? String ?? "tree"
             tree.lifetime = .keepAlways
             add(tree)
