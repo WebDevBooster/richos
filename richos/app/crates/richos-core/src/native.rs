@@ -2992,6 +2992,9 @@ impl NativeClient {
             process_fence: self.child.fence(),
             settle_workers_on_stop: self.settle_workers_on_stop,
             next_id: Arc::new(AtomicI64::new(self.next_id.load(Ordering::SeqCst) + 1_000_000)),
+            pending: Arc::clone(&self.pending),
+            reader_state: Arc::clone(&self.reader_state),
+            reader_closed: Arc::clone(&self.reader_closed),
         })
     }
 
@@ -3279,7 +3282,22 @@ pub struct NativeCancelHandle {
     process_fence: crate::owned_process::ProcessFence,
     settle_workers_on_stop: bool,
     next_id: Arc<AtomicI64>,
+    /// The client's control-reply table, so a `stop_task` is answered the way every other
+    /// control request this file sends is (finding 11 v2).
+    pending: Arc<Mutex<std::collections::HashMap<String, Sender<Value>>>>,
+    /// The reader's state, where the provider's `task_notification` for a command is read.
+    reader_state: Arc<Mutex<ReaderState>>,
+    /// Set when the child's output closed: nothing more will be answered.
+    reader_closed: Arc<AtomicBool>,
 }
+
+/// How long a `stop_task` waits for the provider's reply. The operator client measured this
+/// request answered on the same wire (probe P12); the bound only turns a silent child into
+/// [`CommandStop::Unconfirmed`] rather than a hang, and decides no verdict on its own.
+const STOP_TASK_REPLY_WAIT: Duration = Duration::from_secs(5);
+/// How long an accepted `stop_task` waits for the command's own `task_notification`. Past it
+/// the answer is [`CommandStop::Unconfirmed`] — a stated unknown, never "stopped".
+const STOP_TASK_ENDING_WAIT: Duration = Duration::from_secs(5);
 
 impl TurnCancel for NativeCancelHandle {
     fn shutdown(&self) {
@@ -3332,14 +3350,68 @@ impl TurnCancel for NativeCancelHandle {
 
     /// `control_request{stop_task}` for one of the provider's own background tasks, the same
     /// frame the operator client writes for a named agent (`operator_lead::stop_task_request`,
-    /// measured on this wire in operator probe P12). Written without waiting for its reply: a
-    /// reply that arrives is retained as between-turn traffic like any unmatched one, and the
-    /// task's own `task_notification` is what says it ended. No turn is interrupted and no
-    /// other command is touched (hunt 2026-09-29 part 1, finding 11).
-    fn stop_background_command(&self, task_id: &str) -> bool {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let request = crate::operator_lead::stop_task_request(&format!("richos_stop_task_{id}"), task_id);
-        NativeClient::write_line(&self.stdin, &request).is_ok()
+    /// measured on this wire in operator probe P12). No turn is interrupted and no other
+    /// command is touched (hunt 2026-09-29 part 1, finding 11).
+    ///
+    /// **Its answer is the provider's, not the pipe's** (finding 11, v2 re-check). This used
+    /// to return `true` the moment the line was written, and the work host then told him the
+    /// job's command had stopped; a provider that refused the stop left it running while his
+    /// assignment said otherwise, and the refusal sat unread on the between-turn lane. Now
+    /// the reply is awaited the way `operator_lead::control` awaits it (an `error` reply is
+    /// [`CommandStop::Refused`]), and only the task's own `task_notification` — the authority
+    /// for an ending everywhere else in this file — makes it [`CommandStop::Ended`].
+    fn stop_background_command(&self, task_id: &str) -> crate::steering::CommandStop {
+        use crate::steering::CommandStop;
+        let ended = |state: &Arc<Mutex<ReaderState>>| {
+            state.lock().unwrap().background.iter().any(|c| c.task_id == task_id && c.ended.is_some())
+        };
+        // A command that already ended needs no stop, and saying so is the true sentence.
+        if ended(&self.reader_state) {
+            return CommandStop::Ended;
+        }
+        let id = format!("richos_stop_task_{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+        let request = crate::operator_lead::stop_task_request(&id, task_id);
+        let (tx, rx) = channel();
+        self.pending.lock().unwrap().insert(id.clone(), tx);
+        if NativeClient::write_line(&self.stdin, &request).is_err() {
+            self.pending.lock().unwrap().remove(&id);
+            return CommandStop::NotDelivered;
+        }
+        // A child that is gone answers nothing; waiting out the bounds for it would only hold
+        // his Stop. What it left running is not known, so that is Unconfirmed, not Ended.
+        let gone = || self.reader_closed.load(Ordering::SeqCst);
+        // load-bound: hang guard only; the verdict is the provider's reply, and no reply is a stated unknown.
+        let deadline = std::time::Instant::now() + STOP_TASK_REPLY_WAIT;
+        loop {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(reply) => {
+                    let response = reply.get("response").cloned().unwrap_or(Value::Null);
+                    if response.get("subtype").and_then(Value::as_str) != Some("success") {
+                        let why = response.get("error").and_then(Value::as_str).unwrap_or("no reason given");
+                        return CommandStop::Refused(why.to_string());
+                    }
+                    break;
+                }
+                // No reply in the bound: the table entry goes, so a late reply is retained as
+                // unmatched traffic. The ending below can still be witnessed.
+                Err(_) if gone() || std::time::Instant::now() >= deadline => {
+                    self.pending.lock().unwrap().remove(&id);
+                    break;
+                }
+                Err(_) => {}
+            }
+        }
+        // load-bound: hang guard only; the loop waits for the provider's own ending, and the deadline yields Unconfirmed, never Ended.
+        let deadline = std::time::Instant::now() + STOP_TASK_ENDING_WAIT;
+        loop {
+            if ended(&self.reader_state) {
+                return CommandStop::Ended;
+            }
+            if gone() || std::time::Instant::now() >= deadline {
+                return CommandStop::Unconfirmed;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -5128,7 +5200,10 @@ done
         );
         let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
             .expect("the handshake should succeed");
-        assert!(client.cancel_handle().stop_background_command("bk1c0clka"), "the stop was not written");
+        // The stand-in never answers, so the stop waits on its own thread and says so:
+        // delivered, nothing confirmed (finding 11 v2).
+        let handle = client.cancel_handle();
+        let stopping = std::thread::spawn(move || handle.stop_background_command("bk1c0clka"));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let frames: Vec<Value> = loop {
             let text = std::fs::read_to_string(&heard).unwrap_or_default();
@@ -5143,8 +5218,51 @@ done
         assert_eq!(stops.len(), 1, "exactly one control request: {frames:?}");
         assert_eq!(stops[0]["request"], json!({"subtype": "stop_task", "task_id": "bk1c0clka"}));
         assert!(stops[0]["request_id"].as_str().is_some_and(|id| id.starts_with("richos_stop_task_")), "{frames:?}");
+        // The child going away ends the wait at once, and still claims nothing.
         drop(client);
+        assert_eq!(stopping.join().unwrap(), crate::steering::CommandStop::Unconfirmed,
+                   "a stop nobody answered was reported as something other than unknown");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// **A stop is what the provider said about it, never that the line was written** (hunt
+    /// 2026-09-29 part 1 v2, finding 11; the witness is `part-1-codex-v2/remaining-witness-v2.rs`
+    /// in richos-hq, ported here). One provider refuses the stop and the command keeps running;
+    /// another accepts it and reports the command's ending.
+    ///
+    /// **RED at `c6cde6cc9`**: `stop_background_command` returned `true` for the refused stop
+    /// (the write succeeded), the refusal sat unread on the between-turn lane, and the work
+    /// host told him the command had stopped.
+    #[test]
+    fn a_refused_stop_is_refused_and_only_a_reported_ending_is_a_stopped_command() {
+        use crate::steering::CommandStop;
+        let provider = |name: &str, answer: &str| write_script(name, &format!(r#"
+read -r init
+printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+read -r prompt
+printf '%s\n' '{{"type":"system","subtype":"task_started","task_id":"remaining-command","description":"fixture command","is_backgrounded":true,"task_type":"local_bash"}}'
+printf '%s\n' '{{"type":"result","subtype":"success","stop_reason":"end_turn"}}'
+read -r stop
+id=$(printf '%s' "$stop" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+case "$stop" in *stop_task*) ;; *) exit 9;; esac
+{answer}
+read -r keep_alive
+"#));
+        let refusing = provider("refusing-stop", r#"printf '%s\n' "{\"type\":\"control_response\",\"response\":{\"subtype\":\"error\",\"request_id\":\"$id\",\"error\":\"fixture refuses task stop\"}}""#);
+        let client = NativeClient::spawn(&refusing, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("start fixture", &mut |_| {}).unwrap();
+        assert_eq!(client.background_commands().len(), 1);
+        assert_eq!(client.cancel_handle().stop_background_command("remaining-command"),
+                   CommandStop::Refused("fixture refuses task stop".into()),
+                   "a stop the provider refused was reported as reaching the command");
+        assert!(client.background_commands()[0].ended.is_none());
+        drop(client);
+
+        let accepting = provider("accepting-stop", r#"printf '%s\n' "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$id\",\"response\":{}}}"
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"remaining-command","status":"stopped","summary":"fixture command stopped"}'"#);
+        let client = NativeClient::spawn(&accepting, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("start fixture", &mut |_| {}).unwrap();
+        assert_eq!(client.cancel_handle().stop_background_command("remaining-command"), CommandStop::Ended);
     }
 
     /// **THE DEFECT CANDIDATE .7 FOUND, AS A TEST — and it is a false NEGATIVE, not a

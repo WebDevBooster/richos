@@ -751,10 +751,31 @@ pub trait TurnCancel: Send + Sync {
     /// Settle owned processes on app exit even when no turn is in flight.
     fn shutdown(&self) { let _ = self.cancel(); }
     /// Ask the lease to stop ONE command its provider is running in the background, by the
-    /// provider's own task id. Returns whether the request was delivered. The default is
-    /// `false`, because a lease that cannot stop a command must say so rather than let a
-    /// stop be reported as having reached it (hunt 2026-09-29 part 1, finding 11).
-    fn stop_background_command(&self, _task_id: &str) -> bool { false }
+    /// provider's own task id, and say what the PROVIDER answered — never only that the
+    /// request was written (hunt 2026-09-29 part 1, finding 11, and its v2 re-check: a
+    /// written request the provider then refused was reported as a stopped command). The
+    /// default is [`CommandStop::NotDelivered`], because a lease that cannot stop a command
+    /// must say so rather than let a stop be reported as having reached it.
+    fn stop_background_command(&self, _task_id: &str) -> CommandStop { CommandStop::NotDelivered }
+}
+
+/// What became of a request to stop one background command, from the provider's own frames.
+///
+/// Four states because the caller says four different true sentences. Only [`Self::Ended`]
+/// lets it say the command stopped: that is the provider's own `task_notification` for the
+/// task, the frame the native client already treats as the authority for an ending.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommandStop {
+    /// The provider reported the command ended.
+    Ended,
+    /// The provider answered the stop with an error; the command is still running. Carries
+    /// the provider's own reason, for the log.
+    Refused(String),
+    /// The stop was delivered and not refused, but no ending was seen within the bound. It
+    /// may still be running; nothing is claimed either way.
+    Unconfirmed,
+    /// The stop could not be written to the lease (no lease handle, or its input is gone).
+    NotDelivered,
 }
 
 // ---------------------------------------------------------------------------------------

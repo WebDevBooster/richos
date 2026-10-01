@@ -64,7 +64,7 @@ use crate::cognition::{Cognition, CognitionError, LeaseFactory, TurnItem, WorkAs
 use crate::ecs::Binding;
 use crate::entity::ThreadBinding;
 use crate::permissions::PermissionDesk;
-use crate::steering::TurnCancel;
+use crate::steering::{CommandStop, TurnCancel};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
@@ -193,6 +193,28 @@ struct Watched {
     /// that has no handle, which then says it could not reach them.
     stopper: Option<Arc<dyn TurnCancel>>,
 }
+
+/// The sentence a Stop of a watched job leaves on it, from what the provider said about each
+/// of its commands (finding 11, v2 re-check). Worst first: a refusal is a command known to be
+/// running; an undelivered stop or one with no ending seen is a command that may be. Only
+/// when every command was seen to end does it say plainly that the job stopped.
+fn watched_stop_detail(has_stopper: bool, outcomes: &[CommandStop]) -> &'static str {
+    if outcomes.iter().any(|o| matches!(o, CommandStop::Refused(_))) {
+        WATCHED_STOP_REFUSED
+    } else if !has_stopper || outcomes.contains(&CommandStop::NotDelivered) {
+        WATCHED_STOP_NOT_DELIVERED
+    } else if outcomes.contains(&CommandStop::Unconfirmed) {
+        WATCHED_STOP_UNCONFIRMED
+    } else {
+        "Stopped. The workspace and the receipts are kept."
+    }
+}
+const WATCHED_STOP_REFUSED: &str = "Stopped. A command it started refused to stop, so it is still running. \
+     The workspace and the receipts are kept.";
+const WATCHED_STOP_NOT_DELIVERED: &str = "Stopped. A command it started could not be told to stop, so it may still be running. \
+     The workspace and the receipts are kept.";
+const WATCHED_STOP_UNCONFIRMED: &str = "Stopped. A command it started was told to stop and has not been seen to end, \
+     so it may still be running. The workspace and the receipts are kept.";
 
 /// What a watched job's report turn starts from: which of its commands ended, and what he
 /// has already been told.
@@ -3280,21 +3302,28 @@ impl WorkHost {
                     // 11). Taking the job off the watch alone left them running and changing
                     // his workspace after he saw it stopped. Each is stopped by the provider's
                     // own task id on the lease it runs on, so no turn is interrupted and no
-                    // other job's command is touched. Where one could not be reached, he is
-                    // told it may still be running rather than that it stopped.
-                    let mut reached = watched.stopper.is_some();
-                    for (task, what) in &watched.commands {
-                        if !watched.stopper.as_ref().is_some_and(|stop| stop.stop_background_command(task)) {
-                            reached = false;
-                            eprintln!("[richos] work: a stopped job's command could not be told to stop ({what})");
-                        }
-                    }
-                    let detail = if reached {
-                        "Stopped. The workspace and the receipts are kept."
-                    } else {
-                        "Stopped. A command it started could not be told to stop, so it may still be running. \
-                         The workspace and the receipts are kept."
-                    };
+                    // other job's command is touched.
+                    //
+                    // **He is told a command stopped only when the provider said it ended**
+                    // (finding 11, v2 re-check): a written request used to count as stopped,
+                    // and a provider that then refused it left the command running under a
+                    // job that said "Stopped." with no qualifier. Each command's answer is the
+                    // provider's own ([`CommandStop`]); the sentence is the worst of them.
+                    let outcomes: Vec<CommandStop> = watched
+                        .commands
+                        .iter()
+                        .map(|(task, what)| {
+                            let outcome = watched
+                                .stopper
+                                .as_ref()
+                                .map_or(CommandStop::NotDelivered, |stop| stop.stop_background_command(task));
+                            if outcome != CommandStop::Ended {
+                                eprintln!("[richos] work: a stopped job's command was not seen to stop ({what}): {outcome:?}");
+                            }
+                            outcome
+                        })
+                        .collect();
+                    let detail = watched_stop_detail(watched.stopper.is_some(), &outcomes);
                     assignment::advance(&self.state, entity, thread, id, AssignmentState::Interrupted, detail)
                         .map_err(|e| e.to_string())?;
                     if let Err(error) = assignment::raise_notice(&self.state, entity, thread, id, NoticeKind::Interrupted,
@@ -3888,6 +3917,9 @@ mod tests {
         stop_ends_child: AtomicBool,
         /// Every background command this lease was asked to stop, by task id, in order.
         commands_stopped: Mutex<Vec<String>>,
+        /// What the provider answers such a stop with. `None` is `Ended`: the provider
+        /// stopped it, which is every test written before finding 11's v2 re-check.
+        stop_answer: Mutex<Option<CommandStop>>,
     }
     impl TurnCancel for Fence {
         fn cancel(&self) -> bool {
@@ -3898,9 +3930,9 @@ mod tests {
             self.shutdowns.fetch_add(1, Ordering::SeqCst);
             self.cancel();
         }
-        fn stop_background_command(&self, task_id: &str) -> bool {
+        fn stop_background_command(&self, task_id: &str) -> CommandStop {
             self.commands_stopped.lock().unwrap().push(task_id.to_string());
-            true
+            self.stop_answer.lock().unwrap().clone().unwrap_or(CommandStop::Ended)
         }
     }
 
@@ -6442,6 +6474,39 @@ mod tests {
         assert_eq!(h.work_prompts.lock().unwrap().len(), 1);
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **A stop the provider refused, or whose ending was never seen, is never reported as a
+    /// stopped command** (hunt 2026-09-29 part 1 v2, finding 11: the request being written
+    /// was taken as the command having stopped). Each of the provider's answers gets its own
+    /// true sentence; only a witnessed ending gets the plain "Stopped."
+    #[test]
+    fn a_stop_the_provider_refused_or_never_confirmed_is_not_reported_as_stopped() {
+        use crate::cognition::ObligationState;
+        for (answer, said) in [
+            (CommandStop::Refused("fixture refuses task stop".into()), WATCHED_STOP_REFUSED),
+            (CommandStop::Unconfirmed, WATCHED_STOP_UNCONFIRMED),
+            (CommandStop::NotDelivered, WATCHED_STOP_NOT_DELIVERED),
+            (CommandStop::Ended, "Stopped. The workspace and the receipts are kept."),
+        ] {
+            let h = harness(5);
+            every_worker_observed_ending(&h);
+            *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+            *h.background.lock().unwrap() = Some(Vec::new());
+            h.host.set_command_wait_budget(std::time::Duration::from_millis(100));
+            *h.answer_reply.lock().unwrap() = "Started.".into();
+            *h.fence.stop_answer.lock().unwrap() = Some(answer.clone());
+            h.start_in_turn.lock().unwrap().push_back(vec![background_command("blong", "sleep 3600")]);
+            h.host.start();
+            let job = h.host.register(&h.binding, &registration(&h)).unwrap();
+            assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+            h.host.stop_assignment("depot", "thread-one", &job.id).unwrap();
+            let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+            assert_eq!((row.state, row.detail.as_str()), (AssignmentState::Interrupted, said),
+                       "the provider answered {answer:?} and he was told something else");
+            h.host.shutdown();
+            std::fs::remove_dir_all(&h.root).unwrap();
+        }
     }
 
     /// **A background command that outlives the wait still reaches him once, as its own
