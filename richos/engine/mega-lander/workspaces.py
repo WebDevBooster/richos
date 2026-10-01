@@ -615,8 +615,6 @@ def land_by_another_conversation(repo, branch, before, found):
     thread; a move without one produces none."""
     try:
         records = land_records(repo)
-        if not records:
-            return None                 # land records are not in use here
         mine = this_conversation()
         for record in reversed(records):
             if record.get("branch") != branch or record.get("commit") != found:

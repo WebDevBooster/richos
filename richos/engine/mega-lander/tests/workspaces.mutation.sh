@@ -463,9 +463,9 @@ mutant p14-this-conversations-own-land-reported "test_point_14_another_conversat
     "a conversation would be told about its OWN land -- the one it made, on the work of the very agents being told. Every land in a one-thread day would fire it, which is how a report becomes wallpaper and the cross-thread case it exists for stops being read."
 
 mutant p14-terminal-land-reported-as-unattributed "test_point_14_another_conversations_land_is_reported_and_this_conversations_is_not" "$W" \
-    '        if not records:{NL}            return None                 # land records are not in use here' \
-    '        if not records:{NL}            records = [{}]' \
-    "a repository that keeps NO land records -- the terminal path, where Rich lands with a hand-run git merge that writes nothing -- would have every one of his lands reported as a move nothing names. Those teammates are already told at the push by guard-inflight-notify.sh; this would put an alarm on the most ordinary write a recorded branch ever receives."
+    '        return None                     # no record names this move: a hand merge at a terminal' \
+    '        return "moved forward by a land the land records do not name"' \
+    "a move that no land record names -- in a repository that keeps NO land records (case A) or one whose records name only other moves (case D) -- would be reported as a land by nobody. (The old early return for an empty record file is gone: the final return covers it, so a mutant on it could never fail.) A repository that keeps NO land records -- the terminal path, where Rich lands with a hand-run git merge that writes nothing -- would have every one of his lands reported as a move nothing names. Those teammates are already told at the push by guard-inflight-notify.sh; this would put an alarm on the most ordinary write a recorded branch ever receives."
 
 mutant p14-land-attributed-by-branch-alone "test_point_14_another_conversations_land_is_reported_and_this_conversations_is_not" "$W" \
     '            if record.get("branch") != branch or record.get("commit") != found:' \
