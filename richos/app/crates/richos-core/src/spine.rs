@@ -970,6 +970,7 @@ impl Spine {
             source: turn.source,
             created_at: turn.created_at,
             client_id: turn.client_id.clone(),
+            voice_note: turn.voice_note,
             at: now_millis(),
         }]
     }
@@ -2398,19 +2399,21 @@ impl Spine {
     }
 
     /// [`Self::record_prompt`] for a channel message that carries its sender's own id (a
-    /// phone's `client_id`). Typed, off the intake log, never spoken here — the same three
-    /// facts the `Channel` drain arm has always written — with the channel kept only where
-    /// this install keeps it, exactly as `record_prompt` decides.
+    /// phone's `client_id`) or is the transcript of a voice note the sender recorded
+    /// (`voice_note`). `Source::Text`, off the intake log, never desk-spoken here — the same
+    /// three facts the `Channel` drain arm has always written — with the channel kept only
+    /// where this install keeps it, exactly as `record_prompt` decides.
     fn record_prompt_from_client(
         &mut self,
         binding: &ThreadBinding,
         text: &str,
         intake_id: u64,
         channel: &str,
-        client_id: &str,
+        client_id: Option<&str>,
+        voice_note: bool,
     ) -> Result<String, SpineError> {
         let kept = self.keep_intake_channel.then_some(channel);
-        Ok(self.ledger.record_prompt_received_from_client(binding, text, Source::Text, intake_id, kept, client_id)?)
+        Ok(self.ledger.record_prompt_received_from_client(binding, text, Source::Text, intake_id, kept, client_id, voice_note)?)
     }
 
     /// **ACCEPTING one CEO utterance: everything that happens between his sentence arriving
@@ -3398,7 +3401,7 @@ impl Spine {
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
                     self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                 }
-                IntakeRecord::Channel { id, thread_id, text, channel, client_id, .. } => {
+                IntakeRecord::Channel { id, thread_id, text, channel, client_id, voice_note, .. } => {
                     // IDENTICAL TO THE `Steer` ARM ABOVE, AND THAT IS THE POINT. From here
                     // on the spine does not know or care which mouth the CEO used
                     // (phone-client plan §4.2 iv) — the same de-duplication check, the same
@@ -3442,9 +3445,15 @@ impl Spine {
                     // emitted three lines down and every later projection of this turn name
                     // the message the phone is already showing: an echo that beats the phone's
                     // receipt is then recognized on arrival instead of drawn as a second line.
-                    let turn_id = match client_id.as_deref() {
-                        Some(client) => self.record_prompt_from_client(&binding, &text, id, &channel, client)?,
-                        None => self.record_prompt(&binding, &text, Source::Text, None, Some(id), &channel)?,
+                    //
+                    // **And whether the words are the transcript of a voice note** (the
+                    // record's `voice_note`), for the same reason: that `ceo-message` is the row
+                    // that can beat the receipt, and it must be a voice row from the start, not
+                    // a text bubble the receipt later turns into the recording.
+                    let turn_id = if client_id.is_some() || voice_note {
+                        self.record_prompt_from_client(&binding, &text, id, &channel, client_id.as_deref(), voice_note)?
+                    } else {
+                        self.record_prompt(&binding, &text, Source::Text, None, Some(id), &channel)?
                     };
                     self.input_channels.insert(turn_id.clone(), channel);
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));

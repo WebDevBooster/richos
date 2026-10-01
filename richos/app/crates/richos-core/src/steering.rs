@@ -153,6 +153,15 @@ pub enum IntakeRecord {
         /// that has it ignores the key.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_id: Option<String>,
+        /// **THESE WORDS ARE THE TRANSCRIPT OF A VOICE MESSAGE THE SENDER RECORDED** (a phone
+        /// voice note the Mac transcribed at intake), not words the sender typed. Carried onto
+        /// the turn so every row of it, including the live one that can beat the phone's
+        /// receipt, is a voice row from its first appearance. A property of the message, not of
+        /// the mouth: the spine still never learns which device sent it. `false`, and no key,
+        /// for every typed message and every record written before this field existed; an older
+        /// build reading a record that has it ignores the key.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        voice_note: bool,
     },
     /// **The desktop composer's own words, written here because the front desk was being
     /// primed when he pressed Send** — the CEO's §55.
@@ -625,12 +634,14 @@ impl IntakeLog {
         text: &str,
         channel: &str,
     ) -> Result<IntakeRecord, SteeringError> {
-        self.channel_message_from(thread_id, entity_id, text, channel, None)
+        self.channel_message_from(thread_id, entity_id, text, channel, None, false)
     }
 
     /// As [`Self::channel_message`], keeping the sender's own id for the message
     /// ([`IntakeRecord::Channel`]'s `client_id`). Written in the same record as the words, in
-    /// the same `fsync`, so no drain can ever turn the words into a turn without it.
+    /// the same `fsync`, so no drain can ever turn the words into a turn without it. The same
+    /// holds for `voice_note` ([`IntakeRecord::Channel`]'s `voice_note`): whether the words are
+    /// the transcript of a recording is written with them, never inferred later.
     pub fn channel_message_from(
         &mut self,
         thread_id: &str,
@@ -638,6 +649,7 @@ impl IntakeLog {
         text: &str,
         channel: &str,
         client_id: Option<&str>,
+        voice_note: bool,
     ) -> Result<IntakeRecord, SteeringError> {
         let rec = IntakeRecord::Channel {
             id: self.next_id,
@@ -647,6 +659,7 @@ impl IntakeLog {
             at: now_millis(),
             channel: channel.to_string(),
             client_id: client_id.map(str::to_string),
+            voice_note,
         };
         self.write(&rec)?;
         self.next_id += 1;
@@ -1043,9 +1056,36 @@ impl TurnControl {
         channel: &str,
         client_id: Option<&str>,
     ) -> Result<IntakeRecord, SteeringError> {
+        self.submit_channel_record(thread_id, entity_id, text, channel, client_id, false)
+    }
+
+    /// As [`Self::submit_from_channel_as`], for words that are the TRANSCRIPT OF A VOICE MESSAGE
+    /// the sender recorded (a phone voice note), so every row of the turn is a voice row from its
+    /// first appearance, the live one that can beat the sender's receipt included
+    /// ([`IntakeRecord::Channel`]'s `voice_note`).
+    pub fn submit_voice_note_from_channel(
+        &self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+        channel: &str,
+        client_id: Option<&str>,
+    ) -> Result<IntakeRecord, SteeringError> {
+        self.submit_channel_record(thread_id, entity_id, text, channel, client_id, true)
+    }
+
+    fn submit_channel_record(
+        &self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+        channel: &str,
+        client_id: Option<&str>,
+        voice_note: bool,
+    ) -> Result<IntakeRecord, SteeringError> {
         let mut guard = self.inner.intake.lock().unwrap();
         let log = guard.as_mut().ok_or(SteeringError::NoDurableIntake)?;
-        log.channel_message_from(thread_id, entity_id, text, channel, client_id)
+        log.channel_message_from(thread_id, entity_id, text, channel, client_id, voice_note)
     }
 
     /// **The DESK's road in, and it is the same road for the same reason** — the one the

@@ -5,8 +5,8 @@
 //!
 //! The Mac learns the length once: from the WAV it validates at intake, `samples ÷ 16,000 Hz`
 //! (`voice.rs` `validate` refuses any other rate or channel count). Nothing downstream keeps it —
-//! the transcript enters the intake log as ordinary text and becomes a turn whose projected CEO
-//! row is `{turn}:user`, `kind:"text"`. So this desk records `(intake id, thread, duration)` at
+//! the transcript enters the intake log marked as a voice note and becomes a turn whose CEO row
+//! is `{turn}:user`, `kind:"voice"` (`rows::message_kind`), but with no length. So this desk records `(intake id, thread, duration)` at
 //! intake, durably, and joins it to the row later through the one exact link that exists:
 //! the ledger's own `turn_for_intake` ([`super::routes::Bridge::turn_for_intake`], an id and
 //! nothing else).
