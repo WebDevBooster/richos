@@ -21,6 +21,11 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.supervisorScope
+import java.util.concurrent.atomic.AtomicLong
 import java.io.IOException
 
 /**
@@ -102,7 +107,9 @@ class ConnectionOwner(
         // "Try now" with the stream down (core's `retry`): this owner asks the Mac at once, skipping
         // what is left of its wait without resetting the back-off. Never a second owner (I06).
         core.onTryNowWhileAway(::wake)
-        coroutineContext.job.invokeOnCompletion { core.onTryNowWhileAway(null) }
+        watchScope = deliveryScope
+        core.watchSends(sends)
+        coroutineContext.job.invokeOnCompletion { core.onTryNowWhileAway(null); core.watchSends(null); watchScope = null }
         launch {
             tunnel.filterNotNull().collect { up ->
                 try { core.dispatch(Action.Health(vpn = up)) } catch (failure: IOException) { onStorageFailure(failure) }
@@ -177,39 +184,63 @@ class ConnectionOwner(
                     core.dispatch(Action.Link(LinkStatus.OPENING))
                     val target = Signing.withAuthQuery(path, Signing.authorization(deviceId, challenge, raw))
                     try {
-                        stream.open(
-                            HttpRequest("GET", apiBase + target, mapOf("Accept" to "text/event-stream"), null),
-                            onOpen = { answered ->
-                                requireCurrentPairing(apiBase, deviceId)
-                                status = answered
-                                if (answered == 200) {
-                                    opened = true
-                                    attempt = 0
-                                    retriedRefusal = false
-                                    // Open: a wake that came while it was opening has been answered,
-                                    // and must not skip the wait after some later drop.
-                                    wakeups.tryReceive()
-                                    // A finite send batch belongs to the application, not the SSE
-                                    // socket. Closing the stream must not cancel useful delivery.
-                                    core.openedWithoutDraining()
-                                    deliveryScope.launch {
-                                        try { core.dispatch(Action.Sync) }
-                                        catch (failure: IOException) { onStorageFailure(failure) }
-                                    }
-                                }
-                            },
-                            onBytes = {
-                                requireCurrentPairing(apiBase, deviceId)
-                                core.receive(it)
-                                if (core.state.connection.reason == ConnectionReason.INCOMPATIBLE) throw IOException("incompatible protocol")
-                            },
-                        )
+                        // The stream runs as its own job, so the owner can cut it alone ([cut]):
+                        // a supervisor scope keeps its failure (an IOException) from failing this loop.
+                        supervisorScope {
+                            val open = async {
+                                stream.open(
+                                    HttpRequest("GET", apiBase + target, mapOf("Accept" to "text/event-stream"), null),
+                                    onOpen = { answered ->
+                                        requireCurrentPairing(apiBase, deviceId)
+                                        status = answered
+                                        if (answered == 200) {
+                                            opened = true
+                                            attempt = 0
+                                            retriedRefusal = false
+                                            synchronized(lock) { liveOpen = true }
+                                            // Open: a wake that came while it was opening has been answered,
+                                            // and must not skip the wait after some later drop.
+                                            wakeups.tryReceive()
+                                            // A finite send batch belongs to the application, not the SSE
+                                            // socket. Closing the stream must not cancel useful delivery.
+                                            core.openedWithoutDraining()
+                                            deliveryScope.launch {
+                                                try { core.dispatch(Action.Sync) }
+                                                catch (failure: IOException) { onStorageFailure(failure) }
+                                            }
+                                        }
+                                    },
+                                    onBytes = {
+                                        chunks.incrementAndGet()
+                                        requireCurrentPairing(apiBase, deviceId)
+                                        core.receive(it)
+                                        if (core.state.connection.reason == ConnectionReason.INCOMPATIBLE) throw IOException("incompatible protocol")
+                                    },
+                                )
+                            }
+                            synchronized(lock) { live = open; liveOpen = false }
+                            try { open.await() } finally {
+                                synchronized(lock) { live = null; liveOpen = false; echoWatch?.cancel(); echoWatch = null }
+                            }
+                        }
                     } catch (e: IOException) {
                         // A dropped or refused stream: what it means is decided below.
+                    } catch (e: CancellationException) {
+                        // Cut by this owner ([cut]) ends like a drop; any other cancellation (the app
+                        // left the screen, the pairing changed) is not this loop's to absorb.
+                        currentCoroutineContext().ensureActive()
+                        if (!synchronized(lock) { cutting }) throw e
                     }
                 }
             }
+            val wasCut = synchronized(lock) { cutting.also { cutting = false } }
             core.dispatch(Action.Link(LinkStatus.AWAY))
+            // Cut on purpose (silent after an accepted send, or the network moved): open again at
+            // once. Never a loop: a cut needs an accepted send or an OS network event.
+            if (wasCut) {
+                attempt = 0
+                continue
+            }
             // A 404 opening is the Mac not knowing the challenge (a revoked phone is answered 403,
             // and that still goes to the probe): a fresh one and the stream again, now, with no probe
             // and no back-off. Once; a second 404 takes the ordinary path below.
@@ -230,6 +261,53 @@ class ConnectionOwner(
             select {
                 wakeups.onReceive { }
                 onTimeout(wait) { }
+            }
+        }
+    }
+
+    // --- a dead stream, noticed on screen -------------------------------------------------------
+
+    private val lock = Any()
+    /** The stream's job while one is opening or open; [liveOpen] once the Mac answered 200. */
+    private var live: Job? = null
+    private var liveOpen = false
+    /** Set when this owner cancels [live] on purpose, so the loop reopens at once. */
+    private var cutting = false
+    private var echoWatch: Job? = null
+    @Volatile private var watchScope: CoroutineScope? = null
+    /** Chunks of bytes the stream has delivered in this process: any byte at all is a sign of life. */
+    private val chunks = AtomicLong()
+
+    /**
+     * What the core tells this owner about a text it sends while the stream is open: when the Mac
+     * accepts it, the Mac publishes the phone's words on the stream (the echo). A stream that has
+     * delivered no byte at all since the request started, [ECHO_MS] after the acceptance, is
+     * presumed dead (a NAT or a radio dropped it without a FIN, which only the socket's read timeout
+     * would notice) and is replaced at once, resuming from its last frame, so nothing is lost even
+     * when it was only slow (the Mac busy with a long turn delays the echo; the cost then is one
+     * reopen). Armed only by an accepted send while the app is on screen with the stream open; never
+     * a periodic timer.
+     */
+    private val sends = SendWatch {
+        val stream: Job
+        val mark: Long
+        synchronized(lock) {
+            stream = live?.takeIf { liveOpen } ?: return@SendWatch null
+            mark = chunks.get()
+        }
+        return@SendWatch { expectEcho(stream, mark) }
+    }
+
+    private fun expectEcho(stream: Job, mark: Long) {
+        synchronized(lock) {
+            if (live !== stream || chunks.get() != mark || echoWatch?.isActive == true) return
+            echoWatch = watchScope?.launch {
+                delay(ECHO_MS)
+                synchronized(lock) {
+                    if (live !== stream || chunks.get() != mark) return@launch
+                    cutting = true
+                }
+                stream.cancel(CancellationException("the Mac's stream said nothing $ECHO_MS ms after it accepted a message"))
             }
         }
     }
@@ -291,6 +369,15 @@ class ConnectionOwner(
          * a stalled one fails here and is retried on the ordinary schedule.
          */
         const val QUICK_REQUEST_MS = 3_000L
+
+        /**
+         * With no byte from the stream this long after the Mac accepted a text (and none since its
+         * request started), the stream is presumed dead and replaced. The Mac publishes the phone's
+         * words as soon as its spine takes them, in milliseconds when it is free; 2 s leaves a
+         * working network's round trip plenty of room. A dead stream then costs about 2 s plus one
+         * reopen, where the socket's read timeout alone took 45 s.
+         */
+        const val ECHO_MS = 2_000L
 
         fun backoffMs(attempt: Int): Long = minOf(FIRST_RETRY_MS shl (attempt - 1).coerceIn(0, 20), MAX_RETRY_MS)
 

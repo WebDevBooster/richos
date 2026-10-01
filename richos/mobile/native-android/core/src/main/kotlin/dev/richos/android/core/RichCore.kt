@@ -45,6 +45,15 @@ import java.net.URI
  * [Outbox] (`send`, `sync`, `retry`, `discard`, the `queue.js` rules). `send-voice` is refused
  * with a sentence until the voice recording lifecycle lands.
  */
+/**
+ * The connection owner's view of a send ([ConnectionOwner]'s dead-stream check). [started] is
+ * called as a text's request goes to the Mac and returns what to call if the Mac accepts it, or
+ * null when there is nothing to watch (no stream open).
+ */
+fun interface SendWatch {
+    fun started(): (() -> Unit)?
+}
+
 class RichCore private constructor(
     private val ports: Ports,
     private var session: Session,
@@ -77,6 +86,13 @@ class RichCore private constructor(
      */
     fun onTryNowWhileAway(listener: (() -> Unit)?) {
         tryNow = listener
+    }
+
+    @Volatile private var sendWatch: SendWatch? = null
+
+    /** The connection owner's [SendWatch]: told when a text goes to the Mac and when it is accepted. */
+    fun watchSends(watch: SendWatch?) {
+        sendWatch = watch
     }
 
     val state: AppState get() = flow.value
@@ -545,11 +561,15 @@ class RichCore private constructor(
         val before = outbox.all()
         val report = outbox.flush(lease = { reserveCompletion() }) { item ->
             if (item.kind in listOf("answer", "question_seen") && !visible) throw TransportFailure("background", retryable = true)
+            // A typed text is the one send whose echo the Mac puts on the stream at once (its spine
+            // permitting): the owner uses its acceptance as a check that the stream is alive.
+            val accepted = if (item.kind == "text") sendWatch?.started() else null
             val receipt = when (item.kind) {
                 "voice" -> transport.sendVoice(item)
                 "attachments" -> transport.sendAttachments(item)
                 else -> transport.sendText(item)
             }
+            accepted?.invoke()
             accepted(item, receipt)
             receipt
         }

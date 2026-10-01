@@ -310,6 +310,7 @@ class ReturnWaitsTest {
     fun `the values these tests state are the connection owner's`() {
         assertEquals(CHALLENGE_REUSE_MS, ConnectionOwner.CHALLENGE_REUSE_MS)
         assertEquals(QUICK_REQUEST_MS, ConnectionOwner.QUICK_REQUEST_MS)
+        assertEquals(ECHO_MS, ConnectionOwner.ECHO_MS)
     }
 
     companion object {
