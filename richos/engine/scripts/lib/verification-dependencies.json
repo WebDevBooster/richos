@@ -2098,7 +2098,7 @@
     },
     "scripts/lib/mutation-focus.test.sh": {
       "source": "scripts/lib/mutation-focus.test.sh",
-      "sha256": "511e764d77ac2203b701fed07edc69126616c9fc4d787528a9fbdbb1dfe788d4",
+      "sha256": "7d62f105a06622367cdfcba5aa3b48f4b58d5d021a5bd22e87e8e2d4636af088",
       "evidence": "Creates a tiny engine with literal PROTECTED_PATHS and feature variables, then executes generated sequential/named/parallel suites under the real mutation helper. Its only eval receives fixed RULE_A/RULE_B assertions. Copied helper directories are transport; discovered production scripts are not run. All worker and supervisor helpers are separately declared.",
       "keys": [],
       "edges": [
@@ -14380,7 +14380,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "cfbbefd6f07953e8affd8393286bba919bd9d811f8d136f9c190828279669db4",
+          "sha256": "3a7c1ae913b822d292579fb059e254b945e576e7fcebdf592a1e241c342fb1de",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14398,7 +14398,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "76b63245972245c8d4c64ea5a184520b838214c65abfad25c990a4e724feb875",
+          "sha256": "79ad9ec1280e981e8bff5a406fc9bc6094b3c5d5ec356c92b21f7c960c3f83c2",
           "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         },
         {
@@ -14596,7 +14596,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "cfbbefd6f07953e8affd8393286bba919bd9d811f8d136f9c190828279669db4",
+          "sha256": "3a7c1ae913b822d292579fb059e254b945e576e7fcebdf592a1e241c342fb1de",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {

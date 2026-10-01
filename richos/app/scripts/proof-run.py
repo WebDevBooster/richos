@@ -34,6 +34,11 @@
     runner of tests never skips the CPU line.
 
       --summary-out F      also write summary.json to F (the land gate reads its verdict there)
+      --without-nightly-conditions
+                           run every check in the caller's environment only, to tell whether a
+                           failure comes from the nightly's conditions (below). Refused inside
+                           the land checks (RICHOS_AUTOCHECK_ACTIVE): the merge gate always
+                           meets them.
 Exit: 0 every check passed; 1 a check failed, timed out, was not admitted, the run was not
 admitted to a proof-run slot within --slot-wait (every check is then `not-admitted` in the
 summary, which is written all the same), or proof-for.sh
@@ -59,6 +64,19 @@ The same holds for a UI suite run directly (`cd richos/app/ui/tests && node <sui
 (RICHOS_UI_TESTS_LEDGER) and its state is read from it. A suite that recorded only a skip
 (lib/harness.js skipSuite) is NOT RUN (`suite-skipped`); one that exits 0 with no check or a
 failed check in its ledger is `invalid`.
+
+A CHECK MEETS THE NIGHTLY'S CONDITIONS BEFORE THE NIGHTLY DOES (2026-10-01). Five nightly
+attempts in one night each failed on a suite that had passed for its engineer; two of them
+only because the build hands its suites what an engineer's shell does not: a long TMPDIR
+(cargo-cache-env.test.sh, "path must be shorter than SUN_LEN") and RICHOS_IOS_POOL_WAIT
+(merge-check-scope.test.py, KeyError). So a check of a suite a nightly gate runs (a
+`run-tests.sh --only` suite the desktop build runs, by run-tests.sh's own `--for desktop
+--list`, and a UI suite run directly) gets what that gate would give it, from nightly-local.py
+gate_conditions(): the build's TMPDIR, PATH and every variable it sets for that gate, its own
+check-specific values (item.env) still winning. Derived, never copied: a value added to the
+build reaches these checks with no edit here. The plan prints which checks run under which
+gate's conditions and anything this machine cannot reproduce. Phone-app suites, cargo, engine
+units and anything else no desktop gate runs keep the caller's environment.
 
 A RETRY ON THE SAME TREE RUNS ONLY WHAT DID NOT PASS (2026-09-29). `--resume` and every new run
 reuse a validated pass whose input identity is unchanged (lib/proof_evidence.py). A check with
@@ -149,6 +167,7 @@ started by a check of a proof run works inside its caller's slot.
 import argparse
 import uuid
 import hashlib
+import importlib.util
 import math
 import tempfile
 import datetime
@@ -482,11 +501,105 @@ def slug(label):
     return re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-")[:60]
 
 
+# ---------------------------------------------------------------------------------------
+# the nightly's conditions (see A CHECK MEETS THE NIGHTLY'S CONDITIONS above)
+# ---------------------------------------------------------------------------------------
+# Set by main() from --without-nightly-conditions; a caller driving plan()/run() directly
+# (the tests) gets the conditions, as the merge gate does.
+NIGHTLY_CONDITIONS = True
+_NIGHTLY = {}
+
+
+def nightly_local():
+    """nightly-local.py, loaded once: the one place the build's gate environment is written."""
+    if "module" not in _NIGHTLY:
+        spec = importlib.util.spec_from_file_location("proof_run_nightly_local",
+                                                      os.path.join(HERE, "nightly-local.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _NIGHTLY["module"] = module
+    return _NIGHTLY["module"]
+
+
+def desktop_suites():
+    """The suites the desktop nightly's script-suites gate runs, as run-tests.sh itself selects
+    them (`--for desktop --list`, which reads phone-app-suites.tsv and starts nothing)."""
+    if "desktop" not in _NIGHTLY:
+        try:
+            listed = subprocess.run(["bash", os.path.join(HERE, "run-tests.sh"), "--for", "desktop", "--list"],
+                                    cwd=APP, capture_output=True, text=True, timeout=120,
+                                    stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise SystemExit("proof-run: cannot read which suites the nightly runs: %s" % exc)
+        if listed.returncode != 0 or not listed.stdout.strip():
+            raise SystemExit("proof-run: cannot read which suites the nightly runs: `run-tests.sh --for "
+                             "desktop --list` exited %d: %s" % (listed.returncode, listed.stderr.strip()[-400:]))
+        _NIGHTLY["desktop"] = frozenset(line.strip() for line in listed.stdout.splitlines() if line.strip())
+    return _NIGHTLY["desktop"]
+
+
+def nightly_gate_of(item):
+    """The nightly gate that runs this check's suite, or None (a phone-app suite, cargo, an
+    engine unit, anything run from outside this checkout's app)."""
+    if not NIGHTLY_CONDITIONS or hasattr(item, "private_environment"):
+        return None
+    argv = item.argv
+    if argv and argv[0] == "scripts/run-tests.sh" and "--only" in argv:
+        if os.path.realpath(item.cwd) != os.path.realpath(APP):
+            return None
+        suites = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--only"]
+        if suites and all(suite in desktop_suites() for suite in suites):
+            return "gates/script-suites"
+        return None
+    if ui_suite_file(item):
+        return nightly_local().UI_SUITE_GATE
+    return None
+
+
+def gate_conditions(gate):
+    """(conditions, missing) for `gate`, from nightly-local.py gate_conditions(), once per run."""
+    key = "gate " + gate
+    if key not in _NIGHTLY:
+        try:
+            _NIGHTLY[key] = nightly_local().gate_conditions(gate)
+        except (OSError, ValueError) as exc:
+            raise SystemExit("proof-run: cannot derive the nightly's conditions for %s: %s" % (gate, exc))
+    return _NIGHTLY[key]
+
+
+def nightly_conditions(item):
+    gate = nightly_gate_of(item)
+    return gate_conditions(gate)[0] if gate else {}
+
+
+def conditions_line(items):
+    """The plan's line saying which checks meet which nightly gate's conditions."""
+    if not NIGHTLY_CONDITIONS:
+        return "nightly conditions: OFF (--without-nightly-conditions): every check runs in the caller's environment"
+    gates = {}
+    for it in items:
+        gate = nightly_gate_of(it)
+        if gate:
+            gates.setdefault(gate, []).append(it.label)
+    if not gates:
+        return "nightly conditions: no check here runs a suite a nightly gate runs"
+    parts = []
+    for gate in sorted(gates):
+        conditions, missing = gate_conditions(gate)
+        part = "%d check(s) as %s runs them (TMPDIR=%s, %d variable(s) the build sets)" % (
+            len(gates[gate]), gate, conditions.get("TMPDIR", "?"), len(conditions))
+        if missing:
+            part += "; NOT reproduced here: " + ", ".join("%s (%s)" % kv for kv in sorted(missing.items()))
+        parts.append(part)
+    return "nightly conditions: " + "; ".join(parts)
+
+
 def execution_environment(item):
     if hasattr(item, "private_environment"):
         return {**item.private_environment, **item.env}
-    # Verification must not rewrite bytecode inside its own declared inputs.
-    env = {**os.environ, **item.env, "PYTHONDONTWRITEBYTECODE": "1"}
+    # Verification must not rewrite bytecode inside its own declared inputs. The nightly's
+    # conditions sit between the caller's environment and the check's own values.
+    env = {**os.environ, **nightly_conditions(item), **item.env, "PYTHONDONTWRITEBYTECODE": "1"}
     path = env.get("PATH", "").split(os.pathsep)
     for extra in (os.path.join(os.path.expanduser("~"), ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"):
         if extra not in path:
@@ -1831,8 +1944,16 @@ def main(argv=None):
     p.add_argument("--sample-every", type=float, default=10)
     p.add_argument("--log-dir")
     p.add_argument("--summary-out", help="also write summary.json to this file")
+    p.add_argument("--without-nightly-conditions", action="store_true",
+                   help="run every check in the caller's environment only (diagnosis; refused in the land checks)")
     args, rest = p.parse_known_args(argv)
     args.proof_for_args = rest
+    if args.without_nightly_conditions:
+        if os.environ.get("RICHOS_AUTOCHECK_ACTIVE"):
+            p.error("--without-nightly-conditions is refused inside the land checks: the merge gate "
+                    "always meets the nightly's conditions")
+        global NIGHTLY_CONDITIONS
+        NIGHTLY_CONDITIONS = False
     if args.resume and (args.commands or rest or args.as_printed or args.reuse):
         p.error("--resume takes its frozen plan from the saved run; no new selection is allowed")
     if args.capacity < 1 or args.engine_shards < 1:
@@ -1885,6 +2006,7 @@ def main(argv=None):
         print("  %-40s lane %-7s ~%5.0f s  cd %s && %s" % (it.label, it.lane or "-", it.weight,
                                                          os.path.relpath(it.cwd, ROOT), " ".join(it.argv)))
     print("  " + supply_runtime(items))
+    print("  " + conditions_line(items))
     if args.dry_run:
         return 0
     print("  logs: %s" % logdir, flush=True)

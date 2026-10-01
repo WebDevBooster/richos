@@ -61,7 +61,7 @@ MUTANTS = (
      "a build with a red gate would go on to sign, notarize and publish."),
     ("the-phone-count-never-reaches-the-suites",
      "test_the_simulated_phone_count_reaches_the_suites_and_nothing_else_sets_it",
-     'SIMULATED_PHONES_ENV: str(self.simulated_phones)}',
+     'SIMULATED_PHONES_ENV: str(simulated_phones)}',
      'SIMULATED_PHONES_ENV: "1"}',
      "the chosen number of phones would be logged and ignored."),
     ("the-desktop-build-runs-the-phone-apps-suites",
