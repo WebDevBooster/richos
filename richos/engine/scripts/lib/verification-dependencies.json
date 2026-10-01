@@ -7554,8 +7554,8 @@
     },
     "scripts/hooks/waiver-repetition.mutation.sh": {
       "source": "scripts/hooks/waiver-repetition.mutation.sh",
-      "sha256": "c8fb7ba4752d91156d839f7fe81e8f2fa8120968793c60d72a79c1fbf16d5f15",
-      "evidence": "Full driver creates minimal engine copies, retains hooks JSON then executes one control and finite literal mutants with INNER=1. No orchestration config is copied. Source replacements alter verdicts, grouping, notices and registration; no additional executed target is introduced.",
+      "sha256": "3d429bdd454539d5becbf6404d9f52adedf671e062ee22eddf9430a8c5d65337",
+      "evidence": "Full driver creates minimal engine copies, retains hooks JSON then executes one control and finite literal mutants with INNER=1. No orchestration config is copied. Source replacements alter verdicts, grouping, notices and registration; no additional executed target is introduced. Renewed 2026-10-01: the sandbox is allocated by sourcing scripts/lib/scratch.sh before anything is copied; the driver never sources a config and passes only the environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
         {
@@ -7566,6 +7566,10 @@
         },
         {
           "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
         }
       ]
     },
@@ -16372,7 +16376,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/hooks/notice-waiver-repetition.py": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
         "scripts/waiver-repetition-lint.sh": "03bba7c566c0b3348d91badad662f240b2da1085c80291bc34765418ce88adb0",
-        "scripts/hooks/waiver-repetition.mutation.sh": "c8fb7ba4752d91156d839f7fe81e8f2fa8120968793c60d72a79c1fbf16d5f15",
+        "scripts/hooks/waiver-repetition.mutation.sh": "3d429bdd454539d5becbf6404d9f52adedf671e062ee22eddf9430a8c5d65337",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
