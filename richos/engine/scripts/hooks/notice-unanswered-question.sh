@@ -98,6 +98,37 @@ if ! resolve_entity_root "$INPUT"; then
     exit 0
 fi
 
+# --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
+# A turn that ends without this check having run must not look like a turn that
+# ran it and found no unanswered question: the predicate reads the transcript
+# the payload names, so an empty or unreadable payload means nothing was read.
+# The sentence comes from scripts/lib/unevaluated-notice.sh so every hook says
+# it the same way, through the notice channel measured for the Stop event.
+# NO VERDICT CHANGES — this hook never blocks, on these payloads or any other.
+# The block below is the shared Stop form, byte for byte apart from the hook
+# name and the clause naming what was not checked (unevaluated-payload.test.sh
+# case 5b compares the mechanism across every hook that carries it).
+_SHN_LIB="$SCRIPT_DIR/../lib/stop-hook-notice.sh"
+[ -f "$_SHN_LIB" ] || exit 0
+# shellcheck source=../lib/stop-hook-notice.sh
+. "$_SHN_LIB"
+stop_notice_init "notice-unanswered-question.sh" "$RICHOS_ENTITY_ROOT_RESOLVED" "$INPUT"
+_UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
+if [ -f "$_UE_LIB" ]; then
+    # shellcheck source=../lib/unevaluated-notice.sh
+    . "$_UE_LIB"
+    if _UE_REASON="$(richos_payload_unreadable "$INPUT")"; then
+        # ONE LINE for the call itself, deliberately: stop-hook-visibility.test.sh
+        # proves its case 3a by sed-ing out every such call, and a multi-line
+        # continuation would leave the argument lines behind as orphaned commands.
+        _UE_MSG="$(unevaluated_sentence "notice-unanswered-question.sh" \
+            "whether a question put to him as an earlier final message is still unanswered" \
+            "$_UE_REASON" turn)"
+        stop_notice_abnormal "payload-unreadable:$_UE_REASON" "$_UE_MSG"
+        exit 0
+    fi
+fi
+
 _BA_LIB="$SCRIPT_DIR/../lib/blocking_ask.py"
 if [ ! -f "$_BA_LIB" ]; then
     printf '{"suppressOutput":true,"systemMessage":"UNANSWERED-QUESTION WATCH IS OFF: scripts/lib/blocking_ask.py is missing, so a question put to him as a final message is not repeated under later turns."}\n'

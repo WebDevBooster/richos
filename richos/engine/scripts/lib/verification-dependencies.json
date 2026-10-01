@@ -984,8 +984,8 @@
     },
     "scripts/hooks/notice-unanswered-question.sh": {
       "source": "scripts/hooks/notice-unanswered-question.sh",
-      "sha256": "c051ed21325856ba6fa166d3c7419b531227f8061c9ce5a212b63a6b1ed95b05",
-      "evidence": "Resolves the governed entity (not adopted: silent; root failure: one stop notice), then pipes the Stop payload to scripts/lib/blocking_ask.py unanswered and prints its one JSON line, if any. No configuration read of its own.",
+      "sha256": "4f6572b59a8f8a4ad4c5c59e326766d8c23508b0d8effc83764ed51f2ab9a014",
+      "evidence": "Resolves the governed entity (not adopted: silent; root failure: one stop notice), then pipes the Stop payload to scripts/lib/blocking_ask.py unanswered and prints its one JSON line, if any. No configuration read of its own. Renewed 2026-10-01: an empty or unreadable payload is announced through the shared Stop form of scripts/lib/unevaluated-notice.sh and stop-hook-notice.sh before blocking_ask.py runs; no new setting is read.",
       "keys": [],
       "edges": [
         {
@@ -993,6 +993,9 @@
         },
         {
           "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
         },
         {
           "to": "scripts/lib/blocking_ask.py"
