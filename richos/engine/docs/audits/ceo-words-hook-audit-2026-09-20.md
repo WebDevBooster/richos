@@ -209,6 +209,7 @@ session**, not this one.
 | `scripts/hooks/guard-shared-writes.sh` | a | tool input (target path) / lease files / the target repository's Git state | no | added 2026-09-25 after this audit, a module of the Write chain; reads no prompt and no transcript |
 | `scripts/hooks/release-shared-writes.sh` | a | tool input (target path, tool_use_id) / lease files | no | added 2026-09-25 after this audit, PostToolUse and PostToolUseFailure; reads no prompt and no transcript |
 | `scripts/hooks/guard-live-names.sh` | a | tool input (the spawn's name) / the workspace registry | no | added 2026-09-25 after this audit, PreToolUse[Agent]; reads the name only, never the prompt's words |
+| `scripts/hooks/notice-unanswered-question.sh` | a | the transcript: the lead's own `QUESTION FOR YOU:` final message; turn starts as boundaries | no — his prompt is a BOUNDARY (turnOrigin human), never content | added 2026-10-01 after this audit, registered on Stop; scripts/lib/blocking_ask.py `unanswered` reads assistant text and each row's turnOrigin, never the text of his prompt |
 | `scripts/hooks/notice-disk-alert.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-escalations.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/notice-hook-staleness.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |

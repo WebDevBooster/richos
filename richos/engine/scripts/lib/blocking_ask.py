@@ -15,7 +15,7 @@ lead only at 13:39:01Z, when he came back. For 37 minutes nothing could wake
 it: not a teammate finishing, not the stall watcher, not the 93% quota rule.
 
 ===========================================================================
-THE CHECK
+TWO HALVES, ONE FILE
 ===========================================================================
   check       the PreToolUse half (guard-ceo-ruled-ask.sh, the deaf-lead
               check). While a teammate of this session is live, an
@@ -42,6 +42,16 @@ THE CHECK
               the ask is allowed for them: the safe direction, stated so
               nobody reads this as complete coverage.
 
+  unanswered  the Stop half (notice-unanswered-question.sh). The final-message
+              route has one cost AskUserQuestion did not: the question
+              scrolls away under every later turn the lead is woken for, and
+              he comes back to the newest notification, not to the question
+              (Sage 9). So while a question put under `QUESTION FOR YOU:` in an
+              earlier turn has no later human prompt, it is repeated in the
+              Stop systemMessage at every turn end. That channel is shown to
+              the PERSON and never to the model (measured, escalations.py), so
+              it re-surfaces the question without waking anything.
+
 The lead-in is matched mechanically, never by a prose classifier.
 """
 
@@ -56,7 +66,9 @@ import time
 LEAD_IN = "QUESTION FOR YOU:"
 EXEMPT_LOG = "blocking-ask-exempts.log"
 MIN_REASON = 20
+RESURFACE_CHARS = 800
 STOP_FEEDBACK = "Stop hook feedback:"
+_LEAD_IN_RX = re.compile(r"^[ \t>*_#-]*" + re.escape(LEAD_IN), re.M)
 
 
 def _rows(transcript):
@@ -113,6 +125,48 @@ def stop_refused_this_turn(transcript):
     except OSError:
         return None
     return refused
+
+
+def _assistant_text(d):
+    if d.get("type") != "assistant":
+        return ""
+    msg = d.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(str(b.get("text") or "") for b in content
+                     if isinstance(b, dict) and b.get("type") == "text")
+
+
+def unanswered_question(transcript):
+    """(question text, asked-at timestamp) of a `QUESTION FOR YOU:` the lead
+    put in an EARLIER turn that no human prompt has answered yet, or None.
+
+    The question's own turn is skipped: at its Stop the question is the last
+    thing on screen already. Any later turn start that is the CEO's own prompt
+    (turnOrigin human) answers it; a notification turn does not."""
+    pending = None
+    later_turn = False
+    try:
+        for d in _rows(transcript):
+            if _is_turn_start(d):
+                if d.get("turnOrigin") == "human":
+                    pending = None
+                elif pending is not None:
+                    later_turn = True
+                continue
+            text = _assistant_text(d)
+            if not text:
+                continue
+            m = _LEAD_IN_RX.search(text)
+            if m:
+                pending = (text[m.start():].strip(), str(d.get("timestamp") or ""))
+                later_turn = False
+    except OSError:
+        return None
+    return pending if (pending and later_turn) else None
 
 
 def _workspaces(engine_root):
@@ -193,6 +247,8 @@ def main(argv):
     c = sub.add_parser("check", help="the PreToolUse half: payload on stdin")
     c.add_argument("--entity", default="")
     c.add_argument("--engine-root", default="")
+    u = sub.add_parser("unanswered", help="the Stop half: payload on stdin")
+    u.add_argument("--max", type=int, default=RESURFACE_CHARS)
     a = ap.parse_args(argv)
     raw = sys.stdin.read()
     try:
@@ -204,6 +260,18 @@ def main(argv):
         print("%s\t%s\t%s" % (verdict, detail.replace("\t", " ").replace("\n", " "),
                               str((payload or {}).get("session_id") or "")))
         return 0
+    if not isinstance(payload, dict) or payload.get("stop_hook_active") or payload.get("agent_id"):
+        return 0
+    found = unanswered_question(str(payload.get("transcript_path") or ""))
+    if not found:
+        return 0
+    text, at = found
+    if len(text) > a.max:
+        text = text[:a.max - 3] + "..."
+    when = at[11:16] + "Z" if len(at) >= 16 else "an earlier turn"
+    print(json.dumps({"suppressOutput": True, "systemMessage":
+                      "STILL WAITING FOR YOUR ANSWER (asked %s; your next message answers it): %s"
+                      % (when, " ".join(text.split()))}))
     return 0
 
 

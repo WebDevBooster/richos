@@ -163,7 +163,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#workspace-copy": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "sha256": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
       "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards. Later changes add registration inventory literals outside the Q copy region only (guard-record-owner-memory.sh, 2026-09-28). Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [],
       "edges": [],
@@ -977,10 +977,27 @@
     },
     "scripts/lib/blocking_ask.py": {
       "source": "scripts/lib/blocking_ask.py",
-      "sha256": "3ae8800cb18377d40490218ef0faa4871429296d9e9eef195acfce02f7c624a4",
+      "sha256": "37e0909c1d4ae550d726553c18fec0b6e043ab8b433f6db12be0fa7ba451940f",
       "evidence": "Standard-library reader of the payload on stdin, the host transcript the payload names, the entity's .claude/state/blocking-ask-exempts.log, and the workspace registry through mega-lander/workspaces.py loaded from the engine root it is given. No orchestration.config key, no subprocess, writes nothing.",
       "keys": [],
       "edges": []
+    },
+    "scripts/hooks/notice-unanswered-question.sh": {
+      "source": "scripts/hooks/notice-unanswered-question.sh",
+      "sha256": "c051ed21325856ba6fa166d3c7419b531227f8061c9ce5a212b63a6b1ed95b05",
+      "evidence": "Resolves the governed entity (not adopted: silent; root failure: one stop notice), then pipes the Stop payload to scripts/lib/blocking_ask.py unanswered and prints its one JSON line, if any. No configuration read of its own.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/blocking_ask.py"
+        }
+      ]
     },
     "scripts/hooks/notice-ceo-ruled-prose.sh": {
       "source": "scripts/hooks/notice-ceo-ruled-prose.sh",
@@ -2754,7 +2771,7 @@
     },
     "scripts/hooks/engine-status.test.sh": {
       "source": "scripts/hooks/engine-status.test.sh",
-      "sha256": "56a5918072ec2f9b3333e38e6e8eb664cfb748995ef31295de429d1c070d0015",
+      "sha256": "1196a386f22396e587f7b1458f4b3a3b668b2eea6ce6f0422a76a28a77adf86b",
       "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries. The inventory adds the two failure-type hook basenames as data; those hooks are never executed by this suite. The resource-waits hook basename is another inventory datum, never executed. The guard-record-owner-memory.sh basename (2026-09-28) is another inventory datum, never executed. Renewed 2026-09-28 (stall watcher): one ACKNOWLEDGED_SCRIPTS name (session-start-stall.sh) and its comment; no case changed.",
       "keys": [],
       "edges": [
@@ -5063,7 +5080,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#seated-fixture": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "sha256": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
       "evidence": "Reviewed seated route and its shared R/AL/MT/MC/OF functions. The contract template keeps engine and entity in the same repository, including its linked-worktree case; the by-reference branch is unreachable. Parsed registration commands and sidecar inventories are data except the fixed canonical canary guards listed here. The test only replaces the write guard with literal inert shims or another copy of that same guard. q_hook has four fixed hook names; registry calls are integration/lifecycle. Q transports the fixture config. OF status and EP remain dependencies even when absent or undeclared in the generated fixture. The engine-status edge conservatively retains the literal execute floor outside this seated route. Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [
         "PROTECTED_PATHS",
@@ -6988,7 +7005,7 @@
     },
     "hooks/hooks.json#stop-visibility-inventory": {
       "source": "hooks/hooks.json",
-      "sha256": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+      "sha256": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
       "evidence": "Binds the dynamically enumerated Stop script inventory for config selection. A new or changed manifest needs requalification before these fixture closures can exclude a config change. Renewed 2026-09-28 (stall watcher): one SessionStart row added (session-start-stall.sh); no PreToolUse or Stop row changed.",
       "keys": [],
       "edges": []
@@ -10115,7 +10132,7 @@
     },
     "hooks/hooks.json#pre-stop-fixtures": {
       "source": "hooks/hooks.json",
-      "sha256": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+      "sha256": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
       "evidence": "Binds the dynamically enumerated PreToolUse/Stop inventory and matcher selection. New inventory bytes require requalification before excluding a config edit. Renewed 2026-09-28 (stall watcher): one SessionStart row added (session-start-stall.sh); no PreToolUse or Stop row changed.",
       "keys": [],
       "edges": []
@@ -11095,7 +11112,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "sha256": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
       "evidence": "Entire by-reference branch and shared R/AL/MT/MC functions reviewed. Plugin/role/marketplace/registration rows are inspected as data. Actual execution is engine-status, the fixed BR9 worktree-isolation canary and the shared model/liveness canaries. Literal fixture shims introduce no additional reader. The shared whole-source contract retains the seated helper floor, but the branch returns before seated runtime checks. Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [
         "PROTECTED_PATHS",
@@ -15840,7 +15857,7 @@
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
         "scripts/hooks/claim-roles.mutation.sh": "e20d4194ed09142931ad32ba5e5f09b12a3b0348fb8165c78f94a386eb352196",
         "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
-        "scripts/hooks/contract-integrity-probe.sh": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+        "scripts/hooks/contract-integrity-probe.sh": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
         "scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
@@ -15954,7 +15971,7 @@
         "scripts/scratch-sweep.sh": "4397e3931381098d17ba2cedc5415bfcb7baaaf8d0c6fe05bffa000826b45e62",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
-        "hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+        "hooks/hooks.json": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
         "scripts/hooks/commit-ceo-inputs.sh": "9e4a0af9cd1ea89110261baacdae395dc40543061a4f17740467c5a492598962",
         "scripts/hooks/commit-ceo-inputs.py": "940e38e35651f22a012df8cd3a18ecbd92bf728a6b48084a3d797f1f3982045e",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
@@ -16574,7 +16591,7 @@
       "sources": {
         "scripts/hooks/unevaluated-payload.test.sh": "ec86bceca7bee15e6ecb6fe5a1104832c177bb30fee64e307ae856824364091d",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
-        "hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+        "hooks/hooks.json": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
         "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -16741,7 +16758,7 @@
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
         "scripts/hooks/install.sh": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
-        "scripts/hooks/contract-integrity-probe.sh": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+        "scripts/hooks/contract-integrity-probe.sh": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",

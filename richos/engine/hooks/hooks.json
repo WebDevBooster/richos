@@ -524,6 +524,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-unanswered-question.sh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-waiver-repetition.sh",
             "timeout": 20
           },

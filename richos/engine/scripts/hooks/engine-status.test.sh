@@ -876,7 +876,17 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # refused a write into the named memory directory. With no owner line, the state
 # until cut-over, it refuses nothing and says nothing. Suite:
 # scripts/record-owner.test.sh; harness: scripts/record-owner.mutation.sh.
+# notice-unanswered-question.sh, ADDED 2026-10-01 — Stop, NEVER blocks. While a
+# question the lead put to the CEO as a final message under `QUESTION FOR YOU:`
+# (the route guard-ceo-ruled-ask.sh's deaf-lead check sends it, instead of an
+# AskUserQuestion that held the lead deaf for 37 minutes that day) has no later
+# human prompt, it repeats the question in the Stop systemMessage at every turn
+# end, so it never scrolls away under the turns the lead is woken for (Sage's
+# review, richos-hq 8ba32b71, item 9). Derived inventories, all carrying it:
+# hooks/hooks.json, .claude/settings.local.json, this set, and the probe's
+# BR_EXPECTED. Suite: blocking-ask.test.sh (Q01-Q04).
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+notice-unanswered-question.sh
 guard-record-owner-memory.sh
 failure-type-lookup.sh
 guard-resource-waits.sh

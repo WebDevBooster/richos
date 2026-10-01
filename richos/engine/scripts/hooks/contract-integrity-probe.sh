@@ -1269,6 +1269,7 @@ notice-inflight-acks.sh|Stop
 notice-mechanical-findings.sh|Stop
 guard-ceo-ruled-ask.sh|PreToolUse
 notice-ceo-ruled-prose.sh|Stop
+notice-unanswered-question.sh|Stop
 notice-waiver-repetition.sh|Stop
 notice-escalations.sh|Stop
 notice-protected-ref-moves.sh|Stop

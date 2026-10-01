@@ -5,7 +5,8 @@
 # Item B of richos-hq docs/operations/2026-10-01-escalation-wakes-the-lead.md
 # and Sage's review of it (richos-hq 8ba32b71, items 8, 9 and 10): the
 # deaf-lead check in scripts/hooks/guard-ceo-ruled-ask.sh (predicate:
-# scripts/lib/blocking_ask.py, declaration: scripts/blocking-ask-exempt.sh).
+# scripts/lib/blocking_ask.py, declaration: scripts/blocking-ask-exempt.sh) and
+# the Stop notice scripts/hooks/notice-unanswered-question.sh.
 #
 # Every case that expects the call ALLOWED is paired, in the same case, with
 # the same fixture REFUSED, so the only difference is the one thing the case is
@@ -22,6 +23,11 @@
 #        still refused
 #   B05  a teammate's own AskUserQuestion (agent_id): allowed
 #   B06  the teammate's run has ended: allowed
+#   Q01  a `QUESTION FOR YOU:` final message from an earlier turn that no human
+#        prompt has answered is repeated in the Stop systemMessage
+#   Q02  the question's own turn end says nothing (it is already on screen)
+#   Q03  his next prompt answers it: nothing more; a notification turn does not
+#   Q04  hooks.json registers notice-unanswered-question.sh once, on Stop
 #
 # Every transcript row is a HOST row in shape (top-level and attachment keys),
 # copied from real lead transcripts with free text replaced: the turn-start
@@ -35,6 +41,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE="$(cd "$SCRIPT_DIR/../.." && pwd)"
 GATE="$ENGINE/scripts/hooks/guard-ceo-ruled-ask.sh"
+NOTICE="$ENGINE/scripts/hooks/notice-unanswered-question.sh"
 EXEMPT="$ENGINE/scripts/blocking-ask-exempt.sh"
 
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
@@ -129,6 +136,10 @@ if sys.argv[3]: d["agent_id"]=sys.argv[3]
 print(json.dumps(d))' "$1" "$2" "${3:-}" "$RICHOS_ENTITY_ROOT")"
     ERR="$(printf '%s' "$payload" | bash "$GATE" 2>&1 >/dev/null)"; RC=$?
 }
+notice() { # <transcript>: run the Stop notice; stdout in OUT
+    OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id":"fixture","transcript_path":sys.argv[1],"hook_event_name":"Stop","stop_hook_active":False,"cwd":sys.argv[2]}))' "$1" "$RICHOS_ENTITY_ROOT" \
+          | bash "$NOTICE" 2>/dev/null)"; NRC=$?
+}
 
 echo "=== blocking-ask tests ==="
 T1="$SB/t1.jsonl"; row "$T1" human
@@ -177,6 +188,39 @@ PY
 ask "$SID" "$T1"
 if [ "$B01_RC" -eq 2 ] && [ "$RC" -eq 0 ]; then ok "B06  the teammate's run has ended: allowed"
 else bad "B06  ended teammate" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
+
+# --- Q: the question is repeated until he answers it ---------------------------
+QTEXT="QUESTION FOR YOU:
+Which phone run goes first, D3 or R1?"
+TQ="$SB/tq.jsonl"; row "$TQ" human; row "$TQ" assistant "Both are ready.
+
+$QTEXT"
+notice "$TQ"; Q02="$OUT"
+row "$TQ" notification; row "$TQ" assistant "R1 landed."
+notice "$TQ"; Q01="$OUT"; Q01RC=$NRC
+if [ "$Q01RC" -eq 0 ] && printf '%s' "$Q01" | python3 -c 'import json,sys
+d=json.loads(sys.stdin.read()); m=d["systemMessage"]
+sys.exit(0 if "STILL WAITING FOR YOUR ANSWER" in m and "Which phone run goes first, D3 or R1?" in m else 1)'; then
+    ok "Q01  an unanswered QUESTION FOR YOU: from an earlier turn is repeated in the Stop systemMessage"
+else bad "Q01  re-surfaced" "rc=$Q01RC out=$Q01"; fi
+if [ -z "$Q02" ] && [ -n "$Q01" ]; then ok "Q02  its own turn end says nothing: it is already the last thing on screen"
+else bad "Q02  not at its own turn" "own-turn=$Q02"; fi
+row "$TQ" human "R1 first."
+notice "$TQ"; Q03="$OUT"
+if [ -n "$Q01" ] && [ -z "$Q03" ]; then ok "Q03  his next prompt answers it: nothing more (a notification turn did not)"
+else bad "Q03  answered" "after-answer=$Q03"; fi
+
+python3 - "$ENGINE" <<'PY'; RC=$?
+import json, os, sys
+hooks = json.load(open(os.path.join(sys.argv[1], "hooks", "hooks.json")))["hooks"]
+all_ = [h.get("command", "") for ev, gs in hooks.items() for g in gs for h in g.get("hooks", [])
+        if "notice-unanswered-question.sh" in h.get("command", "")]
+stop = [h.get("command", "") for g in hooks.get("Stop", []) for h in g.get("hooks", [])
+        if "notice-unanswered-question.sh" in h.get("command", "")]
+sys.exit(0 if len(all_) == 1 and len(stop) == 1 else 1)
+PY
+if [ "$RC" -eq 0 ]; then ok "Q04  hooks.json registers notice-unanswered-question.sh once, on Stop"
+else bad "Q04  registration" "hooks/hooks.json"; fi
 
 if [ "$FAIL" -gt 0 ]; then
     echo "=== blocking-ask tests: $FAIL FAILED, $PASS passed ==="
