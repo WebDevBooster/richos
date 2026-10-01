@@ -88,6 +88,9 @@ trap 'rm -rf "$SANDBOX"' EXIT
 CLAUDE_CONFIG_DIR="$SANDBOX/config"
 export CLAUDE_CONFIG_DIR
 mkdir -p "$CLAUDE_CONFIG_DIR/teams"
+# The governed repository comes from each payload's cwd (and, for case 17, the
+# directory the hook runs from), never from the launching session's.
+unset RICHOS_ENTITY_ROOT CLAUDE_PROJECT_DIR
 
 REPO="$SANDBOX/repo"
 mkdir -p "$REPO/scripts/hooks" "$REPO/scripts/lib" "$REPO/.claude/state"
@@ -747,7 +750,13 @@ fi
 # ===========================================================================
 UNADOPTED="$SANDBOX/unadopted"
 mkdir -p "$UNADOPTED"
-OUT="$(printf '{"session_id":"waivtst3","cwd":"%s","hook_event_name":"Stop","transcript_path":"/dev/null"}' \
+# The hook runs FROM the unadopted directory too. Entity resolution falls back
+# from the payload's cwd to $PWD, and run from the engine (as ci-shard runs
+# every unit) an unadopted cwd resolved to the ENGINE, which carries the
+# adoption marker: this case then passed because that repository was clear,
+# and wrote waivtst3's notice state into the checkout under test, which the
+# proof gate binds as the input of every engine check beside it (2026-10-01).
+OUT="$(cd "$UNADOPTED" && printf '{"session_id":"waivtst3","cwd":"%s","hook_event_name":"Stop","transcript_path":"/dev/null"}' \
         "$UNADOPTED" | "$HOOK" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
     ok "17. an unadopted repository gets no notice at all"
