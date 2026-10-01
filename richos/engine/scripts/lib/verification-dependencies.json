@@ -1869,7 +1869,7 @@
     },
     "scripts/lib/global-state-witness.test.sh": {
       "source": "scripts/lib/global-state-witness.test.sh",
-      "sha256": "de4748a587aa33bb8728ac23975967a7d851a6f0171d4a74ab4dbcb8c45c00c6",
+      "sha256": "fe7d320d5f2aab37729729cb6e87c194fb33deb864ea185b4180e2ffbada3671",
       "evidence": "Every witness call supplies the private config directory. Installer calls use a generated engine without orchestration.config and fake HOME; structural enumeration searches source as data. The launchctl shim proves forced pointer installation still does not reach launchd.",
       "keys": [],
       "edges": [
