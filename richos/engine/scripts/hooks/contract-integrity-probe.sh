@@ -4029,6 +4029,12 @@ run_layer_OF() {
     out="$(bash "$tool" status --declaration-check --entity "$REPO_ROOT" $args 2>&1)" && rc=0 || rc=$?
     if [ "$rc" -eq 0 ]; then
         emit_pass "OF. OPERATOR_FENCES=\"$decl\" and the launchers of ${OPERATOR_FENCES_REPOS:-(no declared repository)} agree"
+        # A declared holder whose executable an app update moved: the fence still
+        # recognizes it inside its bundle, so nothing fails, but the declaration
+        # is out of date and the session should hear it before a land does.
+        if printf '%s\n' "$out" | grep '^NOTE' >/dev/null; then
+            emit_warn "OF. $(printf '%s\n' "$out" | grep '^NOTE' | sed 's/^NOTE  //' | tr '\n' ';')"
+        fi
     else
         emit_fail "OF. the operator fence disagrees with OPERATOR_FENCES=\"$decl\": $(printf '%s' "$out" | grep '^PROBLEM' | sed 's/^PROBLEM  //' | tr '\n' ';') Run $tool status --entity $REPO_ROOT for the whole report; 'operator-fences.sh install' and 'on'/'off' are the fixes, never an edit of a launcher by hand."
     fi

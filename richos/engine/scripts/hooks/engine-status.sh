@@ -257,6 +257,32 @@ resolve_entity_root ""
 RC=$?
 
 # ===========================================================================
+# A DECLARED LAND-LEASE HOLDER THAT WILL NOT BE FOUND
+# ===========================================================================
+# 2026-09-30 21:58. The ChatGPT app updated itself and moved Codex out from
+# under the path LAND_LEASE_HOLDERS declared. Nothing said so; the first anyone
+# heard of it was Codex's commits being refused in every fenced checkout. The
+# fence now recognizes a holder moved inside its own app bundle by name and
+# signing team (operator_fences.py), and this line names a declared holder that
+# is gone at session start, before a land needs it. Asked only when the entity's
+# own launcher is on (operator-mode.sh reads it with shell builtins, the way the
+# operator hooks do), and of that launcher alone: every launcher is installed
+# from the one declaration. This banner reads adoption, never config values.
+_OM_LIB="$SCRIPT_DIR/../lib/operator-mode.sh"
+if [ "${RICHOS_ROOT_STATUS:-}" = "governed" ] && [ -n "${RICHOS_ENTITY_ROOT_RESOLVED:-}" ] \
+   && [ -f "$_OM_LIB" ] && [ -f "$ENGINE_ROOT/scripts/lib/operator_fences.py" ]; then
+    # shellcheck source=../lib/operator-mode.sh
+    . "$_OM_LIB"
+    if operator_mode_on "$RICHOS_ENTITY_ROOT_RESOLVED"; then
+        FENCE_HOLDERS="$(python3 "$ENGINE_ROOT/scripts/lib/operator_fences.py" admin holders-notice \
+            --repo "$RICHOS_ENTITY_ROOT_RESOLVED" 2>/dev/null | tr '\n' ' ')" || FENCE_HOLDERS=""
+        if [ -n "${FENCE_HOLDERS// /}" ]; then
+            GUARD_NOTE="${GUARD_NOTE} OPERATOR FENCE, LAND-LEASE HOLDERS: ${FENCE_HOLDERS% }"
+        fi
+    fi
+fi
+
+# ===========================================================================
 # THE SPAWN INSTRUCTION — ONE COMMAND, NOT FOUR
 # ===========================================================================
 # 2026-09-13. `scripts/spawn.sh` landed the night before and does the whole

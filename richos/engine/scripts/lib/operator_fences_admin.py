@@ -253,9 +253,10 @@ def cmd_set_state(opts, repos, state):
     return rc
 
 
-def check_one(repo, mode):
+def check_one(repo, mode, decl=None):
     """Problems with one repository's install, as sentences. mode 'on-ready'
-    skips the state check (used before turning it on)."""
+    skips the state check and the holder check (used before turning it on).
+    `decl` is the entity's declaration, when known, for the holder comparison."""
     problems = []
     paths = F.repo_paths(repo)
     if not paths:
@@ -293,15 +294,56 @@ def check_one(repo, mode):
                             % (repo, conf.get("HOME"), conf.get("KEY"), home, key))
     except Exception as error:  # noqa: BLE001
         problems.append("%s: cannot compute the lease home (%s)" % (repo, error))
+    if mode != "on-ready":
+        problems.extend(holder_problems(repo, conf, decl)[0])
     return problems
+
+
+def holder_problems(repo, conf, decl=None):
+    """([problem, ...], [note, ...]) about the launcher's declared holders.
+
+    A holder whose declared executable is gone is found BEFORE a land needs it,
+    by status and the integrity probe that runs it at session start, rather than
+    by the refusal of somebody's commit (2026-09-30: a ChatGPT update moved
+    Codex and every Codex land was refused until the path was edited by hand).
+      * gone, and nothing in its bundle would pass as it: a PROBLEM, because
+        that holder cannot take a lease at all;
+      * gone, but a same-named, same-team executable is in its bundle: a NOTE
+        naming it, because the fence still recognizes it and nothing is refused,
+        and the declaration should catch up;
+      * the launcher's holders differ from the declaration's LAND_LEASE_HOLDERS:
+        a PROBLEM, because an edited declaration does nothing until `install`
+        copies it into the launcher."""
+    problems, notes = [], []
+    baked = " ".join((conf.get("HOLDERS") or "").split())
+    if decl is not None:
+        declared = " ".join((decl.get("LAND_LEASE_HOLDERS") or "").split())
+        if declared != baked:
+            problems.append("%s: the launcher names holders %r but the declaration's LAND_LEASE_HOLDERS is %r; "
+                            "run operator-fences.sh install" % (repo, baked, declared))
+    for kind, exe in sorted(F.declared_holders(conf).items()):
+        if os.path.exists(exe):
+            continue
+        found = F.bundle_candidates(exe)
+        if found:
+            notes.append("%s: the declared %s executable %s is gone; the fence recognizes %s in the same bundle by "
+                         "its name and signing team. Update LAND_LEASE_HOLDERS to it, then run operator-fences.sh "
+                         "install" % (repo, kind, exe, found[0]))
+        else:
+            problems.append("%s: the declared %s executable %s is gone, and nothing in %s would pass as it, so a "
+                            "%s land cannot take the lease. Find where it moved, update LAND_LEASE_HOLDERS, then "
+                            "run operator-fences.sh install" % (repo, kind, exe, F.app_bundle(exe) or "its bundle",
+                                                                 kind))
+    return problems, notes
 
 
 def cmd_status(opts, repos, declaration_check):
     reg = read_registry()
     repos = target_repos(opts, repos)
     entity = opts.get("--entity") or (os.environ.get("RICHOS_ENTITY_ROOT") or "").strip() or reg.get("entity")
-    declared = (declaration(os.path.realpath(entity)) or {}).get("OPERATOR_FENCES") if entity else None
-    lines, problems = [], []
+    decl = declaration(os.path.realpath(entity)) if entity else None
+    declared = (decl or {}).get("OPERATOR_FENCES")
+    lines, problems, notes = [], [], []
     for repo in repos:
         paths = F.repo_paths(repo)
         conf = F.read_launcher(os.path.join(paths["common"], "hooks", "reference-transaction")) if paths else None
@@ -321,21 +363,49 @@ def cmd_status(opts, repos, declaration_check):
             if not repos:
                 problems.append("the declaration is on but no repository has the launcher")
             for repo in repos:
-                problems.extend(check_one(repo, "status"))
+                problems.extend(check_one(repo, "status", decl))
     else:
         if declared != "on":
             problems.append("the declaration (%s) says OPERATOR_FENCES=%r" % (entity, declared))
         if not repos:
             problems.append("no repository has the launcher installed")
         for repo in repos:
-            problems.extend(check_one(repo, "status"))
+            problems.extend(check_one(repo, "status", decl))
+    if declared == "on":
+        for repo in repos:
+            paths = F.repo_paths(repo)
+            conf = F.read_launcher(os.path.join(paths["common"], "hooks", "reference-transaction")) \
+                if paths else None
+            if conf:
+                notes.extend(holder_problems(repo, conf)[1])
     for line in lines:
         say(line)
+    for n in notes:
+        say("NOTE  " + n)
     for p in problems:
         say("PROBLEM  " + p)
     say("operator-fences: %s" % ("OK" if not problems else "NOT OK (%d problem%s)" % (
         len(problems), "" if len(problems) == 1 else "s")))
     return 0 if not problems else 1
+
+
+def cmd_holders_notice(opts, repos):
+    """One line per declared land-lease holder that will not be found where its
+    launcher declares it, for the session-start banner (engine-status.sh). Reads
+    only launchers (the runtime truth), never orchestration.config: the
+    declaration-versus-launcher comparison is `status`'s. Repositories are the
+    --repo ones, else every one the registry records. Silent, exit 0, when no
+    launcher is on or every holder is where it is declared. Never exits non-zero
+    for a finding: it reports, the fence decides."""
+    for repo in target_repos(opts, repos):
+        paths = F.repo_paths(repo)
+        conf = F.read_launcher(os.path.join(paths["common"], "hooks", "reference-transaction")) if paths else None
+        if not F.fenced(conf):
+            continue
+        problems, notes = holder_problems(repo, conf)
+        for line in problems + notes:
+            say(line)
+    return 0
 
 
 def cmd_uninstall(opts, repos):
@@ -375,8 +445,8 @@ def cmd_uninstall(opts, repos):
 
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
-        say("usage: operator-fences.sh install|on|off|status|uninstall [--repo <path>]... [--entity <path>] "
-            "[--declaration-check]")
+        say("usage: operator-fences.sh install|on|off|status|uninstall|holders-notice [--repo <path>]... "
+            "[--entity <path>] [--declaration-check]")
         return 0 if argv else 2
     sub, rest = argv[0], argv[1:]
     repos, opts, i = [], {}, 0
@@ -401,4 +471,6 @@ def main(argv):
         return cmd_status(opts, repos, bool(opts.get("--declaration-check")))
     if sub == "uninstall":
         return cmd_uninstall(opts, repos)
+    if sub == "holders-notice":
+        return cmd_holders_notice(opts, repos)
     raise SystemExit("operator-fences: unknown command %r" % sub)
