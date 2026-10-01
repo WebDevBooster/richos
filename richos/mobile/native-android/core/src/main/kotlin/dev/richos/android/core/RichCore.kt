@@ -247,6 +247,21 @@ class RichCore private constructor(
         return if (outbox.all().any { it.kind == "question_seen" }) flush() else flow.value
     }
 
+    /** When this process learned the challenge it holds, on the phone's clock; null for one read from disk. */
+    @Volatile private var challengeLearnedAt: Long? = null
+
+    /**
+     * How long ago this process learned the challenge it holds, or null when it does not know (the
+     * challenge came from disk, or the clock went backwards). The Mac honors a challenge for 10
+     * minutes from issuing it (`device.rs` `CHALLENGE_LIFETIME_MS`); the connection owner presents a
+     * young one as it is rather than asking for a fresh one first ([ConnectionOwner.CHALLENGE_REUSE_MS]).
+     */
+    fun challengeAgeMs(): Long? {
+        if (session.pairing.challenge == null) return null
+        val age = ports.clock.now() - (challengeLearnedAt ?: return null)
+        return age.takeIf { it >= 0 }
+    }
+
     /** A challenge learned outside a request the core made (the owner's refresh or probe). */
     suspend fun adoptChallenge(challenge: String): AppState = mutex.withLock {
         if (challenge == session.pairing.challenge) emit() else commit(session.copy(pairing = session.pairing.copy(challenge = challenge)))
@@ -1076,6 +1091,9 @@ class RichCore private constructor(
 
     private suspend fun commit(next: Session): AppState {
         ports.session.write(next)
+        // Every challenge the phone holds came from the Mac, which minted it moments before (a
+        // response header, a `hello`, a pairing answer): its age is counted from here.
+        if (next.pairing.challenge != session.pairing.challenge) challengeLearnedAt = next.pairing.challenge?.let { ports.clock.now() }
         session = next
         flow.value = snapshot()
         return flow.value

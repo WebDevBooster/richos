@@ -11,6 +11,7 @@ import dev.richos.android.core.protocol.MissingIdentity
 import dev.richos.android.core.protocol.Row
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -53,7 +54,8 @@ class ConnectionOwnerTest {
         override suspend fun delete(origin: String) = Unit
     }
 
-    private suspend fun core(http: Http, keys: DeviceKeys = this.keys, onWrite: () -> Unit = {}): RichCore {
+    /** The phone's clock follows virtual time, so a challenge's age is what the test lets pass. */
+    private suspend fun TestScope.core(http: Http, keys: DeviceKeys = this@ConnectionOwnerTest.keys, onWrite: () -> Unit = {}): RichCore {
         var saved = Fixtures.fixture("offline").session
         return RichCore.open(
             Ports(
@@ -66,7 +68,7 @@ class ConnectionOwnerTest {
                     override suspend fun read() = saved
                     override suspend fun write(session: Session) { saved = session; onWrite() }
                 },
-                transport = null, clock = Clock { Fixtures.EPOCH }, ids = IdSource { "x" }, http = http, keys = keys,
+                transport = null, clock = Clock { Fixtures.EPOCH + testScheduler.currentTime }, ids = IdSource { "x" }, http = http, keys = keys,
             ),
         )
     }
@@ -205,7 +207,7 @@ class ConnectionOwnerTest {
     }
 
     @Test
-    fun `a stream opens, delivers, drops, and is retried after 1 s with a fresh challenge`() = runTest {
+    fun `a stream opens, delivers, drops, and is retried after 1 s with the challenge its hello gave`() = runTest {
         val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "refreshed"), ByteArray(0)) }
         val core = core(mac)
         val streams = Streams(
@@ -224,7 +226,8 @@ class ConnectionOwnerTest {
         advanceTimeBy(2)
         runCurrent()
         assertEquals(2, streams.opened.size)
-        assertTrue("GET /api/challenge" in mac.seen, "the retry fetched a fresh challenge first")
+        // The hello's challenge is 1 s old and the Mac honors one for 10 minutes: no round trip first.
+        assertTrue("GET /api/challenge" !in mac.seen, "the retry presents the hello's challenge: ${mac.seen}")
         assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
         job.cancel()
     }

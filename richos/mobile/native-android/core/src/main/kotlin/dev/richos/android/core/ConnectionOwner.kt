@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 
 /**
@@ -33,10 +34,11 @@ fun interface EventStream {
 
 /**
  * THE ONE CONNECTION OWNER (build plan §3.3; adoption ledger §2.8 C1-C3, "copy the design"; the
- * preserved `web/lib/link.js` rules): exactly one stream at a time, re-signed on every attempt,
- * back-off 1 s doubling to 30 s with no jitter, reset when a stream OPENS (a reconnect with
- * `since` may send nothing at once), a revocation probe after a stream that never opened (a stream
- * cannot read a refusal body), and [wake] (the app returning to the foreground) fires a pending
+ * preserved `web/lib/link.js` rules): exactly one stream at a time, re-signed on every attempt
+ * (with the held challenge while it is young, [CHALLENGE_REUSE_MS]; a 404 opening gets one fresh
+ * challenge and the stream again at once), back-off 1 s doubling to 30 s with no jitter, reset
+ * when a stream OPENS (a reconnect with `since` may send nothing at once), a revocation probe after
+ * a stream that never opened (a stream cannot read a refusal body), and [wake] (the app returning to the foreground) fires a pending
  * retry at once without resetting the back-off, as does "Try now" while the stream is down
  * ([RichCore.onTryNowWhileAway]).
  *
@@ -143,16 +145,29 @@ class ConnectionOwner(
         // spent: this is already the immediate attempt.
         wakeups.tryReceive()
         var attempt = 0
+        // The Mac refused the last opening 404 (it did not know the challenge): the next attempt
+        // asks for a fresh one first, and goes at once. Once per stretch until a stream opens.
+        var refused = false
+        var retriedRefusal = false
         while (true) {
             val ready = core.states.first { it.paired && it.pairing.apiBase != null && it.pairing.deviceId != null }
             val apiBase = ready.pairing.apiBase!!
             val deviceId = ready.pairing.deviceId!!
-            // A persisted challenge may have expired while the app slept: refresh before every
-            // attempt except the very first, instead of provoking a refused stream.
-            if (!first) runCatching { api.freshChallenge(apiBase) }.getOrNull()?.let { core.adoptChallenge(it) }
+            // The held challenge is presented as it is while it is young: a challenge the Mac
+            // minted less than [CHALLENGE_REUSE_MS] ago (the stream's `hello` hands one over, every
+            // response another) is one it still honors, so asking for a fresh one first would only
+            // put a round trip in front of the stream's first byte. An older one, or one whose age
+            // this process does not know (read from disk), is replaced first, as before, except on
+            // the very first attempt of the process (its start is unchanged). Should the Mac refuse
+            // it anyway (it restarted and forgot it), the 404 below costs one fresh challenge and
+            // the stream again, at once.
+            val age = core.challengeAgeMs()
+            if (refused || (!first && (age == null || age >= CHALLENGE_REUSE_MS))) refreshChallenge(apiBase)
+            refused = false
             first = false
             val challenge = core.state.pairing.challenge
             var opened = false
+            var status: Int? = null
             if (challenge != null) {
                 val path = eventsPath(core.state, core.resnapshotRequested)
                 val raw = runCatching {
@@ -164,11 +179,13 @@ class ConnectionOwner(
                     try {
                         stream.open(
                             HttpRequest("GET", apiBase + target, mapOf("Accept" to "text/event-stream"), null),
-                            onOpen = { status ->
+                            onOpen = { answered ->
                                 requireCurrentPairing(apiBase, deviceId)
-                                if (status == 200) {
+                                status = answered
+                                if (answered == 200) {
                                     opened = true
                                     attempt = 0
+                                    retriedRefusal = false
                                     // Open: a wake that came while it was opening has been answered,
                                     // and must not skip the wait after some later drop.
                                     wakeups.tryReceive()
@@ -193,6 +210,14 @@ class ConnectionOwner(
                 }
             }
             core.dispatch(Action.Link(LinkStatus.AWAY))
+            // A 404 opening is the Mac not knowing the challenge (a revoked phone is answered 403,
+            // and that still goes to the probe): a fresh one and the stream again, now, with no probe
+            // and no back-off. Once; a second 404 takes the ordinary path below.
+            if (!opened && status == 404 && !retriedRefusal) {
+                retriedRefusal = true
+                refused = true
+                continue
+            }
             if (!opened && core.state.connection.reason != ConnectionReason.INCOMPATIBLE) probeRevocation(apiBase, deviceId)
             if (core.state.connection.reason in setOf(ConnectionReason.REVOKED, ConnectionReason.INCOMPATIBLE)) {
                 // Terminal until paired again: wait for a new pairing rather than knocking forever.
@@ -217,12 +242,32 @@ class ConnectionOwner(
         }
     }
 
-    /** One signed JSON request that can read a refusal body: `before=0&limit=1` (contract §5.4). */
+    /**
+     * A fresh challenge (`GET /api/challenge`, contract §5.7), given [QUICK_REQUEST_MS] and no more:
+     * on a stalled network `HttpsMac`'s own limits (10 s to connect, 30 s to read) would hold the
+     * stream up to 40 s. Cut short or failed, the stream is tried with the challenge held.
+     */
+    private suspend fun refreshChallenge(apiBase: String) {
+        val fresh = try {
+            withTimeoutOrNull(QUICK_REQUEST_MS) { api.freshChallenge(apiBase) }
+        } catch (e: TransportFailure) {
+            null
+        }
+        fresh?.let { core.adoptChallenge(it) }
+    }
+
+    /**
+     * One signed JSON request that can read a refusal body: `before=0&limit=1` (contract §5.4). It
+     * stands between a stream that never opened and the back-off, so it too gets [QUICK_REQUEST_MS]:
+     * cut short, the phone is not marked revoked, and the next failed attempt asks again.
+     */
     private suspend fun probeRevocation(apiBase: String, deviceId: String) {
         val thread = core.state.selectedThreadId ?: return
         val challenge = core.state.pairing.challenge ?: return
         try {
-            val (_, fresh) = api.backfill(apiBase, deviceId, challenge, thread, before = 0, limit = 1)
+            val (_, fresh) = withTimeoutOrNull(QUICK_REQUEST_MS) {
+                api.backfill(apiBase, deviceId, challenge, thread, before = 0, limit = 1)
+            } ?: return
             core.adoptChallenge(fresh)
         } catch (e: TransportFailure) {
             if (e.reason == "revoked") core.markRevoked()
@@ -232,6 +277,20 @@ class ConnectionOwner(
     companion object {
         const val FIRST_RETRY_MS = 1_000L
         const val MAX_RETRY_MS = 30_000L
+
+        /**
+         * A challenge younger than this is presented as it is, without a round trip for a fresh one
+         * first: 8 of the 10 minutes the Mac honors one for (`device.rs` `CHALLENGE_LIFETIME_MS`),
+         * the 2 left over covering the trip from the Mac to the phone and the stream's own request.
+         */
+        const val CHALLENGE_REUSE_MS = 8 * 60_000L
+
+        /**
+         * The most the challenge request and the revocation probe may hold the stream. A working
+         * network answers either in well under a second (one round trip; the probe's re-sign two);
+         * a stalled one fails here and is retried on the ordinary schedule.
+         */
+        const val QUICK_REQUEST_MS = 3_000L
 
         fun backoffMs(attempt: Int): Long = minOf(FIRST_RETRY_MS shl (attempt - 1).coerceIn(0, 20), MAX_RETRY_MS)
 

@@ -246,6 +246,12 @@ class ReturnWaitsTest {
         assertEquals(2, streams.opened, "cut at ${QUICK_REQUEST_MS} ms, then the stream: $log")
     }
 
+    @Test
+    fun `the values these tests state are the connection owner's`() {
+        assertEquals(CHALLENGE_REUSE_MS, ConnectionOwner.CHALLENGE_REUSE_MS)
+        assertEquals(QUICK_REQUEST_MS, ConnectionOwner.QUICK_REQUEST_MS)
+    }
+
     companion object {
         /** A challenge younger than this is presented as it is: 8 of the Mac's 10 minutes. */
         const val CHALLENGE_REUSE_MS = 8 * 60_000L
