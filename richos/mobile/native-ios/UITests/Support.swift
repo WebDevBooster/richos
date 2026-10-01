@@ -14,7 +14,7 @@ enum Screen {
                        notifications: String? = nil, cards: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-rios-fixture", id, "-rios-appearance", appearance]
-        // Cards raised on top of the fixture's (`mic-denied`, `camera-denied`): several share the bottom.
+        // Cards raised on top of the fixture's (`camera-denied`): several share the bottom.
         if let cards { app.launchArguments += ["-rios-cards", cards] }
         // The notification state the conversation starts in (`not-asked` shows the offer card).
         if let notifications { app.launchArguments += ["-rios-notifications", notifications] }

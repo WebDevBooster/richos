@@ -326,6 +326,19 @@ final class AccessibilityLayoutTests: XCTestCase {
 
     // MARK: R1 — several cards share the bottom of the screen
 
+    /// A fixture with the microphone off and its card raised by a real press on the orb (D03), as a
+    /// person raises it; `cards` adds the camera-off card.
+    private func launchWithMicrophoneOffCard(_ fixture: String, appearance: String, notifications: String? = nil,
+                                             cards: String? = nil) -> XCUIApplication {
+        let app = Screen.launch(fixture, appearance: appearance, interactive: true, microphone: "denied",
+                                notifications: notifications, cards: cards)
+        XCTAssertTrue(app.descendants(matching: .any)["debug.microphone.denied"].waitForExistence(timeout: 5),
+                      "the core was not told the microphone is off")
+        app.descendants(matching: .any)["composer.mic"].press(forDuration: 0.4)
+        XCTAssertTrue(app.descendants(matching: .any)["card.micDenied"].waitForExistence(timeout: 5), "the press raised no microphone-off card")
+        return app
+    }
+
     /// The scroll region a card's element sits in.
     private func region(of id: String, in app: XCUIApplication) -> XCUIElement {
         app.scrollViews.containing(.any, identifier: id).firstMatch
@@ -337,8 +350,15 @@ final class AccessibilityLayoutTests: XCTestCase {
             let f = element.frame, r = region.frame
             return f.minY >= r.minY - 1 && f.maxY <= r.maxY + 1
         }
-        for _ in 0..<8 where !inside() { region.swipeUp() }
-        for _ in 0..<8 where !inside() { region.swipeDown() }
+        // Slow 60 pt drags toward the element: a flick's momentum carries a short region past it.
+        func drag(up: Bool) {
+            let from = region.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.7 : 0.3))
+            let to = region.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.7 - 60 / region.frame.height : 0.3 + 60 / region.frame.height))
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        for _ in 0..<24 where !inside() {
+            drag(up: element.frame.minY >= region.frame.minY - 1)
+        }
         return inside()
     }
 
@@ -366,7 +386,7 @@ final class AccessibilityLayoutTests: XCTestCase {
         let cut = all.filter { _, e in e.exists && (e.frame.minY < cards.frame.minY - 1 || e.frame.maxY > cards.frame.maxY + 1) }
         if !cut.isEmpty {
             let cue = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "cards.more")).firstMatch
-            XCTAssertTrue(cue.exists, "\(what): \(cut.map(\.0)) are cut at the region's edge with no cue", file: file, line: line)
+            XCTAssertTrue(cue.exists, "\(what): \(cut.map(\.0)) are cut at the region's edge \(cards.frame) with no cue", file: file, line: line)
         }
         for (name, element) in all {
             XCTAssertTrue(element.exists, "\(what): '\(name)' is missing", file: file, line: line)
@@ -390,7 +410,7 @@ final class AccessibilityLayoutTests: XCTestCase {
 
     func testTheKeptCardAndTwoPermissionCardsAreReachableWithTheKeyboardUp() {
         for appearance in ["light", "dark"] {
-            let app = Screen.launch("voice-interrupted", appearance: appearance, cards: "mic-denied,camera-denied")
+            let app = launchWithMicrophoneOffCard("voice-interrupted", appearance: appearance, cards: "camera-denied")
             assertBottomCardsReachable(app, "kept + microphone + camera \(appearance)", anchor: "kept.send",
                                        texts: ["Recording was interrupted", "card.micDenied", "to take a photo for Rich"],
                                        buttons: ["kept.send", "kept.discard", "card.openSettings", "card.micNotNow", "Choose from Photos"])
@@ -401,7 +421,7 @@ final class AccessibilityLayoutTests: XCTestCase {
     /// The most the bottom can hold: the kept recording, the microphone and camera cards and the offer.
     func testTheWorstCaseOfFourBottomCardsIsReachableWithTheKeyboardUp() {
         for (appearance, keyboard) in [("light", true), ("dark", true), ("light", false), ("dark", false)] {
-            let app = Screen.launch("voice-interrupted", appearance: appearance, notifications: "not-asked", cards: "mic-denied,camera-denied")
+            let app = launchWithMicrophoneOffCard("voice-interrupted", appearance: appearance, notifications: "not-asked", cards: "camera-denied")
             assertBottomCardsReachable(app, "four cards \(appearance) keyboard \(keyboard)", anchor: "kept.send",
                                        texts: ["Recording was interrupted", "card.micDenied", "to take a photo for Rich", "Notifications are off"],
                                        buttons: ["kept.send", "kept.discard", "card.openSettings", "card.micNotNow", "Choose from Photos", "card.notificationsOn", "card.notNow"], keyboard: keyboard)
@@ -414,7 +434,7 @@ final class AccessibilityLayoutTests: XCTestCase {
     func testTheMicrophoneInstructionsAreReachableAboveThreeCards() {
         for appearance in ["light", "dark"] {
             let what = "conv-empty + three cards \(appearance)"
-            let app = Screen.launch("conv-empty", appearance: appearance, notifications: "not-asked", cards: "mic-denied,camera-denied")
+            let app = launchWithMicrophoneOffCard("conv-empty", appearance: appearance, notifications: "not-asked", cards: "camera-denied")
             let empty = app.descendants(matching: .any)["conversation.empty"]
             XCTAssertTrue(empty.waitForExistence(timeout: 5), "\(what): the instructions are missing")
             Thread.sleep(forTimeInterval: 0.8)

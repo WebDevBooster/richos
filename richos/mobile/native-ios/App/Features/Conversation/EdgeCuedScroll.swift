@@ -11,23 +11,26 @@ struct EdgeCuedScroll<Content: View>: View {
     @ViewBuilder var content: Content
     @Environment(\.palette) private var palette
     @State private var viewport: CGFloat = 0
-    @State private var frame: CGRect = .zero
+    @State private var contentHeight: CGFloat = 0
+    /// How far the content has scrolled up (zero at rest), from where its frame sits in the region.
+    @State private var offset: CGFloat = 0
 
     /// How far the fade reaches into the region.
     static var fade: CGFloat { 18 }
 
-    private var hidesAbove: Bool { frame.minY < -1 }
-    private var hidesBelow: Bool { viewport > 0 && frame.maxY > viewport + 1 }
+    private var hidesAbove: Bool { offset > 1 }
+    private var hidesBelow: Bool { viewport > 0 && contentHeight - offset > viewport + 1 }
 
     var body: some View {
         ScrollView {
             content
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
                 .background(GeometryReader { p in
-                    Color.clear.preference(key: ContentFrameKey.self, value: p.frame(in: .named(Self.space)))
+                    Color.clear.preference(key: ContentTopKey.self, value: p.frame(in: .named(Self.space)).minY)
                 })
         }
         .coordinateSpace(name: Self.space)
-        .onPreferenceChange(ContentFrameKey.self) { frame = $0 }
+        .onPreferenceChange(ContentTopKey.self) { offset = max(0, -$0) }
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.hidden)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport = $0 }
@@ -57,7 +60,7 @@ struct EdgeCuedScroll<Content: View>: View {
     }
 }
 
-private struct ContentFrameKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+private struct ContentTopKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

@@ -55,8 +55,8 @@ enum DevBridge {
     /// photographed in both themes.
     static let appearanceArgument = "rios-appearance"
     static let notificationsArgument = "rios-notifications"
-    /// `-rios-cards mic-denied,camera-denied`: cards raised on top of the fixture's, the same state a
-    /// person's presses leave (the iPhone re-walk's R1: several cards share the bottom of the screen).
+    /// `-rios-cards camera-denied`: cards raised on top of the fixture's, by the same action a person's
+    /// choice raises them (the iPhone re-walk's R1: several cards share the bottom of the screen).
     static let cardsArgument = "rios-cards"
     /// Gesture tests advance the real clock and core against controlled effects.
     /// Screenshot fixtures retain their default still-frame behavior.
@@ -76,15 +76,7 @@ enum DevBridge {
     static func start(store: AppStore) async {
         if let name = UserDefaults.standard.string(forKey: fixtureArgument) {
             do {
-                var state = try Fixture.named(name).state
-                for card in (UserDefaults.standard.string(forKey: cardsArgument) ?? "").split(separator: ",").map(String.init) {
-                    switch card {
-                    case "mic-denied": state.microphone = .denied; state.microphoneCard = true
-                    case "camera-denied": state.attachNotice = .cameraDenied
-                    default: print("rios: launch card refused: '\(card)'; known: mic-denied, camera-denied")
-                    }
-                }
-                _ = try await store.replace(with: state)
+                _ = try await store.replace(with: try Fixture.named(name).state)
                 if interactiveFixture {
                     store.effectsSuspended = false
                     _ = try await store.dispatch(.microphonePermission(interactiveMicrophone))
@@ -108,6 +100,18 @@ enum DevBridge {
                 _ = try? await store.dispatch(.notificationsResult(status))
             } else {
                 print("rios: launch notifications refused: '\(raw)'")
+            }
+        }
+        // `-rios-cards camera-denied`, after everything above (the microphone-off card is raised by a real
+        // press with `-rios-microphone denied`, D03).
+        if let raw = UserDefaults.standard.string(forKey: cardsArgument) {
+            for card in raw.split(separator: ",").map(String.init) {
+                switch card {
+                case "camera-denied":
+                    _ = try? await store.dispatch(.attachPermissionDenied(.camera))
+                default:
+                    print("rios: launch card refused: '\(card)'; known: camera-denied")
+                }
             }
         }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
