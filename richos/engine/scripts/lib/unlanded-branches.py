@@ -223,7 +223,18 @@ def read_ledger(path, limit_bytes=32 * 1024 * 1024):
     turn-end hook that reads an unbounded file is a turn-end hook that will one
     day time out. Losing the OLDEST rows is the right direction to lose in --
     ownership is a question about recent agents.
+
+    The rows only; a caller that must tell "no ledger" from "a ledger it could
+    not read" uses read_ledger_checked.
     """
+    return read_ledger_checked(path, limit_bytes)[0]
+
+
+def read_ledger_checked(path, limit_bytes=32 * 1024 * 1024):
+    """([record], error). error is "" for a readable ledger AND for one that does
+    not exist yet (nothing has been recorded, which is an answer), and a reason
+    for a ledger that exists and could not be read (hunt P5-08): then every
+    owner and every lock it would have shown is UNKNOWN, not absent."""
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as fh:
@@ -231,8 +242,10 @@ def read_ledger(path, limit_bytes=32 * 1024 * 1024):
                 fh.seek(size - limit_bytes)
                 fh.readline()  # discard the partial line the seek landed in
             raw = fh.read().decode("utf-8", "replace")
-    except Exception:
-        return []
+    except FileNotFoundError:
+        return [], ""
+    except Exception as exc:
+        return [], "%s: %s" % (type(exc).__name__, exc)
     out = []
     for line in raw.splitlines():
         line = line.strip()
@@ -244,7 +257,7 @@ def read_ledger(path, limit_bytes=32 * 1024 * 1024):
             continue
         if isinstance(rec, dict):
             out.append(rec)
-    return out
+    return out, ""
 
 
 def session_repos(entity_root, session_id, ledger, extra):
@@ -283,10 +296,19 @@ def session_repos(entity_root, session_id, ledger, extra):
 
 def worktrees_of(repo):
     """({branch: (path, locked)}, [(path, locked)]) for one repository."""
+    by_branch, all_trees, _ok = worktrees_checked(repo)
+    return by_branch, all_trees
+
+
+def worktrees_checked(repo):
+    """(by_branch, all_trees, ok). ok is False when git could not list the
+    worktrees: the maps are then EMPTY, which is not "no branch is held" (hunt
+    P5-08) -- every branch would read as nobody's and a live teammate's work as
+    stranded."""
     out = git(repo, ["worktree", "list", "--porcelain"])
     by_branch, all_trees = {}, []
     if out is None:
-        return by_branch, all_trees
+        return by_branch, all_trees, False
     state = {"path": None, "branch": None, "locked": False}
 
     def flush():
@@ -306,7 +328,7 @@ def worktrees_of(repo):
         elif line.startswith("locked"):
             state["locked"] = True
     flush()
-    return by_branch, all_trees
+    return by_branch, all_trees, True
 
 
 def trunk_of(repo):
@@ -342,17 +364,30 @@ def trunk_of(repo):
 
 
 def ahead_branches(repo, trunk):
-    """[(branch, tip, committer_epoch, n_commits)] genuinely ahead of trunk.
+    """[(branch, tip, committer_epoch, n_commits)] genuinely ahead of trunk, or
+    None when git would not enumerate. The rows only; see ahead_branches_checked
+    for the branches whose count could not be taken."""
+    res = ahead_branches_checked(repo, trunk)
+    return None if res is None else res[0]
+
+
+def ahead_branches_checked(repo, trunk):
+    """([(branch, tip, committer_epoch, n_commits)], [unreadable branch]) or None.
 
     Two git calls for the whole repository plus one per SURVIVOR -- the wide
     `--no-merged` sweep is 0.24s over 97 branches on this machine, where a
     rev-list per branch would be 97 forks.
+
+    A branch whose commit count could not be taken is NOT dropped silently (hunt
+    P5-08): it is returned in the second list, so the sweep can say it was not
+    examined instead of reporting the repository clean without it.
     """
     out = git(repo, ["for-each-ref", "--no-merged=" + trunk,
                      "--format=%(refname:short)\t%(committerdate:unix)"
                      "\t%(objectname)", "refs/heads/"])
     if out is None:
         return None
+    unreadable = []
     has_remote = git(repo, ["rev-parse", "--verify", "--quiet",
                             "refs/remotes/origin/" + trunk]) is not None
     exclude = [trunk] + (["origin/" + trunk] if has_remote else [])
@@ -367,10 +402,12 @@ def ahead_branches(repo, trunk):
             continue
         cnt = git(repo, ["rev-list", "--count", branch, "--not"] + exclude)
         if cnt is None:
+            unreadable.append(branch)
             continue
         try:
             n = int(cnt.strip())
         except ValueError:
+            unreadable.append(branch)
             continue
         if n <= 0:
             continue
@@ -379,10 +416,10 @@ def ahead_branches(repo, trunk):
         except ValueError:
             epoch = 0
         rows.append((branch, tip, epoch, n))
-    return rows
+    return rows, unreadable
 
 
-def native_lock_index(ledger, cache):
+def native_lock_index(ledger, cache, failed=None):
     """{(session_id, teammate): True} for teammates holding a LOCKED native tree.
 
     The native isolation worktree is the only lock a cross-repository teammate
@@ -400,8 +437,10 @@ def native_lock_index(ledger, cache):
         if not wt or not repo or not key[1]:
             continue
         if repo not in cache:
-            _, trees = worktrees_of(repo)
+            _, trees, ok = worktrees_checked(repo)
             cache[repo] = {os.path.realpath(p): lk for p, lk in trees}
+            if not ok and failed is not None:
+                failed.append(repo)
         if cache[repo].get(os.path.realpath(wt)):
             index[key] = True
     return index
@@ -427,7 +466,7 @@ def owners_of(ledger, repo, branch):
 def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
     now = now if now is not None else time.time()
     ledger_path = ledger_path or DEFAULT_LEDGER
-    ledger = read_ledger(ledger_path)
+    ledger, ledger_error = read_ledger_checked(ledger_path)
     repos, scope = session_repos(entity_root, session_id, ledger, extra)
 
     result = {
@@ -475,7 +514,27 @@ def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
         return result
 
     lock_cache = {}
-    native_locks = native_lock_index(ledger, lock_cache)
+    lock_failed = []
+    native_locks = native_lock_index(ledger, lock_cache, lock_failed)
+
+    # PARTIAL GAPS ARE NOT SILENCE (hunt P5-08). A ledger that exists and could
+    # not be read means the session's repositories, every owner and every
+    # native lock are UNKNOWN; a repository whose worktree list failed means a
+    # live teammate's lock could not be seen. Each is listed under NOT EXAMINED
+    # and the status goes `partial`, so the sweep cannot end on the all-clear.
+    if ledger_error:
+        result["status"] = "partial"
+        result["not_examined"].append(
+            {"what": ledger_path, "label": "ledger",
+             "why": ("the ownership ledger could not be read (%s), so the repositories "
+                     "this session touched, who owns each branch and which owners hold "
+                     "a live lock are UNKNOWN" % ledger_error)})
+    for repo in lock_failed:
+        result["status"] = "partial"
+        result["not_examined"].append(
+            {"what": repo, "label": os.path.basename(repo),
+             "why": ("`git worktree list` failed here, so whether a recorded teammate "
+                     "still holds a locked worktree is UNKNOWN")})
 
     for repo in repos:
         trunk = trunk_of(repo)
@@ -496,16 +555,36 @@ def sweep(entity_root, session_id="", ledger_path=None, extra="", now=None):
                 {"what": repo, "label": row["label"], "why": row["note"]})
             continue
 
-        rows = ahead_branches(repo, trunk)
-        if rows is None:
+        checked = ahead_branches_checked(repo, trunk)
+        if checked is None:
             row["note"] = "git refused to enumerate its branches"
             result["repos"].append(row)
             result["status"] = "partial"
             result["not_examined"].append(
                 {"what": repo, "label": row["label"], "why": row["note"]})
             continue
+        rows, unreadable = checked
+        if unreadable:
+            result["status"] = "partial"
+            result["not_examined"].append(
+                {"what": repo, "label": row["label"],
+                 "why": ("the commit count could not be taken for %d branch(es), so they "
+                         "are NOT judged stranded or clear: %s"
+                         % (len(unreadable), ", ".join(sorted(unreadable)[:MAX_NAMED])
+                            + (" ..." if len(unreadable) > MAX_NAMED else "")))})
 
-        by_branch, _ = worktrees_of(repo)
+        by_branch, _, wt_ok = worktrees_checked(repo)
+        if not wt_ok:
+            # Without the worktree list every branch reads as held by nobody, so
+            # a live teammate's work would be reported as stranded. Not judged.
+            row["note"] = "git could not list this repository's worktrees"
+            result["repos"].append(row)
+            result["status"] = "partial"
+            result["not_examined"].append(
+                {"what": repo, "label": row["label"],
+                 "why": ("`git worktree list` failed, so which branches a live worktree "
+                         "holds is UNKNOWN and none was judged")})
+            continue
         for branch, tip, epoch, n in rows:
             wt_path, wt_locked = by_branch.get(branch, (None, False))
             owners = owners_of(ledger, repo, branch)

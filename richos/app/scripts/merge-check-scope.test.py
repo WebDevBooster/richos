@@ -71,7 +71,10 @@ class Scope(unittest.TestCase):
         pr = load('merge_scope_runner', 'richos/app/scripts/proof-run.py')
         from types import SimpleNamespace
         args = SimpleNamespace(deadline=1800, engine_shards=4, fail_fast=False)
-        with tempfile.TemporaryDirectory() as log:
+        # plan() keeps an explicit RICHOS_IOS_POOL_WAIT from its caller; the nightly sets one for its
+        # children, so this test must not read the ambient value (nightly attempt 2: KeyError).
+        with tempfile.TemporaryDirectory() as log, mock.patch.dict(os.environ):
+            os.environ.pop('RICHOS_IOS_POOL_WAIT', None)
             items = pr.plan(['cd richos/app && scripts/run-tests.sh --no-host-screen --only native-ios-app.test.sh --only native-ios-share.test.sh',
                              'cd richos/app && bash scripts/native-ios-ui.test.sh --only QuestionTests/testOtherAnswerInLightTheme'], args, log, {})
         self.assertEqual(len(items), 3)

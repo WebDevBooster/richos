@@ -302,6 +302,7 @@ RESULT="$(pb_scan "$JOB" || true)"
 
 case "$(printf '%s' "$RESULT" | head -1 | cut -f1)" in
   CLEAN)
+    pb_unread_note "guard-publication-writes.sh" "$RESULT"
     exit 0 ;;
   BROKEN)
     pb_broken_banner "guard-publication-writes.sh" "$(printf '%s' "$RESULT" | head -1 | cut -f2-)" >&2

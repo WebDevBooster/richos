@@ -590,6 +590,7 @@ def sources_roots_lib(name):
 
 # --- THE VERDICT ----------------------------------------------------------
 failures = []   # (subject, place, how to fix)
+unchecked = []  # subjects whose "named by a suite" inventory could NOT be read at all
 advisories = []
 checked = []
 
@@ -656,6 +657,7 @@ for s in SUBJECTS:
 
     hit = named_by_a_suite(s)
     if hit is None:
+        unchecked.append(s)
         advisories.append("could not run ci-units.sh, so the 'named by a suite' "
                           "inventory (ci-affected-units case A5) was NOT checked for %s" % s)
     elif hit == "":
@@ -721,6 +723,19 @@ if failures:
           "you it is owed until CI does, on main."
           % (len(failures), "" if len(failures) == 1 else "s"))
     raise SystemExit(1)
+
+# AN INVENTORY THAT COULD NOT BE READ IS NOT AN INVENTORY THAT NAMES EVERY
+# SUBJECT (hunt P5-08). Suite discovery failing used to be an advisory printed
+# above and then "COMPLETE", so the push gate certified a hook against a suite
+# list nobody had read -- the exact "certify it against an empty set" A5 was
+# written to stop. The advisory above still names each subject; the verdict is
+# now BROKEN (exit 2), decided AFTER the failures so a real owing place keeps
+# its own exit 1.
+if unchecked:
+    die_broken("the suite inventory (ci-affected-units case A5) could not be read -- "
+               "`bash %sscripts/ci-units.sh suites` failed -- so %d subject(s) were NOT "
+               "checked against any suite: %s. This is not COMPLETE."
+               % (ENG_REL, len(unchecked), ", ".join(unchecked)))
 
 print("  COMPLETE: every derived inventory names every subject.")
 raise SystemExit(0)

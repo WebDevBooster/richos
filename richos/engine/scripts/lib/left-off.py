@@ -744,7 +744,17 @@ def repo_state(repos, start, end):
         log = git(repo, ["log", branch,
                          "--since=" + start.isoformat(),
                          "--until=" + end.isoformat(),
-                         "--format=%h\t%cI\t%s"]) or ""
+                         "--format=%h\t%cI\t%s"])
+        if log is None:
+            # git() is None when git FAILED, and "" when it ran and found no
+            # commit. Folding the two used to print "nothing landed" over a
+            # repository nobody managed to read (hunt P5-08). The report already
+            # has a channel for a repository it cannot answer for.
+            info[repo] = {"branch": branch, "reflog": [], "branches": [],
+                          "commits": [],
+                          "why_not": "`git log %s` failed, so what landed there in the "
+                                     "window is UNKNOWN" % branch}
+            continue
         commits = []
         for line in log.splitlines():
             parts = line.split("\t", 2)
@@ -1037,7 +1047,17 @@ def _render(result, sitting_n, commits_n, reply_n):
                 result["anchor_when"], result["now"]))
         add("")
     if not landed_any and result["repos"]:
-        add("WHAT LANDED: nothing on any integration branch in the window.")
+        unanswered = [r for r, i in result["repos"].items() if i.get("why_not")]
+        if unanswered:
+            # "Nothing landed" is a claim about every repository; it is only as
+            # wide as the ones that could be read (hunt P5-08).
+            add("WHAT LANDED: nothing on the %d repositor%s that could be read; %d could "
+                "NOT be answered for (named above), so this is not 'nothing landed'."
+                % (len(result["repos"]) - len(unanswered),
+                   "y" if len(result["repos"]) - len(unanswered) == 1 else "ies",
+                   len(unanswered)))
+        else:
+            add("WHAT LANDED: nothing on any integration branch in the window.")
         add("")
 
     esc = result.get("escalations") or []

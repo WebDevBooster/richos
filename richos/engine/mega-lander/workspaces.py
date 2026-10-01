@@ -591,21 +591,28 @@ def land_by_another_conversation(repo, branch, before, found):
     nothing saying so. The lock makes the two lands take turns; this makes the
     turn VISIBLE to the agent it happened under.
 
-    SILENT WHEN THE HISTORY IS ABSENT. No file means land records are not in
-    use for this repository at all, which is the terminal path — Rich's lands
-    there are a hand-run `git merge` that writes no record, and those teammates
-    are already told by guard-inflight-notify.sh at the push. Calling every one
-    of those "unattributed" would put an alarm on the single most common write
-    a recorded branch ever receives, which is how a report becomes wallpaper.
+    SILENT WHEN NO RECORD NAMES THE MOVE. A land by another conversation is
+    exactly the thing that writes a record (app.py `integrate`, under the land
+    lock, right after the fast-forward), so a move that NO record names is the
+    terminal path — Rich's lands there are a hand-run `git merge` that writes
+    no record, and those teammates are already told by guard-inflight-notify.sh
+    at the push. Calling every one of those "unattributed" would put an alarm on
+    the single most common write a recorded branch ever receives, which is how a
+    report becomes wallpaper. That was true of a repository with NO land file,
+    and it is exactly as true of one whose file holds an older land: until
+    2026-10-01 the first recorded land switched every later hand merge from
+    silence to "moved forward by a land this repository's land records do not
+    name", once per running agent per merge (hunt part 4, finding 24). The
+    presence of the file says which conversation landed only when a record
+    names the commit; it says nothing about a move it does not name.
 
     SILENT FOR THIS CONVERSATION'S OWN LAND. A record carrying this engine's
     own `RICHOS_APP_THREAD` is this conversation landing its own work; its
     agents are the one party that already knows.
 
-    IT NEVER CLAIMS MORE THAN THE RECORD CARRIES. A move no record names is
-    reported as exactly that — a land the records do not name — and never as
-    "another conversation", because a repository that keeps land records can
-    still be merged into by a hand at a terminal."""
+    IT NEVER CLAIMS MORE THAN THE RECORD CARRIES. Only a record that names the
+    branch and the commit produces a sentence, and it names that record's
+    thread; a move without one produces none."""
     try:
         records = land_records(repo)
         if not records:
@@ -620,8 +627,7 @@ def land_by_another_conversation(repo, branch, before, found):
             return "landed by conversation %s at %s, %s -> %s" % (
                 thread or "an unnamed thread", record.get("at") or "an unrecorded time",
                 (before or "")[:12], (found or "")[:12])
-        return ("moved forward by a land this repository's land records do not name, %s -> %s"
-                % ((before or "")[:12], (found or "")[:12]))
+        return None                     # no record names this move: a hand merge at a terminal
     except (OSError, ValueError):
         return None
 
@@ -3625,9 +3631,8 @@ def _restore_protected_refs(rec, priors, latest):
     `integrate` appends a land record naming the conversation that landed, and
     `land_by_another_conversation` reads it. A land by THIS conversation stays
     silent; one by another conversation is reported, with its thread, its time
-    and its two tips; and where a repository keeps land records at all, a
-    fast-forward that no record names is reported as exactly that. A repository
-    with NO land records is the terminal path, and it stays silent as before —
+    and its two tips. A fast-forward that no record names is the terminal path
+    whether or not the repository holds older records, and it stays silent —
     Rich's hand-run `git merge` writes no record, and those teammates are told
     by guard-inflight-notify.sh at the push instead.
 

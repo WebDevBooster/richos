@@ -37,6 +37,12 @@ import sys
 MAX_TRACKED_FILES = 100000
 MAX_PRIVATE_FILES = 50000
 MAX_FILE_BYTES = 4 * 1024 * 1024
+# Source files are read to derive declarations and a generated data file can be
+# legitimately large (richos/app/ui/home/field-data.js is 4.9 MB of tracked
+# synthetic data). Skipping it is wrong (its declarations would be unread); ending
+# BROKEN on it makes every commit impossible. So a source file is READ up to this
+# higher bound, and only beyond it does the run end BROKEN.
+MAX_SOURCE_BYTES = 64 * 1024 * 1024
 
 FINDINGS = []
 
@@ -69,6 +75,7 @@ class Tree:
 
     def __init__(self, root):
         self.root = root
+        self.unread = {}
         rc, out, err = git(root, "ls-files", "-z")
         if rc != 0:
             raise Broken("`git ls-files` failed in %s: %s" % (root, err.strip()))
@@ -100,15 +107,38 @@ class Tree:
     def has(self, rel):
         return rel in self.files or rel in self.dirs
 
-    def read(self, rel):
+    def read(self, rel, limit=MAX_FILE_BYTES):
+        """The text of a tracked document, or None when it could not be read.
+
+        None is NOT "nothing to check": the document is recorded in self.unread
+        with the reason, and main() refuses (BROKEN) at the end of the checks
+        rather than report the tree complete over documents it never read (hunt
+        P5-08). The callers keep their `if text is None: continue` so one bad
+        document does not hide what the rest say; the refusal comes after."""
         p = os.path.join(self.root, rel)
         try:
-            if os.path.getsize(p) > MAX_FILE_BYTES:
+            size = os.path.getsize(p)
+            if size > limit:
+                self.unread[rel] = ("%d bytes, over the %d-byte read bound"
+                                    % (size, limit))
                 return None
             with open(p, encoding="utf-8", errors="replace") as fh:
                 return fh.read()
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            self.unread[rel] = getattr(exc, "strerror", None) or type(exc).__name__
             return None
+
+    def require_all_read(self):
+        """Raise Broken if any document this run needed could not be read."""
+        if self.unread:
+            names = sorted(self.unread)
+            raise Broken(
+                "%d tracked document(s) could not be read, so their citations, "
+                "declarations and onboarding links were NOT checked and the tree "
+                "cannot be called complete: %s%s"
+                % (len(names),
+                   "; ".join("%s (%s)" % (n, self.unread[n]) for n in names[:5]),
+                   " ..." if len(names) > 5 else ""))
 
     def ignored(self, candidates):
         """Which of these repo-relative paths does .gitignore exclude?
@@ -340,7 +370,7 @@ def derive_declarations(tree):
     for f in sorted(tree.files):
         if not f.endswith(SOURCE_SUFFIXES) or f.endswith(FIXTURE_SUFFIXES):
             continue
-        text = tree.read(f)
+        text = tree.read(f, MAX_SOURCE_BYTES)
         if text is None:
             continue
         # A DEFINITION IS CODE. A COMMENT QUOTING THE CONVENTION IS NOT.
@@ -816,6 +846,7 @@ def main():
                            cfg.get("declaration_dir", ""))
         check_workflows(tree, set(exempt.get("WORKFLOW_EXEMPT", [])), used, explain)
         check_misplacement(tree, cfg.get("private_roots", []), set(decls), explain)
+        tree.require_all_read()
     except Broken as e:
         sys.stderr.write("BROKEN: %s\n" % e)
         return 2

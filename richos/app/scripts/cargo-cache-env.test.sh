@@ -17,7 +17,9 @@ if [ -z "$sccache_bin" ] || ! command -v rustc >/dev/null 2>&1; then
   echo "SKIP sccache or rustc is not installed here"; exit 0
 fi
 
-work="$(cd "$(mktemp -d "${TMPDIR:?}/cargo-cache-env.XXXXXX")" && pwd -P)"
+# sccache puts a Unix socket under the temp directories below (limit about 100 bytes), so they must
+# stay short whatever the caller's TMPDIR is: the nightly's own TMPDIR is too long (cleaned by the trap).
+work="$(cd "$(mktemp -d /tmp/cce.XXXXXX)" && pwd -P)"
 port=$((20000 + RANDOM % 20000))
 export SCCACHE_SERVER_PORT="$port"
 stop_server() { SCCACHE_DIR="$work/cache" SCCACHE_SERVER_PORT="$port" "$sccache_bin" --stop-server >/dev/null 2>&1 || true; }

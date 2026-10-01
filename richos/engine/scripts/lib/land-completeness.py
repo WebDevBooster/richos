@@ -409,12 +409,20 @@ def analyze(repo, main="", ledger=None):
         "worktrees": [],
         "branches": [],
         "not_examined": [],
+        # TRUE when the repository yielded NO verdict at all (not a directory,
+        # no recorded integration branch, the branch does not resolve, or the
+        # analysis itself raised). land-completeness.sh turns it into exit 4:
+        # a repository nobody looked at is not a repository with nothing wrong.
+        # A partial gap (an unreadable ledger, a failed ref list) leaves it
+        # False, because those still produce verdicts for what was read.
+        "unexamined": False,
         "counts": {},
     }
 
     if not os.path.isdir(repo):
         report["not_examined"].append(
             {"what": repo, "why": "not a directory — the whole repository went unexamined"})
+        report["unexamined"] = True
         report["counts"] = _counts(report)
         return report
 
@@ -428,6 +436,7 @@ def analyze(repo, main="", ledger=None):
         # would settle it, which is a verdict a reader can act on; a guess
         # dressed as a merge status is not.
         report["not_examined"].append({"what": repo, "why": abstain})
+        report["unexamined"] = True
         report["counts"] = _counts(report)
         return report
     ok_main, _ = _git(repo, "rev-parse", "--verify", main)
@@ -436,6 +445,7 @@ def analyze(repo, main="", ledger=None):
             {"what": "%s (%s)" % (repo, main),
              "why": "the branch '%s' does not resolve, so NO merge status could be decided for "
                     "any branch or worktree in this repository" % main})
+        report["unexamined"] = True
         report["counts"] = _counts(report)
         return report
 

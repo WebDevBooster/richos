@@ -630,12 +630,29 @@ def build_corpus(sources, min_speech_lines, max_files, max_bytes,
                     "PRIVATE_SOURCES to the trees that actually hold recordings, "
                     "or raise CORPUS_MAX_FILES deliberately. Refusing to scan a "
                     "truncated corpus and report the result as clean." % max_files)
+            # A DECLARED PRIVATE SOURCE THAT CANNOT BE READ WHOLE IS NOT A SOURCE
+            # THAT WAS CHECKED (hunt P5-08). It used to be skipped, so a private
+            # recording this run could not read was simply absent from the corpus
+            # and a published quotation of it came back CLEAN. Only a path that
+            # is no longer there (a dangling link, a file removed mid-walk) has
+            # nothing to compare against and is skipped.
             try:
                 size = os.path.getsize(p)
-            except OSError:
+            except FileNotFoundError:
                 continue
+            except OSError as exc:
+                raise BrokenCorpus(
+                    "the private source %s could not be examined (%s). A corpus missing "
+                    "a file it was declared to hold cannot vouch that published text "
+                    "does not quote it, so this refuses instead of reporting CLEAN. "
+                    "Make it readable, or narrow PRIVATE_SOURCES."
+                    % (p, exc.strerror or exc))
             if size > 8_000_000:
-                continue
+                raise BrokenCorpus(
+                    "the private source %s is %d bytes, over the 8000000-byte per-file "
+                    "read limit, so it cannot be held in the corpus and a quotation of "
+                    "it would come back CLEAN. Refusing instead. Move it out of "
+                    "PRIVATE_SOURCES or split it." % (p, size))
             total += size
             if total > max_bytes:
                 raise BrokenCorpus(
@@ -646,8 +663,14 @@ def build_corpus(sources, min_speech_lines, max_files, max_bytes,
             try:
                 with open(p, encoding='utf-8', errors='ignore') as fh:
                     blob = fh.read(8_000_000)
-            except OSError:
+            except FileNotFoundError:
                 continue
+            except OSError as exc:
+                raise BrokenCorpus(
+                    "the private source %s could not be read (%s), so it is missing "
+                    "from the corpus and a quotation of it would come back CLEAN. "
+                    "Refusing instead. Make it readable, or narrow PRIVATE_SOURCES."
+                    % (p, exc.strerror or exc))
             # Two independent ways to be a SEED: it looks like a recording, or
             # it is named as a rendering of a recording sitting beside it. The
             # second exists because whisper's plain .txt output satisfies
@@ -1002,6 +1025,7 @@ def main():
     corpus_index = index_corpus(corpus, min_quote) if corpus else set()
 
     findings = []
+    unread = []
     for item in items:
         label = item.get('label') or item.get('path') or '<unknown>'
         raw = None
@@ -1011,11 +1035,18 @@ def main():
             try:
                 with open(item['path'], 'rb') as fh:
                     raw = fh.read(IDENTITY_MAX_BYTES + 1)
-            except Exception:
+            except FileNotFoundError:
+                # Deleted: there are no bytes left to publish.
+                continue
+            except Exception as exc:
                 # A blob that cannot be read cannot be cleared either, but an
                 # unreadable path is far more likely a binary/deleted file than
                 # a smuggled transcript, and blocking on it would make the guard
-                # fire on ordinary work. It is reported, not blocked.
+                # fire on ordinary work. It is reported, not blocked -- and this
+                # now DOES report: it used to `continue` and say nothing (hunt
+                # P5-08). The UNREAD trailer below names each path, and both
+                # guards print it beside their CLEAN.
+                unread.append((label, getattr(exc, 'strerror', None) or type(exc).__name__))
                 continue
             # Read as BYTES and decoded here, rather than opened as text: the
             # identity detector hashes the bytes, and decode_best is what makes
@@ -1078,15 +1109,22 @@ def main():
     # of entries that PARSED, never of entries written down.
     trailer = "CORPUS\t%d\t%d" % (len(members), len(corpus.split()))
     identity_trailer = "IDENTITY\t%d" % len(private_files)
+    # One line per path this run could NOT read, after the verdict like the other
+    # trailers (hunt P5-08): the verdict is unchanged, the omission is visible.
+    unread_trailers = ["UNREAD\t%s\t%s" % (path, why) for path, why in unread]
     if not findings:
         print("CLEAN")
         print(trailer)
         print(identity_trailer)
+        for line in unread_trailers:
+            print(line)
         return 0
     for row in findings:
         print('\t'.join(row))
     print(trailer)
     print(identity_trailer)
+    for line in unread_trailers:
+        print(line)
     return 0
 
 

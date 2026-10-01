@@ -509,13 +509,18 @@ mkdir -p "$XB/engine/hooks" "$XB/engine/scripts/hooks" "$XB/entity/.claude" "$XB
 
 printf '#!/usr/bin/env bash\nexit 0\n' >"$XB/engine/scripts/hooks/runnable.sh"
 chmod +x "$XB/engine/scripts/hooks/runnable.sh"
+# no-bit.sh is registered as a DIRECT command (no interpreter before it): only a
+# program run directly needs the executable bit. Since P5-09 (498beb576) a script
+# run as `bash <path>` needs only to be readable, so the 2026-09-10 defect is
+# reproduced with the direct form; registered-executables.test.sh E1 covers the
+# interpreter form.
 printf '#!/usr/bin/env bash\nexit 0\n' >"$XB/engine/scripts/hooks/no-bit.sh"
 chmod 644 "$XB/engine/scripts/hooks/no-bit.sh"
 
 cat >"$XB/engine/hooks/hooks.json" <<'HJ'
 {"hooks": {"PreToolUse": [{"matcher": "Agent", "hooks": [
   {"type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/runnable.sh"},
-  {"type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-bit.sh"}
+  {"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-bit.sh"}
 ]}]}}
 HJ
 
