@@ -11,6 +11,13 @@
                                                    (about two minutes saved per run) and refuses unless
                                                    the app still hashes to STAMP.json (perf.py stamp)
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
+    phone-ios.py summary DIR                       a finished `run` DIR read back: one row per step
+                                                   (outcome, seconds, what it waited for, the audit's
+                                                   issues) and each named shot or tree mapped to its
+                                                   exported file, so nobody reads the xcresult manifest
+    phone-ios.py vocabulary [RUNNER.swift]         exit 1 when a step this tool validates has no case in
+                                                   the phone runner's dispatcher (or the reverse), before
+                                                   any build or install finds it as "unknown step"
     phone-ios.py pair-steps MAC-TEST-CONFIG.json [--v2-hold S]
                                                    the real-control pairing steps for a lab's current
                                                    link, with all six words checked before They match;
@@ -25,6 +32,9 @@
     phone-ios.py syslog --seconds S --out FILE     the phone's log for S seconds, keeping ONLY lines that
                                                    name RichOSNative or dev.richos.connect
     (`syslog` and `battery` take --network for an unplugged phone: libimobiledevice's -n, same pairing)
+    phone-ios.py syslog-rate FILE [--process P] [--bucket S] [--from HH:MM:SS] [--to HH:MM:SS]
+                                                   entries ONE process (exact name) wrote per S seconds of
+                                                   a `syslog` capture: what the app did while hidden
 
 The iPhone counterpart of phone-android.py. iOS 26 offers no shell on the phone, so every tap,
 type, Home, lock and screenshot goes through one XCUITest check that executes a list of steps
@@ -49,6 +59,14 @@ tree or audit: that screen is the person's own account.
     waitState{state: background|suspended|foreground|notRunning}
     wait tap exists gone value{equals} type{text, delete, focus} press{seconds, drag:[dx,dy]}
     swipe{direction} count{label, equals} alert{button} shot{name, screen} tree{name}
+    appearance{set: light|dark}   the phone's own light/dark setting, read (and set); the app follows
+                                  the phone. Record the starting value and set it back before the end.
+    orientation{set: portrait|landscapeLeft|landscapeRight|portraitUpsideDown}
+                                  turn the phone; the step reports the app window's size, so a
+                                  portrait-only app is seen to stay upright. End on portrait.
+
+An "id" names the FIRST element carrying that identifier (SwiftUI repeats a container's identifier
+on its children).
 
 `launch` may carry Apple's own text-size override (`textSize`, a UIContentSizeCategory name) and
 nothing else: the app under test stays the Release app. `audit` records XCTest's accessibility
@@ -88,7 +106,10 @@ ACTIONS = {
     "value": {"equals"}, "type": {"text", "delete", "focus"}, "press": {"seconds", "drag"},
     "swipe": {"direction"}, "count": {"label", "equals"}, "alert": {"button"},
     "shot": {"name", "screen"}, "tree": {"name"},
+    "appearance": {"set"}, "orientation": {"set"},
 }
+APPEARANCES = ("light", "dark")
+ORIENTATIONS = ("portrait", "landscapeLeft", "landscapeRight", "portraitUpsideDown")
 NEEDS_TARGET = {"wait", "tap", "exists", "gone", "value", "type", "press", "swipe"}
 COMMON = {"do", "id", "label", "kind", "in", "timeout", "optional"}
 PLACES = ("springboard", "tailscale")
@@ -136,6 +157,10 @@ def validate(steps):
             raise CannotAnswer(f"step {i} (lock) needs \"person\": true: only a person can open the phone again")
         if action == "sleep" and not (isinstance(step.get("seconds"), (int, float)) and 0 < step["seconds"] <= 1800):
             raise CannotAnswer(f"step {i} (sleep) needs seconds between 0 and 1800")
+        if action == "appearance" and "set" in step and step["set"] not in APPEARANCES:
+            raise CannotAnswer(f"step {i} (appearance) may only set light or dark")
+        if action == "orientation" and "set" in step and step["set"] not in ORIENTATIONS:
+            raise CannotAnswer(f"step {i} (orientation) may only set {', '.join(ORIENTATIONS)}")
         if "in" in step and step["in"] not in PLACES:
             raise CannotAnswer(f"step {i}: 'in' may only be 'springboard' or 'tailscale'")
     if any(s.get("in") == "tailscale" for s in steps) and any(s["do"] in KEEPS_SCREEN for s in steps):
@@ -160,6 +185,79 @@ def parse_log(text):
         seen.add(row.get("i"))
         unique.append(row)
     return unique
+
+
+def summary(directory):
+    """A finished `run` directory read back for a person: every step on one row, and the named
+    shots and trees mapped to the files xcresulttool exported. Refuses a directory that is not a
+    finished run rather than printing an empty table."""
+    directory = Path(directory)
+    try:
+        rows = [json.loads(line) for line in (directory / "steps.jsonl").read_text().splitlines() if line.strip()]
+    except FileNotFoundError:
+        raise CannotAnswer(f"{directory} has no steps.jsonl: it is not a finished phone-ios.py run")
+    except json.JSONDecodeError as error:
+        raise CannotAnswer(f"{directory}/steps.jsonl is not one JSON object per line: {error}")
+    if not rows:
+        raise CannotAnswer(f"{directory}/steps.jsonl is empty: the phone logged no step")
+    steps = []
+    for row in rows:
+        detail = row.get("detail") or {}
+        out = {"i": row.get("i"), "do": row.get("do"), "ok": row.get("ok"),
+               "seconds": round(float(row.get("end", 0)) - float(row.get("start", 0)), 2), "app": row.get("appState")}
+        for key in ("error", ):
+            if row.get(key):
+                out[key] = row[key]
+        for key in ("label", "value", "count", "exists", "waitedMs", "text", "issues", "appearance", "orientation", "frame"):
+            if key in detail:
+                out[key] = detail[key]
+        steps.append(out)
+    named = {}
+    manifest = directory / "attachments" / "manifest.json"
+    if manifest.exists():
+        try:
+            tests = json.loads(manifest.read_text())
+        except json.JSONDecodeError as error:
+            raise CannotAnswer(f"{manifest} is not JSON: {error}")
+        for test in tests:
+            for item in test.get("attachments", []):
+                # xcresulttool names an attachment "<name>_<n>_<UUID>.<ext>".
+                human = str(item.get("suggestedHumanReadableName", ""))
+                found = re.match(r"^(.*)_\d+_[0-9A-F-]{36}\.(\w+)$", human)
+                key = f"{found.group(1)}.{found.group(2)}" if found else human
+                named[key] = str(directory / "attachments" / item.get("exportedFileName", ""))
+    failed = [s for s in steps if not s["ok"]]
+    return {"steps": steps, "logged": len(steps), "failed": len(failed), "files": dict(sorted(named.items()))}
+
+
+RUNNER = ROOT / "richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift"
+# Steps the phone runner knows that this tool refuses on purpose: there is no scripted unlock
+# (XCTest's Home press does not open an iOS 26 lock screen; see the module docstring).
+REFUSED_HERE = {"unlock"}
+
+
+def vocabulary(runner_path):
+    """Does the phone runner (`PhysicalDeviceTests.perform`) have a case for every step this tool
+    validates? A step the host accepts and the phone does not know fails on the phone, after a
+    build and an install, as "unknown step"; this finds it before either."""
+    try:
+        source = Path(runner_path).read_text()
+    except OSError as error:
+        raise CannotAnswer(f"cannot read the phone runner {runner_path}: {error}")
+    start = source.find("private func perform(")
+    if start < 0:
+        raise CannotAnswer(f"{runner_path} has no perform(...) step dispatcher")
+    # The dispatcher's own cases sit at eight spaces; nested switches (swipe directions) deeper.
+    phone = set()
+    for group in re.findall(r'^ {8}case ((?:"[A-Za-z]+"(?:, )?)+):', source[start:], re.M):
+        phone.update(re.findall(r'"([A-Za-z]+)"', group))
+    if not phone:
+        raise CannotAnswer(f"found no step cases in {runner_path}'s perform(...)")
+    host = set(ACTIONS)
+    missing = sorted(host - phone)
+    unknown = sorted(phone - host - REFUSED_HERE)
+    return {"same": not missing and not unknown, "host": len(host), "phone": len(phone),
+            "missingOnPhone": missing, "unknownToHost": unknown}
 
 
 def pair_steps(config_path, v2_hold=None):
@@ -359,6 +457,47 @@ def syslog(args):
     return emit({"out": str(out), "kept": kept, "read": total, "relayPid": relay.pid, "relayExit": relay.returncode})
 
 
+SYSLOG_ENTRY = re.compile(r"^\w{3} +\d+ (\d\d):(\d\d):(\d\d)(?:\.\d+)? (\S+)\[(\d+)\]")
+
+
+def syslog_rate(path, process, bucket, start=None, end=None):
+    """How many log entries one process wrote per `bucket` seconds of the phone's clock, from a
+    `syslog` capture: the battery reading of a window (an app that does nothing while hidden writes
+    nothing). Only the entry's first line counts; continuation lines carry no header. The process
+    is matched exactly (`RichOSNative` is not `RichOSNativeUITests-Runner`)."""
+    try:
+        lines = Path(path).read_text(errors="replace").splitlines()
+    except OSError as error:
+        raise CannotAnswer(f"cannot read the log capture {path}: {error}")
+    if not 1 <= bucket <= 3600:
+        raise CannotAnswer("--bucket must be 1 to 3600 seconds")
+
+    def seconds(clock):
+        h, m, s = (int(x) for x in clock.split(":"))
+        return h * 3600 + m * 60 + s
+
+    lo, hi = (seconds(start) if start else None), (seconds(end) if end else None)
+    counts, entries, matched = {}, 0, 0
+    for line in lines:
+        found = SYSLOG_ENTRY.match(line)
+        if not found:
+            continue
+        entries += 1
+        name = found.group(4).split("(")[0]
+        if name != process:
+            continue
+        at = int(found.group(1)) * 3600 + int(found.group(2)) * 60 + int(found.group(3))
+        if (lo is not None and at < lo) or (hi is not None and at >= hi):
+            continue
+        matched += 1
+        key = at - at % bucket
+        counts[key] = counts.get(key, 0) + 1
+    if entries == 0:
+        raise CannotAnswer(f"{path} holds no log entries in the idevicesyslog shape: is it a phone-ios.py syslog capture?")
+    rows = [{"at": f"{k // 3600:02d}:{k % 3600 // 60:02d}:{k % 60:02d}", "entries": v} for k, v in sorted(counts.items())]
+    return {"process": process, "bucketSeconds": bucket, "entries": matched, "ofAllEntries": entries, "buckets": rows}
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -370,6 +509,14 @@ def main(argv):
     r.add_argument("--prebuilt", action="store_true")
     r.add_argument("--stamp")
     sub.add_parser("parse-log").add_argument("log")
+    sub.add_parser("summary").add_argument("dir")
+    sub.add_parser("vocabulary").add_argument("runner", nargs="?", default=str(RUNNER))
+    sr = sub.add_parser("syslog-rate")
+    sr.add_argument("file")
+    sr.add_argument("--process", default="RichOSNative")
+    sr.add_argument("--bucket", type=int, default=10)
+    sr.add_argument("--from", dest="start", help="HH:MM:SS on the phone's clock, inclusive")
+    sr.add_argument("--to", dest="end", help="HH:MM:SS on the phone's clock, exclusive")
     ps = sub.add_parser("pair-steps")
     ps.add_argument("config")
     ps.add_argument("--v2-hold", type=int, default=None)
@@ -391,6 +538,13 @@ def main(argv):
         if args.command == "pair-steps":
             print(json.dumps(pair_steps(args.config, args.v2_hold), indent=1))
             return 0
+        if args.command == "summary":
+            return emit(summary(args.dir))
+        if args.command == "syslog-rate":
+            return emit(syslog_rate(args.file, args.process, args.bucket, args.start, args.end))
+        if args.command == "vocabulary":
+            result = vocabulary(args.runner)
+            return emit(result, 0 if result["same"] else 1)
         if args.command == "parse-log":
             try:
                 return emit({"steps": parse_log(Path(args.log).read_text(errors="replace"))})
