@@ -11836,7 +11836,7 @@
     },
     "mega-lander/tests/workspace-probes.test.sh": {
       "source": "mega-lander/tests/workspace-probes.test.sh",
-      "sha256": "dedcb61caa0edc36656e0faf51bb5de78a386750ff12e24c901c85063a8a825c",
+      "sha256": "7034257738ed635c72180945ea3356a78539961efc987bd159bc478ec8450302",
       "evidence": "Full fixture review: creates a fresh Git repository containing only the copied runner/library and literal synthetic probes. Executes integration CLI, then the copied runner. Probes only inspect library attributes or call integration_for; no in-tree probe or live manifest is executed. Config values never enter the fixture. The optional mutation driver executes this same suite and retains config transport presence. Renewed 2026-09-30 (hunt part 4 finding 19): the mutation driver now runs only when RICHOS_MUTATION_PASSES=1 (the nightly's gates/workspace-mutants) and otherwise prints NOT RUN; its edge is kept because that run executes it. No configuration read is added.",
       "keys": [],
       "edges": [
@@ -11853,7 +11853,7 @@
     },
     "mega-lander/workspace-probes.py#synthetic-probes": {
       "source": "mega-lander/workspace-probes.py",
-      "sha256": "e6a4c76ac9d18b9845b72eddb318d5d50c6fa98551f7087d52c8bbbd1690a77d",
+      "sha256": "1086c848bf45d23ade96a281b525c9eea1794f43e18d7ab169433dc210492f6c",
       "evidence": "Bound to workspace-probes.test.sh synthetic repository: discovery, retirement and branch/commit reads inspect fixture Git and text. integration_witness imports the adjacent library and calls integration_for. Only literal argv probes from the suite execute; stage_in_tree is unreachable for these fixtures. Probe library imports and integration CLI are bound separately. No orchestration.config reader.",
       "keys": [],
       "edges": [
