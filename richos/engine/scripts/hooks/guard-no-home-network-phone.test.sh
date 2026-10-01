@@ -289,6 +289,16 @@ expect_rc     "E7  ... and a .local host name with a port is still REFUSED" 2 \
               "$(payload Write "$SB/docs/briefs/z.md" "The phone opens http://mac.local:8443/pair to pair.")"
 expect_rc     "E8  ... and a trust page served on port 8444 is still REFUSED" 2 \
               "$(payload Write "$SB/docs/briefs/z.md" "The phone downloads the CA from the trust page on port 8444.")"
+# The v2 re-check found .env.local still read as a host (finding 6, partial):
+# a dotfile name is a file, wherever it sits in the sentence.
+expect_silent "E9  a .env.local file name in a phone write PASSES" \
+              "$(payload Write "$SB/docs/briefs/z.md" "Configure the phone app using .env.local.")"
+expect_silent "E10 ... and inside a path, app/.env.local, it PASSES too" \
+              "$(payload Write "$SB/docs/briefs/z.md" "The phone build reads app/.env.local for its flags.")"
+expect_rc     "E11 ... and a placeholder host, http://<name>.local:8444, is still REFUSED" 2 \
+              "$(payload Write "$SB/docs/briefs/z.md" "The phone fetches http://<name>.local:8444/ca first.")"
+expect_rc     "E12 ... and a bare host at a sentence end, laptop.local., is still REFUSED" 2 \
+              "$(payload Write "$SB/docs/briefs/z.md" "Connect the phone app to laptop.local.")"
 
 # --- (f) the hatch is a citation -------------------------------------------
 ACKLOG="$ENTITY/.claude/state/home-network-acks.log"
