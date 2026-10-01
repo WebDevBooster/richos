@@ -280,6 +280,28 @@ final class AccessibilityLayoutTests: XCTestCase {
         return (nameplate, text)
     }
 
+    /// D1 (the iPhone walk, 2026-10-01, the iPhone SE): on the empty first conversation the notification
+    /// offer covered the end of the microphone instructions ("... Release to" stopped mid-sentence).
+    /// At the default text size the whole empty conversation sits between the header and the card, in
+    /// both appearances.
+    func testTheMicrophoneInstructionsEndAboveTheNotificationOffer() {
+        for appearance in ["light", "dark"] {
+            let what = "conv-empty with the offer \(appearance)"
+            let app = Screen.launch("conv-empty", appearance: appearance, notifications: "not-asked")
+            let empty = app.descendants(matching: .any)["conversation.empty"]
+            XCTAssertTrue(empty.waitForExistence(timeout: 5), "\(what): the empty conversation is missing")
+            let card = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Hear back when the app is closed")).firstMatch
+            XCTAssertTrue(card.waitForExistence(timeout: 5), "\(what): the notification offer is missing")
+            Thread.sleep(forTimeInterval: 0.8)
+            XCTAssertLessThanOrEqual(empty.frame.maxY, card.frame.minY + 0.5,
+                                     "\(what): the instructions \(empty.frame) run under the offer \(card.frame)")
+            let headerBottom = max(app.buttons["header.settings"].frame.maxY, app.descendants(matching: .any)["header.nameplate"].frame.maxY)
+            XCTAssertGreaterThanOrEqual(empty.frame.minY, headerBottom - 0.5,
+                                        "\(what): the instructions \(empty.frame) start under the header, which ends at \(headerBottom)")
+            keepScreenshot(app, name: "d1-\(appearance)")
+        }
+    }
+
     /// D2 (the iPhone walk, 2026-10-01): with the keyboard up and the field empty, the composer sometimes
     /// grew from one line to three. The trigger was not isolated, so this puts the field through what
     /// the two sightings had in common (a tap on the header's area while the keyboard is up, and Home
