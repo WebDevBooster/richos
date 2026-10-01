@@ -8640,7 +8640,7 @@
     },
     "mega-lander/tests/workspaces.mutation.sh": {
       "source": "mega-lander/tests/workspaces.mutation.sh",
-      "sha256": "29a0357f70b15f3b95bac934980b38e4df25040b577fe5b208802a7d38b086c6",
+      "sha256": "cd320db1b05e32bea15cc060fd7900c5581894da221646c70415e19a8b225d31",
       "evidence": "Reviewed all finite old/new mutation operands: local workspace predicates, records, Git queries and fixed helper calls. No mutant introduces a dynamic configuration reader or executable. Focused inner suite keeps the same fixture boundaries; copied configuration presence remains a harness input.",
       "keys": [],
       "edges": [
