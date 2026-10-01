@@ -53,7 +53,7 @@ EXPORT_PAUSE_S = 2.0
 SWAP_TOLERANCE_NS = 100_000
 # Simulator.swift `developmentMarkers`: every Debug bundle carries all of them, Release none.
 DEVELOPMENT_MARKERS = ["rios-commands", "rios-fixture", "rios-interactive-fixture", "rios-appearance",
-                       "compose-draft", "Henderson proposal"]
+                       "rios-notifications", "compose-draft", "Henderson proposal"]
 
 
 def run(cmd, runner=subprocess.run, timeout=120):
