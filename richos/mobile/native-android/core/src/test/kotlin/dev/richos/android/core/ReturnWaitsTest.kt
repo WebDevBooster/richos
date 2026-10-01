@@ -306,6 +306,75 @@ class ReturnWaitsTest {
         job.cancel()
     }
 
+    /**
+     * Wi-Fi to cellular with the old network never reported lost: Android reports the new default
+     * with `onAvailable` alone. On main that reached the owner as `networkChanged(true)` while it
+     * was already online, a StateFlow that does not repeat a value: nothing reconnected.
+     */
+    @Test
+    fun `a new default network with the old one never reported lost is told apart`() {
+        val events = mutableListOf<String>()
+        val network = DefaultNetwork(online = { events += "online=$it" }, switched = { events += "switched" })
+        network.available("wifi")
+        assertEquals(listOf("online=true"), events, "the first default network is only a network")
+        network.available("wifi")
+        assertEquals(listOf("online=true", "online=true"), events, "the same network again is not a move")
+        events.clear()
+        network.available("cellular")
+        assertEquals(listOf("online=true", "switched"), events, "the move, with no onLost for Wi-Fi")
+        events.clear()
+        network.lost("wifi")
+        assertEquals(emptyList(), events, "a late loss of the old network changes nothing")
+        assertEquals(false, network.reports("wifi"), "nor does a late report of its capabilities")
+        network.lost("cellular")
+        assertEquals(listOf("online=false"), events)
+        events.clear()
+        network.available("wifi")
+        assertEquals(listOf("online=true"), events, "after a loss, coming back online is the reconnect: no second one")
+    }
+
+    /** On screen, a moved default network replaces the open stream at once. */
+    @Test
+    fun `a network switch on screen reopens the stream at once`() = runTest {
+        val log = mutableListOf<String>()
+        val mac = Mac(log) { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }
+        val core = core(Disk(emptyList()), Sends(), mac)
+        val streams = Streams(log)
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals(1, streams.opened)
+        val network = DefaultNetwork(online = owner::networkChanged, switched = owner::networkSwitched)
+        network.available("wifi"); runCurrent()
+        assertEquals(1, streams.opened, "the network the stream already runs on is not a move")
+        network.available("cellular"); runCurrent()
+        assertEquals(1, streams.closed, "the stream on the old route is closed")
+        assertEquals(2, streams.opened, "and opened again at once on the new one: $log")
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        assertEquals(0L, testScheduler.currentTime, "no wait")
+        job.cancel()
+    }
+
+    /** Hidden, the stream is already closed: a switch opens nothing; the return does. */
+    @Test
+    fun `a network switch in the background opens nothing`() = runTest {
+        val log = mutableListOf<String>()
+        val mac = Mac(log) { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }
+        val core = core(Disk(emptyList()), Sends(), mac)
+        val streams = Streams(log)
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        owner.backgrounded(); runCurrent()
+        val network = DefaultNetwork(online = owner::networkChanged, switched = owner::networkSwitched)
+        network.available("wifi"); network.available("cellular"); runCurrent()
+        testScheduler.advanceTimeBy(3_600_000); runCurrent()
+        assertEquals(1, streams.opened, "nothing in the background: $log")
+        owner.foregrounded(); runCurrent()
+        assertEquals(2, streams.opened, "the return opens it")
+        job.cancel()
+    }
+
     @Test
     fun `the values these tests state are the connection owner's`() {
         assertEquals(CHALLENGE_REUSE_MS, ConnectionOwner.CHALLENGE_REUSE_MS)

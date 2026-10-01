@@ -75,6 +75,20 @@ class ConnectionOwner(
      */
     fun tunnelChanged(up: Boolean) { tunnel.value = up }
 
+    /**
+     * The OS moved the default network to another one without reporting the old one lost
+     * ([DefaultNetwork]): the stream's socket is bound to the old route, which either died without
+     * a word (noticed only by the socket's read timeout) or is no longer the one the OS routes by.
+     * Before this nothing reconnected: the owner's online flag was already true. On screen: cut the stream and open it again at once on the
+     * new default; with no stream up, a pending retry fires at once. Hidden: nothing, the stream is
+     * closed and the return opens a new one.
+     */
+    fun networkSwitched() {
+        if (!visible.value) return
+        val open = synchronized(lock) { live?.also { cutting = true } }
+        if (open != null) open.cancel(CancellationException("the default network moved")) else wake()
+    }
+
     /** The network returned, or the app came back to the foreground: retry now if waiting. */
     fun wake() {
         wakeups.trySend(Unit)
