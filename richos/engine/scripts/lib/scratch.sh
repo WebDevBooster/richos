@@ -140,12 +140,28 @@ scratch_new() {
     local label="${1:-scratch}"
     shift 2>/dev/null || true
     local ttl="${SCRATCH_DEFAULT_TTL_MINUTES:-360}"
+    case "$ttl" in ''|*[!0-9]*) ttl=360 ;; esac
     while [ $# -gt 0 ]; do
         case "$1" in
-            --ttl) ttl="${2:-$ttl}"; shift 2 ;;
+            # A `shift 2` with one argument left fails and shifts NOTHING, so without
+            # this check a bare --ttl looped forever in any caller without errexit
+            # (hunt P5-27). A missing or non-numeric value is refused, never defaulted:
+            # the value is also written unquoted into the ledger's JSON.
+            --ttl)
+                if [ $# -lt 2 ]; then
+                    echo "scratch: --ttl needs a number of minutes" >&2
+                    return 2
+                fi
+                ttl="$2"; shift 2 ;;
+            --ttl=*) ttl="${1#--ttl=}"; shift ;;
             *)     shift ;;
         esac
     done
+    case "$ttl" in
+        ''|*[!0-9]*)
+            echo "scratch: --ttl needs a whole number of minutes, not '$ttl'" >&2
+            return 2 ;;
+    esac
 
     # Slugify: anything that is not a letter, a digit or a dash becomes a dash,
     # and runs collapse. Keeps the name a single path component whatever the
