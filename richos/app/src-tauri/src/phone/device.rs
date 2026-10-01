@@ -1486,13 +1486,13 @@ impl DeviceDesk {
             if same {
                 // `notify_one` keeps the permit if nobody is waiting yet, so a producer that has
                 // not reached its wait still ends at it.
-                open.end.notify_one();
+                open.end.ring();
             }
             !same
         });
         let id = state.next_stream;
         state.next_stream += 1;
-        let end = std::sync::Arc::new(tokio::sync::Notify::new());
+        let end = std::sync::Arc::new(EndSignal::default());
         state.streams.push(OpenStream { id, device: device_id.to_string(), end: std::sync::Arc::clone(&end) });
         Ok(StreamSlot { desk: std::sync::Arc::clone(self), id, end })
     }
@@ -1540,18 +1540,55 @@ impl DeviceDesk {
     }
 }
 
+/// A one-shot "this stream was replaced" signal. **Plain `std`, no runtime**, for the same reason
+/// as [`HeldAnswer`]: this module is compiled on its own by `mobile/conformance/verifier`, which
+/// has no tokio. Ringing before anyone waits is kept (the flag), so a producer that has not reached
+/// its wait still ends at it.
+#[derive(Default)]
+struct EndSignal {
+    state: Mutex<(bool, Option<Waker>)>,
+}
+
+impl EndSignal {
+    fn ring(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.0 = true;
+        if let Some(waker) = state.1.take() {
+            waker.wake();
+        }
+    }
+}
+
+/// The future [`StreamSlot::ended`] returns.
+struct EndWait {
+    end: std::sync::Arc<EndSignal>,
+}
+
+impl Future for EndWait {
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let mut state = self.end.state.lock().unwrap();
+        if state.0 {
+            Poll::Ready(())
+        } else {
+            state.1 = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+}
+
 /// One stream counted against [`MAX_STREAMS`]: whose it is, and how to end it.
 struct OpenStream {
     id: u64,
     device: String,
-    end: std::sync::Arc<tokio::sync::Notify>,
+    end: std::sync::Arc<EndSignal>,
 }
 
 /// Releases a concurrent-stream slot when the stream ends, however it ends.
 pub struct StreamSlot {
     desk: std::sync::Arc<DeviceDesk>,
     id: u64,
-    end: std::sync::Arc<tokio::sync::Notify>,
+    end: std::sync::Arc<EndSignal>,
 }
 
 impl StreamSlot {
@@ -1559,8 +1596,7 @@ impl StreamSlot {
     /// already returned by then; the stream's producer ends at this and its response with it.
     /// Owns what it waits on, so the producer can hold it while the response holds the slot.
     pub fn ended(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
-        let end = std::sync::Arc::clone(&self.end);
-        async move { end.notified().await }
+        EndWait { end: std::sync::Arc::clone(&self.end) }
     }
 }
 
