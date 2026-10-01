@@ -29,7 +29,9 @@ import android_ui_scope  # noqa: E402
 NATIVE = 'richos/mobile/native-ios/'
 ANDROID_TESTS = 'richos/mobile/native-android/app/src/test/kotlin/dev/richos/android/'
 SE = 'iPhone SE (3rd generation)'
-CLEAN = {k: v for k, v in os.environ.items() if k != 'RICHOS_TEST_SCOPE'}
+# Hermetic: the gate's own run-tests settings (RUN_TESTS_DECLARED_GAPS names suites the fixture
+# does not have, which run-tests.sh rightly calls stale and exits 2) must not reach a fixture run.
+CLEAN = {k: v for k, v in os.environ.items() if k != 'RICHOS_TEST_SCOPE' and not k.startswith('RUN_TESTS_')}
 # What the stub proof-for.sh prints: the harness line naming b.test.sh, as proof-for.sh writes it.
 HARNESS = 'scripts/' + 'run-tests.sh'
 MAPS_TO_B = '  cd richos/app && %s --only b.test.sh' % HARNESS
