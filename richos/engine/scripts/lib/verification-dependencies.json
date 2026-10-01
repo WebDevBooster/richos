@@ -630,7 +630,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "a5136253a47fd00a8434cc2d37c54e3e6f3518f4149df5052aaa618ee454a077",
+      "sha256": "25e30d7180f1848dfef6653dc16a194806ca44a1dbaf4ec16721b7d79c10be74",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -1082,7 +1082,7 @@
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "a5136253a47fd00a8434cc2d37c54e3e6f3518f4149df5052aaa618ee454a077",
+      "sha256": "25e30d7180f1848dfef6653dc16a194806ca44a1dbaf4ec16721b7d79c10be74",
       "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations. Renewed 2026-09-28: ordinary selection also names scripts/verification-inputs.test.sh for a path this same declaration pins (pinned_sources reads the already-loaded declaration only; no new file, setting or subprocess).",
       "keys": [],
       "edges": [
@@ -1107,7 +1107,7 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "b2befac9fb47459b07cf4d7085733158eca0da9eb75cd321eb8fada1ba70655c",
+      "sha256": "2c6c4f64f742d9498606f0720fdb271d7ed7d38e5915ce78269dffa2ac353bc6",
       "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites. Renewed 2026-09-28: the pinned-reader case reads the real declaration and every suite's text as data and adds one synthetic node in memory; nothing is executed.",
       "keys": [],
       "edges": [

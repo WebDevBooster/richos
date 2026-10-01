@@ -17,6 +17,34 @@ from verification_inputs import Unsupported
 
 
 class Planner(unittest.TestCase):
+    def test_a_newly_registered_hook_script_a_suite_names_is_not_called_unnamed(self):
+        # 2026-10-01: hooks() visits every script hooks.json registers, so a branch that changed
+        # hooks.json AND the script it registers had the script's reasons on record before the
+        # script's own turn; the "did this call add a reason" test then called it named by NO suite.
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suite = 'scripts/hooks/fixture-owner.test.sh'
+        script = 'scripts/hooks/new-fixture-hook.sh'
+        def read(path):
+            if path == suite:
+                return '#!/usr/bin/env bash\nbash "$ENGINE/scripts/hooks/new-fixture-hook.sh"\n'
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        before = read('hooks/hooks.json')
+        after = json.loads(before)
+        after['hooks']['FutureEvent'] = [{'hooks': [
+            {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/' + script}]}]
+        plan = Selection(root, [suite], read, document)
+        plan.hooks(before, json.dumps(after))
+        plan.ordinary(script)
+        self.assertIn(suite, plan.selected)
+        self.assertEqual(plan.unmapped, [])
+        # And a script no suite names is still reported, registered or not.
+        lone = Selection(root, [suite], read, document)
+        lone.hooks(before, json.dumps(after))
+        lone.ordinary('scripts/hooks/zz-nobody-names-this.sh')
+        self.assertEqual(lone.unmapped, ['scripts/hooks/zz-nobody-names-this.sh'])
+
     def test_scoped_contract_inventory_keeps_new_events_and_helper_changes(self):
         root = HERE.parent
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
