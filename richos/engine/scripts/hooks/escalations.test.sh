@@ -282,9 +282,17 @@ chmod +x "$ENG/scripts/hooks/notice-escalations.sh" "$ENG/scripts/hooks/session-
 cp "$ENGINE_ROOT/scripts/escalate.sh" "$ENG/scripts/"
 chmod +x "$ENG/scripts/escalate.sh"
 for l in escalations.py escalations.sh resolve-roots.sh resolve-main-checkout.sh \
-         seat-jurisdiction.sh stop-hook-notice.sh; do
+         seat-jurisdiction.sh stop-hook-notice.sh audit-report-watch.py; do
     cp "$SRC_DIR/../lib/$l" "$ENG/scripts/lib/$l" 2>/dev/null || true
 done
+# The Stop hook runs audit-report-watch.py before it reads the ledger (eefae0cef).
+# Without its copy here every Stop-hook case read "AUDIT REPORT WATCH FAILED"
+# instead of the escalation line (15 cases red from 2026-09-30). It is pointed at
+# a record repository that does not exist, so it watches nothing and raises
+# nothing, and its state stays in the sandbox: never the operator's richos-hq or
+# ~/.claude/state/audit-report-watch.
+export RICHOS_AUDIT_RECORD_REPO="$SANDBOX/no-audit-record-repo"
+export RICHOS_AUDIT_WATCH_STATE="$SANDBOX/state/audit-report-watch"
 # The adoption marker. Without it every hook here stands down, and a suite that
 # ran against a stood-down engine would be green over nothing at all.
 printf 'PROTECTED_PATHS="app"\n' > "$ENG/orchestration.config"
