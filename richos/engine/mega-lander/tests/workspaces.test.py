@@ -3216,6 +3216,59 @@ class Finding15_TheBudgetReachesTheWork(Base):
             ws._same_file(a, b, deadline=ws.now() - 1)
 
 
+class HuntV2_04_ADamagedRecordIsNotAMissingOne(Base):
+    """Hunt part 4 v2, V2-04: read_json answered None for a malformed record
+    exactly as for an absent one, so the sweep registered a LIVE worker's
+    workspace as an orphan ("finished work of an ended session"), stopped its
+    process and deleted it."""
+
+    def _live_worker_with_a_damaged_record(self, name):
+        aid, path = self.spawn(name)
+        rec = self.rec(name)
+        self.assertFalse(ws.finished_state(rec)[0])
+        sleeper = subprocess.Popen(["sleep", "300"], cwd=path)
+        self.env.procs.append(sleeper)
+        with open(ws.agent_path(rec["key"]), "w") as f:
+            f.write("{")
+        self.assertIsNone(ws.load_agent(rec["key"]))
+        return aid, path, sleeper
+
+    def test_v2_04_a_sweep_never_cleans_up_a_workspace_whose_record_is_damaged(self):
+        _aid, path, sleeper = self._live_worker_with_a_damaged_record("zach-opus-jsonv2")
+        items = ws.pending(self.sid, self.entity, scan=True)
+        time.sleep(0.3)
+        self.assertIsNone(sleeper.poll(), "the sweep stopped a live worker's process")
+        self.assertTrue(os.path.isdir(path), "the sweep deleted a live worker's workspace")
+        self.assertFalse([r for r in ws.all_agents() if r.get("orphan")],
+                         "the damaged record's workspace was registered as an orphan")
+        damaged = [i for i in items if i.get("damaged")]
+        self.assertEqual(len(damaged), 1, items)
+        self.assertIn(ws.agent_path(ws.named_key(self.sid, "zach-opus-jsonv2")), damaged[0]["why"])
+        self.assertFalse(damaged[0]["blocks_turn_end"])
+
+    def test_v2_04_status_names_the_damaged_record(self):
+        import io
+        from contextlib import redirect_stdout
+        _aid, path, sleeper = self._live_worker_with_a_damaged_record("zach-opus-jsonv3")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ws._print_status(self.sid, self.entity)
+        self.assertIn("DAMAGED  damaged-record-", buf.getvalue())
+        self.assertNotIn("UNREGISTERED", buf.getvalue())
+        self.assertIsNone(sleeper.poll())
+
+    def test_v2_04_once_repaired_an_unregistered_workspace_is_still_found(self):
+        """The twin: the rule that cleans up truly unregistered work still runs
+        when every record reads, so the guard is not "never sweep"."""
+        _aid, path, sleeper = self._live_worker_with_a_damaged_record("zach-opus-jsonv4")
+        sleeper.kill()
+        sleeper.wait()
+        os.unlink(ws.agent_path(ws.named_key(self.sid, "zach-opus-jsonv4")))   # gone, not damaged
+        self.assertEqual(ws.damaged_records(), [])
+        ws.pending(self.sid, self.entity, scan=True, auto=False)
+        self.assertTrue([r for r in ws.all_agents() if r.get("orphan")])
+
+
 class HuntV2_05_StatusReadsTheRecordedStop(Base):
     """Hunt part 4 v2, V2-05: the dry status (finding 29) stopped adopting the
     platform's own record of a stop and then asked the stale registry record,

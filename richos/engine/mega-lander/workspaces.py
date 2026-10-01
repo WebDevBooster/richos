@@ -983,6 +983,43 @@ def all_agents(include_done=False):
     return out
 
 
+def damaged_records(include_done=True):
+    """[(path, why)] for every registry record that EXISTS and cannot be read.
+
+    A DAMAGED RECORD IS NOT A MISSING ONE (hunt part 4 v2, V2-04). read_json
+    answers None for both, so all_agents() silently drops a record whose file
+    is malformed, unreadable or not a record, and the sweep then saw that
+    record's live workspace as one nobody registered: an orphan, "finished
+    work of an ended session", whose processes the automatic land stopped and
+    whose workspace it deleted. A record that cannot be read says nothing
+    about whether its worker ended. A registry directory that cannot be
+    listed is damaged too; one that does not exist yet is simply empty."""
+    out = []
+    for sub in ["agents"] + (["done"] if include_done else []):
+        try:
+            names = sorted(os.listdir(_p(sub)))
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            out.append((_p(sub), "the directory cannot be listed: %s" % e))
+            continue
+        for n in names:
+            if not n.endswith(".json"):
+                continue
+            path = _p(sub, n)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    v = json.load(f)
+            except FileNotFoundError:
+                continue                      # removed between the listing and the read
+            except (OSError, ValueError) as e:
+                out.append((path, "%s: %s" % (e.__class__.__name__, e)))
+                continue
+            if not isinstance(v, dict) or not v.get("key"):
+                out.append((path, "it is not a registry record (no key)"))
+    return out
+
+
 def named_key(session_id, name):
     return "%s--%s" % (_key_segment(session_id), _key_segment(name))
 
@@ -2546,7 +2583,18 @@ def scan_unregistered(repos, record=True):
     name is not the system's concern (points 1, 2) and is never listed.
 
     `record=False` only looks (finding 29): nothing is bound and no record is
-    made, and what was found is returned as (repo, path, branch, kind)."""
+    made, and what was found is returned as (repo, path, branch, kind).
+
+    WHILE ANY RECORD IS DAMAGED, NOTHING IS UNREGISTERED (V2-04). "No
+    registration" is proved by reading every registration; a record that
+    cannot be read may be the one that holds this workspace, so the sweep
+    finds nothing and records nothing until it is repaired. pending() names
+    the damaged files instead."""
+    damaged = damaged_records()
+    if damaged:
+        if record:
+            event("registry-damaged", files=[p for p, _w in damaged])
+        return []
     paths, branches = set(), set()
     # Point 14: a record that was never spawned through the guard — an orphan
     # this sweep made, or a provisional native start no spawn registered — had
@@ -2695,6 +2743,17 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
         if entity:
             repos.add(main_checkout(entity) or realpath(entity))
         found = scan_unregistered(sorted(r for r in repos if r), record=not dry)
+        # A DAMAGED RECORD IS NAMED, NEVER SWEPT (V2-04). The scan above found
+        # nothing while one exists; this says why, at every gate and status,
+        # without holding the turn: the repair is a person's, outside the run.
+        for path, why_bad in damaged_records():
+            items.append({"key": "", "name": "damaged-record-" + os.path.basename(path),
+                          "why": "its registry record cannot be read (%s: %s), and an unreadable "
+                                 "record says nothing about whether its worker ended; no workspace "
+                                 "is treated as unregistered until it is repaired" % (path, why_bad),
+                          "waiting": "outside", "waiting_on": "repair of %s" % path,
+                          "blocks_new_work": False, "blocks_turn_end": False, "damaged": True,
+                          "workspaces": []})
         if dry:
             for repo, path, branch, kind in found:
                 items.append({"key": "", "name": "orphan-" + os.path.basename(path or branch.replace("/", "-")),
@@ -5874,7 +5933,8 @@ def _print_status(me, entity):
     if not items:
         print("pending: none")
     for i in items:
-        label = "LANDABLE" if i.get("would_land") else ("UNREGISTERED" if i.get("unregistered") else "PENDING ")
+        label = "LANDABLE" if i.get("would_land") else ("UNREGISTERED" if i.get("unregistered") else
+                                                       ("DAMAGED " if i.get("damaged") else "PENDING "))
         note = ("  [lands at the next gate, or: workspaces.sh land %s]" % i["name"]) if i.get("would_land") else ""
         print("%s %s  %s%s%s%s" % (label, i["name"], i["why"],
                                     ("  [waiting %s: %s]" % (i["waiting"], i["waiting_on"])) if i["waiting"] else "",
