@@ -55,6 +55,8 @@
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
 #           knows every step the host validates, a drifted runner FAILS; I27-I28
 #           syslog-rate counts one process's log entries per bucket, refuses a non-log
+#   J1-J7   phone-ios approval: the UI-automation approval forecast from the phone's
+#           own sessions, and a run expected to ask refused until the CEO was told
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
 #           browser writes it, the lab's words from its own files, a mismatch
 #           that FAILS, a half-read phone log, a non-lab directory, a v1 phone
@@ -930,6 +932,59 @@ expect "I28 a file that is not a phone log capture is refused, never counted as 
 printf 'final class Nothing {}\n' > "$TMP/runner-none.swift"
 run python3 "$QA/phone-ios.py" vocabulary "$TMP/runner-none.swift"
 expect "I26 a runner with no step dispatcher is refused, never read as agreeing" 2 "no perform(...) step dispatcher"
+
+# J1-J7: the UI-automation approval is forecast BEFORE a run, from the phone's own sessions.
+# Fixture logs are shaped like xcodebuild's: the phone named on the command line, the runner's
+# start and the first suite's start on the phone clock. Their age is their modification time.
+SESS="$TMP/sessions"; mkdir -p "$SESS"
+PHONE="00000000-0000000000000000"
+session_log() {  # session_log <file> <runner hh:mm:ss.mmm> <suite hh:mm:ss.mmm or TIMEOUT> <seconds ago>
+  {
+    echo "Command line invocation:"
+    echo "    /usr/bin/xcodebuild test-without-building -xctestrun /x.xctestrun -destination id=$PHONE -resultBundlePath /x.xcresult"
+    echo "2026-10-01 ${2}123+0100 RichOSNativeUITests-Runner[5881:2976689] [Default] Running tests..."
+    if [ "$3" = TIMEOUT ]; then
+      echo "	RichOSNativeUITests-Runner (5881) encountered an error (The test runner failed to initialize for UI testing. (Underlying Error: Timed out while enabling automation mode.))"
+    else
+      echo "Test Suite 'Selected tests' started at 2026-10-01 $3."
+    fi
+  } > "$SESS/$1"
+  python3 -c 'import os,sys,time; t=time.time()-float(sys.argv[2]); os.utime(sys.argv[1],(t,t))' "$SESS/$1" "$4"
+}
+forecast() { RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" approval --device "$PHONE"; }
+
+session_log a.log 07:47:23.244 07:47:24.000 120
+run forecast
+expect "J1 two minutes after the last session no approval is expected" 0 '"approvalExpected": false'
+
+session_log a.log 07:47:23.244 07:47:24.000 36000
+run forecast
+expect "J2 ten hours after the last session an approval is expected, and the forecast says why" 0 'iOS asks again after idle'
+
+run env RICHOS_IOS_DEVICE="$PHONE" RICHOS_APPLE_TEAM=y RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test
+expect "J3 a run expected to ask is refused BEFORE any build until the CEO was told (--approval-announced)" 2 "Tell Rich so the CEO hears it BEFORE the run"
+if [ -e /Volumes/E1TB/nonexistent-qa-test ]; then bad "J3b the refused run wrote nothing" "it created /Volumes/E1TB/nonexistent-qa-test"
+else ok "J3b the refused run wrote nothing"; fi
+
+session_log b.log 08:00:00.000 TIMEOUT 60
+run forecast
+expect "J4 a session nobody approved means the next one asks too" 0 'nobody approved it'
+
+rm -f "$SESS"/*.log
+session_log a.log 07:47:23.244 07:47:33.128 50000
+session_log c.log 07:47:23.244 07:47:23.900 3600
+run forecast
+expect "J5 after the passcode is removed, a cold session that did not ask means none is expected" 0 'started in 0.7 s without asking'
+
+session_log d.log 07:47:23.244 07:47:33.128 36000
+rm -f "$SESS/c.log"; run forecast
+expect "J6 a cold session that waited for approval (the passcode is still set) keeps the forecast at expected" 0 '"approvalExpected": true'
+
+# J7: the phone's own reading (PhysicalDeviceTests prints PHONE_PASSCODE) decides, idle or not.
+echo 'PHONE_PASSCODE {"configured":false,"error":"com.apple.LocalAuthentication -5"}' >> "$SESS/d.log"
+python3 -c 'import os,sys,time; t=time.time()-36000; os.utime(sys.argv[1],(t,t))' "$SESS/d.log"
+run forecast
+expect "J7 ten hours idle, but the phone said it has no passcode: no approval is expected" 0 'the phone has no passcode (the phone itself at a session'
 
 echo ""
 echo "=== V. pair-words: the six v2 words on both sides, checked before They match ==="
