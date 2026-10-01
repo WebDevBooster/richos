@@ -3248,6 +3248,80 @@ def _minus_generated(w, ignored, deadline=None):
     return out
 
 
+# OUTPUT THE REPOSITORY DECLARES REGENERABLE (hunt part 4 v2, V2-02). Finding
+# 14 exempted what the ENGINE made at creation, fingerprinted then; build output
+# a test or a build writes LATER still held the land until somebody typed
+# --ignored-not-needed, every time. Nothing in an ignored file says whether it
+# is the only copy of something, so the engine still never decides that on its
+# own: the REPOSITORY says it, in its own committed root .gitignore, one line
+# per path, as a comment git itself ignores:
+#
+#     #regenerable: build/              a directory and everything under it
+#     #regenerable: **/__pycache__/     the same name at any depth
+#     #regenerable: dist/*.map          a glob over the path
+#
+# The declaration is read from the integration branch's tip (point 14), never
+# from the workspace: a line the agent adds in its own work is not landed and
+# widens nothing. An entry the walk could not read is never waived.
+_REGENERABLE_RE = re.compile(r"^#\s*regenerable:\s*(\S+)\s*$")
+
+
+def _regenerable_patterns(rec, repo):
+    """The `#regenerable:` lines of the root .gitignore at the tip of the
+    branch this work integrates on; [] when nothing is recorded or readable."""
+    try:
+        _branch, tip, why = integration_target([rec], repo)
+    except Exception:
+        return []
+    if why or not tip:
+        return []
+    main = main_checkout(repo) or repo
+    rc, out, _err = git(main, "show", "%s:.gitignore" % tip)
+    if rc != 0:
+        return []
+    return [m.group(1) for m in (_REGENERABLE_RE.match(l.strip()) for l in out.splitlines()) if m]
+
+
+def _is_regenerable(rel, patterns):
+    """Does the ignored entry `rel` (relative; a trailing "/" marks a
+    directory) fall under one of `patterns`?"""
+    import fnmatch
+    if " (unreadable" in rel:
+        return False
+    is_dir = rel.endswith("/")
+    parts = [p for p in rel.rstrip("/").split("/") if p]
+    for pat in patterns:
+        anywhere = pat.startswith("**/")
+        body = pat[3:] if anywhere else pat.lstrip("/")
+        dir_only = body.endswith("/")
+        want = [p for p in body.rstrip("/").split("/") if p]
+        if not want:
+            continue
+        starts = range(len(parts)) if anywhere else [0]
+        for s in starts:
+            seg = parts[s:s + len(want)]
+            if len(seg) < len(want) or not all(fnmatch.fnmatchcase(a, b) for a, b in zip(seg, want)):
+                continue
+            under = s + len(want) < len(parts)          # rel is INSIDE the matched path
+            if not dir_only or under or is_dir:
+                return True
+    return False
+
+
+def _minus_regenerable(rec, w, ignored):
+    """`ignored` without what the repository declares regenerable (V2-02)."""
+    if not ignored:
+        return ignored
+    pats = _regenerable_patterns(rec, w.get("repo") or "")
+    if not pats:
+        return ignored
+    kept = [rel for rel in ignored if not _is_regenerable(rel, pats)]
+    if len(kept) != len(ignored):
+        event("regenerable-not-preserved", key=rec.get("key"), path=w.get("path"),
+              entries=[rel for rel in ignored if rel not in kept][:50])
+    return kept
+
+
 def _require_clean(rec, doing, ignored_ok="", deadline=None):
     """Refuses uncommitted work. Returns the paths it proved to be partial-
     cleanup residue whose every file is preserved (`_landed_residue`): the one
@@ -3266,6 +3340,7 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
                     preserved.append(w["path"])
             dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
             ignored = _minus_generated(w, ignored, deadline)
+            ignored = _minus_regenerable(rec, w, ignored)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
                     w["path"], len(dirty), "y" if len(dirty) == 1 else "ies", ", ".join(dirty[:5])))
@@ -3275,7 +3350,9 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
     if problems:
         raise SpecError("cannot %s — nothing uncommitted is ever landed (point 8):\n    %s\n  Commit what it "
                         "left to its branch, or discard it. If the ignored files are not needed, say so: "
-                        "--ignored-not-needed '<why>'." % (doing, "\n    ".join(problems)))
+                        "--ignored-not-needed '<why>'. Output the repository always regenerates is "
+                        "declared once in its committed root .gitignore (`#regenerable: <path>`) and then "
+                        "needs no waiver." % (doing, "\n    ".join(problems)))
     return preserved
 
 

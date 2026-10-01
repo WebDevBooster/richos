@@ -3216,6 +3216,62 @@ class Finding15_TheBudgetReachesTheWork(Base):
             ws._same_file(a, b, deadline=ws.now() - 1)
 
 
+class HuntV2_02_DeclaredBuildOutputNeedsNoWaiver(Base):
+    """Hunt part 4 v2, V2-02: finding 14 exempted what the engine made at
+    creation; build output written LATER (an ordinary test or build leaving
+    build/) still held the land until somebody typed --ignored-not-needed.
+    The repository now declares what is regenerable, in its own committed root
+    .gitignore, and only that is waived."""
+
+    def _declare(self, repo, line, commit=True):
+        with open(os.path.join(repo, ".gitignore"), "a") as f:
+            f.write(line + "\n")
+        if commit:
+            run("git", "-C", repo, "commit", "-qam", "declare regenerable output")
+
+    def _built_after_setup(self, name):
+        path = self.make_cc(name)
+        aid, _n = self.spawn(name, path, native=False)
+        os.makedirs(os.path.join(path, "build"))
+        with open(os.path.join(path, "build", "output.bin"), "wb") as f:
+            f.write(b"generated fixture output")
+        self.finish(aid)
+        return path
+
+    def test_v2_02_declared_build_output_written_after_setup_lands_without_a_waiver(self):
+        self._declare(self.other, "#regenerable: build/")
+        path = self._built_after_setup("zach-opus-bldv2")
+        res = ws.land("zach-opus-bldv2", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertFalse(os.path.exists(path))
+
+    def test_v2_02_an_undeclared_directory_still_needs_the_waiver(self):
+        self._declare(self.other, "#regenerable: dist/")
+        path = self._built_after_setup("zach-opus-bldv3")
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-bldv3", self.sid)
+        self.assertIn("build/", str(e.exception))
+        self.assertTrue(os.path.isfile(os.path.join(path, "build", "output.bin")))
+
+    def test_v2_02_a_declaration_that_is_not_committed_waives_nothing(self):
+        self._declare(self.other, "#regenerable: build/", commit=False)
+        path = self._built_after_setup("zach-opus-bldv4")
+        with self.assertRaises(ws.SpecError):
+            ws.land("zach-opus-bldv4", self.sid)
+        self.assertTrue(os.path.isdir(path))
+
+    def test_v2_02_the_pattern_language(self):
+        pats = ["build/", "**/__pycache__/", "dist/*.map", "/out"]
+        yes = ["build/", "build/x.bin", "a/b/__pycache__/", "__pycache__/m.pyc", "dist/app.js.map",
+               "out", "out/", "out/deep/file"]
+        no = ["builds/", "src/build.py", "dist/app.js", "x/out", "build/ (unreadable: Permission denied)",
+              "a/__pycache__"]
+        for rel in yes:
+            self.assertTrue(ws._is_regenerable(rel, pats), rel)
+        for rel in no:
+            self.assertFalse(ws._is_regenerable(rel, pats), rel)
+
+
 class HuntV2_03_TheBudgetBoundsEveryCleanupStage(Base):
     """Hunt part 4 v2, V2-03: the shared deadline reached the retries and the
     proof, but process shutdown, container and test-instance cleanup, the
