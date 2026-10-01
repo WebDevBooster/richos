@@ -8606,7 +8606,7 @@
     },
     "mega-lander/tests/workspaces.mutation.sh": {
       "source": "mega-lander/tests/workspaces.mutation.sh",
-      "sha256": "f09b1a5b7ef840b9d1106ed2576e82e75c40b751f688e7fbb603e10e2c7facaa",
+      "sha256": "d42f16d53d49a17638a730ff1f36163ee46ea2be96de60cdd971e2d6615067d1",
       "evidence": "Reviewed all finite old/new mutation operands: local workspace predicates, records, Git queries and fixed helper calls. No mutant introduces a dynamic configuration reader or executable. Focused inner suite keeps the same fixture boundaries; copied configuration presence remains a harness input.",
       "keys": [],
       "edges": [
@@ -8659,7 +8659,7 @@
     },
     "mega-lander/tests/workspace-spec-fourteen.mutation.sh": {
       "source": "mega-lander/tests/workspace-spec-fourteen.mutation.sh",
-      "sha256": "2de33daeaa368b12ac6bfc83b70e8fe3e9c6a812d8147009bb5b1895c9476149",
+      "sha256": "f32f15c49bf1f0a5f03d3dbcbbe62ffb184475869aaa6f6d72f623c1b3636c55",
       "evidence": "Reviewed all finite mutation source operands in workspaces.py, removal guard, creator and integration readers. They change local predicates and fixed Git operations without adding dynamic configuration/executable inputs. Optional nightly driver uses the same suite and copied configuration transport.",
       "keys": [],
       "edges": [
@@ -16819,7 +16819,7 @@
       "commands": [],
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "28b165ea46c36cde125e0214f0f7f98fa28e4219a14d74bde8488367b91c5a80",
-        "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "2de33daeaa368b12ac6bfc83b70e8fe3e9c6a812d8147009bb5b1895c9476149",
+        "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "f32f15c49bf1f0a5f03d3dbcbbe62ffb184475869aaa6f6d72f623c1b3636c55",
         "mega-lander/tests/workspace-spec-fourteen.test.sh": "53f74b973bd0c1105c0bc17f09ca53c5cffeb5ffa32f0147ec3a0dfe2fa32c0c",
         "mega-lander/workspaces.py": "1dd480f258cfe4b66743899836e0d3ae56325ee18502043eb27374cac3485d7b",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",

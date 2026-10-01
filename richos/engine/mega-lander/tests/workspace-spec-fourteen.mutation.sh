@@ -106,8 +106,8 @@ mutant S-p02-codex-tips-not-snapshotted "C2.11" "$W" \
     '            tips[repo] = {}' \
     "SPEC-DERIVED (point 2 negated): the snapshot would record which refs exist and not where the protected ones point, so a move could never be seen — only a deletion."
 mutant S-p02-agent-writes-inside-codex-pass-the-lock-out "C2.12" "$W" \
-    '        cx = _codex_workspace_of(fp){NL}        if cx:' \
-    '        cx = _codex_workspace_of(fp){NL}        if False:' \
+    '        cx = _codex_workspace_of(fp, str(payload.get("cwd") or "")){NL}        if cx:' \
+    '        cx = _codex_workspace_of(fp, str(payload.get("cwd") or "")){NL}        if False:' \
     "SPEC-DERIVED (point 2 negated, 'An agent never works inside a codex/ workspace'; measured passing on the base by sage-fable-b3, brief-audit-sage-round8 §4 with a registered agent): a registered agent's Edit or Write aimed inside a codex/ workspace would pass the only hook that sees it."
 mutant S-p02-agent-commands-inside-codex-pass-the-guard "C2.14" "$G" \
     'if AGENT:{NL}    for how, p in _codex_workspace_paths(scan, str(d.get("cwd") or "")):' \

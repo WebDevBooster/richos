@@ -473,8 +473,8 @@ mutant p14-land-attributed-by-branch-alone "test_point_14_another_conversations_
     "attribution would answer with the LATEST land on the branch instead of the one that made this move, so with two lands in a row an agent would be told the wrong conversation moved its base -- which is worse than being told nothing, and is exactly what the append-only record was written to prevent."
 
 mutant p02-agent-write-inside-codex-passes-the-lock-out "test_point_02_a_codex_ref_deleted_in_an_agents_call_is_restored_and_a_move_is_reported" "$W" \
-    '        cx = _codex_workspace_of(fp){NL}        if cx:' \
-    '        cx = _codex_workspace_of(fp){NL}        if False:' \
+    '        cx = _codex_workspace_of(fp, str(payload.get("cwd") or "")){NL}        if cx:' \
+    '        cx = _codex_workspace_of(fp, str(payload.get("cwd") or "")){NL}        if False:' \
     "a registered agent's Edit or Write aimed inside a codex/ workspace would pass the only hook that sees it (point 2: an agent never works inside a codex/ workspace)."
 
 mutant p14-second-body-of-work-moves-the-first "test_point_14_a_second_body_of_work_never_moves_the_first_ones_agents" "$W" \
