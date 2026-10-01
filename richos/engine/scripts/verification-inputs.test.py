@@ -64,8 +64,9 @@ class Inputs(unittest.TestCase):
                     "DISK_CONSUMER_CANDIDATES", "DISK_STATE_JSON"}
         actual = {key for key, row in parsed.items() if any(part[0] == "parameter" for part in row["value"])}
         self.assertEqual(actual, expected)
-        # 105 since 0ba40e59 added CHECK_RESOURCE_WAITS and RESOURCE_WAIT_MINUTES.
-        self.assertEqual(len(parsed), 105)
+        # 105 since 0ba40e59 added CHECK_RESOURCE_WAITS and RESOURCE_WAIT_MINUTES;
+        # 106 since SCRATCH_AGENT_ROOTS (2026-10-01, a land sweeps only its agent's scratch).
+        self.assertEqual(len(parsed), 106)
         self.assertIsNone(inputs.config_change("", (HERE.parent / "orchestration.config").read_text())["fallback"])
 
     def test_semantic_values_ignore_comments_spacing_and_equivalent_quotes(self):

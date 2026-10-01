@@ -211,6 +211,15 @@ _scratch_record() {
 
     local sid="${CLAUDE_SESSION_ID:-}"
     sid="$(printf '%s' "$sid" | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]//g')"
+    # THE WORKING DIRECTORY THE ALLOCATION WAS MADE FROM, so a land can tell
+    # which agent made it (2026-10-01). The session id cannot: every in-process
+    # teammate of a session carries the lead's. An agent works inside its own
+    # workspaces, so `cwd` inside one of them attributes the allocation to that
+    # agent; anywhere else it is attributed to nobody and left to the scheduled
+    # sweep. $PWD, not `git rev-parse`: this is the allocation path of every
+    # harness and must not pay for a process.
+    local cwd="${PWD:-}"
+    cwd="$(printf '%s' "$cwd" | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]//g')"
     local now; now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     # A LEDGER WRITE THAT FAILS IS NEVER FATAL TO THE ALLOCATION. The caller
@@ -220,8 +229,8 @@ _scratch_record() {
     # read-only $HOME could stop a harness from running at all — turning a
     # cleanup mechanism into an availability risk, which is how cleanup
     # mechanisms get switched off.
-    printf '{"path":"%s","label":"%s","pid":%d,"ppid":%d,"session":"%s","created":"%s","ttl_minutes":%s,"event":"new"}\n' \
-        "$dir" "$label" "$$" "${PPID:-0}" "$sid" "$now" "$ttl" \
+    printf '{"path":"%s","label":"%s","pid":%d,"ppid":%d,"session":"%s","cwd":"%s","created":"%s","ttl_minutes":%s,"event":"new"}\n' \
+        "$dir" "$label" "$$" "${PPID:-0}" "$sid" "$cwd" "$now" "$ttl" \
         >>"$ledger" 2>/dev/null || true
 }
 

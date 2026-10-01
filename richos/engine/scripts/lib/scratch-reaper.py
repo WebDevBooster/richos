@@ -537,6 +537,11 @@ def read_ledger(path):
             except (TypeError, ValueError):
                 cur["ttl_minutes"] = 0
             cur["created"] = obj.get("created") or ""
+            # Where the allocation was made from (scratch.sh, 2026-10-01). Only a
+            # land's scoped sweep reads it, to attribute the allocation to the
+            # agent whose workspace it was made in. Rows written before it existed
+            # have none and are attributed to nobody.
+            cur["cwd"] = obj.get("cwd") if isinstance(obj.get("cwd"), str) else ""
     return rows
 
 
@@ -955,6 +960,11 @@ class Reaper(object):
         # scan_deferred_unknown.
         self.skip_unknown_arm = False
         self.unknown_not_scanned = 0
+        # A LAND'S SCOPED SWEEP (--agent). None for every other run. When set,
+        # scan_agent() replaces scan(), and apply() collects nothing it did not
+        # plan: no test devices, no Docker. See scan_agent.
+        self.scope = None
+        self.unattributed = 0
 
     def add(self, path, klass, size, action, why, standing=False):
         self.entries.append(Entry(path, klass, size, action, why, standing))
@@ -2342,6 +2352,146 @@ class Reaper(object):
         self.entries.sort(key=Entry.key)
         return self.entries
 
+    def scan_agent(self, scope):
+        """A LAND'S SWEEP: ONLY WHAT PROVABLY BELONGS TO THE AGENT BEING LANDED.
+
+        WHAT IT REPLACED, AND WHY. A land used to run the whole machine's sweep
+        (this program's scan()), so landing one agent deleted whatever any other
+        agent's or session's scratch had become eligible for: on 2026-10-01 two
+        lands deleted 141 entries, none of them the landed agent's (60 harness
+        families and 79 unclaimed entries under $TMPDIR, two /private/tmp IPC
+        files). Every one had passed the walls and the liveness proof, and none
+        was the land's business. A land is the moment ONE agent's scratch becomes
+        garbage, so that is all it may take. The whole machine stays the
+        scheduled job's, which runs every six hours with the full proof.
+
+        `scope` is {"name", "session", "workspaces": [paths], "hold_named": bool}.
+        Two things are the agent's, and nothing else:
+
+          1. AN ALLOCATION MADE FROM ITS WORKSPACE. A child of the allocator
+             root whose ledger row's `cwd` lies inside one of the agent's
+             workspaces. Then the allocator ladder: released -> DELETE; owning
+             pid alive -> KEEP; unknowable -> INDETERMINATE; something holds a
+             file open inside it -> KEEP; a wall -> INDETERMINATE.
+          2. A DIRECTORY NAMED FOR IT. <root>/<name> for each declared agent
+             root (SCRATCH_AGENT_ROOTS), and <session scratchpad>/<name> in the
+             agent's own session's directory under each Claude scratch root.
+             Kept if another live agent carries the same name (hold_named), or
+             something holds a file open inside it; a wall makes it
+             INDETERMINATE.
+
+        Everything else it looks at in those places is UNATTRIBUTED: left alone
+        and counted (`unattributed=` on the verdict line). The session
+        scratchpad itself is never a candidate, nor is anything in it but the
+        agent's named directory: the lead and every in-process teammate share it.
+        """
+        self.scope = scope
+        name = scope.get("name") or ""
+        ws = [os.path.realpath(p) for p in scope.get("workspaces") or [] if p]
+        tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
+        alloc_root = os.path.join(tmp, self.cfg["scratch_root_name"])
+        claude_roots = [r for r in self.cfg["claude_roots"] if os.path.isdir(r)]
+        agent_roots = [r for r in self.cfg["agent_roots"] if os.path.isdir(r)]
+        walls = Walls(claude_roots + [tmp] + agent_roots)
+
+        def mine(row):
+            cwd = row.get("cwd") or ""
+            if not cwd:
+                return False
+            real = os.path.realpath(cwd)
+            return any(inside(real, w) for w in ws)
+
+        def held(path, size, klass, owner):
+            """True if the path was decided here as kept or undecidable."""
+            h = self.holder(path)
+            if h is None:
+                self.add(path, klass, size, INDETERMINATE,
+                         "%s, but the open-file table could not be read, and a "
+                         "tree something is reading must never be deleted from "
+                         "under it" % owner)
+                return True
+            if h.strip():
+                self.add(path, klass, size, KEEP,
+                         "%s, but a live process (pid %s) holds a file open "
+                         "inside it" % (owner, h.strip()))
+                return True
+            return False
+
+        # 1. allocations made from the agent's workspaces
+        if os.path.isdir(alloc_root):
+            self.roots.append(alloc_root)
+            rows = read_ledger(ledger_path())
+            for child in sorted(os.listdir(alloc_root)):
+                check_deadline()
+                path = os.path.join(alloc_root, child)
+                row = rows.get(os.path.realpath(path)) or rows.get(path) or {}
+                if os.path.islink(path) or not mine(row):
+                    self.unattributed += 1
+                    continue
+                size, _newest, has_git = measure(path)
+                owner = ("allocated by pid %d ('%s') from %s, inside %s's workspace"
+                         % (row.get("pid") or 0, row.get("label") or "?",
+                            row.get("cwd"), name))
+                if not row.get("released"):
+                    alive, why_pid = self.owner_state(row.get("pid") or 0, True, path)
+                    if alive is None:
+                        self.add(path, "agent-alloc", size, INDETERMINATE,
+                                 "%s; cannot tell whether that pid is alive" % owner)
+                        continue
+                    if alive:
+                        self.add(path, "agent-alloc", size, KEEP,
+                                 "%s; that pid is ALIVE" % owner)
+                        continue
+                if held(path, size, "agent-alloc", owner):
+                    continue
+                refused = walls.check(path, has_git)
+                if refused:
+                    self.add(path, "agent-alloc", size, INDETERMINATE, refused)
+                    continue
+                self.add(path, "agent-alloc", size, DELETE,
+                         "%s, which has landed; its maker %s and nothing holds "
+                         "it open" % (owner, "released it" if row.get("released")
+                                      else "has ended"))
+
+        # 2. directories named for the agent
+        places = list(agent_roots)
+        session = scope.get("session") or ""
+        if session:
+            for root in claude_roots:
+                for pad in sorted(glob.glob(os.path.join(root, "*", session, "scratchpad"))):
+                    if os.path.isdir(pad) and not os.path.islink(pad):
+                        places.append(pad)
+        for place in places:
+            try:
+                children = sorted(os.listdir(place))
+            except OSError:
+                continue
+            for child in children:
+                if not name or child != name:
+                    self.unattributed += 1
+                    continue
+                path = os.path.join(place, child)
+                if os.path.islink(path) or not os.path.isdir(path):
+                    self.unattributed += 1
+                    continue
+                size, _newest, has_git = measure(path)
+                owner = "named for %s in %s" % (name, place)
+                if scope.get("hold_named"):
+                    self.add(path, "agent-named", size, KEEP,
+                             "%s, but another LIVE agent carries the same name, so "
+                             "this may be its directory" % owner)
+                    continue
+                if held(path, size, "agent-named", owner):
+                    continue
+                refused = walls.check(path, has_git)
+                if refused:
+                    self.add(path, "agent-named", size, INDETERMINATE, refused)
+                    continue
+                self.add(path, "agent-named", size, DELETE,
+                         "%s, which has landed, and nothing holds it open" % owner)
+        self.entries.sort(key=Entry.key)
+        return self.entries
+
     def report(self, verbose=False):
         """The plan, with NO timestamps and no elapsed anything in it, so that
         --dry-run and --apply can be compared byte for byte."""
@@ -2472,6 +2622,9 @@ class Reaper(object):
             line += " not_measured=%d" % self.deferred_skipped
         if self.unknown_not_scanned:
             line += " not_scanned=%d" % self.unknown_not_scanned
+        if self.scope is not None:
+            line += " scope=agent:%s unattributed=%d" % (
+                self.scope.get("name") or "?", self.unattributed)
         return line
 
     def prune_docker(self):
@@ -2818,7 +2971,12 @@ class Reaper(object):
         # runs, is recorded in its own failure file for the MASSIVE ALERT. It
         # is not added to `failures` here: that record is keyed by path and
         # would resolve a device row on its next read.
-        lines.extend(self.collect_test_devices(stamp))
+        #
+        # NOT IN A LAND'S SCOPED SWEEP, nor the Docker arm below: neither is
+        # attributable to the agent being landed, and a land takes only what is
+        # (scan_agent). The scheduled sweep still runs both.
+        if self.scope is None:
+            lines.extend(self.collect_test_devices(stamp))
         for e in order:
             try:
                 # A DIRECTORY IS THE ONLY THING rmtree CAN TAKE. THE TEST USED TO
@@ -2916,7 +3074,7 @@ class Reaper(object):
         # sweep's plan was measured before any deletion so that --dry-run and
         # --apply print byte-identical plans; asking a daemon to prune first
         # would change the disk underneath that guarantee.
-        for line in self.prune_docker():
+        for line in (self.prune_docker() if self.scope is None else []):
             lines.append(line)
             if " FAILED docker " in line:
                 failures.append(line.split("error=", 1)[-1])
@@ -2929,9 +3087,12 @@ class Reaper(object):
                 except (IndexError, ValueError):
                     pass
         lines.append("%s verdict: deleted=%d freed=%d freed_human=%s "
-                     "undecidable=%d failures=%d"
+                     "undecidable=%d failures=%d%s"
                      % (stamp, deleted, freed, human(freed),
-                        self.counts()[1], len(failures)))
+                        self.counts()[1], len(failures),
+                        "" if self.scope is None else
+                        " scope=agent:%s unattributed=%d"
+                        % (self.scope.get("name") or "?", self.unattributed)))
         write_log(log_path, lines)
         self._record_failures(failures, stamp)
         return deleted, freed, failures
@@ -3378,6 +3539,12 @@ def config_from_env():
         "app_registry_relpath":
             opt("SCRATCH_APP_REGISTRY_RELPATH",
                 "Library/Application Support/com.richos.app/entities.json"),
+        # Where each agent keeps a directory named for itself (2026-10-01). Read
+        # ONLY by a land's scoped sweep (--agent), which deletes <root>/<name>
+        # for the agent being landed. Empty fallback: an engine whose config
+        # predates the key deletes no named directory there.
+        "agent_roots": [os.path.realpath(p) for p in
+                        opt("SCRATCH_AGENT_ROOTS", "").split()],
     }
 
 
@@ -3426,6 +3593,17 @@ def main(argv=None):
     ap.add_argument("--deadline", type=float, default=None,
                     help="seconds the scan may take before it gives up and "
                          "says so. For --notice only.")
+    # A LAND'S SCOPED SWEEP (scan_agent). With --agent, nothing but what
+    # provably belongs to that agent is planned.
+    ap.add_argument("--agent", default=None,
+                    help="sweep ONLY the scratch of this landed agent")
+    ap.add_argument("--session", default="",
+                    help="with --agent: the session the agent ran in")
+    ap.add_argument("--workspace", action="append", default=[],
+                    help="with --agent: one of its workspaces (repeatable)")
+    ap.add_argument("--hold-named", action="store_true",
+                    help="with --agent: another live agent has the same name, "
+                         "so its named directories are kept")
     args = ap.parse_args(argv)
 
     if args.deadline:
@@ -3437,7 +3615,12 @@ def main(argv=None):
         # The banner never pays for the expensive arm. Its garbage numbers come
         # from the last full pass, which the scheduled job publishes.
         reaper.skip_unknown_arm = bool(args.notice)
-        reaper.scan()
+        if args.agent is not None:
+            reaper.scan_agent({"name": args.agent, "session": args.session,
+                               "workspaces": args.workspace,
+                               "hold_named": bool(args.hold_named)})
+        else:
+            reaper.scan()
     except Fatal as exc:
         sys.stderr.write("scratch-reaper: %s\n" % exc)
         return 2
@@ -3521,6 +3704,10 @@ def main(argv=None):
     if args.apply:
         deleted, freed, failures = reaper.apply(args.log or default_log())
         n_failures = len(failures)
+    # THE STATE FILE DESCRIBES THE LAST FULL PASS, and the watchdog reads it as
+    # such: a land's scoped sweep looked at one agent's scratch, and publishing
+    # its numbers would tell the watchdog the scheduled job had just run.
+    if args.apply and reaper.scope is None:
         write_state(default_state(), {
             "last_apply": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "last_apply_epoch": int(time.time()),
@@ -3542,6 +3729,7 @@ def main(argv=None):
             "deleted": deleted, "freed": freed,
             "undecidable": undecidable,
             "undecidable_bytes": reaper.undecidable_bytes(),
+            "unattributed": reaper.unattributed,
             "skipped": skipped_n, "skipped_bytes": skipped_b,
             "skipped_split": split,
             "failures": n_failures,
