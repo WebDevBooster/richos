@@ -1,5 +1,6 @@
 import RichOSCore
 import UIKit
+import os
 
 /// The extra time iOS gives an app that leaves the screen in the middle of a send:
 /// `UIApplication.beginBackgroundTask` ("Extending your app's background execution time"). Without
@@ -20,15 +21,26 @@ final class BackgroundSendTime: BackgroundContinuation {
         task = UIApplication.shared.beginBackgroundTask(withName: "Finish sending a message") { [weak self] in
             // UIKit calls the expiration handler on the main thread.
             MainActor.assumeIsolated {
+                SendLog.record("iOS expired the background time")
                 expired()
                 self?.end()
             }
         }
+        SendLog.record(task == .invalid ? "iOS refused background time" : "background time asked for")
     }
 
     func end() {
         guard task != .invalid else { return }
+        let remaining = UIApplication.shared.backgroundTimeRemaining
+        SendLog.record("background time given back" + (remaining < 1_000 ? String(format: ", %.1f s of it left", remaining) : ", on screen"))
         UIApplication.shared.endBackgroundTask(task)
         task = .invalid
     }
+}
+
+/// The send's account in the phone's own log (`AppStore.sendLog`): fixed words and counts, public,
+/// at the default level so `phone-ios.py syslog` keeps it. No message, id or Mac text ever reaches it.
+enum SendLog {
+    private static let logger = Logger(subsystem: "dev.richos.connect", category: "send")
+    static func record(_ line: String) { logger.notice("send: \(line, privacy: .public)") }
 }
