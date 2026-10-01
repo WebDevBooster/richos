@@ -491,9 +491,16 @@ resolve_selection() {
         return 0
     fi
     if [ -n "$ONLY_UNITS" ] || [ -n "$UNITS_FILE" ]; then
+        # The file is checked HERE, in this shell: `die` inside the pipeline's left
+        # side ran in a child, printed its error and let the inline --only-units
+        # through as a successful PARTIAL plan (P5-78).
+        if [ -n "$UNITS_FILE" ]; then
+            [ -f "$UNITS_FILE" ] || die "--units-file: no such file: $UNITS_FILE"
+            [ -r "$UNITS_FILE" ] || die "--units-file: not readable: $UNITS_FILE"
+        fi
         {
             printf '%s' "${ONLY_UNITS#,}" | tr ',' '\n'
-            [ -n "$UNITS_FILE" ] && { [ -f "$UNITS_FILE" ] || die "--units-file: no such file: $UNITS_FILE"; cat "$UNITS_FILE"; }
+            [ -z "$UNITS_FILE" ] || cat "$UNITS_FILE"
         } | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | grep -v '^#' | LC_ALL=C sort -u
         return 0
     fi
