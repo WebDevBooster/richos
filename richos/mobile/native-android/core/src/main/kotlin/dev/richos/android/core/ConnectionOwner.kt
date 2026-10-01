@@ -393,6 +393,16 @@ class ConnectionOwner(
          */
         const val ECHO_MS = 2_000L
 
+        /**
+         * The longest the stream may say nothing before its socket is presumed dead: the platform's
+         * read timeout on the stream (`HttpsMac`). The Mac writes a keep-alive whenever 15 s pass
+         * with no frame (`phone/mod.rs` `KEEPALIVE_MS`, written by `phone/listen.rs`), so a live stream is never silent for
+         * longer than that; 5 s more covers a late keep-alive. Was 45 s (three missed keep-alives).
+         * The idle case's detector, where no send arms [ECHO_MS]: a reply the Mac starts on its own
+         * (a message typed at the Mac) reaches a phone whose stream died within about 20 s plus one reopen.
+         */
+        const val STREAM_SILENCE_MS = 20_000L
+
         fun backoffMs(attempt: Int): Long = minOf(FIRST_RETRY_MS shl (attempt - 1).coerceIn(0, 20), MAX_RETRY_MS)
 
         /**

@@ -375,6 +375,19 @@ class ReturnWaitsTest {
         job.cancel()
     }
 
+    /**
+     * The idle case, where no send arms the 2 s check: the stream's socket gives up after this much
+     * silence (`HttpsMac` `STREAM_READ_TIMEOUT_MS` is this value). The Mac writes a keep-alive after
+     * 15 s without a frame (`phone/mod.rs` `KEEPALIVE_MS`): one late keep-alive must not cut a live
+     * stream, and a dead one must not take three keep-alives (45 s) to notice.
+     */
+    @Test
+    fun `an idle stream is given up after one missed keep-alive, not three`() {
+        val macKeepAliveMs = 15_000L
+        assertTrue(ConnectionOwner.STREAM_SILENCE_MS > macKeepAliveMs, "a live stream is never cut between keep-alives")
+        assertTrue(ConnectionOwner.STREAM_SILENCE_MS <= macKeepAliveMs + 5_000, "one keep-alive late, then dead: ${ConnectionOwner.STREAM_SILENCE_MS}")
+    }
+
     @Test
     fun `the values these tests state are the connection owner's`() {
         assertEquals(CHALLENGE_REUSE_MS, ConnectionOwner.CHALLENGE_REUSE_MS)
