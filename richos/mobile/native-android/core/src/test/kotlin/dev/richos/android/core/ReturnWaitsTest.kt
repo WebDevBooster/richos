@@ -38,12 +38,16 @@ class ReturnWaitsTest {
         }
     }
 
-    /** Every stream opens 200, says hello, and stays open until the phone closes it. */
-    private class Streams(val log: MutableList<String>) : EventStream {
+    /**
+     * Every stream opens 200, says hello, and stays open until the phone closes it, unless
+     * [refusals] names its opening (1-based) with another status, which the Mac answers with no body.
+     */
+    private class Streams(val log: MutableList<String>, val refusals: Map<Int, Int> = emptyMap()) : EventStream {
         var opened = 0
         override suspend fun open(request: HttpRequest, onOpen: suspend (Int) -> Unit, onBytes: suspend (ByteArray) -> Unit) {
             opened++
             log += "STREAM " + request.url.substringAfter(Fixtures.ORIGIN).substringBefore("&auth=")
+            refusals[opened]?.let { status -> onOpen(status); return }
             onOpen(200)
             onBytes(HELLO.toByteArray())
             awaitCancellation()
@@ -160,7 +164,94 @@ class ReturnWaitsTest {
         job.cancel()
     }
 
+    // --- 2. no sign-in round trip before the stream while the held challenge is good -----------
+
+    /** The phone on screen with its first stream open, then away for [awayMs], then back. */
+    private suspend fun TestScope.returnAfter(awayMs: Long, mac: Mac, streams: Streams, log: MutableList<String>): RichCore {
+        val core = core(Disk(emptyList()), Sends(), mac)
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals(1, streams.opened)
+        assertEquals("from-hello", core.state.pairing.challenge, "the hello's challenge is held")
+        owner.backgrounded(); runCurrent()
+        testScheduler.advanceTimeBy(awayMs); runCurrent()
+        log.clear()
+        owner.foregrounded(); runCurrent()
+        return core
+    }
+
+    /**
+     * The hello handed the phone a challenge 60 s ago; the Mac honors one for 10 minutes
+     * (`device.rs` `CHALLENGE_LIFETIME_MS`). On main every reconnect asked `GET /api/challenge`
+     * first, a full round trip before the stream's first byte.
+     */
+    @Test
+    fun `a return with a challenge the Mac still honors makes the stream request first`() = runTest {
+        val log = mutableListOf<String>()
+        val mac = Mac(log) { HttpResponse(404, mapOf("x-richos-challenge" to "fresh"), ByteArray(0)) }
+        val streams = Streams(log)
+        val core = returnAfter(60_000, mac, streams, log)
+        assertTrue(log.firstOrNull()?.startsWith("STREAM /api/events") == true, "the stream is the first request of the return: $log")
+        assertTrue(log.none { it.startsWith("GET /api/challenge") }, "no challenge round trip: $log")
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+    }
+
+    /** Past the reuse age (8 of the Mac's 10 minutes), the phone asks for a fresh one first, as before. */
+    @Test
+    fun `a return with a challenge near the end of its life asks for a fresh one first`() = runTest {
+        val log = mutableListOf<String>()
+        val mac = Mac(log) { HttpResponse(404, mapOf("x-richos-challenge" to "fresh"), ByteArray(0)) }
+        val streams = Streams(log)
+        val core = returnAfter(CHALLENGE_REUSE_MS, mac, streams, log)
+        assertEquals("GET /api/challenge", log.first(), "an old challenge is replaced before the stream: $log")
+        assertTrue(log[1].startsWith("STREAM /api/events"), "$log")
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+    }
+
+    /**
+     * The Mac forgot the held challenge (it restarted, say): the stream is refused 404. On main that
+     * cost a probe request and the 1 s back-off before the next try. Now: one fresh challenge and
+     * the stream again, at once, with no probe.
+     */
+    @Test
+    fun `a stream refused for its challenge is opened again at once with a fresh one`() = runTest {
+        val log = mutableListOf<String>()
+        val mac = Mac(log) { HttpResponse(404, mapOf("x-richos-challenge" to "fresh"), ByteArray(0)) }
+        val streams = Streams(log, refusals = mapOf(2 to 404))
+        val core = returnAfter(60_000, mac, streams, log)
+        assertEquals(3, streams.opened, "refused, then open again in the same tick: $log")
+        assertEquals(listOf("STREAM", "GET /api/challenge", "STREAM"), log.map { if (it.startsWith("STREAM")) "STREAM" else it }, "no probe in between")
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        assertEquals(0L, testScheduler.currentTime - 60_000, "no back-off wait")
+    }
+
+    /**
+     * A stalled network holds the challenge request (main: 10 s connect plus 30 s read in
+     * `HttpsMac`). It gets [QUICK_REQUEST_MS] and no more; then the stream is tried.
+     */
+    @Test
+    fun `a stalled challenge request is cut short and the stream is tried`() = runTest {
+        val log = mutableListOf<String>()
+        val mac = Mac(log) { r ->
+            if (r.url.contains("/api/challenge")) awaitCancellation()
+            HttpResponse(404, emptyMap(), ByteArray(0))
+        }
+        val streams = Streams(log)
+        returnAfter(CHALLENGE_REUSE_MS, mac, streams, log)
+        assertEquals(1, streams.opened, "the stream waits for the challenge request: $log")
+        testScheduler.advanceTimeBy(QUICK_REQUEST_MS - 1); runCurrent()
+        assertEquals(1, streams.opened)
+        testScheduler.advanceTimeBy(2); runCurrent()
+        assertEquals(2, streams.opened, "cut at ${QUICK_REQUEST_MS} ms, then the stream: $log")
+    }
+
     companion object {
+        /** A challenge younger than this is presented as it is: 8 of the Mac's 10 minutes. */
+        const val CHALLENGE_REUSE_MS = 8 * 60_000L
+        /** The most the challenge request (and the revocation probe) may hold the stream. */
+        const val QUICK_REQUEST_MS = 3_000L
+
         const val HELLO = "id: 2\nevent: hello\ndata: {\"challenge\":\"from-hello\",\"thread_id\":\"general\",\"capabilities\":[\"text\"],\"messages\":[]}\n\n"
     }
 }
