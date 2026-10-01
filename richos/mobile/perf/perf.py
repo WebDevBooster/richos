@@ -7,14 +7,25 @@
     perf.py check RECORD.json [...]                                     a record's structural promises
     perf.py budgets                                                      the PRD §7 budgets this compares to
     perf.py merge PART.json PART.json [--out FILE]                      one record from a run split across boots
+    perf.py compare RECORD.json [RECORD.json] [--benchmark FILE] [--json]
+                                    cold launch and warm resume p95 against the start times already
+                                    achieved (benchmarks.json); two records of one build (an iOS cold
+                                    series and its warm series) are judged as one
+    perf.py benchmark-update RECORD.json... [--benchmark FILE] [--allow-slower REASON]
+                                    the only way a benchmark number changes; commit the file after
 
 On Android use it through `randroid emu perf [options]`, which supplies the adb, the serial it
 recorded and the stamp of the APK it installed; a physical phone is named explicitly with
 `--kind physical --serial <serial>` and is checked to be one.
 
+Every record `android`, `ios` and `merge` write is also compared with benchmarks.json: the result is
+the record's `benchmark`, and a slower build's `acceptance` reads REFUSED.
+
 Exit 0 a record was written; 1 a phase failed (the record still says which and why); 2 usage;
 3 REFUSED: the installed build is not the stamped one, the stamp is not the expected commit, or
-the device is not the kind named. The record goes to --out (default: stdout). It is the measurement
+the device is not the kind named; 4 the record was written and a p95 is SLOWER than the established
+benchmark by more than the measured noise. `compare`: 0 nothing slower and at least one metric
+compared, 4 slower, 5 nothing could be compared (no verdict). The record goes to --out (default: stdout). It is the measurement
 PRD §9 step 1 asks for (private record: richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md);
 see README.md beside this file for every method and every budget it cannot measure yet.
 """
@@ -31,8 +42,12 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import benchmark  # noqa: E402
 import perfcore  # noqa: E402
 from perfcore import Refused, Unmeasurable  # noqa: E402
+
+EXIT_SLOWER = 4
+EXIT_NOT_COMPARED = 5
 
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
@@ -166,11 +181,61 @@ def cmd_merge(args):
         with open(path) as f:
             parts.append(json.load(f))
     merged = merge_records(parts)
+    slower = judge(merged, args.benchmark)
     problems = perfcore.check_record(merged)
     if problems:
         merged["recordProblems"] = problems
     emit(merged, args.out)
-    return 1 if problems else 0
+    return EXIT_SLOWER if slower else 1 if problems else 0
+
+
+def judge(record, bench_path=None, log=None):
+    """Compare a record just written with the established benchmark: the result goes into the
+    record as `benchmark`, every metric is printed, and a slower build's acceptance reads REFUSED.
+    Returns True when a p95 is slower than the benchmark by more than the noise allowance."""
+    log = log or (lambda s: print(s, file=sys.stderr, flush=True))
+    try:
+        result = benchmark.compare([record], benchmark.load(bench_path), bench_path)
+    except Refused as e:
+        result = {"verdict": benchmark.VERDICT_NONE, "why": str(e), "metrics": {}}
+        log(f"benchmark: NOT COMPARED: {e}")
+    else:
+        for line in benchmark.lines(result):
+            log(f"benchmark: {line}")
+    record["benchmark"] = result
+    if result["verdict"] != benchmark.VERDICT_SLOWER:
+        return False
+    slow = [f"{name} p95 {r['p95Ms']} ms is over the limit {r['limitMs']} ms (benchmark {r['benchmarkP95Ms']} ms "
+            f"+ {r['allowancePercent']}% noise)" for name, r in result["metrics"].items() if r["status"] == benchmark.SLOWER]
+    acceptance = record.setdefault("acceptance", {})
+    acceptance["verdict"] = "REFUSED: slower than the established benchmark"
+    acceptance["why"] = slow + list(acceptance.get("why") or [])
+    return True
+
+
+def cmd_compare(args):
+    records = []
+    for path in args.records:
+        with open(path) as f:
+            records.append(json.load(f))
+    result = benchmark.compare(records, benchmark.load(args.benchmark), args.benchmark)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print("\n".join(benchmark.lines(result)))
+    return {benchmark.VERDICT_SLOWER: EXIT_SLOWER, benchmark.VERDICT_NONE: EXIT_NOT_COMPARED}.get(result["verdict"], 0)
+
+
+def cmd_benchmark_update(args):
+    path = args.benchmark or benchmark.DEFAULT
+    bench = benchmark.load(path)
+    changes = benchmark.update(bench, args.records, allow_slower=args.allow_slower)
+    with open(path, "w") as f:
+        f.write(benchmark.dump(bench))
+    for line in changes:
+        print(line)
+    print(f"written: {path} (commit it: a benchmark changes only by a committed update)")
+    return 0
 
 
 def cmd_budgets(_args):
@@ -609,6 +674,7 @@ def parse_args(argv):
     a.add_argument("--type-text", default="measuredtypingcost")
     a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")
+    a.add_argument("--benchmark", help="the benchmark file the record is judged against (default: benchmarks.json here)")
     i = sub.add_parser("ios", help="measure an iOS build with explicit evidence boundaries")
     target = i.add_mutually_exclusive_group(required=True)
     target.add_argument("--simulator", help="a simulator UDID (never 'booted')")
@@ -629,6 +695,7 @@ def parse_args(argv):
                    help="an argument for the app's launches (a Debug fixture on a simulator; none on a phone)")
     i.add_argument("--background-seconds", type=float, default=60.0)
     i.add_argument("--background-settle", type=float, default=5.0)
+    i.add_argument("--benchmark", help="the benchmark file the record is judged against (default: benchmarks.json here)")
     s = sub.add_parser("stamp", help="the identity of a build artifact")
     s.add_argument("--artifact", required=True)
     s.add_argument("--checkout", required=True)
@@ -639,6 +706,16 @@ def parse_args(argv):
     mg = sub.add_parser("merge", help="one record from runs split across boots with --only")
     mg.add_argument("records", nargs="+")
     mg.add_argument("--out")
+    mg.add_argument("--benchmark", help="the benchmark file the merged record is judged against")
+    cp = sub.add_parser("compare", help="cold launch and warm resume p95 against the established benchmark")
+    cp.add_argument("records", nargs="+", help="one record, or the cold and warm records of one build")
+    cp.add_argument("--benchmark", help="default: benchmarks.json beside this tool")
+    cp.add_argument("--json", action="store_true", help="the whole comparison as JSON")
+    bu = sub.add_parser("benchmark-update", help="establish or raise benchmarks from sound records; commit the file after")
+    bu.add_argument("records", nargs="+")
+    bu.add_argument("--benchmark", help="default: benchmarks.json beside this tool")
+    bu.add_argument("--allow-slower", metavar="REASON",
+                    help="let a slower series replace a benchmark; the reason is written beside the number")
     return p.parse_args(argv)
 
 
@@ -663,16 +740,21 @@ def main(argv=None):
             return cmd_budgets(args)
         if args.cmd == "merge":
             return cmd_merge(args)
+        if args.cmd == "compare":
+            return cmd_compare(args)
+        if args.cmd == "benchmark-update":
+            return cmd_benchmark_update(args)
         if args.cmd == "android":
             record, failures = run_android(args)
         else:
             import ios
             record, failures = ios.run_ios(args)
+        slower = judge(record, args.benchmark)
         problems = perfcore.check_record(record)
         if problems:
             record.setdefault("recordProblems", problems)
         emit(record, args.out)
-        return 1 if failures or problems else 0
+        return EXIT_SLOWER if slower else 1 if failures or problems else 0
     except Refused as e:
         print(json.dumps({"ok": False, "refused": str(e)}), file=sys.stderr)
         return 3

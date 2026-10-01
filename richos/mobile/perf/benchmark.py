@@ -1,0 +1,277 @@
+"""benchmark — a new perf record against the start times RichConnect has already achieved.
+
+`benchmarks.json` beside this file holds, per device class (platform, device kind, model, build
+configuration and route), the best p95 measured so far for cold launch and warm resume, each with
+the record, the build commit and the date it came from, and the run-to-run noise allowance derived
+from the repeated series of that class. A class that was never measured as a distribution says so
+in the file and carries no number.
+
+    compare(records, bench)  every metric, each FASTER, WITHIN NOISE, SLOWER or NOT COMPARED (why)
+    update(bench, records)   the only way a number in the file changes; the caller commits the file
+
+The noise rule. A p95 from n trials is itself a random number: run the same build again and it
+moves. For each repeated series of a class, `p95_noise` resamples the series' own samples with
+replacement (2000 resamples, seeded, so the same samples always give the same answer), takes the
+nearest-rank p95 of each resample, and calls the standard deviation of those p95s the series'
+standard error (SE). The difference of two independent runs' p95s has standard error sqrt(2) x SE,
+so 1.96 x sqrt(2) x SE is its 95% bound: a rerun of the same build lands above the benchmark by more
+than that about one time in forty. That is the series' two-run bound, as a percent of its p95. A class's allowance for a metric is the MEDIAN of its
+series' bounds: one series dominated by a single long-tail trial cannot widen it for everyone.
+A record is SLOWER when its p95 exceeds benchmark x (1 + allowance). Nothing else loosens it.
+
+Why not the spread between the series: on 2026-09-24 the three physical Android series measured
+three different builds (c6cdd8a8, 7dd8b373, e768c515) with about 1,300 changed lines of Android
+source between them (git diff --stat over richos/mobile/native-android: 1,082 then 215), and cold p95 rose 849.55 -> 880.80 -> 936.73 ms with p50 rising alongside
+(808.51 -> 844.79 -> 892.15 ms). That spread is the kind of change this check exists to catch, so
+it cannot also be the allowance.
+"""
+import hashlib
+import json
+import math
+import os
+import random
+import statistics
+
+import perfcore
+from perfcore import Refused
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+DEFAULT = os.path.join(HERE, "benchmarks.json")
+SCHEMA = "richos-mobile-perf-benchmarks/1"
+METRICS = ("coldLaunch", "warmResume")
+BOOTSTRAP_RESAMPLES = 2000
+BOOTSTRAP_SEED = 95
+Z = 1.96
+
+FASTER, WITHIN, SLOWER, NOT_COMPARED = "FASTER", "WITHIN NOISE", "SLOWER", "NOT COMPARED"
+VERDICT_SLOWER = "SLOWER THAN THE ESTABLISHED BENCHMARK"
+VERDICT_OK = "NOT SLOWER"
+VERDICT_NONE = "NOT COMPARED"
+
+
+def lookup(record, dotted):
+    node = record
+    for part in dotted.split("."):
+        if not isinstance(node, dict):
+            return None
+        node = node.get(part)
+    return node
+
+
+def p95_noise(samples):
+    """The bootstrap standard error of a series' nearest-rank p95 and its two-run bound (module doc).
+    None below 20 samples, where there is no p95 to be noisy."""
+    n = len(samples)
+    if n < 20:
+        return None
+    rng = random.Random(BOOTSTRAP_SEED)
+    boots = [perfcore.percentile([rng.choice(samples) for _ in samples], 95) for _ in range(BOOTSTRAP_RESAMPLES)]
+    se = statistics.pstdev(boots)
+    base = perfcore.percentile(samples, 95)
+    bound = Z * math.sqrt(2) * se
+    return {"n": n, "p95Ms": base, "bootstrapSeMs": round(se, 2), "twoRunBoundMs": round(bound, 2),
+            "twoRunBoundPercent": round(100.0 * bound / base, 2) if base else None}
+
+
+def allowance(series):
+    bounds = [s["twoRunBoundPercent"] for s in series if s.get("twoRunBoundPercent") is not None]
+    return round(statistics.median(bounds), 2) if bounds else None
+
+
+def load(path=None):
+    path = path or DEFAULT
+    try:
+        with open(path) as f:
+            bench = json.load(f)
+    except (OSError, ValueError) as e:
+        raise Refused(f"the benchmark file {path} is unreadable: {e}")
+    if bench.get("schema") != SCHEMA:
+        raise Refused(f"{path}: schema is {bench.get('schema')!r}, not {SCHEMA}")
+    for cls in bench.get("classes") or []:
+        if not cls.get("name") or not isinstance(cls.get("match"), dict) or not isinstance(cls.get("metrics"), dict):
+            raise Refused(f"{path}: a class lacks name, match or metrics: {cls.get('name')!r}")
+        if not cls["metrics"] and not cls.get("neverEstablished"):
+            raise Refused(f"{path}: class {cls['name']} has no numbers and does not say why (neverEstablished)")
+        for name, m in cls["metrics"].items():
+            for key in ("p95Ms", "allowancePercent", "source", "noiseSeries"):
+                if m.get(key) in (None, [], {}):
+                    raise Refused(f"{path}: {cls['name']} {name} has no {key}")
+            for key in ("record", "commit", "date"):
+                if not m["source"].get(key):
+                    raise Refused(f"{path}: {cls['name']} {name}'s source names no {key}")
+    return bench
+
+
+def find_class(record, bench):
+    """The class whose every match key equals the record's; else (None, why)."""
+    near = []
+    for cls in bench.get("classes") or []:
+        diffs = [f"{k} is {lookup(record, k)!r}, the benchmark's is {v!r}"
+                 for k, v in cls["match"].items() if lookup(record, k) != v]
+        if not diffs:
+            return cls, None
+        same_kind = all(lookup(record, k) == cls["match"].get(k) for k in ("platform", "device.kind") if k in cls["match"])
+        if same_kind:
+            near.append(f"{cls['name']}: " + "; ".join(diffs))
+    what = f"{record.get('platform')} {lookup(record, 'device.kind')} {lookup(record, 'device.model')!r}"
+    return None, (f"no benchmark class for {what} under these conditions"
+                  + (f" ({' | '.join(near)})" if near else ""))
+
+
+def _identity(record):
+    return (record.get("platform"), lookup(record, "device.kind"), lookup(record, "device.model"),
+            lookup(record, "build.configuration"))
+
+
+def _metrics(records):
+    """One metric table from one or more records of ONE build (a split iOS series is a pair)."""
+    first = records[0]
+    table = {}
+    for r in records:
+        if _identity(r) != _identity(first):
+            raise Refused(f"cannot compare together: {_identity(r)} is not {_identity(first)}")
+        built = lookup(r, "build.builtSha256") or lookup(r, "build.installedSha256")
+        if built != (lookup(first, "build.builtSha256") or lookup(first, "build.installedSha256")):
+            raise Refused("cannot compare together: the records measured different build bytes")
+        for name in METRICS:
+            if name in (r.get("metrics") or {}):
+                if name in table:
+                    raise Refused(f"cannot compare together: {name} appears in two records")
+                table[name] = r["metrics"][name]
+    return table
+
+
+def compare(records, bench, bench_path=None):
+    """Every metric in METRICS, compared or said why not. Never only a pass."""
+    if not records:
+        raise Refused("no record to compare")
+    table = _metrics(records)
+    cls, why = find_class(records[0], bench)
+    out = {"benchmarkFile": _display(bench_path or DEFAULT), "class": cls["name"] if cls else None,
+           "rule": "SLOWER when p95 > benchmark p95 x (1 + allowancePercent/100); allowance = median over "
+                   "the class's repeated series of 1.96 x sqrt(2) x bootstrap SE of p95 (benchmark.py)",
+           "metrics": {}}
+    for name in METRICS:
+        row = {"status": NOT_COMPARED}
+        metric = table.get(name)
+        summary = (metric or {}).get("stats") or {}
+        p95 = summary.get("p95")
+        if metric is not None:
+            row.update({"p95Ms": p95, "n": summary.get("n")})
+        if cls is None:
+            row["why"] = why
+        elif name not in cls["metrics"]:
+            row["why"] = cls.get("neverEstablished") or f"{cls['name']} has no established {name}"
+        elif metric is None:
+            row["why"] = f"the record has no {name}"
+        elif p95 is None:
+            row["why"] = summary.get("why") or f"{name} has no p95"
+        else:
+            b = cls["metrics"][name]
+            limit = round(b["p95Ms"] * (1 + b["allowancePercent"] / 100.0), 2)
+            delta = round(p95 - b["p95Ms"], 2)
+            row.update({"benchmarkP95Ms": b["p95Ms"], "allowancePercent": b["allowancePercent"], "limitMs": limit,
+                        "deltaMs": delta, "deltaPercent": round(100.0 * delta / b["p95Ms"], 2),
+                        "benchmarkSource": {k: b["source"][k] for k in ("record", "commit", "date")}})
+            if p95 > limit:
+                row["status"] = SLOWER
+            elif p95 < b["p95Ms"]:
+                row["status"] = FASTER
+                row["note"] = ("faster than the established benchmark; it raises the benchmark only through "
+                               "`perf.py benchmark-update` and a commit of benchmarks.json")
+            else:
+                row["status"] = WITHIN
+        out["metrics"][name] = row
+    statuses = [r["status"] for r in out["metrics"].values()]
+    out["verdict"] = (VERDICT_SLOWER if SLOWER in statuses
+                      else VERDICT_NONE if all(s == NOT_COMPARED for s in statuses) else VERDICT_OK)
+    return out
+
+
+def lines(result):
+    """The comparison as text: one line per metric, then the verdict."""
+    rows = []
+    for name, r in result["metrics"].items():
+        if r["status"] == NOT_COMPARED:
+            rows.append(f"{name:11s} {r['status']:12s} {r['why']}")
+            continue
+        src = r["benchmarkSource"]
+        rows.append(f"{name:11s} {r['status']:12s} p95 {r['p95Ms']} ms (n {r['n']}) vs benchmark {r['benchmarkP95Ms']} ms "
+                    f"({r['deltaMs']:+} ms, {r['deltaPercent']:+}%; allowance {r['allowancePercent']}% -> limit "
+                    f"{r['limitMs']} ms) [benchmark {src['commit'][:8]} {src['date']}]")
+    rows.append(f"verdict: {result['verdict']} (class {result['class']}, {result['benchmarkFile']})")
+    return rows
+
+
+def _display(path):
+    """A path as the benchmark file names it: repository-relative inside this repository,
+    `richos-hq/...` for the private record, otherwise as given."""
+    full = os.path.realpath(path)
+    if full.startswith(os.path.realpath(REPO) + os.sep):
+        return os.path.relpath(full, os.path.realpath(REPO))
+    marker = os.sep + "richos-hq" + os.sep
+    if marker in full:
+        return "richos-hq" + os.sep + full.split(marker, 1)[1]
+    return path
+
+
+def _sha256(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def update(bench, paths, allow_slower=None):
+    """Bring each record's cold and warm series into its class: established when the class had no
+    number, raised when faster, kept when not faster (unless `allow_slower` gives the reason, which
+    is written beside the number). Every series joins the class's noise series and the allowance is
+    recomputed. Returns one sentence per change; the caller writes and commits the file."""
+    changes = []
+    for path in paths:
+        with open(path) as f:
+            record = json.load(f)
+        problems = perfcore.check_record(record)
+        if problems:
+            raise Refused(f"{path} is not a sound record: {problems[0]}")
+        if lookup(record, "build.dirty"):
+            raise Refused(f"{path} measured a build made from uncommitted changes; a benchmark names a commit")
+        cls, why = find_class(record, bench)
+        if cls is None:
+            raise Refused(f"{path}: {why}; add the class to benchmarks.json first")
+        label, digest = _display(path), _sha256(path)
+        source = {"record": label, "recordSha256": digest, "commit": lookup(record, "build.commit"),
+                  "date": (record.get("startedAt") or "")[:10]}
+        for name in METRICS:
+            samples = ((record.get("metrics") or {}).get(name) or {}).get("samplesMs") or []
+            noise = p95_noise(samples)
+            if noise is None:
+                if samples:
+                    changes.append(f"{cls['name']} {name}: {label} has {len(samples)} samples, no p95; not used")
+                continue
+            current = cls["metrics"].get(name)
+            series = [s for s in (current or {}).get("noiseSeries", []) if s.get("recordSha256") != digest]
+            series.append(dict(source, **noise))
+            p95 = noise["p95Ms"]
+            if not current:
+                current = {"p95Ms": p95, "source": source}
+                changes.append(f"{cls['name']} {name}: established at {p95} ms from {label}")
+            elif p95 < current["p95Ms"]:
+                changes.append(f"{cls['name']} {name}: raised {current['p95Ms']} -> {p95} ms (faster) from {label}")
+                current = {"p95Ms": p95, "source": source}
+            elif p95 > current["p95Ms"] and allow_slower:
+                changes.append(f"{cls['name']} {name}: LOWERED {current['p95Ms']} -> {p95} ms from {label}: {allow_slower}")
+                current = {"p95Ms": p95, "source": source, "loweredBecause": allow_slower}
+            else:
+                changes.append(f"{cls['name']} {name}: kept {current['p95Ms']} ms; {label} measured {p95} ms "
+                               "(not faster; it joins the noise series only)")
+                current = {k: v for k, v in current.items() if k not in ("allowancePercent", "noiseSeries")}
+            current["noiseSeries"] = series
+            current["allowancePercent"] = allowance(series)
+            cls["metrics"][name] = {k: current[k] for k in ("p95Ms", "allowancePercent", "source", "loweredBecause", "noiseSeries")
+                                    if k in current}
+            cls.pop("neverEstablished", None)
+    return changes
+
+
+def dump(bench):
+    return json.dumps(bench, indent=2, ensure_ascii=False) + "\n"
