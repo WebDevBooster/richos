@@ -166,7 +166,7 @@ mutant p09-readonly-not-registered "test_point_09_a_restarted_read_only_agent_is
     "a read-only agent would carry no registration, so the lock-out could never find it finished and a restarted Explore — which carries Bash — could write (point 9)."
 
 mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stopped_before_deletion" "$W" \
-    '    pids = processes_in(paths)' \
+    '    pids = processes_in(paths, deadline)' \
     '    pids = []' \
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 

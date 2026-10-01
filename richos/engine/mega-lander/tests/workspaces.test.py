@@ -1337,7 +1337,7 @@ while True: time.sleep(.1)
         else:
             self.merge(self.entity, 'worktree-agent-' + aid)
         self.finish(aid)
-        def partial_remove(w):
+        def partial_remove(w, deadline=None):
             pointer = os.path.join(w['path'], '.git')
             with open(pointer) as f:
                 admin = f.read().removeprefix('gitdir:').strip()
@@ -3214,6 +3214,100 @@ class Finding15_TheBudgetReachesTheWork(Base):
         self.assertTrue(ws._same_file(a, b))
         with self.assertRaises(ws.Deadline):
             ws._same_file(a, b, deadline=ws.now() - 1)
+
+
+class HuntV2_03_TheBudgetBoundsEveryCleanupStage(Base):
+    """Hunt part 4 v2, V2-03: the shared deadline reached the retries and the
+    proof, but process shutdown, container and test-instance cleanup, the
+    300 s `git worktree remove` and branch deletion still ran on their own
+    clocks, so a cleanup kept starting work after its caller's budget ended."""
+
+    def _discarded(self, name):
+        aid, path = self.spawn(name)
+        self.finish(aid)
+        rec = self.rec(name)
+        rec["disposition"] = {"kind": "discarded", "at": ws.now(), "reason": "fixture only"}
+        ws.save_agent(rec)
+        return rec, path
+
+    def test_v2_03_no_cleanup_stage_starts_after_the_deadline(self):
+        rec, path = self._discarded("zach-opus-timev2")
+        clock = [100.0]
+        calls = []
+
+        def slow_containers(paths):
+            calls.append("containers")
+            clock[0] += 10.0                                   # past the 105 deadline
+            return {}
+
+        def instances(paths, **kw):
+            calls.append("test-instances")
+            return {}
+        with patch.object(ws, "now", side_effect=lambda: clock[0]), \
+                patch.object(ws, "stop_containers", side_effect=slow_containers), \
+                patch.object(ws, "stop_test_instances", side_effect=instances), \
+                patch.object(ws, "remove_workspace", side_effect=AssertionError("removal started late")):
+            ok = ws._delete(rec, ws.live_workspaces(rec), branches=True, why="v2-03",
+                            processes={"stopped": [], "survivors": []}, deadline=105.0)
+        self.assertFalse(ok)
+        self.assertEqual(calls, ["containers"], "a stage started after the deadline")
+        self.assertTrue(os.path.isdir(path))
+        d = self.rec("zach-opus-timev2")["deletion"]
+        self.assertIn("budget ran out", d["deferred"])
+        self.assertEqual(d.get("attempts", 0), 0, "running out of time was counted as a failure")
+        self.assertEqual([ok for _k, ok in ws.retry_due()], [True])   # with time, it finishes
+        self.assertFalse(os.path.exists(path))
+
+    def test_v2_03_no_branch_is_deleted_after_the_deadline(self):
+        rec, path = self._discarded("zach-opus-timev3")
+        clock = [100.0]
+        real_remove = ws.remove_workspace
+
+        def slow_remove(w, deadline=None):
+            clock[0] += 10.0
+            return real_remove(w)
+        with patch.object(ws, "now", side_effect=lambda: clock[0]), \
+                patch.object(ws, "stop_containers", return_value={}), \
+                patch.object(ws, "stop_test_instances", return_value={}), \
+                patch.object(ws, "remove_workspace", side_effect=slow_remove), \
+                patch.object(ws, "delete_branch", side_effect=AssertionError("branch deleted late")):
+            ok = ws._delete(rec, ws.live_workspaces(rec), branches=True, why="v2-03",
+                            processes={"stopped": [], "survivors": []}, deadline=105.0)
+        self.assertFalse(ok)
+        self.assertFalse(os.path.exists(path))
+        self.assertIn("worktree-agent-" + rec["agent_id"], branches(self.entity))
+        self.assertEqual(self.rec("zach-opus-timev3")["deletion"].get("attempts", 0), 0)
+
+    def test_v2_03_the_git_removal_gets_what_is_left_not_its_own_300_seconds(self):
+        rec, path = self._discarded("zach-opus-timev4")
+        seen = []
+        real_git = ws.git
+
+        def spy(repo, *args, **kw):
+            if args[:2] == ("worktree", "remove"):
+                seen.append(kw.get("timeout"))
+            return real_git(repo, *args, **kw)
+        with patch.object(ws, "git", side_effect=spy):
+            self.assertTrue(ws.remove_workspace(ws.live_workspaces(rec)[0], deadline=ws.now() + 5)[0])
+        self.assertEqual(len(seen), 1)
+        self.assertLessEqual(seen[0], 5.0)
+
+    def test_v2_03_a_land_past_its_deadline_stops_nothing(self):
+        aid, npath = self.spawn("zach-opus-timev5")
+        self.commit(npath)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        with patch.object(ws, "stop_processes", side_effect=AssertionError("stopped past the deadline")):
+            with self.assertRaises(ws.Deadline):
+                ws.land("zach-opus-timev5", self.sid, auto=True, deadline=ws.now() - 1)
+        self.assertTrue(os.path.isdir(npath))
+
+    def test_v2_03_a_process_listing_that_did_not_finish_is_unknown_not_none(self):
+        aid, npath = self.spawn("zach-opus-timev6")
+        with patch.object(ws, "_process_cwds", return_value=None):
+            res = ws.stop_processes([npath], deadline=ws.now() + 5)
+        self.assertTrue(res.get("unknown"))
+        self.assertEqual(res["stopped"], [])
 
 
 class HuntV2_04_ADamagedRecordIsNotAMissingOne(Base):

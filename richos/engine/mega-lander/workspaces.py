@@ -2946,6 +2946,16 @@ def _past(deadline):
     return deadline is not None and now() >= deadline
 
 
+def _bounded(deadline, cap):
+    """A subprocess timeout that does not outlive the caller's deadline (hunt
+    part 4 v2, V2-03): the smaller of `cap` and what is left, and at least one
+    second, so a call already admitted is never handed zero. A caller that
+    must not START a step past its deadline checks _past first."""
+    if deadline is None:
+        return cap
+    return max(1.0, min(float(cap), deadline - now()))
+
+
 def _gate_deadline(default_seconds):
     v = (os.environ.get("RICHOS_WORKSPACES_GATE_BUDGET") or "").strip()
     try:
@@ -4560,11 +4570,21 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     if early:
         raise SpecError(_not_landed_message(rec, early))
     # Shutdown can flush files or create commits. Prove landing only after it.
+    # No stage starts past the caller's deadline (V2-03): out of time is a
+    # Deadline, which leaves the work pending, never a stage begun late.
     paths = [w["path"] for r in chain for w in live_workspaces(r) if w.get("path")]
-    stopped = stop_processes(paths)
+    if _past(deadline):
+        raise Deadline("the budget ran out before %s's processes were stopped" % rec["name"])
+    stopped = stop_processes(paths, deadline=deadline)
     if stopped.get("survivors"):
         raise SpecError("cannot land %s: workspace processes are still running: %s" %
                         (rec["name"], stopped["survivors"]))
+    if stopped.get("unknown"):
+        if _past(deadline):
+            raise Deadline("the budget ran out before %s's processes could be listed" % rec["name"])
+        raise SpecError("cannot land %s: %s" % (rec["name"], stopped["unknown"]))
+    if _past(deadline):
+        raise Deadline("the budget ran out before %s's containers were stopped" % rec["name"])
     containers = stop_containers(paths)
     if containers.get("failed"):
         raise SpecError("cannot land %s: workspace containers could not be stopped" % rec["name"])
@@ -4625,7 +4645,12 @@ def _not_in_integration(rec, chain, preserved=(), deadline=None, definite_only=F
                 missing.append("%s: %s" % (w.get("path") or w.get("branch"), why_not))
                 continue
             if not w.get("deleted_at") and w.get("path") and os.path.isdir(w["path"]):
-                rc, out, err = git(w["path"], "rev-parse", "HEAD")
+                # Every git read, not only the branch loop, looks at the
+                # clock (V2-03).
+                if _past(deadline):
+                    raise Deadline("the budget ran out before %s's workspaces could be proved to be in "
+                                   "the branch this work integrates on" % rec["name"])
+                rc, out, err = git(w["path"], "rev-parse", "HEAD", timeout=_bounded(deadline, 60))
                 # A HEAD that could not be READ is not a HEAD that is in the
                 # integration branch: nothing was proved, so the land waits
                 # (hunt part 4, finding 4). The one directory that has no HEAD
@@ -4701,7 +4726,10 @@ def discard(ref, reason, ceo_word="", not_ceo_ordered="", me=""):
 
 def _delete_chain(chain, why, processes=None, deadline=None):
     allw = [(r, w) for r in chain for w in live_workspaces(r) if w.get("path")]
-    stopped = processes if processes is not None else stop_processes([w["path"] for _r, w in allw])
+    # Past the deadline nothing is stopped here (V2-03): each _delete below is
+    # handed no shutdown result, sees the deadline and records a deferral.
+    stopped = processes if processes is not None else (
+        None if _past(deadline) else stop_processes([w["path"] for _r, w in allw], deadline=deadline))
     complete = True
     for r in chain:
         if not _delete(r, [w for w in live_workspaces(r) if w.get("path")], branches=True, why=why,
@@ -4720,25 +4748,53 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
     landing proof below used to run without it, so a gate or a retry with a
     stated budget could spend any amount of time comparing files. Running out
     is not a failure and not a change of eligibility: the deletion is simply
-    deferred to the next retry, with nothing deleted and no attempt counted."""
-    if processes is None:
-        processes = stop_processes([w["path"] for w in workspaces])
+    deferred to the next retry, with nothing deleted and no attempt counted.
+
+    THE BUDGET BOUNDS EVERY STAGE, NOT ONLY THE PROOF (hunt part 4 v2, V2-03).
+    Process shutdown, container cleanup, test-instance collection, each
+    workspace removal and each branch deletion used to run on their own
+    clocks once the proof had passed, so a gate with a 20 s budget could
+    start a 300 s `git worktree remove` after its budget was gone. Now no
+    stage STARTS past the deadline (the rest is deferred, exactly as a proof
+    that ran out is), and the subprocesses a stage runs are bounded by what
+    is left of it."""
+    paths = [w["path"] for w in workspaces]
     failures = []
     deferred = ""
     held = False
-    if processes.get("survivors"):
+
+    def out_of_time(before):
+        nonlocal deferred, held
+        if _past(deadline):
+            deferred = "the budget ran out before %s" % before
+            held = True
+        return held
+
+    if processes is None and not out_of_time("its workspaces' processes were stopped"):
+        processes = stop_processes(paths, deadline=deadline)
+    processes = processes or {}
+    if held:
+        pass
+    elif processes.get("survivors"):
         failures.append("processes still running in its workspaces: %s" % processes["survivors"])
         held = True
-    else:
+    elif processes.get("unknown"):
+        # Not listed is not "none running" (V2-03): out of time, it is a
+        # deferral like any other; otherwise a failure, retried.
+        if not out_of_time("its workspaces' processes could be listed"):
+            failures.append(processes["unknown"])
+            held = True
+    elif not out_of_time("its containers were stopped"):
         # Containers first, directories second: a workspace's containers are
         # part of it, and stop_containers never raises. See stop_containers.
-        containers = stop_containers([w["path"] for w in workspaces])
+        containers = stop_containers(paths)
         # §54 addendum 4, and it sits here rather than beside stop_processes
         # for the same reason containers do: it never raises and it never
         # blocks the deletion, so it cannot cost a land that would otherwise
         # have worked. A window that will not close is recorded for the alert,
         # not made into a reason to keep a landed worktree on disk.
-        stop_test_instances([w["path"] for w in workspaces])
+        if not out_of_time("its test instances were collected"):
+            stop_test_instances(paths, deadline=deadline)
         # A CONTAINER THAT COULD NOT BE STOPPED IS A SURVIVOR (hunt part 4,
         # finding 11). It used to be checked for a LANDED disposition only, so
         # a discard deleted the workspace, filed the record as done and left
@@ -4793,17 +4849,17 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
                 deferred = "the budget ran out before %s was deleted" % w.get("path")
                 held = True
                 break
-            ok, err = remove_workspace(w)
+            ok, err = remove_workspace(w, deadline=deadline)
             if ok:
                 w["deleted_at"] = iso()
             else:
                 failures.append(err)
-    if deferred:
-        failures.append(deferred)
     untouched = []
     if branches and not held:
         for repo, b in _branch_targets([rec]):
-            ok, err = delete_branch(repo, b)
+            if out_of_time("branch %s was deleted" % b):
+                break
+            ok, err = delete_branch(repo, b, deadline=deadline)
             if ok is None:
                 # POINT 2, AT THE DELETER: a codex/ ref on this agent's record —
                 # it can only get there by hand or by a defect, since
@@ -4830,6 +4886,8 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
                                            if (p[0], p[1]) != (repo, b)]
             else:
                 failures.append(err)
+    if deferred:
+        failures.append(deferred)
     with Lock():
         fresh = load_agent(rec["key"]) or rec
         fresh["workspaces"] = rec["workspaces"]
@@ -4894,7 +4952,10 @@ def keeps_failing():
     return [r for r in all_agents() if (r.get("deletion") or {}).get("attempts", 0) >= RETRY_TELL_CEO_AFTER]
 
 
-def remove_workspace(w):
+def remove_workspace(w, deadline=None):
+    """Deletes one workspace. With a `deadline` (V2-03) its `git worktree
+    remove` is bounded by what is left of it rather than by its own 300 s; a
+    removal cut short leaves the directory, which is reported and retried."""
     path, repo = w.get("path"), w.get("repo")
     main = main_checkout(repo) if repo and os.path.isdir(repo) else ""
     if not main:
@@ -4926,7 +4987,7 @@ def remove_workspace(w):
                     return False, "%s is not a workspace of %s; not deleted" % (path, main)
             shutil.rmtree(path, ignore_errors=True)
         else:
-            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=300)
+            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=_bounded(deadline, 300))
             if rc != 0 and os.path.lexists(path):
                 return False, "git worktree remove %s failed: %s" % (path, err.strip()[:300])
     # A registration whose directory is gone: remove exactly its own admin entry.
@@ -4964,10 +5025,11 @@ def _admin_dir_for(main, path):
     return ""
 
 
-def delete_branch(repo, b):
+def delete_branch(repo, b, deadline=None):
     """(True, "") deleted or already gone; (False, why) failed, retried later
     (point 13); (None, why) REFUSED BY THE PAGE — a codex/ branch is never
-    touched (point 2), and that is an answer, not a failure to retry."""
+    touched (point 2), and that is an answer, not a failure to retry. With a
+    `deadline` (V2-03) the deleting git call is bounded by what is left."""
     if b.startswith(CODEX_PREFIX):
         return None, "branch %s is codex/; never touched (point 2)" % b
     main = main_checkout(repo)
@@ -4987,7 +5049,7 @@ def delete_branch(repo, b):
     holders = [e["path"] for e in wl if e["branch"] == b]
     if holders:
         return False, "branch %s is still checked out at %s" % (b, holders[0])
-    rc, _o, err = git(main, "branch", "-D", b)
+    rc, _o, err = git(main, "branch", "-D", b, timeout=_bounded(deadline, 60))
     if rc != 0 or branch_tip(main, b):
         return False, "git branch -D %s failed: %s" % (b, err.strip()[:300])
     return True, ""
@@ -4997,8 +5059,14 @@ def delete_branch(repo, b):
 # point 9 — every process it started is stopped before deletion
 # ---------------------------------------------------------------------------
 
-def _process_cwds():
-    """{pid: cwd} for every process the OS will show us."""
+def _process_cwds(timeout=60, strict=False):
+    """{pid: cwd} for every process the OS will show us.
+
+    `strict=True` answers None when the listing could not be made (lsof did not
+    finish in `timeout`, or could not run) instead of {}: an empty answer from
+    a listing that never happened would read as "nothing works there" and let
+    a deletion go ahead over running writers (V2-03 bounds this call by the
+    caller's deadline, which makes "did not finish" a real answer)."""
     out = {}
     if os.path.isdir("/proc/self"):
         for n in os.listdir("/proc"):
@@ -5011,9 +5079,9 @@ def _process_cwds():
     if shutil.which("lsof"):
         try:
             r = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "pn", "-w"], capture_output=True, text=True,
-                               timeout=60, env=_ps_env())
+                               timeout=timeout, env=_ps_env())
         except (OSError, subprocess.TimeoutExpired):
-            return out
+            return None if strict else out
         pid = None
         for line in r.stdout.splitlines():
             if line.startswith("p"):
@@ -5026,14 +5094,15 @@ def _process_cwds():
     return out
 
 
-def process_table():
+def process_table(timeout=30, strict=False):
     """{pid: {"ppid": int, "args": str}} for every process the OS shows, in one
-    `ps` call."""
+    `ps` call. `strict=True` answers None, not {}, when `ps` did not finish or
+    could not run (see _process_cwds)."""
     try:
         r = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,args="], capture_output=True, text=True,
-                           timeout=30, env=_ps_env())
+                           timeout=timeout, env=_ps_env())
     except (OSError, subprocess.TimeoutExpired):
-        return {}
+        return None if strict else {}
     out = {}
     for line in r.stdout.splitlines():
         parts = line.strip().split(None, 2)
@@ -5066,7 +5135,7 @@ def _protected_pids():
     return keep
 
 
-def processes_in(paths):
+def processes_in(paths, deadline=None):
     """The processes that are the workspace's own: every process WORKING in one
     of `paths` (its directory is inside), and every descendant of one, wherever
     that descendant works. Never this process, its ancestors or claude.
@@ -5080,18 +5149,26 @@ def processes_in(paths):
     workspace from elsewhere (`cd / && cargo --manifest-path ...`), and that
     one is owned by its ANCESTRY, which is a fact the OS reports. A process
     whose only tie is its arguments is left running and named in the record
-    (`_named_only`), never signaled."""
+    (`_named_only`), never signaled.
+
+    With a `deadline` (V2-03) the two listings are bounded by it, and a listing
+    that did not finish makes the answer None -- unknown, never "none"."""
     paths = [realpath(p) for p in paths if p]
     if not paths:
         return []
     keep = _protected_pids()
     hits = set()
-    for pid, cwd in _process_cwds().items():
+    cwds = _process_cwds(timeout=_bounded(deadline, 60), strict=deadline is not None)
+    if cwds is None:
+        return None
+    for pid, cwd in cwds.items():
         c = realpath(cwd)
         if any(c == p or c.startswith(p + os.sep) for p in paths):
             hits.add(pid)
     hits -= keep
-    table = process_table()
+    table = process_table(timeout=_bounded(deadline, 30), strict=deadline is not None)
+    if table is None:
+        return None
     grew = bool(hits)
     while grew:
         grew = False
@@ -5116,8 +5193,16 @@ def _named_only(paths, owned):
     return sorted(out)
 
 
-def stop_processes(paths):
-    pids = processes_in(paths)
+def stop_processes(paths, deadline=None):
+    """Point 9. With a `deadline` (V2-03) the process listings are bounded by
+    it, and a listing that could not be made is answered as UNKNOWN (never as
+    "nothing works there"): {"stopped": [], "survivors": [], "unknown": why},
+    which the deleter holds on exactly as it holds on a survivor."""
+    pids = processes_in(paths, deadline)
+    if pids is None:
+        why = "the processes working in its workspaces could not be listed in the time the caller had"
+        event("processes-unknown", paths=paths or None, why=why)
+        return {"stopped": [], "survivors": [], "unknown": why}
     spared = _named_only(paths, set(pids))
     if spared:
         event("processes-named-only", pids=[p for p, _a in spared], args=[a for _p, a in spared],
@@ -5130,9 +5215,9 @@ def stop_processes(paths):
             os.kill(p, signal.SIGTERM)
         except OSError:
             pass
-    deadline = now() + PROCESS_STOP_GRACE
+    grace_until = now() + PROCESS_STOP_GRACE
     alive = list(pids)
-    while alive and now() < deadline:
+    while alive and now() < grace_until:
         time.sleep(0.1)
         alive = [p for p in alive if _alive(p)]
     for p in alive:
@@ -5149,7 +5234,10 @@ def stop_processes(paths):
     # finish (an uninterruptible wait): that one IS a survivor, and it is
     # reported as one instead of hanging the land.
     survivors = [p for p in alive if _alive(p)]
-    kill_deadline = time.monotonic() + PROCESS_KILL_WAIT
+    # Inside the caller's budget too (V2-03): a process still dying when it
+    # runs out is a survivor, which holds the deletion for a retry.
+    kill_deadline = time.monotonic() + (PROCESS_KILL_WAIT if deadline is None
+                                        else min(PROCESS_KILL_WAIT, max(0.5, deadline - now())))
     while survivors and time.monotonic() < kill_deadline:
         time.sleep(0.05)
         survivors = [p for p in survivors if _alive(p)]
@@ -5157,7 +5245,7 @@ def stop_processes(paths):
     return {"stopped": pids, "survivors": survivors}
 
 
-def stop_test_instances(paths):
+def stop_test_instances(paths, deadline=None):
     """§54 ADDENDUM 4: a test instance of the app still running after its agent
     has finished is uncollected garbage, and the land step collects it.
 
@@ -5213,7 +5301,11 @@ def stop_test_instances(paths):
               collected=[d["pid"] for d in res.get("collected") or []] or None,
               survivors=[d["pid"] for d in res.get("survivors") or []] or None,
               undecided=[d["pid"] for d in res.get("undecided") or []] or None)
-    collect_test_devices(departing=paths)
+    # The device collector takes a budget; with the caller's deadline (V2-03)
+    # it is given what is left of it, and nothing is started once it is gone.
+    if not _past(deadline):
+        collect_test_devices(departing=paths,
+                             budget=None if deadline is None else max(0.5, deadline - now()))
     return res
 
 
