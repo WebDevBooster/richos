@@ -116,6 +116,10 @@
 #   options: --explain   print the mapping, path by path, on stderr
 #            --quiet     the commands only, nothing else on stdout
 #            --gate      the merge gate's selection (see THE MERGE GATE'S SELECTION below)
+#            --commit-pending  with <base>..<head> only: <head> stands for a commit not made
+#                        yet (autocheck's pre-commit writes the index as one), so it has no
+#                        message and the battery question for it belongs to the commit-msg
+#                        hook, which reads the real message. Every commit before it is asked.
 #
 # Exit codes:
 #   0  mapped (the command list may legitimately be empty — it says so)
@@ -156,10 +160,11 @@ CI_AFFECTED="$ROOT/richos/engine/scripts/ci-affected-units.sh"
 
 die() { echo "ERROR: proof-for.sh: $1" >&2; exit "${2:-2}"; }
 
-MODE=""; REF=""; PATHS_INLINE=""; EXPLAIN=0; QUIET=0; GATE=0
+MODE=""; REF=""; PATHS_INLINE=""; EXPLAIN=0; QUIET=0; GATE=0; PENDING=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --gate)    GATE=1; shift ;;
+    --commit-pending) PENDING=1; shift ;;
     --staged)  MODE=staged; shift ;;
     --working) MODE=working; shift ;;
     --paths)   [ "$#" -ge 2 ] || die "--paths needs a comma-separated list"
@@ -232,6 +237,23 @@ case "${MODE:-working}" in
   paths|staged) ;;
   *)     [ -z "${BASE:-}" ] || BATTERY_RANGE="$BASE..HEAD" ;;
 esac
+# --commit-pending (2026-10-01): autocheck's pre-commit asks the merge gate's question over
+# <base>..<the index written as a commit>. That stand-in has a fixed message and can never carry
+# a trailer, so from 50a5bd1bd every commit touching richos/mobile/ was refused at pre-commit
+# whatever its message said. Its battery answer is the commit-msg hook's to read (autocheck.py
+# commit_msg, battery-check.py --message), so here the range stops at the stand-in's parent and
+# every commit already made is still asked. Only a one-parent head qualifies: the flag names one
+# commit that does not exist yet, never a merge or a range of real commits.
+if [ "$PENDING" = 1 ]; then
+  case "${MODE:-}:$REF" in
+    ref:*..*) ;;
+    *) die "--commit-pending needs a <base>..<head> range whose head is the commit not made yet" ;;
+  esac
+  PENDING_HEAD="${REF##*..}"
+  PENDING_PARENTS="$(git -C "$ROOT" rev-list --parents -n 1 "$PENDING_HEAD" 2>/dev/null | wc -w | tr -d ' ')"
+  [ "$PENDING_PARENTS" = 2 ] || die "--commit-pending: $PENDING_HEAD is not a one-parent commit"
+  BATTERY_RANGE="${REF%%..*}..$PENDING_HEAD^"
+fi
 if [ -n "$BATTERY_RANGE" ]; then
   python3 "$BATTERY_CHECK" "$BATTERY_RANGE" > "$WORK/battery" 2>&1; BATTERY_RC=$?
   if [ "$BATTERY_RC" -eq 1 ]; then
