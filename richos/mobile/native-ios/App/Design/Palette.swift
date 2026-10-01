@@ -32,9 +32,14 @@ struct Palette: Equatable, Sendable {
     // Alpha derivations, composited over whatever is behind them exactly as the CSS does.
     /// GAP 3: the secondary tone is `ink` at 72% (worst measured 6.31:1, NOTES "Contrast").
     var inkSoft: Color { ink.opacity(0.72) }
-    /// GAP 1: a line is the ruled `trim` at its ruled value (declared 2.94:1 on the dark ground; no
-    /// control is identified by a line alone).
-    var line: Color { trim }
+    /// A line that outlines a control or a field. Light: the ruled `trim` (5.06:1 on the ground). Dark:
+    /// `trim` was 2.94:1 on the ground and 2.63:1 on the surface (round 12 GAP 1 declared it), under the
+    /// 3:1 floor for a non-text indicator, and the iPhone walk (2026-10-01, D8) found it on "Forget
+    /// pairing on this phone" and the pairing-link field. Dark now draws it as `ink` at 46%, the
+    /// boundary the question card already uses (`QuestionCardView`): 3.9:1 on the ground, 3.8:1 on the
+    /// surface (`native-ios-ui.test.sh`, "line on ground" and "line on surface"). A deviation from
+    /// round 12, declared in the D8 handoff.
+    var line: Color { appearance == .dark ? ink.opacity(0.46) : trim }
     var lineFaint: Color { trim.opacity(appearance == .dark ? 0.38 : 0.34) }
     var signalWash: Color { signal.opacity(appearance == .dark ? 0.13 : 0.12) }
     var signalHalo: Color { signal.opacity(0.22) }
