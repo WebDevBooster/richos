@@ -73,7 +73,9 @@ Steps are JSON objects with "do" and, where needed, "id" (accessibility identifi
 "springboard" for system UI, "tailscale" for the route's own app, "settings" for iOS Settings (this
 app's permissions under Settings > Apps > RichConnect, and Wi-Fi: set back what you change) or
 "safari" for the one share-sheet source, "timeout" (s) and "optional": true (a failure is logged,
-the list continues). `tree` and `shot` keep the "in" app's window. A list that touches Tailscale may
+the list continues). `tree` and `shot` keep the "in" app's window; `launch` and `terminate` with
+"in" start that app fresh on its first page or close it (never SpringBoard); "kind" with "label" is
+that control itself (a Settings switch, not its row's text). A list that touches Tailscale may
 not take a shot, tree or audit: that screen is the person's own account. Settings' first page names
 the phone's Apple Account, so `ocr-gate.sh` every Settings frame before it enters a record.
 
@@ -189,6 +191,10 @@ def validate(steps):
             raise CannotAnswer(f"step {i} (open) needs an https url: it opens Safari, never another app's own scheme")
         if "in" in step and step["in"] not in PLACES:
             raise CannotAnswer(f"step {i}: 'in' may only be one of {', '.join(PLACES)}")
+        if action in ("launch", "terminate") and step.get("in") == "springboard":
+            raise CannotAnswer(f"step {i} ({action}): the system UI is never launched or terminated")
+        if action == "launch" and "in" in step and "textSize" in step:
+            raise CannotAnswer(f"step {i} (launch): textSize is for this app only; another app starts with no arguments")
     if any(s.get("in") == "tailscale" for s in steps) and any(s["do"] in KEEPS_SCREEN for s in steps):
         raise CannotAnswer("a list that touches Tailscale may not keep a shot, tree or audit: its screen is the person's account")
     return steps

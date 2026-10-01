@@ -55,7 +55,8 @@
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
 #           knows every step the host validates, a drifted runner FAILS; I27-I28
 #           syslog-rate counts one process's log entries per bucket, refuses a non-log;
-#           I31-I32 Settings and Safari places and an https-only open step
+#           I31-I32 Settings and Safari places and an https-only open step; I33-I34
+#           another app launched fresh, a switch by kind and label, SpringBoard never closed
 #   J1-J7   phone-ios approval: the UI-automation approval forecast from the phone's
 #           own sessions, and a run expected to ask refused until the CEO was told
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
@@ -822,6 +823,14 @@ expect "I31 Settings and Safari (the share-sheet source) and an https open valid
 printf '%s' '[{"do":"open","url":"tel:5550100"}]' > "$TMP/ios-scheme.json"
 run python3 "$QA/phone-ios.py" check "$TMP/ios-scheme.json"
 expect "I32 open refuses anything but an https link: no other app's own scheme" 2 "needs an https url"
+
+printf '%s' '[{"do":"launch","in":"settings"},{"do":"tap","kind":"switch","label":"Camera","in":"settings"},{"do":"value","kind":"switch","label":"Camera","in":"settings","equals":"1"},{"do":"terminate","in":"settings"}]' > "$TMP/ios-perm.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-perm.json"
+expect "I33 Settings starts fresh, and one permission switch is named by kind and label" 0 '"steps": 4'
+
+printf '%s' '[{"do":"terminate","in":"springboard"}]' > "$TMP/ios-sbkill.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-sbkill.json"
+expect "I34 the system UI is never launched or terminated" 2 "never launched or terminated"
 
 run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt
 expect "I10 reusing an earlier build without its stamp is refused" 2 "--prebuilt needs --stamp"

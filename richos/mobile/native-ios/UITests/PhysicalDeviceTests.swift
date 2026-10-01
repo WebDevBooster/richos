@@ -343,6 +343,12 @@ final class PhysicalDeviceTests: XCTestCase {
         if step["id"] == nil, step["label"] == nil, let kind = step["kind"] as? String {
             return kind == "switch" ? root.switches.firstMatch : root.buttons.firstMatch
         }
+        // A kind and a label: that control itself (Settings > Apps > RichConnect's "Camera" switch),
+        // never the row's text, which a tap does not toggle.
+        if step["id"] == nil, let kind = step["kind"] as? String, let label = step["label"] as? String {
+            let controls = kind == "switch" ? root.switches : root.buttons
+            return controls.matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+        }
         if let id = step["id"] as? String {
             // The first element carrying the identifier: SwiftUI hands a container's identifier to
             // its children too (the scanner's "scanner"), and a subscript then refuses the step with
@@ -361,6 +367,13 @@ final class PhysicalDeviceTests: XCTestCase {
         let timeout = step["timeout"] as? Double ?? 5
         switch action {
         case "launch":
+            // Another app (Settings, Safari) starts fresh on its first page, with no arguments, so a
+            // list never begins on whatever page that app was last left showing.
+            if step["in"] != nil {
+                guard step["in"] as? String != "springboard" else { return "the system UI is never launched or terminated" }
+                root(step, springboard).launch()
+                return nil
+            }
             // Only Apple's own text-size override, never an app fixture: the app stays the Release app.
             if let size = step["textSize"] as? String {
                 app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
@@ -376,7 +389,9 @@ final class PhysicalDeviceTests: XCTestCase {
                 return "open needs an https url"
             }
             XCUIDevice.shared.system.open(url)
-        case "terminate": app.terminate()
+        case "terminate":
+            guard step["in"] as? String != "springboard" else { return "the system UI is never launched or terminated" }
+            root(step, springboard).terminate()
         case "home":
             XCUIDevice.shared.press(.home)
         case "lock":
