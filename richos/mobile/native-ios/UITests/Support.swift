@@ -11,9 +11,11 @@ enum Screen {
     @discardableResult
     static func launch(_ id: String, appearance: String = "dark", textSize: String? = nil,
                        interactive: Bool = false, microphone: String? = nil, mac: String? = nil,
-                       notifications: String? = nil) -> XCUIApplication {
+                       notifications: String? = nil, cards: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-rios-fixture", id, "-rios-appearance", appearance]
+        // Cards raised on top of the fixture's (`camera-denied`): several share the bottom.
+        if let cards { app.launchArguments += ["-rios-cards", cards] }
         // The notification state the conversation starts in (`not-asked` shows the offer card).
         if let notifications { app.launchArguments += ["-rios-notifications", notifications] }
         if interactive {

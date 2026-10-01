@@ -58,10 +58,15 @@ struct ScreenModel: Equatable, Sendable {
     enum Scanner: Equatable, Sendable { case looking, found }
 
     enum Dialog: Equatable, Sendable {
+        /// Said in the Forget dialog when a kept recording exists, because Forget discards it (D9).
+        static let discardedRecordingNote = "The voice message you recorded but did not send will be discarded too."
+
         case cameraDenied
         /// `removed`: the Mac removed this phone, so the waiting messages can never be sent (Urban G2).
         case pairBlocked(waiting: Int, removed: Bool)
         case forget
+        /// Forget while an unsent kept recording exists: the dialog says Forget discards it too (D9).
+        case forgetDiscardsRecording
         case forgetBlocked(waiting: Int)
         case update(version: String, message: String)
     }
@@ -170,7 +175,16 @@ struct ScreenModel: Equatable, Sendable {
     }
 
     enum Card: Equatable, Identifiable, Sendable {
-        case waitingToSend(count: Int)
+        /// With no internet it is the phone that is offline; only otherwise is it the Mac that cannot be reached.
+        static func waitingDetail(count: Int, phoneOffline: Bool) -> String {
+            let messages = count == 1 ? "One message" : "\(count) messages"
+            return phoneOffline
+                ? "This phone is offline. \(messages) will go as soon as it is back online."
+                : "Your Mac isn’t reachable from here. \(messages) will go as soon as it is."
+        }
+
+        /// `phoneOffline`: the phone has no internet, so the card says that, not that the Mac is unreachable.
+        case waitingToSend(count: Int, phoneOffline: Bool = false)
         case notificationOffer
         case microphoneDenied
         case keptRecording(KeptRecording)
@@ -334,7 +348,7 @@ extension ScreenModel {
         case .pairingLink?:
             if case .invalidLink(let why)? = s.pairingProblem { sheet = .pairingLink(problem: why) } else { sheet = .pairingLink(problem: nil) }
         case .forget?:
-            dialog = .forget
+            dialog = s.keptRecordings.isEmpty ? .forget : .forgetDiscardsRecording
         case .forgetBlocked?:
             dialog = .forgetBlocked(waiting: max(1, s.unsentCount))
         case .cameraDenied?:
@@ -356,7 +370,7 @@ extension ScreenModel {
         // Cards above the composer, in round 12's order.
         let waiting = s.messages.filter { $0.delivery == .waiting }.count
         if waiting > 0, let notice = s.connectionNotice, notice != .incompatible {
-            cards.append(.waitingToSend(count: waiting))
+            cards.append(.waitingToSend(count: waiting, phoneOffline: notice == .phoneOffline))
         }
         for r in s.keptRecordings {
             let reason: KeptRecording.Reason

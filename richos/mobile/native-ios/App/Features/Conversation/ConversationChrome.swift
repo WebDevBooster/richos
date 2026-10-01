@@ -246,10 +246,10 @@ struct AboveComposer: View {
 
     @ViewBuilder private func cardView(_ card: ScreenModel.Card) -> some View {
         switch card {
-        case .waitingToSend(let count):
+        case .waitingToSend(let count, let phoneOffline):
             CardView {
                 CardText(title: "Waiting to send",
-                         detail: "Your Mac isn’t reachable from here. \(count == 1 ? "One message" : "\(count) messages") will go as soon as it is.")
+                         detail: ScreenModel.Card.waitingDetail(count: count, phoneOffline: phoneOffline))
                 HStack(spacing: 8) {
                     Button { send(.retryNow) } label: { IconLabel(icon: .refresh, text: "Try now") }
                         .buttonStyle(RButtonStyle(kind: .ghost))

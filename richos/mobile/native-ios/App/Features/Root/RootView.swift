@@ -148,12 +148,11 @@ struct ScreenView: View {
                 let regionBottom = root.size.height - (max(0, safeTop + root.size.height - zoneTop) + 20)
                 let lowest = regionBottom - emptyHeight
                 let highest = max(0, headerBottom - safeTop) + 8
-                ScrollView {
+                EdgeCuedScroll(id: "empty") {
                     EmptyConversation()
                         .frame(maxWidth: .infinity)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { emptyHeight = $0 }
                 }
-                .scrollBounceBehavior(.basedOnSize)
                 .padding(.top, max(highest, min(safeTop + root.size.height * 0.30, lowest)))
                 .padding(.bottom, max(0, safeTop + root.size.height - zoneTop) + 20)
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -253,17 +252,17 @@ struct ScreenView: View {
                 }
                 if !model.cards.isEmpty || model.toast != nil {
                     ScrollViewReader { region in
-                        ScrollView {
+                        // R1 (the iPhone re-walk): the cards' height whole when it fits in 60% of the
+                        // screen, and never less than that share just because there are more cards (it
+                        // used to drop to 40% the moment they were a point taller than 60%, which cut the
+                        // kept voice card's buttons); where they are taller, or the header needs the
+                        // room (the SE fit), the region scrolls as a whole and the edge that hides more
+                        // fades and carries an arrow (EdgeCuedScroll), so nothing is cut unannounced.
+                        EdgeCuedScroll(id: "cards") {
                             AboveComposer(cards: model.cards, toast: model.toast, send: send)
                                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
                         }
-                        .scrollBounceBehavior(.basedOnSize)
-                        .scrollIndicators(.hidden)
-                        // Its notes' height whole when they fit in 60% of the screen (D10: with the
-                        // keyboard up on an iPhone SE, 40% cut the kept voice card through its Send and
-                        // Discard); otherwise at most 40% of it and scrolling, and less when the header
-                        // needs the room (the SE fit).
-                        .frame(maxHeight: min(max(aboveHeight, 1), max(aboveHeight, 1) <= height * 0.6 ? height * 0.6 : height * 0.4))
+                        .frame(maxHeight: min(max(aboveHeight, 1), height * 0.6))
                         // I05: a card raised while another shows is brought into view, the least
                         // scroll that shows it, once, when it is raised: never a timer or a redraw.
                         .onChange(of: model.cards) { before, after in

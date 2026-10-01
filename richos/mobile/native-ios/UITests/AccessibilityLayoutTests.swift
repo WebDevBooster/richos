@@ -324,6 +324,134 @@ final class AccessibilityLayoutTests: XCTestCase {
         }
     }
 
+    // MARK: R1 — several cards share the bottom of the screen
+
+    /// A fixture with the microphone off and its card raised by a real press on the orb (D03), as a
+    /// person raises it; `cards` adds the camera-off card.
+    private func launchWithMicrophoneOffCard(_ fixture: String, appearance: String, notifications: String? = nil,
+                                             cards: String? = nil) -> XCUIApplication {
+        let app = Screen.launch(fixture, appearance: appearance, interactive: true, microphone: "denied",
+                                notifications: notifications, cards: cards)
+        XCTAssertTrue(app.descendants(matching: .any)["debug.microphone.denied"].waitForExistence(timeout: 5),
+                      "the core was not told the microphone is off")
+        app.descendants(matching: .any)["composer.mic"].press(forDuration: 0.4)
+        XCTAssertTrue(app.descendants(matching: .any)["card.micDenied"].waitForExistence(timeout: 5), "the press raised no microphone-off card")
+        return app
+    }
+
+    /// The scroll region a card's element sits in.
+    private func region(of id: String, in app: XCUIApplication) -> XCUIElement {
+        app.scrollViews.containing(.any, identifier: id).firstMatch
+    }
+
+    /// Scrolls `region` until `element` is wholly inside it; false if no scroll gets it there.
+    private func scrollInto(_ element: XCUIElement, _ region: XCUIElement) -> Bool {
+        func inside() -> Bool {
+            let f = element.frame, r = region.frame
+            return f.minY >= r.minY - 1 && f.maxY <= r.maxY + 1
+        }
+        // Slow 60 pt drags toward the element: a flick's momentum carries a short region past it.
+        func drag(up: Bool) {
+            let from = region.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.7 : 0.3))
+            let to = region.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.7 - 60 / region.frame.height : 0.3 + 60 / region.frame.height))
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        for _ in 0..<24 where !inside() {
+            drag(up: element.frame.minY >= region.frame.minY - 1)
+        }
+        return inside()
+    }
+
+    /// R1 (the iPhone re-walk, 2026-10-01, the iPhone SE): with two or more cards at the bottom and the
+    /// keyboard up, the region that holds them neither runs under the message field nor cuts a sentence
+    /// or a button unannounced: whatever does not fit at rest shows a "more" cue at that edge, and every
+    /// card's text and buttons can be scrolled wholly into view and touched.
+    private func assertBottomCardsReachable(_ app: XCUIApplication, _ what: String, anchor: String,
+                                            texts: [String], buttons: [String], keyboard: Bool = true,
+                                            file: StaticString = #filePath, line: UInt = #line) {
+        let cards = region(of: anchor, in: app)
+        XCTAssertTrue(cards.waitForExistence(timeout: 5), "\(what): the cards' region is missing", file: file, line: line)
+        if keyboard {
+            messageField(app).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up", file: file, line: line)
+        }
+        Thread.sleep(forTimeInterval: 0.8)
+        let fieldTop = messageField(app).frame.minY
+        XCTAssertLessThanOrEqual(cards.frame.maxY, fieldTop + 0.5,
+                                 "\(what): the cards' region \(cards.frame) runs under the field at \(fieldTop)", file: file, line: line)
+        let all: [(String, XCUIElement)] = texts.map { t in
+            (t, app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR identifier == %@", t, t)).firstMatch)
+        } + buttons.map { ($0, app.buttons[$0]) }
+        // What is cut at rest says so: a cue at the edge that hides more.
+        let cut = all.filter { _, e in e.exists && (e.frame.minY < cards.frame.minY - 1 || e.frame.maxY > cards.frame.maxY + 1) }
+        if !cut.isEmpty {
+            let cue = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "cards.more")).firstMatch
+            XCTAssertTrue(cue.exists, "\(what): \(cut.map(\.0)) are cut at the region's edge \(cards.frame) with no cue", file: file, line: line)
+        }
+        for (name, element) in all {
+            XCTAssertTrue(element.exists, "\(what): '\(name)' is missing", file: file, line: line)
+            XCTAssertTrue(scrollInto(element, cards), "\(what): '\(name)' at \(element.frame) cannot be scrolled whole into \(cards.frame)", file: file, line: line)
+            XCTAssertLessThanOrEqual(element.frame.maxY, fieldTop + 0.5, "\(what): '\(name)' overlaps the field at \(fieldTop)", file: file, line: line)
+        }
+        for id in buttons {
+            XCTAssertTrue(scrollInto(app.buttons[id], cards) && app.buttons[id].isHittable, "\(what): \(id) cannot be touched", file: file, line: line)
+        }
+    }
+
+    func testTheKeptCardAndTheNotificationOfferAreReachableWithTheKeyboardUp() {
+        for appearance in ["light", "dark"] {
+            let app = Screen.launch("voice-interrupted", appearance: appearance, notifications: "not-asked")
+            assertBottomCardsReachable(app, "kept + offer \(appearance)", anchor: "kept.send",
+                                       texts: ["Recording was interrupted", "Notifications are off"],
+                                       buttons: ["kept.send", "kept.discard", "card.notificationsOn", "card.notNow"])
+            keepScreenshot(app, name: "r1-kept-offer-\(appearance)")
+        }
+    }
+
+    func testTheKeptCardAndTwoPermissionCardsAreReachableWithTheKeyboardUp() {
+        for appearance in ["light", "dark"] {
+            let app = launchWithMicrophoneOffCard("voice-interrupted", appearance: appearance, cards: "camera-denied")
+            assertBottomCardsReachable(app, "kept + microphone + camera \(appearance)", anchor: "kept.send",
+                                       texts: ["Recording was interrupted", "card.micDenied", "to take a photo for Rich"],
+                                       buttons: ["kept.send", "kept.discard", "card.openSettings", "card.micNotNow", "Choose from Photos"])
+            keepScreenshot(app, name: "r1-kept-mic-camera-\(appearance)")
+        }
+    }
+
+    /// The most the bottom can hold: the kept recording, the microphone and camera cards and the offer.
+    func testTheWorstCaseOfFourBottomCardsIsReachableWithTheKeyboardUp() {
+        for (appearance, keyboard) in [("light", true), ("dark", true), ("light", false), ("dark", false)] {
+            let app = launchWithMicrophoneOffCard("voice-interrupted", appearance: appearance, notifications: "not-asked", cards: "camera-denied")
+            assertBottomCardsReachable(app, "four cards \(appearance) keyboard \(keyboard)", anchor: "kept.send",
+                                       texts: ["Recording was interrupted", "card.micDenied", "to take a photo for Rich", "Notifications are off"],
+                                       buttons: ["kept.send", "kept.discard", "card.openSettings", "card.micNotNow", "Choose from Photos", "card.notificationsOn", "card.notNow"], keyboard: keyboard)
+            keepScreenshot(app, name: "r1-four-cards-\(appearance)-\(keyboard ? "keyboard" : "plain")")
+        }
+    }
+
+    /// R1, the empty conversation: the microphone instructions end above three cards, or scroll to their
+    /// last word with a cue where they are cut ("… Or slide up" was the last thing a person could read).
+    func testTheMicrophoneInstructionsAreReachableAboveThreeCards() {
+        for appearance in ["light", "dark"] {
+            let what = "conv-empty + three cards \(appearance)"
+            let app = launchWithMicrophoneOffCard("conv-empty", appearance: appearance, notifications: "not-asked", cards: "camera-denied")
+            let empty = app.descendants(matching: .any)["conversation.empty"]
+            XCTAssertTrue(empty.waitForExistence(timeout: 5), "\(what): the instructions are missing")
+            Thread.sleep(forTimeInterval: 0.8)
+            let instructions = region(of: "conversation.empty", in: app)
+            let cards = region(of: "card.notificationsOn", in: app)
+            XCTAssertLessThanOrEqual(instructions.frame.maxY, cards.frame.minY + 0.5, "\(what): the instructions' region \(instructions.frame) runs under the cards \(cards.frame)")
+            if empty.frame.maxY > instructions.frame.maxY + 1 {
+                let cue = app.descendants(matching: .any)["empty.moreBelow"]
+                XCTAssertTrue(cue.exists, "\(what): the instructions are cut at \(instructions.frame.maxY) with no cue")
+            }
+            XCTAssertTrue(scrollInto(empty, instructions) || empty.frame.height > instructions.frame.height, "\(what): the instructions cannot be scrolled into view")
+            for _ in 0..<8 where empty.frame.maxY > instructions.frame.maxY + 1 { instructions.swipeUp() }
+            XCTAssertLessThanOrEqual(empty.frame.maxY, instructions.frame.maxY + 1, "\(what): the last word is still below the region")
+            keepScreenshot(app, name: "r1-empty-three-cards-\(appearance)")
+        }
+    }
+
     /// D2 (the iPhone walk, 2026-10-01): with the keyboard up and the field empty, the composer sometimes
     /// grew from one line to three. The trigger was not isolated, so this puts the field through what
     /// the two sightings had in common (a tap on the header's area while the keyboard is up, and Home

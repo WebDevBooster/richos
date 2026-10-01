@@ -50,7 +50,7 @@ struct DialogView: View {
         switch dialog {
         case .cameraDenied: return "The camera is off for RichConnect"
         case .pairBlocked(let n, _): return n == 1 ? "One message is still waiting" : "\(Self.count(n)) messages are still waiting"
-        case .forget: return "Forget this pairing?"
+        case .forget, .forgetDiscardsRecording: return "Forget this pairing?"
         case .forgetBlocked: return "Not yet"
         case .update: return "A new RichConnect is ready"
         }
@@ -66,9 +66,10 @@ struct DialogView: View {
                 return [("\(n == 1 ? "It was" : "They were") written for the Mac that removed this phone, so \(n == 1 ? "it" : "they") can’t be sent now. Discard \(n == 1 ? "it" : "them"), then pair again.", false)]
             }
             return [("\(n == 1 ? "It was" : "They were") written for the Mac this phone is paired with now. Send \(n == 1 ? "it" : "them") or discard \(n == 1 ? "it" : "them"), then pair with the new Mac.", false)]
-        case .forget:
-            return [("This phone will stop reaching your Mac. Your conversation stays on the Mac.", false),
-                    ("To pair again later, scan the code on your Mac.", true)]
+        case .forget, .forgetDiscardsRecording:
+            return [("This phone will stop reaching your Mac. Your conversation stays on the Mac.", false)]
+                + (dialog == .forgetDiscardsRecording ? [(ScreenModel.Dialog.discardedRecordingNote, false)] : [])
+                + [("To pair again later, scan the code on your Mac.", true)]
         case .forgetBlocked(let n):
             let lead = n == 1 ? "One message is" : "\(Self.count(n)) messages are"
             return [("\(lead) still waiting to be sent. Send \(n == 1 ? "it" : "them") or discard \(n == 1 ? "it" : "them") first, then this phone can forget the pairing.", false)]
@@ -101,7 +102,7 @@ struct DialogView: View {
                 .buttonStyle(RButtonStyle(kind: .ghost, wide: true))
             Button { send(.keepPairing) } label: { QuietLabel(text: "Keep this pairing") }
                 .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
-        case .forget:
+        case .forget, .forgetDiscardsRecording:
             // The safe action is the filled one (round-12 `settings-forget`).
             Button { send(.confirmForget) } label: { Text("Forget pairing on this phone") }
                 .buttonStyle(RButtonStyle(kind: .danger, wide: true))
@@ -136,7 +137,7 @@ struct DialogView: View {
 
     private var safeWayOut: Intent {
         switch dialog {
-        case .cameraDenied, .forget, .forgetBlocked: return .closeDialog
+        case .cameraDenied, .forget, .forgetDiscardsRecording, .forgetBlocked: return .closeDialog
         case .pairBlocked: return .keepPairing
         case .update: return .updateLater
         }
