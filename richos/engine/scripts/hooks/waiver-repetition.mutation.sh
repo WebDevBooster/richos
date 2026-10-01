@@ -123,6 +123,8 @@ printf '  CONTROL  unmutated sandbox: %s cases pass, 0 fail — kills below are 
 . "$ENGINE_ROOT/scripts/lib/stopwatch.sh"
 # shellcheck source=../lib/mutation-pool.sh
 . "$ENGINE_ROOT/scripts/lib/mutation-pool.sh"
+# shellcheck source=../lib/mutant-suite-run.sh
+. "$ENGINE_ROOT/scripts/lib/mutant-suite-run.sh"
 mut_pool_init
 MUT_WALL_T0="$(sw_now_ms)"
 
@@ -137,8 +139,16 @@ _mutant_body() {
         return 1
     fi
 
-    bash "$dir/scripts/hooks/waiver-repetition.test.sh" >"$dir/out.txt" 2>&1
-    local rc=$?
+    # The run stops at the mutant's named FAIL line (scripts/lib/mutant-suite-run.sh,
+    # hunt part 3 finding 9): in this suite a printed FAIL line always ends the run
+    # red, and the stop matches the TRIMMED want as a fixed string, exactly what the
+    # escaped witness test below matches, so it is never looser than that test.
+    mutant_suite_run "$dir/out.txt" "$(printf '%s' "$want" | sed 's/[[:space:]]*$//')" bash "$dir/scripts/hooks/waiver-repetition.test.sh"
+    if [ "$MUTANT_STOPPED" = 1 ]; then
+        printf '  PASS  %s — removing it turns %s red (stopped at that line)\n' "$name" "$want"
+        return 0
+    fi
+    local rc=$MUTANT_RC
     if [ "$rc" -eq 0 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
         printf '          %s\n' "$why"

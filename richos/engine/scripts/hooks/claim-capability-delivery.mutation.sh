@@ -96,6 +96,9 @@ printf '  CONTROL  unmutated sandbox: %s cases pass, 0 fail — kills below are 
 HOOK_REL="scripts/hooks/notice-claim-capability.sh"
 PROV_REL="ass-kicker/brief-provenance.py"
 
+# shellcheck source=../lib/mutant-suite-run.sh
+. "$ENGINE_ROOT/scripts/lib/mutant-suite-run.sh"
+
 # mutant <name> <expected-failing-case> <rel-file> <old> <new> <why>
 mutant() {
     local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
@@ -108,8 +111,17 @@ mutant() {
         FAIL=$((FAIL + 1)); return
     fi
 
-    bash "$dir/scripts/hooks/notice-claim-capability.test.sh" >"$dir/out.txt" 2>&1
-    local rc=$?
+    # The run stops at the mutant's named FAIL line (scripts/lib/mutant-suite-run.sh,
+    # hunt part 3 finding 9): in this suite a printed FAIL line always ends the run
+    # red, and the stop matches the TRIMMED want as a fixed string, exactly what the
+    # escaped witness test below matches (with its `\b`, hence --boundary), so it
+    # is never looser than that test.
+    mutant_suite_run --boundary "$dir/out.txt" "$(printf '%s' "$want" | sed 's/[[:space:]]*$//')" bash "$dir/scripts/hooks/notice-claim-capability.test.sh"
+    if [ "$MUTANT_STOPPED" = 1 ]; then
+        printf '  PASS  %s — removing it turns %s red (stopped at that line)\n' "$name" "$want"
+        PASS=$((PASS + 1)); return
+    fi
+    local rc=$MUTANT_RC
     if [ "$rc" -eq 0 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.\n' "$name"
         printf '          %s\n' "$why"

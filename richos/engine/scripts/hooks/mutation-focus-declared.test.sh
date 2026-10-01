@@ -18,14 +18,19 @@
 #   H2  ... and when the named line never appears, the run is judged exactly as
 #       it was before (the suite's own exit status, nothing stopped)
 #   H3  ... and RICHOS_MUTATION_FOCUS=off turns the stop off
+#   H4  --boundary never stops at a longer case (`D1` at `FAIL  D14`), as a
+#       witness test ending in `\b` would not, and does stop at `FAIL  D1 `
 #
-# NOT COVERED, STATED: ceo-asks, ceo-ruled and claim-roles match their witness
-# with an escaped, boundary-anchored token, which a substring stop would loosen,
-# so they keep the whole-suite run; idle-land, unasked-deferral,
-# claim-capability-delivery, mechanical-findings, turn-manifest and
-# waiver-repetition belong to the notice and idle-land work in flight elsewhere;
-# guard-row-currency-commits, guard-worktree-isolation and guard-worktree-removal
-# were not in the finding's inventory. None of those is claimed here.
+# THE NINE THAT WERE LEFT OUT (finding 9, partial in the v2 re-check) are in
+# CUSTOM now. They were held back on the claim that a substring stop would
+# loosen their witness test; read, only one test carries a boundary
+# (claim-capability-delivery's `\b`, which --boundary reproduces). ceo-asks,
+# ceo-ruled, claim-roles, turn-manifest, unasked-deferral and waiver-repetition
+# escape a TRIMMED want with no boundary, which a fixed-string stop on the
+# trimmed want equals; idle-land and mechanical-findings grep the want
+# unescaped, which a fixed-string stop is stricter than.
+# NOT COVERED, STATED: guard-row-currency-commits, guard-worktree-isolation and
+# guard-worktree-removal were not in the finding's inventory.
 #
 # Run directly: scripts/hooks/mutation-focus-declared.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
@@ -63,6 +68,8 @@ PHONE_SURFACE_HARNESS="home-net""work-phone"
 CUSTOM=(
     guard-dialect guard-resume-isolation "$PHONE_SURFACE_HARNESS" host-display-power
     inflight-notify interactive-prompt public-record-repo reference-ledger
+    ceo-asks ceo-ruled claim-capability-delivery claim-roles idle-land
+    mechanical-findings turn-manifest unasked-deferral waiver-repetition
 )
 for h in "${CUSTOM[@]}"; do
     f="$SCRIPT_DIR/$h.mutation.sh"
@@ -130,6 +137,38 @@ if [ "$MUTANT_STOPPED" = 0 ] && [ "$MUTANT_RC" = 1 ] && grep -q 'FAIL  other\.' 
     ok "H3  RICHOS_MUTATION_FOCUS=off runs the whole suite and stops nothing"
 else
     bad "H3  focus off" "stopped=$MUTANT_STOPPED rc=$MUTANT_RC"
+fi
+
+# H4 — a witness test that ends in `\b` (claim-capability-delivery's) must not be
+# loosened by the stop: `D1` must not stop at `FAIL  D14`, and must stop at
+# `FAIL  D1 ` once that line comes.
+cat >"$SCRATCH/bounded.sh" <<'SUITE'
+#!/usr/bin/env bash
+echo "  FAIL  D14 a longer case"
+echo "  FAIL  D1 the named case"
+sleep 20
+echo "  FAIL  z9. the slow tail"
+exit 1
+SUITE
+T0=$SECONDS
+mutant_suite_run --boundary "$SCRATCH/out4.txt" "D1" bash "$SCRATCH/bounded.sh"
+EL=$((SECONDS - T0))
+if [ "$MUTANT_STOPPED" = 1 ] && [ "$EL" -lt 15 ] && grep -q 'FAIL  D1 the named' "$SCRATCH/out4.txt" \
+   && ! grep -q 'z9\.' "$SCRATCH/out4.txt"; then
+    ok "H4a --boundary stops at FAIL  D1, after FAIL  D14 went by (${EL}s)"
+else
+    bad "H4a --boundary stops at the bounded case" "stopped=$MUTANT_STOPPED elapsed=${EL}s out=$(tr '\n' '|' <"$SCRATCH/out4.txt")"
+fi
+cat >"$SCRATCH/longer.sh" <<'SUITE'
+#!/usr/bin/env bash
+echo "  FAIL  D14 a longer case"
+exit 1
+SUITE
+mutant_suite_run --boundary "$SCRATCH/out5.txt" "D1" bash "$SCRATCH/longer.sh"
+if [ "$MUTANT_STOPPED" = 0 ] && [ "$MUTANT_RC" = 1 ]; then
+    ok "H4b --boundary does not take FAIL  D14 for D1 (rc=1, nothing stopped)"
+else
+    bad "H4b --boundary must not stop at a longer case" "stopped=$MUTANT_STOPPED rc=$MUTANT_RC"
 fi
 
 echo ""
