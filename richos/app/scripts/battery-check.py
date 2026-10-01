@@ -4,6 +4,7 @@
     battery-check.py                  the commits since the merge-base with origin/main (or main)
     battery-check.py <sha>            that one commit
     battery-check.py <base>..<head>   every commit in that range (a land: main..<branch>)
+    battery-check.py --message <file> a commit message not yet committed (the commit-msg hook)
 
 Exit: 0 every mobile commit answered NO with evidence (or none needed to); 1 at least one did
 not, each named in one sentence; 2 usage, or a history that could not be read.
@@ -33,10 +34,11 @@ that is the author's evidence and the reviewer's reading of it.
 WHERE IT RUNS. proof-for.sh runs it for a commit or a range and for its default working-tree
 mode (the committed half), and exits 3 on a refusal; the land runner (proof-run.py
 main..<branch>) prints the sentence and refuses the land before any suite starts, whoever
-wrote the commit. richos
-has no committed pre-commit or commit-msg hook mechanism (core.hooksPath on this Mac is a
-user-global directory that belongs to no repository), so the land is the enforcement point;
-an author can run this script before handing off.
+wrote the commit. autocheck's
+commit-msg hook (autocheck/autocheck.py, commit_msg) runs `--message` on the message being
+written, so a commit touching richos/mobile/ without a PARSING trailer is refused at the
+commit, not first at the land. The trailer must parse: one line, or continuation lines
+indented; a wrapped answer with unindented continuation lines is no trailer to git.
 """
 import os
 import re
@@ -79,6 +81,44 @@ def verdict(values):
     return None
 
 
+def message_values(text):
+    """The Battery-check trailer values git itself parses out of a commit message (comment lines
+    stripped, continuation lines unfolded). A message whose last paragraph git does not read as a
+    trailer block, such as a wrapped answer with unindented continuation lines, yields none."""
+    clean = subprocess.run(["git", "stripspace", "--strip-comments"], input=text, capture_output=True, text=True)
+    parsed = subprocess.run(["git", "interpret-trailers", "--parse", "--unfold"], input=clean.stdout,
+                            capture_output=True, text=True)
+    if clean.returncode or parsed.returncode:
+        raise Unreadable("git could not parse the message: %s" % (parsed.stderr or clean.stderr).strip())
+    values = []
+    for line in parsed.stdout.splitlines():
+        k, sep, v = line.partition(":")
+        if sep and k.strip().lower() == KEY.lower():
+            values.append(v.strip())
+    return values
+
+
+HOW_TO_WRITE = (
+    "  Write it as the last paragraph of the message, on ONE line:\n"
+    "      %s: NO — <the background work, wakeups, idle redraws and polling you checked>\n"
+    "  or, when it is long, with every continuation line INDENTED (git reads an unindented\n"
+    "  continuation as plain text and finds no trailer at all):\n"
+    "      %s: NO — <what you checked>,\n"
+    "        <more of it, indented by at least one space>\n"
+    "  Test it: git log -1 --format=%%B | git interpret-trailers --parse\n" % (KEY, KEY))
+
+
+def check_message(path):
+    """0 when the message answers NO with evidence, else 1 with how to write it."""
+    with open(path, encoding="utf-8", errors="replace") as stream:
+        reason = verdict(message_values(stream.read()))
+    if not reason:
+        return 0
+    sys.stderr.write("REFUSED: this commit touches %s/ and its message %s.\n" % (MOBILE, reason))
+    sys.stderr.write(HOW_TO_WRITE)
+    return 1
+
+
 def revisions(ref):
     """A range is used as given; a single commit is that commit alone (`<sha>^!`)."""
     return [ref] if ".." in ref else [ref + "^!"]
@@ -116,6 +156,12 @@ def main(argv):
     if any(a in ("-h", "--help") for a in argv):
         print(__doc__.split("THE RULE")[0].rstrip())
         return 0
+    if len(argv) == 2 and argv[0] == "--message":
+        try:
+            return check_message(argv[1])
+        except (Unreadable, OSError) as exc:
+            sys.stderr.write("battery-check: cannot read the message, so nothing is passed: %s\n" % exc)
+            return 2
     if len(argv) > 1 or any(a.startswith("-") for a in argv):
         sys.stderr.write("battery-check: one commit or one range, e.g. main..cc/branch — see --help\n")
         return 2
