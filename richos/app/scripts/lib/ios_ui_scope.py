@@ -24,10 +24,12 @@ FEATURES = {
     'Voice': ('ScreenshotTests/testVoice', 'InteractionTests/testHold', 'InteractionTests/testATap',
               'InteractionTests/testSlide', 'InteractionTests/testBackground', 'InteractionTests/testAPress',
               'InteractionTests/testTheMicrophone', 'AccessibilityLayoutTests/testLockedRecording',
+              'AccessibilityLayoutTests/testTheMicrophone', 'AccessibilityLayoutTests/testTheKeptVoice',
               'AccessibilityLayoutTests/testSystemAccessibilityAudit'),
     'Settings': ('ScreenshotTests/testSettings', 'ScreenshotTests/testNotifications', 'InteractionTests/testSettings',
                  'InteractionTests/testNotNow', 'AccessibilityLayoutTests/testOverlays',
                  'AccessibilityLayoutTests/testSettings', 'AccessibilityLayoutTests/testADialog',
+                 'AccessibilityLayoutTests/testTheMicrophone',
                  'AccessibilityLayoutTests/testSystemAccessibilityAudit'),
     'Conversation': ('ScreenshotTests/', 'QuestionTests/', 'InteractionTests/testCompose',
                      'InteractionTests/testReading', 'InteractionTests/testScrolling', 'AccessibilityLayoutTests/'),
@@ -38,7 +40,7 @@ FEATURES = {
 
 # Adding a source file or test case requires a new scope review. Until then,
 # the selector falls back to full coverage rather than guessing its dependencies.
-REVIEWED_CASES = '9bf6de8adfcbab83ef6e5a1d9866115aa28e26fc7757461d83ade961ee07483a'
+REVIEWED_CASES = '2f51b646f1616b4836dbdd000a6aa2be53515c4da39da0f91a02a055c294f7eb'
 REVIEWED_FEATURE_FILES = {
     'App/Features/Attachments/AttachmentModel.swift',
     'App/Features/Attachments/AttachmentViews.swift',
