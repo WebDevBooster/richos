@@ -53,7 +53,8 @@
 #           pair-steps for pairing v2 waits for each word and holds before the press;
 #           I19-I23 appearance and orientation steps, summary of a finished run;
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
-#           knows every step the host validates, a drifted runner FAILS
+#           knows every step the host validates, a drifted runner FAILS; I27-I28
+#           syslog-rate counts one process's log entries per bucket, refuses a non-log
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
 #           browser writes it, the lab's words from its own files, a mismatch
 #           that FAILS, a half-read phone log, a non-lab directory, a v1 phone
@@ -908,6 +909,23 @@ expect "I24 the phone runner (PhysicalDeviceTests.perform) has a case for every 
 grep -v '^        case "appearance":' "$RUNNER_SWIFT" > "$TMP/runner-drift.swift"
 run python3 "$QA/phone-ios.py" vocabulary "$TMP/runner-drift.swift"
 expect "I25 a step the host accepts and the phone runner does not know FAILS, before any build" 1 '"appearance"'
+
+{
+  echo 'Oct  1 08:20:03.100000 RichOSNative(Network)[6007] <Debug>: endpoint has associations'
+  echo '    a continuation line with no header'
+  echo 'Oct  1 08:20:04.200000 RichOSNativeUITests-Runner[5885] <Notice>: the runner, not the app'
+  echo 'Oct  1 08:20:15.300000 RichOSNative[6007] <Notice>: one more'
+  echo 'Oct  1 08:20:16.000000 SpringBoard[60] <Notice>: someone else'
+} > "$TMP/ios-syslog.txt"
+run python3 "$QA/phone-ios.py" syslog-rate "$TMP/ios-syslog.txt" --bucket 10
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -Fq '"entries": 2,' && printf '%s' "$OUT" | grep -Fq '"ofAllEntries": 4' \
+   && printf '%s' "$OUT" | grep -Fq '"at": "08:20:10"'; then
+  ok "I27 syslog-rate counts only the named process's entries per bucket: not the test runner, not continuation lines"
+else bad "I27 syslog-rate counts one process" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+
+printf 'not a phone log\n' > "$TMP/ios-notsyslog.txt"
+run python3 "$QA/phone-ios.py" syslog-rate "$TMP/ios-notsyslog.txt"
+expect "I28 a file that is not a phone log capture is refused, never counted as zero" 2 "holds no log entries"
 
 printf 'final class Nothing {}\n' > "$TMP/runner-none.swift"
 run python3 "$QA/phone-ios.py" vocabulary "$TMP/runner-none.swift"

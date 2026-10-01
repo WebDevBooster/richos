@@ -32,6 +32,9 @@
     phone-ios.py syslog --seconds S --out FILE     the phone's log for S seconds, keeping ONLY lines that
                                                    name RichOSNative or dev.richos.connect
     (`syslog` and `battery` take --network for an unplugged phone: libimobiledevice's -n, same pairing)
+    phone-ios.py syslog-rate FILE [--process P] [--bucket S] [--from HH:MM:SS] [--to HH:MM:SS]
+                                                   entries ONE process (exact name) wrote per S seconds of
+                                                   a `syslog` capture: what the app did while hidden
 
 The iPhone counterpart of phone-android.py. iOS 26 offers no shell on the phone, so every tap,
 type, Home, lock and screenshot goes through one XCUITest check that executes a list of steps
@@ -454,6 +457,47 @@ def syslog(args):
     return emit({"out": str(out), "kept": kept, "read": total, "relayPid": relay.pid, "relayExit": relay.returncode})
 
 
+SYSLOG_ENTRY = re.compile(r"^\w{3} +\d+ (\d\d):(\d\d):(\d\d)(?:\.\d+)? (\S+)\[(\d+)\]")
+
+
+def syslog_rate(path, process, bucket, start=None, end=None):
+    """How many log entries one process wrote per `bucket` seconds of the phone's clock, from a
+    `syslog` capture: the battery reading of a window (an app that does nothing while hidden writes
+    nothing). Only the entry's first line counts; continuation lines carry no header. The process
+    is matched exactly (`RichOSNative` is not `RichOSNativeUITests-Runner`)."""
+    try:
+        lines = Path(path).read_text(errors="replace").splitlines()
+    except OSError as error:
+        raise CannotAnswer(f"cannot read the log capture {path}: {error}")
+    if not 1 <= bucket <= 3600:
+        raise CannotAnswer("--bucket must be 1 to 3600 seconds")
+
+    def seconds(clock):
+        h, m, s = (int(x) for x in clock.split(":"))
+        return h * 3600 + m * 60 + s
+
+    lo, hi = (seconds(start) if start else None), (seconds(end) if end else None)
+    counts, entries, matched = {}, 0, 0
+    for line in lines:
+        found = SYSLOG_ENTRY.match(line)
+        if not found:
+            continue
+        entries += 1
+        name = found.group(4).split("(")[0]
+        if name != process:
+            continue
+        at = int(found.group(1)) * 3600 + int(found.group(2)) * 60 + int(found.group(3))
+        if (lo is not None and at < lo) or (hi is not None and at >= hi):
+            continue
+        matched += 1
+        key = at - at % bucket
+        counts[key] = counts.get(key, 0) + 1
+    if entries == 0:
+        raise CannotAnswer(f"{path} holds no log entries in the idevicesyslog shape: is it a phone-ios.py syslog capture?")
+    rows = [{"at": f"{k // 3600:02d}:{k % 3600 // 60:02d}:{k % 60:02d}", "entries": v} for k, v in sorted(counts.items())]
+    return {"process": process, "bucketSeconds": bucket, "entries": matched, "ofAllEntries": entries, "buckets": rows}
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -467,6 +511,12 @@ def main(argv):
     sub.add_parser("parse-log").add_argument("log")
     sub.add_parser("summary").add_argument("dir")
     sub.add_parser("vocabulary").add_argument("runner", nargs="?", default=str(RUNNER))
+    sr = sub.add_parser("syslog-rate")
+    sr.add_argument("file")
+    sr.add_argument("--process", default="RichOSNative")
+    sr.add_argument("--bucket", type=int, default=10)
+    sr.add_argument("--from", dest="start", help="HH:MM:SS on the phone's clock, inclusive")
+    sr.add_argument("--to", dest="end", help="HH:MM:SS on the phone's clock, exclusive")
     ps = sub.add_parser("pair-steps")
     ps.add_argument("config")
     ps.add_argument("--v2-hold", type=int, default=None)
@@ -490,6 +540,8 @@ def main(argv):
             return 0
         if args.command == "summary":
             return emit(summary(args.dir))
+        if args.command == "syslog-rate":
+            return emit(syslog_rate(args.file, args.process, args.bucket, args.start, args.end))
         if args.command == "vocabulary":
             result = vocabulary(args.runner)
             return emit(result, 0 if result["same"] else 1)
