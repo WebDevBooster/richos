@@ -106,10 +106,28 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Puts a palette in the environment and tells the system which appearance the app is in, so the
-    /// keyboard, the status bar and system alerts match the ground they sit on.
+    /// Puts a palette in the environment. The app follows the phone, so it does not tell the system
+    /// which appearance it is in: the keyboard, the status bar and system alerts follow the phone by
+    /// themselves, and the app learns of a switch from the environment (`PhoneAppearanceMirror`). A
+    /// `preferredColorScheme` here pinned the window to the scheme it had first drawn, and the app stayed
+    /// in it until the next launch (the iPhone walk, D6). A Debug fixture shown still is the one
+    /// exception: it keeps the theme it was photographed in.
     func palette(_ palette: Palette) -> some View {
         environment(\.palette, palette)
-            .preferredColorScheme(palette.colorScheme)
+            .preferredColorScheme(PinnedAppearance.scheme(for: palette))
+    }
+}
+
+/// When the system is told the app's appearance. Never in a release; in Debug only for a still fixture.
+enum PinnedAppearance {
+    static func scheme(for palette: Palette) -> ColorScheme? {
+        #if DEBUG
+        // A still fixture: `-rios-fixture` without `-rios-interactive-fixture` (`DevBridge`).
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: "rios-fixture") != nil, !defaults.bool(forKey: "rios-interactive-fixture") {
+            return palette.colorScheme
+        }
+        #endif
+        return nil
     }
 }

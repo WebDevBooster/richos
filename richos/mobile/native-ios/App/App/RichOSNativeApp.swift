@@ -95,6 +95,7 @@ struct RichOSNativeApp: App {
                     Color.clear
                 }
             }
+            .modifier(PhoneAppearanceMirror { appearance in store?.followPhone(appearance) })
             .task {
                 guard store == nil else { return }
                 let transport = URLSessionTransport()
@@ -145,7 +146,6 @@ struct RichOSNativeApp: App {
                 #endif
                 // Before the first frame, so a phone set to light never flashes dark.
                 loaded.followPhone(SystemAppearance.current())
-                SystemAppearance.observe { loaded.followPhone($0) }
                 store = loaded
                 await ShareIntake.takeWaiting(into: loaded, nowMs: SystemClock().nowMs())
             }
@@ -178,8 +178,8 @@ struct RichOSNativeApp: App {
     }
 }
 
-/// The phone's light or dark setting, read from the screen: the app's window carries the app's own
-/// `preferredColorScheme`, the screen carries the system's.
+/// The phone's light or dark setting, read from the screen, for the first frame and each return to
+/// the front.
 @MainActor
 enum SystemAppearance {
     static func current() -> Appearance {
@@ -187,15 +187,16 @@ enum SystemAppearance {
         let style = scene?.screen.traitCollection.userInterfaceStyle ?? UITraitCollection.current.userInterfaceStyle
         return style == .light ? .light : .dark
     }
+}
 
-    /// Calls `change` when the phone switches between light and dark while the app is on screen
-    /// (Control Center, or the automatic schedule). A trait registration: no polling, no timer.
-    static func observe(_ change: @escaping @MainActor (Appearance) -> Void) {
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
-        registration = scene.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (_: UIWindowScene, _: UITraitCollection) in
-            MainActor.assumeIsolated { change(current()) }
-        }
+/// Tells the core when the phone switches between light and dark while the app is on screen (Control
+/// Center, or the automatic schedule). The app sets no scheme of its own, so the environment's color
+/// scheme IS the phone's, and SwiftUI delivers each change: no polling, no timer, no registration.
+private struct PhoneAppearanceMirror: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    let follow: (Appearance) -> Void
+
+    func body(content: Content) -> some View {
+        content.onChange(of: scheme, initial: true) { _, scheme in follow(scheme == .light ? .light : .dark) }
     }
-
-    private static var registration: (any UITraitChangeRegistration)?
 }
