@@ -20,6 +20,7 @@ outer one admits, and that second single sample decides the run (2026-09-24: out
 admitted, inner refused at 86.3%, exit 75).
 """
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -81,6 +82,15 @@ def main():
     # Before a slot is taken and a guest is booted: a command that cannot start would
     # spend a boot and a slot to find that out.
     if shutil.which(command[0]) is None:p.error('the scenario command is not an executable file: '+command[0])
+    # A step list is checked with steps-walk.py's own validator before a slot or a boot too: an empty
+    # or malformed plan would otherwise cost a whole guest to end in a successful nothing (R37).
+    if Path(command[0]).name=='steps-walk.py':
+        plan=next((command[i+1] for i,w in enumerate(command[:-1]) if w=='--steps'),None) or next((w.split('=',1)[1] for w in command if w.startswith('--steps=')),None)
+        if plan is None:p.error('steps-walk.py needs --steps FILE')
+        spec=importlib.util.spec_from_file_location('steps_walk_validator',HERE/'steps-walk.py')
+        validator=importlib.util.module_from_spec(spec);spec.loader.exec_module(validator)
+        bad=validator.plan_problems(plan)
+        if bad:p.error('the step list is refused before any guest is booted: '+'; '.join(bad))
     vm='walk-'+uuid.uuid4().hex[:12]
     root=Path(os.environ.get('TESTVM_ROOT',str(Path.home()/'.richos-testvm')))
     state=root/'run'/vm
