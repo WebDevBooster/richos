@@ -168,8 +168,9 @@ _rh_dispatch_modules() {
         return $?
     fi
     local _dm_out _dm_rc=0
-    _dm_out="$(python3 -c '
+    _dm_out="$(PYTHONPATH="$_RH_LIB_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
 import json, os, re, sys
+from hook_command import dispatch_keys
 f, want, libdir = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
     with open(f, encoding="utf-8") as fh:
@@ -217,9 +218,8 @@ if isinstance(hooks, dict):
                 cmd = h.get("command", "")
                 if not isinstance(cmd, str):
                     continue
-                m = re.search(r"scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)", cmd)
-                if m:
-                    keys.add(m.group(1))
+                for k in dispatch_keys(cmd):
+                    keys.add(k)
 if not keys:
     raise SystemExit(0)
 # THE DISPATCHER IS REGISTERED HERE, SO THE MANIFEST IS NOT OPTIONAL (hunt P5-08).
@@ -274,8 +274,9 @@ hook_enforced_on_surface() { # <surface json> <script basename>
     # parsed table are searched; only without it does the text scan remain, as
     # the weaker over-counting fallback this file documents everywhere else.
     if command -v python3 >/dev/null 2>&1; then
-        if python3 -c '
+        if PYTHONPATH="$_RH_LIB_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
 import json, re, sys
+from hook_command import executed_hooks, dispatch_keys
 try:
     with open(sys.argv[1], encoding="utf-8") as fh:
         doc = json.load(fh)
@@ -291,7 +292,7 @@ if isinstance(hooks, dict):
                 continue
             for h in entry.get("hooks", []) or []:
                 cmd = h.get("command", "") if isinstance(h, dict) else ""
-                if isinstance(cmd, str) and sys.argv[2] in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                if isinstance(cmd, str) and sys.argv[2] in executed_hooks(cmd):
                     raise SystemExit(0)
 raise SystemExit(1)
 ' "$f" "$g" 2>/dev/null; then
@@ -314,8 +315,9 @@ registered_hook_scripts() {
 
     if [ -n "$event" ]; then
         command -v python3 >/dev/null 2>&1 || return 3
-        out="$(python3 -c '
+        out="$(PYTHONPATH="$_RH_LIB_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
 import json, re, sys
+from hook_command import executed_hooks, dispatch_keys
 with open(sys.argv[1], encoding="utf-8") as fh:
     doc = json.load(fh)
 want = sys.argv[2]
@@ -334,7 +336,7 @@ if isinstance(hooks, dict):
                 cmd = h.get("command", "")
                 if not isinstance(cmd, str):
                     continue
-                for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                for m in executed_hooks(cmd):
                     found.add(m)
 for name in sorted(found):
     print(name)
@@ -357,8 +359,9 @@ for name in sorted(found):
         # to the text scan. Malformed JSON means the host loads no hooks from
         # this file either, so a count scraped out of the wreckage would be a
         # number describing enforcement that is not there.
-        out="$(python3 -c '
+        out="$(PYTHONPATH="$_RH_LIB_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
 import json, re, sys
+from hook_command import executed_hooks, dispatch_keys
 with open(sys.argv[1], encoding="utf-8") as fh:
     doc = json.load(fh)
 found = set()
@@ -376,7 +379,7 @@ if isinstance(hooks, dict):
                 cmd = h.get("command", "")
                 if not isinstance(cmd, str):
                     continue
-                for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                for m in executed_hooks(cmd):
                     found.add(m)
 for name in sorted(found):
     print(name)
@@ -453,8 +456,9 @@ registered_hook_rows() {
     [ -n "$f" ] && [ -f "$f" ] || return 1
     command -v python3 >/dev/null 2>&1 || return 2
 
-    out="$(python3 -c '
+    out="$(PYTHONPATH="$_RH_LIB_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
 import json, os, re, sys
+from hook_command import executed_hooks, dispatch_keys
 with open(sys.argv[1], encoding="utf-8") as fh:
     doc = json.load(fh)
 
@@ -510,12 +514,11 @@ if isinstance(hooks, dict):
                 cmd = h.get("command", "")
                 if not isinstance(cmd, str):
                     continue
-                for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                for m in executed_hooks(cmd):
                     rows.add("%s\t%s\t%s" % (event, matcher, m))
-                d = re.search(r"scripts/hooks/dispatch-pretooluse\.sh\s+(\S+)", cmd)
-                if d:
+                for dk in dispatch_keys(cmd):
                     used_dispatcher = True
-                    for mod in manifest.get(d.group(1), []):
+                    for mod in manifest.get(dk, []):
                         rows.add("%s\t%s\t%s" % (event, matcher, mod))
 # A DISPATCHER REGISTERED WITH NO READABLE MANIFEST LEAVES THE ROWS SHORT (hunt
 # P5-08); it used to print them as if whole. Exit 3, which the shell maps to rc 2.
@@ -612,8 +615,9 @@ registered_agent_chain() {
     [ -n "$f" ] && [ -f "$f" ] || return 1
     command -v python3 >/dev/null 2>&1 || return 2
 
-    out="$(python3 -c '
+    out="$(PYTHONPATH="$_RH_LIB_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c '
 import json, re, sys
+from hook_command import executed_hooks, dispatch_keys
 with open(sys.argv[1], encoding="utf-8") as fh:
     doc = json.load(fh)
 chain = []
@@ -631,7 +635,7 @@ if isinstance(entries, list):
             cmd = h.get("command", "")
             if not isinstance(cmd, str):
                 continue
-            for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+            for m in executed_hooks(cmd):
                 chain.append(m)
 for name in chain:
     print(name)

@@ -1010,6 +1010,7 @@ build_sandbox_template() {
     mkdir -p "$root/hooks"
     cp "$SCRIPT_DIR/../../hooks/hooks.json" "$root/hooks/hooks.json"
     cp "$SCRIPT_DIR/../lib/registered-hooks.sh" "$root/scripts/lib/"
+    cp "$SCRIPT_DIR/../lib/hook_command.py" "$root/scripts/lib/"
     # The sandbox is its own engine root, so it identifies itself like one.
     cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
     _ts1="$(_t)"

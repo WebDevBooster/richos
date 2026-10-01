@@ -43,6 +43,7 @@ class RegisteredHooksGaps(unittest.TestCase):
         os.makedirs(os.path.join(self.tmp, "lib"))
         os.makedirs(os.path.join(self.tmp, "hooks"))
         shutil.copy(SRC, os.path.join(self.tmp, "lib", "registered-hooks.sh"))
+        shutil.copy(os.path.join(HERE, "hook_command.py"), os.path.join(self.tmp, "lib", "hook_command.py"))
         self.lib = os.path.join(self.tmp, "lib", "registered-hooks.sh")
         self.manifest_dir = os.path.join(self.tmp, "scripts", "hooks")
         self.manifest = os.path.join(self.manifest_dir, "dispatch-pretooluse.manifest")
