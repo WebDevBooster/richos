@@ -14410,7 +14410,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/testvm/reserve.py",
-          "sha256": "726cbeb07b96a8942a9f7921618a2458243e874afb8ef2daa13778c85e87371e",
+          "sha256": "328fddfa02249d63d2a3ac7945a4ab11abf27c41b7eedee3fcf2d6c4a6fa52d4",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14602,7 +14602,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/testvm/reserve.py",
-          "sha256": "726cbeb07b96a8942a9f7921618a2458243e874afb8ef2daa13778c85e87371e",
+          "sha256": "328fddfa02249d63d2a3ac7945a4ab11abf27c41b7eedee3fcf2d6c4a6fa52d4",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
