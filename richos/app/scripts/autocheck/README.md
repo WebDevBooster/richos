@@ -142,6 +142,22 @@ Measured 2026-09-30 on cc/zach-opus-gate1 (07d289da8), replaying two of that day
 Both refusals are failures of checks the change owns; nothing was refused for a simulator, a
 screen, a cap or admission.
 
+Measured 2026-10-01 on cc/zach-opus-gate2, in its own workspace, with the Mac at 84-94% CPU
+from other work for most of each run:
+
+| Land | Gate of 4e73fd89 | This gate |
+| --- | --- | --- |
+| cc/zach-opus-q1 (6 files: pins, weights, contract-integrity's shared sandbox list, nightly-local) | 922.9 s; 63 checks, 3 reached a verdict; the fence suite's mutation unit took a lane for 602 s | 905 s; 57 checks (the mutation unit left to the nightly engine run), 30 reached a verdict (18 passed, 12 failed), 8 invalid because something wrote what they read, 19 ended at the 900 s cap |
+| one comment line in `ui/quota.js` | not measured | 499.4 s; 16 checks: 14 passed, 2 screen suites left to the nightly |
+
+Of the 12 failures in the first replay, 3 units are red on main by themselves, 8
+contract-integrity sections fail their intact-probe case only under proof-run's private
+execution profile (they pass through `ci-shard.sh` directly), and 1 was this branch's own (a
+test pinning SCR's stale weight, fixed). Escalation esc-20261001T002153Z-46ac290e has the
+detail. A qualified engine unit sees only the environment its contract declares, so every
+qualified unit that reads a harness declares `RICHOS_MUTATION_PASSES` and
+`RICHOS_FOURTEEN_MUTANTS` (`autocheck.test.py` refuses one that does not).
+
 ## NOT RUN is not a pass
 
 A check `proof-run.py` could not run is reported as its own state, `not-run`, with a reason:
