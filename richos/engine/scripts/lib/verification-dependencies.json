@@ -5013,8 +5013,8 @@
     },
     "scripts/hooks/guard-idle-land.py": {
       "source": "scripts/hooks/guard-idle-land.py",
-      "sha256": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
-      "evidence": "Reviewed transcript and landed-record analyzer uses standard library, fixed Git queries and a fixed workspaces import for integration_for. Transcript shell commands and record paths are inspected as data. No config file is sourced; wrapper settings arrive as RICHOS_IDLE_* arguments.",
+      "sha256": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
+      "evidence": "Reviewed transcript and landed-record analyzer uses standard library, fixed Git queries, the reflog files Git names for the current branch and its upstream (rev-parse --git-path), and a fixed workspaces import for integration_for. The turn start is the host timestamp on the transcript's first record of the turn. Transcript shell commands and record paths are inspected as data. No config file is sourced; wrapper settings arrive as RICHOS_IDLE_* arguments.",
       "keys": [],
       "edges": [
         {
@@ -5841,8 +5841,8 @@
     },
     "scripts/hooks/guard-idle-land.test.sh": {
       "source": "scripts/hooks/guard-idle-land.test.sh",
-      "sha256": "e79ecdfea218fc6d681278a8ba4cabbf7d491d5488e3c58ac01150184dca1ea6",
-      "evidence": "Every hook invocation uses a private generated entity config, transcript and record. Git branches and the bare remote are created within the sandbox. Direct Python imports invoke only the fixed idle-land record parser. The suite never calls its mutation harness.",
+      "sha256": "494de414236b3721d0980d21350487fbb87fe28122d77838046062b457bf61e4",
+      "evidence": "Every hook invocation uses a private generated entity config, transcript and record. Git branches and the bare remote are created within the sandbox. Direct Python imports invoke only the fixed idle-land record parser. Four cases stamp their transcripts with the wall clock and run real merges and pushes inside the sandbox, so the hook reads their reflog entries. The suite never calls its mutation harness.",
       "keys": [],
       "edges": [
         {
@@ -15874,9 +15874,9 @@
         "scripts/hooks/guard-definition-drift.test.sh": "ae3616c638a5835284feff2a91a3129e67ca176b71ddd58900405d447c781690",
         "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
-        "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
+        "scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
-        "scripts/hooks/guard-idle-land.test.sh": "e79ecdfea218fc6d681278a8ba4cabbf7d491d5488e3c58ac01150184dca1ea6",
+        "scripts/hooks/guard-idle-land.test.sh": "494de414236b3721d0980d21350487fbb87fe28122d77838046062b457bf61e4",
         "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
         "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
         "scripts/hooks/guard-interactive-prompt.test.sh": "47cfd426cfc6d972022d9427aa548d4c859ee28d7d64c0be484fcd59f3d373a0",
@@ -16645,7 +16645,7 @@
         "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
-        "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
+        "scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
         "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
         "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
@@ -16789,7 +16789,7 @@
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
-        "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
+        "scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",

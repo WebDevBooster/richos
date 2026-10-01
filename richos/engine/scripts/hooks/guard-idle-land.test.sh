@@ -253,19 +253,32 @@ git -C "$UNADOPTED" init -q . >/dev/null 2>&1
 #   {"agent": "..."}           an assistant Agent tool_use
 #   {"tool": "..."}            any other assistant tool_use, by name
 #   {"turn": "<prompt-id>"}    switch the promptId from here on
+#   {"stamp": "<ISO-8601>"}    stamp every later record with this host timestamp
 mk_tr() { # <outfile> <json-spec>
     python3 - "$1" "$2" "$PROMPT_ID" "$ENTITY" <<'PY'
 import json, sys
 out, spec, pid, cwd = sys.argv[1:5]
 cur = pid
+stamp = None
+stamped = 0
 rows = []
 def user(text, machine):
     rows.append({"type": "user", "promptId": cur, "cwd": cwd,
                  "promptSource": "user" if not machine else "hook",
                  "message": {"content": text}})
+def stamp_new_rows():
+    global stamped
+    if stamp is not None:
+        for r in rows[stamped:]:
+            r["timestamp"] = stamp
+    stamped = len(rows)
 for step in json.loads(spec):
+    stamp_new_rows()
     if "turn" in step:
         cur = step["turn"]
+        continue
+    if "stamp" in step:
+        stamp = step["stamp"]
         continue
     if "prompt" in step:
         user(step["prompt"], False); continue
@@ -293,6 +306,7 @@ for step in json.loads(spec):
             {"type": "tool_use", "name": "Agent",
              "input": {"name": step["agent"]}}]}})
         continue
+stamp_new_rows()
 with open(out, "w", encoding="utf-8") as fh:
     for r in rows:
         fh.write(json.dumps(r) + "\n")
@@ -941,6 +955,59 @@ else
     printf '  FAIL  x.broken-install-passes-loudly (exit %s)\n' "$rc"; FAIL=$((FAIL + 1))
 fi
 rm -f "$err"
+
+# --- A LAND IS A CHANGE IN THIS TURN, NOT AN INCLUSION ----------------------
+# Hunt part 3, finding 2, still partial in the v2 re-check: the first fix
+# dropped only a merge whose VISIBLE output said "Already up to date", so the
+# same no-op merge with its output sent to a log still counted as a land, and
+# the turn was refused with HEAD unchanged. These transcripts carry the host's
+# timestamps, as real ones do, and every git command here really runs.
+write_record "$ENTITY/RICH-TODOs.md" normal
+now_stamp() { python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"))'; }
+sleep 1
+ST="$(now_stamp)"
+NOOP_MERGE="cd $ENTITY && git merge landed-branch > $SANDBOX/noop-merge.log 2>&1"
+HEAD_BEFORE="$(git -C "$ENTITY" rev-parse HEAD)"
+git -C "$ENTITY" merge landed-branch >"$SANDBOX/noop-merge.log" 2>&1
+TR_NOOP_REDIR="$SANDBOX/noop-redirected.jsonl"
+mk_tr "$TR_NOOP_REDIR" "$(printf '[{"stamp":"%s"},{"prompt":"check the merge"},{"bash":%s}]' "$ST" "$(jq_str "$NOOP_MERGE")")"
+if [ "$(git -C "$ENTITY" rev-parse HEAD)" = "$HEAD_BEFORE" ]; then
+    run_case "a1e.redirected-no-op-merge-completed-nothing" 0 "$(payload "$TR_NOOP_REDIR")"
+else
+    printf '  FAIL  a1e.redirected-no-op-merge-completed-nothing (fixture: the merge moved HEAD)\n'; FAIL=$((FAIL + 1))
+fi
+
+# The other side: a merge that really merged IN THIS TURN, output redirected
+# just the same, is a land and still blocks.
+git -C "$ENTITY" checkout -q -b turn-branch >/dev/null 2>&1
+printf 'turn work\n' > "$ENTITY/turn.txt"
+git -C "$ENTITY" add turn.txt >/dev/null 2>&1
+git -C "$ENTITY" commit -qm turn-work >/dev/null 2>&1
+git -C "$ENTITY" checkout -q main >/dev/null 2>&1
+sleep 1
+ST="$(now_stamp)"
+REAL_TURN_MERGE="cd $ENTITY && git merge --no-ff turn-branch -m 'turn merge' > $SANDBOX/turn-merge.log 2>&1"
+git -C "$ENTITY" merge --no-ff turn-branch -m 'turn merge' >"$SANDBOX/turn-merge.log" 2>&1
+TR_TURN_MERGE="$SANDBOX/turn-merge.jsonl"
+mk_tr "$TR_TURN_MERGE" "$(printf '[{"stamp":"%s"},{"prompt":"land it"},{"bash":%s}]' "$ST" "$(jq_str "$REAL_TURN_MERGE")")"
+run_case "a1f.redirected-merge-that-merged-this-turn-blocks" 2 \
+    "$(payload "$TR_TURN_MERGE")" "$BLOCK_HEAD"
+
+# The same two sides for a push. A push that moved the upstream in this turn
+# is a land; one that found it already there ("Everything up-to-date") is not.
+TURN_PUSH="cd $ENTITY && git push > $SANDBOX/push.log 2>&1"
+ST="$(now_stamp)"
+git -C "$ENTITY" push -q origin main >/dev/null 2>&1
+TR_TURN_PUSH="$SANDBOX/turn-push.jsonl"
+mk_tr "$TR_TURN_PUSH" "$(printf '[{"stamp":"%s"},{"prompt":"push it"},{"bash":%s}]' "$ST" "$(jq_str "$TURN_PUSH")")"
+run_case "a4b.push-that-pushed-this-turn-blocks" 2 \
+    "$(payload "$TR_TURN_PUSH")" "$BLOCK_HEAD"
+sleep 1
+ST="$(now_stamp)"
+git -C "$ENTITY" push -q origin main >/dev/null 2>&1
+TR_NOOP_PUSH="$SANDBOX/noop-push.jsonl"
+mk_tr "$TR_NOOP_PUSH" "$(printf '[{"stamp":"%s"},{"prompt":"push it"},{"bash":%s}]' "$ST" "$(jq_str "$TURN_PUSH")")"
+run_case "a4c.no-op-push-pushed-nothing" 0 "$(payload "$TR_NOOP_PUSH")"
 
 # --- RECORD ----------------------------------------------------------------
 LOG="$ENTITY/.claude/state/idle-land-checks.jsonl"
