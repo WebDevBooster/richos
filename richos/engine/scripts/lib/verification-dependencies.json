@@ -3633,15 +3633,10 @@
     },
     "scripts/lib/verification-fixture.sh": {
       "source": "scripts/lib/verification-fixture.sh",
-      "sha256": "fd4e28f2f287a39706004dcae75a78b53ef4889555867692b9f3c711fe47b350",
-      "evidence": "Creates one private directory, exports literal fixture mode and private HOME/config/worker paths, clears inherited permits and removes its directory on exit. No orchestration file or hook executes. Renewed 2026-10-01: the directory is allocated by sourcing scripts/lib/scratch.sh (scratch_new), which only creates the directory and appends a ledger row; its TTL key changes no fixture value, so the edge is a fixture edge.",
+      "sha256": "c6f5d11cba98b6b24869b4ca20fb480bf971505550c53571da11e4444f936b2e",
+      "evidence": "Creates one private directory, exports literal fixture mode and private HOME/config/worker paths, clears inherited permits and removes its directory on exit. No orchestration file, hook or helper executes.",
       "keys": [],
-      "edges": [
-        {
-          "to": "scripts/lib/scratch.sh",
-          "fixture": true
-        }
-      ]
+      "edges": []
     },
     "scripts/lib/teammate-identity.py": {
       "source": "scripts/lib/teammate-identity.py",

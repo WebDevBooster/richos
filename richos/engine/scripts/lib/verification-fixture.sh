@@ -2,15 +2,7 @@
 # Explicit private execution for resource-policy regression fixtures. The outer
 # proof-run still owns and contains this complete tree. These suites simulate
 # controllers/budgets and never build, boot devices or consume live user records.
-#
-# ALLOCATED, NOT NAMED (scripts/lib/scratch.sh): a suite stopped by a signal
-# before its EXIT trap leaves a directory the sweeper finds without being told
-# its name. The bare `mktemp -d` this replaced was the 46th unallocated site
-# against scratch-allocation-lint.sh's declared baseline of 45.
-# shellcheck source=scratch.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scratch.sh"
-verification_fixture_root="$(scratch_new verification-fixture)" || {
-    echo "verification-fixture: no scratch directory" >&2; exit 1; }
+verification_fixture_root="$(mktemp -d "${TMPDIR%/}/verification-fixture.XXXXXX")"
 trap 'rm -rf "$verification_fixture_root"' EXIT
 export RICHOS_VERIFICATION_MODE=fixture RICHOS_VERIFICATION_FIXTURE_ROOT="$verification_fixture_root"
 export HOME="$verification_fixture_root/home" CLAUDE_CONFIG_DIR="$verification_fixture_root/config"
