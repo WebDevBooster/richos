@@ -1287,8 +1287,16 @@ mod tests {
             Diagnostic::classify("HTTPS cert support is not enabled/configured for your tailnet."),
             Diagnostic::HttpsNotEnabled
         );
-        let secret = "failed to start: tskey-auth-kF3xample11CNTRL-SECRETVALUE on node alex-laptop";
-        let label = Diagnostic::classify(secret).label();
+        // A key-SHAPED string, assembled at run time so that no line of this file is one: GitHub's
+        // secret scanning flagged the old literal as a Tailscale API key (alert #3, 2026-10-01).
+        // It was never a real key (its secret half was the word SECRET); this keeps it so.
+        let fake_key = ["tskey", "auth", "kFakeKeyIdCNTRL", "SECRETnotarealkey"].join("-");
+        let secret = format!("failed to start: {fake_key} on node alex-laptop");
+        // POSITIVE CONTROL: what goes in really is key-shaped, or the assertions below prove nothing.
+        let prefix = ["tskey", "auth", ""].join("-");
+        assert!(secret.contains(&prefix) && fake_key.starts_with(&prefix), "not key-shaped: {secret}");
+        assert!(fake_key.ends_with("CNTRL-SECRETnotarealkey"), "not key-shaped: {secret}");
+        let label = Diagnostic::classify(&secret).label();
         assert_eq!(label, "tailscale: refused");
         // The thing this test exists for: the label carries NONE of it.
         assert!(!label.contains("tskey"), "an auth key reached a label");
