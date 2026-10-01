@@ -29,8 +29,20 @@ git -C "$REPO" commit -q -m "report v1"
 export RICHOS_ESCALATION_LEDGER="$SANDBOX/ledger.jsonl"
 export RICHOS_AUDIT_RECORD_REPO="$REPO"
 export RICHOS_AUDIT_WATCH_STATE="$SANDBOX/state"
+# THE HOOK GOVERNS A SANDBOX ENTITY, NEVER THE CHECKOUT IT RUNS FROM. Run with
+# its cwd in the engine and no entity of its own, notice-escalations.sh wrote
+# its per-session notice state (and escalations_deliver its delivered record)
+# into the checkout's own .claude/state/stop-hook-notices/. The proof gate
+# binds the whole engine directory as the input of every engine check, so
+# those writes made every check running beside this one "invalid: execution
+# inputs changed during the check" (merge of cc/zach-sonnet-escclaim1,
+# 2026-10-01).
+unset CLAUDE_PROJECT_DIR RICHOS_ENGINE_ROOT
+export RICHOS_ENTITY_ROOT="$SANDBOX/entity"
+mkdir -p "$RICHOS_ENTITY_ROOT"
+printf 'PROTECTED_PATHS=""\n' >"$RICHOS_ENTITY_ROOT/orchestration.config"
 PAYLOAD='{"session_id":"auditwatch-test","transcript_path":""}'
-cd "$ENGINE_ROOT" || exit 1
+cd "$RICHOS_ENTITY_ROOT" || exit 1
 
 stop() { printf '%s' "$PAYLOAD" | bash "$SRC_DIR/notice-escalations.sh" 2>&1; }
 
