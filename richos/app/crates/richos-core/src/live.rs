@@ -410,6 +410,11 @@ pub enum LiveEvent {
         source: Source,
         /// The TURN's `created_at`, so the live row and the projected row sort identically.
         created_at: u64,
+        /// The phone's own id for these words when a phone sent them (`Turn::client_id`), so
+        /// the phone recognizes its own message in this row even when the row beats the
+        /// phone's receipt. `clientId` on the wire, the projection's spelling; absent for
+        /// anything else.
+        client_id: Option<String>,
         at: u64,
     },
     /// §13 `rich://thread-summary-updated` — sidebar title, recency and operational status.
@@ -537,13 +542,17 @@ impl LiveEvent {
                 }
                 map.insert("at".into(), json!(at));
             }
-            LiveEvent::CeoMessage { message_id, text, source, created_at, at, .. } => {
+            LiveEvent::CeoMessage { message_id, text, source, created_at, client_id, at, .. } => {
                 map.insert("messageId".into(), json!(message_id));
                 map.insert("text".into(), json!(text));
                 // The SAME spelling the projection serializes (`snake_case` on `Source`), so a
                 // consumer reads one vocabulary off the wire and off a reload.
                 map.insert("source".into(), serde_json::to_value(source).unwrap_or(Value::Null));
                 map.insert("createdAt".into(), json!(created_at));
+                // Present only when there is one, as the projection serializes it.
+                if let Some(client_id) = client_id {
+                    map.insert("clientId".into(), json!(client_id));
+                }
                 map.insert("at".into(), json!(at));
             }
             LiveEvent::ThreadSummaryUpdated { title, message_count, last_activity, status, at, .. } => {

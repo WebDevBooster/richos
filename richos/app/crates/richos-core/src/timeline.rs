@@ -590,6 +590,11 @@ pub enum TimelineItem {
         text: String,
         /// How the input arrived — text or voice. Both land in one thread.
         source: Source,
+        /// The phone's own id for this message when a phone sent it (`Turn::client_id`,
+        /// adoption ledger §2.8 row C5). `clientId` on the wire; absent otherwise, so every
+        /// other turn serializes exactly as it did before this field existed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_id: Option<String>,
     },
     /// One contiguous run of Rich's prose (§5.2 / §5.4). REAL text; `phase` is `Unknown`
     /// for every CEO turn until a phase signal exists.
@@ -1392,6 +1397,7 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
             base: base(format!("{}:user", turn.id), None, TimelineSlot::Opening, turn.created_at, vis(Visibility::Ceo)),
             text: turn.user_text.clone(),
             source: turn.source,
+            client_id: turn.client_id.clone(),
         });
     }
 
@@ -2289,6 +2295,7 @@ mod tests {
             interruption: None,
             rich_audible: None,
             channel: None,
+            client_id: None,
         }
     }
 
