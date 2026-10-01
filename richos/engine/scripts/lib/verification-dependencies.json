@@ -1869,7 +1869,7 @@
     },
     "scripts/lib/global-state-witness.test.sh": {
       "source": "scripts/lib/global-state-witness.test.sh",
-      "sha256": "de4748a587aa33bb8728ac23975967a7d851a6f0171d4a74ab4dbcb8c45c00c6",
+      "sha256": "fe7d320d5f2aab37729729cb6e87c194fb33deb864ea185b4180e2ffbada3671",
       "evidence": "Every witness call supplies the private config directory. Installer calls use a generated engine without orchestration.config and fake HOME; structural enumeration searches source as data. The launchctl shim proves forced pointer installation still does not reach launchd.",
       "keys": [],
       "edges": [
@@ -1898,7 +1898,7 @@
     },
     "scripts/hooks/guard-dialect.sh": {
       "source": "scripts/hooks/guard-dialect.sh",
-      "sha256": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+      "sha256": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
       "evidence": "Payload-only scanner consumes the three dialect keys. Governing-root overrides use the same finite keys. Vendoring ownership comes through its declared helper. Root resolution does not invoke agent/namespace lookup. Dictionary and generated scanner are data/local code; supplied payload commands never execute. Generated vocabulary basenames extend the exemption tuple, without reading generated data or introducing config keys.",
       "keys": [
         "DIALECT_TARGET",
@@ -1922,7 +1922,7 @@
     },
     "scripts/hooks/guard-dialect.test.sh": {
       "source": "scripts/hooks/guard-dialect.test.sh",
-      "sha256": "152912710783f62d961ea0f768091953ad6c435143c2353b9af55ee4f742ccba",
+      "sha256": "8f59efed91038d553f45c9daba23dfdd9e07328cdacdb00988e48e0070f31835",
       "evidence": "The default seat is the real engine, so its four downstream config reads remain dependencies. Later entity fixtures override dialect values without removing the default-seat coverage. Registration, installer and vocabulary inventory assertions read source/data. V8-V12 use the parent vendoring registry as data. The finite mutation driver executes the same suite in a copied engine. Added cases pass vocabulary paths as payload data and the source inventory excludes two exact generated fixture paths; no new executable reader.",
       "keys": [],
       "edges": [
@@ -1939,7 +1939,7 @@
     },
     "scripts/hooks/guard-dialect.mutation.sh": {
       "source": "scripts/hooks/guard-dialect.mutation.sh",
-      "sha256": "564abbca7860b0163dddb1ec4b975fcc696a64a245e7986285b2cbaecb0f2233",
+      "sha256": "d5352370c9d21e65aea3b30f3f9224b167082931aa4f79042066107bde2cd96b",
       "evidence": "The direct config copy supplies the nested suite, which consumes only its declared guard/helper keys. Twenty-one literal replacements alter verdicts, pattern predicates or dictionary entries, not config reads. The nested flag skips only shipped-parent ownership assertions and prevents recursive mutants.",
       "keys": [],
       "edges": [
@@ -2098,7 +2098,7 @@
     },
     "scripts/lib/mutation-focus.test.sh": {
       "source": "scripts/lib/mutation-focus.test.sh",
-      "sha256": "511e764d77ac2203b701fed07edc69126616c9fc4d787528a9fbdbb1dfe788d4",
+      "sha256": "7d62f105a06622367cdfcba5aa3b48f4b58d5d021a5bd22e87e8e2d4636af088",
       "evidence": "Creates a tiny engine with literal PROTECTED_PATHS and feature variables, then executes generated sequential/named/parallel suites under the real mutation helper. Its only eval receives fixed RULE_A/RULE_B assertions. Copied helper directories are transport; discovered production scripts are not run. All worker and supervisor helpers are separately declared.",
       "keys": [],
       "edges": [
@@ -2123,7 +2123,7 @@
     },
     "scripts/lib/mutation-harness.test.sh": {
       "source": "scripts/lib/mutation-harness.test.sh",
-      "sha256": "001e5d5722e97f24f51f71b5f87ff0dc601fcbfe758d4bcd8e68aa94a8f32edf",
+      "sha256": "f28103a5aad5b061d75c198b9a6d5b85c8114ae06749d9e187a8586d461e382d",
       "evidence": "Executes the real sandbox allocator against a generated engine. The fixture config is literal and never sourced. Tree witnesses cover the generated fake guard, not the real config. Real mutation scripts are checked as source text and directory inventory only. The one real config assertion checks presence.",
       "keys": [],
       "edges": [
@@ -6620,7 +6620,7 @@
     },
     "scripts/hooks/guard-dialect.sh#benign-bash": {
       "source": "scripts/hooks/guard-dialect.sh",
-      "sha256": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+      "sha256": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
       "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
       "keys": [
         "DIALECT_TARGET",
@@ -7541,7 +7541,7 @@
     },
     "scripts/hooks/waiver-repetition.test.sh": {
       "source": "scripts/hooks/waiver-repetition.test.sh",
-      "sha256": "4c5c4f770d35162469da58979c38c5ddfaa84e3b781344dfe0339bb8795bf71b",
+      "sha256": "c578cf2fb01c66c1d45607f90abbd5cd74089488d3c6f4b1a6e17753fb5a7e04",
       "evidence": "Full suite creates literal entity config, fake source guards and private ledgers under isolated CLAUDE_CONFIG_DIR. The fake guard source is analyzer data, never executed. Real hooks JSON is grep-checked for notice-waiver-repetition.sh. Nested fixed driver preserves the same fixture-only config obligations.",
       "keys": [],
       "edges": [
@@ -8606,7 +8606,7 @@
     },
     "mega-lander/tests/workspaces.mutation.sh": {
       "source": "mega-lander/tests/workspaces.mutation.sh",
-      "sha256": "f09b1a5b7ef840b9d1106ed2576e82e75c40b751f688e7fbb603e10e2c7facaa",
+      "sha256": "d42f16d53d49a17638a730ff1f36163ee46ea2be96de60cdd971e2d6615067d1",
       "evidence": "Reviewed all finite old/new mutation operands: local workspace predicates, records, Git queries and fixed helper calls. No mutant introduces a dynamic configuration reader or executable. Focused inner suite keeps the same fixture boundaries; copied configuration presence remains a harness input.",
       "keys": [],
       "edges": [
@@ -8659,7 +8659,7 @@
     },
     "mega-lander/tests/workspace-spec-fourteen.mutation.sh": {
       "source": "mega-lander/tests/workspace-spec-fourteen.mutation.sh",
-      "sha256": "2de33daeaa368b12ac6bfc83b70e8fe3e9c6a812d8147009bb5b1895c9476149",
+      "sha256": "f32f15c49bf1f0a5f03d3dbcbbe62ffb184475869aaa6f6d72f623c1b3636c55",
       "evidence": "Reviewed all finite mutation source operands in workspaces.py, removal guard, creator and integration readers. They change local predicates and fixed Git operations without adding dynamic configuration/executable inputs. Optional nightly driver uses the same suite and copied configuration transport.",
       "keys": [],
       "edges": [
@@ -15835,7 +15835,7 @@
         "scripts/hooks/guard-ci-turn-gate.sh": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/guard-definition-drift.test.sh": "ae3616c638a5835284feff2a91a3129e67ca176b71ddd58900405d447c781690",
-        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
         "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
@@ -16249,7 +16249,7 @@
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
         "scripts/lib/publication-boundary.sh": "b8e3d8f8b80e0048174b55ca2a479f0030e7b1c6f03caae6e7aa14def514ab4f",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
-        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
         "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
         "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
         "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
@@ -16332,7 +16332,7 @@
       ],
       "evidence": "Suite greps the raw hooks JSON for this literal script name; the nested mutation renames that registration. Binds every copied/executed helper and the driver.",
       "sources": {
-        "scripts/hooks/waiver-repetition.test.sh": "4c5c4f770d35162469da58979c38c5ddfaa84e3b781344dfe0339bb8795bf71b",
+        "scripts/hooks/waiver-repetition.test.sh": "c578cf2fb01c66c1d45607f90abbd5cd74089488d3c6f4b1a6e17753fb5a7e04",
         "scripts/hooks/notice-waiver-repetition.sh": "db7a0e6b1e6a2603d93955f5624de15dd5a010112049f898c6dbb4379b7ce6e7",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
@@ -16489,7 +16489,7 @@
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
         "scripts/lib/named-persons.py": "3392076d89530f9a120fea16eaba9fa6053f577ae836023c691b5f0eb011c871",
-        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
         "scripts/hooks/guard-no-home-network-phone.sh": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
@@ -16694,7 +16694,7 @@
         "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
         "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
-        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
         "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
@@ -16746,7 +16746,7 @@
         "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/hooks/scan-secrets.sh": "d23d1d44376e0557597f8a0add40a0226049d801769af48d81095002477e0c73",
-        "scripts/hooks/guard-dialect.sh": "2a19b37f44f5805b9b57c613f1cc7eae0cd1ef806dd36db2b4b10bfed990a58e",
+        "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
@@ -16819,7 +16819,7 @@
       "commands": [],
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "28b165ea46c36cde125e0214f0f7f98fa28e4219a14d74bde8488367b91c5a80",
-        "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "2de33daeaa368b12ac6bfc83b70e8fe3e9c6a812d8147009bb5b1895c9476149",
+        "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "f32f15c49bf1f0a5f03d3dbcbbe62ffb184475869aaa6f6d72f623c1b3636c55",
         "mega-lander/tests/workspace-spec-fourteen.test.sh": "53f74b973bd0c1105c0bc17f09ca53c5cffeb5ffa32f0147ec3a0dfe2fa32c0c",
         "mega-lander/workspaces.py": "1dd480f258cfe4b66743899836e0d3ae56325ee18502043eb27374cac3485d7b",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",

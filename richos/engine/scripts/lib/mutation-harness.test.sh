@@ -144,15 +144,28 @@ fi
 #     list tomorrow is in this fixture tomorrow.
 #   - every library in the real scripts/lib/ is copied, so whatever the harness
 #     sources from its own directory is there.
+#   - every single FILE it requires (a `cp "$src/F" "$dir/F" || return 1` line)
+#     is read the same way. On 2026-09-30 the function began requiring
+#     spawn-guard-audience.declaration; the fixture still derived only the
+#     directories, every copy of it failed at that `cp`, and 2a and 3b went red
+#     for a production change that was correct -- the 09-17 break again, one
+#     level down. 3c checks each required file arrives, 3d that the real engine
+#     has it.
 # ---------------------------------------------------------------------------
 FAKE_ENG="$SANDBOX/fake-engine"
 REQUIRED_DIRS="$(awk '/^mutation_copy_engine\(\)/{f=1; next} f && /^}/{exit} f' \
         "$ENGINE_ROOT/scripts/lib/mutation-harness.sh" \
     | sed -nE 's#^[[:space:]]*cp -R "\$src/([A-Za-z0-9._-]+)" "\$dir/([A-Za-z0-9._-]+)" \|\| return 1[[:space:]]*$#\1#p')"
+REQUIRED_FILES="$(awk '/^mutation_copy_engine\(\)/{f=1; next} f && /^}/{exit} f' \
+        "$ENGINE_ROOT/scripts/lib/mutation-harness.sh" \
+    | sed -nE 's#^[[:space:]]*cp "\$src/([A-Za-z0-9._-]+)" "\$dir/([A-Za-z0-9._-]+)" \|\| return 1[[:space:]]*$#\1#p')"
 mkdir -p "$FAKE_ENG/scripts/hooks" "$FAKE_ENG/scripts/lib" "$FAKE_ENG/hooks"
 for d in $REQUIRED_DIRS; do
     mkdir -p "$FAKE_ENG/$d"
     printf '# fixture marker for %s/\n' "$d" > "$FAKE_ENG/$d/.fixture-marker"
+done
+for f in $REQUIRED_FILES; do
+    printf '# fixture marker for %s\n' "$f" > "$FAKE_ENG/$f"
 done
 printf '# fixture feature code\n' > "$FAKE_ENG/mega-lander/workspaces.py"
 printf '# fixture predicate\n' > "$FAKE_ENG/ass-kicker/brief-scope.py"
@@ -295,6 +308,12 @@ case " $(echo $REQUIRED_DIRS) " in
     *)
         bad "3.0 the fixture was derived from mutation_copy_engine's copy list" "the parse found '$(echo $REQUIRED_DIRS)', which lacks scripts or hooks — the function's copy lines changed shape, so update the sed pattern in this suite, not the fixture by hand" ;;
 esac
+case " $(echo $REQUIRED_FILES) " in
+    *" orchestration.config "*)
+        ok "3.0 and its required single files from the same list: $(echo $REQUIRED_FILES)" ;;
+    *)
+        bad "3.0 the required single files were derived from mutation_copy_engine's copy list" "the parse found '$(echo $REQUIRED_FILES)', which lacks orchestration.config — the function's file copy lines changed shape, so update the sed pattern in this suite, not the fixture by hand" ;;
+esac
 
 EMPTY="$SANDBOX/not-an-engine"
 mkdir -p "$EMPTY"
@@ -311,6 +330,9 @@ fi
 MISSING_IN_COPY=""
 for d in $REQUIRED_DIRS; do
     [ -f "$SANDBOX/dest-b/$d/.fixture-marker" ] || MISSING_IN_COPY="$MISSING_IN_COPY $d/"
+done
+for f in $REQUIRED_FILES; do
+    [ -f "$SANDBOX/dest-b/$f" ] || MISSING_IN_COPY="$MISSING_IN_COPY $f"
 done
 for f in scripts/hooks/fake-guard.sh scripts/lib/scratch.sh orchestration.config \
          mega-lander/workspaces.py ass-kicker/brief-scope.py; do
@@ -330,8 +352,11 @@ MISSING_IN_ENGINE=""
 for d in $REQUIRED_DIRS; do
     [ -d "$ENGINE_ROOT/$d" ] || MISSING_IN_ENGINE="$MISSING_IN_ENGINE $d/"
 done
+for f in $REQUIRED_FILES; do
+    [ -f "$ENGINE_ROOT/$f" ] || MISSING_IN_ENGINE="$MISSING_IN_ENGINE $f"
+done
 if [ -n "$REQUIRED_DIRS" ] && [ -z "$MISSING_IN_ENGINE" ] && [ -f "$ENGINE_ROOT/orchestration.config" ]; then
-    ok "3d  the real engine root has every directory mutation_copy_engine requires, so the real harnesses can build their sandbox"
+    ok "3d  the real engine root has every directory and file mutation_copy_engine requires, so the real harnesses can build their sandbox"
 else
     bad "3d  the real engine root has every directory the copy requires" "absent from $ENGINE_ROOT:${MISSING_IN_ENGINE:- orchestration.config or the derived list (see 3.0)} — every real mutation harness would refuse to start"
 fi
