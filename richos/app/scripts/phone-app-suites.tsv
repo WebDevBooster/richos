@@ -38,3 +38,4 @@ native-android-pair-lab.test.sh	android	the Android emulator pairing helpers
 native-release-policy.test.sh	ios,android	the release security policy both phone apps' store builds must pass
 mobile-perf.test.sh	ios,android	the phone apps' speed and battery measurement tool
 review-mock.test.sh	ios,android	the hosted mock backend App Store and Google Play reviewers pair the phone apps' store builds with
+native-ios-lab-phone.test.sh	ios	the iPhone lab helper (lab-phone), a Swift package built against the native iPhone app core; nothing it builds ships in the Mac app
