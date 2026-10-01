@@ -19,6 +19,9 @@ import kotlin.math.min
  *     `resumedAfterInterruptedSend`, due at once ([load]).
  *  4. Oldest first, stopping at the first one that cannot go. Only a transport failure stays
  *     queued (`waiting`, with a back-off); a final answer is `blocked` and waits for the user.
+ *     The one exception: hidden, inside a batch's bound after Home, a temporary failure waits out
+ *     its own back-off and goes again under the same `clientId`, within the bound's requests and
+ *     bytes (the iPhone re-walk's D3), because off screen nothing else would try it.
  *  5. No timer lives here: [dueInMs] says when something is owed a try, and the app owns ONE timer.
  *
  * Back-off: 1 s, doubling, capped at 16 s ([retryDelayMs]). A write-revision per message stops a
@@ -109,6 +112,7 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                 var backgroundRequests = 0
                 var backgroundBytes = 0
                 var expired = false
+                var boundEndsAt: Long? = null
                 var inFlight: Job? = null
                 var current: OutboxItem? = null
                 val deadline = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -119,7 +123,10 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                         backgroundRequests++
                         backgroundBytes += completionBytes(item)
                     }
-                    if (reserved.allowed && backgroundBytes <= COMPLETION_BYTES) delay(COMPLETION_MS)
+                    if (reserved.allowed && backgroundBytes <= COMPLETION_BYTES) {
+                        boundEndsAt = clock.now() + COMPLETION_MS
+                        delay(COMPLETION_MS)
+                    }
                     expired = true
                     visible.first { !it }
                     inFlight?.cancel(CancellationException("background completion budget"))
@@ -135,7 +142,41 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                             backgroundBytes += completionBytes(item)
                             true
                         }
-                    drain { item ->
+                    /**
+                     * Whether [failed] goes again in this batch while the app is hidden (the iPhone
+                     * re-walk's D3, on Android): off screen nothing else would try it, because the
+                     * connection owner has closed the stream, so neither the app's timer nor a
+                     * reopened link drains the outbox. It goes only after a temporary failure at the
+                     * Mac or the network (never the phone's own deferral), when the outbox's own
+                     * pause ([OutboxItem.notBefore], 1 s doubling) ends before the bound already
+                     * started does, and the batch has a request and the bytes left for it; [admit]
+                     * still counts the new request. The pause is the request slot, so the bound
+                     * running out cancels it.
+                     */
+                    suspend fun goesAgain(failed: OutboxItem, failure: TransportFailure): Boolean {
+                        if (visible.value || failure.reason in DEFERRALS) return false
+                        if (failed.kind == "answer" || failed.kind == "question_seen") return false
+                        // The bound is opened by [deadline] on the hiding it is about to be handed;
+                        // let it run once rather than read a bound that has not been set yet. If it
+                        // still has not, the message waits as before: never a retry without a bound.
+                        if (boundEndsAt == null) yield()
+                        val endsAt = boundEndsAt ?: return false
+                        if (!reserved.allowed || expired || backgroundRequests >= COMPLETION_MESSAGES ||
+                            completionBytes(failed) > COMPLETION_BYTES - backgroundBytes) return false
+                        val now = clock.now()
+                        val pause = max(0L, (failed.notBefore ?: now) - now)
+                        if (now + pause >= endsAt) return false
+                        val wait = async { delay(pause) }
+                        inFlight = wait
+                        return try {
+                            wait.await()
+                            true
+                        } catch (stopped: CancellationException) {
+                            currentCoroutineContext().ensureActive()
+                            false
+                        } finally { inFlight = null }
+                    }
+                    drain(again = { failed, failure -> goesAgain(failed, failure) }) { item ->
                         // Storage may suspend across backgrounding or the deadline. Admission
                         // belongs immediately before transport, after the durable sending write.
                         val request = async(start = CoroutineStart.UNDISPATCHED) {
@@ -167,10 +208,18 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
 
     private class CompletionDeferred : Exception()
 
-    private suspend fun drain(send: suspend (OutboxItem) -> Receipt): SendReport {
+    /**
+     * [again] answers a temporary failure: true once the failed message's own pause has been waited
+     * out and it should go again now, under the same `clientId`, in this same pass.
+     */
+    private suspend fun drain(
+        again: suspend (OutboxItem, TransportFailure) -> Boolean = { _, _ -> false },
+        send: suspend (OutboxItem) -> Receipt,
+    ): SendReport {
         var report = SendReport()
         val at = clock.now()
         val visited = HashSet<String>()
+        var owed: String? = null
         while (true) {
             // A person can submit more messages while the first request is awaiting the Mac.
             // Include those intents in this same batch, subject to its existing background budget.
@@ -180,7 +229,10 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                 report = report.copy(blocked = report.blocked + 1)
                 continue
             }
-            if ((queued.notBefore ?: 0L) > at) {
+            // The message whose pause [again] has just waited out is due, whatever `at` says.
+            val waitedOut = queued.clientId == owed
+            owed = null
+            if (!waitedOut && (queued.notBefore ?: 0L) > at) {
                 val waiting = items.count { it.state == OutboxState.WAITING }
                 return report.copy(deferred = waiting, waiting = waiting, reason = queued.lastReason)
             }
@@ -213,6 +265,13 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                 )
                 if (!write(failed, mine)) continue
                 if (e.retryable) {
+                    // Durable as waiting first: if the process ends during the pause, the message
+                    // is on disk as it was before this change, owed a try on the next launch.
+                    if (again(failed, e)) {
+                        visited -= failed.clientId
+                        owed = failed.clientId
+                        continue
+                    }
                     return report.copy(waiting = items.count { it.state == OutboxState.WAITING }, reason = e.reason)
                 }
                 report = report.copy(blocked = report.blocked + 1, reason = report.reason ?: e.reason)
@@ -257,6 +316,8 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
         const val COMPLETION_MS = 5_000L
         const val COMPLETION_MESSAGES = 3
         const val COMPLETION_BYTES = 256 * 1024
+        /** The phone's own deferrals, never a fault at the Mac: hidden, nothing answers them again. */
+        private val DEFERRALS = setOf("background", "background-budget")
         // Media requires a separately costed transfer policy. Never guess its remaining size.
         private fun completionBytes(item: OutboxItem): Int =
             if (item.kind == "text") (item.wire ?: item.text).toByteArray(Charsets.UTF_8).size + 4096
