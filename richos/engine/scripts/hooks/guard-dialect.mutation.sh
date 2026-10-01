@@ -201,6 +201,11 @@ mutant no-evidence-path-exemption "B15. " "$G" \
     '        if seg in ():' \
     "captured evidence — raw pages, transcripts, corpora, fixtures, run logs — would be rewritten, which destroys the evidence."
 
+mutant evidence-read-above-the-repository "D4b. " "$G" \
+    '    for seg in segment_path.split("/"):' \
+    '    for seg in low_path.split("/"):' \
+    "a repository that lives under a directory named logs/ or fixtures/ (a checkout under ~/work/logs/, or every test repository in a verification run's private profile) would have every file exempted as evidence, and British prose would pass in silence; that is what turned eight contract-integrity sections red only inside the merge gate on 2026-10-01."
+
 mutant no-vendor-legal-exemption "B20. " "$G" \
     '    if stem in VENDOR_LEGAL:' \
     '    if stem in ():' \

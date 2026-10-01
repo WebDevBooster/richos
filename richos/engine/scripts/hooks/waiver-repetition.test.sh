@@ -245,6 +245,18 @@ write_repeated_class() {
 days_ago() { # <n> -> YYYY-MM-DD, n days before the REAL today
     python3 -c 'import datetime,sys; print(datetime.date.today() - datetime.timedelta(days=int(sys.argv[1])))' "$1"
 }
+# THE OTHER HALF, for the run_py cases: n days before "$TODAY", the day run_py
+# tells the analyzer it is. A run_py fixture dated with days_ago is dated
+# against one clock and judged against another, so its entries sit weeks in the
+# analyzer's FUTURE and their idle_days go negative. The verdict mostly survives
+# that (only "idle > ACTIVE_DAYS" excludes), but a case about ORDER does not:
+# the recency bucket is idle_days // RECENCY_BUCKET, and floor division of
+# negative ages puts "today" and "yesterday" in different buckets on some real
+# days and not others. That is how 21b went red on 2026-10-01 with nobody
+# having changed anything: idle -29 and -28 landed in buckets -5 and -4.
+days_before_today() { # <n> -> YYYY-MM-DD, n days before $TODAY
+    python3 -c 'import datetime,sys; y,m,d=(int(x) for x in sys.argv[1].split("-")); print(datetime.date(y,m,d) - datetime.timedelta(days=int(sys.argv[2])))' "$TODAY" "$1"
+}
 write_repeated_class_now() {
     write_ledger
     add "$(days_ago 0)" alpha "recipient is the currently-running teammate spawned this session with native isolation:worktree; background agents never appear in the session roster, so every write still lands in its own existing isolated worktree"
@@ -433,8 +445,8 @@ if REFUSAL_WAS_OVERRIDDEN:
 PY
 ENVHOP
 
-envhop_add() { # <days-ago> <subject> <reason>
-    printf '%sT12:00:00Z\tto=%s\tfixture-ack: %s\n' "$(days_ago "$1")" "$2" "$3" \
+envhop_add() { # <days-before-TODAY> <subject> <reason>; read by run_py below
+    printf '%sT12:00:00Z\tto=%s\tfixture-ack: %s\n' "$(days_before_today "$1")" "$2" "$3" \
         >> "$STATE/fixture-envhop.log"
 }
 : > "$STATE/fixture-envhop.log"
@@ -836,13 +848,15 @@ fi
 BIG="$STATE/fixture-acks.log"
 SMALL="$STATE/fixture-envhop.log"
 
-big_add() {   # <days-ago> <subject>
+# Dated against $TODAY, never the real clock: run_py judges them on $TODAY, and
+# these two cases are about recency ORDER (see days_before_today above).
+big_add() {   # <days-before-TODAY> <subject>
     printf '%sT12:00:00Z\tto=%s\tfixture-ack: the recipient is a running teammate holding an isolated worktree of its own, so every write still lands inside that worktree %s\n' \
-        "$(days_ago "$1")" "$2" "$2" >> "$BIG"
+        "$(days_before_today "$1")" "$2" "$2" >> "$BIG"
 }
-small_add() { # <days-ago> <subject>
+small_add() { # <days-before-TODAY> <subject>
     printf '%sT12:00:00Z\tto=%s\tfixture-ack: continuous integration reads red on a workflow no part of this change touches, and its own repair is already under way elsewhere %s\n' \
-        "$(days_ago "$1")" "$2" "$2" >> "$SMALL"
+        "$(days_before_today "$1")" "$2" "$2" >> "$SMALL"
 }
 
 # The BIG class is larger and dormant; the SMALL class is smaller and current.
