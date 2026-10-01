@@ -85,6 +85,19 @@ extension EffectHandler {
     public func recoverRecording(_ recording: KeptRecording) async throws -> KeptRecording? { nil }
 }
 
+/// Asks the OS to keep the app running for a short while after it leaves the screen, so a message the
+/// person already sent can finish (`UIApplication.beginBackgroundTask` in the app; a recording fake in
+/// tests; none headless). `AppStore` begins it when a send starts on screen and ends it the moment
+/// that send and the ones queued with it are answered, or its bound runs out (five seconds after
+/// leaving, three requests, 256 KiB; six times an hour, 24 a day: `EffectRunner.reserveCompletion`).
+/// `expired` is the OS taking the time back first; the adapter ends the task itself after calling it,
+/// as UIKit requires, and `end` is then a no-op.
+@MainActor
+public protocol BackgroundContinuation: AnyObject {
+    func begin(expired: @escaping @MainActor @Sendable () -> Void)
+    func end()
+}
+
 /// Performs the effects a reducer asked for, through the ports. An actor, not main-actor-bound: the
 /// UI thread never waits on storage or the network (the Avelor iOS lesson, build plan §3.2).
 ///

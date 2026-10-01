@@ -114,6 +114,8 @@ struct RichOSNativeApp: App {
                 effects = platform
                 #endif
                 let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: effects, performance: PerformanceMarks.record)
+                // iOS's few seconds after Home for a message already sent (iPhone walk D3).
+                loaded.backgroundContinuation = BackgroundSendTime()
                 platform.dispatch = { loaded.receive($0) }
                 await network.setSink { action in await MainActor.run { loaded.receive(action) } }
                 await network.setPreviewKeyProvider { origin, previews in

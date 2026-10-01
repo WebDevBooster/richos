@@ -12,6 +12,9 @@
 //                    seconds, then answered still waiting
 //   press-after-<ms> the same Mac, pressed <ms> after its first ask arrives: an ask held across
 //                    that moment is answered pressed then, and any later ask at once
+//   accepts-after-<ms> a Mac that takes each message and answers "accepted" <ms> later: how a
+//                    simulator check sees a Send followed by Home reach the Mac while the app is
+//                    hidden (iPhone walk D3), with nothing but the app's own background time
 //
 // Holds sleep with `Task.sleep`, so the app's cancellation on leaving the screen ends them at once.
 // Every other effect is left undone, exactly as without it.
@@ -24,6 +27,7 @@ actor DevBridgeFixtureMac: EffectHandler {
         case unreachable
         case holds
         case pressAfter(ms: Int64)
+        case acceptsAfter(ms: Int64)
     }
 
     static let argument = "rios-fixture-mac"
@@ -38,7 +42,10 @@ actor DevBridgeFixtureMac: EffectHandler {
             if raw.hasPrefix("press-after-"), let ms = Int64(raw.dropFirst("press-after-".count)), ms >= 0 {
                 return DevBridgeFixtureMac(.pressAfter(ms: ms))
             }
-            print("rios: fixture Mac refused: '\(raw)'; known: unreachable, holds, press-after-<ms>")
+            if raw.hasPrefix("accepts-after-"), let ms = Int64(raw.dropFirst("accepts-after-".count)), ms >= 0 {
+                return DevBridgeFixtureMac(.acceptsAfter(ms: ms))
+            }
+            print("rios: fixture Mac refused: '\(raw)'; known: unreachable, holds, press-after-<ms>, accepts-after-<ms>")
             return nil
         }
     }
@@ -50,15 +57,24 @@ actor DevBridgeFixtureMac: EffectHandler {
 
     nonisolated func handles(_ effect: Effect) -> Bool {
         if case .checkMacConfirmation = effect { return true }
+        if case .deliver = effect, case .acceptsAfter = behavior { return true }
         return false
     }
 
     func handle(_ effect: Effect, state: AppState) async -> [Action] {
+        if case .deliver(let id) = effect, case .acceptsAfter(let ms) = behavior {
+            // Canceled (the bounded completion ran out): the message stays waiting on the phone.
+            guard (try? await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)) != nil else {
+                return [.deliveryFailed(clientID: id, failure: .retryable(reason: "unreachable", afterMs: nil), at: SystemClock().nowMs())]
+            }
+            print("rios: fixture Mac accepted \(id)")
+            return [.deliveryAccepted(clientID: id, at: SystemClock().nowMs())]
+        }
         guard case .checkMacConfirmation(let waitSeconds) = effect else { return [] }
         let askedAt = SystemClock().nowMs()
         let answer: MacConfirmation
         switch behavior {
-        case .unreachable:
+        case .unreachable, .acceptsAfter:
             answer = .awaiting
         case .holds:
             _ = await hold(seconds: waitSeconds, until: nil)
