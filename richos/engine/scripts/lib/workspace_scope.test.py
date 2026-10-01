@@ -111,5 +111,59 @@ class Decide(unittest.TestCase):
         self.assertFalse(ws.claimed('dir/subway.swift', declared))
 
 
+class CiShard(unittest.TestCase):
+    """ci-shard.sh with no selector: the whole inventory, except in a teammate workspace."""
+
+    LIBS = ('ci-receipts.py', 'leak-canary.sh', 'record-canary.sh', 'tree-witness.sh', 'proc_tree.py',
+            'operator_fences.py', 'worker_tokens.py', 'engine_pass.py', 'workspace_scope.py')
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='workspace-scope-shard.')
+        files = {'VERSION': '1.0.0-test\n',
+                 'scripts/lib/green.test.sh': '#!/usr/bin/env bash\nexit 0\n',
+                 'scripts/lib/other.test.sh': '#!/usr/bin/env bash\nexit 0\n',
+                 'scripts/ci-affected-units.sh': '#!/usr/bin/env bash\n'
+                                                 '[ -z "${AFFECTED_STUB:-}" ] || printf "%s\\n" "$AFFECTED_STUB"\n'}
+        for f in ('ci-shard.sh', 'ci-units.sh'):
+            files['scripts/' + f] = (SCRIPTS / f).read_text()
+        for f in self.LIBS:
+            files['scripts/lib/' + f] = (HERE / f).read_text()
+        self.main = repo(self.tmp, files)
+        self.wt = worktree(self.main, 'wt', 'cc/fixture-shard')
+        (self.wt / 'scripts/lib/green.test.sh').write_text('#!/usr/bin/env bash\n# edit\nexit 0\n')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def shard(self, where, *args, **env):
+        return subprocess.run(['bash', str(where / 'scripts/ci-shard.sh'), *args], capture_output=True, text=True,
+                              env={**CLEAN, **env})
+
+    def test_c1_no_selector_in_a_workspace_runs_the_units_its_branch_maps_to(self):
+        r = self.shard(self.wt, '--list', AFFECTED_STUB='scripts/lib/green.test.sh')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('workspace run on cc/fixture-shard', r.stdout)
+        self.assertIn('bash scripts/ci-shard.sh --full', r.stdout)
+        self.assertIn('green.test.sh', r.stdout)
+        self.assertNotIn('other.test.sh', r.stdout)
+
+    def test_c2_full_the_gate_a_selector_and_the_main_checkout_are_unchanged(self):
+        for r in (self.shard(self.wt, '--full', '--list', AFFECTED_STUB='scripts/lib/green.test.sh'),
+                  self.shard(self.wt, '--list', AFFECTED_STUB='scripts/lib/green.test.sh', RICHOS_TEST_SCOPE='full'),
+                  self.shard(self.main, '--list', AFFECTED_STUB='scripts/lib/green.test.sh')):
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn('other.test.sh', r.stdout)
+            self.assertNotIn('workspace run', r.stdout)
+        only = self.shard(self.wt, '--only-units', 'scripts/lib/other.test.sh', '--list')
+        self.assertIn('other.test.sh', only.stdout)
+        self.assertNotIn('workspace run', only.stdout)
+
+    def test_c3_a_branch_mapping_to_no_unit_is_refused_with_the_full_command(self):
+        r = self.shard(self.wt, '--list')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('REFUSED', r.stderr)
+        self.assertIn('bash scripts/ci-shard.sh --full', r.stderr)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

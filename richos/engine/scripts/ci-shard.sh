@@ -81,6 +81,12 @@
 #   ci-shard.sh --only-units <id[,id…]>  run exactly these units
 #   ci-shard.sh --units-file <path>      run the units named in a file
 #   ci-shard.sh --list                   print what would run, run nothing
+#   ci-shard.sh                          no selector: the WHOLE inventory, except in a teammate
+#                                        workspace (a cc/ branch in a linked worktree,
+#                                        lib/workspace_scope.py), where it is the units
+#                                        ci-affected-units.sh maps the branch to, said in one
+#                                        line; a branch that maps to none is refused (exit 2)
+#   ci-shard.sh --full                   the whole inventory, wherever it runs
 #   ci-shard.sh --verify-receipts <dir>  the coverage proof over collected
 #                                        receipts; runs no tests. Add
 #                                        --units-file to certify a RESTRICTED
@@ -301,6 +307,7 @@ LIST_ONLY=0
 VERBOSE=0
 ALLOW_EMPTY=0
 FAIL_FAST=0
+FULL=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -321,6 +328,7 @@ while [ "$#" -gt 0 ]; do
         --verbose|-v) VERBOSE=1; shift ;;
         --allow-empty) ALLOW_EMPTY=1; shift ;;
         --fail-fast) FAIL_FAST=1; shift ;;
+        --full) FULL=1; shift ;;
         -h|--help) sed -n '/^# Usage:/,/^# =\{10,\}$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unrecognized argument '$1' — see --help" ;;
     esac
@@ -417,6 +425,33 @@ if [ -n "$VERIFY_DIR" ]; then
     find "$VERIFY_DIR" -type f -name '*.jsonl' -print0 2>/dev/null | xargs -0 cat 2>/dev/null \
         | python3 "$SCRIPT_DIR/lib/ci-receipts.py" verify "${RW_ARGS[@]}"
     exit $?
+fi
+
+# ---------------------------------------------------------------------------
+# a teammate workspace runs what its branch touches (CEO, 2026-10-01)
+# ---------------------------------------------------------------------------
+# No selector by hand in a teammate workspace was the two-hour whole inventory. There it
+# is now the units the engine's own diff map (ci-affected-units.sh) names for the branch,
+# committed or not. `--full`, any selector, the main checkout and RICHOS_TEST_SCOPE=full
+# (proof-run.py sets it for every check) keep the behavior above, untouched.
+SCOPE_TOOL="$SCRIPT_DIR/lib/workspace_scope.py"
+if [ "$FULL" -eq 1 ]; then
+    export RICHOS_TEST_SCOPE=full
+elif [ -z "$SHARD" ] && [ -z "$ONLY_UNITS" ] && [ -z "$UNITS_FILE" ] && [ -f "$SCOPE_TOOL" ]; then
+    decided="$(python3 "$SCOPE_TOOL" decide "$ENGINE_ROOT")" \
+        || die "could not decide whether this is a workspace run; nothing ran" 2
+    scope=""; why=""; branch=""; base=""; root=""
+    eval "$decided"
+    if [ "$scope" = narrow ]; then
+        where="workspace run on ${branch:-this checkout}, compared with main at ${base:0:12}"
+        units="$(bash "$SCRIPT_DIR/ci-affected-units.sh" --working --base "$base")" \
+            || die "REFUSED: $where: ci-affected-units.sh could not map the branch. Everything: bash scripts/ci-shard.sh --full" 2
+        units="$(printf '%s\n' "$units" | grep -v '^$' | LC_ALL=C sort -u | tr '\n' ',' | sed 's/,$//' || true)"
+        [ -n "$units" ] || die "REFUSED: $where: ci-affected-units.sh maps the branch to no engine unit, so nothing would run. Everything: bash scripts/ci-shard.sh --full ; chosen: --only-units <id>" 2
+        ONLY_UNITS=",$units"
+        printf 'ci-shard.sh: %s: the unit(s) ci-affected-units.sh maps it to: %s. Everything: bash scripts/ci-shard.sh --full\n' \
+            "$where" "$(printf '%s' "$units" | sed 's/,/, /g')"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
