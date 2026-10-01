@@ -1217,7 +1217,7 @@
     },
     "scripts/lib/quota_watch.py#weekly-fixture": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "b3c83b8786365511760a9245f2a0ae88f5324c357fdf00ff1844c298bb507e88",
+      "sha256": "43b853d41893f16a663d99e0eb8fc795db4e9e48f9b81bc2545e77d99edc066b",
       "evidence": "The weekly suite calls _parse_reset, and (renewed 2026-09-28) poll_loop directly with an in-memory Out writer and literal threshold/config arguments; it patches read_source, workers, time.time, weekly.reset_tick and time.sleep, whose first call ends the case. Each reading triggers the weekly event before any sleep or five-hour path. No CLI wrapper, real config, usage API or registry code executes. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it).",
       "keys": [],
       "edges": [
@@ -1231,7 +1231,7 @@
     },
     "scripts/quota-weekly.test.sh": {
       "source": "scripts/quota-weekly.test.sh",
-      "sha256": "581f25d12044a9b496bd7c9480cbca13733c5a1a0d88d7890285518d426470d2",
+      "sha256": "b4918636c26e322dcde3f091f212c20e0be9ea49cbe3e791e4fbcf6d9a211de7",
       "evidence": "All settings and time originate in the inline Python fixture. Reviewed imports and mocked subprocess/registry boundaries are explicit helper edges.",
       "keys": [],
       "edges": [
@@ -1372,7 +1372,7 @@
     },
     "scripts/lib/quota_watch.py#message-fixture": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "b3c83b8786365511760a9245f2a0ae88f5324c357fdf00ff1844c298bb507e88",
+      "sha256": "43b853d41893f16a663d99e0eb8fc795db4e9e48f9b81bc2545e77d99edc066b",
       "evidence": "The fixture calls only pause_message, resume_message and release_message with literal reset timestamps. hhmm uses UTC conversion, pause text uses pause_protocol; no config/source/watch/reset operation runs. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it). WAIT branch: resume and release text is pause_protocol.render_resume, also a string render.",
       "keys": [],
       "edges": [
@@ -1746,7 +1746,7 @@
     },
     "scripts/lib/quota_watch.py#notice": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "b3c83b8786365511760a9245f2a0ae88f5324c357fdf00ff1844c298bb507e88",
+      "sha256": "43b853d41893f16a663d99e0eb8fc795db4e9e48f9b81bc2545e77d99edc066b",
       "evidence": "The main --notice path parses arguments and reads the explicitly supplied payload file and timestamp. It never invokes get_usage, reset_tick, workers or the watch loop. Module imports pause_protocol and quota_weekly, neither reading config. The added login-alarm subprocess is reachable only through read_source, which none of this declared entry-point closure executes (weekly fixtures replace it).",
       "keys": [],
       "edges": [
@@ -8039,7 +8039,7 @@
     },
     "scripts/lib/quota_watch.py#quota-fixture": {
       "source": "scripts/lib/quota_watch.py",
-      "sha256": "b3c83b8786365511760a9245f2a0ae88f5324c357fdf00ff1844c298bb507e88",
+      "sha256": "43b853d41893f16a663d99e0eb8fc795db4e9e48f9b81bc2545e77d99edc066b",
       "evidence": "Reviewed CLI, all imports, file and subprocess operations, workers and watch loop. The suite supplies a missing or literal fake Claude transport and a false reset helper. It loads only fixed workspace, weekly, pause and login-alarm siblings. Payloads, messages and registry records are data. Real clocks and process identities remain runtime inputs. Renewed 2026-09-28 (ad9da4f8, 5d3621a3): --watch and --monitor now start a detached poller that is this same file (--poll) with its state, lock and event files under QUOTA_WATCH_STATE_DIR (private in the suite), read the session pid's start time with ps and poll until the session ends. The threshold still arrives as --threshold-raw from quota-watch.sh; no new engine program and no orchestration.config read.",
       "keys": [],
       "edges": [
@@ -15766,7 +15766,7 @@
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
         "scripts/quota-watch.sh": "1dd0e9aea3ce31526a9296fe0417b697daf1ae45d0e041fd59024a3f3cae7076",
-        "scripts/lib/quota_watch.py": "b3c83b8786365511760a9245f2a0ae88f5324c357fdf00ff1844c298bb507e88",
+        "scripts/lib/quota_watch.py": "43b853d41893f16a663d99e0eb8fc795db4e9e48f9b81bc2545e77d99edc066b",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/quota_weekly.py": "fc1f6ada13e8a34479c9004bd3b31a62eb61b7a1281dc32fd578957794046fc7",
         "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
@@ -15840,7 +15840,7 @@
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
         "scripts/quota-watch.sh": "1dd0e9aea3ce31526a9296fe0417b697daf1ae45d0e041fd59024a3f3cae7076",
-        "scripts/lib/quota_watch.py": "b3c83b8786365511760a9245f2a0ae88f5324c357fdf00ff1844c298bb507e88",
+        "scripts/lib/quota_watch.py": "43b853d41893f16a663d99e0eb8fc795db4e9e48f9b81bc2545e77d99edc066b",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/quota_weekly.py": "fc1f6ada13e8a34479c9004bd3b31a62eb61b7a1281dc32fd578957794046fc7",
         "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
@@ -16074,7 +16074,7 @@
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/hooks/session-start-quota.sh": "720bdd6c4c0e392f2be9f37368f0862e92d1504a2eb56851af8a4e083f817cf1",
         "scripts/quota-watch.sh": "1dd0e9aea3ce31526a9296fe0417b697daf1ae45d0e041fd59024a3f3cae7076",
-        "scripts/lib/quota_watch.py": "b3c83b8786365511760a9245f2a0ae88f5324c357fdf00ff1844c298bb507e88",
+        "scripts/lib/quota_watch.py": "43b853d41893f16a663d99e0eb8fc795db4e9e48f9b81bc2545e77d99edc066b",
         "scripts/lib/quota_weekly.py": "fc1f6ada13e8a34479c9004bd3b31a62eb61b7a1281dc32fd578957794046fc7",
         "scripts/hooks/session-start-scratch.sh": "f78039d4b89732e00fdfec13abd6622f4c9c8f4badb9bca26c4b0a758068d485",
         "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
