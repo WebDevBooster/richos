@@ -229,11 +229,15 @@ final class InteractionTests: XCTestCase {
         assertOnScreenAndHittable(scan, in: app, "Scan your Mac's code")
         scan.tap()
         XCTAssertTrue(app.descendants(matching: .any)["scanner"].waitForExistence(timeout: 3), "the scan button did not open the scanner")
-        // Found by its spoken name. A query for the identifier `scanner.close` found no button on the
-        // iPhone 16 Pro simulator (2026-09-24); the outer `scanner` identifier is one candidate cause,
-        // not verified, and nothing else in the suite taps this control.
-        let close = app.buttons.matching(NSPredicate(format: "label == %@", "Close the scanner")).firstMatch
+        // D7 (the iPhone walk, 2026-10-01): the scanner's identifier replaced its children's, so these
+        // were `scanner`. Each control answers to its own identifier and keeps its spoken name.
+        let close = app.buttons["scanner.close"]
         assertOnScreenAndHittable(close, in: app, "Close the scanner")
+        XCTAssertEqual(close.label, "Close the scanner")
+        let link = app.buttons["scanner.link"]
+        assertOnScreenAndHittable(link, in: app, "Use a pairing link instead")
+        XCTAssertEqual(link.label, "Use a pairing link instead")
+        keepScreenshot(app, name: "d7-scanner")
         close.tap()
         XCTAssertTrue(card.waitForExistence(timeout: 3) && card.label.contains("Pairing timed out"),
                       "backing out of the scanner lost the explanation")

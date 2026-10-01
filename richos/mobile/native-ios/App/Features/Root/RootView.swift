@@ -72,6 +72,8 @@ struct ScreenView: View {
     @State private var questionJumpToken = 0
     @State private var questionJumpID: String?
     @State private var aboveHeight: CGFloat = 0
+    /// The empty conversation's own height, measured, so it can sit above the cards instead of under them.
+    @State private var emptyHeight: CGFloat = 300
     /// Whether the CURRENT model has a sheet. SwiftUI may call the setter of the binding it was first
     /// given, whose captured model is stale; this box always holds the latest answer.
     @State private var sheetBox = SheetBox()
@@ -139,12 +141,20 @@ struct ScreenView: View {
                 // does (`verticalScroll`, bottom-padded by the zone): at the largest text size the
                 // paragraph is taller than an iPhone SE, and unscrolled it pushed Settings and the
                 // composer off the screen.
+                //
+                // D1 (the iPhone walk, the SE): it sits 30% down, but no lower than leaves its whole
+                // height above the zone (a notification offer is a card there), and no higher than the
+                // header's bottom; where it still does not fit, it scrolls.
+                let regionBottom = root.size.height - (max(0, safeTop + root.size.height - zoneTop) + 20)
+                let lowest = regionBottom - emptyHeight
+                let highest = max(0, headerBottom - safeTop) + 8
                 ScrollView {
                     EmptyConversation()
                         .frame(maxWidth: .infinity)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { emptyHeight = $0 }
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                .padding(.top, safeTop + root.size.height * 0.30)
+                .padding(.top, max(highest, min(safeTop + root.size.height * 0.30, lowest)))
                 .padding(.bottom, max(0, safeTop + root.size.height - zoneTop) + 20)
                 .frame(maxHeight: .infinity, alignment: .top)
             } else {
@@ -249,9 +259,11 @@ struct ScreenView: View {
                         }
                         .scrollBounceBehavior(.basedOnSize)
                         .scrollIndicators(.hidden)
-                        // At most its notes' height and 40% of the screen, and less when the header
-                        // needs the room: then it scrolls (the SE fit).
-                        .frame(maxHeight: min(max(aboveHeight, 1), height * 0.4))
+                        // Its notes' height whole when they fit in 60% of the screen (D10: with the
+                        // keyboard up on an iPhone SE, 40% cut the kept voice card through its Send and
+                        // Discard); otherwise at most 40% of it and scrolling, and less when the header
+                        // needs the room (the SE fit).
+                        .frame(maxHeight: min(max(aboveHeight, 1), max(aboveHeight, 1) <= height * 0.6 ? height * 0.6 : height * 0.4))
                         // I05: a card raised while another shows is brought into view, the least
                         // scroll that shows it, once, when it is raised: never a timer or a redraw.
                         .onChange(of: model.cards) { before, after in
