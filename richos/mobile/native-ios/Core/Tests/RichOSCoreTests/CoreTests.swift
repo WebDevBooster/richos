@@ -503,13 +503,14 @@ let repositoryRoot: URL = {
         #expect(cleared.sheet == .forget, "once the work is resolved the confirmation takes its place")
     }
 
-    @Test func forgettingTurnsNotificationsOffFirstAndKeepsRecordings() throws {
+    @Test func forgettingTurnsNotificationsOffFirstAndDiscardsKeptRecordings() throws {
         var s = try Fixture.named("rec-card").state
+        let keptID = try #require(s.keptRecordings.first?.id)
         s = Reducer.reduce(s, .forgetPairing).state
         let (forgotten, effects) = Reducer.reduce(s, .confirmForget)
-        #expect(effects == [.persist, .unregisterNotifications, .withdrawNotifications, .disconnect, .forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")])
+        #expect(effects == [.persist, .unregisterNotifications, .withdrawNotifications, .disconnect, .forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443"), .deleteRecording(id: keptID)])
         #expect(forgotten.screen == .pairIntro && forgotten.messages.isEmpty && forgotten.mac == nil && !forgotten.consentGiven)
-        #expect(forgotten.keptRecordings.count == 1)
+        #expect(forgotten.keptRecordings.isEmpty, "a recording made for one Mac is never offered to another (D9)")
     }
 
     @Test func aRequiredUpdateCannotBeDismissedAndThePolicyCanPauseVoice() throws {

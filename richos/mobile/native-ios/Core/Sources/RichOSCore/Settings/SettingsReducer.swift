@@ -38,11 +38,11 @@ enum SettingsReducer {
             effects.append(.withdrawNotifications)
             effects.append(.disconnect)
             if let origin = s.mac?.origin { effects.append(.forgetIdentity(origin: origin)) }
-            // His recordings are kept: nothing unsent is ever discarded silently.
-            let kept = s.keptRecordings
+            // A recording kept for this Mac is never offered to another: it goes with the pairing,
+            // and its audio file with it (the owner's ruling on walk defect D9, 2026-10-01).
+            for kept in s.keptRecordings { effects.append(.deleteRecording(id: kept.id)) }
             let appearance = s.appearance
             s = AppState()
-            s.keptRecordings = kept
             s.appearance = appearance
         case .openSystemSettings:
             effects.append(.openSystemSettings)
