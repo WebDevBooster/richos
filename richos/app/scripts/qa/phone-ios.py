@@ -471,11 +471,164 @@ def forecast(device, now=None, passcode=None, pattern=None):
             "why": f"{held} and {idle}: iOS asks again after idle (never within 12.5 min, always after 9.3 h, measured)"}
 
 
-def approval_refusal(f):
-    return (f"this run is expected to ask the phone's owner to allow UI automation (Touch ID or passcode, "
+class Refusal(CannotAnswer):
+    """A refusal that also carries fields for the JSON it is printed as."""
+
+    def __init__(self, message, **extra):
+        super().__init__(message)
+        self.extra = extra
+
+
+# THE REFUSAL RAISES ITS OWN ESCALATION (2026-10-01). Both of that day's
+# escalations that needed the CEO at this phone came out of the refusal below,
+# and the first sat 82 minutes because nothing woke the idle lead (richos-hq
+# docs/operations/2026-10-01-escalation-wakes-the-lead.md, item C). The step that
+# KNOWS the CEO's hands are needed now says so itself: it appends one row to the
+# engine's escalation ledger with needs=ceo-hands, which the stall watcher tells
+# the lead within a minute and again every 10 minutes until acknowledged. One
+# need, one id: an outstanding ceo-hands escalation for the same workspace is
+# reused, and the refusal tells the teammate not to raise another. A placeholder
+# device id (all zeros, the suite's own fake phone) raises nothing.
+ENGINE_LIB = ROOT / "richos/engine/scripts/lib"
+APPROVAL_TITLE = "UI automation approval needed at the test iPhone"
+PLACEHOLDER_DEVICE = re.compile(r"^[0-]+$")
+
+
+def _escalations():
+    """The engine's escalation library in this checkout, or None."""
+    import importlib.util
+    path = ENGINE_LIB / "escalations.py"
+    if not path.exists():
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("richos_escalations", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:  # noqa: BLE001: a library that cannot load is said, never guessed past
+        return None
+
+
+def _git_out(cwd, *args):
+    try:
+        p = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return p.stdout.strip() if p.returncode == 0 else ""
+
+
+def workspace_of(cwd):
+    """The workspace a run starts in: its git top level, else the directory itself."""
+    return os.path.realpath(_git_out(cwd, "rev-parse", "--show-toplevel") or str(cwd))
+
+
+def raise_approval_escalation(device, f, cwd=None):
+    """(id, raised now?, problem). Raises nothing for a placeholder device, and
+    reuses an outstanding ceo-hands escalation for the same workspace."""
+    if PLACEHOLDER_DEVICE.match(device or ""):
+        return None, False, f"{device} is a placeholder device id (all zeros), not a phone, so nothing was raised"
+    esc = _escalations()
+    if esc is None:
+        return None, False, f"the engine's escalation library ({ENGINE_LIB / 'escalations.py'}) could not be loaded"
+    wt = workspace_of(cwd or os.getcwd())
+    rows, _bad = esc.read_rows()
+    if rows is None:
+        return None, False, f"the escalation ledger ({esc.ledger_path()}) could not be read"
+    for e in esc.outstanding(rows):
+        if e.get("needs") == "ceo-hands" and e.get("worktree") and os.path.realpath(e["worktree"]) == wt:
+            return e["id"], False, ""
+    common = _git_out(wt, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    repo = os.path.basename(common[:-len("/.git")] if common.endswith("/.git") else common) or os.path.basename(wt)
+    from types import SimpleNamespace
+    args = SimpleNamespace(
+        title=APPROVAL_TITLE, state="proceeding", audience="lead", needs="ceo-hands",
+        question=(f"Can the CEO be at the test iPhone ({device}) to allow UI automation with Touch ID or the "
+                  "passcode, within about 60 s of the next phone-ios.py run starting? Tell the teammate in "
+                  f"{os.path.basename(wt)} when he is there; it then reruns with --approval-announced."),
+        tried=f"phone-ios.py run refused before any build or install: {f['why']}.",
+        meanwhile=("Nothing was built, installed or run on the phone. This was raised by phone-ios.py itself "
+                   "at its approval refusal; the teammate raises no second escalation for it."),
+        teammate=os.path.basename(wt), worktree=wt, branch=_git_out(wt, "symbolic-ref", "--short", "HEAD"),
+        repo=repo, head=_git_out(wt, "rev-parse", "HEAD"), record="", session="")
+    problems = esc.validate_raise(args)
+    if problems:
+        return None, False, "; ".join(problems)
+    row = esc.build_row(args)
+    try:
+        esc.append_row(row)
+    except Exception as error:  # noqa: BLE001: a raise that did not land says so
+        return None, False, f"the escalation ledger could not be written ({error})"
+    return row["id"], True, ""
+
+
+def close_approval_escalations(cwd, log, when=None):
+    """Acknowledge this workspace's outstanding approval escalations once a run
+    with --approval-announced reached its first step: UI automation was allowed,
+    so the 10-minute repeat stops on the fact, not on the lead remembering to
+    ack (Sage's review, item 7). Returns the ids it closed."""
+    esc = _escalations()
+    if esc is None:
+        return []
+    rows, _bad = esc.read_rows()
+    if rows is None:
+        return []
+    wt = workspace_of(cwd or os.getcwd())
+    stamp = time.strftime("%H:%MZ", time.gmtime(when or time.time()))
+    closed = []
+    for e in esc.outstanding(rows):
+        if e.get("needs") != "ceo-hands" or not str(e.get("title", "")).startswith(APPROVAL_TITLE):
+            continue
+        if not e.get("worktree") or os.path.realpath(e["worktree"]) != wt:
+            continue
+        row = {"event": "EscalationAck", "id": e["id"], "acked": esc.iso(esc.utcnow()),
+               "disposition": (f"UI automation was allowed at the phone: the run at {stamp} reached its first "
+                               f"step (log {log}). Closed by phone-ios.py itself."),
+               "actor": "phone-ios.py", "session_id": ""}
+        try:
+            esc.append_row(row)
+        except Exception:  # noqa: BLE001: an unwritten ack leaves it outstanding, which is the loud side
+            continue
+        closed.append(e["id"])
+    return closed
+
+
+def pairs_by_link(steps):
+    """Does this list pair through a lab link (a `type` step carrying #pair=)?"""
+    return any(s.get("do") == "type" and "#pair=" in str(s.get("text", "")) for s in steps)
+
+
+# THE PAIRING WINDOW OUTLASTED BY THE APPROVAL (2026-10-01). The lab opens one
+# pairing window when it starts (mobile/dev/mac-server.rs: open_pairing at
+# startup, five minutes, app/src-tauri/src/phone/device.rs). That day the lab
+# opened at 13:44Z, the approval took its time, and the link was typed at
+# 13:49:55Z: the window had closed, the pairing failed, and the one approval was
+# spent on it. The lab cannot know an approval is pending; this tool knows both
+# the forecast and the step list, so the ordering is enforced here: spend the
+# approval on a session with no deadline first, THEN start the lab. A session
+# within 10 minutes of the previous one has never asked (QUIET_WINDOW_S).
+PAIRING_ORDER = ("this list pairs through the lab's link, whose pairing window lasts five minutes from the "
+                 "lab's start, and the approval wait can outlast it (2026-10-01: the window opened 13:44Z, the "
+                 "link was typed 13:49:55Z after the approval, and the pairing failed). Spend the approval first: "
+                 "run a list with no pairing, for example [{\"do\": \"state\"}], with --approval-announced; then "
+                 "start the lab (that opens the window) and generate pair-steps, and run them within 10 minutes "
+                 "of that session, when no approval is asked.")
+
+
+def approval_refusal(f, raised=None, new=False, problem="", pairing=False):
+    text = (f"this run is expected to ask the phone's owner to allow UI automation (Touch ID or passcode, "
             f"at the phone, within about 60 s, or the run fails '{APPROVAL_TIMEOUT}'): {f['why']}. "
-            "Tell Rich so the CEO hears it BEFORE the run, then pass --approval-announced. "
-            "Removing the test phone's passcode ends the prompt for good.")
+            "Tell Rich so the CEO hears it BEFORE the run, then pass --approval-announced. ")
+    if raised and new:
+        text += (f"Raised {raised} with needs=ceo-hands, so the lead is woken now and every 10 minutes until "
+                 "it is acknowledged; do not raise another for this. ")
+    elif raised:
+        text += (f"Already raised as {raised} (needs=ceo-hands, still unacknowledged); do not raise another "
+                 "for this. ")
+    elif problem:
+        text += f"No escalation was raised: {problem}. "
+    if pairing:
+        text += "And " + PAIRING_ORDER + " "
+    return text + "Removing the test phone's passcode ends the prompt for good."
 
 
 def approval(args):
@@ -496,8 +649,13 @@ def run(args):
     identity = stamped_identity(args.stamp) if args.prebuilt else None
     device = os.environ["RICHOS_IOS_DEVICE"]
     ahead = forecast(device, passcode=passcode_state(device))
+    pairing = pairs_by_link(steps)
     if ahead["approvalExpected"] and not args.approval_announced:
-        raise CannotAnswer(approval_refusal(ahead))
+        raised, new, problem = raise_approval_escalation(device, ahead)
+        raise Refusal(approval_refusal(ahead, raised, new, problem, pairing),
+                      escalation=raised, escalationRaisedNow=new, escalationProblem=problem or None)
+    if ahead["approvalExpected"] and pairing:
+        raise Refusal("the CEO was told, but " + PAIRING_ORDER, approvalForecast=ahead)
     out.mkdir(parents=True, exist_ok=True)
     config = out / "script-config.json"
     config.unlink(missing_ok=True)
@@ -549,6 +707,10 @@ def run(args):
     if session and session["timedOut"]:
         summary["error"] = (f"'{APPROVAL_TIMEOUT}': the phone asked its owner to allow UI automation and "
                             "nobody approved it at the phone in about 60 s; no step ran")
+    elif rows and args.approval_announced:
+        # The phone ran a step, so UI automation was allowed: the approval
+        # escalation this tool raised is answered by the fact, not by memory.
+        summary["approvalEscalationsClosed"] = close_approval_escalations(os.getcwd(), str(log))
     return emit(summary, 0 if summary["passed"] else 1)
 
 
@@ -743,7 +905,7 @@ def main(argv):
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
                 "syslog": syslog, "approval": approval}[args.command](args)
     except CannotAnswer as error:
-        return emit({"error": str(error)}, 2)
+        return emit({"error": str(error), **getattr(error, "extra", {})}, 2)
     except subprocess.TimeoutExpired as error:
         return emit({"error": f"{error.cmd[0]} did not answer in {error.timeout} s"}, 2)
 

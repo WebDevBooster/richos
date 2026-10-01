@@ -78,6 +78,12 @@ QA="$DIR/qa"
 FIX="$QA/fixtures"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/qa-toolkit-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
+# phone-ios.py raises a needs=ceo-hands escalation at its approval refusal
+# (2026-10-01). Every case here writes to this fixture ledger, never to the
+# operator's ~/.claude/state/escalations.jsonl, where a fixture row would wake
+# the lead every 10 minutes about a phone that does not exist.
+export RICHOS_ESCALATION_LEDGER="$TMP/escalations.jsonl"
+REAL_LEDGER="$HOME/.claude/state/escalations.jsonl"
 # A path that is off /Volumes/E1TB whatever TMPDIR is (agents keep TMPDIR on the SSD). The refusals under test happen before anything is written there.
 OFFSSD="/private/var/empty/qa-toolkit-off-ssd"
 
@@ -1027,6 +1033,9 @@ run env RICHOS_IOS_DEVICE="$PHONE" RICHOS_APPLE_TEAM=y RICHOS_IOS_SESSION_LOGS="
 expect "J3 a run expected to ask is refused BEFORE any build until the CEO was told (--approval-announced)" 2 "Tell Rich so the CEO hears it BEFORE the run"
 if [ -e /Volumes/E1TB/nonexistent-qa-test ]; then bad "J3b the refused run wrote nothing" "it created /Volumes/E1TB/nonexistent-qa-test"
 else ok "J3b the refused run wrote nothing"; fi
+if printf '%s' "$OUT" | grep -qF "placeholder device id" && [ ! -s "$RICHOS_ESCALATION_LEDGER" ]; then
+  ok "J3c the all-zeros placeholder phone raises no escalation, and says so"
+else bad "J3c placeholder phone raises nothing" "ledger: $(cat "$RICHOS_ESCALATION_LEDGER" 2>/dev/null | head -c 200) out: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
 
 session_log b.log 08:00:00.000 TIMEOUT 60
 run forecast
@@ -1047,6 +1056,74 @@ echo 'PHONE_PASSCODE {"configured":false,"error":"com.apple.LocalAuthentication 
 python3 -c 'import os,sys,time; t=time.time()-36000; os.utime(sys.argv[1],(t,t))' "$SESS/d.log"
 run forecast
 expect "J7 ten hours idle, but the phone said it has no passcode: no approval is expected" 0 'the phone has no passcode (the phone itself at a session'
+
+# P01-P05: the approval refusal raises its own needs=ceo-hands escalation (2026-10-01, richos-hq
+# docs/operations/2026-10-01-escalation-wakes-the-lead.md item C, and Sage's review items 7 and 11).
+# A fake, non-placeholder phone id with no session on record forecasts an approval; the runs start
+# in a fixture git workspace so the escalation names that workspace; the ledger is the fixture one.
+PHONE2="00008030-0000FEEDFACE0001"
+PWS="$TMP/phone-ws"; mkdir -p "$PWS"; git -C "$PWS" init -q
+PWS_REAL="$(cd "$PWS" && pwd -P)"
+ledger_rows() {  # ledger_rows <ledger> <event> [needs]: rows of that event for the fixture workspace
+  [ -f "$1" ] || { echo 0; return; }
+  python3 - "$1" "$2" "$PWS_REAL" "${3:-}" <<'PY'
+import json, sys
+path, event, ws, needs = sys.argv[1:5]
+n = 0
+for line in open(path, encoding="utf-8", errors="replace"):
+    try:
+        r = json.loads(line)
+    except ValueError:
+        continue
+    if r.get("event") != event:
+        continue
+    if event == "Escalation" and (r.get("worktree") != ws or (needs and r.get("needs") != needs)):
+        continue
+    n += 1
+print(n)
+PY
+}
+REAL_BEFORE="$(ledger_rows "$REAL_LEDGER" Escalation)"
+phone_run() { (cd "$PWS" && env RICHOS_IOS_DEVICE="$PHONE2" RICHOS_APPLE_TEAM=y RICHOS_IOS_SESSION_LOGS="$SESS/*.log" \
+  python3 "$QA/phone-ios.py" run "$@" --out /Volumes/E1TB/nonexistent-qa-test); }
+run phone_run "$TMP/ios-ok.json"
+P01_ID="$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("escalation") or "")' 2>/dev/null)"
+if [ "$CODE" = 2 ] && [ -n "$P01_ID" ] && [ "$(ledger_rows "$RICHOS_ESCALATION_LEDGER" Escalation ceo-hands)" = 1 ] \
+   && printf '%s' "$OUT" | grep -qF "Raised $P01_ID with needs=ceo-hands" && printf '%s' "$OUT" | grep -qF "do not raise another" \
+   && [ ! -e /Volumes/E1TB/nonexistent-qa-test ]; then
+  ok "P01 the approval refusal still refuses, and raises exactly one needs=ceo-hands escalation for its workspace"
+else bad "P01 the refusal raises one ceo-hands escalation" "exit $CODE id='$P01_ID' rows=$(ledger_rows "$RICHOS_ESCALATION_LEDGER" Escalation ceo-hands) out: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"; fi
+run phone_run "$TMP/ios-ok.json"
+if [ "$CODE" = 2 ] && [ "$(ledger_rows "$RICHOS_ESCALATION_LEDGER" Escalation)" = 1 ] && [ -n "$P01_ID" ] \
+   && printf '%s' "$OUT" | grep -qF "Already raised as $P01_ID"; then
+  ok "P02 a second refusal in the same workspace adds no row and names the first id"
+else bad "P02 one need, one id" "exit $CODE rows=$(ledger_rows "$RICHOS_ESCALATION_LEDGER" Escalation) first='$P01_ID' out: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"; fi
+if [ "$(ledger_rows "$REAL_LEDGER" Escalation)" = "$REAL_BEFORE" ]; then
+  ok "P03 the operator's own ledger gained no row for the fixture workspace"
+else bad "P03 the real ledger is untouched" "rows for $PWS_REAL in $REAL_LEDGER went $REAL_BEFORE -> $(ledger_rows "$REAL_LEDGER" Escalation)"; fi
+run python3 - "$QA/phone-ios.py" "$PWS" <<'PY'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("phone_ios", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+print(json.dumps({"closed": m.close_approval_escalations(sys.argv[2], "/fixture/verify-script-1-test.log")}))
+PY
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -qF "\"closed\": [\"$P01_ID\"]" && [ -n "$P01_ID" ] \
+   && [ "$(ledger_rows "$RICHOS_ESCALATION_LEDGER" EscalationAck)" = 1 ] \
+   && grep -qF "UI automation was allowed at the phone" "$RICHOS_ESCALATION_LEDGER"; then
+  ok "P04 a run that reached its first step closes the approval escalation itself, saying so"
+else bad "P04 the approval closes its escalation" "exit $CODE out: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"; fi
+python3 - "$TMP/ios-pair.json" <<'PY'
+import json, sys
+json.dump([{"do": "launch"}, {"do": "tap", "id": "pair.link"},
+           {"do": "type", "id": "pairlink.field", "text": "https://lab.invalid/#pair=fixturecode"},
+           {"do": "tap", "id": "pairlink.submit"}], open(sys.argv[1], "w"))
+PY
+run phone_run "$TMP/ios-pair.json" --approval-announced
+if [ "$CODE" = 2 ] && printf '%s' "$OUT" | grep -qF "pairing window lasts five minutes" \
+   && printf '%s' "$OUT" | grep -qF '[{\"do\": \"state\"}]' && [ ! -e /Volumes/E1TB/nonexistent-qa-test ]; then
+  ok "P05 a pairing list while an approval is expected is refused even when announced: spend the approval first"
+else bad "P05 pairing waits for the approval" "exit $CODE out: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"; fi
 
 echo ""
 echo "=== V. pair-words: the six v2 words on both sides, checked before They match ==="
