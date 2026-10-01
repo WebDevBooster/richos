@@ -746,6 +746,27 @@ class Commit(Fixture):
         self.assertEqual((self.repo / "richos/app/src/claims.txt").read_text(), "true\neditor save during the check\n")
         self.assert_aside_restored()
 
+    def test_a_deletion_while_the_check_runs_is_recorded_and_named_never_silently_undone(self):
+        # Recheck N01 v2 (2026-10-01): a file deleted during the check was recreated from the
+        # index and the older unstaged patch reapplied over it; no bytes were saved for the
+        # deletion, so the restore reported nothing and removed the aside.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, staged\n")
+        self.git("add", "-A")
+        self.write("richos/app/src/thing.txt", "fine, unstaged edit\n")
+        before = self.head()
+        env = dict(self.env, AUTOCHECK_FIXTURE_DURING_CHECK="rm -f richos/app/src/thing.txt")
+        out = self.git("commit", "-m", "a deletion lands while the check runs", env=env, expect=None)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertEqual(self.head(), before)
+        self.assertIn("richos/app/src/thing.txt was deleted while the check ran", out.stderr)
+        marker = self.repo / ".git/richos-autocheck-aside/changed-during-check/richos/app/src/thing.txt.deleted-during-check"
+        self.assertTrue(marker.is_file(), "the deletion left no record:\n" + out.stderr)
+        self.assertIn(str(marker), out.stderr)
+        self.assertEqual((self.repo / "richos/app/src/thing.txt").read_text(), "fine, unstaged edit\n")
+        self.assertEqual(self.git("commit", "-m", "again", expect=None).returncode, 1)
+
     def test_a_save_elsewhere_while_the_check_runs_commits_and_is_named(self):
         # The ordinary case: editing goes on during the commit, in a file the commit's unstaged
         # edits do not touch. It is not refused, nothing is reset, and the save is named.

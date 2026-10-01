@@ -318,6 +318,9 @@ ASIDE = "richos-autocheck-aside"
 CHANGED = "changed-during-check"
 
 
+DELETED_SUFFIX = ".deleted-during-check"
+
+
 class StagedOnly:
     def __init__(self, repo):
         self.repo = repo
@@ -329,6 +332,7 @@ class StagedOnly:
         self.patched = False
         self.patch_paths = set()
         self.summary = ""
+        self.deleted = []
 
     def how_to_restore(self):
         lines = [f"Your unstaged edits and untracked files are in {self.dir}.",
@@ -428,7 +432,15 @@ class StagedOnly:
             for name in collided:
                 source = self.repo.top / name
                 if not os.path.lexists(source):
-                    continue  # deleted during the check: no bytes to keep
+                    # Deleted during the check. The deletion is newer work than the saved patch
+                    # and has no bytes, so it is recorded as a named marker the restore reports
+                    # and keeps; it is never treated as nothing to preserve (recheck N01 v2).
+                    marker = self.changed / (name + DELETED_SUFFIX)
+                    marker.parent.mkdir(parents=True, exist_ok=True)
+                    marker.write_text("deleted while the commit check ran; the edit from before the check "
+                                      "was put back over it\n")
+                    self.deleted.append(name)
+                    continue
                 target = self.changed / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(source), str(target))
@@ -449,6 +461,11 @@ class StagedOnly:
         return kept
 
     def settle_changed(self, kept, problems):
+        for name in self.deleted:
+            back = ("your edit from before the check is back in place" if not self.patched
+                    else f"your edit from before the check is still in {self.patch}")
+            problems.append(f"{name} was deleted while the check ran; {back}, and the deletion is "
+                            f"recorded at {self.changed / (name + DELETED_SUFFIX)}")
         """Drop a moved-aside copy that is byte-identical to what is now back in place (a
         restore after a failed set-aside, or a write of the same bytes); name the rest."""
         for name in kept:
