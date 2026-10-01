@@ -244,6 +244,29 @@ payload Write "/tmp/imported/doc.md" "the colour is wrong" \
 [ $? -eq 0 ] && ok "D4. DIALECT_EXEMPT_PATHS exempts a path substring" \
              || bad "D4. DIALECT_EXEMPT_PATHS exempts a path substring"
 
+# D4b/D4c — EVIDENCE IS A PLACE INSIDE THE REPOSITORY, NOT ABOVE IT. A governed
+# repository that LIVES under directories named logs/ and fixtures/ (a checkout
+# under ~/work/logs/, or a verification run's <run>/logs/fixtures/<id>/tmp/,
+# which is where the merge gate's private profile puts every test repository)
+# is still governed: its own prose is checked. Before 2026-10-01 the evidence
+# segments were matched against the whole absolute path, so this write passed
+# in silence and the contract-integrity probe's Layer T canary went red only
+# inside the gate. D4c is the twin that keeps the exemption itself honest: a
+# logs/ directory INSIDE the repository is still evidence.
+ENT_NESTED="$SANDBOX/logs/fixtures/run-1/tmp/entity-nested"
+mk_entity "$ENT_NESTED" 'DIALECT_TARGET="en-US"'
+mkdir -p "$ENT_NESTED/docs" "$ENT_NESTED/logs"
+payload Write "$ENT_NESTED/docs/page.md" "the colour is wrong" \
+    | RICHOS_ENTITY_ROOT="$ENT_NESTED" "$HOOK" >/dev/null 2>&1
+D4B_RC=$?
+[ "$D4B_RC" -eq 2 ] && ok "D4b. a repository living under logs/fixtures/ directories is still checked" \
+                   || bad "D4b. a repository living under logs/fixtures/ directories is still checked" "expected exit 2, got $D4B_RC"
+payload Write "$ENT_NESTED/logs/notes.md" "the colour is wrong" \
+    | RICHOS_ENTITY_ROOT="$ENT_NESTED" "$HOOK" >/dev/null 2>&1
+D4C_RC=$?
+[ "$D4C_RC" -eq 0 ] && ok "D4c. ...and a logs/ directory INSIDE that repository is still captured evidence" \
+                   || bad "D4c. ...and a logs/ directory INSIDE that repository is still captured evidence" "expected exit 0, got $D4C_RC"
+
 # D5 — a governed repository with no dictionary is FAIL-CLOSED, never a quiet
 # pass. DIALECT_TARGET is declared, so this repository believes it is governed.
 EMPTY_ENGINE="$SANDBOX/empty-engine"

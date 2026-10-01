@@ -96,7 +96,9 @@
 #       Cargo.lock, go.sum, *.min.js, *.min.css, *.patch, *.diff, *.po, *.pot
 #     * CAPTURED EVIDENCE, by path segment: raw/, cold-open/, transcripts/,
 #       transcript/, fixtures/, fixture/, corpora/, corpus/, snapshots/,
-#       snapshot/, logs/, node_modules/, vendor/, third_party/, third-party/
+#       snapshot/, logs/, node_modules/, vendor/, third_party/, third-party/ —
+#       read BELOW the governing repository when it is known, never from the
+#       directories the repository itself lives in (see DIALECT_GOV_ROOT)
 #     * run output: *.log, *.jsonl
 #     * THIS GUARD'S OWN SIX FILES — dialect-en-US.dict, guard-dialect.sh,
 #       guard-dialect.test.sh, and the three vocabulary files of the generated
@@ -447,7 +449,26 @@ _dg_is_vendored() {
     return 0
 }
 
-export DIALECT_SCAN_ALLOWLIST DIALECT_EXEMPT_PATHS DICT
+# EVIDENCE IS A PLACE INSIDE A REPOSITORY, NOT ANYWHERE ABOVE IT. The captured-
+# evidence segments below (logs/, fixtures/, raw/ ...) describe directories a
+# repository keeps its evidence in. Matched against the WHOLE absolute path,
+# they also matched the directories a repository happens to LIVE in: a checkout
+# under ~/work/logs/, or a test repository under a verification run's
+# <run>/logs/fixtures/<id>/tmp/, had every file in it exempted as "evidence",
+# and the guard passed British prose in complete silence. That is how eight
+# contract-integrity sections went red only inside the merge gate's private
+# profile on 2026-10-01: the probe's Layer T canary wrote a British word to
+# <fixture repo>/__dialect_canary__.md, and the guard waved it through
+# because the fixture repository's ancestors included logs/ and fixtures/.
+# So when the governing repository is known, the segments are read from the
+# path BELOW it, in the same physical spelling richos_governing_root answers
+# in. A file in no known repository keeps the whole-path reading, as before.
+DIALECT_GOV_ROOT="$DG_GOV"
+DIALECT_FILE_PHYS=""
+if [ -n "$DG_GOV" ] && [ -n "$FILE_PATH" ]; then
+    DIALECT_FILE_PHYS="$(richos_physical "$FILE_PATH" 2>/dev/null || true)"
+fi
+export DIALECT_SCAN_ALLOWLIST DIALECT_EXEMPT_PATHS DICT DIALECT_GOV_ROOT DIALECT_FILE_PHYS
 
 SCAN_PY="$(mktemp -t guard-dialect.XXXXXX.py)"
 trap 'rm -f "$SCAN_PY"' EXIT
@@ -477,6 +498,13 @@ if not isinstance(file_path, str):
 base = os.path.basename(file_path)
 low_base = base.lower()
 low_path = file_path.lower().replace("\\", "/")
+# The path the evidence segments are read from: below the governing repository
+# when it is known (see DIALECT_GOV_ROOT above), the whole path otherwise.
+GOV_ROOT = os.environ.get("DIALECT_GOV_ROOT", "").rstrip("/")
+FILE_PHYS = os.environ.get("DIALECT_FILE_PHYS", "")
+segment_path = low_path
+if GOV_ROOT and FILE_PHYS.startswith(GOV_ROOT + "/"):
+    segment_path = FILE_PHYS[len(GOV_ROOT) + 1:].lower().replace("\\", "/")
 
 VENDOR_LEGAL = ("license", "licence", "notice", "copying", "copyright",
                 "third-party-notices", "third_party_notices", "authors",
@@ -508,7 +536,7 @@ def path_exempt():
     for ext in EVIDENCE_EXTS:
         if low_base.endswith(ext):
             return "generated/captured file type (%s)" % ext
-    for seg in low_path.split("/"):
+    for seg in segment_path.split("/"):
         if seg in EVIDENCE_SEGMENTS:
             return "captured evidence — path segment '%s/'" % seg
         # ...and a QUALIFIED one. Real evidence directories get qualified by
