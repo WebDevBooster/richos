@@ -90,8 +90,11 @@ os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])
     def verify(self, row):
         plan = self.root / "plan"
         plan.write_text(row["unit"] + "\n")
+        # The verifier reads the declaration table beside itself unless told otherwise;
+        # the fixture's declarations live in the fixture engine, not in the real table.
+        env = {**os.environ, "RICHOS_CI_KNOWN_RED": str(self.engine / "scripts/lib/ci-known-red.tsv")}
         return subprocess.run([sys.executable, str(LIB / "ci-receipts.py"), "verify", "--plan", str(plan)],
-                              input=json.dumps(row), text=True, capture_output=True, timeout=5)
+                              input=json.dumps(row), text=True, capture_output=True, timeout=5, env=env)
 
     def test_refused_known_red_never_earns_coverage(self):
         uid = self.known_unit()

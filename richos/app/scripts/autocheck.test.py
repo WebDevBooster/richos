@@ -231,7 +231,15 @@ echo "NOT-RUN $(cat src/screen.txt)"
 STATE = """#!/usr/bin/env bash
 # Fixture check that ends in the runner state src/state.txt names (and its reason, if any).
 cd "$(dirname "$0")/.."
-echo "STATE $(cat src/state.txt)"
+state=$(cat src/state.txt)
+# "once-<state>" ends in <state> on its first run only; the retry alone then passes.
+case "$state" in
+    once-*)
+        if [ -e "$AUTOCHECK_FIXTURE_LOG.once" ]; then exit 0; fi
+        touch "$AUTOCHECK_FIXTURE_LOG.once"
+        state="${state#once-}" ;;
+esac
+echo "STATE $state"
 """
 ENDED = "cancelled"  # dialect-exempt: proof-run.py's state value for a check its run ended
 
@@ -778,12 +786,12 @@ class Land(Fixture):
         self.assertTrue(60 <= left <= 900, runner)
 
     def test_a_check_that_reached_no_verdict_is_named_and_never_blocks(self):
-        # Over its cap, ended at the gate's cap, not admitted, a NOT RUN for any reason, or a pass
-        # invalidated only because its inputs moved during the run: none of these is a failure
-        # of the change, so none refuses the land. Each is named in the verdict and the receipt.
+        # Not admitted, a NOT RUN for any reason, or a pass invalidated only because its inputs
+        # moved during the run: none of these is a failure of the change, so none refuses the
+        # land. Each is named in the verdict and the receipt. (Over the cap or ended at the
+        # gate's cap is retried once alone first: the tests after this one.)
         self.make()
-        cases = (("timed-out", "over its 600 s cap"), (ENDED, "ended at the gate's 900 s cap"),
-                 ("not-admitted", "not admitted"),
+        cases = (("not-admitted", "not admitted"),
                  ("invalid execution inputs changed during the check", "what it read changed while the gate ran"))
         for n, (state, why) in enumerate(cases):
             self.branch_with(f"feature{n}", "richos/app/src/state.txt", state + "\n")
@@ -794,6 +802,44 @@ class Land(Fixture):
             self.assertEqual([(row["check"], row["why"]) for row in receipt["not_run"]],
                              [("cd richos/app && bash scripts/state.sh", why)])
         self.assertEqual(self.recorded(), "")
+
+    def refused_after_retry(self, state):
+        self.make()
+        self.branch_with("feature", "richos/app/src/state.txt", state + "\n")
+        before = self.head("main")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        self.assertIn("MERGE INTO MAIN REFUSED", out.stderr)
+        self.assertIn(f"NO VERDICT AFTER ONE RETRY: cd richos/app && bash scripts/state.sh ({state}); re-run it alone.",
+                      out.stderr)
+        self.assertEqual(self.head("main"), before)
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/state.sh"), 2)
+        self.git("merge", "--abort")
+
+    def landed_after_retry(self, state):
+        self.make()
+        self.branch_with("feature", "richos/app/src/state.txt", "once-" + state + "\n")
+        self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        runner = self.side_log(".runner")
+        self.assertIn("--resume", runner)
+        self.assertIn("--retry-reason", runner)
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/state.sh"), 2)
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        self.assertEqual(receipt["not_run"], [])
+
+    # 2026-10-01, merge 7af4c981e: owning suites timed out and were ended at the Mac's 99% CPU
+    # and the merge landed. No verdict twice (the retry alone included) refuses, naming the unit
+    # and saying to re-run it alone; a pass on the retry lands.
+    def test_a_check_that_times_out_twice_refuses_the_merge(self):
+        self.refused_after_retry("timed-out")
+
+    def test_a_check_ended_at_the_gate_cap_twice_refuses_the_merge(self):
+        self.refused_after_retry(ENDED)
+
+    def test_a_check_that_times_out_and_passes_on_the_retry_lands(self):
+        self.landed_after_retry("timed-out")
+
+    def test_a_check_ended_at_the_gate_cap_and_passing_on_the_retry_lands(self):
+        self.landed_after_retry(ENDED)
 
     def test_simulator_and_screen_suites_are_left_to_the_nightly_and_named(self):
         # 2026-09-30: the iPhone suites fought over the one simulator in merge after merge. The

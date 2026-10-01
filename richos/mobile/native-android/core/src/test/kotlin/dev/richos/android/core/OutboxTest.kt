@@ -169,6 +169,76 @@ class OutboxTest {
         assertEquals(OutboxState.WAITING, box.all().single().state)
     }
 
+    /**
+     * The iPhone re-walk's D3, on Android (isaac-opus-d3d, richos e84a8e8d3): the request sent on
+     * screen is still in flight at Home and comes back a temporary fault about 1.4 s into the 5 s
+     * bound. Nothing else tries a waiting message while the app is hidden (the connection owner has
+     * closed the stream, so neither the app's timer nor a reopened link drains it), so it must go
+     * again, under the same id, after the outbox's own pause, inside the bound it already holds.
+     */
+    @Test fun aFaultWhileHiddenGoesAgainInsideTheBound() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        box.enqueue(item("a"))
+        val tries = mutableListOf<Pair<String, Long>>()
+        val report = box.flush(lease = { Outbox.CompletionLease(true) }) {
+            tries += it.clientId to testScheduler.currentTime
+            if (tries.size == 1) {
+                box.backgrounded()
+                kotlinx.coroutines.delay(1_400)
+                throw TransportFailure("fault", retryable = true)
+            }
+            Receipt("accepted", false, 1)
+        }
+        assertEquals(listOf("a" to 0L, "a" to 2_400L), tries, "once more, under the same id, after the 1 s pause")
+        assertEquals(1, report.sent)
+        assertTrue(box.all().isEmpty(), "delivered while hidden")
+    }
+
+    @Test fun aFaultWhoseFirstPauseOutlastsTheBoundWaitsForTheReturn() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        box.enqueue(item("a"))
+        var tries = 0
+        val report = box.flush(lease = { Outbox.CompletionLease(true) }) {
+            tries++
+            box.backgrounded()
+            kotlinx.coroutines.delay(4_500)
+            throw TransportFailure("fault", retryable = true)
+        }
+        assertEquals(1, tries, "a 1 s pause does not fit in the 0.5 s left")
+        assertEquals(1, report.waiting)
+        assertEquals(4_500, testScheduler.currentTime, "the time is given back at once, not waited out")
+    }
+
+    @Test fun goingAgainWhileHiddenStaysInsideTheBatchsThreeRequests() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        box.enqueue(item("a"))
+        var tries = 0
+        val report = box.flush(lease = { Outbox.CompletionLease(true) }) {
+            tries++
+            box.backgrounded()
+            throw TransportFailure("fault", retryable = true)
+        }
+        // The first went on screen and counts at Home; two more fit: 0 s, then 1 s and 2 s pauses.
+        assertEquals(3, tries)
+        assertEquals(3_000, testScheduler.currentTime)
+        assertEquals(1, report.waiting)
+        assertEquals(OutboxState.WAITING, box.all().single().state)
+    }
+
+    @Test fun withoutABackgroundLeaseAHiddenFaultIsNotRetried() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        box.enqueue(item("a"))
+        var tries = 0
+        box.flush(lease = { Outbox.CompletionLease(false) }) {
+            tries++
+            box.backgrounded()
+            kotlinx.coroutines.delay(1_400)
+            throw TransportFailure("fault", retryable = true)
+        }
+        assertEquals(1, tries)
+        assertEquals(1, box.all().size)
+    }
+
     @Test fun aForegroundOnlyBatchRefundsItsReservation() = runTest {
         val box = Outbox(Store(), Clock { 0 })
         box.enqueue(item("a"))

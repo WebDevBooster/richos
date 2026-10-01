@@ -956,6 +956,32 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
             pending.write_text(json.dumps({"directory": str(directory), "identity": identity}))
             os.replace(pending, prior)
         blocking, not_run, why_not = land_verdict(result.returncode, summary_path, directory)
+        retry = [row["check"] for row in not_run if row.get("state") in RETRY_STATES]
+        if blocking == [] and retry and (directory / "plan.json").is_file():
+            # An owning check that timed out or was ended by the gate's cap has no verdict, and
+            # on a busy Mac that is the host's doing as often as the change's (merge 7af4c981e).
+            # Run those units once more, alone, keeping every pass (verification-retries.md);
+            # the retry gets a fresh gate allowance because the first one is spent.
+            say(f"autocheck: {what}: no verdict for {len(retry)} owning check(s) ({', '.join(retry)}); "
+                "running them once more, alone")
+            again = Path(tempfile.mkdtemp(prefix="attempt-", dir=root))
+            again_summary = str(root / (again.name + "-summary.json"))
+            argv = ["--resume", str(directory), "--retry-reason",
+                    "merge gate: an owning check ended with no verdict at a time cap; the one retry alone"]
+            if knows(repo, PROOF_RUN, "--run-cap"):
+                argv += ["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(GATE_CAP_SECONDS),
+                         "--admission-wait", str(GATE_CAP_SECONDS), "--slot-wait", str(GATE_CAP_SECONDS)]
+            result = repo.run(["python3", PROOF_RUN, *argv, "--log-dir", str(again), "--summary-out", again_summary],
+                              env={**repo.env, **MUTATION_SWITCH})
+            if (again / "plan.json").is_file():
+                pending = root / "last-attempt.pending"
+                pending.write_text(json.dumps({"directory": str(again), "identity": identity}))
+                os.replace(pending, prior)
+            blocking, not_run, why_not = land_verdict(result.returncode, again_summary, again)
+            if blocking is not None:
+                blocking += [{"check": row["check"], "result": row["state"], "retried": True}
+                             for row in not_run if row.get("state") in RETRY_STATES]
+                not_run = [row for row in not_run if row.get("state") not in RETRY_STATES]
         not_run = nightly + not_run
     finally:
         os.unlink(plan)
@@ -964,7 +990,8 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         banner(f"{what.upper()} REFUSED: a check it owns failed", [
             "proof-run.py's summary above names the check, its state and its log.",
             *([why_not] if why_not else []),
-            *(f"FAILED: {row['check']} ({row['result']})" for row in blocking or []),
+            *(f"NO VERDICT AFTER ONE RETRY: {row['check']} ({row['result']}); re-run it alone."
+              if row.get("retried") else f"FAILED: {row['check']} ({row['result']})" for row in blocking or []),
             "Nothing was committed: fix the branch and land it again.",
             "git's --no-verify skips this, and every skip is recorded in the lead's escalation ledger.",
         ])
@@ -1002,6 +1029,9 @@ ENDED = "cancelled"  # dialect-exempt: proof-run.py's state value for a check it
 NOT_RUN_WHY[ENDED] = "ended at the gate's 900 s cap"
 # A pass invalidated only because what it read changed while the run went (proof_evidence.py,
 # Record.save and finalize): no verdict either way, which is not a failure of the change.
+# The two states that mean "the host ran out of time, not the change": run once more, alone,
+# before the gate decides (land_check). A second one refuses the merge.
+RETRY_STATES = ("timed-out", ENDED)
 INPUTS_MOVED = ("inputs changed", "source changed during execution")
 
 
@@ -1048,7 +1078,8 @@ def land_verdict(rc, summary_path, directory):
         if why is None:
             blocking.append({"check": name, "result": state})
         else:
-            not_run.append({"check": name, "why": why, "suites": (row.get("not_run") or {}).get("suites", [])})
+            not_run.append({"check": name, "why": why, "state": state,
+                            "suites": (row.get("not_run") or {}).get("suites", [])})
     return blocking, not_run, None
 
 

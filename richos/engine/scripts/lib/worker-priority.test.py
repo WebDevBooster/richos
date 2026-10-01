@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import cpu_guard
 import engine_pass
 import worker_tokens
 
@@ -259,6 +260,7 @@ class Priority(unittest.TestCase):
                                      'RICHOS_WORKER_SLOT_HELD': '1',
                                      'RICHOS_WORKER_BORROW_LOCK': str(marker)}), \
                 patch.object(worker_tokens, 'managed_policy', return_value=True), \
+                patch.object(cpu_guard, 'inherited_verification_owner', return_value={'role': 'verification'}), \
                 patch.object(worker_tokens, 'machine_directory', return_value=self.machine):
             rc = worker_tokens.machine_command([sys.executable, '-c',
                 'from pathlib import Path; Path(' + repr(str(marker)) + ').touch()'], str(timing))
@@ -274,6 +276,7 @@ class Priority(unittest.TestCase):
                                      'RICHOS_WORKER_SLOT_HELD': '1',
                                      'RICHOS_WORKER_BORROW_LOCK': holder.path + '.child'}), \
                 patch.object(worker_tokens, 'managed_policy', return_value=True), \
+                patch.object(cpu_guard, 'inherited_verification_owner', return_value={'role': 'verification'}), \
                 patch.object(worker_tokens, 'machine_directory', return_value=self.machine), \
                 patch.dict(sys.modules, {'testdevices': devices}):
             rc = worker_tokens.machine_command([sys.executable, '-c',

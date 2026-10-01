@@ -149,6 +149,27 @@ actor SendThenHomeMac: EffectHandler {
         #expect(store.state.outbox.isEmpty)
         #expect(await log.has("batch ended: after leaving the screen, still to send 0"))
     }
+
+    /// The Honor's hung send, on the iPhone's code (andy-sonnet-hungsend1 read it): Wi-Fi drops under a
+    /// request in flight at Home, the socket stays up, the transport's own timeout is 30 s, so the
+    /// request never faults inside the 5 s bound, the fault retry above never runs, and the message
+    /// waits for the app to reopen. Hidden, a request gets its own 2 s deadline: it is cut and the
+    /// same message goes again under the same id, inside the bound.
+    @Test func aRequestThatHangsWhileHiddenIsCutAndGoesAgainInsideTheBound() async throws {
+        let storage = HeldStorage()
+        let mac = SendThenHomeMac(holdFirst: true)
+        let store = try store(storage, mac)
+        await store.apply(.compose(text: "hung while hidden")).value
+        store.apply(.sendDraft(clientID: "c1", at: 1))
+        #expect(await becomes { await mac.started == ["c1"] }, "the request is in flight on screen")
+        store.wentToBackground(at: 2)
+        // Never released: the network is gone and nothing answers.
+        #expect(await within(4_500) { await mac.delivered == ["c1"] }, "the message left the phone inside the 5 s bound")
+        await settle(store)
+        #expect(await mac.started == ["c1", "c1"], "once more, under the same id")
+        #expect(await mac.delivered == ["c1"], "delivered exactly once")
+        #expect(store.state.outbox.isEmpty)
+    }
 }
 
 /// The store's `sendLog` lines, collected for a test.
