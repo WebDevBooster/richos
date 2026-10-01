@@ -29,6 +29,25 @@ test('actual mobile client pairs, signs, receives and resumes against the produc
   const voicePhrase = process.env.RICHOS_MOBILE_VOICE_PHRASE;
   if (voiceFile && (!voiceFile.startsWith('/Volumes/E1TB/') || !voicePhrase)) throw Error('Voice proof requires an external WAV and expected phrase');
   let replyAudio, played = false;
+  // THE ROW THAT CAN BEAT THE RECEIPT. The voice proof holds the upload's answer, as a slow
+  // network does, until the Mac's own `message` row for the recording has arrived on the stream,
+  // then records that row as the wire carried it and as the phone holds it. It must already be a
+  // voice row: until the Mac marked a phone voice note on its turn (`voiceNote`, phone/rows.rs
+  // `message_kind`), this row said kind "text" and the phone drew a text bubble until the receipt.
+  const pendingFrames = new Map(), voiceEchoes = [];
+  let voiceClientId = null, beforeReceipt = null;
+  const readFrames = (id, chunk) => {
+    const parts = ((pendingFrames.get(id) || '') + Buffer.from(chunk).toString('utf8')).split('\n\n');
+    pendingFrames.set(id, parts.pop());
+    for (const frame of parts) {
+      const lines = frame.split('\n');
+      const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim();
+      const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+      if (event !== 'message' || !data) continue;
+      const row = JSON.parse(data);
+      if (row.role === 'ceo' && voiceClientId && row.client_id === voiceClientId) voiceEchoes.push(row);
+    }
+  };
   const local = url => {
     assert.equal(new URL(url).origin, state.origin);
     if (publicRoute) return url;
@@ -50,7 +69,16 @@ test('actual mobile client pairs, signs, receives and resumes against the produc
       case 'request': {
         requests.push(args);
         const body = args.body?.recordingFile ? readFileSync(voiceFile) : args.body;
+        const upload = voiceFile && args.method === 'POST' && new URL(args.url).searchParams.get('kind') === 'voice';
+        if (upload) voiceClientId = new URL(args.url).searchParams.get('client_id');
         const response = await fetch(local(args.url), { method: args.method, headers: args.headers, body: args.method === 'GET' ? undefined : body });
+        if (upload && response.status === 200 && !beforeReceipt) {
+          const held = Date.now() + 30000;
+          while (!voiceEchoes.length && Date.now() < held) await pause(25);
+          const frame = voiceEchoes[0] ?? null;
+          while (frame && !client.state().messages.some(row => row.id === frame.id) && Date.now() < held) await pause(25);
+          beforeReceipt = { frame, shown: frame ? client.state().messages.find(row => row.id === frame.id) ?? null : null };
+        }
         if (new URL(args.url).pathname.startsWith('/api/audio/') && response.status===200) {
           replyAudio=Buffer.from(await response.arrayBuffer());
           assert.equal(replyAudio.subarray(0,4).toString(),'RIFF');
@@ -66,7 +94,10 @@ test('actual mobile client pairs, signs, receives and resumes against the produc
             const response = await fetch(local(args.url), { signal: controller.signal });
             assert.equal(response.status, 200);
             emit({ kind: 'stream-open', id: args.id });
-            for await (const chunk of response.body) emit({ kind: 'stream-data', id: args.id, data: Buffer.from(chunk).toString('base64') });
+            for await (const chunk of response.body) {
+              if (voiceFile) readFrames(args.id, chunk);
+              emit({ kind: 'stream-data', id: args.id, data: Buffer.from(chunk).toString('base64') });
+            }
           } catch (error) { if (!controller.signal.aborted) { t.diagnostic(error.message); emit({ kind: 'stream-error', id: args.id, error: error.message }); } }
         })();
         return true;
@@ -141,6 +172,12 @@ test('actual mobile client pairs, signs, receives and resumes against the produc
     const spoken = () => client.state().messages.find(row=>row.role==='rich' && row.complete && row.text.toLowerCase().includes(voicePhrase.toLowerCase()));
     await wait(() => spoken() && client.state().outbox.length===0);
     assert.equal(client.state().messages.filter(row=>row.role==='ceo' && (row.kind==='voice' || row.text.toLowerCase().includes(voicePhrase.toLowerCase()))).length,1,'Transcription must replace the voice placeholder');
+    assert(beforeReceipt?.frame, `The Mac's row for the recording did not reach the phone before its receipt was released: ${JSON.stringify(beforeReceipt)}`);
+    assert.equal(beforeReceipt.frame.kind, 'voice', `The row that beat the receipt must be a voice row: ${JSON.stringify(beforeReceipt.frame)}`);
+    assert.equal(beforeReceipt.shown?.kind, 'voice', `The phone must hold it as a voice row before the receipt: ${JSON.stringify(beforeReceipt.shown)}`);
+    assert.equal(beforeReceipt.frame.from_microphone, false, 'from_microphone stays the desk voice mode');
+    assert(voiceEchoes.every(row => row.kind === 'voice'), `Every row for the recording is a voice row: ${JSON.stringify(voiceEchoes)}`);
+    t.diagnostic(`Before the receipt the phone had ${JSON.stringify({ id: beforeReceipt.frame.id, kind: beforeReceipt.frame.kind, client_id: beforeReceipt.frame.client_id, shown: beforeReceipt.shown.kind })}; rows for the recording on the stream: ${voiceEchoes.length}, kinds ${JSON.stringify(voiceEchoes.map(row => row.kind))}`);
     await client.dispatch({type:'reply-play',id:spoken().id});
     await wait(()=>played);
     t.diagnostic('Actual WAV passed signed upload, local Mac transcription, durable intake, gated Rich projection and WAV reply generation; phone microphone and speaker are separate physical checks');

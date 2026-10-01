@@ -80,14 +80,39 @@ impl Bridge for IsolatedBridge {
     }
 
     fn submit_text(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String> {
+        self.submit_words(thread_id, text, client_id, false)
+    }
+    /// A voice note's transcript, written as one, exactly as the production bridge writes it
+    /// (`phone/bridge.rs` `submit_voice`), so this lab's rows are the rows a phone gets.
+    fn submit_voice(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String> {
+        self.submit_words(thread_id, text, client_id, true)
+    }
+    fn snapshot(&self, thread_id: Option<&str>) -> Result<Value, String> {
+        crate::timeline_view::timeline_payload(
+            &*self.spine.lock().unwrap(),
+            thread_id.unwrap_or(&self.thread),
+        )
+    }
+    fn current_thread(&self) -> Option<(String, String)> {
+        Some((self.thread.clone(), "Isolated mobile check".into()))
+    }
+    fn threads(&self) -> Vec<(String, String)> {
+        vec![self.current_thread().unwrap()]
+    }
+}
+
+impl IsolatedBridge {
+    fn submit_words(&self, thread_id: Option<&str>, text: &str, client_id: &str, voice_note: bool) -> Result<Accepted, String> {
         let thread = thread_id.unwrap_or(&self.thread);
         if thread != self.thread {
             return Err("Unknown isolated conversation".into());
         }
-        let record = self
-            .control
-            .submit_from_channel_as(thread, Some(self.entity.clone()), text, "phone", Some(client_id))
-            .map_err(|e| e.to_string())?;
+        let record = if voice_note {
+            self.control.submit_voice_note_from_channel(thread, Some(self.entity.clone()), text, "phone", Some(client_id))
+        } else {
+            self.control.submit_from_channel_as(thread, Some(self.entity.clone()), text, "phone", Some(client_id))
+        }
+        .map_err(|e| e.to_string())?;
         let spine = Arc::clone(&self.spine);
         let devices=Arc::clone(&self.devices);let push=Arc::clone(&self.push);let client=self.push_client.clone();
         let reply_thread=thread.to_string();let delay=self.reply_delay;
@@ -141,18 +166,6 @@ impl Bridge for IsolatedBridge {
             thread_id: thread.into(),
             at: phone::now_millis(),
         })
-    }
-    fn snapshot(&self, thread_id: Option<&str>) -> Result<Value, String> {
-        crate::timeline_view::timeline_payload(
-            &*self.spine.lock().unwrap(),
-            thread_id.unwrap_or(&self.thread),
-        )
-    }
-    fn current_thread(&self) -> Option<(String, String)> {
-        Some((self.thread.clone(), "Isolated mobile check".into()))
-    }
-    fn threads(&self) -> Vec<(String, String)> {
-        vec![self.current_thread().unwrap()]
     }
 }
 
