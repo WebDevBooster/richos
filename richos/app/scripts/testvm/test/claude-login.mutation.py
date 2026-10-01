@@ -12,6 +12,13 @@ About a minute: each mutant runs the login cases, two of which wait on a
 one-second keeper loop. Not run by run-tests.sh, which stays fast; run it after
 any change to claude-login.sh's push or keep.
 """
+# THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
+# gate runs every check with RICHOS_MUTATION_PASSES=0; this pass is run by hand (above).
+if __import__("os").environ.get("RICHOS_MUTATION_PASSES") == "0":
+    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"
+          % __file__.rsplit("/", 1)[-1])
+    raise SystemExit(0)
+
 import os
 import shutil
 import subprocess

@@ -14,6 +14,13 @@ test's text compiled in memory under its real name, so every path it derives sta
 
 Invoked by phone-apps-independent.test.sh. Exit 0 = every rule proven load-bearing.
 """
+# THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
+# gate runs the suite with RICHOS_MUTATION_PASSES=0; the app nightly's script suites run it.
+if __import__("os").environ.get("RICHOS_MUTATION_PASSES") == "0":
+    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"
+          % __file__.rsplit("/", 1)[-1])
+    raise SystemExit(0)
+
 import os
 from pathlib import Path
 import shutil

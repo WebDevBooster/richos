@@ -223,10 +223,15 @@ class Scope(unittest.TestCase):
                 self.assertNotEqual(identity, ios_ui_shards.retry_identity(root, 'ios', ['SE'], ['case']))
                 self.assertNotEqual(identity, ios_ui_shards.retry_identity(root, 'ios', ['Pro'], ['case']))
 
-    def test_scr_weight_is_based_on_recorded_contended_pass(self):
+    def test_scr_weight_is_measured_and_under_the_merge_gates_cap(self):
+        # Section SCR now only checks discovery and declared thresholds: 4.8 s measured alone at
+        # 4e73fd89. Its old 676.8 s (a contended full suite, when it still ran the reaper's
+        # suite) planned it past the merge gate's 600 s cap, and proof-run.py --cap never starts
+        # a check planned past the cap, so a stale row here would leave it unrun at every merge.
         rows = (ROOT / 'richos/engine/scripts/lib/ci-unit-weights.tsv').read_text().splitlines()
         weights = [float(row.split('\t')[1]) for row in rows if row.startswith('scripts/hooks/contract-integrity.test.sh:SCR\t')]
-        self.assertEqual(weights, [676.8])
+        self.assertEqual(len(weights), 1, weights)
+        self.assertTrue(0 < weights[0] < 600, weights)
 
 
 if __name__ == '__main__':

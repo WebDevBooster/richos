@@ -94,7 +94,7 @@
         "richos/engine/scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
-        "richos/engine/scripts/hooks/guard-model-ceiling.mutation.sh": "8961bca89336eb2595dea15271c0570ee0b2e70358b015fa127cfa762ed9eda2",
+        "richos/engine/scripts/hooks/guard-model-ceiling.mutation.sh": "d818ec3d20dbe6667aed4d67e464061559f8a1efbf47bba5dfbaea9a24c8d3b7",
         "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "richos/engine/scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
@@ -123,7 +123,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -168,7 +171,7 @@
         "richos/engine/scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
         "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "richos/engine/scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
-        "richos/engine/scripts/hooks/conceal.mutation.sh": "da62bf7ab6bb8ae6b8778a1485098859323ffe680d24f8d68388000521527d6f",
+        "richos/engine/scripts/hooks/conceal.mutation.sh": "e9c89cc9df59ca229ef47ed34d71198ccfb2bac48d0701e91d8ba22755a68f5d",
         "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "f15ce2ebbc7fe50724f01611af88740067dddf38c88b7ad7f63161097ce1037e"
       },
@@ -185,7 +188,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -218,7 +224,7 @@
         "richos/engine/scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "richos/engine/scripts/hooks/guard-reference-ledger.sh": "d80ab9294a7ff64b244285f5467ecf728b692701b6a5d526152909335b750874",
-        "richos/engine/scripts/hooks/reference-ledger.mutation.sh": "eccd7bfd1e287610a8d90d5be9deed9c30b4e3396f53f9f41eb8bb916dd31c84",
+        "richos/engine/scripts/hooks/reference-ledger.mutation.sh": "bbb3ee4506cec57d887220ad43aac52da3d337ec43dba1abccffab0e9069f396",
         "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "richos/engine/scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -243,7 +249,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -279,7 +288,7 @@
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "richos/engine/scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
-        "richos/engine/scripts/hooks/home-network-phone.mutation.sh": "ae2eecf20262cab5d466031c145ab0bcbad6dfdd0c476d412eb96e33cd2a160c",
+        "richos/engine/scripts/hooks/home-network-phone.mutation.sh": "299a33f6df5d8ab85beeab7a2da5972ef199716d9e92182f29e5f8657106a4cc",
         "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "richos/engine/scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
@@ -309,7 +318,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -1329,7 +1341,7 @@
         "richos/engine/scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "richos/engine/scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "richos/engine/mega-lander/workspaces.py": "1dd480f258cfe4b66743899836e0d3ae56325ee18502043eb27374cac3485d7b",
-        "richos/engine/scripts/hooks/interactive-prompt.mutation.sh": "9a3fca41805365496a028a1f57953684adaf611f0ad62d30907b31457c5a65bb",
+        "richos/engine/scripts/hooks/interactive-prompt.mutation.sh": "1bb0a806036cd202ca66914fd09a429847e66e1fdf2b365a209a317de668876a",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "richos/engine/scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
         "richos/engine/scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
@@ -1402,7 +1414,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1419,7 +1434,7 @@
         "richos/engine/scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "richos/engine/scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
         "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
-        "richos/engine/scripts/hooks/guard-model-ceiling.mutation.sh": "8961bca89336eb2595dea15271c0570ee0b2e70358b015fa127cfa762ed9eda2",
+        "richos/engine/scripts/hooks/guard-model-ceiling.mutation.sh": "d818ec3d20dbe6667aed4d67e464061559f8a1efbf47bba5dfbaea9a24c8d3b7",
         "richos/engine/scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
         "richos/engine/scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
         "richos/engine/scripts/lib/hook-dependencies.sh": "a4634dd1f95fe9c518055fd324d4b56a07186aafb8828e387c890c3cbd0e4621",
@@ -1449,7 +1464,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1463,7 +1481,7 @@
         "richos/engine/scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "richos/engine/scripts/hooks/session-start-ceo-ask.sh": "722f3e24fc066989c8721ccfa8a5b0e4b1746b265edca30083c2e3febd297079",
         "richos/engine/scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
-        "richos/engine/scripts/hooks/ceo-asks.mutation.sh": "f0232ec7ac382051fcda98a5ed6cb706a0cf99daaa11523b8e6391cdbc1eba74",
+        "richos/engine/scripts/hooks/ceo-asks.mutation.sh": "33b277c48240615f462ba9a703a70f22b62008ff4748e2a110ec58bf024d89e3",
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "richos/engine/scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
         "richos/engine/scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
@@ -1494,7 +1512,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1557,7 +1578,7 @@
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
         "richos/engine/scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
-        "richos/engine/scripts/hooks/ceo-ruled.mutation.sh": "e588e55b697a3823af50eb46ea9b76a0e30f9f12a5e5fb787a9424fa24c8a109",
+        "richos/engine/scripts/hooks/ceo-ruled.mutation.sh": "7c0f9ec0800572c348af416c0b9716b8f19479133216863d614f4be2496a83ff",
         "richos/engine/scripts/hooks/guard-ceo-ruled-ask.sh": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
         "richos/engine/scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
@@ -1578,7 +1599,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": [
           "CEO_RULED_LIVE_DIR"
         ]
@@ -1610,7 +1634,7 @@
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
-        "richos/engine/scripts/hooks/ceo-todos.mutation.sh": "a918552413245b809ace2d74b9f60633132837dbfe5b0df06a27678f468c607c",
+        "richos/engine/scripts/hooks/ceo-todos.mutation.sh": "b84e9b40ba67ff10767e38c451804c32d2789c99f8881a5d063bef590d954b25",
         "richos/engine/hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
         "richos/engine/scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
@@ -1627,7 +1651,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1730,7 +1757,7 @@
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "richos/engine/scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
-        "richos/engine/scripts/hooks/guard-row-currency-commits.mutation.sh": "0ee55fe56ec08d46ab55a90782e266b495dc6b5f949dcc5d28e423789a97f512",
+        "richos/engine/scripts/hooks/guard-row-currency-commits.mutation.sh": "624a4cab7af937bb9ea59cb48429f3ad290fca56eab3d4718a52a7e5eabbc5af",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "richos/engine/scripts/hooks/row-currency.test.sh": "938f8ca8f9739044cfe9e8d25bf15b290ce7a3768d5c10b5b18c6e574316c200",
         "richos/engine/hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
@@ -1749,7 +1776,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1774,7 +1804,7 @@
         "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/unstarted-rows.sh": "12069725d4b1d131f6ae622f957087e432b197a84f5c446fa323bd6f533657e0",
-        "richos/engine/scripts/hooks/unstarted-rows.mutation.sh": "0555c24030659e6c8ec8292c77dfc556bc0543324680342f426f157e7a2364a0",
+        "richos/engine/scripts/hooks/unstarted-rows.mutation.sh": "9dd60931f2fa6e26c9d9ef49143071be7f995c142e2aa7a0ff8fbe6e30d2b06f",
         "richos/engine/scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "richos/engine/scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
@@ -1794,7 +1824,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -1851,7 +1884,7 @@
       "review": "The hook receives historical power commands as payload strings, never executes them and resolves citations against generated private ruling records. Every entity/config path is private, including opt-out and missing-adoption cases. Nested mutants recreate these fixtures. Clock fields are audit output; no host display, model, remote service or installed application is exercised.",
       "sources": {
         "richos/engine/scripts/hooks/guard-host-display-power.test.sh": "2d7b52bfb75962c8934a57db53d16ae22efa695bc630b553cefe61ea993ad13f",
-        "richos/engine/scripts/hooks/host-display-power.mutation.sh": "09f9c3754a47b050d50acba5be9c4d96d1b15df934c1f9a226d37ac1a2d5e4bf",
+        "richos/engine/scripts/hooks/host-display-power.mutation.sh": "e1a249a979fe8f42586e9f9944ab550d14375b04fb43ed198f2155800e5dea01",
         "richos/engine/scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -1886,7 +1919,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "subset": {
@@ -1924,7 +1960,7 @@
       "review": "The public/private repositories, publication declarations, staged paths and workspace naming cases are generated under TMPDIR. Prompt and Bash content remain parser data, never executed. The missing-repository literal under /nowhere is a declared absolute input, so creating it cannot inherit the absence result. No other host repository or record is used. Nested source mutations use the same fixtures. Audit timestamps do not select verdicts.",
       "sources": {
         "richos/engine/scripts/hooks/guard-public-record-repo.test.sh": "80226ab4a05327f5f53128e2ec277eb1b59023faab322ae3b5d630ca3026bbf4",
-        "richos/engine/scripts/hooks/public-record-repo.mutation.sh": "a569fdd020a4aa4a929835bd353b6bc03bc87c95acf1ab48e1214e6e8421b0f8",
+        "richos/engine/scripts/hooks/public-record-repo.mutation.sh": "c669fa780b076ddd53f483d74f3df130dc7fc8b3ad521567eb882af87d5fa0da",
         "richos/engine/scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -1956,7 +1992,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       },
       "external_paths": [
@@ -2035,7 +2074,7 @@
       "review": "All transcript rows, result statuses and prompt identifiers are fixture literals under private entities. The renderer reads only supplied transcripts and appends to their private ledgers. Notice cases use initial or changed states, not a live cooldown-expiration assertion. Clock values are state/output timestamps. Nested mutants rebuild the same fixtures; no model, operator transcript or network is invoked.",
       "sources": {
         "richos/engine/scripts/hooks/turn-manifest.test.sh": "4d0fea059a0479cd1867e62f8362d7890385179ced084fd1dde25b43371e2f46",
-        "richos/engine/scripts/hooks/turn-manifest.mutation.sh": "2bac687880e5e4bbf7e0733393206f25b907ef1e28992dd2ee216f11a1e65994",
+        "richos/engine/scripts/hooks/turn-manifest.mutation.sh": "6f76e3eba8e25ebeaeb0c3b61b475dc4e09bce317ee7538f5af0cbe98cea5ac3",
         "richos/engine/scripts/lib/mutation-pool.sh": "f4828c9583f03fd63b10b22c77a1ad6cf4964ea88242b6c682ff1cf5305391c3",
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "richos/engine/scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -2064,7 +2103,10 @@
           "getconf",
           "sysctl"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2143,7 +2185,7 @@
       "review": "Reachability, push and integration facts come from generated private Git histories, refs, worktree locks and ledgers. The fixed claim parser reads private transcript/roster data and explicit fixture repositories. Private HOME/config supplies empty recovery/session state. Four nested source mutants rebuild those same fixtures; no remote push, model or host transcript is executed. Timestamps describe records only.",
       "sources": {
         "richos/engine/scripts/hooks/guard-unresolved-claims.test.sh": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
-        "richos/engine/scripts/hooks/guard-unresolved-claims.mutation.sh": "df296d574d3b9a50165c41faab6aaf9c85850e4280196144cd83152d2f017bef",
+        "richos/engine/scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
         "richos/engine/scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "richos/engine/scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
         "richos/engine/scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
@@ -2183,7 +2225,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2258,9 +2303,9 @@
       "review": "Shared template/installer setup uses private HOME/config, generated Git history and literal settings. The scoped section executes its existing complete nested fixture/mutation coverage. Reachability, push and integration facts come from generated private Git histories, refs, worktree locks and ledgers. The fixed claim parser reads private transcript/roster data and explicit fixture repositories. Private HOME/config supplies empty recovery/session state. Four nested source mutants rebuild those same fixtures; no remote push, model or host transcript is executed. Timestamps describe records only.",
       "sources": {
         "richos/engine/scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
-        "richos/engine/scripts/hooks/claim-roles.mutation.sh": "d998c6197966082daa82eb5fdb30c3a76d6757a06033afadc0cbc741e7eeebc0",
+        "richos/engine/scripts/hooks/claim-roles.mutation.sh": "e20d4194ed09142931ad32ba5e5f09b12a3b0348fb8165c78f94a386eb352196",
         "richos/engine/scripts/hooks/guard-unresolved-claims.test.sh": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
-        "richos/engine/scripts/hooks/guard-unresolved-claims.mutation.sh": "df296d574d3b9a50165c41faab6aaf9c85850e4280196144cd83152d2f017bef",
+        "richos/engine/scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
         "richos/engine/scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "richos/engine/scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
         "richos/engine/scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
@@ -2306,7 +2351,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2314,7 +2362,7 @@
       "review": "Shared template/installer setup uses private HOME/config, generated Git history and literal settings. The scoped section executes its existing complete nested fixture/mutation coverage. All supplied transcripts, role Markdown, literal entity switches and unadopted/missing-helper copies are private. Ambient team/roster and Stop recovery lookups are redirected by private HOME/config. The analyzer reads payload command strings as text and appends fixture verdicts; no send, spawn or operator transcript is invoked. Clock fields only label output records.",
       "sources": {
         "richos/engine/scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
-        "richos/engine/ass-kicker/tests/stated-actions.mutation.sh": "6ee77e488fc4d2b872d0e94b5a1d0ede7f8212c04036d914a80fa82e375e3c89",
+        "richos/engine/ass-kicker/tests/stated-actions.mutation.sh": "5f6bba511e6b555c49bf3f45313de23d97742c5b38da3ff62d739114e2972a70",
         "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
         "richos/engine/scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
         "richos/engine/ass-kicker/guard-stated-actions.py": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
@@ -2358,7 +2406,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2366,7 +2417,7 @@
       "review": "Shared template/installer setup uses private HOME/config, generated Git history and literal settings. The scoped section executes its existing complete nested fixture/mutation coverage. Payloads, transcripts, records, Git histories and the bare remote are private fixtures. The suite executes only fixed Git queries and generated local Git writes, never transcript command strings. The Stop recovery registry and platform session lookup use private HOME/config with no operator session. Notice timestamps are output, not an expiration predicate in this suite. WAIT branch (2026-09-28): the seated fixture's SessionStart now imports scripts/lib/agent_hold.py and lists the agent-hold directory inside its pinned private RICHOS_WORKSPACES_DIR; it finds no hold, so it reads no process table, sends no signal and starts no watchdog. That reader is now bound here.",
       "sources": {
         "richos/engine/scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
-        "richos/engine/scripts/hooks/idle-land.mutation.sh": "b2be7c34811448327fec6445453e142f7a72c0b191453b1d65d03d36c0f353ac",
+        "richos/engine/scripts/hooks/idle-land.mutation.sh": "28cf75331043b1a779457eb942b65ac46dc484496716ecad268763bffa258d99",
         "richos/engine/scripts/hooks/guard-idle-land.test.sh": "e79ecdfea218fc6d681278a8ba4cabbf7d491d5488e3c58ac01150184dca1ea6",
         "richos/engine/scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
         "richos/engine/scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
@@ -2445,7 +2496,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },
@@ -2453,7 +2507,7 @@
       "review": "Shared template/installer setup uses private HOME/config, generated Git history and literal settings. The scoped section executes its existing complete nested fixture/mutation coverage. Every guard call uses a copied private engine and literal adoption config. Command strings are parsed, never executed. Reachability and integration cases create their own Git repositories and explicit RICHOS_WORKSPACES_DIR. Only integration registry operations are invoked, with timestamps as output. No operator worktree, network or host process liveness determines a verdict.",
       "sources": {
         "richos/engine/scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
-        "richos/engine/scripts/hooks/guard-worktree-removal.mutation.sh": "05aff533ec292eba45dc2d4a822359b880c90bc7d08d46f7a6bf39416b061030",
+        "richos/engine/scripts/hooks/guard-worktree-removal.mutation.sh": "1721b57276b427d4c27f4ad6ba553d8613f16da62b73c71fbd17f0d0d6f0aa80",
         "richos/engine/scripts/hooks/guard-worktree-removal.test.sh": "b4e717bbb5ff0089902e69e286e3e845a502121a898259534f04c370048f58e5",
         "richos/engine/mega-lander/workspaces.py": "1dd480f258cfe4b66743899836e0d3ae56325ee18502043eb27374cac3485d7b",
         "richos/engine/scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
@@ -2496,7 +2550,10 @@
           "printf",
           "id"
         ],
-        "environment": [],
+        "environment": [
+          "RICHOS_FOURTEEN_MUTANTS",
+          "RICHOS_MUTATION_PASSES"
+        ],
         "external": []
       }
     },

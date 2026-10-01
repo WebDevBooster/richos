@@ -66,6 +66,10 @@
 # the entity's orchestration.config BEFORE that line and the config sets the
 # variable explicitly, so the default is dead code in any adopted repository.
 # The mutant had proven nothing and looked like it had proven the opposite.
+# THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
+# gate runs the suite with RICHOS_MUTATION_PASSES=0; nightly-engine.py runs every pass.
+if [ "${RICHOS_MUTATION_PASSES:-}" = 0 ]; then echo "NOT RUN: $(basename "$0"), a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"; exit 0; fi
+
 set -uo pipefail
 SRC_ENG="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=../lib/mutation-harness.sh
