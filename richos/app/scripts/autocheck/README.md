@@ -186,6 +186,17 @@ skipped UI suite.
 then a `host-gap`, `unchanged-inputs` or `suite-skipped` NOT RUN refused it, and only
 `no-screen` was accepted, for the reasons below. A check that did not run is not a failure of
 the change, and the merge gate blocks only on failures (above); the nightly answers for it.
+
+**One exception (since 2026-10-01): an owning check that ends `timed-out` or `cancelled` is run
+once more, alone, and refuses the merge if it still has no verdict.** Merge `7af4c981e` landed
+although its owning suites `native-android-app` (timed out) and `native-android-ui` (ended at the
+gate's cap) had no verdict, with the Mac near 99% CPU; both passed when run alone afterward. So
+when such a unit appears, the gate resumes the saved plan (`proof-run.py --resume`, every pass
+kept, a fresh gate allowance, the verification-retries procedure) and decides on that second
+answer. A unit with no verdict again refuses the merge, naming it with "re-run it alone". The other
+no-verdict states (`not-admitted`, stopped by the controller, runner failed) stay NOT RUN, named
+as above; a merge that passes on the retry carries no NOT RUN for that unit.
+
 The original reasoning for the screen case, which still holds:
 
 - A land may never put anything on this Mac's screen (CEO ruling §65; `--no-host-screen` is
