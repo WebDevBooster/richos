@@ -809,6 +809,7 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
             return refuse_selection(what, rc)
         commands += [c for c in found if c not in commands]
     commands, nightly = for_the_nightly(repo, commands)
+    commands += ["cd richos/engine && python3 scripts/mutation-anchors.py --quiet"] if any(p.startswith("richos/engine/") for p in covered | set(staged)) and (repo.top / "richos/engine/scripts/mutation-anchors.py").is_file() else []  # every mutant's target text still exists (the passes run only in the nightly; ~1 s)
     if nightly:
         say(f"autocheck: {what}: left to the nightly: " + ", ".join(f"{row['check']} ({row['why']})" for row in nightly))
     # The lint checks the application (it lives under richos/app). A land that changes nothing
