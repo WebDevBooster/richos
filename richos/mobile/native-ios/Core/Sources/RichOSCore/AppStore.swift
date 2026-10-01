@@ -51,6 +51,8 @@ public final class AppStore {
     /// When this batch's bound after Home runs out (ms since 1970); `nil` until it has started.
     @ObservationIgnored private var completionBoundEndsAt: Int64?
     @ObservationIgnored private var deliveryTask: Task<[Action], Never>?
+    @ObservationIgnored private var hiddenCut: Task<Void, Never>?
+    @ObservationIgnored private var hungCut = false
     @ObservationIgnored private var delivering: OutboxItem?
     /// The delivery given up because the stream to the Mac was lost (`connectionLost`).
     @ObservationIgnored private var linkLostDelivery: String?
@@ -509,6 +511,8 @@ public final class AppStore {
             if leased {
                 if let self, self.completionBatch == batch {
                     self.completionBoundEndsAt = SystemClock().nowMs() + Self.completionBoundMs
+                    // A request already in flight at Home gets its deadline from the bound's start.
+                    if !self.foreground, let inFlight = self.deliveryTask { self.armHiddenCut(for: inFlight) }
                 }
                 guard (try? await Task.sleep(for: .milliseconds(Self.completionBoundMs))) != nil else { return }
             }
@@ -516,6 +520,24 @@ public final class AppStore {
             self.completionExpired = true
             self.sendLog("hidden: bound ran out, request \(self.deliveryTask != nil ? "in flight, given up" : "none")")
             if !self.foreground { self.deliveryTask?.cancel() }
+        }
+    }
+
+    /// Hidden, inside a started bound, one request may hang this long before it is cut and goes again.
+    /// A network that drops under a request leaves the socket up and the transport's own timeout is
+    /// 30 s, so such a request never faults inside the 5 s bound (the Honor's hung send; the same
+    /// code here). Only when a full deadline fits before the bound ends: with less left the bound's
+    /// own end cuts it, as before. A delay inside the bound already held, no new background work.
+    static let hiddenAttemptMs: Int64 = 2000
+
+    private func armHiddenCut(for task: Task<[Action], Never>) {
+        guard let endsAt = completionBoundEndsAt, endsAt - SystemClock().nowMs() > Self.hiddenAttemptMs else { return }
+        hiddenCut?.cancel()
+        hiddenCut = Task { [weak self] in
+            guard (try? await Task.sleep(for: .milliseconds(Self.hiddenAttemptMs))) != nil else { return }
+            guard let self, !self.foreground, self.deliveryTask == task, !task.isCancelled else { return }
+            self.hungCut = true
+            task.cancel()
         }
     }
 
@@ -595,9 +617,19 @@ public final class AppStore {
         sendLog("request started \(foreground ? "on screen" : "hidden")")
         let task = Task { [runner] in (try? await runner.run([.deliver(clientID: id)], state: snapshot)) ?? [] }
         deliveryTask = task
+        hungCut = false
+        if !foreground, completionBoundEndsAt != nil { armHiddenCut(for: task) }
         let actions = await task.value
+        hiddenCut?.cancel()
+        hiddenCut = nil
         deliveryTask = nil
         delivering = nil
+        // Cut by its own deadline: the network hung under it, so it goes again (see `armHiddenCut`).
+        if hungCut, task.isCancelled, actions.allSatisfy(Self.isRetryableFailure) {
+            hungCut = false
+            sendLog("hidden: request cut after \(Self.hiddenAttemptMs) ms")
+            return [.deliveryFailed(clientID: id, failure: .retryable(reason: "timeout", afterMs: nil), at: SystemClock().nowMs())]
+        }
         sendLog("answer: \(Self.answerWord(actions, canceled: task.isCancelled)) after \(SystemClock().nowMs() - startedAt) ms, \(foreground ? "on screen" : "hidden")")
         let lostLink = linkLostDelivery == id
         if lostLink { linkLostDelivery = nil }
