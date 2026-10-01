@@ -40,7 +40,7 @@ FEATURES = {
 
 # Adding a source file or test case requires a new scope review. Until then,
 # the selector falls back to full coverage rather than guessing its dependencies.
-REVIEWED_CASES = '87d03f3d622d87c5c869420dc54c3f611cbe93f14da2312e9f7f8bc3de3ac54c'
+REVIEWED_CASES = 'b391b90bbbef6aed557cdc0a7eccc44ae01e69ccb70c63a8565d041f5f762f9c'
 REVIEWED_FEATURE_FILES = {
     'App/Features/Attachments/AttachmentModel.swift',
     'App/Features/Attachments/AttachmentViews.swift',
