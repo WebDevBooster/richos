@@ -3,13 +3,20 @@
 
     phone-ios.py check STEPS.json                  validate a step list; touches no device
     phone-ios.py run STEPS.json --out DIR [--allowance S] [--prebuilt --stamp STAMP.json]
+                 [--approval-announced]
                                                    run the steps through XCUITest on the phone
                                                    (`rios device verify script`), then write
                                                    DIR/steps.jsonl (one line per step, phone clock)
-                                                   and DIR/attachments/ (the steps' shots and trees);
-                                                   --prebuilt reuses the earlier build's exact products
-                                                   (about two minutes saved per run) and refuses unless
-                                                   the app still hashes to STAMP.json (perf.py stamp)
+                                                   and DIR/attachments/ (the steps' shots and trees).
+                                                   Committed, unchanged app source is never rebuilt:
+                                                   the one signed build of that source tree is reused
+                                                   from the shared store automatically (see
+                                                   physical-device.mjs), so a walk starts in seconds;
+                                                   --prebuilt reuses THIS checkout's earlier products
+                                                   and refuses unless the app still hashes to
+                                                   STAMP.json (perf.py stamp)
+    phone-ios.py approval --device UDID            will the next run ask the phone's owner to approve
+                                                   UI automation? Asks nothing of the phone's screen.
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
     phone-ios.py pair-steps MAC-TEST-CONFIG.json [--v2-hold S]
                                                    the real-control pairing steps for a lab's current
@@ -31,6 +38,18 @@ type, Home, lock and screenshot goes through one XCUITest check that executes a 
 (`PhysicalDeviceTests.testScript`). Each step prints one `PHONE_STEP` JSON line with its start and
 end on the phone's clock, which this tool collects. A failed step stops the list; nothing is
 retried. Validation happens here, before anything is built, so a typo costs a second, not a build.
+
+THE APPROVAL PROMPT, AND WHY IT IS NEVER A SURPRISE. When the phone has a passcode, iOS asks
+its owner (Touch ID or passcode, at the phone) to allow UI automation when a test session starts
+after the phone has been idle; the session waits about 60 s and then fails "Timed out while
+enabling automation mode". Apple: the prompt exists only when a passcode is set, comes back
+"roughly once per day", and cannot be automated (developer.apple.com/forums/thread/693273).
+Measured on this Mac's 108 sessions (2026-09-27 to 10-01): never asked within 12.5 min of the
+previous session, always asked after 9.3 h or more, and NOT triggered by reinstalling the runner
+(about 100 back-to-back sessions each re-installed it without asking; a 9.7 h idle asked with the
+very same products). A phone dedicated to testing is kept without a passcode, so nothing asks;
+`run` still forecasts before it builds anything (`approval` prints the same forecast), and
+REFUSES a run that is expected to ask unless --approval-announced says the CEO was told first.
 
 First launch of a newly signed development app can require Apple's online verification.
 On the physical SE on 2026-09-27, Xcode reported an untrusted certificate but the icon showed
@@ -223,7 +242,116 @@ def stamped_identity(stamp_path):
     return {"artifact": artifact, "sha256": actual, "commit": stamp.get("commit")}
 
 
+SESSION_LOGS = "/Volumes/E1TB/caches/richos-native-ios/*/physical/*-test.log"
+APPROVAL_TIMEOUT = "Timed out while enabling automation mode"
+QUIET_WINDOW_S = 600      # measured: no session within 12.5 min of the previous one ever asked
+COLD_GAP_S = 3600         # a session after this much idle is the one that would ask
+ASKED_WAIT_S = 3.0        # runner start to first suite: 0.5-1.2 s unasked, 9.9-24.7 s when he approved
+_PHONE_TS = r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3})"
+
+
+def session_from_log(path):
+    """One automation session as its xcodebuild log left it: which phone, when it ran (this Mac's
+    clock: the log's creation and last write) and how long the runner waited for UI automation to
+    be enabled (the phone's clock: runner start to first suite). None for a log naming no phone."""
+    text = Path(path).read_text(errors="replace")
+    device = re.search(r"-destination id=([A-Fa-f0-9-]+)", text)
+    if not device:
+        return None
+    st = os.stat(path)
+    runner = (re.search(_PHONE_TS + r"\d*[+-]\d{4} RichOSNativeUITests-Runner\[\d+:\d+\] \[Default\] Running tests", text)
+              or re.search(_PHONE_TS + r"\d*[+-]\d{4} RichOSNativeUITests-Runner\[", text))
+    suite = re.search(r"Test Suite '[^']+' started at " + _PHONE_TS, text)
+    wait = None
+    if runner and suite:
+        fmt = "%Y-%m-%d %H:%M:%S.%f"
+        from datetime import datetime
+        wait = round((datetime.strptime(suite.group(1), fmt) - datetime.strptime(runner.group(1), fmt)).total_seconds(), 1)
+    return {"log": str(path), "device": device.group(1), "started": getattr(st, "st_birthtime", st.st_mtime),
+            "ended": st.st_mtime, "enableWaitSeconds": wait, "timedOut": APPROVAL_TIMEOUT in text}
+
+
+def sessions(device, pattern=None):
+    import glob
+    week = time.time() - 7 * 86400
+    found = []
+    for path in glob.glob(pattern or os.environ.get("RICHOS_IOS_SESSION_LOGS", SESSION_LOGS)):
+        try:
+            if os.stat(path).st_mtime < week:
+                continue
+            s = session_from_log(path)
+        except OSError:
+            continue
+        if s and s["device"].lower() == device.lower():
+            found.append(s)
+    return sorted(found, key=lambda s: s["started"])
+
+
+def passcode_state(device):
+    """True or False only when the phone itself answered whether a passcode is CONFIGURED; None
+    otherwise. Lockdown's PasswordProtected and devicectl's passcodeRequired are NOT this: both
+    say whether the phone is locked right now (both read false on 2026-10-01 while it had one)."""
+    try:
+        p = subprocess.run(["idevicediagnostics", "-u", device, "mobilegestalt", "PasswordConfigured"],
+                           capture_output=True, timeout=20)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if p.returncode != 0:
+        return None
+    import plistlib
+    try:
+        gestalt = plistlib.loads(p.stdout).get("MobileGestalt", {})
+    except Exception:
+        return None
+    value = gestalt.get("PasswordConfigured")
+    return value if gestalt.get("Status") == "Success" and isinstance(value, bool) else None
+
+
+def forecast(device, now=None, passcode=None, pattern=None):
+    """Will the next session ask the phone's owner to approve UI automation? Decided from the phone's
+    passcode when it answers, else from this phone's own session history. Never touches its screen."""
+    now = time.time() if now is None else now
+    history = sessions(device, pattern)
+    out = {"device": device, "passcodeConfigured": passcode, "sessionsOnRecord": len(history)}
+    last = history[-1] if history else None
+    if last:
+        out["lastSession"] = {"endedSecondsAgo": round(now - last["ended"]), "enableWaitSeconds": last["enableWaitSeconds"],
+                              "timedOut": last["timedOut"], "log": last["log"]}
+    if passcode is False:
+        return {**out, "approvalExpected": False,
+                "why": "the phone has no passcode, and iOS asks to allow UI automation only when one is set"}
+    if last and last["timedOut"]:
+        return {**out, "approvalExpected": True,
+                "why": f"the last session on this phone ({last['log']}) failed '{APPROVAL_TIMEOUT}': nobody approved it"}
+    if last and now - last["ended"] <= QUIET_WINDOW_S:
+        return {**out, "approvalExpected": False,
+                "why": f"the last session ended {round(now - last['ended'])} s ago; within {QUIET_WINDOW_S} s none has ever asked"}
+    if passcode is None:
+        cold = [s for prev, s in zip(history, history[1:]) if s["started"] - prev["ended"] >= COLD_GAP_S]
+        if cold and not cold[-1]["timedOut"] and cold[-1]["enableWaitSeconds"] is not None \
+                and cold[-1]["enableWaitSeconds"] < ASKED_WAIT_S:
+            return {**out, "approvalExpected": False, "coldSession": cold[-1]["log"],
+                    "why": f"the passcode could not be read, and the last session after an idle hour "
+                           f"started in {cold[-1]['enableWaitSeconds']} s without asking (no passcode since then)"}
+    idle = "no session on record for this phone" if not last else f"the last session ended {round((now - last['ended']) / 60)} min ago"
+    held = "the phone has a passcode" if passcode else "the passcode could not be read"
+    return {**out, "approvalExpected": True,
+            "why": f"{held} and {idle}: iOS asks again after idle (never within 12.5 min, always after 9.3 h, measured)"}
+
+
+def approval_refusal(f):
+    return (f"this run is expected to ask the phone's owner to allow UI automation (Touch ID or passcode, "
+            f"at the phone, within about 60 s, or the run fails '{APPROVAL_TIMEOUT}'): {f['why']}. "
+            "Tell Rich so the CEO hears it BEFORE the run, then pass --approval-announced. "
+            "Removing the test phone's passcode ends the prompt for good.")
+
+
+def approval(args):
+    return emit(forecast(args.device, passcode=passcode_state(args.device)))
+
+
 def run(args):
+    started = time.time()
     steps = load_steps(args.steps)
     for name in ("RICHOS_IOS_DEVICE", "RICHOS_APPLE_TEAM"):
         if not os.environ.get(name):
@@ -234,6 +362,10 @@ def run(args):
     if not 60 <= args.allowance <= 1800:
         raise CannotAnswer("--allowance must be 60 to 1800 seconds")
     identity = stamped_identity(args.stamp) if args.prebuilt else None
+    device = os.environ["RICHOS_IOS_DEVICE"]
+    ahead = forecast(device, passcode=passcode_state(device))
+    if ahead["approvalExpected"] and not args.approval_announced:
+        raise CannotAnswer(approval_refusal(ahead))
     out.mkdir(parents=True, exist_ok=True)
     config = out / "script-config.json"
     config.unlink(missing_ok=True)
@@ -262,11 +394,28 @@ def run(args):
     exported = subprocess.run(["xcrun", "xcresulttool", "export", "attachments", "--path", result,
                                "--output-path", str(attachments)], capture_output=True, text=True)
     failed = [r for r in rows if not r.get("ok") and not steps[r["i"]].get("optional")]
+    session = session_from_log(log) if log.exists() else None
+    build = None
+    for line in reversed(p.stdout.splitlines()):
+        try:
+            build = json.loads(line).get("result", {}).get("build")
+            break
+        except (json.JSONDecodeError, AttributeError):
+            continue
+    first = rows[0].get("start") if rows else None
     summary = {"passed": p.returncode == 0 and not failed and len(rows) == len(steps),
                "steps": len(steps), "logged": len(rows), "failed": failed[:1],
                "result": result, "testLog": str(log), "out": str(out),
                "attachments": str(attachments) if exported.returncode == 0 else None,
-               "attachmentsError": None if exported.returncode == 0 else exported.stderr.strip()[-300:]}
+               "attachmentsError": None if exported.returncode == 0 else exported.stderr.strip()[-300:],
+               "build": build, "approvalForecast": ahead,
+               # The command's start on this Mac's clock to the first step's start on the phone's
+               # clock (both set from network time), and the runner's wait for automation to be allowed.
+               "secondsToFirstStep": round(first - started, 1) if isinstance(first, (int, float)) else None,
+               "automationEnableWaitSeconds": session and session["enableWaitSeconds"]}
+    if session and session["timedOut"]:
+        summary["error"] = (f"'{APPROVAL_TIMEOUT}': the phone asked its owner to allow UI automation and "
+                            "nobody approved it at the phone in about 60 s; no step ran")
     return emit(summary, 0 if summary["passed"] else 1)
 
 
@@ -300,8 +449,11 @@ def lock(args):
     required = re.search(r"passcodeRequired:\s*(\w+)", p.stdout)
     if p.returncode != 0 or not required:
         raise CannotAnswer("devicectl did not report a lock state")
+    # passcodeRequired is "locked right now", NOT "has a passcode": passcodeConfigured is that
+    # (null when the phone would not say; it needs the hardware UDID).
     return emit({"passcodeRequired": required.group(1) == "true",
-                 "unlockedSinceBoot": "unlockedSinceBoot: true" in p.stdout})
+                 "unlockedSinceBoot": "unlockedSinceBoot: true" in p.stdout,
+                 "passcodeConfigured": passcode_state(args.device)})
 
 
 def battery(args):
@@ -369,7 +521,10 @@ def main(argv):
     r.add_argument("--allowance", type=int, default=240)
     r.add_argument("--prebuilt", action="store_true")
     r.add_argument("--stamp")
+    r.add_argument("--approval-announced", action="store_true",
+                   help="the CEO was told before this run that the phone will ask him to allow UI automation")
     sub.add_parser("parse-log").add_argument("log")
+    sub.add_parser("approval").add_argument("--device", required=True)
     ps = sub.add_parser("pair-steps")
     ps.add_argument("config")
     ps.add_argument("--v2-hold", type=int, default=None)
@@ -397,7 +552,7 @@ def main(argv):
             except FileNotFoundError:
                 raise CannotAnswer(f"no log at {args.log}")
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
-                "syslog": syslog}[args.command](args)
+                "syslog": syslog, "approval": approval}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error)}, 2)
     except subprocess.TimeoutExpired as error:
