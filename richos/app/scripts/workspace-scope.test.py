@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE / 'lib'))
 import ios_ui_scope  # noqa: E402
+import android_ui_scope  # noqa: E402
 
 NATIVE = 'richos/mobile/native-ios/'
 ANDROID_TESTS = 'richos/mobile/native-android/app/src/test/kotlin/dev/richos/android/'
@@ -210,6 +211,57 @@ class CaseSpans(unittest.TestCase):
         text = ('final class T: XCTestCase {\n    // above\n    func testA() {\n        let s = "{"\n'
                 '        // }\n    }\n    func helper() {}\n    func testB() { x("}") }\n}\n')
         self.assertEqual(ios_ui_scope.case_spans(text), {'testA': (2, 6), 'testB': (8, 8)})
+
+
+def android_patterns():
+    text = (HERE / 'native-android-ui.test.sh').read_text()
+    block = text[text.index('PURE=('):text.index('# The workspace default (CEO, 2026-10-01): with no selection')]
+    return re.findall(r"--tests '([^']+)'", block)
+
+
+class AndroidSelection(unittest.TestCase):
+    def test_a1_a_changed_test_class_and_a_sibling_source_select_those_classes(self):
+        pats = android_patterns()
+        self.assertIn('dev.richos.android.ui.ScreensTest', pats)
+        got, every = android_ui_scope.select(ROOT, [ANDROID_TESTS + 'ui/conversation/QuestionCardTest.kt'], pats)
+        self.assertEqual((got, every), (['dev.richos.android.ui.conversation.QuestionCardTest'], []))
+        source = 'richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/ui/composer/DraftEditor.kt'
+        self.assertEqual(android_ui_scope.select(ROOT, [source], pats)[0], ['dev.richos.android.ui.composer.DraftEditorTest'])
+
+    def test_a2_a_helper_selects_everything_and_a_class_the_suite_never_runs_selects_nothing(self):
+        pats = android_patterns()
+        got, every = android_ui_scope.select(ROOT, [ANDROID_TESTS + 'ui/ScreenChecks.kt'], pats)
+        self.assertIsNone(got)
+        self.assertEqual(every, [ANDROID_TESTS + 'ui/ScreenChecks.kt'])
+        self.assertEqual(android_ui_scope.select(ROOT, [ANDROID_TESTS + 'ui/SpeedRestorationTest.kt'], pats), ([], []))
+
+    def test_a3_the_runner_narrows_in_a_workspace_refuses_on_nothing_and_full_is_everything(self):
+        tmp = tempfile.mkdtemp(prefix='workspace-scope-android.')
+        try:
+            fx = Fixture(tmp, ['richos/app/scripts/native-android-ui.test.sh', 'richos/app/scripts/lib/android_ui_scope.py',
+                               'richos/engine/scripts/lib/workspace_scope.py',
+                               ANDROID_TESTS + 'ui/conversation/QuestionCardTest.kt'], {'README.md': 'fixture\n'})
+            text = (HERE / 'native-android-ui.test.sh').read_text()
+            block = text[text.index('PURE=('):text.index('VOLUME=/Volumes/E1TB')]
+            harness = Path(tmp) / 'h' / 'native-android-ui.test.sh'
+            harness.parent.mkdir()
+            harness.write_text('set -uo pipefail\nDIR=%s\nROOT=%s\n%s\nprintf "NARROW=%%s\\n" "${NARROW[*]-}"\n'
+                               % (fx.wt / 'richos/app/scripts', fx.wt, block))
+
+            def run(*args, env=CLEAN):
+                return subprocess.run(['bash', str(harness), *args], capture_output=True, text=True, env=env)
+            fx.edit('README.md', lambda t: t + 'edit\n')
+            refused = run()
+            self.assertEqual(refused.returncode, 64, refused.stdout + refused.stderr)
+            self.assertIn('--full', refused.stdout)
+            fx.edit(ANDROID_TESTS + 'ui/conversation/QuestionCardTest.kt', lambda t: t + '// edit\n')
+            narrow = run()
+            self.assertIn('NARROW=--tests dev.richos.android.ui.conversation.QuestionCardTest\n', narrow.stdout)
+            self.assertIn('1 test class(es): QuestionCardTest', narrow.stdout)
+            self.assertIn('NARROW=\n', run('--full').stdout)
+            self.assertIn('NARROW=\n', run(env={**CLEAN, 'RICHOS_TEST_SCOPE': 'full'}).stdout)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == '__main__':
