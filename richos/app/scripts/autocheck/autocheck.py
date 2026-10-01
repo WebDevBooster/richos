@@ -179,6 +179,11 @@ def commit_check(repo, what):
     if not app:
         say(f"autocheck: {what}: nothing under richos/app changed, so no lint applies "
             f"({time.monotonic() - started:.1f}s)")
+        # The land's coverage rule applies to every code path, not only richos/app (2026-10-01:
+        # a Swift file under richos/mobile and step lists under docs/verification passed here
+        # and were refused at the merge). Lookup only: no suite runs for a change outside the app.
+        if what == "commit" and branch_selection(repo, what, run_quick=False):
+            return 1
         return 0
     with StagedOnly(repo) as aside:
         if aside.summary:
@@ -569,7 +574,7 @@ def quick_suites(repo, commands):
             if c.startswith(UI_SUITE_LINE) and c[len(UI_SUITE_LINE):].strip() in quick]
 
 
-def branch_selection(repo, what):
+def branch_selection(repo, what, run_quick=True):
     started = time.monotonic()
     if not (repo.top / PROOF_FOR).is_file():
         banner(f"{what.upper()} REFUSED: cannot select the checks", [f"{PROOF_FOR} is not in this tree."])
@@ -577,12 +582,12 @@ def branch_selection(repo, what):
     paths = branch_paths(repo)
     if not paths:
         return 0
-    commands, rc = select(repo, ["--paths", ",".join(paths)])
+    commands, rc = select(repo, ["--paths", ",".join(paths)], gate=True)
     if commands is None:
         refuse_selection(what, rc)
         say("  The land runs this same selection over the same change and would refuse it there.")
         return 1
-    quick = quick_suites(repo, commands)
+    quick = quick_suites(repo, commands) if run_quick else []
     for suite in quick:
         say(f"+ (cd richos/app/ui/tests && node {suite})")
         try:
