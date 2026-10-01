@@ -360,7 +360,7 @@ final class AccessibilityLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(cards.frame.maxY, fieldTop + 0.5,
                                  "\(what): the cards' region \(cards.frame) runs under the field at \(fieldTop)", file: file, line: line)
         let all: [(String, XCUIElement)] = texts.map { t in
-            (t, app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", t)).firstMatch)
+            (t, app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR identifier == %@", t, t)).firstMatch)
         } + buttons.map { ($0, app.buttons[$0]) }
         // What is cut at rest says so: a cue at the edge that hides more.
         let cut = all.filter { _, e in e.exists && (e.frame.minY < cards.frame.minY - 1 || e.frame.maxY > cards.frame.maxY + 1) }
@@ -392,7 +392,7 @@ final class AccessibilityLayoutTests: XCTestCase {
         for appearance in ["light", "dark"] {
             let app = Screen.launch("voice-interrupted", appearance: appearance, cards: "mic-denied,camera-denied")
             assertBottomCardsReachable(app, "kept + microphone + camera \(appearance)", anchor: "kept.send",
-                                       texts: ["Recording was interrupted", "Turn it on in iPhone Settings to send voice messages", "to take a photo for Rich"],
+                                       texts: ["Recording was interrupted", "card.micDenied", "to take a photo for Rich"],
                                        buttons: ["kept.send", "kept.discard", "card.openSettings", "card.micNotNow", "Choose from Photos"])
             keepScreenshot(app, name: "r1-kept-mic-camera-\(appearance)")
         }
@@ -403,7 +403,7 @@ final class AccessibilityLayoutTests: XCTestCase {
         for (appearance, keyboard) in [("light", true), ("dark", true), ("light", false), ("dark", false)] {
             let app = Screen.launch("voice-interrupted", appearance: appearance, notifications: "not-asked", cards: "mic-denied,camera-denied")
             assertBottomCardsReachable(app, "four cards \(appearance) keyboard \(keyboard)", anchor: "kept.send",
-                                       texts: ["Recording was interrupted", "Turn it on in iPhone Settings to send voice messages", "to take a photo for Rich", "Notifications are off"],
+                                       texts: ["Recording was interrupted", "card.micDenied", "to take a photo for Rich", "Notifications are off"],
                                        buttons: ["kept.send", "kept.discard", "card.openSettings", "card.micNotNow", "Choose from Photos", "card.notificationsOn", "card.notNow"], keyboard: keyboard)
             keepScreenshot(app, name: "r1-four-cards-\(appearance)-\(keyboard ? "keyboard" : "plain")")
         }
