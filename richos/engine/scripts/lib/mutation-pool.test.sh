@@ -397,6 +397,38 @@ else
 fi
 mut_pool_cleanup
 
+# ---------------------------------------------------------------------------
+# P11: RICHOS_MUTANT_ONLY runs the named mutants alone, says so, and a name that
+# selects nothing leaves zero submissions for the zero-mutant refusal
+# ---------------------------------------------------------------------------
+body_p11() { printf '  PASS  %s\n' "$1"; return 0; }
+export RICHOS_MUTANT_ONLY="two,four"
+mut_pool_init 2 >"$SANDBOX/p11-init.out" 2>&1
+for n in one two three four; do mut_pool_submit "$n" body_p11 "$n"; done
+mut_pool_drain >"$SANDBOX/p11.out" 2>&1
+P11_SEEN="$(grep -oE 'one|two|three|four' "$SANDBOX/p11.out" | tr '\n' ' ' | sed 's/ *$//')"
+if [ "$P11_SEEN" = "two four" ] && [ "$MUT_POOL_SUBMITTED" -eq 2 ] && grep -q 'not a whole pass' "$SANDBOX/p11-init.out"; then
+    ok "P11. RICHOS_MUTANT_ONLY-runs-only-the-named-mutants-and-announces-it"
+else
+    bad "P11. RICHOS_MUTANT_ONLY-runs-only-the-named-mutants-and-announces-it" \
+        "ran '$P11_SEEN', submitted=$MUT_POOL_SUBMITTED, init said: $(cat "$SANDBOX/p11-init.out")"
+fi
+mut_pool_cleanup
+export RICHOS_MUTANT_ONLY="no-such-mutant"
+mut_pool_init 2 >/dev/null 2>&1
+mut_pool_submit one body_p11 one
+mut_pool_drain >/dev/null 2>&1
+P11B_RC=0
+( mut_pool_require_submissions "p11b" ) >/dev/null 2>&1 || P11B_RC=$?
+if [ "$MUT_POOL_SUBMITTED" -eq 0 ] && [ "$P11B_RC" -eq 2 ]; then
+    ok "P11b. a-name-that-selects-nothing-is-refused-not-green (rc=$P11B_RC)"
+else
+    bad "P11b. a-name-that-selects-nothing-is-refused-not-green" \
+        "submitted=$MUT_POOL_SUBMITTED require rc=$P11B_RC"
+fi
+mut_pool_cleanup
+unset RICHOS_MUTANT_ONLY
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== mutation-pool: $FAIL failed, $PASS passed ==="
