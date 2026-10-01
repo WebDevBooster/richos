@@ -1448,7 +1448,7 @@
     },
     "scripts/lib/testdevices.py#workspace-collection": {
       "source": "scripts/lib/testdevices.py",
-      "sha256": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+      "sha256": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
       "evidence": "workspaces calls collect with private HOME/config and no fake device adapters. The collector, ownership queries and error writer read private device/workspace state; no orchestration.config values are loaded. Device admission/launch helpers are not called.",
       "keys": [],
       "edges": [
@@ -4546,7 +4546,7 @@
     },
     "scripts/lib/testdevices.py#scheduled-collection": {
       "source": "scripts/lib/testdevices.py",
-      "sha256": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+      "sha256": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
       "evidence": "Same reviewed collect/classification/registry/workspace-barrier closure as workspace collection, reached by the scheduled watchdog. Also retains the exported TEST_DEVICE_FAILURES_STATE read used by machine admission and the failure writer. Device launch/admission helpers are not called.",
       "keys": [
         "TEST_DEVICE_FAILURES_STATE"
@@ -12973,7 +12973,7 @@
     },
     "scripts/lib/testdevices.py#device-fixtures": {
       "source": "scripts/lib/testdevices.py",
-      "sha256": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+      "sha256": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
       "evidence": "Suite-bound API path: real workspace liveness and cpu_guard APIs before HostMemory plus failure writer. In-process boot has _device_admission replaced; T60 exercises admission with literal worker/simulator modules. Separate CLI calls are register/run-active/acquire-ios, never boot, so app-side simulator_budget/reserve does not execute. Native commands and all run-active child programs are separately bound fixture strings, not config-provided code.",
       "keys": [],
       "edges": [
@@ -12990,7 +12990,7 @@
     },
     "scripts/lib/testdevices.test.py": {
       "source": "scripts/lib/testdevices.test.py",
-      "sha256": "e15dd27485d691b72705eab39d8c3dcb0a79646677562654d2f8600ea261a4a3",
+      "sha256": "cf7f3246a422555fae1f73353141332de87dfe2f9e5ade525890eb27bf5343f3",
       "evidence": "Private state and literal fake simctl/process programs drive real device APIs. Every subprocess target is this module register/run-active/acquire-ios or literal standard-library code. setUp substitutes admission; T60 restores only admission with explicit fake worker/simulator modules. No live config is loaded.",
       "keys": [],
       "edges": [
@@ -14510,7 +14510,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/lib/testdevices.py",
-          "sha256": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+          "sha256": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14561,7 +14561,7 @@
     },
     "scripts/lib/testdevices.py#cpu-fixtures": {
       "source": "scripts/lib/testdevices.py",
-      "sha256": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+      "sha256": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
       "keys": [],
       "edges": [
         {
@@ -15226,7 +15226,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "scripts/lib/testdevices.py",
-          "sha256": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+          "sha256": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {
@@ -15736,7 +15736,7 @@
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
         "mega-lander/workspaces.py": "573cc054d75463c442d64a003db9668457a26c8e120335e5716eac7e47c3214a",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
@@ -15793,7 +15793,7 @@
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "mega-lander/workspaces.py": "573cc054d75463c442d64a003db9668457a26c8e120335e5716eac7e47c3214a",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
@@ -15961,7 +15961,7 @@
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/tree-witness.sh": "ce0b40484c82bb421e5b4fef7a20276f606cc3df2c19fc6466700fd9ddaf1304",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/lib/unlanded-branches.py": "2aa9d32b80809d78c10c9571a91c4bdbb58c7cf22197b6398fd1239b481b1810",
@@ -16674,7 +16674,7 @@
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
@@ -16777,7 +16777,7 @@
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/hooks/guard-main-checkout-writes.sh": "15ef50dd54edf557ac14c16ce894b7212cfc692244d5fa19728cf2c6edad35a7",
@@ -16842,7 +16842,7 @@
         "scripts/lib/spawn-guard-audience.py": "0f29e5f4d8b857670e6566646e5ba1691b8b49e55b599b7e2d9d8a4782ccc0f9",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/prepare-agent-spawn.py": "67d78fa20c52b44fa56b70d36cb8e22a432a37563105a191cd81e6471fec9dfe",
         "scripts/spawn.sh": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817",
@@ -16891,7 +16891,7 @@
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/lib/unlanded-branches.py": "2aa9d32b80809d78c10c9571a91c4bdbb58c7cf22197b6398fd1239b481b1810",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -16927,7 +16927,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb",
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
         "scripts/scratch-sweep.sh": "4397e3931381098d17ba2cedc5415bfcb7baaaf8d0c6fe05bffa000826b45e62"
@@ -17024,7 +17024,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
-        "scripts/lib/testdevices.py": "eb34814b1de7c05480a928573a2b4766cfd0e43f1f6890f98bdbd826a45fe0fb"
+        "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff"
       },
       "evidence": "settings.local.json is named only in the duplicate-delivery explanatory comment. The suite invokes the actual guard directly with literal payloads, private team/registry facts and the already qualified helper closure. No reader consumes a registration surface. This does not qualify or alter WAIT/pause behavior.",
       "seated_reads_nothing": true

@@ -1017,6 +1017,22 @@ class Collector(Base):
         self.assertTrue(T.lease_expired({"lease": forever}, late))
         self.assertFalse(T.lease_expired({"lease": forever}, late - 100))
 
+    def test_T50c_the_default_pool_wait_outlasts_every_lease_that_is_still_valid(self):
+        # P5-24 (v2 re-check): the default wait covered the declared lifetimes (1860 s), but a lease
+        # its run keeps renewing stays valid to LEASE_ACTIVE_CEILING_SECONDS, so a waiter gave up on
+        # a healthy holder at 1860 s that legitimately held the device at 1900 s and beyond.
+        with patch.dict(os.environ, {T.POOL_WAIT_ENV: ""}):
+            wait = T.pool_wait_seconds()
+        now = 100000.0
+        for max_seconds in (T.LEASE_MAX_SECONDS, *T.LEASE_PURPOSES.values()):
+            for age in (1900, T.LEASE_ACTIVE_CEILING_SECONDS - 1):
+                lease = {"created": now - age, "last_use": now - 10, "max_seconds": max_seconds,
+                         "idle_seconds": T.LEASE_IDLE_SECONDS, "activity": {"pid": 1, "renewer": 2, "renewed": now - 10}}
+                with self.subTest(max_seconds=max_seconds, age=age):
+                    self.assertFalse(T.lease_expired({"lease": lease}, now), "the holder's lease is still valid")
+                    self.assertGreater(wait, age, "a default waiter must not give up while the lease is valid")
+        self.assertGreaterEqual(T.POOL_WAIT_SECONDS, T.LEASE_ACTIVE_CEILING_SECONDS + 60)
+
     def test_T50b_the_pool_wait_outlasts_the_longest_lease_unless_a_gate_names_a_positive_number(self):
         with patch.dict(os.environ, {T.POOL_WAIT_ENV: ""}):
             # P5-24: five minutes gave up on a healthy holder that may keep the device 15 or 30.
