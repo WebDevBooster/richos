@@ -33,10 +33,13 @@ python3 richos/mobile/perf/perf.py check <record.json>...   # a record's structu
 python3 richos/mobile/perf/perf.py budgets                   # the PRD §7 targets it compares to
 python3 richos/mobile/perf/perf.py merge <part.json>... --out <file.json>   # one record from boots split with --only
 python3 richos/mobile/perf/perf.py stamp --artifact <apk|.app> --checkout <repo> --paths <p>...
+python3 richos/mobile/perf/perf.py compare <record.json> [<warm.json>]      # p95 against the start times already achieved
+python3 richos/mobile/perf/perf.py benchmark-update <record.json>...      # the only way a benchmark changes; commit after
 ```
 
 Exit 0 a record was written; 1 a phase could not be measured (the record says which and why);
-3 REFUSED before measuring anything. **Identity or refuse:** `randroid emu prepare|refresh` stamps
+3 REFUSED before measuring anything; 4 the record was written and is SLOWER than the established
+benchmark (below). **Identity or refuse:** `randroid emu prepare|refresh` stamps
 the APK it installs (commit, uncommitted changes under `richos/mobile/native-android`, SHA-256).
 The measurement hashes the APK actually installed on the device and refuses unless it is the
 stamped one; with `--expect-commit` it also refuses a build from another commit or from
@@ -100,6 +103,53 @@ configuration and there are at least the PRD §8 protocol's 100 launch trials, a
 reads "EVIDENCE ONLY (a reviewer decides)". On an emulator the Mac's CPU is sampled per phase,
 because the emulator's timings depend on it.
 
+## Start times never get slower: the benchmark
+
+The apps must stay fast: the cold launch and warm resume times already achieved are kept, and
+faster is welcome. `benchmarks.json` holds, per device class, the best p95 measured so far for
+`coldLaunch` and `warmResume`, the record, build commit and date it came from, and every repeated
+series of that class with its noise. The numbers were written by `benchmark-update` from the
+records themselves, never typed:
+
+| Class | Cold launch p95 | Warm resume p95 | Source |
+|---|---|---|---|
+| `android-physical` (release, managed route, live network) | 849.55 ms, allowance 3.53% (limit 879.54 ms) | 127.01 ms, allowance 14.73% (limit 145.72 ms) | `c6cdd8a8`, 2026-09-24, 98 and 96 trials |
+| `android-emulator` (debug, scripted Mac unreachable) | 2,105 ms, allowance 51.99% | 302 ms, allowance 36.3% | `3065ac96`, 2026-09-24, 20 trials (the committed baseline) |
+| `ios-physical` | never measured as a distribution | never measured as a distribution | two single-trial pilots only |
+| `ios-simulator` | never measured as a distribution | never measured as a distribution | dry runs of the trace path only |
+
+**The noise allowance** comes from the repeated series, not from a guess. For each series,
+`benchmark.py` resamples its own samples 2,000 times (seeded), takes the p95 of each resample and
+uses the spread of those p95s as the series' standard error (SE). Two runs of one build differ by
+more than 1.96 x √2 x SE only about one time in forty in the slower direction. The class's allowance
+is the median of its series' bounds, so one series with a long tail cannot widen it. The spread
+*between* the three physical Android series is deliberately not used: they are three builds with
+about 1,300 changed lines of Android source between them, and their cold p95 rose 849.55 → 880.80 →
+936.73 ms with the median rising too. That is a slowdown, the thing this check exists to catch.
+
+**Where it runs.** Every record `perf.py android`, `perf.py ios` (including `--reparse`) and
+`perf.py merge` write is compared before it is written. That covers `rios perf`, `randroid emu perf`
+and the physical Android command, which all run `perf.py`. The record gets a `benchmark` section
+with every metric (FASTER, WITHIN NOISE, SLOWER or NOT COMPARED, with the reason). A slower build's
+`acceptance` reads `REFUSED: slower than the established benchmark`, the command exits 4, and
+`perf.py check` refuses a slower record that claims anything else. `perf.py compare` judges a retained
+record, or an iOS cold series with its warm series from the same build: exit 0 nothing slower, 4 slower,
+5 nothing could be compared. A metric is compared only if it has a p95 (20 trials or more) and the class
+has a number for it; anything else is listed as NOT COMPARED with the reason, never as a pass.
+
+**What still needs a phone.** The comparison only judges a record that exists, and a phone record
+exists only when someone runs the series: on the iPhone, the two 100-trial commands above (no iPhone
+benchmark exists until they run once and `benchmark-update` is committed), and on the Android phone,
+`perf.py android --production ... --kind physical --only cold,warm --cold 100 --warm 100`. No commit
+runs a phone. The fixture suite (`mobile-perf.test.sh`) runs on any change to this tool.
+
+**Raising a number.** A faster series is reported as FASTER and changes nothing by itself.
+`perf.py benchmark-update <record.json>...` raises a benchmark when the series is faster, adds every
+series to the noise list and recomputes the allowance; the person then commits `benchmarks.json`.
+A slower series replaces a benchmark only with `--allow-slower "<reason>"`, and the reason is written
+beside the number. Pass the private record (`richos-hq/...`) so the file names where it lives. The
+file holds no serial, UDID, sample or trace.
+
 ## §7 budgets this cannot measure yet, and what would settle each
 
 | Budget | Why not now | What settles it |
@@ -111,6 +161,7 @@ because the emulator's timings depend on it.
 | Release-configuration timing | A debuggable, unminified build is slower than release. | A profileable release-configuration build signed for local install, reaching the conversation through a real pairing. |
 | Production persistence cost | In a development world the core persists through the bridge's document, not `AppPorts`' `JsonFile`. `RichCore.commit` changes show here; `JsonFile` changes need a paired production core. | The same typing phase against a paired production core. |
 | iOS launch acceptance | The tool now measures the presented, input-ready endpoint (below), but no physical series has run. | The two 100-trial commands below on the phone, with a stamped Release build. |
+| Return to a waiting reply on screen | `warmResume` ends when retained content accepts input; it does not wait for the reply already waiting on the Mac. Re-walk 4 (2026-10-01) saw 1.12-2.11 s on six returns and 17.11 s on one. | A `returnToReply` class: lab Mac with the reply held, send, Home, the reply finishes on the Mac, return; from `AppResume` to the presented frame of the first `transcript-drawn` after `text-received`, with a trial longer than the slowest return (30 s); a trial without the reply is kept as at least 30 s, never dropped. |
 
 ## iOS launch and return (PRD §7)
 
@@ -231,7 +282,9 @@ Profiler overhead is included in every number.
 emulator (`fixtures/android/`), the whole Android run against a scripted adb (including every
 refusal), and on iOS the parsers, the presentation join and every rejection, the export re-read, the
 warm-trial orchestration and `--reparse`, against synthetic exports shaped like Xcode 26.3's (the
-physical traces they were checked against stay private in `richos-hq`). No emulator, simulator, build or window.
+physical traces they were checked against stay private in `richos-hq`). The benchmark cases (G1-G8)
+use fixture records: slower is refused, equal or faster passes, a missing metric is not compared, and
+the committed emulator numbers recompute exactly from the committed baseline. No emulator, simulator, build or window.
 
 ## Production journeys and markers (24 September follow-up)
 
