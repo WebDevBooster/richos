@@ -280,6 +280,33 @@ final class AccessibilityLayoutTests: XCTestCase {
         return (nameplate, text)
     }
 
+    /// D2 (the iPhone walk, 2026-10-01): with the keyboard up and the field empty, the composer sometimes
+    /// grew from one line to three. The trigger was not isolated, so this puts the field through what
+    /// the two sightings had in common (a tap on the header's area while the keyboard is up, and Home
+    /// and back) and requires the empty field to stay one line, at the height it started.
+    func testTheEmptyComposerStaysOneLineWithTheKeyboardUp() {
+        let app = Screen.launch("conv-empty", appearance: "light", interactive: true)
+        let field = messageField(app)
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "the message field is missing")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "the keyboard did not come up")
+        Thread.sleep(forTimeInterval: 0.8)
+        let start = messageField(app).frame.height
+        XCTAssertLessThan(start, 40, "the empty field starts at \(start) pt, more than one line")
+        for round in 1...3 {
+            app.descendants(matching: .any)["header.nameplate"].tap()
+            Thread.sleep(forTimeInterval: 0.8)
+            XCTAssertEqual(messageField(app).frame.height, start, accuracy: 1, "round \(round): the empty field changed height after a tap on the header")
+            XCUIDevice.shared.press(.home)
+            XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+            app.activate()
+            Thread.sleep(forTimeInterval: 1.0)
+            if !app.keyboards.firstMatch.exists { messageField(app).tap(); Thread.sleep(forTimeInterval: 0.8) }
+            XCTAssertEqual(messageField(app).frame.height, start, accuracy: 1, "round \(round): the empty field changed height after Home and back")
+        }
+        keepScreenshot(app, name: "d2-empty-composer")
+    }
+
     /// F4, F5: the settings button is a fixed-size control with a name, at every size.
     func testSettingsButtonKeepsItsSize() {
         let app = Screen.launch("conv-populated", textSize: Self.largest)
