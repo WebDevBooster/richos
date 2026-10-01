@@ -185,11 +185,25 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                             send(item)
                         }
                         inFlight = request
+                        // A request hung by a dropped network never faults inside the bound (the
+                        // transport's own read timeout is 30 s). Hidden, inside a bound that has
+                        // started, it gets its own deadline: cut, then [goesAgain] decides.
+                        var cutByDeadline = false
+                        val cutter = launch(start = CoroutineStart.UNDISPATCHED) {
+                            visible.first { !it }
+                            if (boundEndsAt == null) yield()
+                            val endsAt = boundEndsAt ?: return@launch
+                            // With less than a full deadline left, the bound's own end cuts it.
+                            if (endsAt - clock.now() <= HIDDEN_ATTEMPT_MS) return@launch
+                            delay(HIDDEN_ATTEMPT_MS)
+                            cutByDeadline = true
+                            request.cancel(CancellationException("hidden attempt deadline"))
+                        }
                         try { request.await() }
-                        catch (cancelled: CancellationException) {
+                        catch (stopped: CancellationException) {
                             currentCoroutineContext().ensureActive()
-                            throw TransportFailure("background-budget", retryable = true)
-                        } finally { current = null; inFlight = null }
+                            throw TransportFailure(if (cutByDeadline) "timeout" else "background-budget", retryable = true)
+                        } finally { cutter.cancel(); current = null; inFlight = null }
                     }
                 } finally { deadline.cancel() }
             }
@@ -315,6 +329,8 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
     companion object {
         const val COMPLETION_MS = 5_000L
         const val COMPLETION_MESSAGES = 3
+        /** Hidden, one request may hang this long before it is cut and goes again (inside the 5 s bound). */
+        const val HIDDEN_ATTEMPT_MS = 2_000L
         const val COMPLETION_BYTES = 256 * 1024
         /** The phone's own deferrals, never a fault at the Mac: hidden, nothing answers them again. */
         private val DEFERRALS = setOf("background", "background-budget")

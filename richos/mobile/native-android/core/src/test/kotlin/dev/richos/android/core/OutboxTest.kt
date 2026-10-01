@@ -194,19 +194,57 @@ class OutboxTest {
         assertTrue(box.all().isEmpty(), "delivered while hidden")
     }
 
-    @Test fun aFaultWhoseFirstPauseOutlastsTheBoundWaitsForTheReturn() = runTest {
+    /**
+     * The Honor's hung send (andy-sonnet-honor1, Wi-Fi dropped under an in-flight request): the
+     * socket stays established and the read timeout is 30 s, so the request never faults inside the
+     * 5 s bound and the retry above never runs. While hidden every request gets its own deadline
+     * ([Outbox.HIDDEN_ATTEMPT_MS]); on it the request is cut and goes again under the same id.
+     */
+    @Test fun aRequestThatHangsWhileHiddenIsCutAndGoesAgainInsideTheBound() = runTest {
         val box = Outbox(Store(), Clock { testScheduler.currentTime })
         box.enqueue(item("a"))
+        val tries = mutableListOf<Pair<String, Long>>()
+        val report = box.flush(lease = { Outbox.CompletionLease(true) }) {
+            tries += it.clientId to testScheduler.currentTime
+            if (tries.size == 1) {
+                box.backgrounded()
+                kotlinx.coroutines.awaitCancellation()
+            }
+            Receipt("accepted", false, 1)
+        }
+        assertEquals(listOf("a" to 0L, "a" to 3_000L), tries, "cut at 2 s, 1 s pause, same id")
+        assertEquals(1, report.sent)
+        assertTrue(box.all().isEmpty(), "delivered inside the 5 s bound")
+        assertTrue(testScheduler.currentTime < Outbox.COMPLETION_MS)
+    }
+
+    @Test fun aRequestThatAlwaysHangsWhileHiddenWaitsForTheReturnWithinTheBound() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        box.enqueue(item("a"))
+        var tries = 0
+        box.flush(lease = { Outbox.CompletionLease(true) }) {
+            tries++
+            if (tries == 1) box.backgrounded()
+            kotlinx.coroutines.awaitCancellation()
+        }
+        assertEquals(OutboxState.WAITING, box.all().single().state)
+        assertTrue(tries <= Outbox.COMPLETION_MESSAGES)
+        assertTrue(testScheduler.currentTime <= Outbox.COMPLETION_MS)
+    }
+
+    @Test fun aFaultWhoseFirstPauseOutlastsTheBoundWaitsForTheReturn() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        box.enqueue(item("a").copy(attempts = 4))
         var tries = 0
         val report = box.flush(lease = { Outbox.CompletionLease(true) }) {
             tries++
             box.backgrounded()
-            kotlinx.coroutines.delay(4_500)
+            kotlinx.coroutines.delay(1_400)
             throw TransportFailure("fault", retryable = true)
         }
-        assertEquals(1, tries, "a 1 s pause does not fit in the 0.5 s left")
+        assertEquals(1, tries, "a 16 s pause does not fit in the 3.6 s left")
         assertEquals(1, report.waiting)
-        assertEquals(4_500, testScheduler.currentTime, "the time is given back at once, not waited out")
+        assertEquals(1_400, testScheduler.currentTime, "the time is given back at once, not waited out")
     }
 
     @Test fun goingAgainWhileHiddenStaysInsideTheBatchsThreeRequests() = runTest {
