@@ -491,12 +491,56 @@ final class AccessibilityLayoutTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["header.nameplate"].waitForExistence(timeout: 5))
         XCTAssertTrue(waitForGround(app, light: true), "the app did not start light on a light phone (ground \(groundLuminance(app)))")
         keepScreenshot(app, name: "d6-light-start")
-        device.appearance = .dark
+        // The phone's switch is the test's lever, and the simulator can drop it under load (2026-10-01:
+        // the status bar stayed light for ten seconds, so the phone had not switched and the app was
+        // right to stay light). The status bar is the system's, not the app's: it proves the phone went
+        // dark before the app is judged for following it.
+        guard switchPhone(to: .dark, app) else { return }
         XCTAssertTrue(waitForGround(app, light: false), "the phone went dark and the open app stayed light (ground \(groundLuminance(app)))")
         keepScreenshot(app, name: "d6-dark-after-switch")
-        device.appearance = .light
+        guard switchPhone(to: .light, app) else { return }
         XCTAssertTrue(waitForGround(app, light: true), "the phone went light and the open app stayed dark (ground \(groundLuminance(app)))")
         keepScreenshot(app, name: "d6-light-after-switch")
+    }
+
+    /// Switches the phone and waits until the system's own status bar shows it, asking again if the
+    /// simulator did not take the first request. Fails, naming the phone and not the app, when it never
+    /// switches.
+    private func switchPhone(to style: UIUserInterfaceStyle, _ app: XCUIApplication) -> Bool {
+        let device = XCUIDevice.shared
+        for attempt in 1...3 {
+            // A request for the style the simulator believes it already has is ignored: step away first.
+            if attempt > 1 { device.appearance = style == .dark ? .light : .dark }
+            device.appearance = style == .dark ? .dark : .light
+            let deadline = Date().addingTimeInterval(4)
+            while Date() < deadline {
+                if statusBarIsDark(app) == (style == .dark) { return true }
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+        }
+        XCTFail("the simulator never switched the phone to \(style == .dark ? "dark" : "light"): its status bar did not change in three requests (the phone, not the app)")
+        return false
+    }
+
+    /// Whether the system's status bar is drawn for a dark phone: its glyphs are lighter than the ground
+    /// behind them (a light phone draws them darker). The strip is the top of the screen, above the header.
+    private func statusBarIsDark(_ app: XCUIApplication) -> Bool {
+        guard let image = app.screenshot().image.cgImage else { return false }
+        let w = image.width, h = image.height
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let context = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        func luma(_ x: Int, _ y: Int) -> Double {
+            let i = (y * w + x) * 4
+            return 0.2126 * Double(pixels[i]) + 0.7152 * Double(pixels[i + 1]) + 0.0722 * Double(pixels[i + 2])
+        }
+        let ground = luma(3, h / 2)
+        var lo = 255.0, hi = 0.0
+        for y in 0..<(h * 42 / 1000) {
+            for x in stride(from: 0, to: w, by: 2) { let l = luma(x, y); lo = min(lo, l); hi = max(hi, l) }
+        }
+        return hi - ground > ground - lo
     }
 
     /// Relative luminance of a point on the ground, beside the left edge, half way down.
