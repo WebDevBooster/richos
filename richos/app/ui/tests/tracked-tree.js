@@ -120,7 +120,7 @@ async function main() {
       // directory and not scratch, which is all `publishShot` needs to treat it as a
       // reference; the name is unique to this process so neither a real candidate nor a
       // concurrent run can share it.
-      const rel = path.join("shots-tracked-tree-check-" + process.pid, "reference.png");
+      const rel = path.join(".generated-references", "tracked-tree-check-" + process.pid, "reference.png");
       const reference = path.join(__dirname, rel);
       const kept = path.join(__dirname, ".shots", "changed", rel);
       fs.mkdirSync(path.dirname(reference), { recursive: true });

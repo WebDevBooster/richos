@@ -89,6 +89,11 @@ DECLARED_OUTPUT_DIRECTORIES = (
     "richos/app/ui/tests/.shots",
     "richos/app/ui/tests/receipts",
     "richos/app/ui/tests/.vouch",
+    # The reference pictures a UI gate's self-test creates and removes inside the tests tree
+    # (gate-honesty.js, tracked-tree.js), one `<pid>` folder per run (recheck R07 v2: a
+    # `shots-gate-honesty-<pid>` folder beside them was an unignored input, so a proof that
+    # overlapped it lost a passing result when the gate cleaned up).
+    "richos/app/ui/tests/.generated-references",
 )
 
 

@@ -1179,6 +1179,34 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         self.assertNotEqual(with_tracked, evidence.recipe_identity(self.root, recipe, {}),
                             "an output directory holding a tracked file is bound")
 
+    def test_a_ui_gates_generated_reference_is_output_and_no_gate_makes_one_elsewhere(self):
+        # Recheck R07 v2 (2026-10-01): gate-honesty.js made `shots-gate-honesty-<pid>/` inside
+        # ui/tests, unignored, so a proof whose inputs include richos/app/ui bound it and lost
+        # its pass when the gate removed it. The pattern: a UI gate creating its own
+        # reference folder in the tests tree outside a declared output directory.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=env)
+        ui = self.root / "richos/app/ui"
+        tests = ui / "tests"
+        tests.mkdir(parents=True)
+        (tests / ".gitignore").write_text(".generated-references/\n")
+        (ui / "main.js").write_text("export const x = 1;\n")
+        self.qualification("fixture input contract", paths=["richos/app/ui"])
+        recipe = {"paths": ["richos/app/ui"], "tools": [], "environment": [], "external": [],
+                  "qualification": "qualification.json"}
+        base = evidence.recipe_identity(self.root, recipe, {})
+        reference = tests / ".generated-references" / "gate-honesty-4242" / "fixture-reference.png"
+        reference.parent.mkdir(parents=True)
+        reference.write_bytes(b"png")
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "a reference created mid-proof")
+        shutil.rmtree(reference.parent)
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "a reference removed mid-proof")
+        import re
+        gates = Path(__file__).resolve().parent.parent / "ui/tests"
+        stray = [f"{js.name}: {m}" for js in sorted(gates.glob("*.js"))
+                 for m in re.findall(r'"shots-[A-Za-z0-9-]*"\s*\+\s*process\.pid', js.read_text())]
+        self.assertEqual(stray, [], "a gate makes its reference folder outside .generated-references")
+
     def test_an_invalidated_pass_names_what_changed_and_the_checks_started_by_then(self):
         crate, recipe, _env = self.cache_fixture()
         scripts = self.root / "richos/app/scripts"
