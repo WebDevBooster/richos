@@ -347,7 +347,15 @@ final class PhysicalDeviceTests: XCTestCase {
         // never the row's text, which a tap does not toggle.
         if step["id"] == nil, let kind = step["kind"] as? String, let label = step["label"] as? String {
             let controls = kind == "switch" ? root.switches : root.buttons
-            return controls.matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+            let control = controls.matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+            // Settings' permission rows are a labeled switch the width of the row (343 x 52 on an SE)
+            // holding the real, unlabeled toggle (63 x 28); a tap at the row's center does not toggle.
+            // Measured on Settings > Apps > RichConnect, iOS 26.3.1, 2026-10-01.
+            if kind == "switch" {
+                let toggle = control.switches.firstMatch
+                if toggle.exists { return toggle }
+            }
+            return control
         }
         if let id = step["id"] as? String {
             // The first element carrying the identifier: SwiftUI hands a container's identifier to

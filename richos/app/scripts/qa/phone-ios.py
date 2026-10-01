@@ -75,7 +75,9 @@ app's permissions under Settings > Apps > RichConnect, and Wi-Fi: set back what 
 "safari" for the one share-sheet source, "timeout" (s) and "optional": true (a failure is logged,
 the list continues). `tree` and `shot` keep the "in" app's window; `launch` and `terminate` with
 "in" start that app fresh on its first page or close it (never SpringBoard); "kind" with "label" is
-that control itself (a Settings switch, not its row's text). A list that touches Tailscale may
+that control itself (a Settings permission row's inner toggle, not the row: a tap at the row's center
+does not toggle it). Settings builds its rows lazily, so a row below the fold is not found until
+scrolled; reach this app's page through the app's own "iPhone permissions" row. A list that touches Tailscale may
 not take a shot, tree or audit: that screen is the person's own account. Settings' first page names
 the phone's Apple Account, so `ocr-gate.sh` every Settings frame before it enters a record.
 
