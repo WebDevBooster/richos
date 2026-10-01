@@ -261,7 +261,13 @@ function run() {
       // refuse before changing it if it cannot be read as text.
       var clipboardApp=Application.currentApplication(); clipboardApp.includeStandardAdditions=true;
       var savedClipboard=clipboardApp.theClipboard();
-      if (typeof savedClipboard !== "string") return meta+"\n"+error("typefailed", "guest clipboard is not text; left unchanged");
+      if (typeof savedClipboard !== "string") {
+        // A fresh guest's clipboard is EMPTY, which reads back as a non-string too (walk of candidate 33:
+        // every `type` failed on a new guest). Empty is safe to overwrite and restore; an image or a file is not.
+        var held; try { held=clipboardApp.clipboardInfo(); } catch(e) { held=null; }
+        if (held && held.length === 0) savedClipboard=""; else
+          return meta+"\n"+error("typefailed", "guest clipboard is not text; left unchanged");
+      }
       try {
         clipboardApp.setTheClipboardTo(P.input);
         if (P.replace) se.keystroke("a", {using:"command down"});
