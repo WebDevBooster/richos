@@ -200,6 +200,9 @@ mut_pool_init() {
         ''|0) : ;;
         *) MUT_POOL_JOBS=1 ;;
     esac
+    if [ -n "${RICHOS_MUTANT_ONLY:-}" ] && [ "${RICHOS_MUTANT_POOL_DEPTH:-0}" = 0 ]; then
+        echo "  (RICHOS_MUTANT_ONLY=$RICHOS_MUTANT_ONLY: only the named mutant(s) run; this is not a whole pass)"
+    fi
     # The clock. sw_init is idempotent, so sourcing order between this file and
     # stopwatch.sh does not matter, but the library must BE there: a pool that
     # silently reported every mutant as taking `?` would remove the only number
@@ -258,6 +261,17 @@ mut_pool_submit() {
     local label="$1"
     shift
     [ -n "$MUT_POOL_DIR" ] || { echo "FATAL: mut_pool_submit before mut_pool_init" >&2; exit 2; }
+    # RICHOS_MUTANT_ONLY=<name>[,<name>...]: run only the named mutants of this harness, to
+    # retry one unresolved mutant alone (docs/development/verification-retries.md) instead of
+    # the whole pass. Only the outermost pool filters (a suite under test keeps its own pools),
+    # and a name that selects nothing leaves zero submissions, which mut_pool_require_submissions
+    # refuses. Announced in mut_pool_init: a filtered run is never a whole pass.
+    if [ -n "${RICHOS_MUTANT_ONLY:-}" ] && [ "${RICHOS_MUTANT_POOL_DEPTH:-0}" = 0 ]; then
+        case ",$RICHOS_MUTANT_ONLY," in
+            *",$label,"*) : ;;
+            *) return 0 ;;
+        esac
+    fi
     # Block until a slot frees. The sleep is 0.05s: short enough that a freed
     # core is not left idle for a human-visible time, long enough that the
     # throttle is not itself a spinning core.
