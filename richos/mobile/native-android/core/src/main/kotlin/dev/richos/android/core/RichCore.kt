@@ -1339,6 +1339,9 @@ class RichCore private constructor(
         mutex.withLock {
             val now = ports.clock.now()
             connection = if (status == LinkStatus.OPEN) {
+                // A link that just opened owes every waiting message a try now ([Outbox.dueNow]):
+                // the drain that follows this opening sends them in the same tick.
+                outbox.dueNow()
                 connection.copy(reason = ConnectionReason.CONNECTED, hasConnected = true, troubleSince = null)
             } else {
                 val keep = connection.reason == ConnectionReason.PHONE_OFFLINE || connection.reason == ConnectionReason.SERVICE_UNAVAILABLE
