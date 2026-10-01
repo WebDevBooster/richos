@@ -40,7 +40,7 @@ FEATURES = {
 
 # Adding a source file or test case requires a new scope review. Until then,
 # the selector falls back to full coverage rather than guessing its dependencies.
-REVIEWED_CASES = '2f51b646f1616b4836dbdd000a6aa2be53515c4da39da0f91a02a055c294f7eb'
+REVIEWED_CASES = '3ca4b28f90815937532b7b040ea7c5a8199f8b6d36848fc4db8776202d497ec9'
 REVIEWED_FEATURE_FILES = {
     'App/Features/Attachments/AttachmentModel.swift',
     'App/Features/Attachments/AttachmentViews.swift',
@@ -48,6 +48,7 @@ REVIEWED_FEATURE_FILES = {
     'App/Features/Composer/ComposerView.swift',
     'App/Features/Conversation/ConnectionWords.swift',
     'App/Features/Conversation/ConversationChrome.swift',
+    'App/Features/Conversation/EdgeCuedScroll.swift',
     'App/Features/Conversation/PulseSchedule.swift',
     'App/Features/Conversation/QuestionCardView.swift',
     'App/Features/Conversation/Rows.swift',
