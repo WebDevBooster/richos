@@ -999,6 +999,14 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
             again_summary = str(root / (again.name + "-summary.json"))
             argv = ["--resume", str(directory), "--retry-reason",
                     "merge gate: an owning check ended with no verdict at a time cap; the one retry alone"]
+            # ALONE means only these checks (hunt v2 V02): a bare --resume put every unfinished
+            # check back in the same concurrent scheduler, and the contention came back. A
+            # runner without --only-check retries the whole saved plan, as before.
+            only = knows(repo, PROOF_RUN, "--only-check")
+            if only:
+                for name in retry:
+                    argv += ["--only-check", name]
+            first_others = [row for row in not_run if row["check"] not in retry]
             if knows(repo, PROOF_RUN, "--run-cap"):
                 argv += ["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(GATE_CAP_SECONDS),
                          "--admission-wait", str(GATE_CAP_SECONDS), "--slot-wait", str(GATE_CAP_SECONDS)]
@@ -1013,6 +1021,9 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
                 blocking += [{"check": row["check"], "result": row["state"], "retried": True}
                              for row in not_run if row.get("state") in RETRY_STATES]
                 not_run = [row for row in not_run if row.get("state") not in RETRY_STATES]
+                if only:
+                    # The checks the retry left out keep the first attempt's own row and reason.
+                    not_run = first_others + [row for row in not_run if row["check"] in retry]
         not_run = nightly + not_run
     finally:
         os.unlink(plan)

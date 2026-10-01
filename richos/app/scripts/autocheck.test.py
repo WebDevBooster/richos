@@ -188,7 +188,9 @@ import sys
 # and exits 0 is a suite run-tests.sh did not run, for that reason; one that prints
 # "STATE <state> [<reason>]" ended in that runner state (timed-out at its cap, ended at the run's
 # cap, not admitted, invalid for that reason). Its own arguments go to <log>.runner. It takes
-# --cap and --run-cap and leaves them to the real runner (proof-run.test.py P40).
+# --cap and --run-cap and leaves them to the real runner (proof-run.test.py P40). It takes
+# --only-check LABEL (a resume that runs only the named checks), as the retry of a check with
+# no verdict passes it.
 from pathlib import Path
 with open(os.environ["AUTOCHECK_FIXTURE_LOG"] + ".runner", "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
@@ -210,6 +212,7 @@ else:
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("reuse " + str(prior) + "\\n")
 (directory / "plan.json").write_text(json.dumps(lines))
+only = [sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--only-check"]
 rows = []
 for line in lines:
     line = line.strip()
@@ -217,6 +220,11 @@ for line in lines:
         old = next((row for row in previous if row["check"] == line and row["result"] == "passed"), None)
         if old:
             rows.append(old)
+            continue
+        if only and line not in only:
+            # --only-check: what is not named is left out of this run, as the real runner does.
+            rows.append({"check": line, "result": "not-run",
+                         "not_run": {"why": "not selected for this retry", "suites": []}})
             continue
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("run " + line + "\\n")
@@ -979,6 +987,30 @@ class Land(Fixture):
     # 2026-10-01, merge 7af4c981e: owning suites timed out and were ended at the Mac's 99% CPU
     # and the merge landed. No verdict twice (the retry alone included) refuses, naming the unit
     # and saying to re-run it alone; a pass on the retry lands.
+    def test_the_retry_alone_runs_only_the_check_that_had_no_verdict(self):
+        # Hunt v2 V02 (2026-10-01): the retry said "alone" but resumed the whole saved plan, so
+        # every other unfinished check went back into the same scheduler and the contention
+        # that timed the first one out came back. The retry now names its checks.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/state.txt", "once-timed-out\n")
+        self.write("richos/app/src/screen.txt", "busy\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "two owning checks")
+        self.git("checkout", "-q", "main")
+        self.log.unlink(missing_ok=True)
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        state, screen = "cd richos/app && bash scripts/state.sh", "cd richos/app && bash scripts/screen.sh"
+        retries = [line for line in self.side_log(".runner").splitlines() if "--resume" in line]
+        self.assertEqual(len(retries), 1, self.side_log(".runner"))
+        self.assertIn("--only-check " + state, retries[0])
+        self.assertNotIn(screen, retries[0])
+        self.assertEqual(self.tools().count("run " + state), 2)
+        self.assertEqual(self.tools().count("run " + screen), 1, "the retry ran a check it was not asked to retry")
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        self.assertEqual([(row["check"], row["why"]) for row in receipt["not_run"]], [(screen, "busy")])
+        self.assertIn("MERGE INTO MAIN ALLOWED WITH 1 CHECK(S) NOT RUN", out.stderr)
+
     def test_a_check_that_times_out_twice_refuses_the_merge(self):
         self.refused_after_retry("timed-out")
 
