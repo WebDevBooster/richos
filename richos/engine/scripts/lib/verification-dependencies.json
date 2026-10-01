@@ -5980,7 +5980,7 @@
     },
     "scripts/row-headline-verify.sh#fixture-records": {
       "source": "scripts/row-headline-verify.sh",
-      "sha256": "1c58c9d7010e77ebd0e15ab796bf778ce989116b9098a6a3f223b163cfab616a",
+      "sha256": "61bc200590ade10b14a7d0890c16e40be56f4e984b89703c366bbf74b4ecc936",
       "evidence": "Reads the generated row declarations and executes headline commands from the caller record. This qualification is restricted to row-currency.test.sh, whose commands are finite literal grep, sound-refusal and fixture git-push/marker cases; none reads orchestration config. Nested mutants only change the finite refusal predicates, retaining the same private records and targets.",
       "keys": [],
       "edges": [
@@ -5991,7 +5991,7 @@
     },
     "scripts/hooks/row-currency.test.sh": {
       "source": "scripts/hooks/row-currency.test.sh",
-      "sha256": "999268559fddef0abba5a917fd706c2d1e7f7797b569bcccdc1d619922800a51",
+      "sha256": "802f6a46747b6cdfd085e81d6b2ec2e191e3e5e0c6715c253de4465b40d5434f",
       "evidence": "Creates all record/artifact repositories, declarations and histories. The actual engine remains the seat, so adoption presence is retained. Invokes fixed guard, lint and headline verifier, then the fixed finite mutation driver. Real surface assertions inspect only row guard registration; probe/installer are scanned as source data, never executed. Inner-only scopes retain original named witness groups and prerequisites; full outer coverage remains. Local driver uses the same shared scratch/worker/deadline guards and copies all scripts/lib plus the guard, test, lint, verifier and config. Unmutated group controls must pass before literal mutations.",
       "keys": [],
       "edges": [
@@ -16126,7 +16126,7 @@
         "scripts/hooks/guard-row-currency-commits.sh"
       ],
       "sources": {
-        "scripts/hooks/row-currency.test.sh": "999268559fddef0abba5a917fd706c2d1e7f7797b569bcccdc1d619922800a51",
+        "scripts/hooks/row-currency.test.sh": "802f6a46747b6cdfd085e81d6b2ec2e191e3e5e0c6715c253de4465b40d5434f",
         "scripts/lib/registered-hooks.sh": "e2556673cd8b512175e9137693af345e186b8acb677cb3f44a2f57eade527a25",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -16140,7 +16140,7 @@
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
         "scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
-        "scripts/row-headline-verify.sh": "1c58c9d7010e77ebd0e15ab796bf778ce989116b9098a6a3f223b163cfab616a",
+        "scripts/row-headline-verify.sh": "61bc200590ade10b14a7d0890c16e40be56f4e984b89703c366bbf74b4ecc936",
         "scripts/hooks/guard-row-currency-commits.mutation.sh": "624a4cab7af937bb9ea59cb48429f3ad290fca56eab3d4718a52a7e5eabbc5af",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",

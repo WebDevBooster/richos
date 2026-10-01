@@ -1733,7 +1733,10 @@ OID="$(oid_of "$WORK" lib/thing.js)"
 write_record "$REC" \
   "| 3.1 | **The prerequisite is in place.** | **Headline:** \`000000000000\` — \`echo ASSERTION ok && exit 7\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
   "| 3.2 | **Nothing mentions the word.** | **Headline:** \`000000000000\` — \`grep -c nosuchword lib/thing.js\` → \`0\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
-  "| 3.3 | **The tool complains but prints the words.** | **Headline:** \`000000000000\` — \`echo ASSERTION; echo broken >&2; exit 1\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |"
+  "| 3.3 | **The tool complains but prints the words.** | **Headline:** \`000000000000\` — \`echo ASSERTION; echo broken >&2; exit 1\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.4 | **A quiet failure prints the words.** | **Headline:** \`000000000000\` — \`echo ASSERTION; exit 1\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.5 | **A Python check prints the words then fails.** | **Headline:** \`000000000000\` — \`python3 -c \"print('ASSERTION'); raise SystemExit(1)\"\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.6 | **The word is absent, asked with a pipeline.** | **Headline:** \`000000000000\` — \`cat lib/thing.js | grep -c nosuchword\` → \`0\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |"
 commit_record "$REC"
 run_verify "$REC"
 if case "$VOUT" in *"MATCH       3.1"*) false ;; *"ERROR       3.1"*"exited 7"*) true ;; *) false ;; esac; then
@@ -1750,6 +1753,19 @@ if case "$VOUT" in *"MATCH       3.3"*) false ;; *"ERROR       3.3"*) true ;; *)
 else
     bad "a command that complained on stderr was credited as a match: $VOUT"
 fi
+# P5-67 (v2 re-check): the quiet exit 1 is the answer only when the command that
+# produced it is grep/test/diff and the like, not any command that printed the words.
+for ROW67 in 3.4 3.5; do
+    if case "$VOUT" in *"MATCH       $ROW67"*) false ;; *"ERROR       $ROW67"*"exited 1"*) true ;; *) false ;; esac; then
+        ok "a quiet exit 1 from a command that is not a no-match tool is an ERROR, not a MATCH ($ROW67)"
+    else
+        bad "a silent exit 1 was credited as a match ($ROW67): $VOUT"
+    fi
+done
+case "$VOUT" in
+    *"MATCH       3.6"*) ok "a pipeline ending in grep keeps the conventional exit-1 answer" ;;
+    *) bad "a pipeline ending in grep -c lost its exit-1 answer: $VOUT" ;;
+esac
 [ "$VRC" -eq 1 ] && ok "a failing command makes the verifier exit 1" || bad "the verifier did not fail on a failing command (rc=$VRC)"
 run_verify "$REC" --only 9.99
 if [ "$VRC" -eq 2 ] && case "$VOUT" in *"9.99"*) true ;; *) false ;; esac; then
