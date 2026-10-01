@@ -187,8 +187,8 @@ actor HungMac: HTTPTransport, EventStreamTransport {
         #expect(Array(sleeps.prefix(5)) == [1_000, 2_000, 4_000, 8_000, 16_000], "each round waits longer: \(sleeps)")
         #expect(sleeps.dropFirst(5).allSatisfy { $0 == LiveConnection.maxRetryMs })
         #expect(!(await seen.actions).contains { if case .connected = $0 { return true } else { return false } })
-        // One round against a hung Mac: the challenge (30 s), the stream (60 s), the revocation probe
-        // (30 s); the first round holds a challenge and skips it.
+        // One round against a hung Mac is the stream open alone (60 s): a challenge is held, and an
+        // open nobody answered is not followed by a revocation probe (ReturnStreamProbeTests).
         #expect(inTenMinutes <= 15, "requests to a hung Mac in ten minutes: \(inTenMinutes) (\(requests.map { $0.target }))")
         print("I06-evidence: stream owner, hung Mac, 10 min: \(inTenMinutes) requests, most in flight \(await mac.mostInFlight), waits \(sleeps.map { $0 / 1000 }) s")
     }

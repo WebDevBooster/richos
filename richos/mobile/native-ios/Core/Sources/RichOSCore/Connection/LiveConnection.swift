@@ -10,8 +10,8 @@ public protocol EventStreamTransport: Sendable {
 /// §2.8 C1, written for RichOS's signed HTTP + SSE). One stream at a time; a superseded attempt never
 /// publishes; retries wait 1 s doubling to 30 s (the reference `web/web-app/lib/link.js`) and the wait
 /// resets when a stream opens, which is also when the phone is connected; a stream silent past
-/// `silenceLimitMs` is lost like a dropped one; before a retry the challenge is refreshed; after a
-/// failure a revocation probe tells "removed from the Mac" from "unreachable"; `: re-snapshot` ends
+/// `silenceLimitMs` is lost like a dropped one; a challenge is asked for only when none is held; after
+/// an open the Mac refused, a revocation probe tells "removed from the Mac" from other refusals; `: re-snapshot` ends
 /// the stream and the next one starts without `since`. Everything the stream learns reaches the
 /// store as actions, so the reducer stays the only place state changes.
 public actor LiveConnection {
@@ -151,13 +151,15 @@ public actor LiveConnection {
     private func run(_ mine: Int) async {
         var delay = Self.firstRetryMs
         var since = resumePoint()
-        var first = true
         while mine == generation, !Task.isCancelled {
-            // A retry asks for a live challenge first (link.js rule 2). So does a first attempt with
-            // none held: after a relaunch none is stored, and signing needs one.
-            let held = await api.challenge
-            if !first || held == nil { _ = try? await api.probeChallenge() }
-            first = false
+            // **NOTHING STANDS BETWEEN A FAILED STREAM AND THE NEXT OPEN** (andy-opus-resume1's
+            // second Android wait, the same code here). Only with no challenge held is one asked for
+            // first: after a relaunch none is stored, and signing needs one. With one held, a retry
+            // opens at once like a first attempt: a stale challenge is answered with a 404 offering
+            // the new one, which `openSigned` re-signs with at once, at the cost the probe had. Before,
+            // every retry asked for a challenge first (link.js's `refresh`), a request with the 30 s
+            // timeout that `wake` could not cut short, on the stalled network where retries happen.
+            if await api.challenge == nil { _ = try? await api.probeChallenge() }
             attempts += 1
             var path = "/api/events"
             var query: [String] = []
@@ -165,6 +167,8 @@ public actor LiveConnection {
             if let since { query.append("since=\(since)") }
             if !query.isEmpty { path += "?" + query.joined(separator: "&") }
             var resnapshot = false
+            /// The Mac answered the open, and not with a stream.
+            var refused = false
             do {
                 let (response, bytes) = try await openSigned(path)
                 if response.status != 200 {
@@ -172,6 +176,7 @@ public actor LiveConnection {
                         await sink(.pairingRevoked)
                         return
                     }
+                    refused = true
                     throw APIClient.classify(response)
                 }
                 guard mine == generation else { return }
@@ -211,7 +216,13 @@ public actor LiveConnection {
             } else {
                 since = resumePoint()
                 await sink(.connectionLost(at: clock.nowMs()))
-                if await probeRevoked() {
+                // Asked only when the Mac answered the open with a refusal. A removed phone's open is
+                // answered 403 `{"revoked":true}` by the Mac itself, before any other check
+                // (`app/src-tauri/src/phone/device.rs` `Refusal::Revoked`), which the open above
+                // reads; after an open nobody answered, or a stream that dropped, the next open is
+                // the question, and a probe there was a request with the 30 s timeout in front of it
+                // that nothing could cut short (andy-opus-resume1's second Android wait).
+                if refused, await probeRevoked() {
                     await sink(.pairingRevoked)
                     return
                 }

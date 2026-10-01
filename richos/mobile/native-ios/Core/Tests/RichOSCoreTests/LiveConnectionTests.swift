@@ -61,7 +61,7 @@ actor Collected {
             .init(response: HTTPResponse(status: 200), chunks: chunks),
             .init(response: HTTPResponse(status: 403, body: Data(#"{"revoked":true}"#.utf8)), chunks: []),
         ])
-        // The Mac answers the challenge probe and the revocation probe (not revoked the first time).
+        // The Mac's JSON routes, if they were asked; a stream that dropped asks neither (below).
         let mac = ScriptedMac([
             ["status": 404, "body": "", "headers": ["X-RichOS-Challenge": "c2"]],
             ["status": 404, "body": "", "headers": ["X-RichOS-Challenge": "c2"]],
@@ -91,7 +91,10 @@ actor Collected {
         #expect(opened.count == 2 && opened.allSatisfy { $0.target.contains("&auth=RichOS-Device%20dev_8d4c57b7ff82.") })
         #expect(opened[0].target.hasPrefix("/api/events?thread_id=thr_5c1e&auth="))
         #expect(opened[1].target.hasPrefix("/api/events?thread_id=thr_5c1e&since=3&auth="))
-        #expect(await api.challenge == "c2", "the challenge was refreshed before the retry")
+        // The retry opens with the challenge held, with no request in front of it: the Mac's own 403
+        // on the open said "revoked", and a stale challenge would have been re-signed on its 404
+        // (ReturnStreamProbeTests; before, a challenge probe and a revocation probe came first).
+        #expect(await mac.requests.isEmpty, "no challenge or revocation request between the drop and the retry")
     }
 
     @Test func theStoreTurnsTheStreamIntoTheConversation() async throws {
