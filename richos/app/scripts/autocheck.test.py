@@ -54,13 +54,32 @@ PROOF_FOR = """#!/usr/bin/env bash
 # Fixture selector: scripts/suite.sh proves every change under richos/app. It takes the
 # merge gate's selection flag and records every call that asks for it.
 cd "$(dirname "$0")/../../.."
+pending=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --quiet) shift ;;
         --gate) printf 'proof-for --gate %s\\n' "$*" >> "$AUTOCHECK_FIXTURE_LOG.select"; shift ;;
+        --commit-pending) pending=1; shift ;;
         *) break ;;
     esac
 done
+# The real selector asks the battery question (CEO ruling §81) of every commit in a range before
+# it selects anything, and exits 3 on a refusal; with --commit-pending the range's head stands
+# for a commit not made yet and is left to commit-msg. Each commit's message is read by the same
+# battery-check.py --message the commit-msg hook uses (only the trailer cases ship it).
+case "${1:-}" in *..*)
+    if [ -f richos/app/scripts/battery-check.py ]; then
+        range="$1"
+        if [ -n "$pending" ]; then range="${1%%..*}..${1##*..}^"; fi
+        for c in $(git rev-list --no-merges "$range" -- richos/mobile/); do
+            git log -1 --format=%B "$c" > "$AUTOCHECK_FIXTURE_LOG.message"
+            if ! python3 richos/app/scripts/battery-check.py --message "$AUTOCHECK_FIXTURE_LOG.message" >/dev/null 2>&1; then
+                echo "battery: $c touches richos/mobile/ and has not answered the battery question" >&2
+                exit 3
+            fi
+        done
+    fi ;;
+esac
 if [ "$1" = --paths ]; then
     paths=$(printf '%s\\n' "$2" | tr ',' '\\n')
 else
@@ -822,6 +841,29 @@ class BatteryTrailer(Fixture):
         self.stage_mobile()
         self.git("commit", "-q", "-m", self.ONE_LINE)
         self.git("commit", "--amend", "-m", self.WRAPPED, expect=1)
+
+    def test_the_pre_commit_selection_does_not_ask_the_battery_question_of_the_commit_being_made(self):
+        # 2026-10-01, from 50a5bd1bd: pre-commit asked the merge gate's question over
+        # <base>..<the index written as a commit>, and that stand-in's fixed message can never
+        # carry a trailer, so every commit touching richos/mobile/ was refused at pre-commit
+        # whatever its own message said. The answer is in the real message; commit-msg reads it.
+        self.stage_mobile()
+        before = self.head()
+        out = self.git("commit", "-m", self.ONE_LINE)
+        self.assertIn("maps cleanly", out.stderr)
+        self.assertNotEqual(self.head(), before)
+        self.assertIn("Battery-check: NO", self.git("log", "-1", "--format=%B").stdout)
+
+    def test_an_earlier_unanswered_mobile_commit_on_the_branch_is_still_refused_at_pre_commit(self):
+        # Only the commit not made yet is left to commit-msg: every commit before it is asked.
+        self.stage_mobile()
+        self.git("commit", "-q", "-m", "android: no answer", "--no-verify")
+        self.write("richos/mobile/b.kt", "fun b() {}\n")
+        self.git("add", "-A")
+        before = self.head()
+        out = self.git("commit", "-m", self.ONE_LINE, expect=1)
+        self.assertIn("has not answered the battery question", out.stdout + out.stderr)
+        self.assertEqual(self.head(), before)
 
 
 class Land(Fixture):

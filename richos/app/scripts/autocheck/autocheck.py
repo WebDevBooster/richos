@@ -658,7 +658,14 @@ def branch_selection(repo, what, run_quick=True):
     paths = branch_paths(repo)
     if not paths:
         return 0
-    commands, rc = select(repo, branch_range(repo, paths) or ["--paths", ",".join(paths)], gate=True)
+    # The range's head is the index written as a commit, a stand-in with a fixed message. The
+    # battery answer (CEO ruling §81) is in the real message, which does not exist until the
+    # commit-msg hook reads it, so proof-for.sh is told the head is pending and asks every
+    # commit before it. 2026-10-01: without this, every commit touching richos/mobile/ was
+    # refused here from 50a5bd1bd on, whatever its message carried.
+    rng = branch_range(repo, paths)
+    pending = ["--commit-pending"] if rng and knows(repo, PROOF_FOR, "--commit-pending)") else []
+    commands, rc = select(repo, pending + rng if rng else ["--paths", ",".join(paths)], gate=True)
     if commands is None:
         refuse_selection(what, rc)
         say("  The land runs this same selection over the same change and would refuse it there.")
