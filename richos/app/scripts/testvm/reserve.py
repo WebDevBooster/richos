@@ -273,6 +273,29 @@ def reservation(state=None, max_load=None, max_cpu=DEFAULT_MAX_CPU, release_lock
         yield paths[0] if paths else None
 
 
+def _killpg_if_present(pid, sig):
+    """Signal the command's group; a group that is gone or going is not an error.
+
+    macOS raises PermissionError (EPERM) as well as ProcessLookupError for a group whose
+    members are all exiting. Nothing else is swallowed.
+    """
+    try:
+        os.killpg(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def stop_group(child, signum):
+    """SIGTERM the command's group, SIGKILL it after 10 s, reap it, exit 128+signum."""
+    _killpg_if_present(child.pid, signal.SIGTERM)
+    try:
+        child.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        _killpg_if_present(child.pid, signal.SIGKILL)
+        child.wait()
+    raise SystemExit(128+signum)
+
+
 def main():
     sys.dont_write_bytecode = True
     # Engineers also invoke Cargo directly through this admission wrapper.
@@ -311,15 +334,7 @@ def main():
         # Any lock FD stays in the supervisor until the command is reaped.
         child = subprocess.Popen(command, start_new_session=True)
         def stop(signum, frame):
-            try:
-                os.killpg(child.pid, signal.SIGTERM)
-                child.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.wait()
-            except ProcessLookupError:
-                pass
-            raise SystemExit(128+signum)
+            stop_group(child, signum)
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, stop)
         try:
