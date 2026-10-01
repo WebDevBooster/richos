@@ -249,9 +249,11 @@ struct ScreenView: View {
                         }
                         .scrollBounceBehavior(.basedOnSize)
                         .scrollIndicators(.hidden)
-                        // At most its notes' height and 40% of the screen, and less when the header
-                        // needs the room: then it scrolls (the SE fit).
-                        .frame(maxHeight: min(max(aboveHeight, 1), height * 0.4))
+                        // Its notes' height whole when they fit in 60% of the screen (D10: with the
+                        // keyboard up on an iPhone SE, 40% cut the kept voice card through its Send and
+                        // Discard); otherwise at most 40% of it and scrolling, and less when the header
+                        // needs the room (the SE fit).
+                        .frame(maxHeight: min(max(aboveHeight, 1), max(aboveHeight, 1) <= height * 0.6 ? height * 0.6 : height * 0.4))
                         // I05: a card raised while another shows is brought into view, the least
                         // scroll that shows it, once, when it is raised: never a timer or a redraw.
                         .onChange(of: model.cards) { before, after in

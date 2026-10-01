@@ -307,6 +307,28 @@ final class AccessibilityLayoutTests: XCTestCase {
         keepScreenshot(app, name: "d2-empty-composer")
     }
 
+    /// D10 (the iPhone walk, 2026-10-01, the iPhone SE): with the keyboard up, the kept voice message's
+    /// card was cut through its Send and Discard buttons, with the conversation's text showing in the
+    /// strip beside it. The card shows whole above the field, with both buttons touchable, in both
+    /// appearances.
+    func testTheKeptVoiceCardIsWholeWithTheKeyboardUp() {
+        for appearance in ["light", "dark"] {
+            let what = "voice-interrupted \(appearance), keyboard up"
+            let app = Screen.launch("voice-interrupted", appearance: appearance)
+            XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 5), "\(what): the card is missing")
+            messageField(app).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
+            Thread.sleep(forTimeInterval: 0.8)
+            let fieldTop = messageField(app).frame.minY
+            for id in ["kept.send", "kept.discard"] {
+                let button = app.buttons[id]
+                XCTAssertLessThanOrEqual(button.frame.maxY, fieldTop + 0.5, "\(what): \(id) at \(button.frame) is cut off by the field at \(fieldTop)")
+                XCTAssertTrue(button.isHittable, "\(what): \(id) cannot be touched")
+            }
+            keepScreenshot(app, name: "d10-\(appearance)")
+        }
+    }
+
     /// F4, F5: the settings button is a fixed-size control with a name, at every size.
     func testSettingsButtonKeepsItsSize() {
         let app = Screen.launch("conv-populated", textSize: Self.largest)
