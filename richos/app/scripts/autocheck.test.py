@@ -115,6 +115,15 @@ SCREEN_SUITE = """#!/usr/bin/env bash
 printf 'ran-screen-suite %s\\n' "$(basename "$0")" >> "$AUTOCHECK_FIXTURE_LOG"
 exit 1
 """
+# The phone apps' release policy, reduced to rule L1: no log call in the iPhone app's sources.
+RELEASE_POLICY = """#!/usr/bin/env bash
+# run-tests: inputs richos/app/scripts/native-release-policy.test.sh richos/mobile/native-ios/App richos/mobile/native-android/app/src
+printf 'ran-release-policy\\n' >> "$AUTOCHECK_FIXTURE_LOG"
+if grep -rq 'Logger(' "$(dirname "$0")/../../mobile/native-ios/App" 2>/dev/null; then
+    echo "  FAIL  L1 no log call in production code" >&2
+    exit 1
+fi
+"""
 PHONE_UNIT = """#!/usr/bin/env bash
 # Fixture headless suite beside them.
 exit 0
@@ -259,6 +268,7 @@ class Fixture(unittest.TestCase):
                                 ("scripts/native-ios-ui.test.sh", SIMULATOR_SUITE, 0o755),
                                 ("scripts/front-door.test.sh", SCREEN_SUITE, 0o755),
                                 ("scripts/phone-unit.test.sh", PHONE_UNIT, 0o755),
+                                ("scripts/native-release-policy.test.sh", RELEASE_POLICY, 0o755),
                                 ("ui/tests/quick.js", QUICK, 0o644), ("ui/tests/heavy.js", HEAVY, 0o644),
                                 ("ui/tests/suite-weights.tsv", WEIGHTS, 0o644),
                                 ("src/thing.txt", "fine\n", 0o644), ("src/claims.txt", "true\n", 0o644)):
@@ -442,6 +452,32 @@ class Commit(Fixture):
             self.assertEqual(self.head(), before)
             self.git("reset", "-q")
             (self.repo / path).unlink()
+
+    def test_a_log_call_in_a_phone_app_file_is_refused_at_the_commit(self):
+        # 2026-10-01: 84f1ec3af added a Logger to the iPhone app (rule L1 of
+        # native-release-policy.test.sh); the commit check never ran that script suite, and
+        # only the merge saw it, after two agents had built on it.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        before = self.head()
+        app_file = "richos/mobile/native-ios/App/Platform/BackgroundSendTime.swift"
+        self.write(app_file, "let log = Logger(subsystem: \"x\")\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "logs", expect=1)
+        self.assertIn("COMMIT REFUSED: this change breaks the phone apps' release policy", out.stderr)
+        self.assertIn("L1 no log call in production code", out.stderr)
+        self.assertEqual(self.head(), before)
+        # Without the log call the same file commits, the suite having run; a change that owns
+        # none of its inputs does not run it.
+        self.write(app_file, "let value = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "fine", expect=0)
+        self.assertIn("ran-release-policy", self.tools())
+        self.log.unlink()
+        self.write("README.md", "docs\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "docs")
+        self.assertNotIn("ran-release-policy", self.tools())
 
     def test_the_whole_branch_is_asked_not_only_the_staged_files(self):
         # An uncovered path committed earlier with --no-verify is still in what the land will
