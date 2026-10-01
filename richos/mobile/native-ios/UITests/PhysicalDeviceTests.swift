@@ -297,7 +297,14 @@ final class PhysicalDeviceTests: XCTestCase {
     private func passcodeReading() -> String {
         var error: NSError?
         let can = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
-        let configured: Any = can ? true : (error?.code == LAError.Code.passcodeNotSet.rawValue ? false : NSNull())
+        let configured: Any
+        if can {
+            configured = true
+        } else if error?.code == LAError.Code.passcodeNotSet.rawValue {
+            configured = false
+        } else {
+            configured = NSNull()
+        }
         let line: [String: Any] = ["configured": configured, "error": error.map { "\($0.domain) \($0.code)" } ?? NSNull()]
         let data = (try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
