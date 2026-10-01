@@ -50,9 +50,9 @@
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
 #           person to open it, a bounded log capture kept on the SSD; I17-I18
-#           pair-steps for pairing v2 waits for each word and holds before the press;
-#           I19-I24 the UI-automation approval forecast from the phone's own sessions,
-#           and a run expected to ask refused until the CEO was told
+#           pair-steps for pairing v2 waits for each word and holds before the press
+#   J1-J6   phone-ios approval: the UI-automation approval forecast from the phone's
+#           own sessions, and a run expected to ask refused until the CEO was told
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
 #           browser writes it, the lab's words from its own files, a mismatch
 #           that FAILS, a half-read phone log, a non-lab directory, a v1 phone
@@ -871,7 +871,7 @@ else bad "I17 pair-steps --v2-hold" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' 
 run python3 "$QA/phone-ios.py" pair-steps "$TMP/ios-lab.json" --v2-hold 900
 expect "I18 a v2 hold past the pairing code's five minutes is refused" 2 "--v2-hold must be 20 to 300 seconds"
 
-# I19-I24: the UI-automation approval is forecast BEFORE a run, from the phone's own sessions.
+# J1-J6: the UI-automation approval is forecast BEFORE a run, from the phone's own sessions.
 # Fixture logs are shaped like xcodebuild's: the phone named on the command line, the runner's
 # start and the first suite's start on the phone clock. Their age is their modification time.
 SESS="$TMP/sessions"; mkdir -p "$SESS"
@@ -893,30 +893,30 @@ forecast() { RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" ap
 
 session_log a.log 07:47:23.244 07:47:24.000 120
 run forecast
-expect "I19 two minutes after the last session no approval is expected" 0 '"approvalExpected": false'
+expect "J1 two minutes after the last session no approval is expected" 0 '"approvalExpected": false'
 
 session_log a.log 07:47:23.244 07:47:24.000 36000
 run forecast
-expect "I20 ten hours after the last session an approval is expected, and the forecast says why" 0 'iOS asks again after idle'
+expect "J2 ten hours after the last session an approval is expected, and the forecast says why" 0 'iOS asks again after idle'
 
 run env RICHOS_IOS_DEVICE="$PHONE" RICHOS_APPLE_TEAM=y RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test
-expect "I21 a run expected to ask is refused BEFORE any build until the CEO was told (--approval-announced)" 2 "Tell Rich so the CEO hears it BEFORE the run"
-if [ -e /Volumes/E1TB/nonexistent-qa-test ]; then bad "I21b the refused run wrote nothing" "it created /Volumes/E1TB/nonexistent-qa-test"
-else ok "I21b the refused run wrote nothing"; fi
+expect "J3 a run expected to ask is refused BEFORE any build until the CEO was told (--approval-announced)" 2 "Tell Rich so the CEO hears it BEFORE the run"
+if [ -e /Volumes/E1TB/nonexistent-qa-test ]; then bad "J3b the refused run wrote nothing" "it created /Volumes/E1TB/nonexistent-qa-test"
+else ok "J3b the refused run wrote nothing"; fi
 
 session_log b.log 08:00:00.000 TIMEOUT 60
 run forecast
-expect "I22 a session nobody approved means the next one asks too" 0 'nobody approved it'
+expect "J4 a session nobody approved means the next one asks too" 0 'nobody approved it'
 
 rm -f "$SESS"/*.log
 session_log a.log 07:47:23.244 07:47:33.128 50000
 session_log c.log 07:47:23.244 07:47:23.900 3600
 run forecast
-expect "I23 after the passcode is removed, a cold session that did not ask means none is expected" 0 'started in 0.7 s without asking'
+expect "J5 after the passcode is removed, a cold session that did not ask means none is expected" 0 'started in 0.7 s without asking'
 
 session_log d.log 07:47:23.244 07:47:33.128 36000
 rm -f "$SESS/c.log"; run forecast
-expect "I24 a cold session that waited for approval (the passcode is still set) keeps the forecast at expected" 0 '"approvalExpected": true'
+expect "J6 a cold session that waited for approval (the passcode is still set) keeps the forecast at expected" 0 '"approvalExpected": true'
 
 echo ""
 echo "=== V. pair-words: the six v2 words on both sides, checked before They match ==="
