@@ -314,7 +314,10 @@ final class PhysicalDeviceTests: XCTestCase {
             return kind == "switch" ? root.switches.firstMatch : root.buttons.firstMatch
         }
         if let id = step["id"] as? String {
-            return id == "composer.field" && root == app ? field : root.descendants(matching: .any)[id]
+            // The first element carrying the identifier: SwiftUI hands a container's identifier to
+            // its children too (the scanner's "scanner"), and a subscript then refuses the step with
+            // "Multiple matching elements found" instead of finding the screen.
+            return id == "composer.field" && root == app ? field : root.descendants(matching: .any).matching(identifier: id).firstMatch
         }
         if let label = step["label"] as? String {
             return root.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
@@ -352,6 +355,34 @@ final class PhysicalDeviceTests: XCTestCase {
             detail["label"] = step["label"] as? String ?? ""
         case "state":
             detail["springboardForeground"] = springboard.state == .runningForeground
+        case "appearance":
+            // The phone's own light or dark setting, read and (with "set") changed through XCTest, the
+            // same switch as Control Center's. The app follows the phone and has no control of its own.
+            // The walker records the starting value and sets it back; nothing else in Settings moves.
+            let names: [XCUIDevice.Appearance: String] = [.light: "light", .dark: "dark", .unspecified: "unspecified"]
+            let before = names[XCUIDevice.shared.appearance] ?? "unknown"
+            if let want = step["set"] as? String {
+                guard let value = ["light": XCUIDevice.Appearance.light, "dark": .dark][want] else { return "appearance may only be set to light or dark" }
+                XCUIDevice.shared.appearance = value
+                Thread.sleep(forTimeInterval: 1)
+            }
+            let after = names[XCUIDevice.shared.appearance] ?? "unknown"
+            detail["appearance"] = ["before": before, "after": after]
+            if let want = step["set"] as? String, after != want { return "the phone still reads \(after) after setting \(want)" }
+        case "orientation":
+            // Turn the phone (XCTest's device orientation) and report what the app's window did, so
+            // a portrait-only app can be seen to stay upright. The walker turns it back to portrait.
+            let values: [String: UIDeviceOrientation] = ["portrait": .portrait, "landscapeLeft": .landscapeLeft,
+                                                         "landscapeRight": .landscapeRight, "portraitUpsideDown": .portraitUpsideDown]
+            if let want = step["set"] as? String {
+                guard let value = values[want] else { return "orientation may only be portrait, landscapeLeft, landscapeRight or portraitUpsideDown" }
+                XCUIDevice.shared.orientation = value
+                Thread.sleep(forTimeInterval: 1.5)
+            }
+            let device = values.first { $0.value == XCUIDevice.shared.orientation }?.key ?? "other"
+            let window = app.windows.firstMatch.frame
+            detail["orientation"] = device
+            detail["frame"] = "\(Int(window.width))x\(Int(window.height))"
         case "waitState":
             let want: XCUIApplication.State = ["background": .runningBackground, "suspended": .runningBackgroundSuspended,
                                                "foreground": .runningForeground, "notRunning": .notRunning][step["state"] as? String ?? ""] ?? .unknown

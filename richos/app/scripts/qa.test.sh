@@ -50,7 +50,10 @@
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
 #           person to open it, a bounded log capture kept on the SSD; I17-I18
-#           pair-steps for pairing v2 waits for each word and holds before the press
+#           pair-steps for pairing v2 waits for each word and holds before the press;
+#           I19-I23 appearance and orientation steps, summary of a finished run;
+#           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
+#           knows every step the host validates, a drifted runner FAILS
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
 #           browser writes it, the lab's words from its own files, a mismatch
 #           that FAILS, a half-read phone log, a non-lab directory, a v1 phone
@@ -58,8 +61,8 @@
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
-# run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json
-# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py
+# run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
+# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -868,6 +871,47 @@ else bad "I17 pair-steps --v2-hold" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' 
 
 run python3 "$QA/phone-ios.py" pair-steps "$TMP/ios-lab.json" --v2-hold 900
 expect "I18 a v2 hold past the pairing code's five minutes is refused" 2 "--v2-hold must be 20 to 300 seconds"
+
+printf '%s' '[{"do":"appearance"},{"do":"appearance","set":"dark"},{"do":"orientation","set":"landscapeLeft"},{"do":"orientation","set":"portrait"},{"do":"appearance","set":"light"}]' > "$TMP/ios-theme.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-theme.json"
+expect "I19 reading and setting the phone's light/dark and turning it validate" 0 '"steps": 5'
+
+printf '%s' '[{"do":"appearance","set":"sepia"}]' > "$TMP/ios-sepia.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-sepia.json"
+expect "I20 an appearance the phone does not have is refused before anything is built" 2 "may only set light or dark"
+
+printf '%s' '[{"do":"orientation","set":"sideways"}]' > "$TMP/ios-sideways.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-sideways.json"
+expect "I21 an orientation XCTest cannot set is refused" 2 "may only set portrait"
+
+mkdir -p "$TMP/ios-run/attachments"
+{
+  echo '{"i": 0, "do": "launch", "ok": true, "start": 10.0, "end": 12.5, "appState": "foreground", "detail": {}}'
+  echo '{"i": 1, "do": "audit", "ok": true, "start": 12.5, "end": 14.0, "appState": "foreground", "detail": {"issues": ["1|Contrast failed||Hello"]}}'
+  echo '{"i": 2, "do": "wait", "ok": false, "start": 14.0, "end": 19.0, "appState": "foreground", "error": "not on screen within 5 s", "detail": {}}'
+} > "$TMP/ios-run/steps.jsonl"
+printf '%s' '[{"attachments":[{"exportedFileName":"AAA.png","suggestedHumanReadableName":"01-first_0_7B3105CE-0805-41FF-93EF-D0BE0BB415E9.png"}]}]' > "$TMP/ios-run/attachments/manifest.json"
+run python3 "$QA/phone-ios.py" summary "$TMP/ios-run"
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -Fq '"01-first.png"' && printf '%s' "$OUT" | grep -Fq 'Contrast failed||Hello' \
+   && printf '%s' "$OUT" | grep -Fq '"failed": 1' && printf '%s' "$OUT" | grep -Fq '"seconds": 2.5'; then
+  ok "I22 summary reads a finished run back: each step's outcome and time, the audit's issues, each shot by its name"
+else bad "I22 summary reads a finished run back" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+
+mkdir -p "$TMP/ios-notrun"
+run python3 "$QA/phone-ios.py" summary "$TMP/ios-notrun"
+expect "I23 summary of a directory that is not a finished run is refused, never an empty table" 2 "not a finished phone-ios.py run"
+
+RUNNER_SWIFT="$DIR/../../mobile/native-ios/UITests/PhysicalDeviceTests.swift"
+run python3 "$QA/phone-ios.py" vocabulary "$RUNNER_SWIFT"
+expect "I24 the phone runner (PhysicalDeviceTests.perform) has a case for every step phone-ios.py validates" 0 '"same": true'
+
+grep -v '^        case "appearance":' "$RUNNER_SWIFT" > "$TMP/runner-drift.swift"
+run python3 "$QA/phone-ios.py" vocabulary "$TMP/runner-drift.swift"
+expect "I25 a step the host accepts and the phone runner does not know FAILS, before any build" 1 '"appearance"'
+
+printf 'final class Nothing {}\n' > "$TMP/runner-none.swift"
+run python3 "$QA/phone-ios.py" vocabulary "$TMP/runner-none.swift"
+expect "I26 a runner with no step dispatcher is refused, never read as agreeing" 2 "no perform(...) step dispatcher"
 
 echo ""
 echo "=== V. pair-words: the six v2 words on both sides, checked before They match ==="
