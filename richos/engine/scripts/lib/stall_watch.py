@@ -56,6 +56,14 @@ WHAT IS A STALL (every threshold, and why)
    the holder is the waiter's own ANCESTOR it is a DEADLOCK: a nested run that
    did not borrow its caller's slot, which only the 3-hour timeout ends.
 
+4. A TEAMMATE ESCALATION (2026-10-01; its own section below, ESCALATION). Not a
+   stall: a `proceeding` or `work-complete` escalation is a record, and the
+   ledger's design depends on never calling it one. It is told here because
+   this monitor is the one thing that can start a lead turn: on 2026-10-01 a
+   teammate's question that needed the CEO at the test iPhone waited 82
+   minutes for a turn that no hook could start. It prints its own
+   ESCALATION-WATCH block, first in the look's output.
+
 ===========================================================================
 HOW OFTEN IT SPEAKS (nothing spams)
 ===========================================================================
@@ -95,6 +103,7 @@ COMMANDS (stall-watch.sh passes --engine-root, --config and --command)
 """
 
 import argparse
+import calendar
 import datetime as _dt
 import fcntl
 import glob
@@ -111,6 +120,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import resource_waits  # noqa: E402  (sibling in scripts/lib)
+import escalations  # noqa: E402  (sibling in scripts/lib)
 
 POLL_SECONDS = 60
 SILENT_MINUTES = 20
@@ -730,6 +740,306 @@ def announce(state, stalls, problems, now, th):
 
 
 # ---------------------------------------------------------------------------
+# ESCALATION: a teammate's escalation wakes an idle lead within a minute
+# ---------------------------------------------------------------------------
+# THE FAILURE (2026-10-01, richos-hq docs/operations/2026-10-01-escalation-
+# wakes-the-lead.md). isaac-opus-d3c raised esc-20261001T113833Z-c9ac3ed0 at
+# 11:38:33Z: "Can the CEO be at the test iPhone SE for the UI automation
+# approval". The lead had ended its turn at 11:33:57Z. Escalations reached the
+# lead only through hooks (SessionStart and Stop), a hook needs a turn, and this
+# monitor, the one thing that can start a turn, read the ledger only for prose
+# claiming a resource wait. The first lead turn came at 13:00:59Z, woken by an
+# unrelated teammate finishing: 82 minutes. d3c gave up waiting at 13:07Z.
+#
+# WHAT IT DOES. Each look reads the ledger's outstanding escalations (the one
+# predicate, escalations.outstanding) by STATE, never by wording, so no phrasing
+# slips past, and prints the ones due in an ESCALATION-WATCH block FIRST in the
+# look's output. The printed block is what starts a turn for an idle lead.
+#
+# WHAT IS DUE, every rule from the design and its review (Sage, richos-hq
+# 8ba32b71), and why:
+#   FIRST WAKE, once per delivery key, when all of these hold:
+#     - raised (or reopened by an expired ack) AFTER this session started.
+#       The SessionStart block and the Stop hook own the backlog; a block over
+#       the host's 10,000-character cap would otherwise wake the lead at once
+#       and then every minute until it drained (Sage 6a).
+#     - it has not already reached this session's model
+#       (escalations.reached_scan / has_reached over the host transcript: the
+#       SessionStart block, a Stop delivery, an earlier monitor event).
+#     - it is not owned by ANOTHER live session (twin Rich): suppressed only on
+#       exactly one registry record with the row's worktree and teammate name
+#       whose session is positively running. Zero matches, several, a dead or
+#       unknown owner: told (Sage 4). It is better to wake twice than to miss.
+#   TOLD AGAIN while unacknowledged, once it has reached this session's model
+#   (by this monitor or by the Stop hook):
+#     - needs=ceo-hands: every 10 min (STALL_WATCH_CEO_HANDS_REPEAT_MINUTES).
+#       Each minute burns a waiting teammate; d3c gave up after 89.
+#     - state=stopped: every 30 min (the stall repeat, STALL_WATCH_REPEAT_MINUTES).
+#       A stopped teammate is a stall by the ledger's own definition.
+#     - any other: once at each age bucket the ledger defines (1h, 24h, 72h),
+#       never on a clock. A `proceeding` escalation is not a stall.
+#   An ACKNOWLEDGEMENT ends every repeat SILENTLY: the lead made the ack, so a
+#   line about it would be a wake about nothing.
+#
+# THE BLOCK STAYS UNDER 2,000 CHARACTERS (ESC_BLOCK_CHARS). The largest monitor
+# event ever delivered on this Mac was 2,352 characters and nobody has measured
+# whether the host cuts a longer one; if it records the text before a cut, the
+# transcript would claim a delivery the model never saw (Sage 5). So one line
+# per escalation (key, title, from, state, for, needs, the question's start)
+# and a pointer to the full text. What does not fit goes in the next look.
+#
+# A SOURCE THAT CANNOT BE READ changes nothing: the ledger or the transcript
+# unreadable is one NOT READ line through the stall machinery, and every
+# escalation key is carried forward unchanged, so the next good read does not
+# re-announce everything (Sage 6b). Its state is its own (`esc` in this
+# session's announced.json); it never reads or writes the Stop hook's memory.
+ESC_BLOCK_CHARS = 2000
+ESC_TITLE_CHARS = 120
+ESC_QUESTION_CHARS = 200
+CEO_HANDS_REPEAT_MINUTES = 10
+ESC_LOUD_BUCKETS = ("1h", "24h", "72h")
+
+
+def _esc_iso_epoch(text):
+    d = escalations.parse_iso(text)
+    return d.timestamp() if d is not None else None
+
+
+def lead_transcript(src, sid):
+    """The lead's own transcript: STALL_WATCH_LEAD_TRANSCRIPT (the test suite's
+    fixture; nothing else sets it), else <projects>/*/<session id>.jsonl, the
+    file the host writes every row of the lead's conversation to.
+
+    Globbed by session id (a UUID), in the projects directory workspaces.py
+    already resolves for teammates' transcripts, rather than by recomputing
+    the project directory's name from a cwd, which the host derives and nothing
+    here should guess. The newest wins if the id appears under two project
+    directories. "" when there is none yet: the host creates it with the
+    session's first recorded row."""
+    pinned = (os.environ.get("STALL_WATCH_LEAD_TRANSCRIPT") or "").strip()
+    if pinned:
+        return pinned
+    if src.ws is None or not sid or "/" in sid or sid in (".", ".."):
+        return ""
+    try:
+        base = src.ws._platform_projects_dir()
+        found = [p for p in glob.glob(os.path.join(base, "*", sid + ".jsonl")) if os.path.isfile(p)]
+    except Exception:  # noqa: BLE001: no transcript found is "nothing reached yet"
+        return ""
+    return max(found, key=lambda p: (os.path.getmtime(p), p)) if found else ""
+
+
+def session_started(src, sid):
+    """Epoch seconds this session's claude process started, or None.
+
+    STALL_WATCH_SESSION_START pins it for the test suite. Else the platform's
+    own record of the process (<config>/sessions/<pid>.json, startedAt in ms),
+    else the OS's start time for that pid. A resumed session is a new process,
+    so its backlog stays the SessionStart block's and the Stop hook's."""
+    pinned = (os.environ.get("STALL_WATCH_SESSION_START") or "").strip()
+    if pinned:
+        try:
+            return float(pinned)
+        except ValueError:
+            pass
+    if src.ws is None:
+        return None
+    try:
+        _sid, pid = src.session()
+        rec = src.ws.platform_session(sid, pid) if sid else None
+        if rec and isinstance(rec.get("startedAt"), (int, float)):
+            return float(rec["startedAt"]) / 1000.0
+        if pid:
+            st, text = src.ws.process_start(pid)
+            if st == "ok" and text:
+                # workspaces.process_start runs ps with TZ=UTC0: the text is UTC.
+                return float(calendar.timegm(time.strptime(" ".join(text.split()), "%a %b %d %H:%M:%S %Y")))
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _esc_owner(src, reg, e, sid, cache):
+    """'ours', 'other' or 'unknown' (Sage 4): another session's only on exactly
+    one live registry record with this worktree AND this teammate name whose
+    session is positively running."""
+    wt, name = e.get("worktree") or "", e.get("teammate") or ""
+    if not wt or not name or src.ws is None:
+        return "unknown"
+    real = os.path.realpath(wt)
+    matches = []
+    for r in reg.recs:
+        if str(r.get("name") or "") != name:
+            continue
+        if any(w.get("path") and os.path.realpath(w["path"]) == real for w in r.get("workspaces") or []):
+            matches.append(r)
+    if len(matches) != 1:
+        return "unknown"
+    owner = str(matches[0].get("session_id") or "")
+    if owner and owner == sid:
+        return "ours"
+    if not owner:
+        return "unknown"
+    try:
+        st, _why = src.ws.session_state(owner, matches[0].get("session_identity"), cache)
+    except Exception:  # noqa: BLE001
+        return "unknown"
+    return "other" if st == "running" else "unknown"
+
+
+def _esc_since(e):
+    """When this delivery key began: raised, or reopened by an expired ack."""
+    reo = e.get("reopened_by_expiry")
+    if reo:
+        return _esc_iso_epoch(reo.get("until")) or _esc_iso_epoch(e.get("raised"))
+    return _esc_iso_epoch(e.get("raised"))
+
+
+def _esc_repeat_seconds(e, th):
+    if e.get("needs") == "ceo-hands":
+        return _env_float("STALL_WATCH_CEO_HANDS_REPEAT_MINUTES", CEO_HANDS_REPEAT_MINUTES) * 60
+    if e.get("state") == "stopped":
+        return th["repeat"]
+    return None
+
+
+def _esc_line(e, again=None):
+    key = escalations.delivery_key(e)
+    title = " ".join(str(e.get("title") or "").split())
+    if len(title) > ESC_TITLE_CHARS:
+        title = title[:ESC_TITLE_CHARS - 3] + "..."
+    q = " ".join(str(e.get("question") or "").split())
+    if len(q) > ESC_QUESTION_CHARS:
+        q = q[:ESC_QUESTION_CHARS - 3] + "..."
+    who = "from %s, state=%s, for=%s%s, %s" % (
+        e.get("teammate") or "<unnamed>", e.get("state", ""), e.get("for", "lead"),
+        ", needs=%s" % e["needs"] if e.get("needs") else "", escalations.age_phrase(e.get("age_min")))
+    parts = ["[%s] %s" % (key, title), who]
+    reo = e.get("reopened_by_expiry")
+    if reo:
+        parts.append("REOPENED: its ack held only until %s" % (reo.get("until") or "?"))
+    parts += ["Q: " + q, "full text: escalate.sh show %s" % e["id"]]
+    line = "  " + " | ".join(parts)
+    if again:
+        line += "  (told again, notice %d; first told %s)" % again
+    return line
+
+
+def _esc_render(now, first, again):
+    """(lines, keys included). ceo-hands first under its own heading."""
+    def order(item):
+        e = item[0]
+        return (0 if e.get("needs") == "ceo-hands" else 1 if e.get("state") == "stopped" else 2,
+                str(e.get("raised") or ""))
+    items = sorted([(e, None) for e in first] + list(again), key=order)
+    head_fmt = ("ESCALATION-WATCH %s: %d teammate escalation%s for you%s (in the ledger until acknowledged; "
+                "nothing was paused, stopped or killed)")
+    foot = ["  You can: answer it, or put it to the CEO; then escalate.sh ack <id> --disposition \"<what you "
+            "decided or did>\" (routed to him: add --until <when to look again>). An ack ends every repeat."]
+    hands = [it for it in items if it[0].get("needs") == "ceo-hands"]
+    body, used, keys, n_first, n_again = [], 0, [], 0, 0
+    budget = ESC_BLOCK_CHARS - len(head_fmt) - 40 - sum(len(f) + 1 for f in foot)
+    for e, again_info in items:
+        text = _esc_line(e, again_info)
+        heading = []
+        if hands and not body:
+            heading = ["  NEEDS THE CEO AT A DEVICE (told again every %d min until acknowledged):"
+                       % int(_env_float("STALL_WATCH_CEO_HANDS_REPEAT_MINUTES", CEO_HANDS_REPEAT_MINUTES))]
+        elif hands and e.get("needs") != "ceo-hands" and not any(
+                b.startswith("  THE REST") for b in body):
+            heading = ["  THE REST:"]
+        cost = sum(len(h) + 1 for h in heading) + len(text) + 1
+        if body and used + cost > budget:
+            continue                       # the next look tells it; nothing is marked
+        body += heading + [text]
+        used += cost
+        keys.append(escalations.delivery_key(e))
+        if again_info:
+            n_again += 1
+        else:
+            n_first += 1
+    if not keys:
+        return [], []
+    n = n_first + n_again
+    head = head_fmt % (hhmm(now), n, "" if n == 1 else "s",
+                       "" if not n_again else ", %d told again" % n_again)
+    return [head] + body + foot, keys
+
+
+def escalation_watch(src, now, sid, prev, th):
+    """(lines to print, new `esc` state, problems). Never raises for a source
+    it cannot read; that source is a problem and the state is carried forward."""
+    prev = dict(prev or {})
+    if not sid:
+        return [], prev, []
+    rows, _bad = escalations.read_rows()
+    if rows is None:
+        return [], prev, ["the escalation ledger (%s) could not be read, so no teammate escalation can "
+                          "wake you until it reads again" % escalations.ledger_path()]
+    start = prev.get("session_start")
+    if not isinstance(start, (int, float)):
+        start = session_started(src, sid)
+        if start is None:
+            start = prev.get("first_look") if isinstance(prev.get("first_look"), (int, float)) else now
+    transcript = lead_transcript(src, sid)
+    scan = dict(prev.get("scan") or {})
+    if scan.get("transcript") != transcript:
+        scan = {"transcript": transcript, "offset": 0, "session_start": [], "stop": [], "monitor": []}
+    found, offset, readable = escalations.reached_scan(transcript, int(scan.get("offset") or 0))
+    if not readable:
+        return [], prev, ["the lead's transcript (%s) could not be read, so what already reached you is "
+                          "unknown and no escalation is told until it reads again" % transcript]
+    for k in ("session_start", "stop", "monitor"):
+        scan[k] = sorted(set(scan.get(k) or []) | found[k])
+    scan["offset"] = offset
+    baseline = set(scan["session_start"])
+    delivered = set(scan["stop"]) | set(scan["monitor"])
+
+    live = escalations.outstanding(rows, _dt.datetime.fromtimestamp(now, _dt.timezone.utc))
+    by_key = dict((escalations.delivery_key(e), e) for e in live)
+    woken = dict(prev.get("woken") or {})
+    for k in list(woken):
+        if k not in by_key:
+            del woken[k]                   # acknowledged: silent (and nothing more about it)
+    reg = None
+    cache = {}
+    first, again = [], []
+    for k, e in by_key.items():
+        w = woken.get(k)
+        if w is None:
+            since = _esc_since(e)
+            if since is None or since < start:
+                continue                   # the backlog: SessionStart's and the Stop hook's
+            if escalations.has_reached(e, baseline, delivered):
+                woken[k] = {"first": now, "last": now, "count": 0, "bucket": e.get("bucket"),
+                            "by": "reached the model before this monitor told it"}
+                continue
+            if reg is None:
+                reg = Registry(src)
+            if _esc_owner(src, reg, e, sid, cache) == "other":
+                continue                   # that session's own monitor tells it
+            first.append(e)
+            continue
+        every = _esc_repeat_seconds(e, th)
+        due = (every is not None and now - float(w.get("last") or now) >= every) or (
+            e.get("bucket") != w.get("bucket") and e.get("bucket") in ESC_LOUD_BUCKETS)
+        if due:
+            again.append((e, (int(w.get("count") or 0) + 1, hhmm(float(w.get("first") or now)))))
+    lines, told = _esc_render(now, first, again)
+    for k in told:
+        e = by_key[k]
+        w = woken.get(k)
+        if w is None:
+            woken[k] = {"first": now, "last": now, "count": 1, "bucket": e.get("bucket"), "by": "this monitor"}
+        else:
+            w.update({"last": now, "count": int(w.get("count") or 0) + 1, "bucket": e.get("bucket")})
+    # Anything due that did not fit is untouched, so it is still due next look.
+    state ={"session_start": start, "first_look": prev.get("first_look") or now,
+             "scan": scan, "woken": woken}
+    return lines, state, []
+
+
+# ---------------------------------------------------------------------------
 # state, the session, and the loop
 # ---------------------------------------------------------------------------
 
@@ -829,8 +1139,15 @@ def tick(src, sd, sid, now=None, out=None):
     th = thresholds()
     path = os.path.join(sd, "announced.json")
     state = _read_json(path)
+    esc_prev = state.get("esc")
+    try:
+        esc_lines, esc_state, esc_problems = escalation_watch(src, now, sid, esc_prev, th)
+    except Exception as exc:  # noqa: BLE001: a failed escalation look is reported, never the end of watching
+        esc_lines, esc_state = [], esc_prev
+        esc_problems = ["the escalation watch failed (%s: %s)" % (exc.__class__.__name__, str(exc)[:160])]
     try:
         stalls, problems = look(src, now, sid, th)
+        problems = problems + esc_problems
     except Exception as exc:  # noqa: BLE001: one failed look is reported, never the end of watching
         stalls, problems = [], []
         problems.append("a look failed (%s: %s)" % (exc.__class__.__name__, str(exc)[:160]))
@@ -845,6 +1162,12 @@ def tick(src, sd, sid, now=None, out=None):
         state = {"open": keep, "at": now}
     else:
         lines, state = announce(state, stalls, problems, now, th)
+    if esc_state is not None:
+        state["esc"] = esc_state
+    # The ESCALATION-WATCH block goes FIRST: a monitor event counts as having
+    # told the lead only when its <event> body starts with ESCALATION-WATCH
+    # (escalations.monitor_event_keys).
+    lines = esc_lines + lines
     _write_json(path, state)
     if lines:
         out.write("\n".join(lines) + "\n")
@@ -954,6 +1277,9 @@ def mode_notice(a):
         "  notification naming the teammate, what it waits on, who holds it, since when and what you can do; again only",
         "  after another %.0f min; and in one line when it clears. It only reports: it never pauses, stops or kills." % (
             th["repeat"] / 60),
+        "  It also wakes you within a minute when a teammate raises an escalation in this session (an",
+        "  ESCALATION-WATCH block, by state, never by wording), again every 10 min while one that needs the CEO",
+        "  at a device (needs=ceo-hands) or every 30 min while a stopped one is unacknowledged; an ack ends it.",
         "  Do not start it yourself. Check it (one line): %s --alive" % a.command,
         "  Only if --alive says NOT WATCHED (plugin monitors do not run here), start `%s --watch` as a background" % a.command,
         "  command; it exits at each notification, so start it again after each one.",

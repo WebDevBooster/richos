@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# stall-watch.test.sh: THE STALL WATCHER, PROVEN ON REAL SLOT HOLDERS, REAL
+# stall-watch.test.sh: THE STALL WATCHER (scripts/stall-watch.sh running
+# scripts/lib/stall_watch.py), PROVEN ON REAL SLOT HOLDERS, REAL
 # WAITERS AND A FIXTURE TEAMMATE REGISTRY. Never the operator's
 # ~/.richos-nightly slots, ~/.richos-waits, registry, transcripts or ledger.
 #
@@ -33,6 +34,23 @@
 #   T03  it writes its transcript: cleared after two looks, once
 #   T04  a long honest run (transcript written 5 min ago, no commit for an
 #        hour), a paused teammate and a finished one: none is SILENT
+#   E01  THE 2026-10-01 INCIDENT: a teammate of this session raises a proceeding,
+#        for=lead escalation after the session started; the next look prints
+#        ONE ESCALATION-WATCH block, FIRST, with its key, sender and question
+#   E02  told once (paired with E01's print)   E03  a restarted --monitor is silent
+#   E04  one in the SessionStart block, one raised after: only the second
+#   E04b a SessionStart backlog over the host cap does not wake; a new one does
+#   E05  an acked one is never told; an ack ends it with no cleared line
+#   E06  stopped: again at 30 min, not at 29
+#   E07  needs=ceo-hands: first under NEEDS THE CEO AT A DEVICE, again at 10 min
+#   E08  another live session's teammate: not told; owner unknown: told;
+#        E08b that session ends: told here
+#   E09  proceeding: no 30-min clock, once more at the 1h bucket
+#   E10  END TO END: --monitor tells it once over several looks
+#   E11  an ack whose --until passes: told again under its reopened key
+#   E12  an unreadable ledger: NOT READ, and nothing re-announced after
+#   E13  one the Stop hook already delivered this session is not told
+#   E14  the lead's transcript is found by session id (the real locator)
 #   M01  END TO END: --monitor (the plugin monitor's command) on the fixture
 #        prints the stall once over several looks, --alive says watching,
 #        a second --monitor for the same session stands down, nothing it
@@ -346,6 +364,245 @@ check "T04  a long honest run, a paused teammate and a finished one are not SILE
     "$( has "$T01OUT" "[SILENT] lima-opus-q1" && ! has "$T01OUT" "mike-opus-r1" && ! has "$T01OUT" "november-opus-p1" \
         && ! has "$T01OUT" "oscar-opus-e1"; echo $?)" \
     "out=$T01OUT"
+
+# --- E: a teammate's escalation wakes an idle lead (2026-10-01) ---------------
+# richos-hq docs/operations/2026-10-01-escalation-wakes-the-lead.md, built past
+# Sage's review (richos-hq 8ba32b71). Every case below that asserts silence is
+# paired, in the same case, with something that must be printed, so none of
+# them passes on a checkout where the watcher prints no escalation at all.
+ESC_TOOL="$ENGINE/scripts/lib/escalations.py"
+esc_ledger() { export RICHOS_ESCALATION_LEDGER="$SB/esc-$1.jsonl"; : >"$RICHOS_ESCALATION_LEDGER"; }
+esc_lead() { export STALL_WATCH_LEAD_TRANSCRIPT="$SB/lead-$1.jsonl"; : >"$STALL_WATCH_LEAD_TRANSCRIPT"; }
+esc_raise() { # <id> <teammate> <state> <needs|-> <raised-ago-s> [question]
+    python3 - "$RICHOS_ESCALATION_LEDGER" "$SB/repos" "$@" <<'PY'
+import json, os, sys, time
+ledger, repos, rid, who, state, needs, ago = sys.argv[1:8]
+q = sys.argv[8] if len(sys.argv) > 8 else "a fixture question that is long enough to be one"
+t = time.gmtime(int(time.time()) - int(ago))
+row = {"event": "Escalation", "id": rid, "raised": time.strftime("%Y-%m-%dT%H:%M:%SZ", t),
+       "teammate": who, "worktree": os.path.realpath(os.path.join(repos, who)), "branch": "cc/" + who,
+       "repo": "fixture", "head": "", "state": state, "for": "lead", "title": "fixture title for " + rid,
+       "question": q, "tried": "", "meanwhile": "", "record": "", "session_id": "", "actor": "fixture"}
+if needs != "-":
+    row["needs"] = needs
+with open(ledger, "a") as fh:
+    fh.write(json.dumps(row) + "\n")
+PY
+}
+esc_ack() { # <id> [until-from-now-s]
+    python3 - "$RICHOS_ESCALATION_LEDGER" "$@" <<'PY'
+import json, sys, time
+ledger, rid = sys.argv[1:3]
+row = {"event": "EscalationAck", "id": rid, "acked": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+       "disposition": "fixture: decided and recorded, nothing left to do", "actor": "fixture", "session_id": ""}
+if len(sys.argv) > 3:
+    until = int(time.time()) + int(sys.argv[3])
+    row["until"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(until))
+    row["until_epoch"] = float(until)
+with open(ledger, "a") as fh:
+    fh.write(json.dumps(row) + "\n")
+print(row.get("until", ""))
+PY
+}
+esc_lead_row() { # <kind: sessionstart|stop> <text>: a HOST row (459554d9 lines 4 and 718), free text replaced
+    python3 - "$STALL_WATCH_LEAD_TRANSCRIPT" "$@" <<'PY'
+import json, sys
+path, kind, text = sys.argv[1:4]
+if kind == "sessionstart":
+    row = {"parentUuid": None, "isSidechain": False,
+           "attachment": {"type": "hook_success", "hookName": "SessionStart:compact", "toolUseID": "fixture",
+                          "hookEvent": "SessionStart", "content": "",
+                          "stdout": json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                                        "additionalContext": text}}) + "\n",
+                          "stderr": "", "exitCode": 0,
+                          "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-escalations.sh",
+                          "durationMs": 170},
+           "type": "attachment", "uuid": "fixture-ss", "timestamp": "2026-10-01T11:29:34.356Z",
+           "userType": "external", "entrypoint": "cli", "cwd": "/fixture", "sessionId": "fixture",
+           "version": "2.1.286", "gitBranch": "main"}
+else:
+    row = {"parentUuid": "fixture", "isSidechain": False,
+           "attachment": {"type": "hook_additional_context", "content": [text], "hookName": "Stop",
+                          "toolUseID": "fixture", "hookEvent": "Stop"},
+           "type": "attachment", "uuid": "fixture-stop", "timestamp": "2026-10-01T13:01:51.415Z",
+           "userType": "external", "entrypoint": "cli", "cwd": "/fixture", "sessionId": "fixture",
+           "version": "2.1.286", "gitBranch": "main"}
+with open(path, "a") as fh:
+    fh.write(json.dumps(row) + "\n")
+PY
+}
+escs() { printf '%s\n' "$OUT" | sed -n '/^ESCALATION-WATCH/,/^STALL-WATCH/p' | grep -v '^STALL-WATCH'; }
+nesc() { printf '%s' "$OUT" | grep -c '^ESCALATION-WATCH' || true; }
+
+new_registry e
+export STALL_WATCH_SESSION_START=$(( $(date +%s) - 120 ))
+add_agent isaac-opus-d3cfix a0000000000fe01 "$SID" 3600 3000 10
+add_agent zulu-opus-e2 a0000000000fe02 "$SID" 3600 3000 10
+
+E01_ID="esc-20261001T113833Z-c9ac3ed0"
+new_state e1; esc_ledger e1; esc_lead e1
+esc_raise "$E01_ID" isaac-opus-d3cfix proceeding - 60 \
+    "Can the CEO be at the test iPhone SE for the UI automation approval (Touch ID or passcode, within about 60 s of the run starting)?"
+tick 0; E01OUT="$OUT"
+check "E01  the incident: a teammate's proceeding, for=lead escalation is told at the next look, first, with its question" \
+    "$( [ "$(nesc)" -eq 1 ] && [ "$(printf '%s\n' "$OUT" | head -1 | cut -c1-16)" = "ESCALATION-WATCH" ] \
+        && escs | grep -qF "[$E01_ID]" && escs | grep -qF "Q: Can the CEO be at the test iPhone SE" \
+        && escs | grep -qF "from isaac-opus-d3cfix, state=proceeding, for=lead"; echo $?)" "out=$OUT"
+tick 60
+check "E02  told once: the next look says nothing about it" \
+    "$( printf '%s' "$E01OUT" | grep -qF "[$E01_ID]" && [ "$(nesc)" -eq 0 ]; echo $?)" "first=$E01OUT now=$OUT"
+( STALL_WATCH_POLL_SECONDS=1 exec bash "$SW" --monitor >"$SB/e3.out" 2>&1 ) &
+E3MON=$!; PIDS+=("$E3MON")
+wait_for 10 test -s "$SB/state-e1/$SID/monitor.json"
+sleep 2.5
+kill "$E3MON" 2>/dev/null
+check "E03  a restarted --monitor on the same state does not tell it again" \
+    "$( printf '%s' "$E01OUT" | grep -qF "[$E01_ID]" && ! grep -q '^ESCALATION-WATCH' "$SB/e3.out"; echo $?)" \
+    "first=$E01OUT restarted=$(cat "$SB/e3.out")"
+
+new_state e4; esc_ledger e4; esc_lead e4
+esc_raise esc-20261001T120000Z-0000e4a0 zulu-opus-e2 proceeding - 50
+esc_raise esc-20261001T120001Z-0000e4b0 zulu-opus-e2 proceeding - 40
+esc_lead_row sessionstart "1 ESCALATION(S) OUTSTANDING
+  [esc-20261001T120000Z-0000e4a0] fixture title (1m old), from zulu-opus-e2, state=proceeding"
+tick 0
+check "E04  one already in the SessionStart block, one raised after it: exactly the second is told" \
+    "$( escs | grep -qF "[esc-20261001T120001Z-0000e4b0]" && ! escs | grep -qF "[esc-20261001T120000Z-0000e4a0]"; echo $?)" \
+    "out=$OUT"
+
+new_state e4b; esc_ledger e4b; esc_lead e4b
+BIG=""
+for i in $(seq 10 39); do
+    esc_raise "esc-20261001T1000${i}Z-00000b$i" zulu-opus-e2 proceeding - 3600 "$(printf 'Q%.0s' $(seq 1 300))"
+    BIG="$BIG  [esc-20261001T1000${i}Z-00000b$i] $(printf 'x%.0s' $(seq 1 330))
+"
+done
+esc_raise esc-20261001T120002Z-00004bc0 zulu-opus-e2 proceeding - 30
+esc_lead_row sessionstart "30 ESCALATION(S) OUTSTANDING
+$BIG"
+tick 0
+check "E04b a SessionStart backlog over the host's 10,000-character cap does not wake; one raised after the start does" \
+    "$( [ "$(escs | grep -c '^  \[esc-' || true)" -eq 1 ] && escs | grep -qF "[esc-20261001T120002Z-00004bc0]"; echo $?)" \
+    "out=$OUT"
+
+new_state e5; esc_ledger e5; esc_lead e5
+esc_raise esc-20261001T120003Z-0000e5a0 zulu-opus-e2 proceeding - 50
+esc_raise esc-20261001T120004Z-0000e5b0 zulu-opus-e2 proceeding - 40
+esc_ack esc-20261001T120003Z-0000e5a0 >/dev/null
+tick 0; E05A="$OUT"
+esc_ack esc-20261001T120004Z-0000e5b0 >/dev/null
+tick 60; tick 120
+check "E05  acknowledged is never told; the unacknowledged one is; its ack ends it with no cleared line" \
+    "$( printf '%s' "$E05A" | grep -qF "[esc-20261001T120004Z-0000e5b0]" && ! printf '%s' "$E05A" | grep -qF "0000e5a0" \
+        && [ -z "$OUT" ]; echo $?)" "first=$E05A later=$OUT"
+
+new_state e6; esc_ledger e6; esc_lead e6
+esc_raise esc-20261001T120005Z-0000e6a0 zulu-opus-e2 stopped - 30
+tick 0; E06A="$OUT"; tick 1740; E06B="$OUT"; tick 1800; E06C="$OUT"
+check "E06  stopped: told, not again at 29 min, again at 30 min" \
+    "$( printf '%s' "$E06A" | grep -qF "[esc-20261001T120005Z-0000e6a0]" && ! printf '%s' "$E06B" | grep -q '^ESCALATION-WATCH' \
+        && printf '%s' "$E06C" | grep -qF "[esc-20261001T120005Z-0000e6a0]" && printf '%s' "$E06C" | grep -qF "told again, notice 2"; echo $?)" \
+    "0=$E06A 29=$E06B 30=$E06C"
+
+new_state e7; esc_ledger e7; esc_lead e7
+esc_raise esc-20261001T120006Z-0000e7b0 zulu-opus-e2 proceeding - 40
+esc_raise esc-20261001T120007Z-0000e7a0 isaac-opus-d3cfix proceeding ceo-hands 30
+tick 0; E07A="$OUT"; tick 540; E07B="$OUT"; tick 600; E07C="$OUT"
+HANDS_LINE="$(printf '%s\n' "$E07A" | grep -n 'NEEDS THE CEO AT A DEVICE' | head -1 | cut -d: -f1)"
+A_LINE="$(printf '%s\n' "$E07A" | grep -nF '[esc-20261001T120007Z-0000e7a0]' | head -1 | cut -d: -f1)"
+B_LINE="$(printf '%s\n' "$E07A" | grep -nF '[esc-20261001T120006Z-0000e7b0]' | head -1 | cut -d: -f1)"
+check "E07  needs=ceo-hands comes first under NEEDS THE CEO AT A DEVICE; told again at 10 min, not at 9; the other is not" \
+    "$( [ -n "$HANDS_LINE" ] && [ -n "$A_LINE" ] && [ -n "$B_LINE" ] && [ "$HANDS_LINE" -lt "$A_LINE" ] && [ "$A_LINE" -lt "$B_LINE" ] \
+        && ! printf '%s' "$E07B" | grep -q '^ESCALATION-WATCH' && printf '%s' "$E07C" | grep -qF '0000e7a0' \
+        && ! printf '%s' "$E07C" | grep -qF '0000e7b0'; echo $?)" "0=$E07A 9=$E07B 10=$E07C"
+
+# Another live Rich session: its own sleeper, its own session record, its own teammate.
+SID2="beadfeed-0000-4000-8000-00000000s002"
+SLEEPER2="$(spawn_sleeper)"; PIDS+=("$SLEEPER2")
+python3 - "$ENGINE" "$RICHOS_WORKSPACES_DIR" "$SID2" "$SLEEPER2" <<'PY'
+import json, os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], "mega-lander"))
+import workspaces
+st, start = workspaces.process_start(int(sys.argv[4]))
+with open(os.path.join(sys.argv[2], "sessions", sys.argv[3] + ".json"), "w") as fh:
+    json.dump({"session_id": sys.argv[3], "pid": int(sys.argv[4]), "pid_start": start}, fh)
+PY
+add_agent yankee-opus-o1 a0000000000fe08 "$SID2" 3600 3000 10
+new_state e8; esc_ledger e8; esc_lead e8
+esc_raise esc-20261001T120008Z-0000e8a0 yankee-opus-o1 proceeding - 40
+esc_raise esc-20261001T120009Z-0000e8b0 xray-opus-unregistered proceeding - 30
+tick 0
+check "E08  owned by another live session: not told here; owner unknown: told, in the same look" \
+    "$( escs | grep -qF '[esc-20261001T120009Z-0000e8b0]' && ! escs | grep -qF '0000e8a0'; echo $?)" "out=$OUT"
+kill "$SLEEPER2" 2>/dev/null; sleep 0.3
+new_state e8b
+tick 0
+check "E08b the other session ends: its teammate's escalation is told here (an owner that is gone is no owner)" \
+    "$( escs | grep -qF '[esc-20261001T120008Z-0000e8a0]'; echo $?)" "out=$OUT"
+
+new_state e9; esc_ledger e9; esc_lead e9
+esc_raise esc-20261001T120010Z-0000e9a0 zulu-opus-e2 proceeding - 60
+tick 0; E09A="$OUT"; tick 1800; E09B="$OUT"; tick 3600; E09C="$OUT"; tick 3660; E09D="$OUT"
+check "E09  proceeding: told, not on a 30-min clock, once more when it crosses 1h, then quiet" \
+    "$( printf '%s' "$E09A" | grep -qF '0000e9a0' && ! printf '%s' "$E09B" | grep -q '^ESCALATION-WATCH' \
+        && printf '%s' "$E09C" | grep -qF '0000e9a0' && ! printf '%s' "$E09D" | grep -q '^ESCALATION-WATCH'; echo $?)" \
+    "0=$E09A 30=$E09B 60=$E09C 61=$E09D"
+
+new_state e11; esc_ledger e11; esc_lead e11
+esc_raise esc-20261001T120011Z-000e11a0 zulu-opus-e2 proceeding - 60
+tick 0; E11A="$OUT"
+E11_UNTIL="$(esc_ack esc-20261001T120011Z-000e11a0 300)"
+tick 60; E11B="$OUT"; tick 400; E11C="$OUT"
+check "E11  an ack with --until that expires: quiet while it holds, told again under its reopened key after" \
+    "$( printf '%s' "$E11A" | grep -qF '[esc-20261001T120011Z-000e11a0]' && ! printf '%s' "$E11B" | grep -q '^ESCALATION-WATCH' \
+        && printf '%s' "$E11C" | grep -qF "[esc-20261001T120011Z-000e11a0@reopened:$E11_UNTIL]"; echo $?)" \
+    "0=$E11A held=$E11B expired=$E11C"
+
+new_state e12; esc_ledger e12; esc_lead e12
+esc_raise esc-20261001T120012Z-000e12a0 zulu-opus-e2 proceeding - 60
+tick 0; E12A="$OUT"
+chmod 000 "$RICHOS_ESCALATION_LEDGER"
+tick 60; E12B="$OUT"; tick 120; E12C="$OUT"
+chmod 644 "$RICHOS_ESCALATION_LEDGER"
+tick 180; E12D="$OUT"
+check "E12  a ledger that cannot be read: NOT READ once, and the next good read re-announces nothing" \
+    "$( printf '%s' "$E12A" | grep -qF '000e12a0' && printf '%s' "$E12B" | grep -q 'NOT READ' \
+        && ! printf '%s%s' "$E12B" "$E12C" | grep -q '^ESCALATION-WATCH' && ! printf '%s' "$E12D" | grep -q '^ESCALATION-WATCH'; echo $?)" \
+    "0=$E12A 1=$E12B 2=$E12C back=$E12D"
+
+new_state e13; esc_ledger e13; esc_lead e13
+esc_raise esc-20261001T120013Z-000e13a0 zulu-opus-e2 proceeding - 50
+esc_raise esc-20261001T120014Z-000e13b0 zulu-opus-e2 proceeding - 40
+esc_lead_row stop "TEAMMATE ESCALATION — 1 NEW since you were last told, raised by a teammate and not acknowledged.
+  [esc-20261001T120013Z-000e13a0] fixture title (1m old), from zulu-opus-e2, state=proceeding"
+tick 0
+check "E13  one the Stop hook already delivered this session is not told; the other is" \
+    "$( escs | grep -qF '[esc-20261001T120014Z-000e13b0]' && ! escs | grep -qF '000e13a0'; echo $?)" "out=$OUT"
+
+new_state e10; esc_ledger e10; esc_lead e10
+esc_raise esc-20261001T120015Z-000e10a0 isaac-opus-d3cfix proceeding - 30
+( STALL_WATCH_POLL_SECONDS=1 exec bash "$SW" --monitor >"$SB/e10.out" 2>"$SB/e10.err" ) &
+E10MON=$!; PIDS+=("$E10MON")
+wait_for 15 grep -q '^ESCALATION-WATCH' "$SB/e10.out"
+sleep 3.5
+kill "$E10MON" 2>/dev/null
+check "E10  END TO END: --monitor tells it once over several looks" \
+    "$( [ "$(grep -c '^ESCALATION-WATCH' "$SB/e10.out" || true)" -eq 1 ] && grep -qF '[esc-20261001T120015Z-000e10a0]' "$SB/e10.out"; echo $?)" \
+    "out=$(cat "$SB/e10.out") err=$(cat "$SB/e10.err")"
+new_state e14; esc_ledger e14
+# The real locator, not the override: <projects>/*/<session id>.jsonl.
+export STALL_WATCH_LEAD_TRANSCRIPT="$RICHOS_PROJECTS_DIR/fixture-project/$SID.jsonl"
+: >"$STALL_WATCH_LEAD_TRANSCRIPT"
+esc_lead_row stop "TEAMMATE ESCALATION — 1 NEW since you were last told, raised by a teammate and not acknowledged.
+  [esc-20261001T120016Z-000e14a0] fixture title (1m old), from zulu-opus-e2, state=proceeding"
+unset STALL_WATCH_LEAD_TRANSCRIPT
+esc_raise esc-20261001T120016Z-000e14a0 zulu-opus-e2 proceeding - 50
+esc_raise esc-20261001T120017Z-000e14b0 zulu-opus-e2 proceeding - 40
+tick 0
+check "E14  the lead's transcript is found by session id under the projects directory (no override)" \
+    "$( escs | grep -qF '[esc-20261001T120017Z-000e14b0]' && ! escs | grep -qF '000e14a0'; echo $?)" "out=$OUT"
+unset STALL_WATCH_LEAD_TRANSCRIPT STALL_WATCH_SESSION_START
+export RICHOS_ESCALATION_LEDGER="$SB/escalations.jsonl"
 
 # --- M: the monitor end to end --------------------------------------------------
 SESS2="$(spawn_sleeper)"; PIDS+=("$SESS2")

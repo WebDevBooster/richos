@@ -282,9 +282,17 @@ chmod +x "$ENG/scripts/hooks/notice-escalations.sh" "$ENG/scripts/hooks/session-
 cp "$ENGINE_ROOT/scripts/escalate.sh" "$ENG/scripts/"
 chmod +x "$ENG/scripts/escalate.sh"
 for l in escalations.py escalations.sh resolve-roots.sh resolve-main-checkout.sh \
-         seat-jurisdiction.sh stop-hook-notice.sh; do
+         seat-jurisdiction.sh stop-hook-notice.sh audit-report-watch.py; do
     cp "$SRC_DIR/../lib/$l" "$ENG/scripts/lib/$l" 2>/dev/null || true
 done
+# The Stop hook runs audit-report-watch.py before it reads the ledger (eefae0cef).
+# Without its copy here every Stop-hook case read "AUDIT REPORT WATCH FAILED"
+# instead of the escalation line (15 cases red from 2026-09-30). It is pointed at
+# a record repository that does not exist, so it watches nothing and raises
+# nothing, and its state stays in the sandbox: never the operator's richos-hq or
+# ~/.claude/state/audit-report-watch.
+export RICHOS_AUDIT_RECORD_REPO="$SANDBOX/no-audit-record-repo"
+export RICHOS_AUDIT_WATCH_STATE="$SANDBOX/state/audit-report-watch"
 # The adoption marker. Without it every hook here stands down, and a suite that
 # ran against a stood-down engine would be green over nothing at all.
 printf 'PROTECTED_PATHS="app"\n' > "$ENG/orchestration.config"
@@ -919,6 +927,73 @@ case "$OUT" in
     *"raise --fields"*"Write tool"*|*"WRITE TOOL"*"raise --fields"*) ok "18i --help teaches the file form and why" ;;
     *) bad "18i help teaches --fields" "help text does not show 'raise --fields' with the Write tool" ;;
 esac
+
+# ===========================================================================
+# 19. needs: ceo-hands — WHOSE HANDS, which `for` cannot say (2026-10-01).
+#     (Numbered 19 but run here, so case 17's canary watches it.)
+#
+# On 2026-10-01 a teammate's question that needed the CEO at the test iPhone
+# was `for: lead`, rightly: the lead fetches him. `for` names whose DECISION it
+# is; nothing named whose HANDS. The stall watcher tells a `needs: ceo-hands`
+# escalation first and every 10 minutes, so the field must arrive exactly, and
+# any other value must be refused rather than stored as a word nobody reads.
+# ===========================================================================
+L19="$SANDBOX/state/needs.jsonl"
+WT19="$SANDBOX/wt19"
+mkdir -p "$WT19/docs"
+rows19() { [ -f "$L19" ] && grep -c . "$L19" || printf '0'; }
+printf '%s' '{"title": "the test iPhone will ask for Touch ID at the phone", "state": "proceeding", "for": "lead", "needs": "ceo-hands", "question": "Can the CEO be at the test iPhone within the next ten minutes?"}' > "$SANDBOX/esc19.json"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L19" "$ESCALATE" raise --fields "$SANDBOX/esc19.json" \
+        --worktree "$WT19" --teammate zach-opus-e1needs --no-record 2>&1)"
+RC=$?
+NEEDS19="$(python3 -c 'import json,sys; r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; print(r[-1].get("needs",""))' "$L19" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ "$NEEDS19" = "ceo-hands" ]; then
+    ok "19a a fields file with \"needs\": \"ceo-hands\" raises, and the row carries needs=ceo-hands"
+else bad "19a needs from the fields file" "rc=$RC needs='$NEEDS19': $OUT"; fi
+N19="$(rows19)"
+printf '%s' '{"title": "t19b", "state": "proceeding", "needs": "ceo", "question": "a question long enough to pass the floor"}' > "$SANDBOX/esc19-bad.json"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L19" "$ESCALATE" raise --fields "$SANDBOX/esc19-bad.json" \
+        --worktree "$WT19" --teammate zach-opus-e1needs --no-record 2>&1)"
+RC=$?
+if [ "$RC" -eq 2 ] && [ "$(rows19)" = "$N19" ] && printf '%s' "$OUT" | grep -qF "needs must be"; then
+    ok "19b any other needs value is refused (exit 2), nothing appended"
+else bad "19b needs vocabulary" "rc=$RC rows $N19 -> $(rows19): $OUT"; fi
+OUT="$(RICHOS_ESCALATION_LEDGER="$L19" "$ESCALATE" raise --title "t19c by option" --state stopped \
+        --question "a question long enough to pass the floor" --needs ceo-hands \
+        --worktree "$WT19" --teammate zach-opus-e1needs --no-record 2>&1)"
+RC=$?
+NEEDS19="$(python3 -c 'import json,sys; r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; print(r[-1].get("needs",""), r[-1].get("title",""))' "$L19" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ "$NEEDS19" = "ceo-hands t19c by option" ]; then
+    ok "19c --needs ceo-hands on the command line does the same"
+else bad "19c --needs option" "rc=$RC got '$NEEDS19': $OUT"; fi
+CTX19="$(RICHOS_ESCALATION_LEDGER="$L19" python3 "$ENG/scripts/lib/escalations.py" list --format session-context 2>&1)"
+if printf '%s' "$CTX19" | grep -qF "NEEDS THE CEO AT A DEVICE"; then
+    ok "19d the lead's model reads it: the entry says NEEDS THE CEO AT A DEVICE"
+else bad "19d needs in model_entry" "$CTX19"; fi
+printf '%s' '{"title": "t19e", "state": "proceeding", "question": "a question long enough to pass the floor"}' > "$SANDBOX/esc19-none.json"
+OUT="$(RICHOS_ESCALATION_LEDGER="$L19" "$ESCALATE" raise --fields "$SANDBOX/esc19-none.json" \
+        --worktree "$WT19" --teammate zach-opus-e1needs --no-record 2>&1)"
+RC=$?
+HAS19="$(python3 -c 'import json,sys; r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()]; print("needs" in r[-1])' "$L19" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && [ "$HAS19" = "False" ]; then
+    ok "19e without needs nothing changes: the row carries no needs key"
+else bad "19e no needs" "rc=$RC has_needs=$HAS19: $OUT"; fi
+
+# ===========================================================================
+# 20. THE DELIVERY UNIT CASES RUN HERE (2026-10-01).
+#     scripts/lib/escalations-delivery.test.py holds the cases that need host
+#     transcript rows (P5-37's host cap; D01-D07, what the stall watcher's
+#     wake already put in front of the model). No suite named it, so none of
+#     them ran in any build: proof-for.sh refused the change that added D01
+#     with "named by NO suite". It writes only under its own temporary
+#     directories, and it runs inside case 17's canary window.
+# ===========================================================================
+OUT="$(python3 "$SRC_DIR/../lib/escalations-delivery.test.py" 2>&1)"
+RC=$?
+say "20 escalations-delivery.test.py" "$OUT"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^OK'; then
+    ok "20  escalations-delivery.test.py: $(printf '%s\n' "$OUT" | grep -m1 '^Ran ')"
+else bad "20  escalations-delivery.test.py" "rc=$RC: $(printf '%s' "$OUT" | tail -20)"; fi
 
 # ===========================================================================
 # 16. SOURCE MUTATION — is the LOUDNESS carried by the age buckets, or by luck?

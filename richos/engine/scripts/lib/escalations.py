@@ -187,9 +187,18 @@ import re
 import sys
 from datetime import datetime, timezone
 
-# --- the two closed vocabularies ------------------------------------------
+# --- the closed vocabularies -----------------------------------------------
 STATES = ("work-complete", "proceeding", "stopped")
 AUDIENCES = ("lead", "ceo")
+# `needs` (2026-10-01): WHOSE HANDS the answer takes, which `for` cannot say.
+# On 2026-10-01 three escalations that needed the CEO physically at the test
+# iPhone were all `for: lead`, rightly: the lead fetches him. One value, closed:
+# `ceo-hands` means the answer needs the CEO AT A DEVICE (an approval, Touch ID,
+# a passcode, a login, a cable). The stall watcher tells such an escalation
+# first and every 10 minutes (stall_watch.py, ESCALATION). Optional: absent is
+# the ordinary case, and a row without it is exactly as before.
+NEEDS = ("ceo-hands",)
+NEEDS_GLOSS = {"ceo-hands": "NEEDS THE CEO AT A DEVICE (an approval, Touch ID, a passcode, a login, a cable)"}
 
 # Minutes. See the header: one median run segment, one day, past the incident.
 AGE_BUCKETS = ((72 * 60, "72h"), (24 * 60, "24h"), (60, "1h"), (0, "new"))
@@ -444,7 +453,7 @@ def build_row(args, when=None):
     teammate = (args.teammate or "").strip()
     title = (args.title or "").strip()
     worktree = os.path.abspath(os.path.expanduser(args.worktree)) if args.worktree else ""
-    return {
+    row = {
         "event": "Escalation",
         "id": make_id(when, teammate, title, worktree),
         "raised": iso(when),
@@ -463,6 +472,11 @@ def build_row(args, when=None):
         "session_id": (args.session or os.environ.get("CLAUDE_SESSION_ID", "") or "").strip(),
         "actor": _actor(),
     }
+    needs = (getattr(args, "needs", "") or "").strip()
+    if needs:
+        # Only when given: a row without it is exactly the row it always was.
+        row["needs"] = needs
+    return row
 
 
 def validate_raise(args):
@@ -478,6 +492,12 @@ def validate_raise(args):
             "teaches teammates not to raise them." % " ".join(STATES))
     if args.audience not in AUDIENCES:
         problems.append("--for must be one of: %s" % " ".join(AUDIENCES))
+    needs = (getattr(args, "needs", "") or "").strip()
+    if needs and needs not in NEEDS:
+        problems.append(
+            "--needs must be one of: %s, or left out. It says the answer needs the CEO "
+            "physically at a device; any other word would be stored and read by nothing."
+            % " ".join(NEEDS))
     q = (args.question or "").strip()
     if len(q) < MIN_QUESTION:
         problems.append(
@@ -513,6 +533,8 @@ def render_text(rows, bad, now=None):
         out.append("  state    : %s — %s"
                    % (e.get("state", ""), STATE_GLOSS.get(e.get("state", ""), "")))
         out.append("  for      : %s" % e.get("for", "lead"))
+        if e.get("needs"):
+            out.append("  needs    : %s — %s" % (e["needs"], NEEDS_GLOSS.get(e["needs"], "")))
         out.append("  title    : %s" % e.get("title", ""))
         out.append("  question : %s" % e.get("question", ""))
         if e.get("tried"):
@@ -585,10 +607,16 @@ def model_entry(e):
     Shared by the SessionStart block and the turn-end delivery, so the lead
     reads an escalation the same way whichever of the two brought it.
     """
-    return ("  [%s] %s (%s), from %s, state=%s (%s), for=%s. QUESTION: %s%s%s"
-            % (e["id"], e.get("title", ""), age_phrase(e.get("age_min")),
+    needs = e.get("needs") or ""
+    # The head is the DELIVERY KEY, not the bare id (2026-10-01): an escalation
+    # reopened by an expired ack reads `[esc-…@reopened:<until>]`, so every reader
+    # of the transcript (reached_scan) can tell the reopened item from the one
+    # the lead was told about before. For every other escalation key == id.
+    return ("  [%s] %s (%s), from %s, state=%s (%s), for=%s%s. QUESTION: %s%s%s"
+            % (delivery_key(e), e.get("title", ""), age_phrase(e.get("age_min")),
                e.get("teammate") or "<unnamed>", e.get("state", ""),
                STATE_GLOSS.get(e.get("state", ""), ""), e.get("for", "lead"),
+               (", needs=%s: %s" % (needs, NEEDS_GLOSS.get(needs, needs))) if needs else "",
                e.get("question", ""),
                (" TRIED: %s" % e["tried"]) if e.get("tried") else "",
                (" MEANWHILE: %s" % e["meanwhile"]) if e.get("meanwhile") else ""))
@@ -739,54 +767,171 @@ def visible_context(text):
     return text
 
 
-def session_start_ids(transcript, offset=0):
-    """Ids the SessionStart escalation block put in front of the model.
+# ---------------------------------------------------------------------------
+# WHAT HAS ALREADY REACHED THE LEAD'S MODEL — one answer, two readers
+# ---------------------------------------------------------------------------
+# 2026-10-01: a teammate's question that needed the CEO at the test iPhone sat
+# 82 minutes because nothing woke the idle lead (richos-hq docs/operations/
+# 2026-10-01-escalation-wakes-the-lead.md). The stall watcher now wakes it
+# (stall_watch.py, ESCALATION), so TWO readers decide "has the model been told
+# about this escalation?": that monitor, and the Stop-hook delivery below. They
+# must answer it the same way, or the lead is told twice or not at all. This is
+# that one answer. It is READ-ONLY and keeps no state of its own: each reader
+# keeps its own byte offset, and only the Stop hook writes its memory file (two
+# writers of one unlocked JSON file would lose each other's updates; Sage's
+# review of the design, item 6c, richos-hq 8ba32b71).
+#
+# THE HOST'S TRANSCRIPT IS THE WITNESS. A key counts as reached when it appears
+# in one of three host rows, and in nothing else:
+#
+#   1. the SessionStart escalation block: the `hook_success` attachment of
+#      session-start-escalations.sh, only the part the host showed the model
+#      (visible_context: the 10,000-character cap).
+#   2. a Stop-hook delivery: a `hook_additional_context` attachment of the Stop
+#      event whose item starts "TEAMMATE ESCALATION".
+#   3. a monitor event from the stall watcher, in EXACTLY the host's own
+#      envelope: `<task-notification>…<summary>Monitor event: …</summary>
+#      <event>ESCALATION-WATCH …</event>`, as a `user` row (an idle lead woken)
+#      or a `queued_command` attachment (delivered mid-turn). Measured: all 170
+#      monitor events in 10 lead transcripts arrived in one of those two shapes.
+#      NEVER a `queue-operation` row: the host writes the enqueue before the
+#      model sees anything, and a lead blocked in AskUserQuestion has an enqueue
+#      it has not read. NEVER a teammate's completion row that quotes a block:
+#      its summary is "Agent … finished", not "Monitor event:" (Sage, items 1-2).
+#      Only keys inside the ESCALATION-WATCH section count, read from entry heads.
+#
+# KEYS, NOT IDS. Everything is keyed on delivery_key(e): an escalation reopened
+# by an expired ack is `<id>@reopened:<until>`, so being told about the first
+# opening never counts as being told about the reopening (Sage, item 3).
+WATCH_MARKER = "ESCALATION-WATCH"
+MONITOR_SUMMARY = "Monitor event:"
+STOP_DELIVERY_MARKER = "TEAMMATE ESCALATION"
+KEY_RX = re.compile(r"\[(esc-\d{8}T\d{6}Z-[0-9a-f]{8}(?:@reopened:[^\]\s]+)?)\]")
+_SUMMARY_RX = re.compile(r"<summary>(.*?)</summary>", re.S)
+_EVENT_RX = re.compile(r"<event>(.*?)</event>", re.S)
 
-    Scans the transcript from byte `offset` and returns (ids, new_offset). Only
-    COMPLETE lines are consumed, so a line the host is still writing is read on
-    the next call. A transcript that is missing or unreadable yields no ids,
-    which makes every outstanding escalation NEW — the noisy direction, once.
+
+def _keys_in(text):
+    """Delivery keys at entry heads (`[esc-…]`), plus every bare id the text
+    names. A bare id counts only for an escalation that was not reopened (see
+    has_reached), which is exactly what the old id-only reading counted."""
+    text = text or ""
+    return set(KEY_RX.findall(text)) | set(ID_RX.findall(text))
+
+
+def monitor_event_keys(text):
+    """The delivery keys one host row's text carried as an ESCALATION-WATCH
+    monitor event, or an empty set when it is anything else."""
+    if not text or WATCH_MARKER not in text:
+        return set()
+    body = text.lstrip()
+    if not body.startswith("<task-notification>"):
+        return set()
+    summary = _SUMMARY_RX.search(body)
+    if not summary or not summary.group(1).strip().startswith(MONITOR_SUMMARY):
+        return set()
+    keys = set()
+    for event in _EVENT_RX.findall(body):
+        event = event.strip()
+        if not event.startswith(WATCH_MARKER):
+            continue
+        for line in event.splitlines():
+            line = line.strip()
+            if line.startswith("STALL-WATCH") or line.startswith("STALL-CLEARED"):
+                break                    # the stall half of the same look
+            head = KEY_RX.match(line)
+            if head:
+                keys.add(head.group(1))
+    return keys
+
+
+def reached_scan(transcript, offset=0):
+    """Scan the host transcript from byte `offset` for the three rows above.
+
+    Returns ({"session_start": keys, "stop": keys, "monitor": keys}, new_offset,
+    readable). Only COMPLETE lines are consumed, so a line the host is still
+    writing is read on the next call. A missing transcript is readable and
+    empty (no turn has been recorded yet); a transcript that exists and cannot
+    be read is NOT empty, and says so through `readable` (Sage, item 6b).
     """
-    ids = set()
+    found = {"session_start": set(), "stop": set(), "monitor": set()}
     if not transcript:
-        return ids, offset
+        return found, offset, True
     try:
         size = os.path.getsize(transcript)
+    except FileNotFoundError:
+        return found, offset, True
     except Exception:
-        return ids, offset
+        return found, offset, False
     if offset > size:
         offset = 0
-    marker = SESSION_START_HOOK.encode("utf-8")
+    markers = (SESSION_START_HOOK.encode("utf-8"), STOP_DELIVERY_MARKER.encode("utf-8"),
+               WATCH_MARKER.encode("utf-8"))
+    pos = offset
     try:
         with open(transcript, "rb") as fh:
             fh.seek(offset)
-            pos = offset
             for raw in fh:
                 if not raw.endswith(b"\n"):
                     break
                 pos += len(raw)
-                if marker not in raw:
+                if not any(m in raw for m in markers):
                     continue
                 try:
                     d = json.loads(raw.decode("utf-8", "replace"))
                 except Exception:
                     continue
-                att = d.get("attachment") if isinstance(d, dict) else None
-                if not isinstance(att, dict):
+                if not isinstance(d, dict):
                     continue
-                if att.get("hookEvent") != "SessionStart":
+                kind = d.get("type")
+                att = d.get("attachment")
+                if kind == "user":
+                    msg = d.get("message")
+                    content = msg.get("content") if isinstance(msg, dict) else None
+                    if isinstance(content, str):
+                        found["monitor"] |= monitor_event_keys(content)
                     continue
-                if SESSION_START_HOOK not in str(att.get("command") or ""):
-                    continue
-                try:
-                    out = json.loads(att.get("stdout") or "")
-                    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-                except Exception:
-                    continue
-                ids.update(ID_RX.findall(visible_context(str(ctx))))
+                if kind != "attachment" or not isinstance(att, dict):
+                    continue            # queue-operation and everything else: never
+                atype = att.get("type")
+                if atype == "queued_command":
+                    found["monitor"] |= monitor_event_keys(str(att.get("prompt") or ""))
+                elif (atype == "hook_success" and att.get("hookEvent") == "SessionStart"
+                      and SESSION_START_HOOK in str(att.get("command") or "")):
+                    try:
+                        out = json.loads(att.get("stdout") or "")
+                        ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+                    except Exception:
+                        continue
+                    found["session_start"] |= _keys_in(visible_context(str(ctx)))
+                elif atype == "hook_additional_context" and att.get("hookEvent") == "Stop":
+                    items = att.get("content")
+                    for item in (items if isinstance(items, list) else [items]):
+                        if isinstance(item, str) and item.startswith(STOP_DELIVERY_MARKER):
+                            found["stop"] |= _keys_in(item)
     except Exception:
-        return ids, offset
-    return ids, pos
+        return found, offset, False
+    return found, pos, True
+
+
+def has_reached(e, baseline, delivered):
+    """Has this outstanding escalation already reached the lead's model?
+
+    `baseline` holds what the SessionStart block showed, `delivered` what a
+    Stop delivery or a monitor event carried (sets of keys and ids). An
+    escalation reopened by an expired ack has reached it only under its own
+    reopened key: the first opening told the lead about a different thing."""
+    key = delivery_key(e)
+    if key in delivered or key in baseline:
+        return True
+    return e["id"] in baseline and not e.get("reopened_by_expiry")
+
+
+def session_start_ids(transcript, offset=0):
+    """Ids the SessionStart escalation block put in front of the model, and the
+    new offset. Kept for its callers; the reading is reached_scan's."""
+    found, pos, _readable = reached_scan(transcript, offset)
+    return found["session_start"], pos
 
 
 def render_delivery(new, already):
@@ -861,14 +1006,17 @@ def deliver(payload, state_dir, rows, now=None):
     state = _load_state(path)
     if state.get("transcript") != transcript:
         state = {"transcript": transcript, "offset": 0, "baseline": [], "delivered": []}
-    found, offset = session_start_ids(transcript, int(state.get("offset") or 0))
-    baseline = set(state.get("baseline") or []) | found
-    delivered = set(state.get("delivered") or [])
+    found, offset, _readable = reached_scan(transcript, int(state.get("offset") or 0))
+    baseline = set(state.get("baseline") or []) | found["session_start"]
+    # What a monitor event (stall_watch.py's ESCALATION-WATCH) or an earlier
+    # Stop delivery already put in front of the model is delivered: a wake the
+    # monitor caused is not repeated at the end of the turn it started. An
+    # unreadable transcript adds nothing here, which is the noisy direction:
+    # the escalation is delivered (again), never lost.
+    delivered = set(state.get("delivered") or []) | found["monitor"] | found["stop"]
 
     live = outstanding(rows, now)
-    new = [e for e in live
-           if delivery_key(e) not in delivered
-           and not (e["id"] in baseline and not e.get("reopened_by_expiry"))]
+    new = [e for e in live if not has_reached(e, baseline, delivered)]
     already = len(live) - len(new)
     # NEWEST FIRST. Two kinds of "new" share this list: an escalation raised
     # during this session, and an older one the SessionStart block raised but
@@ -1080,7 +1228,7 @@ def cmd_show(args):
 # the caller keeps trailing newlines intact. escalate.sh assigns each value
 # through a fixed case statement: nothing from the file is ever evaluated.
 FIELD_NAMES = ("title", "state", "for", "question", "tried", "meanwhile",
-               "teammate", "worktree", "disposition", "until")
+               "teammate", "worktree", "disposition", "until", "needs")
 FIELDS_MAX_BYTES = 65536
 
 
@@ -1162,6 +1310,8 @@ def main(argv=None):
     r.add_argument("--head", default="")
     r.add_argument("--record", default="")
     r.add_argument("--session", default="")
+    r.add_argument("--needs", default="",
+                   help="ceo-hands when the answer needs the CEO physically at a device")
     r.set_defaults(func=cmd_raise)
 
     a = sub.add_parser("ack")

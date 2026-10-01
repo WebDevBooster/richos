@@ -163,7 +163,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#workspace-copy": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "sha256": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
       "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards. Later changes add registration inventory literals outside the Q copy region only (guard-record-owner-memory.sh, 2026-09-28). Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [],
       "edges": [],
@@ -630,7 +630,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "a5136253a47fd00a8434cc2d37c54e3e6f3518f4149df5052aaa618ee454a077",
+      "sha256": "25e30d7180f1848dfef6653dc16a194806ca44a1dbaf4ec16721b7d79c10be74",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -957,8 +957,8 @@
     },
     "scripts/hooks/guard-ceo-ruled-ask.sh": {
       "source": "scripts/hooks/guard-ceo-ruled-ask.sh",
-      "sha256": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
-      "evidence": "Resolves the governed entity then calls the premise and ruling helpers; all setting reads are in those helpers.",
+      "sha256": "4eb071bae6ed6b143b8eb876a33bb5fdc4f99ea10f4914166fa242686b5199e1",
+      "evidence": "Resolves the governed entity then calls the deaf-lead, premise and ruling helpers; all setting reads are in those helpers. Renewed 2026-10-01: CHECK 0 pipes the payload to scripts/lib/blocking_ask.py check with the resolved entity and engine roots and acts only on its first field.",
       "keys": [],
       "edges": [
         {
@@ -969,6 +969,36 @@
         },
         {
           "to": "scripts/lib/ceo-ruled.sh"
+        },
+        {
+          "to": "scripts/lib/blocking_ask.py"
+        }
+      ]
+    },
+    "scripts/lib/blocking_ask.py": {
+      "source": "scripts/lib/blocking_ask.py",
+      "sha256": "37e0909c1d4ae550d726553c18fec0b6e043ab8b433f6db12be0fa7ba451940f",
+      "evidence": "Standard-library reader of the payload on stdin, the host transcript the payload names, the entity's .claude/state/blocking-ask-exempts.log, and the workspace registry through mega-lander/workspaces.py loaded from the engine root it is given. No orchestration.config key, no subprocess, writes nothing.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/hooks/notice-unanswered-question.sh": {
+      "source": "scripts/hooks/notice-unanswered-question.sh",
+      "sha256": "4f6572b59a8f8a4ad4c5c59e326766d8c23508b0d8effc83764ed51f2ab9a014",
+      "evidence": "Resolves the governed entity (not adopted: silent; root failure: one stop notice), then pipes the Stop payload to scripts/lib/blocking_ask.py unanswered and prints its one JSON line, if any. No configuration read of its own. Renewed 2026-10-01: an empty or unreadable payload is announced through the shared Stop form of scripts/lib/unevaluated-notice.sh and stop-hook-notice.sh before blocking_ask.py runs; no new setting is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resolve-roots.sh#roots"
+        },
+        {
+          "to": "scripts/lib/stop-hook-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/blocking_ask.py"
         }
       ]
     },
@@ -1055,7 +1085,7 @@
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "a5136253a47fd00a8434cc2d37c54e3e6f3518f4149df5052aaa618ee454a077",
+      "sha256": "25e30d7180f1848dfef6653dc16a194806ca44a1dbaf4ec16721b7d79c10be74",
       "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations. Renewed 2026-09-28: ordinary selection also names scripts/verification-inputs.test.sh for a path this same declaration pins (pinned_sources reads the already-loaded declaration only; no new file, setting or subprocess).",
       "keys": [],
       "edges": [
@@ -1080,7 +1110,7 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "b2befac9fb47459b07cf4d7085733158eca0da9eb75cd321eb8fada1ba70655c",
+      "sha256": "2c6c4f64f742d9498606f0720fdb271d7ed7d38e5915ce78269dffa2ac353bc6",
       "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites. Renewed 2026-09-28: the pinned-reader case reads the real declaration and every suite's text as data and adds one synthetic node in memory; nothing is executed.",
       "keys": [],
       "edges": [
@@ -1922,8 +1952,8 @@
     },
     "scripts/hooks/guard-dialect.test.sh": {
       "source": "scripts/hooks/guard-dialect.test.sh",
-      "sha256": "8f59efed91038d553f45c9daba23dfdd9e07328cdacdb00988e48e0070f31835",
-      "evidence": "The default seat is the real engine, so its four downstream config reads remain dependencies. Later entity fixtures override dialect values without removing the default-seat coverage. Registration, installer and vocabulary inventory assertions read source/data. V8-V12 use the parent vendoring registry as data. The finite mutation driver executes the same suite in a copied engine. Added cases pass vocabulary paths as payload data and the source inventory excludes two exact generated fixture paths; no new executable reader.",
+      "sha256": "99e6eb2996d82539d0f160d7d8bf0a1f371f0a92c2eaf4eddaca67b8568ec63e",
+      "evidence": "The default seat is the real engine, so its four downstream config reads remain dependencies. Later entity fixtures override dialect values without removing the default-seat coverage. Registration, installer and vocabulary inventory assertions read source/data. V8-V12 use the parent vendoring registry as data. The finite mutation driver executes the same suite in a copied engine. Added cases pass vocabulary paths as payload data and the source inventory excludes two exact generated fixture paths; no new executable reader. Renewed 2026-10-01: B35 (the malformed payload) is seated on a sandbox copy of the engine's orchestration.config instead of the engine, so its unevaluated-payload log line lands in the sandbox; the same guard and the same config bytes are read.",
       "keys": [],
       "edges": [
         {
@@ -2744,7 +2774,7 @@
     },
     "scripts/hooks/engine-status.test.sh": {
       "source": "scripts/hooks/engine-status.test.sh",
-      "sha256": "56a5918072ec2f9b3333e38e6e8eb664cfb748995ef31295de429d1c070d0015",
+      "sha256": "1196a386f22396e587f7b1458f4b3a3b668b2eea6ce6f0422a76a28a77adf86b",
       "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries. The inventory adds the two failure-type hook basenames as data; those hooks are never executed by this suite. The resource-waits hook basename is another inventory datum, never executed. The guard-record-owner-memory.sh basename (2026-09-28) is another inventory datum, never executed. Renewed 2026-09-28 (stall watcher): one ACKNOWLEDGED_SCRIPTS name (session-start-stall.sh) and its comment; no case changed.",
       "keys": [],
       "edges": [
@@ -4152,7 +4182,7 @@
     },
     "scripts/lib/escalations.py": {
       "source": "scripts/lib/escalations.py",
-      "sha256": "3d49c91cb11003f13ccfbe972496d612da47452f2600802210ae7cc9d9047a5e",
+      "sha256": "b221aa573110d20f2031d76edec1312c3875929e517ced3f631923468729086b",
       "evidence": "All commands read/write JSONL ledger rows and render strings using standard-library code. Ledger, actor and session paths come from explicit arguments/environment; the fields command reads only the JSON file named by --file. No orchestration.config reader, subprocess or engine import.",
       "keys": [],
       "edges": []
@@ -4454,7 +4484,7 @@
     },
     "scripts/escalate.sh": {
       "source": "scripts/escalate.sh",
-      "sha256": "a3d891782e92bb1b4019788ebdb4c72b02f39fefc24262d523b03c6995a68405",
+      "sha256": "9f9de4d2efea2703c9e6fd0ff7f9c3479c5cb15fc6e0df7ec58ae4a8339616f0",
       "evidence": "Fixed escalations library/Python calls with argument values; an optional --fields file is validated by escalations.py and each value is assigned through a fixed case statement, never evaluated. Git reads derive record identity. Output markdown, actor strings and record paths are data. No orchestration config or manifest is read.",
       "keys": [],
       "edges": [
@@ -4496,8 +4526,8 @@
     },
     "scripts/hooks/escalations.test.sh": {
       "source": "scripts/hooks/escalations.test.sh",
-      "sha256": "b538adf053f6c499d8d0a0d46e3a54ff62e5ee50b6a65804d4d710c7717cc256",
-      "evidence": "Builds a private engine with literal PROTECTED_PATHS config, fixed hooks/libraries and private ledgers. All commands target these copies. Finite inline Python mutations replace a predicate or age buckets and invoke the same hooks. The leak canary reads real Git/file metadata as data; neither real config contents nor hook manifest is read.",
+      "sha256": "ae981a7f390c33dc2c31521e33d4290e1f8164a143cadbb3a23a063e1e332d08",
+      "evidence": "Builds a private engine with literal PROTECTED_PATHS config, fixed hooks/libraries and private ledgers. All commands target these copies. Finite inline Python mutations replace a predicate or age buckets and invoke the same hooks. The leak canary reads real Git/file metadata as data; neither real config contents nor hook manifest is read. Renewed 2026-10-01: the sandbox also copies audit-report-watch.py (the Stop hook runs it) and points it, through RICHOS_AUDIT_RECORD_REPO and RICHOS_AUDIT_WATCH_STATE, at a record repository that does not exist and a sandbox state directory, so it reads and raises nothing.",
       "keys": [],
       "edges": [
         {
@@ -5053,7 +5083,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#seated-fixture": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "sha256": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
       "evidence": "Reviewed seated route and its shared R/AL/MT/MC/OF functions. The contract template keeps engine and entity in the same repository, including its linked-worktree case; the by-reference branch is unreachable. Parsed registration commands and sidecar inventories are data except the fixed canonical canary guards listed here. The test only replaces the write guard with literal inert shims or another copy of that same guard. q_hook has four fixed hook names; registry calls are integration/lifecycle. Q transports the fixture config. OF status and EP remain dependencies even when absent or undeclared in the generated fixture. The engine-status edge conservatively retains the literal execute floor outside this seated route. Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [
         "PROTECTED_PATHS",
@@ -6978,7 +7008,7 @@
     },
     "hooks/hooks.json#stop-visibility-inventory": {
       "source": "hooks/hooks.json",
-      "sha256": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+      "sha256": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
       "evidence": "Binds the dynamically enumerated Stop script inventory for config selection. A new or changed manifest needs requalification before these fixture closures can exclude a config change. Renewed 2026-09-28 (stall watcher): one SessionStart row added (session-start-stall.sh); no PreToolUse or Stop row changed.",
       "keys": [],
       "edges": []
@@ -7524,8 +7554,8 @@
     },
     "scripts/hooks/waiver-repetition.mutation.sh": {
       "source": "scripts/hooks/waiver-repetition.mutation.sh",
-      "sha256": "c8fb7ba4752d91156d839f7fe81e8f2fa8120968793c60d72a79c1fbf16d5f15",
-      "evidence": "Full driver creates minimal engine copies, retains hooks JSON then executes one control and finite literal mutants with INNER=1. No orchestration config is copied. Source replacements alter verdicts, grouping, notices and registration; no additional executed target is introduced.",
+      "sha256": "3d429bdd454539d5becbf6404d9f52adedf671e062ee22eddf9430a8c5d65337",
+      "evidence": "Full driver creates minimal engine copies, retains hooks JSON then executes one control and finite literal mutants with INNER=1. No orchestration config is copied. Source replacements alter verdicts, grouping, notices and registration; no additional executed target is introduced. Renewed 2026-10-01: the sandbox is allocated by sourcing scripts/lib/scratch.sh before anything is copied; the driver never sources a config and passes only the environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
         {
@@ -7536,13 +7566,17 @@
         },
         {
           "to": "scripts/lib/mutation-pool.sh"
+        },
+        {
+          "to": "scripts/lib/scratch.sh",
+          "fixture": true
         }
       ]
     },
     "scripts/hooks/waiver-repetition.test.sh": {
       "source": "scripts/hooks/waiver-repetition.test.sh",
-      "sha256": "c578cf2fb01c66c1d45607f90abbd5cd74089488d3c6f4b1a6e17753fb5a7e04",
-      "evidence": "Full suite creates literal entity config, fake source guards and private ledgers under isolated CLAUDE_CONFIG_DIR. The fake guard source is analyzer data, never executed. Real hooks JSON is grep-checked for notice-waiver-repetition.sh. Nested fixed driver preserves the same fixture-only config obligations.",
+      "sha256": "f39df3a82c34246ee8c989b43c9dfa62f131bd4150992f4d4cd5dfac1fa2f3cb",
+      "evidence": "Full suite creates literal entity config, fake source guards and private ledgers under isolated CLAUDE_CONFIG_DIR. The fake guard source is analyzer data, never executed. Real hooks JSON is grep-checked for notice-waiver-repetition.sh. Nested fixed driver preserves the same fixture-only config obligations. Renewed 2026-10-01: RICHOS_ENTITY_ROOT and CLAUDE_PROJECT_DIR are unset and case 17 runs the hook from its unadopted directory, so no case can resolve the real engine as its entity; no new reader.",
       "keys": [],
       "edges": [
         {
@@ -8137,8 +8171,8 @@
     },
     "scripts/hooks/guard-vendoring-commits.test.sh": {
       "source": "scripts/hooks/guard-vendoring-commits.test.sh",
-      "sha256": "68fa73e66007fa4ea272dcdedceeabb579215df2b0becb8a664661ccb6326f5c",
-      "evidence": "Full suite creates private Git repos and literal vendoring registries with hooks disabled. It explicitly resolves real engine adoption without sourcing config, checks the shipped vendoring declaration and tracked inventory as data and verifies only its own registration. Direct library sourcing uses unsourced defaults. Nested finite mutants repeat these paths, omitting only the shipped-tree data section.",
+      "sha256": "aa2ff832bc06cf257f9559305bcd2c09cc8002ca7ad0803c47fa19431e903893",
+      "evidence": "Full suite creates private Git repos and literal vendoring registries with hooks disabled. It explicitly resolves real engine adoption without sourcing config, checks the shipped vendoring declaration and tracked inventory as data and verifies only its own registration. Direct library sourcing uses unsourced defaults. Nested finite mutants repeat these paths, omitting only the shipped-tree data section. Renewed 2026-10-01: C9 (the unparseable payload) is seated on a sandbox copy of the engine's orchestration.config, so its unevaluated-payload log line lands in the sandbox; the same guard and config bytes are read.",
       "keys": [],
       "edges": [
         {
@@ -10105,7 +10139,7 @@
     },
     "hooks/hooks.json#pre-stop-fixtures": {
       "source": "hooks/hooks.json",
-      "sha256": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+      "sha256": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
       "evidence": "Binds the dynamically enumerated PreToolUse/Stop inventory and matcher selection. New inventory bytes require requalification before excluding a config edit. Renewed 2026-09-28 (stall watcher): one SessionStart row added (session-start-stall.sh); no PreToolUse or Stop row changed.",
       "keys": [],
       "edges": []
@@ -11085,7 +11119,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+      "sha256": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
       "evidence": "Entire by-reference branch and shared R/AL/MT/MC functions reviewed. Plugin/role/marketplace/registration rows are inspected as data. Actual execution is engine-status, the fixed BR9 worktree-isolation canary and the shared model/liveness canaries. Literal fixture shims introduce no additional reader. The shared whole-source contract retains the seated helper floor, but the branch returns before seated runtime checks. Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed.",
       "keys": [
         "PROTECTED_PATHS",
@@ -15300,12 +15334,15 @@
     },
     "scripts/lib/stall_watch.py#notice": {
       "source": "scripts/lib/stall_watch.py",
-      "sha256": "e93b291604af1b017126cbffc75b4eba5f301629db0dd3973a42bf587d492e9d",
-      "evidence": "--notice parses arguments and prints fixed text; its numbers are this file's constants or the STALL_WATCH_* and RICHOS_RESOURCE_WAIT_MINUTES environment overrides. It returns before the registry, the slot line or the CPU sampler is loaded. The module imports resource_waits.py, which reads no configuration at import.",
+      "sha256": "5e8a2a62e853843e945bd545ad8dc998b115b57035608f0b2c51d6f925f3317c",
+      "evidence": "--notice parses arguments and prints fixed text; its numbers are this file's constants or the STALL_WATCH_* and RICHOS_RESOURCE_WAIT_MINUTES environment overrides. It returns before the registry, the slot line or the CPU sampler is loaded. The module imports resource_waits.py, which reads no configuration at import. Renewed 2026-10-01: the module also imports escalations.py (the ESCALATION watch), which reads no configuration at import; --notice prints fixed text about it and reads neither the ledger nor any transcript.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/lib/resource_waits.py"
+        },
+        {
+          "to": "scripts/lib/escalations.py"
         }
       ]
     },
@@ -15600,7 +15637,7 @@
       ],
       "sources": {
         "scripts/hooks/ceo-ruled.test.sh": "e135b5b7c3ad3cf859acaa38ced4c58e973e5df651315f1147fd4483f1e30c0d",
-        "scripts/hooks/guard-ceo-ruled-ask.sh": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
+        "scripts/hooks/guard-ceo-ruled-ask.sh": "4eb071bae6ed6b143b8eb876a33bb5fdc4f99ea10f4914166fa242686b5199e1",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
@@ -15705,7 +15742,7 @@
         "scripts/hooks/snapshot-agent-definitions.sh": "51f92567f9daaa9bacd37082d0cd30beba284b3149714c8a45f945738d6ebaff",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
-        "scripts/lib/escalations.py": "3d49c91cb11003f13ccfbe972496d612da47452f2600802210ae7cc9d9047a5e",
+        "scripts/lib/escalations.py": "b221aa573110d20f2031d76edec1312c3875929e517ced3f631923468729086b",
         "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
@@ -15781,7 +15818,7 @@
         "scripts/hooks/session-start-stdin.test.sh": "7fe7fa956e36b6d93e4ed748fd4c57a96199cbde01bbce0d12567513d2fecd5f",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
-        "scripts/lib/escalations.py": "3d49c91cb11003f13ccfbe972496d612da47452f2600802210ae7cc9d9047a5e",
+        "scripts/lib/escalations.py": "b221aa573110d20f2031d76edec1312c3875929e517ced3f631923468729086b",
         "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
@@ -15827,7 +15864,7 @@
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
         "scripts/hooks/claim-roles.mutation.sh": "e20d4194ed09142931ad32ba5e5f09b12a3b0348fb8165c78f94a386eb352196",
         "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
-        "scripts/hooks/contract-integrity-probe.sh": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+        "scripts/hooks/contract-integrity-probe.sh": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
         "scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
@@ -15941,7 +15978,7 @@
         "scripts/scratch-sweep.sh": "4397e3931381098d17ba2cedc5415bfcb7baaaf8d0c6fe05bffa000826b45e62",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
-        "hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+        "hooks/hooks.json": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
         "scripts/hooks/commit-ceo-inputs.sh": "9e4a0af9cd1ea89110261baacdae395dc40543061a4f17740467c5a492598962",
         "scripts/hooks/commit-ceo-inputs.py": "940e38e35651f22a012df8cd3a18ecbd92bf728a6b48084a3d797f1f3982045e",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
@@ -15959,7 +15996,7 @@
         "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
         "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
-        "scripts/hooks/guard-ceo-ruled-ask.sh": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
+        "scripts/hooks/guard-ceo-ruled-ask.sh": "4eb071bae6ed6b143b8eb876a33bb5fdc4f99ea10f4914166fa242686b5199e1",
         "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
         "scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
@@ -15988,9 +16025,9 @@
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/ci-status.sh": "cdc53d28b1814b1e53d6fe9debf95b4a72d361a34e650da60f53ac19462ff3b6",
         "scripts/lib/ci-surface.py": "57038d01ac4b4e2ffbf5aeb7b755effdcf82c1d12f0b880b4df2a545cd392700",
-        "scripts/escalate.sh": "a3d891782e92bb1b4019788ebdb4c72b02f39fefc24262d523b03c6995a68405",
+        "scripts/escalate.sh": "9f9de4d2efea2703c9e6fd0ff7f9c3479c5cb15fc6e0df7ec58ae4a8339616f0",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
-        "scripts/lib/escalations.py": "3d49c91cb11003f13ccfbe972496d612da47452f2600802210ae7cc9d9047a5e",
+        "scripts/lib/escalations.py": "b221aa573110d20f2031d76edec1312c3875929e517ced3f631923468729086b",
         "scripts/owned-state-checks/staging-current.sh": "f1de2edf6f6a329bbcf0a8684bf998cad00f26d6f09ff79edc0538957ba677e9",
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
         "scripts/owned-state-checks/registered-executables.py": "cc79f6eed01ccc73a862f201bfae2257d7f36e305c183a6d3095a3a2b6202421",
@@ -16332,14 +16369,14 @@
       ],
       "evidence": "Suite greps the raw hooks JSON for this literal script name; the nested mutation renames that registration. Binds every copied/executed helper and the driver.",
       "sources": {
-        "scripts/hooks/waiver-repetition.test.sh": "c578cf2fb01c66c1d45607f90abbd5cd74089488d3c6f4b1a6e17753fb5a7e04",
+        "scripts/hooks/waiver-repetition.test.sh": "f39df3a82c34246ee8c989b43c9dfa62f131bd4150992f4d4cd5dfac1fa2f3cb",
         "scripts/hooks/notice-waiver-repetition.sh": "db7a0e6b1e6a2603d93955f5624de15dd5a010112049f898c6dbb4379b7ce6e7",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/hooks/notice-waiver-repetition.py": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
         "scripts/waiver-repetition-lint.sh": "03bba7c566c0b3348d91badad662f240b2da1085c80291bc34765418ce88adb0",
-        "scripts/hooks/waiver-repetition.mutation.sh": "c8fb7ba4752d91156d839f7fe81e8f2fa8120968793c60d72a79c1fbf16d5f15",
+        "scripts/hooks/waiver-repetition.mutation.sh": "3d429bdd454539d5becbf6404d9f52adedf671e062ee22eddf9430a8c5d65337",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -16356,7 +16393,7 @@
         "scripts/hooks/guard-vendoring-commits.sh"
       ],
       "sources": {
-        "scripts/hooks/guard-vendoring-commits.test.sh": "68fa73e66007fa4ea272dcdedceeabb579215df2b0becb8a664661ccb6326f5c",
+        "scripts/hooks/guard-vendoring-commits.test.sh": "aa2ff832bc06cf257f9559305bcd2c09cc8002ca7ad0803c47fa19431e903893",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -16561,7 +16598,7 @@
       "sources": {
         "scripts/hooks/unevaluated-payload.test.sh": "ec86bceca7bee15e6ecb6fe5a1104832c177bb30fee64e307ae856824364091d",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
-        "hooks/hooks.json": "1ac87295207186846ad0f8fb48dc3d6ec5435634ac9e45702963a0ee30c3391e",
+        "hooks/hooks.json": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
         "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -16579,7 +16616,7 @@
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "7f8dc39eeeafc6fba042da51d00946976f33b4fd2c144a8cb74bfa5d014b6312",
-        "scripts/hooks/guard-ceo-ruled-ask.sh": "33a726eed8e0502107d5987e89cfbe4a287861c952c0026e855cd15c0712710a",
+        "scripts/hooks/guard-ceo-ruled-ask.sh": "4eb071bae6ed6b143b8eb876a33bb5fdc4f99ea10f4914166fa242686b5199e1",
         "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
         "scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
@@ -16622,9 +16659,9 @@
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/ci-status.sh": "cdc53d28b1814b1e53d6fe9debf95b4a72d361a34e650da60f53ac19462ff3b6",
         "scripts/lib/ci-surface.py": "57038d01ac4b4e2ffbf5aeb7b755effdcf82c1d12f0b880b4df2a545cd392700",
-        "scripts/escalate.sh": "a3d891782e92bb1b4019788ebdb4c72b02f39fefc24262d523b03c6995a68405",
+        "scripts/escalate.sh": "9f9de4d2efea2703c9e6fd0ff7f9c3479c5cb15fc6e0df7ec58ae4a8339616f0",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
-        "scripts/lib/escalations.py": "3d49c91cb11003f13ccfbe972496d612da47452f2600802210ae7cc9d9047a5e",
+        "scripts/lib/escalations.py": "b221aa573110d20f2031d76edec1312c3875929e517ced3f631923468729086b",
         "scripts/owned-state-checks/staging-current.sh": "f1de2edf6f6a329bbcf0a8684bf998cad00f26d6f09ff79edc0538957ba677e9",
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
         "scripts/lib/unlanded-branches.py": "2aa9d32b80809d78c10c9571a91c4bdbb58c7cf22197b6398fd1239b481b1810",
@@ -16728,7 +16765,7 @@
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
         "scripts/hooks/install.sh": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
-        "scripts/hooks/contract-integrity-probe.sh": "6a82794553fcd9c510aeb28dde2cafd325390fbcb70694753f3f7e636ece2102",
+        "scripts/hooks/contract-integrity-probe.sh": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
@@ -16913,8 +16950,8 @@
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/hooks/owned-state.test.sh": "543f28888f9c8524d6598e54526f9dcb25d853fc21a32cb5c57829dca1099b5a",
-        "scripts/lib/escalations.py": "3d49c91cb11003f13ccfbe972496d612da47452f2600802210ae7cc9d9047a5e",
-        "scripts/escalate.sh": "a3d891782e92bb1b4019788ebdb4c72b02f39fefc24262d523b03c6995a68405",
+        "scripts/lib/escalations.py": "b221aa573110d20f2031d76edec1312c3875929e517ced3f631923468729086b",
+        "scripts/escalate.sh": "9f9de4d2efea2703c9e6fd0ff7f9c3479c5cb15fc6e0df7ec58ae4a8339616f0",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
         "scripts/owned-state-checks/registered-executables.py": "cc79f6eed01ccc73a862f201bfae2257d7f36e305c183a6d3095a3a2b6202421",

@@ -614,6 +614,27 @@ def branch_paths(repo):
     return [p for p in git("diff", "--cached", "--name-only", "--no-renames").splitlines() if p]
 
 
+def branch_range(repo, paths):
+    """The selection the merge gate makes, asked the way the merge gate asks it: a `base..head`
+    range, with the commit's index written as a commit object nothing refers to. proof-for.sh
+    with a path list and with a range reach the engine's selector by different roads (a path
+    list has no before/after, so a changed hooks.json takes the fallback and never visits the
+    hook scripts it registers). 2026-10-01: a hook script passed every commit here by path list
+    and was refused at the merge by range as "named by NO suite". None when no range can be
+    built (no main, no HEAD, no identity): the caller then asks by path list."""
+    base = git("merge-base", f"refs/heads/{LAND_BRANCH}", "HEAD", check=False, cwd=repo.top)
+    if base.returncode or not base.stdout.strip():
+        return None
+    tree = git("write-tree", check=False, cwd=repo.top)
+    if tree.returncode or not tree.stdout.strip():
+        return None
+    head = git("-c", "user.name=autocheck", "-c", "user.email=autocheck@invalid", "commit-tree", tree.stdout.strip(),
+               "-p", "HEAD", "-m", "autocheck: the commit being checked", check=False, cwd=repo.top)
+    if head.returncode or not head.stdout.strip():
+        return None
+    return [f"{base.stdout.strip()}..{head.stdout.strip()}"]
+
+
 def quick_suites(repo, commands):
     """The selected UI suites whose measured weight is 0, i.e. under a second (the file's
     own convention). A suite with no row is not assumed quick; it runs at the land."""
@@ -637,7 +658,7 @@ def branch_selection(repo, what, run_quick=True):
     paths = branch_paths(repo)
     if not paths:
         return 0
-    commands, rc = select(repo, ["--paths", ",".join(paths)], gate=True)
+    commands, rc = select(repo, branch_range(repo, paths) or ["--paths", ",".join(paths)], gate=True)
     if commands is None:
         refuse_selection(what, rc)
         say("  The land runs this same selection over the same change and would refuse it there.")

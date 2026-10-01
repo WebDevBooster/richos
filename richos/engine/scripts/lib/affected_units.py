@@ -175,7 +175,6 @@ class Selection:
             return False
 
     def ordinary(self, path, before=None, after=None):
-        prior_count = sum(len(reasons) for reasons in self.selected.values())
         basename, stem = Path(path).name, str(Path(path).with_suffix(""))
         if path.startswith("voice/") and Path(path).suffix in (".js", ".mjs", ".json", ".sh"):
             self.suite("voice/tests/run.test.sh", path, "voice component inputs")
@@ -191,7 +190,12 @@ class Selection:
                 if path == 'scripts/hooks/contract-integrity-probe.sh' and self.unchanged_probe_reader(suite, before, after):
                     continue
                 self.suite(suite, path, "basename dependency (conservative)")
-        matched = sum(len(reasons) for reasons in self.selected.values()) > prior_count
+        # A suite claims a path when a reason for it is on record, NOT when this call grew
+        # the record: hooks() already runs ordinary() for a newly registered hook script, so
+        # the same reason strings are present before the script's own turn and a growth
+        # test called a claimed script "named by NO suite".
+        matched = any(reason.startswith(path + ": ") and "pinned reader in" not in reason
+                      for reasons in self.selected.values() for reason in reasons)
         if not matched and (Path(path).suffix in (".sh", ".py", ".bash") or (self.read(path) or "").startswith("#!")):
             self.unmapped.append(path)
         # Decided AFTER `matched`: the pin check proves the pin, not the reader's behavior,

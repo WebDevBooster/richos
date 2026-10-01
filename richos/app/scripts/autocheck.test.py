@@ -500,6 +500,20 @@ class Commit(Fixture):
         out = self.git("commit", "-m", "an innocent change", expect=1)
         self.assertIn("UNCOVERED: richos/app/src/uncovered.txt", out.stderr)
 
+    def test_the_commit_asks_for_the_selection_the_way_the_merge_gate_does(self):
+        # 2026-10-01: a hook script passed every commit here, where the branch was asked about
+        # as a path list, and was refused at the merge, which asks as a base..head range: the
+        # engine's selector takes different roads for the two. The commit check now asks as a
+        # range too, built from the index, so the commit sees what the merge will see.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, again\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "good")
+        calls = self.side_log(".select").splitlines()
+        self.assertTrue(calls, "the commit check never asked proof-for.sh --gate")
+        self.assertTrue(all(".." in c and "--paths" not in c for c in calls), calls)
+
     PIN_SOURCE = "richos/app/scripts/pinned.sh"
     QUALIFICATIONS = "docs/development/verification-input-qualifications.json"
 
