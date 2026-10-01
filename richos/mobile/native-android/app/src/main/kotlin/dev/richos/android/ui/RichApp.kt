@@ -328,7 +328,8 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
         // first measurement (headerPx/composerRowPx/keyboardPx still 0) this is the old flat 40%,
         // settling to the header-aware bound the next frame, same lag already tolerated for headerPx
         // and zonePx below.
-        val maxAbove = (maxHeight - headerDp - composerRowDp - keyboardDp - 16.dp).coerceIn(0.dp, maxHeight * 0.4f)
+        // The conversation keeps CardsRoom.ConversationMinimum above the cards whatever their number.
+        val maxAbove = CardsRoom.maxHeight(maxHeight, headerDp, composerRowDp, keyboardDp)
         if (thread.isEmpty() && model.historyEdge != HistoryEdge.LOADING_OLDER) {
             // Bottom-padded by the composer zone's own measured height (as Thread's scroll is,
             // line below): at the smallest phone and the largest text the added voice-message
