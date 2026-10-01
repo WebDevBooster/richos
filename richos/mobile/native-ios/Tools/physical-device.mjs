@@ -248,7 +248,9 @@ p=pathlib.Path(sys.argv[1]);info=plistlib.loads((p/'Info.plist').read_bytes())
 signed=plistlib.loads(subprocess.check_output(['codesign','-d','--entitlements',':-',str(p)],stderr=subprocess.DEVNULL))
 print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment')]))`, app], { encoding: 'utf8', env }));
   verifyPushEnvironment(...push);
-  if (command === 'build') return { log, app, build };
+  // A reused build wrote no build log; never name one that does not exist.
+  if (!existsSync(log)) build.log = null;
+  if (command === 'build') return { log: build.log === null ? null : log, app, build };
   const spec = join(cache, `physical-${stamp}.xctestrun`);
   // Rewrite only the runner's environment and paths. Private config is fed via stdin,
   // never process arguments, app launch arguments or a committed test resource.
@@ -272,7 +274,7 @@ p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(pli
     const summary = JSON.parse(execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', result, '--format', 'json'], { encoding: 'utf8', env }));
     writeFileSync(result + '.summary.json', JSON.stringify(summary, null, 2));
     if (summary.passedTests !== 1 || summary.failedTests !== 0 || summary.skippedTests !== 0 || summary.totalTestCount !== 1) throw Error(`Selected physical check not proved: ${result}`);
-    return { passed: 1, result, log, app, build };
+    return { passed: 1, result, log: build.log === null ? null : log, app, build };
   } finally { rmSync(spec, { force: true }); }
 }
 
