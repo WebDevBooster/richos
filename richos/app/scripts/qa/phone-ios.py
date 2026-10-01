@@ -365,8 +365,17 @@ def session_from_log(path):
         fmt = "%Y-%m-%d %H:%M:%S.%f"
         from datetime import datetime
         wait = round((datetime.strptime(suite.group(1), fmt) - datetime.strptime(runner.group(1), fmt)).total_seconds(), 1)
+    passcode = None
+    said = re.search(r"PHONE_PASSCODE (\{[^\n]*?\})\s*$", text, re.M)
+    if said:
+        try:
+            value = json.loads(said.group(1)).get("configured")
+            passcode = value if isinstance(value, bool) else None
+        except json.JSONDecodeError:
+            pass
     return {"log": str(path), "device": device.group(1), "started": getattr(st, "st_birthtime", st.st_mtime),
-            "ended": st.st_mtime, "enableWaitSeconds": wait, "timedOut": APPROVAL_TIMEOUT in text}
+            "ended": st.st_mtime, "enableWaitSeconds": wait, "timedOut": APPROVAL_TIMEOUT in text,
+            "passcodeConfigured": passcode}
 
 
 def sessions(device, pattern=None):
@@ -388,7 +397,9 @@ def sessions(device, pattern=None):
 def passcode_state(device):
     """True or False only when the phone itself answered whether a passcode is CONFIGURED; None
     otherwise. Lockdown's PasswordProtected and devicectl's passcodeRequired are NOT this: both
-    say whether the phone is locked right now (both read false on 2026-10-01 while it had one)."""
+    say whether the phone is locked right now (both read false on 2026-10-01 while it had one).
+    Measured on iOS 26.3.1 (2026-10-01): MobileGestalt answers "MobileGestaltDeprecated", so this
+    is None there and the forecast uses the phone's own PHONE_PASSCODE line from its last session."""
     try:
         p = subprocess.run(["idevicediagnostics", "-u", device, "mobilegestalt", "PasswordConfigured"],
                            capture_output=True, timeout=20)
@@ -410,14 +421,22 @@ def forecast(device, now=None, passcode=None, pattern=None):
     passcode when it answers, else from this phone's own session history. Never touches its screen."""
     now = time.time() if now is None else now
     history = sessions(device, pattern)
-    out = {"device": device, "passcodeConfigured": passcode, "sessionsOnRecord": len(history)}
+    # No Mac-side tool reads the passcode on iOS 26, so the phone's own answer at its latest
+    # session (PhysicalDeviceTests.passcodeReading) stands in, with its age.
+    said = next((s for s in reversed(history) if s.get("passcodeConfigured") is not None), None)
+    source = "the phone, now"
+    if passcode is None and said:
+        passcode = said["passcodeConfigured"]
+        source = f"the phone itself at a session {round((now - said['ended']) / 60)} min ago"
+    out = {"device": device, "passcodeConfigured": passcode, "passcodeReadBy": source if passcode is not None else None,
+           "sessionsOnRecord": len(history)}
     last = history[-1] if history else None
     if last:
         out["lastSession"] = {"endedSecondsAgo": round(now - last["ended"]), "enableWaitSeconds": last["enableWaitSeconds"],
                               "timedOut": last["timedOut"], "log": last["log"]}
     if passcode is False:
         return {**out, "approvalExpected": False,
-                "why": "the phone has no passcode, and iOS asks to allow UI automation only when one is set"}
+                "why": f"the phone has no passcode ({source}), and iOS asks to allow UI automation only when one is set"}
     if last and last["timedOut"]:
         return {**out, "approvalExpected": True,
                 "why": f"the last session on this phone ({last['log']}) failed '{APPROVAL_TIMEOUT}': nobody approved it"}
@@ -510,7 +529,8 @@ def run(args):
                # The command's start on this Mac's clock to the first step's start on the phone's
                # clock (both set from network time), and the runner's wait for automation to be allowed.
                "secondsToFirstStep": round(first - started, 1) if isinstance(first, (int, float)) else None,
-               "automationEnableWaitSeconds": session and session["enableWaitSeconds"]}
+               "automationEnableWaitSeconds": session and session["enableWaitSeconds"],
+               "passcodeConfigured": session and session["passcodeConfigured"]}
     if session and session["timedOut"]:
         summary["error"] = (f"'{APPROVAL_TIMEOUT}': the phone asked its owner to allow UI automation and "
                             "nobody approved it at the phone in about 60 s; no step ran")

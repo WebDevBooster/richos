@@ -1,3 +1,4 @@
+import LocalAuthentication
 import XCTest
 
 /// Opt-in checks against an isolated Mac through the normal app controls. No fixture,
@@ -268,6 +269,11 @@ final class PhysicalDeviceTests: XCTestCase {
         let steps = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [[String: Any]],
                                   "steps must be a JSON list of objects")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        // Whether this phone has a passcode, read by the phone itself. With one, iOS asks its owner
+        // to allow UI automation when a session starts after idle; the host's forecast
+        // (`phone-ios.py approval`) reads this line from the last session, because no tool on the
+        // Mac can (MobileGestalt answers "deprecated" on iOS 26; lockdown says only locked-now).
+        print("PHONE_PASSCODE " + passcodeReading())
         for (index, step) in steps.enumerated() {
             let action = step["do"] as? String ?? ""
             let started = Date().timeIntervalSince1970
@@ -284,6 +290,17 @@ final class PhysicalDeviceTests: XCTestCase {
                 return
             }
         }
+    }
+
+    /// `{"configured": true|false|null, "error": ...}`. canEvaluatePolicy shows no UI and asks
+    /// nothing; it fails with passcodeNotSet exactly when the phone has no passcode.
+    private func passcodeReading() -> String {
+        var error: NSError?
+        let can = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
+        let configured: Any = can ? true : (error?.code == LAError.Code.passcodeNotSet.rawValue ? false : NSNull())
+        let line: [String: Any] = ["configured": configured, "error": error.map { "\($0.domain) \($0.code)" } ?? NSNull()]
+        let data = (try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])) ?? Data("{}".utf8)
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func stateName(_ state: XCUIApplication.State) -> String {

@@ -55,7 +55,7 @@
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
 #           knows every step the host validates, a drifted runner FAILS; I27-I28
 #           syslog-rate counts one process's log entries per bucket, refuses a non-log
-#   J1-J6   phone-ios approval: the UI-automation approval forecast from the phone's
+#   J1-J7   phone-ios approval: the UI-automation approval forecast from the phone's
 #           own sessions, and a run expected to ask refused until the CEO was told
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
 #           browser writes it, the lab's words from its own files, a mismatch
@@ -933,7 +933,7 @@ printf 'final class Nothing {}\n' > "$TMP/runner-none.swift"
 run python3 "$QA/phone-ios.py" vocabulary "$TMP/runner-none.swift"
 expect "I26 a runner with no step dispatcher is refused, never read as agreeing" 2 "no perform(...) step dispatcher"
 
-# J1-J6: the UI-automation approval is forecast BEFORE a run, from the phone's own sessions.
+# J1-J7: the UI-automation approval is forecast BEFORE a run, from the phone's own sessions.
 # Fixture logs are shaped like xcodebuild's: the phone named on the command line, the runner's
 # start and the first suite's start on the phone clock. Their age is their modification time.
 SESS="$TMP/sessions"; mkdir -p "$SESS"
@@ -979,6 +979,12 @@ expect "J5 after the passcode is removed, a cold session that did not ask means 
 session_log d.log 07:47:23.244 07:47:33.128 36000
 rm -f "$SESS/c.log"; run forecast
 expect "J6 a cold session that waited for approval (the passcode is still set) keeps the forecast at expected" 0 '"approvalExpected": true'
+
+# J7: the phone's own reading (PhysicalDeviceTests prints PHONE_PASSCODE) decides, idle or not.
+echo 'PHONE_PASSCODE {"configured":false,"error":"com.apple.LocalAuthentication -5"}' >> "$SESS/d.log"
+python3 -c 'import os,sys,time; t=time.time()-36000; os.utime(sys.argv[1],(t,t))' "$SESS/d.log"
+run forecast
+expect "J7 ten hours idle, but the phone said it has no passcode: no approval is expected" 0 'the phone has no passcode (the phone itself at a session'
 
 echo ""
 echo "=== V. pair-words: the six v2 words on both sides, checked before They match ==="
