@@ -203,10 +203,11 @@ class Selection:
         # is never "named by NO suite". It must have existed on the base side: a path that never
         # existed (a typo, or a path list with no base) stays unmapped. 2026-10-01: four of the
         # seven files refused at main bb112ab68 were absent from the tree the selector read.
-        # Each path is listed once, however many roads (hooks() and its own turn) visit it.
-        text = self.read(path)
-        if not matched and (Path(path).suffix in (".sh", ".py", ".bash") or (text or "").startswith("#!")):
-            removed = text is None and self.before is not None and self.before(path) is not None
+        # Each path is listed once, however many roads (hooks() and its own turn) visit it. The
+        # selected tree is read only when the answer needs it, as before: with no base side, a
+        # path with an executable suffix is never read here.
+        if not matched and (Path(path).suffix in (".sh", ".py", ".bash") or (self.read(path) or "").startswith("#!")):
+            removed = self.before is not None and self.read(path) is None and self.before(path) is not None
             listed = self.removed if removed else self.unmapped
             if path not in listed:
                 listed.append(path)
