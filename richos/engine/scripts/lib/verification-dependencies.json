@@ -1952,8 +1952,8 @@
     },
     "scripts/hooks/guard-dialect.test.sh": {
       "source": "scripts/hooks/guard-dialect.test.sh",
-      "sha256": "8f59efed91038d553f45c9daba23dfdd9e07328cdacdb00988e48e0070f31835",
-      "evidence": "The default seat is the real engine, so its four downstream config reads remain dependencies. Later entity fixtures override dialect values without removing the default-seat coverage. Registration, installer and vocabulary inventory assertions read source/data. V8-V12 use the parent vendoring registry as data. The finite mutation driver executes the same suite in a copied engine. Added cases pass vocabulary paths as payload data and the source inventory excludes two exact generated fixture paths; no new executable reader.",
+      "sha256": "99e6eb2996d82539d0f160d7d8bf0a1f371f0a92c2eaf4eddaca67b8568ec63e",
+      "evidence": "The default seat is the real engine, so its four downstream config reads remain dependencies. Later entity fixtures override dialect values without removing the default-seat coverage. Registration, installer and vocabulary inventory assertions read source/data. V8-V12 use the parent vendoring registry as data. The finite mutation driver executes the same suite in a copied engine. Added cases pass vocabulary paths as payload data and the source inventory excludes two exact generated fixture paths; no new executable reader. Renewed 2026-10-01: B35 (the malformed payload) is seated on a sandbox copy of the engine's orchestration.config instead of the engine, so its unevaluated-payload log line lands in the sandbox; the same guard and the same config bytes are read.",
       "keys": [],
       "edges": [
         {

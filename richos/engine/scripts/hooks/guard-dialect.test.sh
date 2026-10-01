@@ -184,7 +184,15 @@ case_exit "B36. 'enrollment'/'enrolled' are ALREADY American"  0 Write "$MD" "Ap
 case_exit "B37. ...but British 'enrolment' is blocked"         2 Write "$MD" "the enrolment is pending"
 
 # Malformed payload: FAIL OPEN, matching guard-main-checkout-writes.sh.
-printf '%s' 'not json at all {{{' | "$HOOK" >/dev/null 2>&1
+# Governed by a sandbox COPY of the engine's adoption, never the engine itself:
+# an unreadable payload appends a line to <entity>/.claude/state/
+# unevaluated-payloads.log, and with the engine as the entity that line landed
+# in the checkout under test, which the proof gate binds as the input of every
+# engine check running beside this one (2026-10-01).
+ENT_MALFORMED="$SANDBOX/ent-malformed"
+mkdir -p "$ENT_MALFORMED"
+cp "$ENGINE_ROOT/orchestration.config" "$ENT_MALFORMED/orchestration.config"
+printf '%s' 'not json at all {{{' | RICHOS_ENTITY_ROOT="$ENT_MALFORMED" "$HOOK" >/dev/null 2>&1
 [ $? -eq 0 ] && ok "B35. malformed payload fails OPEN (exit 0)" \
              || bad "B35. malformed payload fails OPEN (exit 0)"
 
