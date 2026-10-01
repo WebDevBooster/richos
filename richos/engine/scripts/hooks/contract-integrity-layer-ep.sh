@@ -132,12 +132,20 @@ run_layer_EP() {
     # when the engine governs itself; in every by-reference session they are not,
     # and the engine's own SessionStart announcement — the file type V was made
     # of — lives in the second one.
+    #
+    # AN ARRAY, NEVER A JOINED STRING (hunt part 3, finding 38). The roots used
+    # to be joined into one space-separated string and iterated unquoted, so a
+    # repository at a path with a space in it was split into pieces that do not
+    # exist, the lint was asked about each piece, and the layer refused a valid
+    # checkout. EP_ROOTS stays a display string for the messages only.
+    EP_ROOT_LIST=("$EP_REPO")
     EP_ROOTS="$EP_REPO"
     if [ "$EP_ENGINE" != "$EP_REPO" ]; then
+        EP_ROOT_LIST+=("$EP_ENGINE")
         EP_ROOTS="$EP_REPO $EP_ENGINE"
     fi
     EP_SCANNED_ROOTS=0
-    for EP_R in $EP_ROOTS; do
+    for EP_R in "${EP_ROOT_LIST[@]}"; do
         [ "$EP_OK" -eq 1 ] || break
         EP_SCANNED_ROOTS=$((EP_SCANNED_ROOTS + 1))
         set +e

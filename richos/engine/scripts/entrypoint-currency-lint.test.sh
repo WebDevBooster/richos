@@ -379,6 +379,40 @@ case "$OUT" in
 esac
 
 echo
+# ---------------------------------------------------------------------------
+echo "Layer EP itself keeps a spaced root whole (hunt part 3, finding 38)"
+# ---------------------------------------------------------------------------
+# The lint above already took a spaced root as one path; the LAYER did not. It
+# joined its two roots into one string and split it again on every space, so a
+# clean governed repository at "a repo with spaces" was handed to the lint as
+# ".../a", "repo", "with" and "spaces", and the layer failed a valid checkout.
+if [ -x "$EP_LAYER" ]; then
+    SBLE="$(sandbox)"
+    declare_config "$SBLE" "$SPEC_REAL" "$SURFACES_REAL"
+    printf 'emit_context "start a teammate with spawn.sh"\n' >"$SBLE/scripts/hooks/engine-status.sh"
+    SBLP="$(sandbox)"
+    SPACEDGOV="$SBLP/a governed repo with spaces"
+    mkdir -p "$SPACEDGOV"
+    printf 'PROTECTED_PATHS="src"\n' >"$SPACEDGOV/orchestration.config"
+    printf 'Start a teammate with spawn.sh. Nothing stale here.\n' >"$SPACEDGOV/CLAUDE.md"
+    OUT="$(REPO_ROOT="$SPACEDGOV" ENGINE_ROOT="$SBLE" bash -c '. "$1"; run_layer_EP; exit $FAIL' _ "$EP_LAYER" 2>&1)"; RC=$?
+    if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qF '2 root(s)'; then
+        ok "a clean governed repository whose path has spaces passes Layer EP, both roots scanned whole"
+    else
+        no "Layer EP passes a clean spaced root" "exit=$RC output: $OUT"
+    fi
+    # ...and the same layer still REFUSES a stale instruction there, so the pass
+    # above is the root being read, not the root being skipped.
+    printf 'Start a teammate by running prepare-agent-spawn.py by hand.\n' >"$SPACEDGOV/CLAUDE.md"
+    OUT="$(REPO_ROOT="$SPACEDGOV" ENGINE_ROOT="$SBLE" bash -c '. "$1"; run_layer_EP; exit $FAIL' _ "$EP_LAYER" 2>&1)"; RC=$?
+    if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -qF "A STANDING INSTRUCTION IN $SPACEDGOV STILL NAMES"; then
+        ok "a stale instruction in the spaced root is refused, naming the whole path"
+    else
+        no "Layer EP refuses a stale instruction in a spaced root" "exit=$RC output: $OUT"
+    fi
+fi
+
+echo
 echo "----------------------------------------"
 printf 'entrypoint-currency-lint: %s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -276,6 +276,55 @@ esac
 
 STAGE_ALL="$(printf '%s' "$CLASS" | cut -f2)"
 
+# --- Which removed paths can the record be about? --------------------------
+# stdin: the removed paths, repository-relative, one per line. Prints each one
+# the record or its CEO-facing surface names; prints nothing for the rest.
+# Quoted heredoc for the bash 3.2 reason given above the classifier.
+read -r -d '' _CT_NAMED_REMOVALS <<'PYEOF' || true
+import os, re, sys
+
+env = os.environ.get
+repo = os.path.realpath(env("CT_NR_REPO") or ".")
+main = os.path.realpath(env("CT_NR_MAIN") or repo)
+roots = {}
+for entry in (env("CT_NR_ROOTS") or "").split("\t"):
+    if "=" in entry:
+        k, v = entry.split("=", 1)
+        roots[k] = os.path.realpath(v)
+with open(env("CT_NR_RECORD_TEXT"), encoding="utf-8", errors="replace") as fh:
+    text = fh.read()
+
+named = set()
+for span in re.findall(r"`([^`\n]+)`", text):
+    for tok in span.split():
+        tok = tok.strip("\"'")
+        if "/" not in tok:
+            continue
+        prefix, rest = tok.split("/", 1)
+        if prefix in roots and rest:
+            named.add(os.path.normpath(os.path.join(roots[prefix], rest)))
+for base in (repo, main):
+    for rel in (env("CT_NR_RECORD"), env("CT_NR_VIEW"), env("CT_NR_README")):
+        if rel:
+            named.add(os.path.normpath(os.path.join(base, rel)))
+cold = (env("CT_NR_COLD") or "").strip("/")
+colds = [os.path.normpath(os.path.join(b, cold)) for b in (repo, main)] if cold else []
+
+def is_named(path):
+    if any(path == c or path.startswith(c + os.sep) for c in colds):
+        return True
+    return any(path == n or path.startswith(n + os.sep) for n in named)
+
+seen = []
+for rel in sys.stdin.read().splitlines():
+    rel = rel.strip()
+    if not rel or rel in seen:
+        continue
+    if any(is_named(os.path.normpath(os.path.join(b, rel))) for b in (repo, main)):
+        seen.append(rel)
+print("\n".join(seen))
+PYEOF
+
 # --- WHICH REPOSITORY IS THIS COMMAND TALKING TO? --------------------------
 # ONE resolver, shared by every guard that asks (scripts/lib/git-jurisdiction.sh),
 # never a local copy — a copy is how the same hole ended up in five files.
@@ -442,7 +491,32 @@ case "$VERDICT" in
         # others get the same report as a notice and go through.
         REMOVED_LIST="$(git -C "$CT_REPO" diff --cached --name-only --no-renames --diff-filter=D 2>/dev/null || true)"
         if [ "$STAGE_ALL" -eq 1 ]; then
-            REMOVED_LIST="$REMOVED_LIST$(git -C "$CT_REPO" diff --name-only --no-renames --diff-filter=D 2>/dev/null || true)"
+            REMOVED_LIST="$REMOVED_LIST
+$(git -C "$CT_REPO" diff --name-only --no-renames --diff-filter=D 2>/dev/null || true)"
+        fi
+        # ONLY A REMOVAL THE RECORD CAN BE ABOUT keeps the refusal (hunt part
+        # 3, finding 1, still partial in the v2 re-check: ANY deletion refused,
+        # so removing a file no row has ever named was held hostage to another
+        # row). A removal can make a row false only if the record or its page
+        # NAMES the removed path: an **Open:** or **Done-check:** path (any
+        # `<prefix>/...` token inside a backticked span of the record, which is
+        # deliberately wider than the CEO sections), a directory such a path
+        # names, the record itself, the CEO's page, the README, or a cold-open
+        # transcript. Paths are compared against BOTH this checkout and the
+        # main checkout, because a declared root such as `repo=.` resolves to
+        # the main one while the index belongs to whichever worktree commits.
+        # A checker that cannot run refuses, as everywhere in this guard.
+        NAMED_REMOVALS=""
+        if [ -n "$(printf '%s' "$REMOVED_LIST" | tr -d '[:space:]')" ]; then
+            if ! NAMED_REMOVALS="$(printf '%s\n' "$REMOVED_LIST" | \
+                CT_NR_RECORD_TEXT="$SUBJECT" CT_NR_REPO="$CT_REPO" \
+                CT_NR_MAIN="$(ct_main_checkout "$CT_REPO" 2>/dev/null || printf '%s' "$CT_REPO")" \
+                CT_NR_ROOTS="$CT_ROOTS_OK" CT_NR_RECORD="$CT_TODO_RECORD" \
+                CT_NR_VIEW="$CT_TODO_VIEW" CT_NR_README="$CT_ROOT_README" \
+                CT_NR_COLD="$CT_COLD_OPEN_DIR" python3 -c "$_CT_NAMED_REMOVALS")"; then
+                echo "ERROR: guard-ceo-todos-commits.sh: could not tell whether this commit removes a file the CEO TODOs name — refusing (fail-closed)." >&2
+                exit 2
+            fi
         fi
         # A commit that stages the generated entry point or the README is the
         # commonest way to make the view disagree with the record, so it is
@@ -458,9 +532,12 @@ $surface
 "*) SURFACE_STAGED=1 ;;
             esac
         done
-        if [ -z "$REMOVED_LIST" ] && [ "$SURFACE_STAGED" -eq 0 ]; then
-            ct_refusal "guard-ceo-todos-commits.sh" "$HEADLINE — NOTICE ONLY, this commit removes no file, so it is not blocked" "$BODY" "$CT_REPO/$CT_TODO_RECORD" >&2
+        if [ -z "$NAMED_REMOVALS" ] && [ "$SURFACE_STAGED" -eq 0 ]; then
+            ct_refusal "guard-ceo-todos-commits.sh" "$HEADLINE — NOTICE ONLY, this commit removes no file the record or its page names, so it is not blocked" "$BODY" "$CT_REPO/$CT_TODO_RECORD" >&2
             exit 0
+        fi
+        if [ -n "$NAMED_REMOVALS" ]; then
+            HEADLINE="$HEADLINE — and this commit removes $(printf '%s\n' "$NAMED_REMOVALS" | grep -c .) file(s) the record or its page names: $(printf '%s\n' "$NAMED_REMOVALS" | tr '\n' ' ' | sed 's/ *$//')"
         fi
     fi
     ct_refusal "guard-ceo-todos-commits.sh" "$HEADLINE" "$BODY" "$CT_REPO/$CT_TODO_RECORD" >&2

@@ -44,12 +44,24 @@ def main():
     p.add_argument("--out", required=True)
     p.add_argument("--line", required=True)
     p.add_argument("--marker", required=True)
+    # --boundary: the line must also END a word right after --line, as `\b` does in
+    # a caller's own `grep "FAIL  <case>\b"`, so `D1` never stops at `FAIL  D14`. A
+    # stop must never be looser than the witness test the caller would run instead.
+    p.add_argument("--boundary", action="store_true")
     p.add_argument("command", nargs=argparse.REMAINDER)
     a = p.parse_args()
     cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
     if not cmd or not a.line:
         p.error("a command and a non-empty --line are required")
     needle = a.line.encode()
+    if a.boundary:
+        import re
+        bounded = re.compile(re.escape(needle) + rb"\b")
+        def hit(line):
+            return bounded.search(line) is not None
+    else:
+        def hit(line):
+            return needle in line
     with open(a.out, "wb") as out:
         child = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                  start_new_session=True)
@@ -68,13 +80,13 @@ def main():
             if chunk:
                 pending += chunk
                 *lines, pending = pending.split(b"\n")
-                if any(needle in line for line in lines):
+                if any(hit(line) for line in lines):
                     return stop(child, a.marker)
             if rc is not None:
                 # One last read: the command may have written its final line and exited
                 # between the read above and the poll.
                 tail = pending + reader.read()
-                if needle in tail:
+                if any(hit(line) for line in tail.split(b"\n")):
                     return stop(child, a.marker)
                 return rc if rc >= 0 else 128 - rc
             time.sleep(POLL_SECONDS)
