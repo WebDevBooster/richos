@@ -223,6 +223,8 @@ emu_awake() {  # $1 = the serial this CLI recorded
   "$ADB" -s "$1" shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
 }
 
+. "$HERE/bin/apk-install.sh"
+
 emu_install() {
   local t0 t1 apk
   t0="$(now_ms)"
@@ -233,10 +235,12 @@ emu_install() {
   # measure an installed app whose bytes are not these.
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/../perf/perf.py" stamp --artifact "$apk" --checkout "$HERE/../../.." \
     --paths richos/mobile/native-android > "$apk.stamp.json" || fail "could not stamp $apk"
-  adb_s install -r -t "$apk" >/dev/null || fail "install failed on $(serial)"
+  # Only when the installed bytes differ; never an uninstall, never a data clear.
+  local installed
+  installed="$(install_apk_if_changed "$ADB" "$(serial)" "$PACKAGE" "$apk")" || fail "install failed on $(serial)"
   adb_s shell am start -W -n "$ACTIVITY" >/dev/null || fail "launch failed on $(serial)"
   local t2; t2="$(now_ms)"
-  say_json "{\"ok\": true, \"mode\": \"emu\", \"command\": \"$1\", \"result\": {\"serial\": \"$(serial)\", \"avd\": \"$AVD\", \"bootMs\": $(cat "$CACHE/boot-ms" 2>/dev/null || echo null), \"buildMs\": $((t1 - t0)), \"installLaunchMs\": $((t2 - t1))}}"
+  say_json "{\"ok\": true, \"mode\": \"emu\", \"command\": \"$1\", \"result\": {\"serial\": \"$(serial)\", \"avd\": \"$AVD\", \"bootMs\": $(cat "$CACHE/boot-ms" 2>/dev/null || echo null), \"buildMs\": $((t1 - t0)), \"installLaunchMs\": $((t2 - t1)), \"install\": \"$installed\"}}"
 }
 
 emu_command() {  # $1 command, $2 optional argument
