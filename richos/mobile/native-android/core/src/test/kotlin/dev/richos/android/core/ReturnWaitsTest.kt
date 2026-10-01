@@ -44,13 +44,17 @@ class ReturnWaitsTest {
      */
     private class Streams(val log: MutableList<String>, val refusals: Map<Int, Int> = emptyMap()) : EventStream {
         var opened = 0
+        var closed = 0
+        /** The open stream's byte sink, for a frame the Mac sends later. */
+        var push: (suspend (ByteArray) -> Unit)? = null
         override suspend fun open(request: HttpRequest, onOpen: suspend (Int) -> Unit, onBytes: suspend (ByteArray) -> Unit) {
             opened++
             log += "STREAM " + request.url.substringAfter(Fixtures.ORIGIN).substringBefore("&auth=")
             refusals[opened]?.let { status -> onOpen(status); return }
             onOpen(200)
             onBytes(HELLO.toByteArray())
-            awaitCancellation()
+            push = onBytes
+            try { awaitCancellation() } finally { closed++; push = null }
         }
     }
 
@@ -246,6 +250,62 @@ class ReturnWaitsTest {
         assertEquals(2, streams.opened, "cut at ${QUICK_REQUEST_MS} ms, then the stream: $log")
     }
 
+    // --- 3. a dead stream is noticed in seconds while on screen -----------------------------------
+
+    /**
+     * The stream went dead without a word (a NAT dropped it, the radio moved): no FIN, no bytes. A
+     * message sent then is accepted over a fresh request, but its echo and its reply would ride the
+     * dead stream; on main nothing noticed for 45 s (`HttpsMac` `STREAM_READ_TIMEOUT_MS`). The
+     * Mac's echo of an accepted text normally arrives at once, so with no byte at all [ECHO_MS]
+     * after the acceptance the stream is presumed dead and opened again at once (resuming from
+     * its last frame, so nothing is lost even when it was only slow).
+     */
+    @Test
+    fun `a stream that stays silent after an accepted send is replaced within 2 s`() = runTest {
+        val log = mutableListOf<String>()
+        val sends = Sends()
+        val mac = Mac(log) { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }
+        val core = core(Disk(emptyList()), sends, mac)
+        val streams = Streams(log)
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals(1, streams.opened)
+        core.dispatch(Action.Compose("are you there"))
+        core.dispatch(Action.Send)
+        runCurrent()
+        assertEquals(1, sends.sent.size, "the Mac accepted the message")
+        testScheduler.advanceTimeBy(ECHO_MS - 1); runCurrent()
+        assertEquals(1, streams.opened, "not before $ECHO_MS ms")
+        testScheduler.advanceTimeBy(2); runCurrent()
+        assertEquals(1, streams.closed, "the silent stream is closed")
+        assertEquals(2, streams.opened, "and opened again at once, with no back-off: $log")
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        job.cancel()
+    }
+
+    /** A live stream carries the echo: nothing is replaced, and no timer outlives it. */
+    @Test
+    fun `a stream that carries the echo is kept`() = runTest {
+        val log = mutableListOf<String>()
+        val sends = Sends()
+        val mac = Mac(log) { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }
+        val core = core(Disk(emptyList()), sends, mac)
+        val streams = Streams(log)
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        core.dispatch(Action.Compose("echo me"))
+        core.dispatch(Action.Send)
+        runCurrent()
+        testScheduler.advanceTimeBy(500); runCurrent()
+        streams.push!!(": keep-alive 1\n\n".toByteArray())
+        testScheduler.advanceTimeBy(60_000); runCurrent()
+        assertEquals(1, streams.opened, "a stream that spoke after the send is alive: $log")
+        assertEquals(0, streams.closed)
+        job.cancel()
+    }
+
     @Test
     fun `the values these tests state are the connection owner's`() {
         assertEquals(CHALLENGE_REUSE_MS, ConnectionOwner.CHALLENGE_REUSE_MS)
@@ -257,6 +317,8 @@ class ReturnWaitsTest {
         const val CHALLENGE_REUSE_MS = 8 * 60_000L
         /** The most the challenge request (and the revocation probe) may hold the stream. */
         const val QUICK_REQUEST_MS = 3_000L
+        /** With no stream byte this long after an accepted text, the stream is presumed dead. */
+        const val ECHO_MS = 2_000L
 
         const val HELLO = "id: 2\nevent: hello\ndata: {\"challenge\":\"from-hello\",\"thread_id\":\"general\",\"capabilities\":[\"text\"],\"messages\":[]}\n\n"
     }
