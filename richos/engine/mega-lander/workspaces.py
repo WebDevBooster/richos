@@ -2175,18 +2175,27 @@ PLATFORM_ENDINGS = (
 )
 
 
+def _platform_ending(rec):
+    """The ending the platform recorded for this agent and the registry has not
+    yet adopted, as (field, signal, why), or None. Reads only."""
+    if not rec or rec.get("end") or rec.get("disposition") or rec.get("orphan"):
+        return None
+    d = platform_agent_record(rec)
+    if not d:
+        return None
+    for field, signal_name, why in PLATFORM_ENDINGS:
+        if d.get(field):
+            return field, signal_name, why
+    return None
+
+
 def observe_platform_end(rec):
     """Point 11: an ending the platform recorded in its own per-agent record,
     for which it delivers no hook, makes the agent finished — automatically,
     at the next moment anything asks."""
-    if not rec or rec.get("end") or rec.get("disposition") or rec.get("orphan"):
-        return rec
-    d = platform_agent_record(rec)
-    if not d:
-        return rec
-    for field, signal_name, why in PLATFORM_ENDINGS:
-        if not d.get(field):
-            continue
+    found = _platform_ending(rec)
+    if found:
+        field, signal_name, why = found
         with Lock():
             fresh = load_agent(rec["key"]) or rec
             if fresh.get("end") or fresh.get("disposition"):
@@ -2226,17 +2235,17 @@ def observe_platform_end(rec):
 # sees that this registration was repaired rather than made. It never invents an
 # ending either — a registration with no provisional twin adopts an id and stays
 # unfinished, because nothing has recorded that its run ended.
-def observe_platform_binding(rec):
-    """Point 3 + point 11: the agent a registration became, taken from the
-    platform's own record of the spawn when nothing bound it at the time."""
+def _platform_binding(rec):
+    """The agent the platform recorded for this unbound registration, as
+    (agent_id, platform record, provisional key), or None. Reads only."""
     if not rec or rec.get("agent_id") or rec.get("provisional") or rec.get("orphan"):
-        return rec
+        return None
     if rec.get("disposition"):
-        return rec
+        return None
     sid = str(rec.get("session_id") or "")
     name = str(rec.get("name") or "")
     if not sid or not NAME_RE.match(name):
-        return rec
+        return None
     tuid = str(rec.get("tool_use_id") or "")
     hits = [(aid, d) for aid, d in platform_agent_records(sid)
             if (str(d.get("toolUseId") or "") == tuid if tuid
@@ -2244,14 +2253,67 @@ def observe_platform_binding(rec):
     # Nothing recorded, or more than one record answering to it: a reconciliation
     # is an adoption of a recorded fact, never a choice between candidates.
     if len(hits) != 1:
-        return rec
+        return None
     aid, meta = hits[0]
     if not tuid and str(meta.get("name") or "") != name:
-        return rec
+        return None
     prov_key = _provisional_key(sid, aid)
     bound_to = key_for_id(aid)
     if bound_to and bound_to not in (rec["key"], prov_key):
-        return rec              # that id already belongs to another registration
+        return None             # that id already belongs to another registration
+    return aid, meta, prov_key
+
+
+def platform_view(rec):
+    """WHAT THE PLATFORM HAS RECORDED, SEEN WITHOUT ADOPTING IT (hunt part 4 v2,
+    V2-05). A COPY of `rec` with the binding and the ending the platform wrote
+    in its own per-agent records and the registry has not taken yet, exactly as
+    observe_platform_binding and observe_platform_end would take them, and
+    nothing written: no save, no event, no released hold, no ref observation.
+
+    The dry status (finding 29) rightly stopped adopting these facts, and then
+    asked finished_state of the stale record instead, so a worker the user had
+    stopped printed WORKING with "pending: none" until some live call adopted
+    the stop. A question may READ what the platform recorded; only acting on
+    it writes."""
+    if not rec:
+        return rec
+    view = json.loads(json.dumps(rec))
+    bound = _platform_binding(view)
+    if bound:
+        aid, meta, prov_key = bound
+        view["agent_id"] = aid
+        view["tool_use_id"] = view.get("tool_use_id") or str(meta.get("toolUseId") or "")
+        view["subagent_type"] = view.get("subagent_type") or str(meta.get("agentType") or "")
+        prov = load_agent(prov_key)
+        if prov and prov.get("key") != view.get("key"):
+            # _add_workspace remembers the repository and binds a body of
+            # work, both writes, so the provisional's workspaces join the COPY
+            # by hand.
+            have = set(w.get("path") for w in view.get("workspaces") or [] if w.get("path"))
+            for w in live_workspaces(prov):
+                if not w.get("path") or w["path"] not in have:
+                    view.setdefault("workspaces", []).append(dict(w))
+            for f in ("started_at", "end", "handed_in"):
+                if prov.get(f) and not view.get(f):
+                    view[f] = prov[f]
+    ending = _platform_ending(view)
+    if ending:
+        field, signal_name, why = ending
+        view["end"] = {"at": now(), "signal": signal_name, "detail": why, "source": field}
+        view["pause"] = None
+    return view
+
+
+def observe_platform_binding(rec):
+    """Point 3 + point 11: the agent a registration became, taken from the
+    platform's own record of the spawn when nothing bound it at the time."""
+    bound = _platform_binding(rec)
+    if not bound:
+        return rec
+    aid, meta, prov_key = bound
+    sid = str(rec.get("session_id") or "")
+    name = str(rec.get("name") or "")
     with Lock():
         fresh = load_agent(rec["key"]) or rec
         if fresh.get("agent_id") or fresh.get("disposition"):
@@ -2644,6 +2706,10 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
         if rec.get("disposition"):
             continue
         if dry:
+            # The platform's recorded binding and ending are READ here, never
+            # adopted (V2-05): the live branch below adopts them; a question
+            # must still see them.
+            rec = platform_view(rec)
             fin, paused_, why = finished_state(rec, cache)
             if not fin:
                 if paused_ and not (rec.get("pause") or {}).get("until") and rec.get("session_id") == me:
@@ -2711,7 +2777,9 @@ def _item(rec, why, cache, me):
     waiting = rec.get("waiting") or {}
     helpers = [a for a in all_agents() if rec["name"] in (a.get("lands_pending") or [])
                or rec["key"] in (a.get("continues") or [])]
-    started = [a for a in helpers if not finished_state(a, cache)[0]]
+    # A helper the user stopped is not "working to land it" (V2-05): its
+    # platform-recorded ending is read, without adopting it, before asking.
+    started = [a for a in helpers if not finished_state(platform_view(a), cache)[0]]
     kind = waiting.get("kind", "")
     if not kind and started:
         kind, waiting = "started", {"on": "agent %s is working to land it" % started[0].get("name")}
@@ -5820,7 +5888,9 @@ def _print_status(me, entity):
                 print("RETRYING %s  deletion attempt %d failed: %s" % (r.get("name"), d.get("attempts"),
                                                                      d.get("last_error")))
             continue
-        fin, paused_, why = finished_state(r)
+        # The same read-only view the dry pending used (V2-05): a stopped
+        # worker of another session prints FINISHED, not WORKING.
+        fin, paused_, why = finished_state(platform_view(r))
         print("%-8s %s  %s" % ("PAUSED" if paused_ else ("FINISHED" if fin else "WORKING"), r.get("name"), why))
     return 0
 

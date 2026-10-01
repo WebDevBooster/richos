@@ -3216,6 +3216,53 @@ class Finding15_TheBudgetReachesTheWork(Base):
             ws._same_file(a, b, deadline=ws.now() - 1)
 
 
+class HuntV2_05_StatusReadsTheRecordedStop(Base):
+    """Hunt part 4 v2, V2-05: the dry status (finding 29) stopped adopting the
+    platform's own record of a stop and then asked the stale registry record,
+    so a worker the user had stopped printed WORKING beside "pending: none"."""
+
+    def _stopped_by_user(self, name):
+        aid, npath = self.spawn(name)
+        self.commit(npath, "unfinished.txt")                  # unmerged: it cannot land
+        meta = os.path.join(ws._platform_projects_dir(), "fixture", self.sid, "subagents",
+                            "agent-%s.meta.json" % aid)
+        os.makedirs(os.path.dirname(meta), exist_ok=True)
+        with open(meta, "w") as f:
+            json.dump({"stoppedByUser": True, "name": name, "toolUseId": "tu-" + name}, f)
+        return aid, npath
+
+    def test_v2_05_status_shows_a_stopped_worker_as_pending_and_writes_nothing(self):
+        import io
+        from contextlib import redirect_stdout
+        self._stopped_by_user("zach-opus-stv2")
+        before = json.dumps(self.rec("zach-opus-stv2"), sort_keys=True)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ws._print_status(self.sid, self.entity)
+        out = buf.getvalue()
+        self.assertNotIn("pending: none", out)
+        self.assertIn("PENDING  zach-opus-stv2", out)
+        self.assertNotIn("WORKING  zach-opus-stv2", out)
+        # A question: the stop is read, not adopted.
+        self.assertEqual(json.dumps(self.rec("zach-opus-stv2"), sort_keys=True), before)
+        self.assertIsNone(self.rec("zach-opus-stv2")["end"])
+        # The live reconciliation still adopts the same fact and lists the same work.
+        self.assertEqual([i["name"] for i in ws.pending(self.sid, self.entity, auto=False)],
+                         ["zach-opus-stv2"])
+        self.assertEqual(self.rec("zach-opus-stv2")["end"]["signal"], "stopped")
+
+    def test_v2_05_a_running_worker_is_still_working(self):
+        import io
+        from contextlib import redirect_stdout
+        aid, npath = self.spawn("zach-opus-run2")
+        self.commit(npath, "unfinished.txt")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ws._print_status(self.sid, self.entity)
+        self.assertIn("pending: none", buf.getvalue())
+        self.assertIn("WORKING  zach-opus-run2", buf.getvalue())
+
+
 class _Result(unittest.TextTestResult):
     """Prints `  PASS  <test>` / `  FAIL  <test>` so the mutation harness
     (workspaces.mutation.sh) can tell which point went red."""
