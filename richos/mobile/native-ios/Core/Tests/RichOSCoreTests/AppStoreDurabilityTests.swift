@@ -30,6 +30,7 @@ private actor SaveGate: Storage {
         if !didStart { await withCheckedContinuation { started = $0 } }
     }
     func release() { waiting?.resume(); waiting = nil }
+    func put(_ key: String, _ data: Data) { files[key] = data }
 }
 
 private actor DeliveryWitness: EffectHandler {
@@ -140,8 +141,32 @@ private actor DeliveryWitness: EffectHandler {
         #expect(store.persistenceProblem != nil)
     }
 
-    @Test func backgroundDuringSaveDoesNotStartDelivery() async throws {
+    /// Send, then Home while the Send is still being saved: the message was sent on screen, so it goes
+    /// within the bounded completion once it is durable (the witness checks the saved outbox). Before,
+    /// it waited on the phone until the app was next opened (iPhone walk D3, 2026-10-01); this test
+    /// asserted that, because the batch began only at the request, after the app had already left.
+    @Test func backgroundDuringSaveDeliversOnceSavedWithinTheBoundedCompletion() async throws {
         let storage = SaveGate()
+        let witness = DeliveryWitness(storage)
+        let store = AppStore(state: try Fixture.named("conv-empty").state,
+                             runner: EffectRunner(storage: storage, handler: witness))
+        await store.apply(.compose(text: "send later")).value
+        await storage.configure(pause: true)
+        let send = store.apply(.sendDraft(clientID: "send-1", at: 100))
+        await storage.untilStarted()
+        store.wentToBackground(at: 101)
+        await storage.release()
+        await send.value
+        await store.settle()
+        #expect(await witness.delivered == ["send-1"])
+    }
+
+    /// The battery bound still holds: with this hour's six leases spent, Home during the save sends
+    /// nothing in the background, and the message waits for the next return.
+    @Test func backgroundDuringSaveWithNoLeaseLeftDoesNotStartDelivery() async throws {
+        let storage = SaveGate()
+        let now = SystemClock().nowMs()
+        await storage.put("completion-budget.json", try CoreJSON.encode((0..<6).map { now - Int64($0) * 1_000 }))
         let witness = DeliveryWitness(storage)
         let store = AppStore(state: try Fixture.named("conv-empty").state,
                              runner: EffectRunner(storage: storage, handler: witness))
