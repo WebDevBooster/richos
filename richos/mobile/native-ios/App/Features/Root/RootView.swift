@@ -260,7 +260,10 @@ struct ScreenView: View {
                         // kept voice card's buttons); where they are taller, or the header needs the
                         // room (the SE fit), the region scrolls as a whole and the edge that hides more
                         // fades and carries an arrow (EdgeCuedScroll), so nothing is cut unannounced.
-                        EdgeCuedScroll(id: "cards") {
+                        // R2 at the floor (re-walk 4): and nothing is cut at all: the edge that hides more
+                        // keeps a strip for its arrow alone, and every line and button shows whole or not
+                        // at all (`wholeLines`).
+                        EdgeCuedScroll(id: "cards", wholeLines: true) {
                             AboveComposer(cards: model.cards, toast: model.toast, send: send)
                                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
                         }
