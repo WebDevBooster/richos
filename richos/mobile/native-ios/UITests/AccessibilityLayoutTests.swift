@@ -610,6 +610,42 @@ final class AccessibilityLayoutTests: XCTestCase {
     /// The strip at a hiding edge of a cards' region that holds only the cue (`EdgeCuedScroll.band`).
     private static let edgeBand: CGFloat = 16
 
+    /// R2 at the floor, as the physical iPhone posed it (2026-10-02): a card raised while another shows
+    /// is scrolled to by the app (I05), not by a finger, and the region then rested where the room
+    /// between its two strips held only a bare strip of card. Where the app leaves the region, as where
+    /// a drag does, the room starts at a whole line or control.
+    func testARaisedCardAtTheFloorShowsAWholeLine() {
+        for appearance in ["light", "dark"] {
+            let what = "kept + raised microphone card \(appearance), keyboard up"
+            // As the phone posed it: the keyboard up and the region at its floor first, then a card raised.
+            let app = Screen.launch("voice-interrupted", appearance: appearance, interactive: true, microphone: "denied",
+                                    cards: "camera-denied")
+            XCTAssertTrue(app.descendants(matching: .any)["debug.microphone.denied"].waitForExistence(timeout: 5),
+                          "\(what): the core was not told the microphone is off")
+            messageField(app).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
+            Thread.sleep(forTimeInterval: 1.0)
+            app.descendants(matching: .any)["composer.mic"].press(forDuration: 0.4)
+            XCTAssertTrue(app.descendants(matching: .any)["card.micDenied"].waitForExistence(timeout: 5), "\(what): the press raised no microphone-off card")
+            Thread.sleep(forTimeInterval: 1.5)
+            let cards = region(of: "kept.send", in: app)
+            let r = cards.frame
+            let above = app.descendants(matching: .any)["cards.moreAbove"]
+            let below = app.descendants(matching: .any)["cards.moreBelow"]
+            XCTAssertTrue(above.exists || below.exists, "\(what): the cards fit whole at \(r), so this pose does not reach the floor")
+            let pixels = ScreenPixels(XCUIScreen.main.screenshot())
+            for (cue, top) in [(above, true), (below, false)] where cue.exists {
+                let band = top ? (r.minY + 0.5)...(r.minY + Self.edgeBand - 0.5) : (r.maxY - Self.edgeBand + 0.5)...(r.maxY - 0.5)
+                XCTAssertNil(pixels.firstDrawnRow(in: band, from: r.minX + 14, to: r.maxX - 14, skipping: (r.midX - 14)...(r.midX + 14)),
+                             "\(what): the \(top ? "top" : "bottom") strip of \(r) has something drawn beside its cue")
+            }
+            let room = (r.minY + (above.exists ? Self.edgeBand : 0))...(r.maxY - (below.exists ? Self.edgeBand : 0))
+            XCTAssertNotNil(pixels.firstDrawnRow(in: room, from: r.minX + 14, to: r.maxX - 14, skipping: 0...0),
+                            "\(what): the room \(room) between the strips of \(r) shows nothing")
+            keepScreenshot(app, name: "r2-floor-raised-\(appearance)")
+        }
+    }
+
     /// A refused voice message (iPhone re-walk 4, shot light-48) showed "Not sent · needs attention" and
     /// Discard, but not why: the Mac answers a refusal with a sentence for the person ("I could not
     /// hear speech in that recording. Your recording is still on your phone."), and the phone held it
