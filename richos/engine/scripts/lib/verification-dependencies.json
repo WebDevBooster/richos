@@ -4515,7 +4515,7 @@
     },
     "scripts/lib/audit-report-watch.py": {
       "source": "scripts/lib/audit-report-watch.py",
-      "sha256": "7f209e0a82c51458910d9b9a1bec67bb5d16c5f1fa24710e91afafdd9c95e2ec",
+      "sha256": "e0c279849e00e49bc9cc5ef6b78a0e0d1a1a5a44727228054c5c41c796048556",
       "evidence": "Reads the record repository's docs/audits reports at HEAD through fixed git calls (path from RICHOS_AUDIT_RECORD_REPO or a fixed home default) and a state file under RICHOS_AUDIT_WATCH_STATE. Report text is parsed as data, never evaluated. Raises through the fixed sibling escalate.sh with a fields file it writes itself. No orchestration config or manifest is read.",
       "keys": [],
       "edges": [

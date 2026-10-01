@@ -62,7 +62,21 @@ def parse_findings(text):
             digest = hashlib.sha1("\n".join(buf).strip().encode()).hexdigest()
             found[cur[0]] = (cur[1], digest)
 
+    fence = None  # (char, length) of the open code fence: its lines are never headings (P5-75)
     for line in text.splitlines():
+        fm = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence is not None:
+            if fm and fm.group(1)[0] == fence[0] and len(fm.group(1)) >= fence[1] \
+                    and not line.strip()[len(fm.group(1)):].strip():
+                fence = None
+            if cur is not None:
+                buf.append(line)
+            continue
+        if fm:
+            fence = (fm.group(1)[0], len(fm.group(1)))
+            if cur is not None:
+                buf.append(line)
+            continue
         m = re.match(r"^(#{1,6})\s", line)
         if m and (cur is None or len(m.group(1)) <= level):
             close()
