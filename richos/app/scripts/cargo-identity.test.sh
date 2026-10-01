@@ -70,8 +70,10 @@ try:
             raise AssertionError(result.stdout + result.stderr)
         return result
 
-    # Retry the unresolved CPU-admitted route before already-passing probes.
-    admitted = subprocess.run([sys.executable, "-B", str(here / "testvm/reserve.py"), "--wait", "300", "--",
+    # This probe checks WHICH checkout Cargo runs through reserve.py, not whether the Mac is quiet. The
+    # nightly runs every gate at once (93-99% CPU), so the 80% line refused it after 301 s; --low-priority
+    # keeps the reserve.py route and the memory rule but skips the CPU line (the CPU rule has its own tests).
+    admitted = subprocess.run([sys.executable, "-B", str(here / "testvm/reserve.py"), "--low-priority", "--wait", "300", "--",
                                "cargo", "run", "--offline", "--quiet", "--manifest-path",
                                str(roots[1] / "Cargo.toml"), "--config", str(roots[1] / ".cargo/config.toml"),
                                "--target-dir", str(scratch / "admitted")], cwd=here, env=environment,
