@@ -194,6 +194,25 @@ class LocalTests(unittest.TestCase):
                          sorted(n for n in m.GATE_PASSTHROUGH
                                 if n in os.environ and n not in m.GATE_SET_BY_BUILD))
 
+    def test_the_gates_temporary_folder_never_depends_on_who_started_the_build(self):
+        # Nightly attempt 2 (2026-10-01): cargo-cache-env.test.sh failed with "path must be
+        # shorter than SUN_LEN" under the build's long TMPDIR after passing where TMPDIR was
+        # short. One folder for every launcher, the one macOS assigns this account.
+        expected = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
+                                  text=True, check=True).stdout.strip()
+        for caller in ("/tmp/", str(self.root) + "/", None):
+            with self.subTest(caller=caller):
+                planted = {"HOME": os.environ["HOME"]}
+                if caller:
+                    planted["TMPDIR"] = caller
+                with patch.dict(os.environ, planted):
+                    if caller is None:
+                        os.environ.pop("TMPDIR", None)
+                    env, _credentials = m.local_environment()
+                self.assertEqual(env["TMPDIR"], expected)
+        self.assertNotIn("TMPDIR", m.GATE_PASSTHROUGH)
+        self.assertIn("TMPDIR", m.GATE_SET_BY_BUILD)
+
     def test_the_allowlist_is_the_only_door_and_e1_derives_its_list_from_it(self):
         """`gate-environment` is what run-tests.test.sh case E1 reads instead of copying.
 

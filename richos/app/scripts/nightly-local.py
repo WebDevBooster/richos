@@ -848,12 +848,12 @@ def strip_identity_overrides(env):
 # without it". Values are never listed, only names; what a name holds is the machine's
 # business.
 GATE_PASSTHROUGH = (
-    # The machine's identity and scratch space. cargo, rustup, playwright's browser cache,
-    # git's own config, the login keychain and `gh`'s credential store all live under HOME.
+    # The machine's identity. cargo, rustup, playwright's browser cache, git's own config, the
+    # login keychain and `gh`'s credential store all live under HOME. TMPDIR is NOT here: the
+    # build sets it (gate_tmpdir), so a suite's scratch paths never depend on who started it.
     "HOME",
     "USER",
     "LOGNAME",
-    "TMPDIR",
     # Text encoding. Without these a subprocess can decode its own output differently than
     # the run that measured it, which is a suite that fails on one terminal and not another.
     "LANG",
@@ -888,6 +888,8 @@ GATE_PASSTHROUGH = (
 # next time a variable is added. `nightly-local.py gate-environment` prints it.
 GATE_SET_BY_BUILD = (
     "PATH",
+    # macOS's per-user temporary folder, whatever the launching shell held (gate_tmpdir).
+    "TMPDIR",
     "PYTHONDONTWRITEBYTECODE",
     "CARGO_PROFILE_DEV_DEBUG",
     "CARGO_PROFILE_TEST_DEBUG",
@@ -922,6 +924,31 @@ GATE_SET_PER_STEP = (
 )
 
 
+def gate_tmpdir(environ=None):
+    """The temporary folder every gate's commands get: macOS's per-user one, never the caller's.
+
+    WHY NOT THE LAUNCHING SHELL'S (2026-10-01). Nightly attempt 2 failed cargo-cache-env.test.sh
+    with "sccache: error: path must be shorter than SUN_LEN": a Unix socket under
+    `$TMPDIR/<mktemp>/...` fits in the 104 bytes macOS allows only when TMPDIR is short. A
+    build started from a terminal passes through `/var/folders/<..>/T/` (57 bytes once
+    resolved to /private/var/...); an agent's shell can hand down something shorter, and the
+    same suite then passes for the engineer and fails in the nightly. So the build names ONE
+    folder, the one `getconf DARWIN_USER_TEMP_DIR` reports for this account, and
+    proof-run.py's checks get the same one from this function (gate_conditions). Only when
+    that cannot be read (not macOS) does the caller's TMPDIR stand in.
+    """
+    environ = os.environ if environ is None else environ
+    try:
+        out = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
+                             text=True, timeout=10, stdin=subprocess.DEVNULL)
+        folder = out.stdout.strip() if out.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        folder = ""
+    if folder and Path(folder).is_dir():
+        return folder
+    return environ.get("TMPDIR") or tempfile.gettempdir()
+
+
 def local_environment(run_id=None):
     """Return (environment, credentials). Nothing merges them but the signing steps.
 
@@ -939,6 +966,7 @@ def local_environment(run_id=None):
     env = {name: os.environ[name] for name in GATE_PASSTHROUGH if name in os.environ}
     # Explicit PATH also works from a fresh terminal, without an interactive shell.
     env["PATH"] = f"{Path.home()}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    env["TMPDIR"] = gate_tmpdir()
     # NOT NEEDED ANY MORE, AND KEPT AS A PROOF RATHER THAN A STEP. Every name these two
     # removed -- GIT_AUTHOR_*, GIT_COMMITTER_*, EMAIL, RICHOS_EXTRA_TAURI_CONFIG,
     # TAURI_CONFIG, CARGO_TARGET_DIR, RUN_TESTS_DECLARED_GAPS -- is absent from
