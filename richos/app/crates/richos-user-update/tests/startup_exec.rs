@@ -30,9 +30,13 @@ fn main() {{
     let proof = serde_json::json!({{"version":env!("CARGO_PKG_VERSION"),"pid":std::process::id(),"hint":std::env::var_os("RICHOS_UPDATE_SESSION_FD").is_some(),"args":std::env::args().skip(1).collect::<Vec<_>>()}});
     std::fs::write(home.join("runtime.json"), serde_json::to_vec(&proof).unwrap()).unwrap();
     if std::env::var_os("RICHOS_FIXTURE_HOLD").is_some() {{
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        // load-bound: waits for the test's release file; the verdict is that file, never elapsed
+        // time. Only a vanished test (parent changed) or a 10 minute hang guard ends the wait.
+        let parent = std::os::unix::process::parent_id();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
         while !home.join("release").exists() {{
-            assert!(std::time::Instant::now() < deadline, "fixture release timed out");
+            assert!(std::os::unix::process::parent_id() == parent, "fixture orphaned: test process is gone");
+            assert!(std::time::Instant::now() < deadline, "fixture release hang guard");
             std::thread::sleep(std::time::Duration::from_millis(10));
         }}
     }}
@@ -93,7 +97,8 @@ fn command(exe: &Path, home: &Path) -> Command {
     command
 }
 fn proof(home: &Path, child: &mut Child) -> serde_json::Value {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    // load-bound: polls for the proof file the fixture writes; the 120 s deadline only turns a hang into a failure.
+    let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         if let Ok(bytes) = fs::read(home.join("runtime.json")) {
             if let Ok(value) = serde_json::from_slice(&bytes) {
