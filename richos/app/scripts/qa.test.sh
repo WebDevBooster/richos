@@ -904,6 +904,29 @@ if [ "$CODE" != 0 ] && [ "$(tail -n 1 "$TMP/hs-adb.log")" = "-s TESTSERIAL shell
 else
   bad "HS2 Wi-Fi is put back on however the try ends" "exit $CODE, last adb call '$(tail -n 1 "$TMP/hs-adb.log")'"
 fi
+# R39: an unreadable socket table is recorded as unreadable, never as "none".
+: > "$TMP/hs.log"; : > "$TMP/hs-adb.log"; rm -f "$TMP/hs-sock.txt"
+cat > "$TMP/fakebin/adb" <<'FAKE'
+#!/bin/sh
+case "$*" in *"cat /proc/net"*) [ -n "$FAKE_PROC_DENIED" ] && { echo "Permission denied" >&2; exit 1; }
+  echo "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode"
+  echo "   0: 00000000:0000 00000000:01BB 01 0:0 00:0 0 10001 0 0"; exit 0 ;; esac
+echo "$*" >> "$FAKE_ADB_LOG"
+exit 0
+FAKE
+FAKE_PROC_DENIED=1 FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 1,2 --sockets-uid 10001 --sockets-file "$TMP/hs-sock.txt" --observe 1
+if [ "$CODE" = 0 ] && grep -q ' unreadable Permission denied' "$TMP/hs-sock.txt" && ! grep -q ' none$' "$TMP/hs-sock.txt"; then
+  ok "HS4 a denied /proc/net read is recorded 'unreadable Permission denied', never 'none'"
+else
+  bad "HS4 an unreadable socket table is not 'none'" "exit $CODE: $(tr '\n' ';' < "$TMP/hs-sock.txt" 2>/dev/null | cut -c1-200)"
+fi
+rm -f "$TMP/hs-sock.txt"
+FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 1,2 --sockets-uid 10001 --sockets-file "$TMP/hs-sock.txt" --observe 1
+if [ "$CODE" = 0 ] && grep -q ' ESTABLISHED:01BB$' "$TMP/hs-sock.txt"; then
+  ok "HS5 a readable table still records the app's socket (control)"
+else
+  bad "HS5 a readable socket table is recorded" "exit $CODE: $(tr '\n' ';' < "$TMP/hs-sock.txt" 2>/dev/null | cut -c1-200)"
+fi
 run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send nonsense
 expect "HS3 a Send position that is not X,Y is refused before any adb call" 2 "X,Y integers"
 
