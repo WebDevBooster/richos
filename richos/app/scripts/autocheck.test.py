@@ -425,6 +425,24 @@ class Commit(Fixture):
         self.assertIn("UNCOVERED: richos/app/src/uncovered.txt", out.stderr)
         self.assertEqual(self.head(), before)
 
+    def test_a_commit_outside_the_app_that_no_suite_claims_is_refused_at_the_commit(self):
+        # 2026-10-01: a Swift file under richos/mobile/native-ios and walk step lists under
+        # docs/verification passed the commit check (it returned early when nothing under
+        # richos/app changed) and were refused at the merge as UNCOVERED.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        before = self.head()
+        for path in ("richos/mobile/native-ios/App/Platform/uncovered.swift",
+                     "docs/verification/2026-10-01-walk/steps/uncovered.json"):
+            self.write(path, "new\n")
+            self.git("add", "-A")
+            out = self.git("commit", "-m", "uncovered", expect=1)
+            self.assertIn("COMMIT REFUSED: a changed code path is covered by no suite", out.stderr)
+            self.assertIn("UNCOVERED:", out.stderr)
+            self.assertEqual(self.head(), before)
+            self.git("reset", "-q")
+            (self.repo / path).unlink()
+
     def test_the_whole_branch_is_asked_not_only_the_staged_files(self):
         # An uncovered path committed earlier with --no-verify is still in what the land will
         # diff, so the next ordinary commit on the branch refuses it too.
