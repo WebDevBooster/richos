@@ -838,6 +838,13 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # keep clicking those things". Measured over 166,915 distinct Bash commands from
 # this Mac's transcripts: 113 refused. Suite: guard-foreign-app-data.test.sh;
 # harness: foreign-app-data.mutation.sh.
+# guard-shared-scratchpad.sh, ADDED 2026-10-01 — BLOCKING, a module of the Bash
+# chain's manifest. A teammate (a payload carrying agent_id) may not rm, rmdir,
+# unlink, trash or find -delete inside the lead session's directory under a Claude
+# scratch root: the scratchpad the harness advertises to every in-process teammate
+# as its own is shared, and on 2026-10-01 two teammates' end-of-task cleanups
+# (rm -rf / rm -f <session>/scratchpad/*) destroyed the lead's briefs and a live
+# teammate's files. The lead's calls pass. Suite: guard-shared-scratchpad.test.sh.
 # operator-claim.sh, guard-operator-claim.sh, guard-shared-writes.sh,
 # release-shared-writes.sh and guard-live-names.sh, ADDED 2026-09-25 — the engine
 # side of several operator leads on one Mac (richos-hq spec r3 (e) the claim, e3,
@@ -892,6 +899,7 @@ failure-type-lookup.sh
 guard-resource-waits.sh
 guard-failure-type-answer.sh
 guard-foreign-app-data.sh
+guard-shared-scratchpad.sh
 operator-claim.sh
 guard-operator-claim.sh
 guard-shared-writes.sh
