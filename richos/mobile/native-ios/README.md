@@ -41,7 +41,9 @@ asks never start less than 7 s apart; a Mac that does not keeps one bounded sche
 13 s, then every 15 s; at most 22 asks in five minutes). At the deadline the phone asks one last
 time, and that answer decides. Only while the app is on screen: leaving it cancels the ask in flight
 (`Core/Sources/RichOSCore/Pairing/MacWait.swift`). `sim launch <fixture>` and the launch arguments
-`-rios-fixture <name> -rios-appearance dark|light` open the app straight onto one.
+`-rios-fixture <name> -rios-appearance dark|light` open the app straight onto one; `-rios-notifications
+not-asked|on|off|denied` sets the notification state it starts in (`not-asked` shows the offer card under
+the empty conversation).
 
 **Scenarios** (`compose-draft`, `pair-by-scan`, `pair-mac-wait`, `pair-mac-hold`, `pair-refused-and-rejected`, `outbox-retry`,
 `outbox-refused-continues`, `offline-reconnect`, `voice-hold-send`, `voice-lock-send`,

@@ -275,6 +275,10 @@ for p in [Palette.sovereign, Palette.daybreak] {
     indicator("ink knob 72% on surface (a switch that is off)", p.ink.opacity(0.72), p.surface)
     indicator("accent glyph on surface (consent and menu icons)", p.accentGlyph, p.surface)
     indicator("ink icons on surface (settings rows, lock pill)", p.ink, p.surface)
+    // D8 (the iPhone walk, 2026-10-01): the outline of "Forget pairing on this phone" and of the
+    // pairing-link field is `line`; in dark it was `trim` at 2.94:1.
+    indicator("line on ground (the pairing-link field's outline, the sheet)", p.line, p.ground)
+    indicator("line on surface (Forget pairing's outline, ghost buttons, off boxes)", p.line, p.surface)
 }
 // The scanner and the photo overlays are always dark (round 12 `.scanner`; attachments NOTES A5).
 do {

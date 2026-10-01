@@ -280,6 +280,120 @@ final class AccessibilityLayoutTests: XCTestCase {
         return (nameplate, text)
     }
 
+    /// D1 (the iPhone walk, 2026-10-01, the iPhone SE): on the empty first conversation the notification
+    /// offer covered the end of the microphone instructions ("... Release to" stopped mid-sentence).
+    /// At the default text size the whole empty conversation sits between the header and the card, in
+    /// both appearances.
+    func testTheMicrophoneInstructionsEndAboveTheNotificationOffer() {
+        for appearance in ["light", "dark"] {
+            let what = "conv-empty with the offer \(appearance)"
+            let app = Screen.launch("conv-empty", appearance: appearance, notifications: "not-asked")
+            let empty = app.descendants(matching: .any)["conversation.empty"]
+            XCTAssertTrue(empty.waitForExistence(timeout: 5), "\(what): the empty conversation is missing")
+            let card = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Hear back when the app is closed")).firstMatch
+            XCTAssertTrue(card.waitForExistence(timeout: 5), "\(what): the notification offer is missing")
+            Thread.sleep(forTimeInterval: 0.8)
+            XCTAssertLessThanOrEqual(empty.frame.maxY, card.frame.minY + 0.5,
+                                     "\(what): the instructions \(empty.frame) run under the offer \(card.frame)")
+            let headerBottom = max(app.buttons["header.settings"].frame.maxY, app.descendants(matching: .any)["header.nameplate"].frame.maxY)
+            XCTAssertGreaterThanOrEqual(empty.frame.minY, headerBottom - 0.5,
+                                        "\(what): the instructions \(empty.frame) start under the header, which ends at \(headerBottom)")
+            keepScreenshot(app, name: "d1-\(appearance)")
+        }
+    }
+
+    /// D10 (the iPhone walk, 2026-10-01, the iPhone SE): with the keyboard up, the kept voice message's
+    /// card was cut through its Send and Discard buttons, with the conversation's text showing in the
+    /// strip beside it. The card shows whole above the field, with both buttons touchable, in both
+    /// appearances.
+    func testTheKeptVoiceCardIsWholeWithTheKeyboardUp() {
+        for appearance in ["light", "dark"] {
+            let what = "voice-interrupted \(appearance), keyboard up"
+            let app = Screen.launch("voice-interrupted", appearance: appearance)
+            XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 5), "\(what): the card is missing")
+            messageField(app).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
+            Thread.sleep(forTimeInterval: 0.8)
+            let fieldTop = messageField(app).frame.minY
+            for id in ["kept.send", "kept.discard"] {
+                let button = app.buttons[id]
+                XCTAssertLessThanOrEqual(button.frame.maxY, fieldTop + 0.5, "\(what): \(id) at \(button.frame) is cut off by the field at \(fieldTop)")
+                XCTAssertTrue(button.isHittable, "\(what): \(id) cannot be touched")
+            }
+            keepScreenshot(app, name: "d10-\(appearance)")
+        }
+    }
+
+    /// D2 (the iPhone walk, 2026-10-01): with the keyboard up and the field empty, the composer sometimes
+    /// grew from one line to three. The trigger was not isolated, so this puts the field through what
+    /// the two sightings had in common (a tap on the header's area while the keyboard is up, and Home
+    /// and back) and requires the empty field to stay one line, at the height it started.
+    func testTheEmptyComposerStaysOneLineWithTheKeyboardUp() {
+        let app = Screen.launch("conv-empty", appearance: "light", interactive: true)
+        let field = messageField(app)
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "the message field is missing")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "the keyboard did not come up")
+        Thread.sleep(forTimeInterval: 0.8)
+        let start = messageField(app).frame.height
+        XCTAssertLessThan(start, 40, "the empty field starts at \(start) pt, more than one line")
+        for round in 1...3 {
+            app.descendants(matching: .any)["header.nameplate"].tap()
+            Thread.sleep(forTimeInterval: 0.8)
+            XCTAssertEqual(messageField(app).frame.height, start, accuracy: 1, "round \(round): the empty field changed height after a tap on the header")
+            XCUIDevice.shared.press(.home)
+            XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+            app.activate()
+            Thread.sleep(forTimeInterval: 1.0)
+            if !app.keyboards.firstMatch.exists { messageField(app).tap(); Thread.sleep(forTimeInterval: 0.8) }
+            XCTAssertEqual(messageField(app).frame.height, start, accuracy: 1, "round \(round): the empty field changed height after Home and back")
+        }
+        keepScreenshot(app, name: "d2-empty-composer")
+    }
+
+    /// D6 (the iPhone walk, 2026-10-01): with the app open, switching the phone to dark left the
+    /// conversation light, and switching back left it dark, until the next launch. The ground of the
+    /// screen follows the phone's setting, in both directions, while the app stays open.
+    func testTheAppFollowsALightDarkSwitchWhileItIsOpen() {
+        let device = XCUIDevice.shared
+        let original = device.appearance
+        defer { device.appearance = original }
+        device.appearance = .light
+        let app = Screen.launch("conv-empty", appearance: "light", interactive: true)
+        XCTAssertTrue(app.descendants(matching: .any)["header.nameplate"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForGround(app, light: true), "the app did not start light on a light phone (ground \(groundLuminance(app)))")
+        keepScreenshot(app, name: "d6-light-start")
+        device.appearance = .dark
+        XCTAssertTrue(waitForGround(app, light: false), "the phone went dark and the open app stayed light (ground \(groundLuminance(app)))")
+        keepScreenshot(app, name: "d6-dark-after-switch")
+        device.appearance = .light
+        XCTAssertTrue(waitForGround(app, light: true), "the phone went light and the open app stayed dark (ground \(groundLuminance(app)))")
+        keepScreenshot(app, name: "d6-light-after-switch")
+    }
+
+    /// Relative luminance of a point on the ground, beside the left edge, half way down.
+    private func groundLuminance(_ app: XCUIApplication) -> Double {
+        guard let image = app.screenshot().image.cgImage else { return -1 }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(image, in: CGRect(x: -3, y: -(image.height / 2), width: image.width, height: image.height))
+        func linear(_ v: UInt8) -> Double { let c = Double(v) / 255; return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        return 0.2126 * linear(pixel[0]) + 0.7152 * linear(pixel[1]) + 0.0722 * linear(pixel[2])
+    }
+
+    /// Whether the ground becomes light (luminance over 0.5; the light ground is about 0.78) or dark
+    /// (under 0.1; the dark ground is about 0.007) within ten seconds.
+    private func waitForGround(_ app: XCUIApplication, light: Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            let l = groundLuminance(app)
+            if light ? l > 0.5 : (l >= 0 && l < 0.1) { return true }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return false
+    }
+
     /// F4, F5: the settings button is a fixed-size control with a name, at every size.
     func testSettingsButtonKeepsItsSize() {
         let app = Screen.launch("conv-populated", textSize: Self.largest)

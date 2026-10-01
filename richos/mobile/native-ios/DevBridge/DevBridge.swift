@@ -54,6 +54,7 @@ enum DevBridge {
     /// `-rios-appearance dark|light`, applied after the fixture, so every fixture can be
     /// photographed in both themes.
     static let appearanceArgument = "rios-appearance"
+    static let notificationsArgument = "rios-notifications"
     /// Gesture tests advance the real clock and core against controlled effects.
     /// Screenshot fixtures retain their default still-frame behavior.
     static var interactiveFixture: Bool {
@@ -86,6 +87,16 @@ enum DevBridge {
                 _ = try? await store.dispatch(.setAppearance(appearance))
             } else {
                 print("rios: launch appearance refused: '\(raw)'; known: dark, light")
+            }
+        }
+        // `-rios-notifications not-asked|on|off|denied|...`: the notification state the first conversation
+        // starts in, applied after the fixture. A fixture is one picture per screen; the empty
+        // conversation with the notification offer under it (the iPhone walk's D1) is the same screen.
+        if let raw = UserDefaults.standard.string(forKey: notificationsArgument) {
+            if let status = Notifications.Status(rawValue: raw) {
+                _ = try? await store.dispatch(.notificationsResult(status))
+            } else {
+                print("rios: launch notifications refused: '\(raw)'")
             }
         }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

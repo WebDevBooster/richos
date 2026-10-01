@@ -10,9 +10,12 @@ enum Screen {
 
     @discardableResult
     static func launch(_ id: String, appearance: String = "dark", textSize: String? = nil,
-                       interactive: Bool = false, microphone: String? = nil, mac: String? = nil) -> XCUIApplication {
+                       interactive: Bool = false, microphone: String? = nil, mac: String? = nil,
+                       notifications: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-rios-fixture", id, "-rios-appearance", appearance]
+        // The notification state the conversation starts in (`not-asked` shows the offer card).
+        if let notifications { app.launchArguments += ["-rios-notifications", notifications] }
         if interactive {
             app.launchArguments += ["-rios-interactive-fixture", "YES"]
             // The interactive fixture's stand-in for the OS's microphone answer (granted by default).

@@ -174,7 +174,9 @@ struct ComposerView: View {
                 .type(Typography.body)
                 .foregroundStyle(palette.ink)
                 .tint(palette.signal)
-                .lineLimit(1...6)
+                // An empty field is one line, whatever the width it was last measured at: it was seen
+                // growing to three with the keyboard up (the iPhone walk, D2). It grows once there is text.
+                .lineLimit(composer.draft.isEmpty ? 1...1 : 1...6)
                 .focused($fieldFocused)
                 // Its natural height, not the capsule's: the capsule grows from what this measures.
                 .fixedSize(horizontal: false, vertical: true)

@@ -92,6 +92,9 @@ struct ScannerView: View {
             }
         }
         .environment(\.palette, .sovereign)
+        // A container of its own: a plain identifier on the ZStack replaced its children's, so the close
+        // and link buttons answered to `scanner` instead of `scanner.close` and `scanner.link` (D7).
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("scanner")
         .onChange(of: availability) { _, value in
             if value == .denied { send(.cameraDenied) }
