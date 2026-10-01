@@ -902,6 +902,28 @@ else
 fi
 rm -f "$ALT_IDX"
 
+# A RELATIVE alternate index is read the way `git -C <root>` reads it: from the
+# repository root, even when the caller's directory holds a file of the same name
+# with different content (P5-64 v2 re-check: the caller's file won).
+REL_CALLER="$SCRATCH/rel-caller"
+rm -rf "$REL_CALLER"; mkdir -p "$REL_CALLER"
+rm -f "$WORK/alternate"
+GIT_INDEX_FILE="alternate" git -C "$WORK" read-tree HEAD >/dev/null 2>&1
+REL_BLOB1="$(printf 'one\n' | git -C "$WORK" hash-object -w --stdin)"
+GIT_INDEX_FILE="alternate" git -C "$WORK" update-index --add --cacheinfo "100644,$REL_BLOB1,one.txt" >/dev/null 2>&1
+REL_EXPECTED="$(GIT_INDEX_FILE="alternate" git -C "$WORK" write-tree 2>/dev/null)"
+GIT_DIR_WORK="$(git -C "$WORK" rev-parse --absolute-git-dir)"
+cp "$GIT_DIR_WORK/index" "$REL_CALLER/alternate"
+REL_BLOB2="$(printf 'two\n' | git -C "$WORK" hash-object -w --stdin)"
+GIT_INDEX_FILE="$REL_CALLER/alternate" git -C "$WORK" update-index --add --cacheinfo "100644,$REL_BLOB2,two.txt" >/dev/null 2>&1
+REL_ACTUAL="$(cd "$REL_CALLER" && GIT_INDEX_FILE="alternate" "$BASH_BIN" -c 'source "$1"; rc_pending_tree "$2" index' _ "$ENGINE_ROOT/scripts/lib/row-currency.sh" "$WORK")"
+if [ -n "$REL_EXPECTED" ] && [ "$REL_ACTUAL" = "$REL_EXPECTED" ]; then
+    ok "a relative GIT_INDEX_FILE is resolved from the repository root, never from a same-named file in the caller's directory"
+else
+    bad "relative alternate index resolved from the caller's directory (expected root's tree=$REL_EXPECTED actual=$REL_ACTUAL)"
+fi
+rm -f "$WORK/alternate"; rm -rf "$REL_CALLER"
+
 # ---------------------------------------------------------------------------
 # (i) NO OVERRIDE — there is no escape token, deliberately
 # ---------------------------------------------------------------------------

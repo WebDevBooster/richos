@@ -3943,7 +3943,7 @@
     },
     "scripts/lib/row-currency.sh#undeclared": {
       "source": "scripts/lib/row-currency.sh",
-      "sha256": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+      "sha256": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
       "evidence": "Module initialization, rc_require_ceo_todos_lib and rc_load_declaration through absent decl_find. No row declaration exists in the jurisdiction fixture, so no record resolver or Python predicate runs. The fixed TODO library provides repository resolution.",
       "keys": [],
       "edges": [
@@ -5512,7 +5512,7 @@
     },
     "scripts/lib/row-currency.sh#fixture-records": {
       "source": "scripts/lib/row-currency.sh",
-      "sha256": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+      "sha256": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
       "evidence": "Loads the separate row declaration as literal fields, resolves its fixed CEO-TODO library, assembles a JSON job and invokes the fixed row predicate. These fixture callers create the declarations, records and Git roots. Source and subprocess boundaries retain both libraries. Renewed 2026-09-28 (26b29c58): the owner line ROW_RECORD_OWNER is parsed only when a declaration carries it, and these fixtures write none; rc_record_owner is called only by guard-record-owner-memory.sh. Renewed 2026-09-30 (P5-64): rc_pending_tree reads GIT_INDEX_FILE, the index Git itself would use for the commit, from the environment; no configuration read is added.",
       "keys": [],
       "edges": [
@@ -5991,7 +5991,7 @@
     },
     "scripts/hooks/row-currency.test.sh": {
       "source": "scripts/hooks/row-currency.test.sh",
-      "sha256": "938f8ca8f9739044cfe9e8d25bf15b290ce7a3768d5c10b5b18c6e574316c200",
+      "sha256": "999268559fddef0abba5a917fd706c2d1e7f7797b569bcccdc1d619922800a51",
       "evidence": "Creates all record/artifact repositories, declarations and histories. The actual engine remains the seat, so adoption presence is retained. Invokes fixed guard, lint and headline verifier, then the fixed finite mutation driver. Real surface assertions inspect only row guard registration; probe/installer are scanned as source data, never executed. Inner-only scopes retain original named witness groups and prerequisites; full outer coverage remains. Local driver uses the same shared scratch/worker/deadline guards and copies all scripts/lib plus the guard, test, lint, verifier and config. Unmutated group controls must pass before literal mutations.",
       "keys": [],
       "edges": [
@@ -6306,7 +6306,7 @@
     },
     "scripts/lib/row-currency.sh#load": {
       "source": "scripts/lib/row-currency.sh",
-      "sha256": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+      "sha256": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
       "evidence": "Module initialization only. Defines fixed paths and functions; no declaration, record, roster or configuration file is read and no predicate subprocess runs.",
       "keys": [],
       "edges": [
@@ -15949,7 +15949,7 @@
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
-        "scripts/lib/row-currency.sh": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+        "scripts/lib/row-currency.sh": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
         "scripts/lib/sandbox-completeness.sh": "2d141da4f87eb59130459ce74fa1c3067e43c4e7b39ad03cb43f17cfb7973131",
         "scripts/lib/scratch-reaper.py": "9b819095fdea55fbef5e2a61b47c8459ff5fe02f4a4f0af878ab23c81c144280",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
@@ -16111,7 +16111,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
-        "scripts/lib/row-currency.sh": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+        "scripts/lib/row-currency.sh": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/unstarted-rows.py": "d23e53f6afe1f247ca32637f162d65525c2bc137ec736f3401f8b09fbe6b9473",
         "scripts/lib/unstarted-rows.sh": "12069725d4b1d131f6ae622f957087e432b197a84f5c446fa323bd6f533657e0",
@@ -16126,7 +16126,7 @@
         "scripts/hooks/guard-row-currency-commits.sh"
       ],
       "sources": {
-        "scripts/hooks/row-currency.test.sh": "938f8ca8f9739044cfe9e8d25bf15b290ce7a3768d5c10b5b18c6e574316c200",
+        "scripts/hooks/row-currency.test.sh": "999268559fddef0abba5a917fd706c2d1e7f7797b569bcccdc1d619922800a51",
         "scripts/lib/registered-hooks.sh": "e2556673cd8b512175e9137693af345e186b8acb677cb3f44a2f57eade527a25",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -16134,7 +16134,7 @@
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/lib/row-currency.sh": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+        "scripts/lib/row-currency.sh": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
@@ -16306,7 +16306,7 @@
         "scripts/hooks/guard-publication-commits.sh": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
-        "scripts/lib/row-currency.sh": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+        "scripts/lib/row-currency.sh": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
         "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
@@ -16512,7 +16512,7 @@
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
-        "scripts/lib/row-currency.sh": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+        "scripts/lib/row-currency.sh": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
@@ -16708,7 +16708,7 @@
         "scripts/lib/inflight.py": "d1feca630d8fda5b042c70e0940798856678db09faa65e4b722f3d9c6f9ec3a3",
         "scripts/hooks/notice-mechanical-findings.sh": "1b3ba1af8d15b64cd8eda504e691347f0ef923bd78e53f235223589248bb1c07",
         "scripts/lib/mechanical-findings.sh": "1c67019e979adea3071d160882f26acb6bd14c032162ba31d7a1020ad06509bb",
-        "scripts/lib/row-currency.sh": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
+        "scripts/lib/row-currency.sh": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
         "scripts/lib/mechanical-findings.py": "0942c108c40a62c831eaee4d569f8def0178903e17a289e221cc93ed7f51db78",
         "scripts/hooks/notice-protected-ref-moves.sh": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
