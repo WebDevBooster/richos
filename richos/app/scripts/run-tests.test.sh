@@ -1025,7 +1025,10 @@ build_check() {  # build_check <directory holding run-tests.sh>  -> sets BC_WHY 
   harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --for phone --list
   [ "$CODE" = 0 ] || { BC_WHY="--for phone --list exited $CODE: $(tail -1 <<<"$OUT")"; return; }
   phone=" $(tr '\n' ' ' <<<"$OUT")"
-  harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --list
+  # The WHOLE inventory, said outright: without a selection in a teammate workspace the harness
+  # lists only what the branch maps to (workspace_scope.py, 2026-10-01), and `harness` runs under
+  # `env -i`, so not even proof-run.py's RICHOS_TEST_SCOPE=full reaches it.
+  harness RUN_TESTS_DECLARED_GAPS= -- "$d/run-tests.sh" --full --list
   all="$(tr '\n' ' ' <<<"$OUT")"
   for s in $PHONE_ONLY; do
     case "$desk" in *" $s "*) BC_WHY="$BC_WHY; $s (phone only) is in the desktop build" ;; esac
