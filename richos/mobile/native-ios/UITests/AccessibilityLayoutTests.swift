@@ -304,22 +304,16 @@ final class AccessibilityLayoutTests: XCTestCase {
 
     /// D10 (the iPhone walk, 2026-10-01, the iPhone SE): with the keyboard up, the kept voice message's
     /// card was cut through its Send and Discard buttons, with the conversation's text showing in the
-    /// strip beside it. The card shows whole above the field, with both buttons touchable, in both
-    /// appearances.
+    /// strip beside it. Its region never runs under the field, and Send and Discard can each be brought
+    /// whole into view and touched, in both appearances. Since R3 (re-walk 4) one card yields to the
+    /// conversation as several do, so where the card does not fit it scrolls with its cue rather than
+    /// showing whole at rest.
     func testTheKeptVoiceCardIsWholeWithTheKeyboardUp() {
         for appearance in ["light", "dark"] {
             let what = "voice-interrupted \(appearance), keyboard up"
             let app = Screen.launch("voice-interrupted", appearance: appearance)
-            XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 5), "\(what): the card is missing")
-            messageField(app).tap()
-            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
-            Thread.sleep(forTimeInterval: 0.8)
-            let fieldTop = messageField(app).frame.minY
-            for id in ["kept.send", "kept.discard"] {
-                let button = app.buttons[id]
-                XCTAssertLessThanOrEqual(button.frame.maxY, fieldTop + 0.5, "\(what): \(id) at \(button.frame) is cut off by the field at \(fieldTop)")
-                XCTAssertTrue(button.isHittable, "\(what): \(id) cannot be touched")
-            }
+            assertBottomCardsReachable(app, what, anchor: "kept.send", texts: ["Recording was interrupted"],
+                                       buttons: ["kept.send", "kept.discard"])
             keepScreenshot(app, name: "d10-\(appearance)")
         }
     }
