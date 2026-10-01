@@ -48,6 +48,8 @@ public final class AppStore {
     @ObservationIgnored private var completionRequests = 0
     @ObservationIgnored private var completionBytes = 0
     @ObservationIgnored private var completionDeadline: Task<Void, Never>?
+    /// When this batch's bound after Home runs out (ms since 1970); `nil` until it has started.
+    @ObservationIgnored private var completionBoundEndsAt: Int64?
     @ObservationIgnored private var deliveryTask: Task<[Action], Never>?
     @ObservationIgnored private var delivering: OutboxItem?
     /// The delivery given up because the stream to the Mac was lost (`connectionLost`).
@@ -505,7 +507,10 @@ public final class AppStore {
             let leased = await reservation?.value != nil
             self?.sendLog(leased ? "hidden: 5 s bound started" : "hidden: no background lease left, bound ends now")
             if leased {
-                guard (try? await Task.sleep(for: .seconds(5))) != nil else { return }
+                if let self, self.completionBatch == batch {
+                    self.completionBoundEndsAt = SystemClock().nowMs() + Self.completionBoundMs
+                }
+                guard (try? await Task.sleep(for: .milliseconds(Self.completionBoundMs))) != nil else { return }
             }
             guard let self, self.completionActive, self.completionBatch == batch, !Task.isCancelled else { return }
             self.completionExpired = true
@@ -514,7 +519,59 @@ public final class AppStore {
         }
     }
 
+    /// The bound after Home: how long a batch begun on screen may keep going once the app is hidden.
+    static let completionBoundMs: Int64 = 5000
+
+    /// One delivery, and, while the app is hidden inside a started bound, the same message again
+    /// after a transient failure (iPhone re-walk D3, on the phone, three of three tries: the request
+    /// in flight at Home came back a fault 1.4 s into the bound, the batch ended there with the
+    /// message unsent and gave the time back, and the message waited until the app was next opened).
+    /// Off screen nothing else would try it: a waiting message is moved by the tick or by `connected`,
+    /// and both need the Mac's stream, which is closed off screen. So the pause the outbox would wait
+    /// on screen (1 s doubling, or the Mac's own Retry-After) is waited here, inside the bound and the
+    /// batch's three requests, under the same id (the Mac keeps one copy per id). The pause is the
+    /// request slot, so the bound running out or iOS taking the time back cancels it.
     private func deliver(_ id: String, snapshot: AppState) async -> [Action] {
+        var actions = await deliverOnce(id, snapshot: snapshot)
+        var again = 0
+        while let pause = hiddenRetryPause(id, snapshot: snapshot, after: actions, again: again) {
+            again += 1
+            sendLog("hidden: going again in \(pause) ms")
+            let wait = Task<[Action], Never> { _ = try? await Task.sleep(for: .milliseconds(pause)); return [] }
+            deliveryTask = wait
+            _ = await wait.value
+            deliveryTask = nil
+            if wait.isCancelled {
+                sendLog("hidden: bound ran out before going again")
+                return actions
+            }
+            actions = await deliverOnce(id, snapshot: snapshot)
+        }
+        return actions
+    }
+
+    /// The pause before the same message goes again while hidden, or `nil` when it does not: the
+    /// answer was a transient failure at the Mac or the network (never the phone's own deferral), the
+    /// batch's bound has started and still has room for the pause, and the batch has a request and the
+    /// bytes left for it.
+    private func hiddenRetryPause(_ id: String, snapshot: AppState, after actions: [Action], again: Int) -> Int64? {
+        guard !foreground, completionActive, !completionExpired, let endsAt = completionBoundEndsAt,
+              actions.count == 1, case .deliveryFailed(let failed, .retryable(let reason, let afterMs), _) = actions[0],
+              failed == id, !ConversationReducer.deferralReasons.contains(reason ?? ""),
+              let item = snapshot.outbox.first(where: { $0.clientID == id }), !Self.isQuestionOperation(item) else { return nil }
+        guard completionRequests < 3, Self.completionCost(item) <= 256 * 1024 - completionBytes else {
+            sendLog("hidden: not going again (requests \(completionRequests))")
+            return nil
+        }
+        let pause = max(0, afterMs ?? ConversationReducer.retryDelayMs(attempt: item.attempts + again + 1))
+        guard SystemClock().nowMs() + pause < endsAt else {
+            sendLog("hidden: not going again (the bound ends first)")
+            return nil
+        }
+        return pause
+    }
+
+    private func deliverOnce(_ id: String, snapshot: AppState) async -> [Action] {
         guard let item = snapshot.outbox.first(where: { $0.clientID == id }) else { return [] }
         let questionOperation = Self.isQuestionOperation(item)
         if questionOperation && !foreground {
@@ -587,6 +644,7 @@ public final class AppStore {
         let spent = completionSpent
         completionDeadline?.cancel()
         completionDeadline = nil
+        completionBoundEndsAt = nil
         completionActive = false
         completionBatch &+= 1
         completionReservation = nil

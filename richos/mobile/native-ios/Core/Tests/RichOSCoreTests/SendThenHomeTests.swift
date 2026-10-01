@@ -29,14 +29,20 @@ actor HeldStorage: Storage {
 
 /// The Mac's message route. `holdFirst`: the first delivery is answered only when the test releases
 /// it (or gives up when the phone cancels it, as URLSession's cancel does); every other is accepted.
+/// `faultFirst`: the released first delivery is answered with a transient fault, as the managed
+/// route answered a request held across a Mac that went quiet (the phone's log, re-walk D3).
 actor SendThenHomeMac: EffectHandler {
     private(set) var delivered: [String] = []
     private(set) var started: [String] = []
     private(set) var canceled = 0
     private let holdFirst: Bool
+    private let faultFirst: Bool
     private var release: CheckedContinuation<Void, Never>?
 
-    init(holdFirst: Bool = false) { self.holdFirst = holdFirst }
+    init(holdFirst: Bool = false, faultFirst: Bool = false) {
+        self.holdFirst = holdFirst || faultFirst
+        self.faultFirst = faultFirst
+    }
 
     func handle(_ effect: Effect, state: AppState) async -> [Action] {
         guard case .deliver(let id) = effect else { return [] }
@@ -51,6 +57,9 @@ actor SendThenHomeMac: EffectHandler {
             guard answered else {
                 canceled += 1
                 return [.deliveryFailed(clientID: id, failure: .retryable(reason: "unreachable", afterMs: nil), at: 0)]
+            }
+            if faultFirst {
+                return [.deliveryFailed(clientID: id, failure: .retryable(reason: "fault", afterMs: nil), at: 0)]
             }
         }
         delivered.append(id)
@@ -114,4 +123,46 @@ actor SendThenHomeMac: EffectHandler {
         #expect(await mac.delivered == ["c1"], "the message left the phone while it was hidden")
         #expect(store.state.outbox.isEmpty)
     }
+
+    /// iPhone re-walk D3 on the phone (2026-10-01, three of three in-flight tries, the phone's own
+    /// log): the request sent on screen was still in flight at Home and came back a transient fault
+    /// about 1.4 s into the 5 s bound. The batch then ended with the message unsent and gave the
+    /// background time back, and the message waited until the app was next opened: a waiting message
+    /// is moved only by the tick or by `connected`, and off screen there is no stream for either.
+    /// The fault must go again, under the same id, inside the bound it already holds.
+    @Test func aFaultWhileHiddenGoesAgainInsideTheBound() async throws {
+        let storage = HeldStorage()
+        let mac = SendThenHomeMac(faultFirst: true)
+        let store = try store(storage, mac)
+        let log = SendLogLines()
+        store.sendLog = { line in Task { await log.add(line) } }
+        await store.apply(.compose(text: "fault while hidden")).value
+        store.apply(.sendDraft(clientID: "c1", at: 1))
+        #expect(await becomes { await mac.started == ["c1"] }, "the request is in flight on screen")
+        store.wentToBackground(at: 2)
+        #expect(await becomes { await log.has("hidden: 5 s bound started") }, "the bound is running")
+        await mac.releaseFirst()
+        #expect(await within(4_000) { await mac.delivered == ["c1"] }, "the message left the phone while it was hidden")
+        await settle(store)
+        #expect(await mac.started == ["c1", "c1"], "once more, under the same id")
+        #expect(await mac.delivered == ["c1"], "delivered exactly once")
+        #expect(store.state.outbox.isEmpty)
+        #expect(await log.has("batch ended: after leaving the screen, still to send 0"))
+    }
+}
+
+/// The store's `sendLog` lines, collected for a test.
+actor SendLogLines {
+    private(set) var lines: [String] = []
+    func add(_ line: String) { lines.append(line) }
+    func has(_ line: String) -> Bool { lines.contains(line) }
+}
+
+/// Polls `condition` for up to `ms` of real time.
+func within(_ ms: UInt64, _ condition: @Sendable () async -> Bool) async -> Bool {
+    for _ in 0..<(ms / 5) {
+        if await condition() { return true }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+    }
+    return await condition()
 }
