@@ -1426,9 +1426,10 @@ struct ReaderState {
     /// says the write failed clears this id and leaves everything after it visible.
     /// Host-owned, reset with the send.
     checkpoint_call_id: Option<String>,
-    /// The context-only text this session was last given by [`NativeCognition::supply_context_brief`]
-    /// and took to `end_turn`. A fact about the SESSION, not the turn, so unlike its neighbors
-    /// it is never reset with the send — a new session starts with a new reader state, `None`.
+    /// The [`brief_cache_identity`] of the context-only text this session was last given by
+    /// [`NativeCognition::supply_context_brief`] and took to `end_turn`. A fact about the
+    /// SESSION, not the turn, so unlike its neighbors it is never reset with the send — a new
+    /// session starts with a new reader state, `None`.
     context_brief_held: Option<String>,
     /// **The front desk's bookkeeping grant, held here because this is where his first words
     /// are seen** — [`ActionGrant::ContinuityTools`]. `None` on a lease with no continuity
@@ -3579,6 +3580,47 @@ pub fn resolve_claude_bin_checked() -> Result<std::path::PathBuf, NativeError> {
         .map_err(|looked| NativeError::ClaudeNotFound { looked: looked.join("; ") })
 }
 
+/// **What a context brief SAYS, with the three values the engine derives at compile time
+/// masked** — the cache key for [`NativeCognition::supply_context_brief`] (hunt 2026-09-29
+/// part 1 v2, finding 29).
+///
+/// The engine renders (`engine/ecs/core/ecs_core.py`, `render_checkpoint`):
+/// - `compiled_at=<the newest event's time>` in the header,
+/// - `authority=ECS source=ecs:scope-sequence:<entity>:<thread>:<event count>` in Active
+///   context,
+/// - `evidence_age=<compiled_at minus the evidence time>` on each delegated-work row.
+///
+/// All three move whenever ANY event is appended, and the app's own bind appends four per new
+/// turn (`engine/ecs/adapters/app.py`, `bind`), so without masking no two turns' briefs were
+/// ever equal. Nothing else is masked: a record's id, status, title, revision, source or
+/// `evidence_observed_at` still makes the identity differ, so a real change is still supplied.
+fn brief_cache_identity(text: &str) -> String {
+    const SEQUENCE: &str = "authority=ECS source=ecs:scope-sequence:";
+    const AGE: &str = "evidence_age=";
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let (body, end) = match line.strip_suffix('\n') {
+            Some(body) => (body, "\n"),
+            None => (line, ""),
+        };
+        let masked = if body.starts_with("compiled_at=") {
+            "compiled_at=*".to_string()
+        } else if body.contains(SEQUENCE) {
+            format!("{}*", body.trim_end_matches(|c: char| c.is_ascii_digit()))
+        } else if body.contains(AGE) {
+            body.split(" | ")
+                .map(|field| if field.starts_with(AGE) { "evidence_age=*" } else { field })
+                .collect::<Vec<_>>()
+                .join(" | ")
+        } else {
+            body.to_string()
+        };
+        out.push_str(&masked);
+        out.push_str(end);
+    }
+    out
+}
+
 /// The real Cognition: a live native session behind the durable spine.
 pub struct NativeCognition {
     client: NativeClient,
@@ -3756,14 +3798,24 @@ impl NativeCognition {
     /// the question goes straight through. Any change (a new obligation, a receipt, a question)
     /// makes the text differ and the turn is paid as before; a fresh session has a fresh reader
     /// state, so a rotation or a new lease always gets its full brief.
+    ///
+    /// **"Identical" is judged on the brief's CONTENT, not its bookkeeping** (finding 29, v2
+    /// re-check). Every new turn binds, and the engine's bind appends its own events, so the
+    /// rendered brief's `compiled_at`, its `scope-sequence` number and each work row's
+    /// `evidence_age` (computed against `compiled_at`) change on every turn even when no
+    /// record did — measured against the real engine: scope sequence 4 became 8 on a turn
+    /// change alone. Compared byte for byte, the cache never hit on the path it exists for.
+    /// [`brief_cache_identity`] masks exactly those three derived values; any record that
+    /// changed still changes the identity, and the hidden turn is paid as before.
     fn supply_context_brief(&mut self, brief: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         let priming = crate::reprime::context_only_priming(brief);
-        if self.client.reader_state.lock().unwrap().context_brief_held.as_deref() == Some(priming.as_str()) {
+        let identity = brief_cache_identity(&priming);
+        if self.client.reader_state.lock().unwrap().context_brief_held.as_deref() == Some(identity.as_str()) {
             return Ok(());
         }
         let reason = self.client.prompt_context_only(&priming, on_item)?;
         if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
-        self.client.reader_state.lock().unwrap().context_brief_held = Some(priming);
+        self.client.reader_state.lock().unwrap().context_brief_held = Some(identity);
         Ok(())
     }
 
@@ -4574,6 +4626,71 @@ done
         assert_eq!(hidden(),1,"an identical brief paid a second hidden provider turn");
         cognition.supply_context_brief("Brief B",&mut |_|{}).unwrap();
         assert_eq!(hidden(),2,"a changed brief must still be supplied");
+    }
+
+    /// **PART 1 HUNT FINDING 29, v2 re-check: the cache against the REAL engine's briefs.** The
+    /// test above uses artificial identical text; the production brief embeds a sequence and a
+    /// compile time that the app's own per-turn bind moves. The witness
+    /// (`part-1-codex-v2/remaining-witness-v2.rs` in richos-hq) measured scope sequence 4
+    /// becoming 8 on a turn change alone; this binds the real engine twice, exactly as
+    /// `prepare_before_turn` does for two questions, and supplies both briefs.
+    ///
+    /// **RED at `c6cde6cc9`**: the second brief differed only in `compiled_at` and the scope
+    /// sequence, and paid a second hidden provider turn. A checkpoint that adds a record must
+    /// still be supplied.
+    #[test]
+    fn a_new_turn_alone_does_not_pay_a_second_hidden_turn_but_a_new_record_does() {
+        let script=write_script("unchanged-engine-brief",
+            r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+while read -r line; do
+  printf 'x\n' >> "$(dirname "$0")/hidden-turns"
+  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+done
+"#);
+        let root=script.parent().unwrap();
+        let out=std::process::Command::new("python3").args(["-c","import sys; print(sys.executable)"]).output().unwrap();
+        assert!(out.status.success());
+        let python=std::path::PathBuf::from(String::from_utf8(out.stdout).unwrap().trim());
+        let engine=Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().join("engine");
+        let bridge=crate::ecs::EcsBridge::new(&python,&engine,&root.join("ecs-state")).unwrap();
+        let mut cognition=NativeCognition::start(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let hidden=|| std::fs::read_to_string(root.join("hidden-turns")).map(|s| s.lines().count()).unwrap_or(0);
+
+        let first=bridge.bind("depot","thread-a","session-a","turn-a",None,"ceo").unwrap();
+        let brief_a=bridge.brief(&first,None).unwrap();
+        cognition.supply_context_brief(&brief_a,&mut |_|{}).unwrap();
+        assert_eq!(hidden(),1,"the first brief must reach the provider");
+
+        let next=bridge.bind("depot","thread-a","session-a","turn-b",None,"ceo").unwrap();
+        let brief_b=bridge.brief(&next,None).unwrap();
+        assert_ne!(brief_a,brief_b,"premise: the engine's bind moves the brief's bookkeeping");
+        cognition.supply_context_brief(&brief_b,&mut |_|{}).unwrap();
+        assert_eq!(hidden(),1,"a brief that changed only by the turn's own bind paid a second hidden turn");
+
+        let checkpoint=json!({"binding":next,"request_id":"manual",
+            "checkpoint":{"statements":[{"verb":"commitment","fields":{"id":"manual","title":"Review the depot manual"}}]}});
+        assert_eq!(bridge.request("checkpoint",checkpoint).unwrap()["accepted"],true);
+        let brief_c=bridge.brief(&next,None).unwrap();
+        assert!(brief_c.contains("Review the depot manual"));
+        cognition.supply_context_brief(&brief_c,&mut |_|{}).unwrap();
+        assert_eq!(hidden(),2,"a brief with a new record was not supplied");
+    }
+
+    /// The identity masks the three compile-time values and nothing else.
+    #[test]
+    fn the_brief_identity_masks_only_the_compile_time_values() {
+        let brief = "compiled_at=2026-10-01T20:39:23Z\n- authority=ECS source=ecs:scope-sequence:depot:thread-a:4\n\
+                     - id=w1 | status=running | evidence_observed_at=2026-10-01T20:00:00Z | evidence_age=2363s | source=x\n";
+        let later = "compiled_at=2026-10-01T20:40:00Z\n- authority=ECS source=ecs:scope-sequence:depot:thread-a:12\n\
+                     - id=w1 | status=running | evidence_observed_at=2026-10-01T20:00:00Z | evidence_age=2400s | source=x\n";
+        assert_eq!(brief_cache_identity(brief), brief_cache_identity(later));
+        for changed in [later.replace("status=running", "status=done"),
+                        later.replace("observed_at=2026-10-01T20:00:00Z", "observed_at=2026-10-01T20:30:00Z"),
+                        later.replace("thread-a:12", "thread-b:12")] {
+            assert_ne!(brief_cache_identity(brief), brief_cache_identity(&changed), "{changed}");
+        }
     }
 
     // ---- the background-work spec's §5.8a-ii seams ------------------------------------
