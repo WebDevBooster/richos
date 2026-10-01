@@ -8659,7 +8659,7 @@
     },
     "mega-lander/tests/workspace-spec-fourteen.mutation.sh": {
       "source": "mega-lander/tests/workspace-spec-fourteen.mutation.sh",
-      "sha256": "f32f15c49bf1f0a5f03d3dbcbbe62ffb184475869aaa6f6d72f623c1b3636c55",
+      "sha256": "e6b5d326d505dfd8c7acf6375d55e95fff49fbbbb4795116880ccfabb74f6184",
       "evidence": "Reviewed all finite mutation source operands in workspaces.py, removal guard, creator and integration readers. They change local predicates and fixed Git operations without adding dynamic configuration/executable inputs. Optional nightly driver uses the same suite and copied configuration transport.",
       "keys": [],
       "edges": [
@@ -16819,7 +16819,7 @@
       "commands": [],
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "28b165ea46c36cde125e0214f0f7f98fa28e4219a14d74bde8488367b91c5a80",
-        "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "f32f15c49bf1f0a5f03d3dbcbbe62ffb184475869aaa6f6d72f623c1b3636c55",
+        "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "e6b5d326d505dfd8c7acf6375d55e95fff49fbbbb4795116880ccfabb74f6184",
         "mega-lander/tests/workspace-spec-fourteen.test.sh": "53f74b973bd0c1105c0bc17f09ca53c5cffeb5ffa32f0147ec3a0dfe2fa32c0c",
         "mega-lander/workspaces.py": "1dd480f258cfe4b66743899836e0d3ae56325ee18502043eb27374cac3485d7b",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",

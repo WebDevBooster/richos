@@ -356,10 +356,18 @@ mutant S-p12-a-pid-alone-is-the-session "C12.2 " "$W" \
     '        elif st == "ok" and text != ident["pid_start"]:' \
     '        elif False:' \
     "SPEC-DERIVED (point 12 negated, 'The record carries more than a process number, since those get reused'): a reused process number would be taken for the session."
-mutant S-p12-next-session-does-not-take-over "C12.5 " "$W" \
+# Its want was "C12.5 " until 2026-10-01. The amendment of 2026-09-30 (b46a1113, "Allow
+# independent spawns while finished work awaits integration") turned C12.5 from "new work is
+# refused until the previous session's agent is handled" into "independent work starts while the
+# previous session's workspace is preserved", which this mutant cannot turn red: with no takeover
+# the spawn still succeeds and the workspace is still there. Nightly attempt 6 (20261001T022754Z)
+# measured the mutant red exactly where the property lives: C12.4 (the next session is told of
+# the ended session's agent by name) and C12.10 (the running session takes over a session that
+# recorded its end). C12.4 is the first of them, so it is the want.
+mutant S-p12-next-session-does-not-take-over "C12.4 " "$W" \
     '        st, _ = session_state(owner, rec.get("session_identity"), cache){NL}        if st != "ended":{NL}            return False' \
     '        st, _ = session_state(owner, rec.get("session_identity"), cache){NL}        if True:{NL}            return False' \
-    "SPEC-DERIVED (point 12 negated, 'the next session lands or discards their work before anything else'): the next session would never handle an ended session's agents."
+    "SPEC-DERIVED (point 12 negated, 'the next session reconciles their pending work first while independent development may continue'): the next session would never claim an ended session's agents, so it would not be told of them and would never land or discard them. (C12.10 goes red under it too.)"
 mutant S-p12-live-sessions-agents-claimed "C12.7 " "$W" \
     '    if owner and not rec.get("orphan"):' \
     '    if False:' \
