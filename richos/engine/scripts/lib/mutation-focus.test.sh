@@ -51,8 +51,15 @@ FAKE_ENG="$SANDBOX/fake-engine"
 REQUIRED_DIRS="$(awk '/^mutation_copy_engine\(\)/{f=1; next} f && /^}/{exit} f' \
         "$ENGINE_ROOT/scripts/lib/mutation-harness.sh" \
     | sed -nE 's#^[[:space:]]*cp -R "\$src/([A-Za-z0-9._-]+)" "\$dir/([A-Za-z0-9._-]+)" \|\| return 1[[:space:]]*$#\1#p')"
+# Every required single FILE (a `cp "$src/F" "$dir/F" || return 1` line) is read the
+# same way: on 2026-09-30 858bf383b made the function require
+# spawn-guard-audience.declaration and a hand-kept list never got it.
+REQUIRED_FILES="$(awk '/^mutation_copy_engine\(\)/{f=1; next} f && /^}/{exit} f' \
+        "$ENGINE_ROOT/scripts/lib/mutation-harness.sh" \
+    | sed -nE 's#^[[:space:]]*cp "\$src/([A-Za-z0-9._-]+)" "\$dir/([A-Za-z0-9._-]+)" \|\| return 1[[:space:]]*$#\1#p')"
 mkdir -p "$FAKE_ENG/scripts/hooks" "$FAKE_ENG/scripts/lib" "$FAKE_ENG/hooks"
 for d in $REQUIRED_DIRS; do mkdir -p "$FAKE_ENG/$d"; done
+for f in $REQUIRED_FILES; do printf '# fixture marker for %s\n' "$f" > "$FAKE_ENG/$f"; done
 mkdir -p "$FAKE_ENG/mega-lander/tests"
 printf 'PROTECTED_PATHS="app"\n' > "$FAKE_ENG/orchestration.config"
 printf '0.0.0-fixture\n' > "$FAKE_ENG/VERSION"

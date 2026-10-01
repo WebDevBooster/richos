@@ -2098,7 +2098,7 @@
     },
     "scripts/lib/mutation-focus.test.sh": {
       "source": "scripts/lib/mutation-focus.test.sh",
-      "sha256": "511e764d77ac2203b701fed07edc69126616c9fc4d787528a9fbdbb1dfe788d4",
+      "sha256": "7d62f105a06622367cdfcba5aa3b48f4b58d5d021a5bd22e87e8e2d4636af088",
       "evidence": "Creates a tiny engine with literal PROTECTED_PATHS and feature variables, then executes generated sequential/named/parallel suites under the real mutation helper. Its only eval receives fixed RULE_A/RULE_B assertions. Copied helper directories are transport; discovered production scripts are not run. All worker and supervisor helpers are separately declared.",
       "keys": [],
       "edges": [
