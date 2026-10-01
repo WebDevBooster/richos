@@ -237,6 +237,17 @@ if [ "$RC" = "1" ] && grep -q 'EXPIRED' "$SANDBOX/out"; then
 else
     bad "S8   rc=$RC on an expired entry"; sed 's/^/          /' "$SANDBOX/out"
 fi
+# S8b (P5-77): an expiry that is not a real calendar date is not a time boundary; it
+# used to compare as a string and keep the excuse alive indefinitely.
+for BADEXP in tomorrow 2999-99-99 2026-02-30 20991231; do
+    printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tbad expiry\n' "$BADEXP" > "$KR"
+    RC="$(run_shard --only-units scripts/lib/red.test.sh)"
+    if [ "$RC" = "1" ] && grep -q 'EXPIRED' "$SANDBOX/out"; then
+        ok "S8b  an entry whose expiry is '$BADEXP' (not a valid YYYY-MM-DD date) fails the job as expired"
+    else
+        bad "S8b  expiry '$BADEXP' kept a red unit excused (rc=$RC)"; sed 's/^/          /' "$SANDBOX/out"
+    fi
+done
 rm -f "$KR"
 
 # --- S9: receipts ---------------------------------------------------------

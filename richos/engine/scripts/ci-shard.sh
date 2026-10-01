@@ -393,10 +393,22 @@ kr_applies() { # <unit-id> — 0 when the row is in force here
 }
 
 kr_declared() { kr_field "$1" 1 >/dev/null 2>&1 && kr_applies "$1"; }
-kr_expired()  { # <unit-id> — 0 when today is past the expiry
-    local exp; exp="$(kr_field "$1" 3 2>/dev/null)" || return 1
-    [ -n "$exp" ] || return 1
-    [ "$(date -u +%Y-%m-%d)" \> "$exp" ]
+kr_expired()  { # <unit-id> — 0 when the entry's expiry has passed or is not a valid date
+    local exp rc=0; exp="$(kr_field "$1" 3 2>/dev/null)" || return 1
+    # P5-77: only a real calendar date YYYY-MM-DD that is today or later keeps an entry
+    # live (python exits 7 for that, and for nothing else). A blank or malformed expiry
+    # (`tomorrow`, `2999-99-99`) sorted after every date as a string and excused a red
+    # unit forever; and a python that cannot run must not fail open either, so anything
+    # other than the one live answer counts as expired.
+    python3 -c 'import datetime, re, sys
+e = sys.argv[1]
+try:
+    live = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", e)) and \
+        datetime.date.fromisoformat(e) >= datetime.datetime.now(datetime.timezone.utc).date()
+except ValueError:
+    live = False
+sys.exit(7 if live else 0)' "$exp" 2>/dev/null || rc=$?
+    [ "$rc" -ne 7 ]
 }
 
 # ---------------------------------------------------------------------------

@@ -47,6 +47,7 @@ Exit codes:
 import datetime
 import json
 import os
+import re
 import sys
 sys.dont_write_bytecode = True
 
@@ -182,6 +183,20 @@ def known_red_table(path):
     return rows
 
 
+def expiry_live(expiry, today):
+    """True only for a real calendar date YYYY-MM-DD that is today or later.
+
+    P5-77: the old test compared the strings, so `tomorrow` and `2999-99-99` sorted
+    after every real date and excused a red unit forever. A blank or malformed
+    expiry is not a time boundary, so it grants nothing."""
+    if not isinstance(expiry, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", expiry):
+        return False
+    try:
+        return datetime.date.fromisoformat(expiry) >= datetime.date.fromisoformat(today)
+    except ValueError:
+        return False
+
+
 def receipt_contradictions(rec):
     """Why this receipt's own fields contradict its verdict label, or None.
 
@@ -305,8 +320,9 @@ def verify(plan_path, weights_path=None, emit_path=None, proof_run=None):
                 unexcused.append("%s (lib/ci-known-red.tsv could not be read)" % u)
             elif u not in table:
                 unexcused.append("%s (no declaration in lib/ci-known-red.tsv)" % u)
-            elif not table[u] or today > table[u]:
-                unexcused.append("%s (declaration expired %s)" % (u, table[u] or "<no date>"))
+            elif not expiry_live(table[u], today):
+                unexcused.append("%s (declaration expired or has no valid YYYY-MM-DD expiry: %s)"
+                                 % (u, table[u] or "<no date>"))
         if unexcused:
             problems.append(
                 "%d KNOWN-RED receipt(s) are not excused by a live declaration:\n    %s"
