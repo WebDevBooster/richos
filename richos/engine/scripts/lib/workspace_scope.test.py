@@ -101,6 +101,28 @@ class Decide(unittest.TestCase):
         self.assertEqual(ws.lines(str(wt), base, 'new.txt'), [1, 2])
         self.assertEqual(ws.lines(str(wt), base, 'gone.txt'), [])
 
+    def test_w7_a_failed_git_read_is_an_error_never_an_empty_diff(self):
+        # P5-79: with a base git cannot read, the tracked diff and the hunks used to read as
+        # "nothing changed" while the untracked files still came back, narrowing a run to a
+        # subset of the branch's real changes (or an empty one).
+        wt = worktree(self.main, 'wt', 'cc/fixture-seven')
+        (wt / 'a.txt').write_text('one\nTWO\nthree\nfour\n')
+        (wt / 'new-test.swift').write_text('x\n')
+        bad = '0' * 40
+        with self.assertRaises(ValueError):
+            ws.changed(str(wt), bad)
+        with self.assertRaises(ValueError):
+            ws.lines(str(wt), bad, 'a.txt')
+        for args in (['changed', str(wt), bad], ['lines', str(wt), bad, 'a.txt']):
+            cli = subprocess.run([sys.executable, str(HERE / 'workspace_scope.py'), *args],
+                                 capture_output=True, text=True, env=CLEAN)
+            self.assertEqual(cli.returncode, 64, cli.stdout)
+            self.assertEqual(cli.stdout, '', 'a failed read must print no partial answer')
+            self.assertIn('unknown', cli.stderr)
+        # the opposite, same path: a good base still answers
+        base = git(self.main, 'rev-parse', 'main')
+        self.assertEqual(ws.changed(str(wt), base), ['a.txt', 'new-test.swift'])
+
     def test_w6_the_fields_form_reads_without_eval_even_with_no_branch(self):
         wt = worktree(self.main, 'wt', 'cc/fixture-four')
         base = git(self.main, 'rev-parse', 'main')

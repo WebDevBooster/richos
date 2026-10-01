@@ -103,9 +103,21 @@ def decide(directory, full=False, environ=None):
     return result
 
 
+def must(root, *args):
+    """git's output, or ValueError when git FAILED. An empty answer is a real answer (no
+    change); a failed read is not, and treating it as one narrowed a run to whatever the
+    other read happened to find, or refused a run that had changes (P5-79). The CLI maps
+    ValueError to exit 64 and a Python caller sees the exception: neither narrows."""
+    got = git(root, *args)
+    if got is None:
+        raise ValueError("git %s failed in %s, so the branch's changes are unknown; "
+                         "run the full suite" % (" ".join(args[:2]), root))
+    return got
+
+
 def changed(root, base):
-    tracked = git(root, "diff", "--name-only", "--no-renames", base) or ""
-    untracked = git(root, "ls-files", "--others", "--exclude-standard") or ""
+    tracked = must(root, "diff", "--name-only", "--no-renames", base)
+    untracked = must(root, "ls-files", "--others", "--exclude-standard")
     paths = {p.strip() for p in (tracked + "\n" + untracked).splitlines() if p.strip()}
     return sorted(paths)
 
@@ -116,13 +128,18 @@ HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 def lines(root, base, path):
     """The working-tree lines of <path> that differ from <base>. A deletion touches the lines on
     either side of it, so a removed line inside a case still names that case."""
+    must(root, "rev-parse", "--verify", "--quiet", base + "^{commit}")  # an unreadable base is not "no diff"
     if not os.path.exists(os.path.join(root, path)):
         return []
     if git(root, "cat-file", "-e", "%s:%s" % (base, path)) is None:
         with open(os.path.join(root, path), encoding="utf-8", errors="replace") as fh:
             return list(range(1, sum(1 for _ in fh) + 1))
-    diff = subprocess.run(["git", "-C", root, "diff", "-U0", "--no-renames", "--no-color", base, "--", path],
-                          capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout
+    ran = subprocess.run(["git", "-C", root, "diff", "-U0", "--no-renames", "--no-color", base, "--", path],
+                         capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    if ran.returncode != 0:
+        raise ValueError("git diff failed (exit %d) for %s in %s, so its changed lines are unknown: %s"
+                         % (ran.returncode, path, root, (ran.stderr or "").strip()[:200]))
+    diff = ran.stdout
     touched = set()
     for row in diff.splitlines():
         m = HUNK.match(row)
