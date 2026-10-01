@@ -264,5 +264,62 @@ class AndroidSelection(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class RunTestsHarness(unittest.TestCase):
+    """run-tests.sh: no selection in a workspace runs the suites proof-for.sh maps the branch to."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='workspace-scope-runtests.')
+        scripts = 'richos/app/scripts/'
+        extra = {scripts + 'a.test.sh': '#!/usr/bin/env bash\n# run-tests: no-host-screen: fixture\n'
+                                        '[ "${RICHOS_TEST_SCOPE:-}" = "${EXPECT_SCOPE:-}" ] '
+                                        '|| { echo "  FAIL  scope ${RICHOS_TEST_SCOPE:-unset}"; exit 1; }\n'
+                                        'echo "  all 1 passed"\n',
+                 scripts + 'b.test.sh': '#!/usr/bin/env bash\n# run-tests: no-host-screen: fixture\necho "  all 1 passed"\n',
+                 scripts + 'proof-for.sh': '#!/usr/bin/env bash\n'
+                                           '[ -z "${PROOF_FOR_STUB_OUT:-}" ] || printf "%s\\n" "$PROOF_FOR_STUB_OUT"\n'
+                                           'exit "${PROOF_FOR_STUB_RC:-0}"\n'}
+        self.fx = Fixture(self.tmp, [scripts + f for f in ('run-tests.sh', 'lib/worktree-resource.sh', 'lib/test_results.py',
+                                                          'lib/proof_declarations.py', 'lib/cargo-cache-env.sh',
+                                                          'lib/cargo_identity.py', 'bin/cargo')]
+                          + ['richos/engine/scripts/lib/workspace_scope.py'], extra)
+        self.fx.edit(scripts + 'b.test.sh', lambda t: t + '# edit\n')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_tests(self, where, *args, **env):
+        return subprocess.run(['bash', str(where / 'richos/app/scripts/run-tests.sh'), *args], capture_output=True,
+                              text=True, env={**CLEAN, 'RUN_TESTS_STATE': str(Path(self.tmp) / 'state'),
+                                              'RUN_TESTS_RESULTS_STATE': str(Path(self.tmp) / 'results'), **env})
+
+    def test_r1_no_selection_in_a_workspace_lists_only_the_mapped_suites(self):
+        r = self.run_tests(self.fx.wt, '--list', PROOF_FOR_STUB_OUT=MAPS_TO_B)
+        self.assertEqual((r.returncode, r.stdout), (0, 'b.test.sh\n'), r.stderr)
+        self.assertIn('workspace run on cc/fixture-narrow', r.stderr)
+        self.assertIn('%s --full' % HARNESS, r.stderr)
+
+    def test_r2_full_the_gate_explicit_suites_and_the_main_checkout_are_unchanged(self):
+        both = 'a.test.sh\nb.test.sh\n'
+        self.assertEqual(self.run_tests(self.fx.wt, '--full', '--list', PROOF_FOR_STUB_OUT=MAPS_TO_B).stdout, both)
+        self.assertEqual(self.run_tests(self.fx.wt, '--list', PROOF_FOR_STUB_OUT=MAPS_TO_B,
+                                        RICHOS_TEST_SCOPE='full').stdout, both)
+        self.assertEqual(self.run_tests(self.fx.wt, '--only', 'a.test.sh', '--list',
+                                        PROOF_FOR_STUB_OUT=MAPS_TO_B).stdout, 'a.test.sh\n')
+        self.assertEqual(self.run_tests(self.fx.main, '--list', PROOF_FOR_STUB_OUT=MAPS_TO_B).stdout, both)
+
+    def test_r3_a_branch_mapping_to_no_suite_is_refused_with_the_full_command(self):
+        r = self.run_tests(self.fx.wt, '--list')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('REFUSED', r.stderr)
+        self.assertIn('%s --full' % HARNESS, r.stderr)
+        broken = self.run_tests(self.fx.wt, '--list', PROOF_FOR_STUB_RC='2')
+        self.assertEqual(broken.returncode, 2)
+        self.assertIn('could not map the branch (exit 2)', broken.stderr)
+
+    def test_r4_full_tells_every_suite_it_starts_to_run_whole(self):
+        r = self.run_tests(self.fx.wt, '--full', '--only', 'a.test.sh', EXPECT_SCOPE='full')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
