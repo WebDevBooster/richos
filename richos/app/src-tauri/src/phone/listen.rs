@@ -947,7 +947,7 @@ mod tests {
         use std::io::{Read as _, Write as _};
         struct Quiet;
         impl Bridge for Quiet {
-            fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> { Err("unused".into()) }
+            fn submit_text(&self, _: Option<&str>, _: &str, _client_id: &str) -> Result<Accepted, String> { Err("unused".into()) }
             fn snapshot(&self, _: Option<&str>) -> Result<serde_json::Value, String> { Ok(serde_json::json!({})) }
             fn current_thread(&self) -> Option<(String, String)> { None }
             fn threads(&self) -> Vec<(String, String)> { vec![] }
@@ -1038,7 +1038,7 @@ mod tests {
         type Gate = Arc<(Mutex<bool>, Condvar)>;
         struct Held { entered: Arc<AtomicBool>, gate: Gate }
         impl Bridge for Held {
-            fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> {
+            fn submit_text(&self, _: Option<&str>, _: &str, _client_id: &str) -> Result<Accepted, String> {
                 self.entered.store(true, Ordering::SeqCst);
                 let (open, changed) = &*self.gate;
                 let mut open = open.lock().unwrap();
@@ -1121,7 +1121,7 @@ mod tests {
         use crate::phone::{api_base::ApiBaseDesk, device::DeviceDesk, routes::{Bridge,Accepted,StopSwitch}, stream::PhoneHub};
         struct Quiet;
         impl Bridge for Quiet {
-            fn submit_text(&self,_:Option<&str>,_:&str)->Result<Accepted,String>{Err("unused".into())}
+            fn submit_text(&self,_:Option<&str>,_:&str,_client_id:&str)->Result<Accepted,String>{Err("unused".into())}
             fn snapshot(&self,_:Option<&str>)->Result<serde_json::Value,String>{Ok(serde_json::json!({}))}
             fn current_thread(&self)->Option<(String,String)>{None}
             fn threads(&self)->Vec<(String,String)>{vec![]}
@@ -1156,7 +1156,7 @@ mod tests {
         use crate::phone::{api_base::ApiBaseDesk, device::DeviceDesk, routes::{Bridge,Accepted,StopSwitch}, stream::{PhoneHub, Replay}};
         struct Quiet;
         impl Bridge for Quiet {
-            fn submit_text(&self,_:Option<&str>,_:&str)->Result<Accepted,String>{Err("unused".into())}
+            fn submit_text(&self,_:Option<&str>,_:&str,_client_id:&str)->Result<Accepted,String>{Err("unused".into())}
             fn snapshot(&self,_:Option<&str>)->Result<serde_json::Value,String>{Ok(serde_json::json!({}))}
             fn current_thread(&self)->Option<(String,String)>{None}
             fn threads(&self)->Vec<(String,String)>{vec![]}
@@ -1495,11 +1495,11 @@ mod tests {
     }
 
     impl Bridge for SpineBridge {
-        fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
+        fn submit_text(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String> {
             let thread = thread_id.unwrap_or(&self.thread).to_string();
             let record = self
                 .control
-                .submit_from_channel(&thread, Some(self.entity.clone()), text, "phone")
+                .submit_from_channel_as(&thread, Some(self.entity.clone()), text, "phone", Some(client_id))
                 .map_err(|e| e.to_string())?;
             let spine = Arc::clone(&self.spine);
             std::thread::spawn(move || {
@@ -2158,6 +2158,10 @@ mod tests {
             "Rich's reply is not on the stream: {wire}"
         );
         assert!(wire.contains(words), "his own words are not on the stream: {wire}");
+        // AND UNDER THE PHONE'S OWN ID for them (adoption ledger §2.8 row C5): the id the POST
+        // carried came back on the Mac's row for it, so the phone holding "01JE2E" on screen
+        // recognizes this row as that line whether or not its receipt has arrived yet.
+        assert!(wire.contains(r#""client_id":"01JE2E""#), "his row does not carry the phone's own id: {wire}");
 
         // 6 AND 7 WERE THE TRUST ENDPOINT — CEO §61, 2026-09-19. They stood a plain-HTTP
         //    socket up on the neighboring port, fetched `/ca`, asserted the Apple content type
@@ -2911,7 +2915,7 @@ mod tests {
         /// this exists to satisfy the type rather than to be called.
         struct NoBridge;
         impl Bridge for NoBridge {
-            fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> {
+            fn submit_text(&self, _: Option<&str>, _: &str, _client_id: &str) -> Result<Accepted, String> {
                 Err("this test never sends a message".into())
             }
             fn snapshot(&self, _: Option<&str>) -> Result<Value, String> {
@@ -3204,7 +3208,7 @@ mod tests {
     /// The held-ask tests never send a message or read a timeline.
     struct QuietBridge;
     impl Bridge for QuietBridge {
-        fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> {
+        fn submit_text(&self, _: Option<&str>, _: &str, _client_id: &str) -> Result<Accepted, String> {
             Err("this test never sends a message".into())
         }
         fn snapshot(&self, _: Option<&str>) -> Result<Value, String> {
@@ -3486,7 +3490,7 @@ mod tests {
     /// A thread with nothing in it, so a stream's `hello` can be built.
     struct EmptyThread;
     impl Bridge for EmptyThread {
-        fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> {
+        fn submit_text(&self, _: Option<&str>, _: &str, _client_id: &str) -> Result<Accepted, String> {
             Err("this test never sends a message".into())
         }
         fn snapshot(&self, _: Option<&str>) -> Result<Value, String> {

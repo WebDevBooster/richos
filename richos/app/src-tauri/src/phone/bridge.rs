@@ -120,8 +120,8 @@ impl Bridge for PhoneBridge {
         self.voice.synthesize(row["text"].as_str().unwrap_or(""))
     }
 
-    fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {self.submit_words(thread_id,text,"phone_typed")}
-    fn submit_voice(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {self.submit_words(thread_id,text,"phone_voice")}
+    fn submit_text(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String> {self.submit_words(thread_id,text,"phone_typed",client_id)}
+    fn submit_voice(&self, thread_id: Option<&str>, text: &str, client_id: &str) -> Result<Accepted, String> {self.submit_words(thread_id,text,"phone_voice",client_id)}
 
     fn snapshot(&self, thread_id: Option<&str>) -> Result<Value, String> {
         let state = self.app.state::<AppState>();
@@ -151,7 +151,7 @@ impl Bridge for PhoneBridge {
 
 
 impl PhoneBridge {
-    fn submit_words(&self, thread_id: Option<&str>, text: &str, channel:&str) -> Result<Accepted, String> {
+    fn submit_words(&self, thread_id: Option<&str>, text: &str, channel:&str, client_id: &str) -> Result<Accepted, String> {
         let state = self.app.state::<AppState>();
         // The thread the words belong to, resolved HERE and never at drain time: the desktop's
         // active thread can move while a record waits, and re-scoping the CEO's words to wherever
@@ -164,11 +164,10 @@ impl PhoneBridge {
             .map_err(|e| e.to_string())?.entity_id().clone());
 
         // Durable before the phone is answered. This is the whole reason the phone writes here
-        // rather than calling the spine.
-        let record = state
-            .control
-            .submit_from_channel(&thread, entity, text, channel)
-            .map_err(|e| e.to_string())?;
+        // rather than calling the spine. The phone's own id for the message goes into the SAME
+        // record, so no drain can make a turn of these words without it, and the row the Mac
+        // sends back names the line the phone is already showing.
+        let record = write_phone_words(&state.control, &thread, entity, text, channel, client_id)?;
         let intake_id = record.id();
 
         // THE DRAIN RUNS ON ITS OWN THREAD, because it runs the turn. A phone that waited for the
@@ -205,4 +204,48 @@ impl PhoneBridge {
         })
     }
 
+}
+
+/// **The durable write of the phone's words, with the phone's own id for them in the same
+/// record** (adoption ledger §2.8 row C5). One `fsync`, so no drain can make a turn of these
+/// words without the id, and the CEO row the Mac sends back names the line the phone is already
+/// showing (`rows::client_id_of`). Apart from [`PhoneBridge::submit_words`] only so it can be
+/// proved without a running app.
+fn write_phone_words(
+    control: &richos_core::steering::TurnControl,
+    thread: &str,
+    entity: Option<richos_core::entity::EntityId>,
+    text: &str,
+    channel: &str,
+    client_id: &str,
+) -> Result<richos_core::steering::IntakeRecord, String> {
+    control.submit_from_channel_as(thread, entity, text, channel, Some(client_id)).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_phone_words;
+    use richos_core::steering::{IntakeRecord, TurnControl};
+
+    /// The record a phone message becomes carries the phone's own id, and a second reader of
+    /// the log (a restart) reads it back: the drain that turns it into a turn cannot miss it.
+    #[test]
+    fn the_phones_words_are_written_with_the_phones_own_id_for_them() {
+        let path = std::env::temp_dir().join(format!(
+            "richos-bridge-intake-{}-{}.jsonl",
+            std::process::id(),
+            super::super::now_millis()
+        ));
+        let control = TurnControl::open(&path).unwrap();
+        let record = write_phone_words(&control, "thr_1", None, "call the bank", "phone_voice", "v1").unwrap();
+        let carried = |r: &IntakeRecord| match r {
+            IntakeRecord::Channel { client_id, text, channel, .. } => (client_id.clone(), text.clone(), channel.clone()),
+            other => panic!("a phone message became {other:?}"),
+        };
+        let expected = (Some("v1".to_string()), "call the bank".to_string(), "phone_voice".to_string());
+        assert_eq!(carried(&record), expected);
+        let reread = TurnControl::open(&path).unwrap().pending_intake();
+        assert_eq!(reread.iter().map(carried).collect::<Vec<_>>(), vec![expected], "not on disk as written");
+        if let Err(error) = std::fs::remove_file(&path) { eprintln!("fixture cleanup: {error}"); }
+    }
 }
