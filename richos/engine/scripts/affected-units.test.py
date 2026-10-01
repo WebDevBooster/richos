@@ -45,6 +45,27 @@ class Planner(unittest.TestCase):
         lone.ordinary('scripts/hooks/zz-nobody-names-this.sh')
         self.assertEqual(lone.unmapped, ['scripts/hooks/zz-nobody-names-this.sh'])
 
+    def test_an_unnamed_script_reached_by_two_roads_is_listed_once(self):
+        # 2026-10-01: the refusal at main bb112ab68 listed notice-unanswered-question.sh twice,
+        # once from hooks() (hooks.json registers it) and once from its own turn.
+        root = HERE.parent
+        document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
+        suite = 'scripts/hooks/fixture-owner.test.sh'
+        lone = 'scripts/hooks/zz-nobody-names-this.sh'
+        def read(path):
+            if path == suite:
+                return '#!/usr/bin/env bash\necho owner\n'
+            file = root / path
+            return file.read_text() if file.is_file() else None
+        before = read('hooks/hooks.json')
+        after = json.loads(before)
+        after['hooks']['FutureEvent'] = [{'hooks': [
+            {'type': 'command', 'command': 'bash ${CLAUDE_PLUGIN_ROOT}/' + lone}]}]
+        plan = Selection(root, [suite], read, document)
+        plan.hooks(before, json.dumps(after))
+        plan.ordinary(lone)
+        self.assertEqual(plan.unmapped, [lone])
+
     def test_scoped_contract_inventory_keeps_new_events_and_helper_changes(self):
         root = HERE.parent
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
@@ -484,6 +505,68 @@ class SnapshotCLI(unittest.TestCase):
                                             env=env, capture_output=True, text=True, timeout=10)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(set(result.stdout.splitlines()), expected)
+            self.assertFalse((root / 'executed').exists())
+
+    def test_a_removed_file_is_never_named_by_no_suite_and_an_unclaimed_one_still_is(self):
+        # 2026-10-01: four of the seven files refused at main bb112ab68 as "named by NO suite"
+        # were absent from the tree the selector read, judged executable by their suffix alone.
+        # A deletion leaves no code to prove (proof-for.sh's REMOVED rule); a file that exists,
+        # or never existed, and that no suite names is still refused.
+        with tempfile.TemporaryDirectory(prefix="selection-removed.") as directory:
+            root = Path(directory)
+            engine = root / "richos/engine"
+            library = engine / "scripts/lib"
+            library.mkdir(parents=True)
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+                   "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                   "GIT_COMMITTER_NAME": "fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args], env=env, text=True).strip()
+            for name in ("affected_units.py", "verification_inputs.py"):
+                shutil.copyfile(HERE / "lib" / name, library / name)
+            shutil.copyfile(HERE / "ci-affected-units.sh", engine / "scripts/ci-affected-units.sh")
+            (library / "verification-dependencies.json").write_text(
+                json.dumps({"schema": 1, "config_keys": [], "nodes": {}, "units": {}}))
+            (engine / "scripts/owner.test.sh").write_text(
+                'echo must-not-execute > "' + str(root / 'executed') + '"\n# reads scripts/lib/claimed.py\n')
+            (library / "claimed.py").write_text("print('v1')\n")
+            (library / "doomed.py").write_text("print('no suite names me')\n")
+            git("init", "-q"); git("add", "."); git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            (library / "doomed.py").unlink()
+            (library / "claimed.py").write_text("print('v2')\n")
+            git("add", "-A"); git("commit", "-qm", "delete doomed.py, change claimed.py")
+            deleted = git("rev-parse", "HEAD")
+            (library / "stray.py").write_text("print('no suite names me either')\n")
+            git("add", "-A"); git("commit", "-qm", "add stray.py")
+            tip = git("rev-parse", "HEAD")
+            def select(*args):
+                return subprocess.run(["bash", str(engine / "scripts/ci-affected-units.sh"), *args, "--strict"],
+                                      env=env, capture_output=True, text=True, timeout=10)
+            def unnamed(stderr):
+                lines = stderr.split("named by NO suite:\n", 1)
+                return [line.strip() for line in lines[1].splitlines() if line.startswith("    ")] if len(lines) == 2 else []
+            for args in (["--range", base + ".." + deleted], ["--working", "--base", base]):
+                with self.subTest(deletion=args[0]):
+                    if args[0] == "--working":
+                        git("checkout", "-q", deleted)
+                    result = select(*args)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(set(result.stdout.splitlines()), {"scripts/owner.test.sh"})
+                    self.assertEqual(unnamed(result.stderr), [])
+                    self.assertIn("removed file(s)", result.stderr)
+                    self.assertIn("scripts/lib/doomed.py", result.stderr)
+            git("checkout", "-q", tip)
+            with self.subTest("the branch's own unclaimed executable is still refused, and named alone"):
+                result = select("--range", base + ".." + tip)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(unnamed(result.stderr), ["scripts/lib/stray.py"])
+            for args in (["--paths", "richos/engine/scripts/lib/typo.py"],
+                         ["--range", deleted + ".." + tip, "--paths", "richos/engine/scripts/lib/typo.py"]):
+                with self.subTest(never_existed=args):
+                    result = select(*args)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(unnamed(result.stderr), ["scripts/lib/typo.py"])
             self.assertFalse((root / 'executed').exists())
 
 
