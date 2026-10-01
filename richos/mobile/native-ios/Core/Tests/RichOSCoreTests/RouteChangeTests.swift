@@ -74,4 +74,70 @@ import Testing
         #expect(await becomes { await linkOpen(host) })
         _ = try await host.dispatch(.backgrounded(at: 3))
     }
+
+    // MARK: guards: only real changes, only on screen, back-off kept
+
+    /// Only a report that changed something reaches the core: a route change costs a reopen.
+    @Test func onlyAPathReportThatChangedSomethingIsNews() {
+        let wifi = NetworkPath.Report(online: true, route: "en0|192.168.1.1")
+        let cellular = NetworkPath.Report(online: true, route: "pdp_ip0|")
+        let none = NetworkPath.Report(online: false, route: "|")
+        // The first report after a return: the return already connects.
+        #expect(!NetworkPath.isNews(wifi, after: nil, offlineShown: false), "a first online report would throw away the return's open")
+        #expect(NetworkPath.isNews(wifi, after: nil, offlineShown: true), "but it clears a 'no network' still on screen")
+        #expect(NetworkPath.isNews(none, after: nil, offlineShown: false))
+        // After that.
+        #expect(!NetworkPath.isNews(wifi, after: wifi, offlineShown: false), "the same path again is not news")
+        #expect(NetworkPath.isNews(cellular, after: wifi, offlineShown: false), "Wi-Fi to cellular is")
+        #expect(NetworkPath.isNews(none, after: wifi, offlineShown: false))
+        #expect(!NetworkPath.isNews(none, after: none, offlineShown: true))
+        #expect(NetworkPath.isNews(wifi, after: none, offlineShown: true))
+    }
+
+    @Test func aRouteChangeAsksForAReconnectOnlyWhenOneCanHelp() throws {
+        let s = try Fixture.named("conv-empty").state
+        #expect(Reducer.reduce(s, .networkChanged(online: true, at: 1)).effects == [.reconnect])
+        var incompatible = s
+        incompatible.connectionNotice = .incompatible
+        #expect(Reducer.reduce(incompatible, .networkChanged(online: true, at: 1)).effects.isEmpty, "a Mac that cannot talk to this phone is not asked again")
+        var unpaired = AppState.initial
+        unpaired.linkOpen = false
+        #expect(Reducer.reduce(unpaired, .networkChanged(online: true, at: 1)).effects.isEmpty)
+        var offline = s
+        offline = Reducer.reduce(offline, .networkChanged(online: false, at: 1)).state
+        #expect(Reducer.reduce(offline, .networkChanged(online: true, at: 2)).effects.contains(.connect), "back online: the connect it was, unchanged")
+    }
+
+    /// The battery guard: a route change never opens a stream off screen. Off screen there is no owner,
+    /// and `reconnect` starts nothing without one.
+    @Test func aRouteChangeOffScreenOpensNothing() async throws {
+        let stream = RouteStream([.open, .open])
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(),
+                                     clock: FixedClock(ms: 5), sleep: Waits(instant: true).sleep)
+        await network.setSink { _ in }
+        let s = try Fixture.named("conv-empty").state
+        _ = await network.handle(.connect, state: s)
+        #expect(await becomes { await stream.opened.count == 1 })
+        _ = await network.handle(.disconnect, state: s)
+        #expect(await becomes { await stream.closed == 1 })
+        _ = await network.handle(.reconnect, state: s)
+        #expect(await holds { await stream.opened.count == 1 }, "no owner, no stream")
+    }
+
+    /// Back-off still applies while on screen and failing: a route change tries at once, and if the Mac
+    /// is still out of reach, the next wait is the next one in the sequence, never 1 s again.
+    @Test func aRouteChangeDoesNotResetTheBackOff() async throws {
+        let stream = RouteStream([.unreachable, .unreachable, .unreachable])
+        let waits = Waits()
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(),
+                                     clock: FixedClock(ms: 5), sleep: waits.sleep)
+        let host = try await host(network)
+        _ = try await host.dispatch(.foregrounded(at: 1))
+        #expect(await becomes { await waits.asked == [1000] })
+        _ = try await host.dispatch(.networkChanged(online: true, at: 2))
+        #expect(await becomes { await stream.opened.count == 2 })
+        #expect(await becomes { await waits.asked == [1000, 2000] }, "the back-off went on from where it was, not back to 1 s")
+        _ = try await host.dispatch(.backgrounded(at: 3))
+        #expect(await becomes { await waits.canceled >= 2 })
+    }
 }

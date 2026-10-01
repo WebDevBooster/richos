@@ -420,7 +420,7 @@ public final class AppStore {
                 return false
             }
             if !foreground {
-                eligible.removeAll { switch $0 { case .connect, .loadOlder, .checkMacConfirmation: return true; default: return false } }
+                eligible.removeAll { switch $0 { case .connect, .reconnect, .loadOlder, .checkMacConfirmation: return true; default: return false } }
             }
             for effect in eligible {
                 let followUps: [Action]

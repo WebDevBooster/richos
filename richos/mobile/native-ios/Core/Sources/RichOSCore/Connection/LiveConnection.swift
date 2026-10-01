@@ -58,6 +58,9 @@ public actor LiveConnection {
     /// `wakeups` channel). Never set while the stream is open, so a healthy stream keeps nothing owed.
     private var wakeOwed = false
     private var isOpen = false
+    /// The next back-off wait: 1 s, doubling to 30 s, back to 1 s when a stream opens. Kept on the
+    /// owner, not on one run, so a `reconnect` (which replaces the run) never resets it.
+    private var retryDelay = LiveConnection.firstRetryMs
 
     public static let firstRetryMs: Int64 = 1000
     public static let maxRetryMs: Int64 = 30000
@@ -136,6 +139,39 @@ public actor LiveConnection {
         if let napping { napping.cancel() } else { wakeOwed = true }
     }
 
+    /// **THE ROUTE CHANGED UNDER THE APP: REPLACE WHATEVER IS IN PROGRESS, NOW** (andy-opus-resume1's
+    /// third Android wait, the same gap here). The phone's network path changed with no loss reported
+    /// (Wi-Fi to cellular, a network joined, Tailscale coming or going). A stream on the old route may
+    /// be dead without a word, noticed only by the 20 s silence limit; an open in flight on it hangs
+    /// for its own 20 s; a back-off nap runs to its end. So the current run is ended, whatever it is
+    /// doing, and a new one opens at once from the same resume point, with the challenge held: no
+    /// request in front of it and no nap. An open stream is reported lost first, so the outbox waits
+    /// for the new one and a delivery in flight on the old route is given up and sent again under its
+    /// id (`AppStore`, `connectionLost`). The back-off is not reset (`retryDelay`), so a Mac still out
+    /// of reach is asked no more often than a route changes. Only while on screen: the path is watched
+    /// only then (`NetworkMonitor`), and an owner exists only then.
+    public func reconnect() async {
+        guard task != nil, !stopped else { return }
+        generation += 1
+        let mine = generation
+        task?.cancel()
+        task = nil
+        // A back-off wait cut short counts as one waited, as `wake` counts it: the next wait is the
+        // next one in the sequence, never 1 s again.
+        if let napping {
+            napping.cancel()
+            retryDelay = min(retryDelay * 2, Self.maxRetryMs)
+        }
+        napping = nil
+        wakeOwed = false
+        let wasOpen = isOpen
+        isOpen = false
+        if wasOpen { await sink(.connectionLost(at: clock.nowMs())) }
+        // Stopped, started, or replaced again while the loss was told: that one wins.
+        guard mine == generation, task == nil, !stopped else { return }
+        task = Task { await self.run(mine) }
+    }
+
     /// The oldest cursor held, for `before=` when older history is asked for.
     public func oldestCursor() -> Int? { model.view.first?.cursor }
 
@@ -149,7 +185,6 @@ public actor LiveConnection {
     public func finished() async { await task?.value }
 
     private func run(_ mine: Int) async {
-        var delay = Self.firstRetryMs
         var since = resumePoint()
         while mine == generation, !Task.isCancelled {
             // **NOTHING STANDS BETWEEN A FAILED STREAM AND THE NEXT OPEN** (andy-opus-resume1's
@@ -185,7 +220,7 @@ public actor LiveConnection {
                 // `Replay::Tail`, often empty), so waiting for a `hello` left "Reconnecting…" on a
                 // healthy stream (Sage's review T9). The reference's `accepted()`
                 // (`web/web-app/lib/link.js`) and Android's `Link(OPEN)`; it resets the back-off too.
-                delay = Self.firstRetryMs
+                retryDelay = Self.firstRetryMs
                 isOpen = true
                 wakeOwed = false
                 await sink(.connected(at: clock.nowMs()))
@@ -196,7 +231,7 @@ public actor LiveConnection {
                     let (events, comments) = parser.feed(chunk)
                     for event in events {
                         try await apply(event)
-                        delay = Self.firstRetryMs   // a frame proves the stream usable
+                        retryDelay = Self.firstRetryMs   // a frame proves the stream usable
                     }
                     if comments.contains(where: { $0.hasPrefix("re-snapshot") }) { resnapshot = true; break }
                 }
@@ -205,8 +240,10 @@ public actor LiveConnection {
             } catch {
                 // fall through to the retry below
             }
-            isOpen = false
+            // A run that was superseded (`reconnect`, `stop`) leaves the state alone: the owner that
+            // replaced it may already be open.
             guard mine == generation, !Task.isCancelled else { return }
+            isOpen = false
             if resnapshot {
                 since = nil
                 lastFrameID = nil
@@ -228,8 +265,8 @@ public actor LiveConnection {
                 }
             }
             if !resnapshot {
-                guard await nap(delay, mine) else { return }
-                delay = min(delay * 2, Self.maxRetryMs)
+                guard await nap(retryDelay, mine) else { return }
+                retryDelay = min(retryDelay * 2, Self.maxRetryMs)
             }
         }
     }

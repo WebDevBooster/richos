@@ -260,6 +260,9 @@ public enum Effect: Equatable, Sendable {
     case stopAudio
     /// Open (or keep) the live connection to the paired Mac.
     case connect
+    /// The phone's network path changed with no loss reported: the live connection's owner replaces
+    /// whatever it is doing (an open stream, an open in flight, a back-off wait) with a new open, now.
+    case reconnect
     /// Close it (backgrounded, revoked, forgotten).
     case disconnect
     /// Ask the OS for the microphone (once, on the first deliberate press).
