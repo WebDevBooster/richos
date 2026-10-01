@@ -1199,7 +1199,7 @@ def _():
     with open(os.path.join(MOBILE, "native-android", "bin", "randroid")) as f:
         script = f.read()
     install = script[script.index("emu_install() {"):script.index("emu_command() {")]
-    assert install.index("perf.py\" stamp") < install.index("install -r -t"), "the stamp must be written before the install"
+    assert install.index("perf.py\" stamp") < install.index("install_apk_if_changed"), "the stamp must be written before the install"
     assert '> "$apk.stamp.json"' in install
     perf_verb = script[script.index("    perf)"):script.index(";;", script.index("    perf)"))]
     for needle in ('s="$(serial)"', '--serial "$s"', "--kind emulator", "--owned-by randroid", '--lease "$CACHE"',
@@ -1207,6 +1207,47 @@ def _():
         assert needle in perf_verb, needle
     adb_verb = script[script.index("    adb)"):script.index(";;", script.index("    adb)"))]
     assert 'adb_s "$@"' in adb_verb, adb_verb  # the recorded serial only, never a bare adb
+
+
+@case("W3 the Android install step skips unchanged bytes and never uninstalls or clears data")
+def _():
+    import hashlib, subprocess, tempfile
+    lib = os.path.join(MOBILE, "native-android", "bin", "apk-install.sh")
+    with tempfile.TemporaryDirectory() as d:
+        apk = os.path.join(d, "app.apk")
+        with open(apk, "wb") as f:
+            f.write(b"apk-bytes")
+        log = os.path.join(d, "calls.log")
+        adb = os.path.join(d, "adb")
+        with open(adb, "w") as f:
+            f.write("#!/usr/bin/env bash\n"
+                    "echo \"$*\" >> \"$FAKE_LOG\"\n"
+                    "case \"$*\" in\n"
+                    "  *'pm path'*) echo 'package:/data/app/x/base.apk';;\n"
+                    "  *sha256sum*) echo \"$FAKE_SHA  /data/app/x/base.apk\";;\n"
+                    "esac\n")
+        os.chmod(adb, 0o755)
+        want = hashlib.sha256(b"apk-bytes").hexdigest()
+
+        def run(sha):
+            open(log, "w").close()
+            out = subprocess.run(["bash", "-c", f'. "{lib}"; install_apk_if_changed "{adb}" S dev.x "{apk}"'],
+                                 env={**os.environ, "FAKE_LOG": log, "FAKE_SHA": sha}, capture_output=True, text=True)
+            assert out.returncode == 0, out.stderr
+            return out.stdout.strip(), open(log).read()
+
+        out, calls = run(want)
+        assert out == "skipped" and " install" not in calls, (out, calls)
+        out, calls = run("0" * 64)
+        assert out == "installed" and "install -r -t" in calls, (out, calls)
+        assert "uninstall" not in calls and "pm clear" not in calls, calls
+    with open(os.path.join(MOBILE, "native-android", "bin", "randroid")) as f:
+        script = f.read()
+    assert "install_apk_if_changed" in script and "adb_s install" not in script
+    for rel in (("native-android", "bin", "randroid"), ("native-android", "bin", "apk-install.sh")):
+        with open(os.path.join(MOBILE, *rel)) as f:
+            code = [l for l in f if not l.lstrip().startswith("#")]
+        assert not any("uninstall" in l or "pm clear" in l for l in code), rel
 
 
 @case("W2 rios perf goes to perf.py ios before any Swift build")
