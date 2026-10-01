@@ -1448,6 +1448,54 @@ def _():
         assert benchmark.load(path)["classes"][0]["metrics"]["coldLaunch"]["p95Ms"] == 760.0
 
 
+@case("G7 every record perf.py writes is judged: merge and a measurement run exit 4 when slower and the record reads REFUSED")
+def _():
+    parts_dir = os.path.join(BASELINES, "2026-09-24-richconnect-android-perf-baseline", "parts")
+    parts = [os.path.join(parts_dir, p) for p in sorted(os.listdir(parts_dir))]
+    with tempfile.TemporaryDirectory() as tmp:
+        # against the committed benchmarks.json: the baseline equals its own benchmark
+        out = run_perf("merge", *parts, "--out", os.path.join(tmp, "same.json"))
+        assert out.returncode == 0, (out.returncode, out.stderr)
+        with open(os.path.join(tmp, "same.json")) as f:
+            same = json.load(f)
+        assert same["benchmark"]["class"] == "android-emulator", same["benchmark"]
+        assert {r["status"] for r in same["benchmark"]["metrics"].values()} == {"WITHIN NOISE"}, same["benchmark"]
+        assert "benchmark: coldLaunch" in out.stderr and "benchmark: warmResume" in out.stderr, out.stderr
+        # against a benchmark this emulator has to beat
+        stricter = benchmark.load()
+        emu = next(c for c in stricter["classes"] if c["name"] == "android-emulator")
+        emu["metrics"]["coldLaunch"]["p95Ms"] = 1000
+        strict = write(tmp, "strict.json", stricter)
+        out = run_perf("merge", *parts, "--out", os.path.join(tmp, "slow.json"), "--benchmark", strict)
+        assert out.returncode == 4, (out.returncode, out.stderr)
+        with open(os.path.join(tmp, "slow.json")) as f:
+            slow = json.load(f)
+        assert slow["acceptance"]["verdict"].startswith("REFUSED") and "coldLaunch p95 2105" in slow["acceptance"]["why"][0], slow["acceptance"]
+        assert not perfcore.check_record(slow), perfcore.check_record(slow)
+        # a measurement run (android or ios) goes through the same judgment before its record is written
+        saved = perf.run_android
+        try:
+            perf.run_android = lambda args: (bench_record(cold=p95_of(841.0), warm=p95_of(100.0)), 0)
+            path = bench_file(tmp)
+            code = perf.main(["android", "--adb", "adb", "--serial", "S", "--kind", "physical",
+                              "--out", os.path.join(tmp, "run.json"), "--benchmark", path])
+        finally:
+            perf.run_android = saved
+        with open(os.path.join(tmp, "run.json")) as f:
+            run = json.load(f)
+        assert code == 4 and run["benchmark"]["metrics"]["coldLaunch"]["status"] == "SLOWER", (code, run.get("benchmark"))
+        assert run["acceptance"]["verdict"].startswith("REFUSED"), run["acceptance"]
+
+
+@case("G8 a record judged slower whose acceptance is not REFUSED is unsound")
+def _():
+    r = bench_record(cold=p95_of(900.0))
+    r["benchmark"] = {"verdict": benchmark.VERDICT_SLOWER}
+    assert any("not REFUSED" in p for p in perfcore.check_record(r)), perfcore.check_record(r)
+    r["acceptance"]["verdict"] = "REFUSED: slower than the established benchmark"
+    assert not perfcore.check_record(r), perfcore.check_record(r)
+
+
 if __name__ == "__main__":
     total = sum(1 for line in open(__file__) if line.startswith("@case("))
     if failures:
