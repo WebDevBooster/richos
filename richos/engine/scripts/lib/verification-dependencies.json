@@ -1279,7 +1279,7 @@
     },
     "scripts/lib/worker-priority.test.py": {
       "source": "scripts/lib/worker-priority.test.py",
-      "sha256": "9bf8bb75cff12d5800c4beb25455645892c0e4aa91315b1a38dc2c48b8e09efd",
+      "sha256": "71a6456a06efc32506c7b570ac83d0c0bcd7080305026dc88fa30de330709a76",
       "evidence": "Generated Git checkouts and private worker/slot records drive actual lease and supervision APIs. Machine-command cleanup cases substitute testdevices. The shell keeper runs only the worker lease helper and generated checker. No test sources config.",
       "keys": [],
       "edges": [
@@ -12141,7 +12141,7 @@
     },
     "scripts/lib/runner-boundaries.test.py": {
       "source": "scripts/lib/runner-boundaries.test.py",
-      "sha256": "15a618c947b33a95108f9266778999a62192cfd6e23382645b6e3d1f4ffb1202",
+      "sha256": "47856083d006d7e57950f04ae2a9ba470cef7432c8cca9534594e11cd450daa7",
       "evidence": "Creates private synthetic engine with finite copied runner helpers and literal generated suites. Invokes shard and serial runners, plain receipt verify and direct process/pass APIs. No live suite inventory or orchestration config is copied or evaluated.",
       "keys": [],
       "edges": [
