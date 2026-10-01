@@ -534,11 +534,7 @@ impl RePrimePayload {
         // the payload SAYS SO (see `to_priming_prompt`) rather than falling silent.
         let workers = crate::worker_status::current_status(session_id);
         let worker_state_unknown = workers.unattributed;
-        let worker_state: Vec<String> = workers
-            .items
-            .into_iter()
-            .map(|i| format!("[{}] {}", i.state, i.label))
-            .collect();
+        let worker_state: Vec<String> = workers.priming_lines();
 
         RePrimePayload {
             identity_assertion: Self::identity_assertion_scoped(binding),
@@ -694,15 +690,17 @@ impl RePrimePayload {
         // nobody is entitled to make when the app could not even identify whose workers it
         // would be counting. Same rule, same reason as the ACTION LEDGER section above —
         // an absent section is how a successor infers a denial from an absence.
-        if self.worker_state_unknown == Some(Unattributed::WorkerLogUnreadable) {
+        if let Some(reason @ (Unattributed::WorkerLogUnreadable | Unattributed::WorkerLogDamaged)) = &self.worker_state_unknown {
             // The directory IS this session's, so the sentence below ("could not be
-            // identified") would be false. The conclusion is the same one (finding 41).
-            s.push_str(
-                "LIVE WORKER STATE: NOT AVAILABLE — this session's worker log is there but could \
-                 not be read, so nothing was counted from it. THIS IS NOT A STATEMENT THAT NO \
-                 WORKERS ARE RUNNING: you do not know either way. Do not report a worker count \
-                 from this section, and say you would need to check if the CEO asks.\n\n",
-            );
+            // identified") would be false. The conclusion is the same one (finding 41, and
+            // its v2 re-check for a log with a line that could not be read).
+            s.push_str(&format!(
+                "LIVE WORKER STATE: NOT AVAILABLE — {}, so nothing was counted from it. THIS IS \
+                 NOT A STATEMENT THAT NO WORKERS ARE RUNNING: you do not know either way. Do not \
+                 report a worker count from this section, and say you would need to check if the \
+                 CEO asks.\n\n",
+                reason.reason()
+            ));
         } else if let Some(reason) = &self.worker_state_unknown {
             s.push_str(&format!(
                 "LIVE WORKER STATE: NOT AVAILABLE — this session's team directory could not be \

@@ -1392,7 +1392,7 @@ impl Spine {
         );
         if let Some(workers) = workers {
             payload.worker_state_unknown = workers.unattributed;
-            payload.worker_state = workers.items.into_iter().map(|i| format!("[{}] {}", i.state, i.label)).collect();
+            payload.worker_state = workers.priming_lines();
         }
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
@@ -4061,7 +4061,7 @@ impl Spine {
             RePrimePayload::assemble_for_priming(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         if let Some(workers) = self.lease.as_ref().and_then(|lease| lease.worker_status()) {
             payload.worker_state_unknown = workers.unattributed;
-            payload.worker_state = workers.items.into_iter().map(|i| format!("[{}] {}", i.state, i.label)).collect();
+            payload.worker_state = workers.priming_lines();
         }
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
@@ -4423,7 +4423,7 @@ impl Spine {
             RePrimePayload::assemble_for_priming(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         if let Some(workers) = self.lease.as_ref().and_then(|lease| lease.worker_status()) {
             payload.worker_state_unknown = workers.unattributed;
-            payload.worker_state = workers.items.into_iter().map(|i| format!("[{}] {}", i.state, i.label)).collect();
+            payload.worker_state = workers.priming_lines();
         }
         self.fill_loro_tier(&mut payload, binding);
         let mut priming = payload.to_priming_prompt();
