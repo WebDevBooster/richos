@@ -2271,9 +2271,10 @@ class Point14_IntegrationBranch(Base):
           C  a record naming THIS thread          -> silent. Its own agents
              already know, and this is the positive control that B is not
              simply "any record fires".
-          D  records in use, this move in none    -> reported as exactly that,
-             and never as "another conversation": a repository that keeps land
-             records can still be merged into by a hand at a terminal.
+          D  records in use, this move in none    -> SILENT, like A. A repository
+             that keeps land records is still merged into by a hand at a
+             terminal, and that hand writes no record; reporting it once per
+             running agent per merge was the defect (hunt part 4, finding 24).
           E  two lands in a row                   -> both are answered, which is
              the whole reason the record is APPENDED rather than kept as a
              field on the lock that the next lander overwrites.
@@ -2339,15 +2340,19 @@ class Point14_IntegrationBranch(Base):
             move("tu-c", child_c)
         self.assertEqual(len(told()), 1)                  # still only B's
 
-        # --- D. RECORDS IN USE, AND THIS MOVE IN NONE -----------------------
+        # --- D. RECORDS IN USE, AND THIS MOVE IN NONE: SILENT ----------------
         self.pre(aid, "tu-d")
         before_d, child_d = a_land("a hand at a terminal, in a repository that keeps records")
         with patch.dict(os.environ, {"RICHOS_APP_THREAD": "thread-a"}):
             move("tu-d", child_d)
-        self.assertEqual(len(told()), 2)
-        unnamed = told()[1][2]
-        self.assertIn("land records do not name", unnamed)
-        self.assertNotIn("conversation thread", unnamed)  # it claims no more than the record carries
+        # A HAND MERGE IS SILENT WHETHER OR NOT OLDER RECORDS EXIST (hunt part 4,
+        # finding 24). It used to be reported again and again as "moved forward
+        # by a land this repository's land records do not name" the moment the
+        # first land was recorded. Case A is the control that this is the same
+        # terminal path, and B above is the control that a NAMED land still speaks.
+        self.assertEqual(len(told()), 1)                  # still only B's
+        self.assertIsNone(ws.land_by_another_conversation(self.entity, "dev/rec", before_d, child_d))
+        self.assertEqual(tip_now(), child_d)              # and nothing was put back
 
         # --- E. TWO LANDS IN A ROW, BOTH STILL ANSWERABLE -------------------
         # The record is append-only, so the FIRST of the two is not erased by
@@ -2361,8 +2366,8 @@ class Point14_IntegrationBranch(Base):
         record("dev/rec", before_e2, child_e2, "thread-c", "2026-09-17T19:11:00Z")
         with patch.dict(os.environ, {"RICHOS_APP_THREAD": "thread-a"}):
             move("tu-e", child_e2)
-        self.assertEqual(len(told()), 3)
-        self.assertIn("thread-c", told()[2][2])
+        self.assertEqual(len(told()), 2)
+        self.assertIn("thread-c", told()[1][2])
         # BOTH LANDS ARE STILL ON THE RECORD — the earlier one was not
         # overwritten, and it still answers for the move it made.
         kept = [(r["thread_id"], r["commit"]) for r in ws.land_records(self.entity)]
@@ -2383,9 +2388,9 @@ class Point14_IntegrationBranch(Base):
         run("git", "-C", self.entity, "branch", "-f", "dev/rec", child_f)
         with patch.dict(os.environ, {"RICHOS_APP_THREAD": "thread-a"}):
             self.finish(aid)
-        self.assertEqual(len(told()), 4)
-        self.assertIn("thread-b", told()[3][2])
-        self.assertIn("2026-09-17T19:20:00Z", told()[3][2])
+        self.assertEqual(len(told()), 3)
+        self.assertIn("thread-b", told()[2][2])
+        self.assertIn("2026-09-17T19:20:00Z", told()[2][2])
 
     def test_point_14_the_engine_never_moves_the_recorded_branch_when_two_agents_run(self):
         """THE 2026-09-14 INCIDENT, as a test. Events 3, 4 and 5 of

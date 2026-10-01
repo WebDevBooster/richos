@@ -711,7 +711,20 @@ def judge(sysrec, entity_root, engine_root, ci_pause):
     if jur:
         jcmd = expand(jur, entity_root, engine_root)
         jrc, _jout = run(jcmd, 20, entity_root)
-        if jrc is None or jrc != 0:
+        if jrc is None:
+            # THE JURISDICTION CHECK DID NOT ANSWER. run() returns None for a
+            # timeout and for a command that could not be started, and that is
+            # not "this system is not here": folding the two stood the system
+            # down, left it out of every standing obligation and let the report
+            # say "Every system in jurisdiction is healthy" (hunt P5-08). It is
+            # UNKNOWN, like a check that is not on disk, and it stands.
+            rec.update({"status": UNKNOWN, "via": jcmd, "exit": None,
+                        "evidence": ["the jurisdiction check could not answer: %s" % (_jout or "no reason given").strip(),
+                                     "an unanswered jurisdiction check is not 'out of jurisdiction'"]})
+            return rec
+        if jrc != 0:
+            # A clean nonzero exit IS the answer "this system is not in this
+            # repository" -- the stand-down the declaration asked for, kept.
             rec.update({"status": "OUT-OF-JURISDICTION", "via": jcmd,
                         "evidence": [], "exit": jrc})
             return rec

@@ -311,10 +311,25 @@ fi
 
 # --- L8: nothing examined is exit 4, not exit 0 ---------------------------
 OUT="$(bash "$STATUS" --repo "$SANDBOX/does-not-exist" 2>&1)"; RC=$?
-if [ "$RC" -eq 4 ] || printf '%s' "$OUT" | grep -q "NOT EXAMINED (1)"; then
-    ok "L8   a repository that cannot be read is NOT EXAMINED and never reads as clean"
+if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q "NOT EXAMINED (1)"; then
+    ok "L8   a repository that cannot be read is NOT EXAMINED and exits 4, never 0"
 else
     bad "L8   rc=$RC — 'could not look' must not share an exit code with 'looked and found nothing'"
+fi
+# L8b (hunt P5-08): ONE unexamined repository among examined ones is still a gap.
+# It used to be averaged away, because the verdict was 3-or-0 over what WAS read.
+OUT="$(bash "$STATUS" --repo "$CLEAN" --repo "$SANDBOX/does-not-exist" 2>&1)"; RC=$?
+if [ "$RC" -eq 4 ]; then
+    ok "L8b  one unexamined repository beside a clean one exits 4 (the gap is not averaged away)"
+else
+    bad "L8b  rc=$RC — a clean repository must not vouch for one nobody looked at"
+fi
+# L8c: a fact that WAS established outranks the gap (3 stays 3).
+OUT="$(bash "$STATUS" --repo "$R" --repo "$SANDBOX/does-not-exist" 2>&1)"; RC=$?
+if [ "$RC" -eq 3 ]; then
+    ok "L8c  an incomplete land found elsewhere still exits 3 when another repository was unexamined"
+else
+    bad "L8c  rc=$RC — the established fact must keep its own exit code"
 fi
 
 # --- L9 / L13: refuse under enforcement, announce without it --------------

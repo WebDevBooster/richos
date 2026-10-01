@@ -617,6 +617,32 @@ else
 fi
 
 # ===========================================================================
+# J — AN INVENTORY THAT COULD NOT BE READ IS NOT "COMPLETE" (hunt P5-08)
+# ===========================================================================
+# Suite discovery (ci-units.sh suites) failing used to be an advisory followed by
+# "COMPLETE", exit 0. The control is case B's exact fixture (a complete
+# registration that passes); the only difference is a ci-units.sh that fails.
+R16="$SANDBOX/j"; make_fixture "$R16"; register "$R16" "guard-new-thing.sh" 1; complete "$R16" "guard-new-thing.sh" 1
+OUT="$(run "$R16")"; RC=$?
+if [ "$RC" = "0" ]; then ok "J1  (control) the complete registration passes while suite discovery works"
+else bad "J1  the control fixture should pass, got rc $RC" "$OUT"; fi
+
+printf '#!/usr/bin/env bash\nexit 2\n' > "$R16/engine/scripts/ci-units.sh"
+OUT="$(run "$R16")"; RC=$?
+if [ "$RC" = "2" ] && printf '%s' "$OUT" | grep -qF "suite inventory" \
+   && ! printf '%s' "$OUT" | grep -qF "COMPLETE: every derived inventory"; then
+    ok "J2  suite discovery failing is BROKEN (exit 2), never COMPLETE"
+else
+    bad "J2  expected rc 2 naming the suite inventory and no COMPLETE line, got rc $RC" "$OUT"
+fi
+
+# A real owing place keeps its own exit code: the fact outranks the gap.
+register "$R16" "guard-other-thing.sh" 1
+OUT="$(run "$R16")"; RC=$?
+if [ "$RC" = "1" ]; then ok "J3  an owing place still exits 1 when suite discovery is also failing"
+else bad "J3  expected rc 1 (the established fact), got $RC" "$OUT"; fi
+
+# ===========================================================================
 echo ""
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
