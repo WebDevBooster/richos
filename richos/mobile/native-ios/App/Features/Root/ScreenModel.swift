@@ -162,6 +162,9 @@ struct ScreenModel: Equatable, Sendable {
         /// client id from Send to the Mac's row for it (`Message.lineID`).
         var lineID: String? = nil
         var listID: String { lineID ?? id }
+        /// Why the Mac refused this message, in its own words ("I could not hear speech in that
+        /// recording. …"), shown under it beside Discard; nil when the refusal carried no sentence.
+        var refusal: String? = nil
     }
 
     struct ConnectionLine: Equatable, Sendable {
@@ -301,6 +304,14 @@ extension ScreenModel {
                 thread.rows[i].body = .question(displayed, pending: status, savedAnswer: pending.questionAnswerText, canEditLocal: pending.state == .waiting && pending.attempts == 0)
             }
         }
+        // A message the Mac refused says why (iPhone re-walk 4, light-48): the Mac's answer (`reason`,
+        // HTTP 422 `retry: false`) is kept on the outbox item that holds the message.
+        for i in thread.rows.indices where thread.rows[i].delivery == .needsAttention {
+            let row = thread.rows[i]
+            if let item = s.outbox.first(where: { $0.clientID == row.id || $0.clientID == row.lineID }), item.state == .blocked {
+                thread.rows[i].refusal = Self.refusalSentence(item.lastReason)
+            }
+        }
         if let playback = s.playback, let i = thread.rows.firstIndex(where: { $0.id == playback.messageID }) {
             thread.rows[i].audio = playback.phase == .preparing ? .preparing : .playing(progress: playback.progress)
         }
@@ -422,6 +433,16 @@ extension ScreenModel {
         composer.voiceAvailable = s.voiceAvailability == .available
         if s.connectionNotice == .incompatible { composer.disabledReason = "Sending is off until your Mac updates" }
         voice = s.voice
+    }
+
+    /// The Mac's own sentence for a refusal, or nil. A refusal whose answer carried no `reason` keeps
+    /// the phone's one-word classification instead (`APIError.Reason`: "refused", "fault"; "too large";
+    /// a deferral such as "link-lost"), which is not for a person; the Mac's sentences start with a
+    /// capital and are more than one word.
+    static func refusalSentence(_ reason: String?) -> String? {
+        guard let text = reason?.trimmingCharacters(in: .whitespacesAndNewlines),
+              text.first?.isUppercase == true, text.contains(" ") else { return nil }
+        return text
     }
 
     static func status(_ s: Notifications.Status) -> NotificationStatus {
