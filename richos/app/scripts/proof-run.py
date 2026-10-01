@@ -776,7 +776,12 @@ def launch(item, n, logdir, tokens_dir, reserved):
            "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(worker_tokens.__file__),
            "RICHOS_WORKER_TOKENS_RESERVED": str(reserved),
            "RICHOS_MACHINE_WORKERS": item.machine_tokens, "RICHOS_WORKER_SLOT_HELD": "1",
-           "RICHOS_WORKER_BORROW_LOCK": item.token.path + ".child", **(SLOT.env() if SLOT else {})}
+           "RICHOS_WORKER_BORROW_LOCK": item.token.path + ".child", **(SLOT.env() if SLOT else {}),
+           # The merge gate, Rich's land runs and the nightly's engine pass run every check whole,
+           # in any checkout: a runner started from a teammate workspace narrows by default
+           # (engine/scripts/lib/workspace_scope.py, CEO 2026-10-01), never under this runner.
+           # Set here, never in item.env, so it is not part of the check's input identity.
+           "RICHOS_TEST_SCOPE": "full"}
     if getattr(item, 'verification_context', None):
         env['RICHOS_CPU_GUARD_STATE'] = str(cpu_guard.STATE)
     if os.environ.get(proc_tree.SCOPE_ENV):

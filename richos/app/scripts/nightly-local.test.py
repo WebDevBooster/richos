@@ -194,6 +194,19 @@ class LocalTests(unittest.TestCase):
                          sorted(n for n in m.GATE_PASSTHROUGH
                                 if n in os.environ and n not in m.GATE_SET_BY_BUILD))
 
+    def test_every_gate_runs_whole_whatever_checkout_or_shell_it_starts_from(self):
+        # A runner started from a teammate workspace narrows to the branch's cases by default
+        # (engine/scripts/lib/workspace_scope.py, 2026-10-01). A nightly never does: its gates
+        # and the checks proof-run.py runs under its conditions are told RICHOS_TEST_SCOPE=full,
+        # and a `narrow` exported in the operator's shell does not reach them.
+        with patch.dict(os.environ, {"RICHOS_TEST_SCOPE": "narrow", "HOME": os.environ["HOME"]}):
+            env, _credentials = m.local_environment()
+            conditions, _ = m.gate_conditions("gates/script-suites")
+        self.assertEqual(env["RICHOS_TEST_SCOPE"], "full")
+        self.assertEqual(conditions["RICHOS_TEST_SCOPE"], "full")
+        self.assertIn("RICHOS_TEST_SCOPE", m.GATE_SET_BY_BUILD)
+        self.assertNotIn("RICHOS_TEST_SCOPE", m.GATE_PASSTHROUGH)
+
     def test_the_gates_temporary_folder_never_depends_on_who_started_the_build(self):
         # Nightly attempt 2 (2026-10-01): cargo-cache-env.test.sh failed with "path must be
         # shorter than SUN_LEN" under the build's long TMPDIR after passing where TMPDIR was

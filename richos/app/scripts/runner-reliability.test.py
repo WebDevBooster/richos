@@ -403,7 +403,10 @@ class Reliability(unittest.TestCase):
             + ' if [ "$1" = -o ]; then shift; out="$1"; break; fi\n shift\ndone\n'
             + "printf '#!/bin/bash\\nexit 0\\n' > \"$out\"\nchmod +x \"$out\"\n")
         xcrun.chmod(0o755)
+        # The gate's path (RICHOS_TEST_SCOPE=full, as proof-run.py sets it): this case is about
+        # the default full mode, wherever the suite is run from, never a workspace's narrowing.
         env = {**os.environ, 'PATH': str(bindir) + os.pathsep + os.environ['PATH'],
+               'RICHOS_TEST_SCOPE': 'full',
                'RICHOS_NATIVE_IOS_UI_CACHE': str(self.path / 'cache'),
                'RICHOS_CPU_GUARD_STATE': str(self.path / 'guard'),
                'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}
