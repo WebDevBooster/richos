@@ -53,6 +53,10 @@
 #   HS1-HS3 hidden-send-try: tap Send, Home, Wi-Fi off, release, Wi-Fi on in order
 #           against a scripted adb; Wi-Fi put back on when the switch failed half
 #           way; a malformed Send position refused
+#   TR1-TR4 tunnel-requests: the lab tunnel's request counter sampled from a scripted
+#           helper and counted between two instants (two rises); an unreadable
+#           reading in the window, a window the readings miss and a port without
+#           the counter are each refused
 #   I1-I16  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
@@ -76,7 +80,7 @@
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
-# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/step-mark.py richos/app/scripts/qa/hidden-send-try.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
+# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/step-mark.py richos/app/scripts/qa/hidden-send-try.py richos/app/scripts/qa/tunnel-requests.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -884,6 +888,58 @@ else
 fi
 run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send nonsense
 expect "HS3 a Send position that is not X,Y is refused before any adb call" 2 "X,Y integers"
+
+echo ""
+echo "=== TR. tunnel-requests: the lab tunnel's request counter, sampled on this Mac and counted between two instants ==="
+# A scripted tunnel helper: /metrics answers from a file the case rewrites, so the counter rises on cue.
+cat > "$TMP/tr-metrics.txt" <<'M'
+# HELP cloudflared_tunnel_total_requests Amount of requests proxied through all the tunnels
+cloudflared_tunnel_total_requests 3
+cloudflared_tunnel_request_errors 0
+cloudflared_tunnel_response_by_code{status_code="200"} 3
+M
+cat > "$TMP/tr-server.py" <<'PY'
+import http.server, sys
+body_file, port_file = sys.argv[1], sys.argv[2]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        data = open(body_file, "rb").read() if self.path == "/metrics" else b""
+        self.send_response(200 if self.path == "/metrics" else 404); self.end_headers(); self.wfile.write(data)
+    def log_message(self, *a): pass
+s = http.server.HTTPServer(("127.0.0.1", 0), H)
+open(port_file, "w").write(str(s.server_address[1]))
+s.serve_forever()
+PY
+python3 "$TMP/tr-server.py" "$TMP/tr-metrics.txt" "$TMP/tr-port" & TRPID=$!
+for _ in $(seq 50); do [ -s "$TMP/tr-port" ] && break; sleep 0.1; done
+TRPORT="$(cat "$TMP/tr-port" 2>/dev/null)"
+python3 "$QA/tunnel-requests.py" sample --port "$TRPORT" --out "$TMP/tr.log" --seconds 3 --interval 0.1 & TRS=$!
+sleep 0.8; T1="$(python3 -c 'import time; print("%.3f" % time.time())')"; sleep 0.3
+sed -i '' -e 's/total_requests 3/total_requests 4/' -e 's/"200"} 3/"200"} 4/' "$TMP/tr-metrics.txt"; sleep 0.5
+sed -i '' -e 's/total_requests 4/total_requests 5/' -e 's/"200"} 4/"200"} 5/' "$TMP/tr-metrics.txt"; sleep 0.5
+T2="$(python3 -c 'import time; print("%.3f" % time.time())')"
+wait "$TRS"; CODE=$?
+run python3 "$QA/tunnel-requests.py" between "$TMP/tr.log" --from "$T1" --to "$T2"
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -q '"requests": 2' && [ "$(printf '%s' "$OUT" | grep -c '"by"')" = 2 ] \
+   && grep -Eq '^[0-9]+\.[0-9]{3} request_errors=0 response_by_code\[200\]=3 total_requests=3$' "$TMP/tr.log"; then
+  ok "TR1 two requests that crossed the tunnel between two instants are counted as two rises, each bracketed by its readings"
+else
+  bad "TR1 two requests between two instants are counted" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"
+fi
+printf '%s unreadable connection refused\n' "$(python3 -c 'import time; print("%.3f" % (time.time() - 0.05))')" >> "$TMP/tr.log"
+printf '%s total_requests=5\n' "$(python3 -c 'import time; print("%.3f" % (time.time() + 1))')" >> "$TMP/tr.log"
+run python3 "$QA/tunnel-requests.py" between "$TMP/tr.log" --from "$T1" --to "$(python3 -c 'import time; print("%.3f" % (time.time() + 0.5))')"
+expect "TR2 an unreadable reading inside the window is refused: a gap is not a zero" 2 "a gap is not a zero"
+run python3 "$QA/tunnel-requests.py" between "$TMP/tr.log" --from 1000 --to 2000
+expect "TR3 a window the readings do not cover is refused, no count printed" 2 "do not cover"
+printf 'not metrics\n' > "$TMP/tr-metrics.txt"
+run python3 "$QA/tunnel-requests.py" sample --port "$TRPORT" --out "$TMP/tr-wrong.log" --seconds 1
+if [ "$CODE" = 2 ] && printf '%s' "$OUT" | grep -q 'not a tunnel helper' && [ ! -e "$TMP/tr-wrong.log" ]; then
+  ok "TR4 a port that answers without the tunnel's request counter is refused before anything is written"
+else
+  bad "TR4 a port without the tunnel counter is refused" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"
+fi
+kill "$TRPID" 2>/dev/null; wait "$TRPID" 2>/dev/null
 
 echo "=== I. phone-ios: a physical iPhone's real controls, validated before any build ==="
 
