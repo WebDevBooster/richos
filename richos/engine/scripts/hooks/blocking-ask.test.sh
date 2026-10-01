@@ -46,7 +46,12 @@ EXEMPT="$ENGINE/scripts/blocking-ask-exempt.sh"
 
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
 
-SB="$(cd "$(mktemp -d -t blocking-ask.XXXXXX)" && pwd -P)"
+# ALLOCATED, NOT NAMED (scripts/lib/scratch.sh): a run stopped by a signal
+# leaves a directory the sweeper finds without being told its name.
+# shellcheck source=../lib/scratch.sh
+. "$ENGINE/scripts/lib/scratch.sh"
+SB="$(scratch_new blocking-ask-test)" || { echo "FATAL: no scratch" >&2; exit 1; }
+SB="$(cd "$SB" && pwd -P)"
 PIDS=()
 cleanup() {
     local p
