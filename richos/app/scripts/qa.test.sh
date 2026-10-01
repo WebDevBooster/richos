@@ -49,6 +49,10 @@
 #   LP1-LP4 lab-pause: the lab's listener is held stopped between two marks and
 #           continued; a lab without the owner marker and a pid that is not the
 #           listener are refused; a missing mark times out and still continues
+#   SM1-SM2 step-mark: one timestamped line appended to a step log; no words refused
+#   HS1-HS3 hidden-send-try: tap Send, Home, Wi-Fi off, release, Wi-Fi on in order
+#           against a scripted adb; Wi-Fi put back on when the switch failed half
+#           way; a malformed Send position refused
 #   I1-I16  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
@@ -72,7 +76,7 @@
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
-# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
+# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/step-mark.py richos/app/scripts/qa/hidden-send-try.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -114,7 +118,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py lab-pause.py phone-ios.py pair-words.py fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py lab-pause.py step-mark.py hidden-send-try.py phone-ios.py pair-words.py fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -835,6 +839,45 @@ else
   bad "LP4 a continue mark that never comes times out and the listener runs again" "exit $CODE, now '$NOW': $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"
 fi
 kill "$LPPID" 2>/dev/null; wait "$LPPID" 2>/dev/null
+
+echo ""
+echo "=== S. step-mark and hidden-send-try: a physical Android phone's send kept in flight across Home ==="
+run python3 "$QA/step-mark.py" "$TMP/steps.log" PAUSE MAC 1
+if [ "$CODE" = 0 ] && grep -Eq '^PAUSE MAC 1 [0-9]+\.[0-9]{3}$' "$TMP/steps.log"; then
+  ok "SM1 step-mark appends one line: the words, then the epoch seconds on this Mac's clock"
+else
+  bad "SM1 step-mark appends one line" "exit $CODE, log: $(tr '\n' ' ' < "$TMP/steps.log" 2>/dev/null)"
+fi
+run python3 "$QA/step-mark.py" "$TMP/steps.log"
+expect "SM2 a mark with no words is refused, nothing appended" 2 "step-mark.py FILE WORDS"
+# A scripted adb on PATH: it records each call and can be told to fail one.
+mkdir -p "$TMP/fakebin"
+cat > "$TMP/fakebin/adb" <<'FAKE'
+#!/bin/sh
+echo "$*" >> "$FAKE_ADB_LOG"
+[ -n "$FAKE_ADB_FAIL" ] && case "$*" in *"$FAKE_ADB_FAIL"*) echo "scripted failure" >&2; exit 1 ;; esac
+exit 0
+FAKE
+chmod +x "$TMP/fakebin/adb"
+: > "$TMP/hs.log"; : > "$TMP/hs-adb.log"
+FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 2 --send 652,896 --fault wifi --fault-after 0 --restore-after 0
+ORDER="$(awk '{printf "%s ", $1 ($1=="WIFI"||$1=="RELEASE"?"-"$2:"")}' "$TMP/hs.log")"
+CALLS="$(sed -e 's/^-s TESTSERIAL shell //' "$TMP/hs-adb.log" | tr '\n' ';')"
+if [ "$CODE" = 0 ] && [ "$ORDER" = "PAUSE HOME WIFI-OFF RELEASE-MAC WIFI-ON " ] \
+   && [ "$CALLS" = "input tap 652 896;input keyevent KEYCODE_HOME;svc wifi disable;svc wifi enable;" ]; then
+  ok "HS1 one try: PAUSE, tap Send, Home, Wi-Fi off, RELEASE, Wi-Fi on, in that order, power key never used"
+else
+  bad "HS1 one try runs its steps in order" "exit $CODE, marks '$ORDER', adb '$CALLS'"
+fi
+: > "$TMP/hs.log"; : > "$TMP/hs-adb.log"
+FAKE_ADB_FAIL="wifi disable" FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 652,896 --fault wifi --fault-after 0 --restore-after 0
+if [ "$CODE" != 0 ] && [ "$(tail -n 1 "$TMP/hs-adb.log")" = "-s TESTSERIAL shell svc wifi enable" ]; then
+  ok "HS2 a Wi-Fi switch that failed half way is still put back on: the last adb call is the enable"
+else
+  bad "HS2 Wi-Fi is put back on however the try ends" "exit $CODE, last adb call '$(tail -n 1 "$TMP/hs-adb.log")'"
+fi
+run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send nonsense
+expect "HS3 a Send position that is not X,Y is refused before any adb call" 2 "X,Y integers"
 
 echo "=== I. phone-ios: a physical iPhone's real controls, validated before any build ==="
 
