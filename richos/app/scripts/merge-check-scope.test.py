@@ -1,5 +1,6 @@
 """The merge-scope regressions use real selectors and fixture tool/result protocols."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -232,6 +233,104 @@ class Scope(unittest.TestCase):
         weights = [float(row.split('\t')[1]) for row in rows if row.startswith('scripts/hooks/contract-integrity.test.sh:SCR\t')]
         self.assertEqual(len(weights), 1, weights)
         self.assertTrue(0 < weights[0] < 600, weights)
+
+
+# A suite as the two that failed nightly attempt 2 only inside the build: it reads a variable
+# only the build sets (merge-check-scope.test.py and RICHOS_IOS_POOL_WAIT), and it binds a Unix
+# socket under a folder it made in TMPDIR (cargo-cache-env.test.sh and sccache's socket, which
+# fit in macOS's 104 bytes only under a short TMPDIR). It prints why it fails, if it does.
+PROBE = r'''
+import os, shutil, socket, sys, tempfile
+reasons = []
+if os.environ.get("RICHOS_IOS_POOL_WAIT"):
+    reasons.append("reads RICHOS_IOS_POOL_WAIT=" + os.environ["RICHOS_IOS_POOL_WAIT"])
+work = os.path.realpath(tempfile.mkdtemp(prefix="probe."))
+sock = socket.socket(socket.AF_UNIX)
+try:
+    sock.bind(os.path.join(work, "s" * 40 + ".sock"))
+except OSError as exc:
+    reasons.append("socket under TMPDIR=" + os.environ.get("TMPDIR", "") + ": " + str(exc))
+finally:
+    sock.close()
+    shutil.rmtree(work, ignore_errors=True)
+print("; ".join(reasons))
+sys.exit(1 if reasons else 0)
+'''
+
+
+class NightlyConditions(unittest.TestCase):
+    """A suite meets in the merge gate's run what it meets in the nightly (2026-10-01).
+
+    Nightly attempt 2 failed two suites that had passed for their engineers, because the
+    build hands its suites a TMPDIR and variables an engineer's shell does not. The merge
+    gate and every proof run go through proof-run.py, so its check of a suite the nightly
+    runs must see what the nightly's script-suites gate would hand that suite: measured here
+    by running nightly-local.py's real gates() with a recording owned_run, from a caller
+    whose TMPDIR is short and who sets none of the build's variables (an agent's shell).
+    """
+
+    SUITE = 'merge-check-scope.test.sh'
+    APP_DIR = ROOT / 'richos' / 'app'
+
+    def nightly_view(self, nl):
+        # gate_environment() is the build's own gate environment without credentials; a
+        # nightly-local.py older than it (the replay against main) builds it in
+        # local_environment(), the only other place it ever was.
+        base = (nl.gate_environment(os.environ) if hasattr(nl, 'gate_environment')
+                else nl.local_environment()[0])
+        seen = {}
+
+        def record(args, **kwargs):
+            if any(str(a).endswith('run-tests.sh') for a in args):
+                seen['env'] = kwargs['env']
+            return subprocess.CompletedProcess(args, 0, '', '')
+
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.object(nl, 'owned_run', side_effect=record), \
+                mock.patch('sys.stdout', new_callable=io.StringIO):
+            runner = nl.Runner(Path(root), Path(root) / 'state', dict(base), io.StringIO(), {},
+                               simulated_phones=1)
+            runner.gates()
+        self.assertIn('env', seen, 'the nightly script-suites gate started no suite runner')
+        return seen['env']
+
+    def merge_view(self, pr):
+        agent = {k: v for k, v in os.environ.items()
+                 if not k.startswith(('RICHOS_IOS_POOL_', 'RUN_TESTS_', 'RICHOS_NIGHTLY_'))}
+        agent['TMPDIR'] = '/tmp/'
+        runner_argv = [str(Path('scripts') / 'run-tests.sh'), '--only', self.SUITE]
+        with mock.patch.dict(os.environ, agent, clear=True):
+            item = pr.Item(self.SUITE[:-len('.test.sh')], str(self.APP_DIR), runner_argv)
+            return pr.execution_environment(item)
+
+    def probe(self, env):
+        done = subprocess.run([sys.executable, '-c', PROBE], env=env, capture_output=True,
+                              text=True, timeout=60)
+        return done.returncode, done.stdout.strip()
+
+    def test_a_suite_that_fails_only_in_the_nightly_fails_in_the_merge_gates_run(self):
+        nl = load('merge_scope_nightly', 'richos/app/scripts/nightly-local.py')
+        pr = load('merge_scope_conditions', 'richos/app/scripts/proof-run.py')
+        nightly, merge = self.nightly_view(nl), self.merge_view(pr)
+        in_nightly, in_merge = self.probe(nightly), self.probe(merge)
+        # Not vacuous: under the nightly's own environment the probe is red.
+        self.assertEqual(in_nightly[0], 1, in_nightly)
+        self.assertEqual(in_merge, in_nightly,
+                         'the merge gate would pass a suite the nightly fails: nightly says %r, '
+                         'merge gate says %r' % (in_nightly[1], in_merge[1] or 'passed'))
+
+    def test_every_value_the_build_sets_reaches_the_check_with_the_builds_value(self):
+        nl = load('merge_scope_nightly_values', 'richos/app/scripts/nightly-local.py')
+        pr = load('merge_scope_conditions_values', 'richos/app/scripts/proof-run.py')
+        nightly, merge = self.nightly_view(nl), self.merge_view(pr)
+        excused = set(getattr(nl, 'CONDITIONS_NOT_REPRODUCED', {}))
+        # Values that are per build or the operator's own number by design: present, not equal.
+        per_build = {'RICHOS_NIGHTLY_RUN_ID', nl.SIMULATED_PHONES_ENV}
+        from_shell = set(nl.GATE_PASSTHROUGH) - set(nl.GATE_SET_BY_BUILD) - {'TMPDIR'}
+        differ = {name: (nightly[name], merge.get(name)) for name in sorted(set(nightly) - from_shell - excused)
+                  if name not in per_build and merge.get(name) != nightly[name]}
+        self.assertEqual(differ, {}, 'name: (nightly value, merge-gate value)')
+        self.assertEqual(sorted(n for n in per_build if n in nightly and n not in merge), [])
 
 
 if __name__ == '__main__':

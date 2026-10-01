@@ -106,6 +106,20 @@ It ran into its cap, the Mac stayed too busy to start anything else, and the gat
    esc-20260930T223507Z-b12f0d6a); the app nightly's `gates/workspace-mutants` and its script
    suites run the app's.
 
+**A check meets the nightly's conditions (2026-10-01).** Nightly attempt 2 failed two suites
+that had passed for their engineers, because the build hands its suites a long TMPDIR and
+variables (RICHOS_IOS_POOL_WAIT) an engineer's shell does not. Now `proof-run.py` gives every
+check of a suite a desktop nightly gate runs (a `run-tests.sh --only` suite in `run-tests.sh
+--for desktop --list`, and a UI suite run directly) what that gate gives it:
+`nightly-local.py gate_conditions()`, built by the same functions the gates call, so nothing is
+copied and nothing can drift. That is macOS's per-user temporary folder (`getconf
+DARWIN_USER_TEMP_DIR`, which the nightly now uses whoever starts it), the nightly's PATH, and
+every variable it sets for that gate; a check's own values still win. The plan prints a
+`nightly conditions:` line naming them. Deliberate differences: the mutation switches above
+stay 0, RUN_TESTS_SKIP_UNCHANGED is never set, and RICHOS_RUNTIME_DIR comes from
+`supply_runtime()`. `--without-nightly-conditions` runs a diagnosis without them and is refused
+here. `merge-check-scope.test.py` (NightlyConditions) proves it against the real gate code.
+
 **A check planned past its cap is never started, and the cheap checks go first.** Under
 `--cap`, `proof-run.py` names a check whose planned weight is over the cap NOT RUN before
 anything starts ("planned N s, over its 600 s cap; not started, the nightly runs it"): it
