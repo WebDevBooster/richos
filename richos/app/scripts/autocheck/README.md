@@ -232,7 +232,7 @@ the note names the changed paths and every check that had started by then, inste
 ## Pieces
 
 - `autocheck.py`: the checks, one file, standard library only. Its header is the reference.
-- `shim.sh`: copied into `<git-common-dir>/hooks/` as `pre-commit`, `pre-merge-commit`,
+- `shim.sh`: copied into `<git-common-dir>/hooks/` as `pre-commit`, `commit-msg`, `pre-merge-commit`,
   `post-commit`, `post-merge` and `pre-push`. It runs the committed `autocheck.py` from git's
   object store: HEAD's, else main's, else the incoming branch's (the land that introduces it).
   With none of them, it does nothing.
@@ -303,3 +303,10 @@ Only failed or missing cases rerun, plus the existing unit-bundle attribution pr
 when required. A completed device reuses its evidence without acquiring a simulator.
 Failure bundles stay in the external cache and are copied into the proof report;
 reports retain the distinction between newly executed and reused cases.
+
+## commit-msg: the Battery-check trailer (CEO ruling §81)
+
+A commit touching `richos/mobile/` is refused at the commit unless its message carries a
+`Battery-check: NO — <evidence>` trailer that git itself parses (`battery-check.py --message`,
+the verdict the land gives). One line, or every continuation line indented; a wrapped answer
+with unindented continuation lines is plain text to git and is refused, with the way to write it.

@@ -2,7 +2,7 @@
 # richos-autocheck-shim 1
 #
 # A repository hook, copied into <git-common-dir>/hooks/<name> by
-# richos/app/scripts/autocheck/install.sh for pre-commit, pre-merge-commit, post-commit,
+# richos/app/scripts/autocheck/install.sh for pre-commit, commit-msg, pre-merge-commit, post-commit,
 # post-merge and pre-push. Do not edit the installed copy: install.sh rewrites it.
 #
 # It runs the COMMITTED autocheck.py, read from git's object store, never a working copy:

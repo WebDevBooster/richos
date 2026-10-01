@@ -8,7 +8,7 @@
 #   install.sh --uninstall [<repo>]  remove the hooks this installed, and nothing else
 #
 # WHAT IT INSTALLS: shim.sh, copied to <git-common-dir>/hooks/ as pre-commit,
-# pre-merge-commit, post-commit, post-merge and pre-push. Every linked worktree of the
+# commit-msg, pre-merge-commit, post-commit, post-merge and pre-push. Every linked worktree of the
 # repository (native, ~/ab/richos-wt, Codex's, the nightly's) shares that one directory,
 # so one install covers every committer. The shim runs the committed autocheck.py; see its
 # header for what each hook checks.
@@ -27,7 +27,7 @@ set -uo pipefail
 SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SHIM="$SELF_DIR/shim.sh"
 MARKER="richos-autocheck-shim"
-HOOKS="pre-commit pre-merge-commit post-commit post-merge pre-push"
+HOOKS="pre-commit commit-msg pre-merge-commit post-commit post-merge pre-push"
 
 MODE=install
 case "${1:-}" in

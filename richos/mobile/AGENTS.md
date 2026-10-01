@@ -29,7 +29,7 @@ Every commit that touches `richos/mobile/` ends with this trailer, evidence incl
 Battery-check: NO — <what you checked, and what it measured>
 ```
 
-The land refuses a commit without it, or with anything but `NO` and evidence (`richos/app/scripts/battery-check.py`, run by `proof-for.sh` and `proof-run.py`). Check your branch before handing off with `python3 richos/app/scripts/battery-check.py`, and repeat the answer in the handoff. The trailer proves you answered; the evidence is what makes the answer true.
+Write it on ONE line, or indent every continuation line by at least one space; git reads an unindented wrapped line as plain text and finds no trailer at all (2026-10-01). Check with `git log -1 --format=%B | git interpret-trailers --parse`: it must print the trailer. The commit itself is refused when it does not parse (autocheck's `commit-msg` hook), and the land refuses a commit without it, or with anything but `NO` and evidence (`richos/app/scripts/battery-check.py`, run by `proof-for.sh` and `proof-run.py`). Check your branch before handing off with `python3 richos/app/scripts/battery-check.py`, and repeat the answer in the handoff. The trailer proves you answered; the evidence is what makes the answer true.
 
 The evidence covers what your change adds, changes or removes on each platform it touches:
 

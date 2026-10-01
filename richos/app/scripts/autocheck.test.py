@@ -741,6 +741,58 @@ class Commit(Fixture):
         self.assertEqual(self.tools(), "")
 
 
+class BatteryTrailer(Fixture):
+    """CEO ruling §81 at the commit (commit-msg). 2026-10-01: a trailer wrapped over three
+    unindented lines is no trailer to git; only the land noticed."""
+    WRAPPED = ("android: a change\n\nBattery-check: NO — no new background work: the deadline is a coroutine\n"
+               "delay inside the existing bound, no timer, no wakeup,\nno wake lock.\n")
+    INDENTED = ("android: a change\n\nBattery-check: NO — no new background work: the deadline is a coroutine\n"
+                "  delay inside the existing bound, no timer, no wakeup,\n  no wake lock.\n")
+    ONE_LINE = "android: a change\n\nBattery-check: NO - a record file only; no background work.\n"
+
+    def stage_mobile(self, name="a.kt"):
+        self.make()
+        shutil.copy(HERE / "battery-check.py", self.repo / "richos/app/scripts/battery-check.py")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "battery check", "--no-verify")
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/mobile/" + name, "fun a() {}\n")
+        self.git("add", "-A")
+
+    def test_the_wrapped_unindented_trailer_is_refused_at_the_commit_and_says_how_to_write_it(self):
+        self.stage_mobile()
+        before = self.head()
+        out = self.git("commit", "-m", self.WRAPPED, expect=1)
+        text = out.stdout + out.stderr
+        self.assertIn("COMMIT REFUSED", text)
+        self.assertIn("has no `Battery-check:` trailer", text)
+        self.assertIn("INDENTED", text)
+        self.assertEqual(self.head(), before)
+
+    def test_a_mobile_commit_with_no_trailer_at_all_is_refused(self):
+        self.stage_mobile()
+        self.git("commit", "-m", "android: a change", expect=1)
+
+    def test_an_indented_continuation_and_a_one_line_trailer_both_commit(self):
+        self.stage_mobile()
+        self.git("commit", "-q", "-m", self.INDENTED)
+        self.write("richos/mobile/b.kt", "fun b() {}\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", self.ONE_LINE)
+
+    def test_a_commit_outside_the_mobile_folder_needs_no_trailer(self):
+        self.stage_mobile()
+        self.git("reset", "-q")
+        self.write("README.md", "docs\n")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "docs only")
+
+    def test_amending_only_the_message_of_a_mobile_commit_is_checked_too(self):
+        self.stage_mobile()
+        self.git("commit", "-q", "-m", self.ONE_LINE)
+        self.git("commit", "--amend", "-m", self.WRAPPED, expect=1)
+
+
 class Land(Fixture):
     def test_a_merge_that_breaks_its_owning_suite_is_refused_before_main_moves(self):
         self.make()
@@ -1145,7 +1197,7 @@ class Install(Fixture):
         self.install()
         self.assertEqual(self.run_(["bash", str(AUTOCHECK / "install.sh"), "--check", str(self.repo)]).returncode, 0)
         out = self.run_(["bash", str(AUTOCHECK / "install.sh"), "--uninstall", str(self.repo)])
-        self.assertEqual(out.stdout.count("REMOVED"), 5)
+        self.assertEqual(out.stdout.count("REMOVED"), 6)
         self.assertEqual(self.run_(["bash", str(AUTOCHECK / "install.sh"), "--check", str(self.repo)]).returncode, 1)
 
     def test_a_hooks_path_that_never_calls_the_hook_is_reported(self):

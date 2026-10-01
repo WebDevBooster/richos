@@ -58,6 +58,8 @@ LINT = "richos/app/scripts/lint.sh"
 LINT_DRIVER = "richos/app/scripts/lint/driver.py"
 PROOF_FOR = "richos/app/scripts/proof-for.sh"
 PROOF_RUN = "richos/app/scripts/proof-run.py"
+BATTERY_CHECK = "richos/app/scripts/battery-check.py"
+MOBILE = "richos/mobile/"
 ENGINE_ESCALATE = "richos/engine/scripts/escalate.sh"
 ACTIVE = "RICHOS_AUTOCHECK_ACTIVE"
 ZERO = "0" * 40
@@ -1225,6 +1227,39 @@ def post_merge(repo, squash):
     return 0
 
 
+def commit_msg(repo, message_file):
+    """commit-msg: a commit touching richos/mobile/ must carry a Battery-check trailer that GIT
+    parses (CEO ruling §81). 2026-10-01: a trailer wrapped over three unindented lines was no
+    trailer to git, and nothing refused it until the merge, because the land was the only place
+    the rule ran. The message is read by battery-check.py --message, the same verdict the land
+    gives, so the two cannot disagree. A merge, a rebase, a cherry-pick, a revert and an am
+    replay commits already written; the land check covers them."""
+    if any(git_path(repo, name).exists() for name in
+           ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")):
+        return 0
+    # git exports no amend marker to commit-msg (measured 2026-10-01: GIT_REFLOG_ACTION is not
+    # set for the hook), so the `git commit` that called us is asked for its own arguments.
+    amend = os.environ.get("GIT_REFLOG_ACTION", "").startswith("commit (amend)") or any(
+        "--amend" in subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout.split()
+        for pid in ancestors())
+    against = ["HEAD^"] if amend and git("rev-parse", "-q", "--verify", "HEAD^", check=False,
+                                          cwd=repo.top).returncode == 0 else []
+    paths = git("diff", "--cached", "--name-only", "--no-renames", *against, cwd=repo.top).splitlines()
+    if not any(p.startswith(MOBILE) for p in paths):
+        return 0
+    script = repo.top / BATTERY_CHECK
+    if not script.exists() or "--message" not in script.read_text():
+        say(f"autocheck: commit-msg: this tree's {BATTERY_CHECK} cannot read a message; the land check will")
+        return 0
+    result = subprocess.run([sys.executable, str(script), "--message", message_file], cwd=repo.top,
+                            env=repo.env, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    if result.returncode == 0:
+        return 0
+    banner("COMMIT REFUSED: the Battery-check trailer is missing or does not parse (CEO ruling §81)",
+           (result.stderr or result.stdout).rstrip().splitlines())
+    return 1
+
+
 # ---------------------------------------------------------------------------------------
 
 def main(argv):
@@ -1238,20 +1273,22 @@ def main(argv):
         except (RuntimeError, OSError) as exc:
             banner("MEASURE REFUSED: the check could not run", [str(exc)])
             return 1
-    if hook not in ("pre-commit", "pre-merge-commit", "post-commit", "post-merge", "pre-push"):
+    if hook not in ("pre-commit", "pre-merge-commit", "commit-msg", "post-commit", "post-merge", "pre-push"):
         return 0
     stdin_text = sys.stdin.read() if hook == "pre-push" else ""
     repo = Repo()
     if inside_own_check(str(repo.common)):
         say(f"autocheck: {hook}: inside an automatic check of this repository (a suite's own commit); not re-entered")
         return 0
-    if hook in ("pre-commit", "pre-merge-commit"):
+    if hook in ("pre-commit", "pre-merge-commit", "commit-msg"):
         # A terminated check unwinds like an interrupted one, so StagedOnly puts set-aside work
         # back (a KeyboardInterrupt already does). Only SIGKILL leaves it in ASIDE, and the next
         # commit check then refuses and says where it is.
         for number in (signal.SIGTERM, signal.SIGHUP):
             signal.signal(number, lambda signum, _frame: sys.exit(128 + signum))
     try:
+        if hook == "commit-msg":
+            return commit_msg(repo, argv[1]) if len(argv) > 1 else 0
         if hook == "pre-commit":
             if repo.branch == LAND_BRANCH:
                 return land_from_index(repo, "commit to main")
