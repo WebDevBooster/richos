@@ -22,6 +22,23 @@ public enum ConversationReducer {
     /// budget, storage, a lost stream), not a failed attempt at the Mac: they add no back-off.
     static let deferralReasons: Set<String> = ["background", "background-budget", "local-storage", "link-lost"]
 
+    /// The reason a delivery answered 429 carries (`Courier.reason(for:)`): the wait is the Mac's own
+    /// (`Retry-After`), not the phone's back-off, so a return to the screen keeps it.
+    public static let rateLimitedReason = "rate-limited"
+
+    /// **BACK ON SCREEN, A WAITING MESSAGE GOES AT ONCE.** A message whose sends failed waits out the
+    /// back-off stamped at its last failure (`notBefore`, 1 s doubling to 16 s), and the return did not
+    /// clear it: the stream opened and `connected` pumped, but the head stayed put until its time, up to
+    /// 16 s after he came back (andy-opus-resume1's first Android wait, the same rule here). The
+    /// wait is cleared, never the count of failures, so while the app stays on screen and failing the
+    /// next failure waits the next step as before. A wait the Mac asked for (429 `Retry-After`) stays.
+    static func resumeAfterReturn(_ s: inout AppState, at: Int64) {
+        for i in s.outbox.indices where s.outbox[i].state == .waiting && s.outbox[i].notBefore > at
+            && s.outbox[i].lastReason != rateLimitedReason {
+            s.outbox[i].notBefore = 0
+        }
+    }
+
     static func reduce(_ s: inout AppState, _ action: Action, _ effects: inout [Effect]) {
         switch action {
         case .answerQuestion(let id, let options, let text, let revision, let clientID, let at):
@@ -162,6 +179,8 @@ public enum ConversationReducer {
             s.playback = nil
         case .dismissToast:
             s.toast = nil
+        case .foregrounded(let at):
+            resumeAfterReturn(&s, at: at)
         case .backgrounded:
             if s.playback != nil { effects.append(.stopAudio) }
             s.playback = nil

@@ -58,4 +58,27 @@ import Testing
         #expect(!Self.delivers(Reducer.reduce(s, .tick(at: again + 15_999)).effects), "nothing goes before the wait ends")
         #expect(Self.delivers(Reducer.reduce(s, .tick(at: again + 16_000)).effects))
     }
+
+    /// The Mac's own word on waiting (a 429 with `Retry-After`) is kept across a return: clearing it
+    /// would only draw another refusal.
+    @Test func aWaitTheMacAskedForIsKeptAcrossTheReturn() throws {
+        let failedAt = Self.t0 + 1_000
+        var s = try Fixture.named("conv-empty").state
+        s = Reducer.reduce(s, .compose(text: "Book the 7:10 to Denver, aisle.")).state
+        s = Reducer.reduce(s, .sendDraft(clientID: "c1", at: Self.t0)).state
+        s = Reducer.reduce(s, .deliveryFailed(clientID: "c1",
+                                              failure: .retryable(reason: ConversationReducer.rateLimitedReason, afterMs: 60_000),
+                                              at: failedAt)).state
+        s = Reducer.reduce(s, .backgrounded(at: failedAt + 1_000)).state
+        s = Reducer.reduce(s, .foregrounded(at: failedAt + 4_000)).state
+        let (_, effects) = Reducer.reduce(s, .connected(at: failedAt + 4_100))
+        #expect(!Self.delivers(effects), "the Mac asked for 60 s; the return does not override it")
+    }
+
+    /// The courier names a 429 so the reducer can tell the Mac's wait from the phone's own back-off.
+    @Test func aRateLimitIsNamedByTheCourier() {
+        let response = HTTPResponse(status: 429, headers: ["Retry-After": "60"])
+        #expect(Courier.reason(for: response) == ConversationReducer.rateLimitedReason)
+        #expect(Courier.reason(for: HTTPResponse(status: 503)) == "fault")
+    }
 }
