@@ -278,7 +278,20 @@ check "E4.4 unrelated work starts while the previous session stays unresolved" "
 stop_gate; rc=$?
 check "E4.5 the turn cannot end either" "[ $rc -eq 2 ] && grep -q 'zach-opus-e4' '$T/stop.err'"
 RICHOS_SESSION_ID="$CUR_SID" "$WS" land zach-opus-e4 >"$T/land.out" 2>&1; rc=$?
-check "E4.6 an uncommitted file refuses the land (point 8)" "[ $rc -eq 2 ] && grep -q 'uncommitted' '$T/land.out' && [ -e '$NP4/draft.txt' ]"
+# Unmerged AND uncommitted: refused, and the file is kept. Which reason speaks
+# first is not point 8's business: since 25b2b68ff (hunt part 4, finding 13)
+# work that plainly is not merged is refused before anything is stopped, so the
+# refusal names the merge, not the file.
+check "E4.6a unmerged work with an uncommitted file is refused and the file is kept (points 7, 8)" \
+    "[ $rc -eq 2 ] && [ -e '$NP4/draft.txt' ]" \
+    "rc=$rc draft=$([ -e "$NP4/draft.txt" ] && echo kept || echo GONE) $(cat "$T/land.out")"
+# POINT 8 ALONE: everything it committed is merged, so the uncommitted file is
+# the ONLY thing between this work and its deletion. A land that ignored it
+# would succeed here and delete draft.txt with the workspace.
+git -C "$ENT" merge -q --no-edit "worktree-agent-ae4e4e4e4e4e4e4e4"
+RICHOS_SESSION_ID="$CUR_SID" "$WS" land zach-opus-e4 >"$T/land.out" 2>&1; rc=$?
+check "E4.6 an uncommitted file refuses the land (point 8)" "[ $rc -eq 2 ] && grep -q 'uncommitted' '$T/land.out' && [ -e '$NP4/draft.txt' ]" \
+    "rc=$rc draft=$([ -e "$NP4/draft.txt" ] && echo kept || echo GONE) $(cat "$T/land.out")"
 git -C "$NP4" add draft.txt && git -C "$NP4" commit -q -m "what it left"
 git -C "$ENT" merge -q --no-edit "worktree-agent-ae4e4e4e4e4e4e4e4"
 RICHOS_SESSION_ID="$CUR_SID" "$WS" land zach-opus-e4 >"$T/land.out" 2>&1; rc=$?

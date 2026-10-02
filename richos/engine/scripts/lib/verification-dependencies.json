@@ -8436,7 +8436,7 @@
     },
     "mega-lander/tests/workspaces-e2e.test.sh": {
       "source": "mega-lander/tests/workspaces-e2e.test.sh",
-      "sha256": "a6b02241aa88335b2fd86434c30944d51c8d1434478d232563a06401342d81b8",
+      "sha256": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
       "evidence": "Complete suite copies real engine configuration into private Git fixtures. Fixed guard/lifecycle calls simulate Agent events without model dispatch. Direct land CLI calls include their actual QA and scratch-sweep dependencies; private HOME does not replace engine config. Creator targets have no setup script. Finite eval assertions inspect fixture files, Git and fixed helper results.",
       "keys": [],
       "edges": [
@@ -15884,7 +15884,7 @@
         "ass-kicker/tests/guard-stated-actions.test.sh": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
         "ass-kicker/tests/stated-actions.mutation.sh": "5f6bba511e6b555c49bf3f45313de23d97742c5b38da3ff62d739114e2972a70",
         "mega-lander/create-teammate-worktree.sh": "28b165ea46c36cde125e0214f0f7f98fa28e4219a14d74bde8488367b91c5a80",
-        "mega-lander/tests/workspaces-e2e.test.sh": "a6b02241aa88335b2fd86434c30944d51c8d1434478d232563a06401342d81b8",
+        "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
         "mega-lander/tests/workspaces.test.py": "5b35dc48e74377ad92ea8ba7534fcd31397db77f1104f4fe7607a0e8f0b5b375",
         "mega-lander/workspaces.py": "5d0896f1079d551bca956045fe12c2ae55cbd673d6980b4bd4af7489707d6912",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
@@ -16932,7 +16932,7 @@
       "commands": [],
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "28b165ea46c36cde125e0214f0f7f98fa28e4219a14d74bde8488367b91c5a80",
-        "mega-lander/tests/workspaces-e2e.test.sh": "a6b02241aa88335b2fd86434c30944d51c8d1434478d232563a06401342d81b8",
+        "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
         "mega-lander/workspaces.py": "5d0896f1079d551bca956045fe12c2ae55cbd673d6980b4bd4af7489707d6912",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
