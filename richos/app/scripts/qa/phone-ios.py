@@ -47,6 +47,13 @@
     phone-ios.py syslog --seconds S --out FILE     the phone's log for S seconds, keeping ONLY lines that
                                                    name RichOSNative or dev.richos.connect
     (`syslog` and `battery` take --network for an unplugged phone: libimobiledevice's -n, same pairing)
+    phone-ios.py trust --device ID --out FILE [--seconds S]
+                                                   why iOS will or will not open RichConnect: Developer
+                                                   Mode, the installed provisioning profiles and their
+                                                   expiry, and one launch of the app with the trust-check,
+                                                   DNS and VPN log lines during it (to FILE), read into
+                                                   one "cause". Exit 1 when the launch is refused.
+                                                   Reads only: nothing installed, removed or switched
     phone-ios.py syslog-rate FILE [--process P] [--bucket S] [--from HH:MM:SS] [--to HH:MM:SS]
                                                    entries ONE process (exact name) wrote per S seconds of
                                                    a `syslog` capture: what the app did while hidden
@@ -1020,6 +1027,152 @@ def battery(args):
                  "externalPower": values.get("ExternalConnected") == "true", "full": values.get("FullyCharged") == "true"})
 
 
+# The lines of the phone's log that say why iOS did or did not open the app: the developer-trust
+# check (online-auth-agent asks ppq.apple.com; misagent holds the profiles), the VPN manager and the
+# Tailscale extension, the app's own launch, and the DNS resolver's word on whether its server
+# answers (names in those lines are hashed by iOS). Everything else on the phone is dropped unread.
+TRUST_KEEP = re.compile(
+    r"online-auth-agent|misagent|ppq\.apple|verify trust|Unable to Verify|not trusted|signature state|"
+    r"nesessionmanager|NEVPN|IPNExtension|io\.tailscale|RichOSNative|dev\.richos\.connect|"
+    r"mDNSResponder.*(?:Penalizing unresponsive server|Received acceptable|assigned DNS service --)", re.I)
+DNS_SERVICE = re.compile(r"assigned DNS service -- id: \d+, type: (\w+), source: (\w+), scope: \w+, interface: ([\w/]+)")
+VPN_STATUS = re.compile(r"NESMVPNSession\[(?:Primary Tunnel:)?([^:\]]+)[^\]]*\].*? status (\w+)")
+
+
+def trust_reading(lines):
+    """What the log lines of one launch say about iOS's developer-trust check, as facts and one cause.
+    Pure: the lines in, a dict out (tested without a phone, qa/trust-reading.test.py)."""
+    text = "\n".join(lines)
+    state = re.search(r"signature state: ([^,\]]+)", text)
+    errors = sorted({int(c) for c in re.findall(r"online-auth-agent.*finished with error \[(-?\d+)\]", text)})
+    server = DNS_SERVICE.search(text)
+    vpn = {}
+    for name, status in VPN_STATUS.findall(text):
+        vpn[name.strip()] = status
+    reading = {
+        "signatureState": state.group(1).strip() if state else None,
+        "verifyRequests": len(re.findall(r"online-auth-agent.*Sending request for", text)),
+        "verifyErrors": errors,
+        "dnsStalls": len(re.findall(r"online-auth-agent.*reported DNS stall symptom", text)),
+        "dns": {"type": server.group(1), "source": server.group(2), "interface": server.group(3)} if server else None,
+        "dnsServerUnanswered": len(re.findall(r"Penalizing unresponsive server", text)),
+        "dnsServerAnswered": len(re.findall(r"Received acceptable", text)),
+        "vpn": vpn,
+    }
+    connected = [n for n, s in vpn.items() if s.lower() in ("connected", "connecting", "reasserting")]
+    if connected:
+        cause = (f"a VPN is up ({', '.join(connected)}) and the trust check could not reach Apple through it "
+                 "(NSURLError " + ", ".join(map(str, errors)) + ")") if errors else f"a VPN is up ({', '.join(connected)})"
+    elif -1009 in errors:
+        cause = "the phone reports no internet connection (NSURLError -1009)"
+    elif reading["dnsStalls"] or (-1001 in errors and reading["dnsServerUnanswered"]):
+        iface = server.group(3).split("/")[0] if server else ""
+        where = (f" (plain {server.group(1)} on {iface}" + (", the phone's Wi-Fi)" if iface == "en0" else ")")) if server else ""
+        cause = ("the phone's DNS server" + where + " did not answer in time, so the trust check timed out before "
+                 "it reached ppq.apple.com and iOS refused the app")
+    elif errors:
+        cause = "the trust check's request to Apple failed (NSURLError " + ", ".join(map(str, errors)) + ")"
+    elif reading["signatureState"]:
+        cause = f"iOS refused the launch: {reading['signatureState']}"
+    else:
+        cause = None
+    reading["cause"] = cause
+    return reading
+
+
+def _profiles(udid):
+    """The provisioning profiles installed on the phone (ideviceprovision copy: read, never changed)."""
+    import plistlib
+    with tempfile.TemporaryDirectory() as tmp:
+        p = subprocess.run(["ideviceprovision", "-u", udid, "copy", tmp], capture_output=True, text=True, timeout=60)
+        if p.returncode != 0:
+            raise CannotAnswer(f"ideviceprovision did not list the profiles: {(p.stderr or p.stdout).strip()[-200:]}")
+        rows = []
+        for f in sorted(Path(tmp).glob("*.mobileprovision")):
+            d = subprocess.run(["security", "cms", "-D", "-i", str(f)], capture_output=True, timeout=30)
+            try:
+                doc = plistlib.loads(d.stdout)
+            except Exception:  # noqa: BLE001: an unreadable profile is reported, never fatal
+                rows.append({"file": f.name, "unreadable": True})
+                continue
+            rows.append({"uuid": doc.get("UUID"), "name": doc.get("Name"), "team": (doc.get("TeamIdentifier") or [None])[0],
+                         "app": (doc.get("Entitlements") or {}).get("application-identifier"),
+                         "expires": doc.get("ExpirationDate").isoformat() + "Z" if doc.get("ExpirationDate") else None,
+                         "expired": bool(doc.get("ExpirationDate")) and doc["ExpirationDate"].timestamp() < time.time(),
+                         "listsThisPhone": udid.upper() in [str(x).upper() for x in doc.get("ProvisionedDevices") or []]})
+        return rows
+
+
+def trust(args):
+    """Why iOS will or will not open RichConnect: Developer Mode, the phone's provisioning profiles,
+    and one launch of the installed app with the trust, DNS and VPN log lines during it, read into
+    one cause (trust_reading). Reads only: nothing is installed, removed or switched. The capture
+    stays in --out on /Volumes/E1TB; it is the phone's own log and never enters a repository."""
+    sys.path.insert(0, str(ROOT / "richos/mobile"))
+    import phone_net
+    out = Path(args.out)
+    if not str(out.resolve()).startswith("/Volumes/E1TB/"):
+        raise CannotAnswer("--out must be on /Volumes/E1TB")
+    with tempfile.TemporaryDirectory() as tmp:
+        listed = Path(tmp) / "d.json"
+        subprocess.run(["xcrun", "devicectl", "list", "devices", "--json-output", str(listed)], capture_output=True, timeout=60)
+        devices = json.loads(listed.read_text())["result"]["devices"] if listed.exists() else []
+    want = args.device.lower()
+    phone = next((d for d in devices if want in (str(d.get("identifier")).lower(),
+                                                 str(d.get("hardwareProperties", {}).get("udid")).lower())), None)
+    if not phone:
+        raise CannotAnswer("that iPhone is not in `xcrun devicectl list devices`")
+    udid = phone["hardwareProperties"]["udid"]
+    props = phone.get("deviceProperties", {})
+    report = {"ios": props.get("osVersionNumber"), "developerMode": props.get("developerModeStatus"),
+              "pairing": phone.get("connectionProperties", {}).get("pairingState")}
+    try:
+        report["profiles"] = _profiles(udid)
+    except (CannotAnswer, OSError, subprocess.TimeoutExpired) as error:
+        report["profiles"] = {"error": str(error)}
+    installed = devicectl(["device", "info", "apps"], args.device).get("apps", [])
+    app = next((a for a in installed if a.get("bundleIdentifier") == "dev.richos.connect"), None)
+    report["app"] = {"version": app.get("version"), "build": app.get("bundleVersion")} if app else None
+    relay = spawn_owned(["idevicesyslog", "-u", udid, "--no-colors"], stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL, text=True, errors="replace")
+    kept = []
+    try:
+        import selectors
+        import threading
+        result = {}
+        launcher = threading.Thread(target=lambda: result.update(phone_net.launch_check(args.device)))
+        time.sleep(1.0)
+        launcher.start()
+        sel = selectors.DefaultSelector()
+        sel.register(relay.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + args.seconds
+        while time.monotonic() < deadline or launcher.is_alive():
+            if not sel.select(timeout=0.5):
+                if relay.poll() is not None:
+                    break
+                continue
+            line = relay.stdout.readline()
+            if not line:
+                break
+            if TRUST_KEEP.search(line):
+                kept.append(line.rstrip("\n"))
+        launcher.join()
+    finally:
+        relay.terminate()
+        try:
+            relay.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            relay.kill()
+            relay.wait()
+    out.write_text("\n".join(kept) + "\n")
+    report["launch"] = result
+    report["reading"] = trust_reading(kept)
+    if result.get("state") == "ok":
+        report["reading"]["cause"] = None
+    report["log"] = {"out": str(out), "lines": len(kept)}
+    return emit(report, 0 if result.get("state") == "ok" else 1)
+
+
 SYSLOG_KEEP = ("RichOSNative", "dev.richos.connect")
 
 # A child this tool starts must never outlive it. SIGTERM/SIGHUP are turned into a normal exit so
@@ -1162,11 +1315,14 @@ def main(argv):
     ps = sub.add_parser("pair-steps")
     ps.add_argument("config")
     ps.add_argument("--v2-hold", type=int, default=None)
-    for name in ("procs", "apps", "lock", "battery", "syslog"):
+    for name in ("procs", "apps", "lock", "battery", "syslog", "trust"):
         s = sub.add_parser(name)
         s.add_argument("--device", required=True)
         if name == "procs":
             s.add_argument("--name", default="RichOSNative")
+        if name == "trust":
+            s.add_argument("--out", required=True)
+            s.add_argument("--seconds", type=float, default=12.0)
         if name == "syslog":
             s.add_argument("--seconds", type=float, required=True)
             s.add_argument("--out", required=True)
@@ -1201,7 +1357,7 @@ def main(argv):
                                     f"`rios device {args.command} ...`: the one command line that puts only the Release "
                                     "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
-                "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore}[args.command](args)
+                "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore, "trust": trust}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error), **getattr(error, "extra", {})}, 2)
     except subprocess.TimeoutExpired as error:

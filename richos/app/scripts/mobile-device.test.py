@@ -490,7 +490,7 @@ def _():
         flag = Path(tmp) / "ran"
         p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
         assert p.returncode == 3 and not flag.exists(), (p.returncode, p.stderr)
-        for word in ("cannot reach Apple", "Wi-Fi", "Tailscale", "Verify App"):
+        for word in ("cannot reach Apple", "rios device trust", "no Verify App", "Wi-Fi", "Tailscale"):
             assert word in p.stderr, (word, p.stderr)
         assert len(ph.launches()) == 1, ph.launches()
         env = {**ph.env}
@@ -547,7 +547,8 @@ def _():
     assert 'HOLDN=(python3 "$PHYS" hold --platform ios --phone iphone --net-check' in text
     for verb in ('verify) exec "${HOLDN[@]}"', 'run) exec "${HOLDN[@]}"', 'exec "${HOLDN[@]}" python3 "$HERE/../perf/perf.py"'):
         assert verb in text, verb
-    assert 'approval|procs|apps|lock|battery|syslog|wifi-restore) exec "${HOLD[@]}"' in text
+    # `trust` is the diagnosis of a refused check, so it runs without the check (which would refuse it).
+    assert 'approval|procs|apps|lock|battery|syslog|trust|wifi-restore) exec "${HOLD[@]}"' in text
 
 
 def load_phone_ios():

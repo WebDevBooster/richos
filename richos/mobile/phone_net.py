@@ -45,9 +45,12 @@ UNTRUSTED = re.compile(
     r"Developer App Certificate|internet connection is required", re.I)
 LOCKED = re.compile(r"\blocked\b|unlock", re.I)
 
+# Settings shows no Verify App button for this team-provisioned app (2026-09-27, and the CEO 2026-10-02);
+# sending a person to look for one wastes his time. `rios device trust` names the actual cause.
 FIX = ("The test iPhone cannot reach Apple to verify RichConnect's developer certificate, so iOS will not open "
-       "the app: put the phone on Wi-Fi with Tailscale and any VPN switched off, open RichConnect on the phone "
-       "once (tap Verify App if iOS asks), then run again.")
+       "the app; `rios device trust` names why (the phone's DNS, VPN or profiles). Settings has no Verify App "
+       "button for this app, so do not look for one: once the phone's Wi-Fi reaches Apple (Tailscale and any "
+       "VPN off), one tap on RichConnect's icon on the phone verifies it; then run again.")
 
 
 class Unreachable(Exception):
