@@ -2629,7 +2629,7 @@ mod tests {
         desk.handle(
             &utterance(framed(synthetic_voice(1.2, 190.0, 130.0, -26.0), -55.0, 11)),
             &rec,
-            |_| Ok(("Thank you.".to_string(), 300)),
+            |_| Ok(("Thanks for watching!".to_string(), 300)),
             |t, _| panic!("whisper's silence noise was submitted: {t:?}"),
         );
         assert!(transcripts(&rec).is_empty());
