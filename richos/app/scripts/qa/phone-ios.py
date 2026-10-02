@@ -21,6 +21,9 @@
                                                    STAMP.json (perf.py stamp)
     phone-ios.py approval --device UDID            will the next run ask the phone's owner to approve
                                                    UI automation? Asks nothing of the phone's screen.
+    phone-ios.py wifi-restore --out DIR            read the phone's Wi-Fi switch in Settings; turn it on if
+                                                   it is off (`run` does this itself after any list that
+                                                   acted on Wi-Fi, however the list ended)
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
     phone-ios.py summary DIR                       a finished `run` DIR read back: one row per step
                                                    (outcome, seconds, what it waited for, the audit's
@@ -758,7 +761,115 @@ def approval(args):
     return emit(forecast(args.device, passcode=passcode_state(args.device)))
 
 
+def touches_wifi(steps):
+    """Does the list act on Wi-Fi in iOS Settings (a step in Settings naming Wi-Fi)?"""
+    return any(s.get("in") == "settings" and "wi-fi" in str(s.get("label", "")).replace("‑", "-").lower()
+               for s in steps)
+
+
+# THE PHONE'S WI-FI IS PUT BACK, HOWEVER A RUN ENDS (CEO, 2026-10-02: "Unable to Verify App" again, and
+# "this phone is ALWAYS on Wi-Fi here unless one of the workers has deliberately switched Wi-Fi off").
+# A list that switches Wi-Fi off in Settings (the walk's network-drop pose, R2's floors) switches it back
+# on in its own later steps, and XCUITest stops a list at its first failed step or its allowance, so a
+# list that stops between the two leaves the phone with no network: iOS then cannot verify the
+# developer certificate online and refuses to open the app ("Unable to Verify App"). So `run` itself
+# reads the Wi-Fi switch after any list that touched it, however the list ended, and turns it on if it
+# is off. Steps as measured on the SE (iOS 26.3.1): the row says "Wi-Fi, <network>", its switch is
+# named "Wi‑Fi" with a non-breaking hyphen and reads "1" on, "0" off.
+WIFI_SWITCH = "Wi‑Fi"
+
+
+def wifi_steps(turn_on):
+    steps = [{"do": "launch", "in": "settings"}, {"do": "tap", "label": "Wi-Fi", "in": "settings", "timeout": 10}]
+    if turn_on:
+        steps += [{"do": "tap", "label": WIFI_SWITCH, "in": "settings", "timeout": 10}, {"do": "sleep", "seconds": 3}]
+    return steps + [{"do": "value", "label": WIFI_SWITCH, "in": "settings", "timeout": 10},
+                    {"do": "terminate", "in": "settings"}]
+
+
+def wifi_value(out):
+    """The Wi-Fi switch's value ('1' on, '0' off) a wifi_steps list read, or None."""
+    try:
+        rows = [json.loads(line) for line in (Path(out) / "steps.jsonl").read_text().splitlines() if line.strip()]
+    except (OSError, ValueError):
+        return None
+    for row in rows:
+        if row.get("do") == "value" and row.get("ok"):
+            return str((row.get("detail") or {}).get("value"))
+    return None
+
+
+def ensure_wifi_on(out_root):
+    """Read the phone's Wi-Fi switch and turn it on when it is off. Always returns a dict, never raises:
+    {'before': '0'|'1'|None, 'after': ..., 'turnedOn': bool, 'error': sentence or None}."""
+    from types import SimpleNamespace
+    result = {"before": None, "after": None, "turnedOn": False, "error": None}
+    out_root = Path(out_root)
+    try:
+        for turn_on, name in ((False, "wifi-read"), (True, "wifi-on")):
+            if turn_on and result["before"] != "0":
+                break
+            folder = out_root / name
+            folder.mkdir(parents=True, exist_ok=True)
+            listing = folder / "steps-in.json"
+            listing.write_text(json.dumps(wifi_steps(turn_on)))
+            summary = _run(SimpleNamespace(steps=str(listing), out=str(folder), allowance=120, prebuilt=False,
+                                           stamp=None, approval_announced=False))
+            value = wifi_value(folder)
+            if turn_on:
+                result.update(after=value, turnedOn=value == "1")
+            else:
+                result.update(before=value, after=value)
+            if value is None:
+                result["error"] = ("the phone's Wi-Fi switch could not be read "
+                                   f"({summary.get('error') or summary.get('failed') or 'no value step'})")
+                break
+        if result["before"] == "0" and not result["turnedOn"] and not result["error"]:
+            result["error"] = "the phone's Wi-Fi switch was off and is still off after the tap"
+    except CannotAnswer as error:
+        result["error"] = str(error)
+    except Exception as error:  # noqa: BLE001: the epilogue says what failed, it never hides the run's own result
+        result["error"] = f"{type(error).__name__}: {error}"
+    return result
+
+
 def run(args):
+    """The list, then (when it touched Wi-Fi, however it ended) the Wi-Fi switch read and put back."""
+    steps = load_steps(args.steps)
+    args.phone_touched = False
+    summary, failure = None, None
+    try:
+        summary = _run(args)
+    except BaseException as error:  # noqa: BLE001: the Wi-Fi is put back first, then the error goes on
+        failure = error
+    wifi = None
+    if touches_wifi(steps) and args.phone_touched:
+        wifi = ensure_wifi_on(Path(args.out).resolve() / "wifi-restore")
+        print(json.dumps({"wifiRestore": wifi}), file=sys.stderr)
+    if failure is not None:
+        raise failure
+    summary["wifiRestore"] = wifi
+    if wifi and wifi["error"]:
+        summary["passed"] = False
+        said = summary.get("error")
+        summary["error"] = (said + " " if said else "") + \
+            "The phone's Wi-Fi could not be confirmed on after this list: " + wifi["error"]
+    return emit(summary, 0 if summary["passed"] else 1)
+
+
+def wifi_restore(args):
+    """`rios device wifi-restore --out DIR`: read the phone's Wi-Fi switch, turn it on when off."""
+    out = Path(args.out).resolve()
+    if not str(out).startswith("/Volumes/E1TB/"):
+        raise CannotAnswer("--out must be on /Volumes/E1TB (the physical check refuses anything else)")
+    for name in ("RICHOS_IOS_DEVICE", "RICHOS_APPLE_TEAM"):
+        if not os.environ.get(name):
+            raise CannotAnswer(f"set {name}")
+    result = ensure_wifi_on(out)
+    return emit(result, 0 if not result["error"] else 1)
+
+
+def _run(args):
     started = time.time()
     steps = load_steps(args.steps)
     for name in ("RICHOS_IOS_DEVICE", "RICHOS_APPLE_TEAM"):
@@ -792,6 +903,7 @@ def run(args):
     if args.prebuilt:
         env["RICHOS_PHYSICAL_PREBUILT"] = "1"
         (out / "identity.json").write_text(json.dumps(identity, indent=1))
+    args.phone_touched = True
     p = subprocess.run([str(RIOS), "device", "verify", "script"], capture_output=True, text=True, env=env)
     ran_to = time.time()
     config.unlink(missing_ok=True)
@@ -840,7 +952,7 @@ def run(args):
         # The phone ran a step, so UI automation was allowed: the approval
         # escalation this tool raised is answered by the fact, not by memory.
         summary["approvalEscalationsClosed"] = close_approval_escalations(os.getcwd(), str(log))
-    return emit(summary, 0 if summary["passed"] else 1)
+    return summary
 
 
 def devicectl(args, device):
@@ -988,6 +1100,7 @@ def main(argv):
     r.add_argument("--stamp")
     r.add_argument("--approval-announced", action="store_true",
                    help="the CEO was told before this run that the phone will ask him to allow UI automation")
+    sub.add_parser("wifi-restore").add_argument("--out", required=True)
     sub.add_parser("parse-log").add_argument("log")
     sub.add_parser("approval").add_argument("--device", required=True)
     sub.add_parser("summary").add_argument("dir")
@@ -1040,7 +1153,7 @@ def main(argv):
                                     f"`rios device {args.command} ...`: the one command line that puts only the Release "
                                     "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
-                "syslog": syslog, "approval": approval}[args.command](args)
+                "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error), **getattr(error, "extra", {})}, 2)
     except subprocess.TimeoutExpired as error:

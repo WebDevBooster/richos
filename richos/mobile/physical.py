@@ -319,8 +319,14 @@ def status(platform, phone):
         os.close(fd)
 
 
-def hold(platform, phone, cmd, wait_s=0, holder=None, say=lambda s: print(s, file=sys.stderr, flush=True)):
-    """Run `cmd` holding the phone's lock for its whole length; returns its exit code."""
+def hold(platform, phone, cmd, wait_s=0, holder=None, say=lambda s: print(s, file=sys.stderr, flush=True),
+         net_check=False):
+    """Run `cmd` holding the phone's lock for its whole length; returns its exit code.
+
+    `net_check` (iOS, from `rios device verify|run|perf|hold`): the phone must be able to reach Apple
+    before the command starts and is checked again after it, however it ended (phone_net.py: CEO,
+    2026-10-02, "Unable to Verify App" again). Refused up front with one sentence; a run that left the
+    phone's network off gets it put back, and exits 4 if it cannot be."""
     if not cmd:
         raise CannotAnswer("hold runs a command: hold ... -- <command>")
     name, lock, record_path = lock_paths(platform, phone)
@@ -358,20 +364,37 @@ def hold(platform, phone, cmd, wait_s=0, holder=None, say=lambda s: print(s, fil
     if said:
         say(f"the {phone_label(platform, phone)} is free after {waited} s; taken")
     write_record(record_path, record)
+    net_check = net_check and platform == "ios"
+    if net_check:
+        import phone_net
+        try:
+            phone_net.preflight(say)
+        except phone_net.Unreachable as error:
+            record.update(endedAt=now_iso(), exit=3, refused=str(error)[:300])
+            write_record(record_path, record)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+            raise Refused(str(error))
     child = subprocess.Popen(cmd, env={**os.environ, HOLD_ENV: f"{name}:{os.getpid()}"})
     forward = lambda signum, _frame: child.send_signal(signum)
     previous_handlers = {s: signal.signal(s, forward) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
     code = None
+    left = None
     try:
         code = child.wait()
-        return code
     finally:
         for s, h in previous_handlers.items():
             signal.signal(s, h)
+        if net_check:
+            left = phone_net.postflight(say)
         record.update(endedAt=now_iso(), exit=code)
         write_record(record_path, record)
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
+    if left:
+        say(left)
+        return code if code else 4
+    return code
 
 
 # -- iOS --------------------------------------------------------------------------------------
@@ -520,9 +543,10 @@ def main(argv):
         q.add_argument("--phone", default="")
         q.add_argument("--wait", type=float, default=float(os.environ.get("RICHOS_DEVICE_WAIT") or 0))
         q.add_argument("--holder")
+        q.add_argument("--net-check", action="store_true")
         h = q.parse_args(argv[1:cut])
         try:
-            return hold(h.platform, h.phone, argv[cut + 1:], h.wait, h.holder)
+            return hold(h.platform, h.phone, argv[cut + 1:], h.wait, h.holder, net_check=h.net_check)
         except Refused as e:
             print(json.dumps({"ok": False, "refused": str(e)}), file=sys.stderr)
             return 3

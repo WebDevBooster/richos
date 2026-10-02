@@ -420,6 +420,246 @@ def _():
         assert code == 0 and '"configuration": "release"' in out, (code, out)
 
 
+# -- the test iPhone's network (CEO 2026-10-02: "Unable to Verify App" again) ---------------------
+# A fake xcrun keeps a fake iPhone in a JSON file: while its network is off, launching RichConnect
+# fails the way iOS does when it cannot verify the developer certificate online. Every call is logged.
+FAKE_XCRUN = r'''#!/usr/bin/env python3
+import json, os, sys
+state_path = os.environ["FAKE_IPHONE"]
+state = json.load(open(state_path))
+args = sys.argv[1:]
+with open(state_path + ".log", "a") as log:
+    log.write(" ".join(args) + "\n")
+if args[:4] == ["devicectl", "device", "process", "launch"]:
+    if state.get("launch_error"):
+        print(state["launch_error"], file=sys.stderr); sys.exit(1)
+    if state["network"] == "off":
+        print("ERROR: The application could not be launched because the Developer App Certificate is not trusted. (com.apple.dt.CoreDeviceError error 10002)", file=sys.stderr)
+        sys.exit(1)
+    json.dump({"result": {"process": {"processIdentifier": 4242}}}, open(args[args.index("--json-output") + 1], "w"))
+    sys.exit(0)
+if args[:4] == ["devicectl", "device", "process", "terminate"]:
+    sys.exit(0)
+print("unexpected xcrun call: " + " ".join(args), file=sys.stderr)
+sys.exit(1)
+'''
+
+
+class IPhone:
+    def __init__(self, tmp, network="on", launch_error=None):
+        self.tmp = Path(tmp)
+        (self.tmp / "bin").mkdir(exist_ok=True)
+        (self.tmp / "bin/xcrun").write_text(FAKE_XCRUN)
+        (self.tmp / "bin/xcrun").chmod(0o755)
+        self.file = self.tmp / "iphone.json"
+        self.set(network=network, launch_error=launch_error)
+        self.env = {**os.environ, "PATH": f"{self.tmp / 'bin'}:{os.environ['PATH']}", "FAKE_IPHONE": str(self.file),
+                    "RICHOS_PHONE_LOCK_DIR": str(self.tmp / "locks"), "PYTHONDONTWRITEBYTECODE": "1",
+                    "RICHOS_IOS_DEVICE": "00000000-0000000000000000", "RICHOS_DEVICE_HOLDER": "net-test"}
+        self.env.pop("RICHOS_PHONE_NET_RESTORE", None)
+
+    def set(self, **state):
+        old = json.loads(self.file.read_text()) if self.file.exists() else {}
+        self.file.write_text(json.dumps({**old, **state}))
+
+    @property
+    def network(self):
+        return json.loads(self.file.read_text())["network"]
+
+    def launches(self):
+        log = Path(str(self.file) + ".log")
+        return [c for c in (log.read_text().splitlines() if log.exists() else []) if " process launch " in f" {c} "]
+
+    def hold(self, body, restore=None):
+        """`physical.py hold --net-check` running python `body` (which may change the fake phone's network)."""
+        env = dict(self.env)
+        if restore:
+            env["RICHOS_PHONE_NET_RESTORE"] = restore
+        return subprocess.run([sys.executable, str(PHYSICAL), "hold", "--platform", "ios", "--phone", "iphone", "--net-check",
+                               "--", sys.executable, "-c", body], env=env, capture_output=True, text=True, timeout=300)
+
+
+def phone_sets(file, network):
+    return f"import json; p={str(file)!r}; s=json.load(open(p)); s['network']={network!r}; json.dump(s, open(p, 'w'))"
+
+
+@case("D22 the phone cannot reach Apple: rios device refuses up front with one sentence naming the fix, runs nothing, and releases the phone")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp, network="off")
+        flag = Path(tmp) / "ran"
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
+        assert p.returncode == 3 and not flag.exists(), (p.returncode, p.stderr)
+        for word in ("cannot reach Apple", "Wi-Fi", "Tailscale", "Verify App"):
+            assert word in p.stderr, (word, p.stderr)
+        assert len(ph.launches()) == 1, ph.launches()
+        env = {**ph.env}
+        st = json.loads(subprocess.run([sys.executable, str(PHYSICAL), "status", "--platform", "ios", "--phone", "iphone"],
+                                       env=env, capture_output=True, text=True).stdout)["result"]
+        assert st["state"] == "free", st
+
+
+@case("D23 the phone is online: the app is opened once and closed again before the run, and the run goes on")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        flag = Path(tmp) / "ran"
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
+        assert p.returncode == 0 and flag.exists(), (p.returncode, p.stderr)
+        calls = Path(str(ph.file) + ".log").read_text()
+        assert "--terminate-existing" in calls and "dev.richos.connect" in calls and "process terminate" in calls and "--pid 4242" in calls, calls
+
+
+@case("D24 a run that leaves the phone's network off: it is checked again after the run and put back, and the run's exit stands")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        put_back = f"{sys.executable} -c \"{phone_sets(ph.file, 'on')}\""
+        p = ph.hold(phone_sets(ph.file, "off"), restore=put_back)
+        assert p.returncode == 0 and ph.network == "on", (p.returncode, ph.network, p.stderr)
+        assert "left its network off" in p.stderr and "network is back" in p.stderr, p.stderr
+        assert len(ph.launches()) == 3, ph.launches()   # before, after, once more after the restore
+
+
+@case("D25 a run that leaves the network off and cannot put it back: exit 4 with the sentence (the run's own failure code is kept)")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        p = ph.hold(phone_sets(ph.file, "off"), restore=f"{sys.executable} -c pass")
+        assert p.returncode == 4 and "cannot reach Apple" in p.stderr and "After the run" in p.stderr, (p.returncode, p.stderr)
+        ph.set(network="on")
+        p = ph.hold(phone_sets(ph.file, "off") + "; raise SystemExit(7)", restore=f"{sys.executable} -c pass")
+        assert p.returncode == 7, (p.returncode, p.stderr)
+
+
+@case("D26 an answer that is not about the network (locked phone) is said and does not refuse the run")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp, launch_error="ERROR: The device is locked. Unlock the device and try again.")
+        flag = Path(tmp) / "ran"
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
+        assert p.returncode == 0 and flag.exists() and "could not decide" in p.stderr, (p.returncode, p.stderr)
+
+
+@case("D27 rios sends verify, run, perf and hold through the check, and the phone's read-only commands around it never launch the app")
+def _():
+    text = (REPO / "richos/mobile/native-ios/bin/rios").read_text()
+    assert 'HOLDN=(python3 "$PHYS" hold --platform ios --phone iphone --net-check' in text
+    for verb in ('verify) exec "${HOLDN[@]}"', 'run) exec "${HOLDN[@]}"', 'exec "${HOLDN[@]}" python3 "$HERE/../perf/perf.py"'):
+        assert verb in text, verb
+    assert 'approval|procs|apps|lock|battery|syslog|wifi-restore) exec "${HOLD[@]}"' in text
+
+
+def load_phone_ios():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("phone_ios_net", REPO / "richos/app/scripts/qa/phone-ios.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class FakeSettings:
+    """A fake iPhone's Settings behind phone-ios.py's `_run`: runs a step list the way the phone would."""
+
+    def __init__(self, module, wifi="1", raise_after_first=None, stuck=False):
+        self.module, self.wifi, self.runs, self.raise_after_first, self.stuck = module, wifi, 0, raise_after_first, stuck
+
+    def __call__(self, args):
+        args.phone_touched = True
+        self.runs += 1
+        steps = json.loads(Path(args.steps).read_text())
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        rows, failed = [], None
+        for i, step in enumerate(steps):
+            if step["do"] == "mark" and step.get("label") == "STOP":
+                rows.append({"i": i, "do": "mark", "ok": False, "error": "the list stopped here"})
+                failed = i
+                break
+            if step["do"] == "tap" and step.get("label") == self.module.WIFI_SWITCH and not self.stuck:
+                self.wifi = "0" if self.wifi == "1" else "1"
+            detail = {"value": self.wifi} if step["do"] == "value" else {}
+            rows.append({"i": i, "do": step["do"], "ok": True, "detail": detail})
+        (out / "steps.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        if self.raise_after_first and self.runs == 1:
+            raise self.module.CannotAnswer(self.raise_after_first)
+        return {"passed": failed is None, "error": None if failed is None else "step failed"}
+
+
+def wifi_list(tmp, *tail):
+    sw = "Wi‑Fi"
+    steps = [{"do": "launch", "in": "settings"}, {"do": "tap", "label": "Wi-Fi", "in": "settings"},
+             {"do": "tap", "label": sw, "in": "settings"}, *tail]
+    path = Path(tmp) / "list.json"
+    path.write_text(json.dumps(steps))
+    return path
+
+
+def phone_run(module, fake, path, tmp):
+    from types import SimpleNamespace
+    import contextlib
+    import io
+    args = SimpleNamespace(steps=str(path), out=str(Path(tmp) / "out"), allowance=240, prebuilt=False, stamp=None,
+                           approval_announced=False)
+    out, err = io.StringIO(), io.StringIO()
+    from unittest.mock import patch
+    with patch.object(module, "_run", fake), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = module.run(args)
+            return code, (json.loads(out.getvalue()) if out.getvalue() else None), None
+        except Exception as error:  # noqa: BLE001: the test reads which error left the run
+            return None, None, error
+
+
+@case("D28 a list that switches Wi-Fi off and stops before switching it back: the run reads the switch and turns it on")
+def _():
+    module = load_phone_ios()
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeSettings(module)
+        code, summary, error = phone_run(module, fake, wifi_list(tmp, {"do": "mark", "label": "STOP"}), tmp)
+        assert fake.wifi == "1", "the phone's Wi-Fi was left off"
+        wifi = summary["wifiRestore"]
+        assert wifi["before"] == "0" and wifi["turnedOn"] is True and wifi["error"] is None, wifi
+        assert fake.runs == 3, fake.runs   # the list, the read, the turn-on
+        assert code == 1 and summary["passed"] is False, (code, summary)
+
+
+@case("D29 a list that fails outright (the run raises) still gets the Wi-Fi put back, and the error goes on")
+def _():
+    module = load_phone_ios()
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeSettings(module, raise_after_first="the check produced no result bundle")
+        code, summary, error = phone_run(module, fake, wifi_list(tmp), tmp)
+        assert isinstance(error, module.CannotAnswer) and "no result bundle" in str(error), error
+        assert fake.wifi == "1", "the phone's Wi-Fi was left off"
+
+
+@case("D30 a list that put Wi-Fi back itself costs one read and no tap; a list that never touched Wi-Fi costs nothing")
+def _():
+    module = load_phone_ios()
+    with tempfile.TemporaryDirectory() as tmp:
+        sw = "Wi‑Fi"
+        fake = FakeSettings(module)
+        code, summary, error = phone_run(module, fake, wifi_list(tmp, {"do": "tap", "label": sw, "in": "settings"}), tmp)
+        assert fake.wifi == "1" and summary["wifiRestore"]["turnedOn"] is False and summary["wifiRestore"]["error"] is None, summary
+        assert fake.runs == 2 and code == 0, (fake.runs, code)   # the list and the read
+        fake = FakeSettings(module)
+        path = Path(tmp) / "plain.json"
+        path.write_text(json.dumps([{"do": "launch"}, {"do": "tap", "id": "composer.send"}]))
+        code, summary, error = phone_run(module, fake, path, tmp)
+        assert fake.runs == 1 and summary["wifiRestore"] is None, (fake.runs, summary)
+
+
+@case("D31 a Wi-Fi switch that will not turn on is said in the run's own result, never hidden")
+def _():
+    module = load_phone_ios()
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeSettings(module, wifi="0", stuck=True)
+        code, summary, error = phone_run(module, fake, wifi_list(tmp), tmp)
+        assert summary["wifiRestore"]["error"] and "still off" in summary["wifiRestore"]["error"], summary
+        assert code == 1 and summary["passed"] is False and "Wi-Fi could not be confirmed on" in summary["error"], (code, summary)
+
+
 # -- the commit check ---------------------------------------------------------------------------
 # Each planted line is what a change might add; the scan must name it. The literals carry the
 # exemption marker as a comment on THIS file's line, never inside the planted text.
