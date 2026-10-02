@@ -337,6 +337,12 @@ if printf '%s' "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys
 else
     bad "D14 TWO rules writing stdout -> one VALID envelope naming the collision, never invalid JSON (out=$OUT)"
 fi
+# D14b (hunt part 3, 30): the merged envelope CARRIES both rules' messages.
+if printf '%s' "$OUT" | python3 -c 'import json,sys; m=json.load(sys.stdin)["systemMessage"]; sys.exit(0 if "EPSILON" in m and "ZETA" in m else 1)' 2>/dev/null; then
+    ok "D14b TWO rules writing stdout -> the one envelope keeps BOTH rules' messages"
+else
+    bad "D14b TWO rules writing stdout -> the one envelope keeps BOTH rules' messages (out=$OUT)"
+fi
 
 echo
 echo "--- F. the dispatcher refuses rather than guesses ---"

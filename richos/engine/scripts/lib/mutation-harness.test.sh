@@ -541,6 +541,28 @@ else
         "rc=$BC_RC; output: $(tail -8 "$SANDBOX/broken-copy.out" | tr '\n' '|')"
 fi
 
+# 6b. THE WANTED CASE LABEL IS A LITERAL (hunt part 3, 27). The fixture suite fails
+#     only at "W10. other"; the mutant names "W1." -- as a regex "W1." matches
+#     "W10", so the unrelated red was credited as the named case.
+WRONG_ENG="$SANDBOX/fake-engine-wrong-witness"
+cp -R "$FAKE_ENG" "$WRONG_ENG"
+printf '#!/usr/bin/env bash\necho "  FAIL  W10. a different case"\nexit 1\n' > "$WRONG_ENG/scripts/fake-suite.sh"
+cat > "$SANDBOX/wrong-witness-harness.sh" <<WWEOF
+#!/usr/bin/env bash
+set -uo pipefail
+. "$WRONG_ENG/scripts/lib/mutation-harness.sh"
+mutation_begin "wrong-witness fixture" "scripts/fake-suite.sh"
+mutant wrong-witness "W1." "scripts/hooks/fake-guard.sh" "THE_LOAD_BEARING_LINE=1" "THE_LOAD_BEARING_LINE=0" "fixture"
+mutation_end
+WWEOF
+bash "$SANDBOX/wrong-witness-harness.sh" >"$SANDBOX/wrong-witness.out" 2>&1; WW_RC=$?
+if [ "$WW_RC" -ne 0 ] && ! grep -q '  PASS  wrong-witness' "$SANDBOX/wrong-witness.out"; then
+    ok "6b  a different failed case (W10.) is not credited as the named witness (W1.)"
+else
+    bad "6b  a different failed case is credited as the named witness" \
+        "rc=$WW_RC; output: $(tail -8 "$SANDBOX/wrong-witness.out" | tr '\n' '|')"
+fi
+
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

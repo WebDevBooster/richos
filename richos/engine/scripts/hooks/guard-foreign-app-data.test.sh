@@ -116,7 +116,10 @@ check 0 N4 "the app's own container" 'ls ~/Library/Containers/com.richos.app/Dat
 check 0 N4 "the app's own group container" 'ls "$HOME/Library/Group Containers/group.com.richos.shared"'  # foreign-app-data-exempt: test input
 check 0 N5 "find ~ -maxdepth 3" 'find ~ -maxdepth 3 -name RichOS.app'
 check 0 N5r "a relative cd into Library at its own budget (2)" 'cd Library && find . -maxdepth 2 -type f' "$T_HOME"
-check 0 N5 "find / -maxdepth 2" 'find /-maxdepth 2 -name dossiers 2>/dev/null'
+check 0 N5 "find / -maxdepth 2" 'find / -maxdepth 2 -name dossiers 2>/dev/null'
+# N5s: the labelled root-depth command must really be "find /" then "-maxdepth" (hunt part 3, 37: they were once joined into the one word "/-maxdepth", which the string-classifying wrapper accepted whatever it said)
+if grep -qE "find /-max""depth" "${BASH_SOURCE[0]}"; then bad "N5s a check joins the root and its option into one word" "see hunt part 3, 37"; else ok "N5s no check joins the root and its option into one word"; fi
+check 2 P4s "find / -maxdepth 6 opens a container (the root at real depth; budget 5)" 'find / -maxdepth 6 -name x'
 check 0 N5 "ls of home and of the container folder itself (names only)" 'ls -la ~ ~/Library/Containers/'  # foreign-app-data-exempt: test input
 check 0 N6 "echo" 'echo "never run find ~ here"'
 check 0 N6m "echo of a container path as its own word" 'echo ~/Library/Containers/com.apple.mail/Data'  # foreign-app-data-exempt: test input
