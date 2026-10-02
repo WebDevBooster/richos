@@ -40,15 +40,18 @@ WHAT THE FIRST RUN THAT GOT THIS FAR SHOWED (2026-09-29, bundle 1.2.0-dev.6c4f82
     (dark) low on the stage against 88.65 and 57.54 high on it, so the ratio came out 2.34 and
     3.29 and the verdict FAIL, while opaque surfaces in the same frames (the notice's panel,
     the composer field) counted 0.00 per 1000 in both themes. The points are on screen in both
-    themes; the ratio is the wrong control. Its thresholds are left as they were, not tuned to
-    the frames they would then be judged by.
+    themes; the ratio of 5 was the wrong threshold.
+  * R55 (2026-10-02): re-measured on the current nightly, three guest runs, both themes: the
+    counts were identical every run (23540/10051 light, 14820/4510 dark), so the ratios 2.34 and
+    3.29 are the field's, not noise. The default is now 1.5, from those frames and a plain
+    ground's 0 (see DEFAULT_MIN_RATIO), and test/speckle-walk.test.py holds the measured counts.
 
 It quits nothing itself: run-walk.py quits the app by its pid, stops the guest and deletes the
 clone (CEO §54). The appearance it flips is the GUEST's; nothing here touches the host's screen.
 
 Writes <out>/home.png, <out>/shell-<theme>.png for each theme and <out>/speckle.json. Exit 0 when
 the shell's top third carries at least --min-points isolated points and at least --min-ratio
-times its bottom third's IN BOTH THEMES, else 1; 2 when the guest could not be read (the failing
+times its bottom third's (defaults 500 and 1.5, see DEFAULT_MIN_RATIO) IN BOTH THEMES, else 1; 2 when the guest could not be read (the failing
 step is named).
 """
 import argparse
@@ -65,6 +68,16 @@ sys.path.insert(0, str(HERE.parent / 'qa' / 'lib'))
 sys.path.insert(0, str(HERE))
 import margin  # noqa: E402
 import qaimg  # noqa: E402
+
+
+# Thresholds, set from measurement (R55, 2026-10-02, nightly 1.2.0-nightly.20261002.34, three
+# guest runs, identical every run): top third / bottom third isolated points were 23540 / 10051
+# (ratio 2.34, light) and 14820 / 4510 (ratio 3.29, dark); a plain ground counts 0 points, and a
+# ground speckled evenly with no lamp has a ratio near 1.0. 500 points is far under the lowest
+# measured top third (14820) and far over a plain ground (0); 1.5 sits under the lowest measured
+# ratio (2.34) and over the no-lamp ratio (~1.0). The old ratio of 5.0 failed both real themes.
+DEFAULT_MIN_POINTS = 500
+DEFAULT_MIN_RATIO = 1.5
 
 
 def utc():
@@ -168,8 +181,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('vm')
     p.add_argument('--out', type=Path, required=True)
-    p.add_argument('--min-points', type=int, default=500)
-    p.add_argument('--min-ratio', type=float, default=5.0)
+    p.add_argument('--min-points', type=int, default=DEFAULT_MIN_POINTS)
+    p.add_argument('--min-ratio', type=float, default=DEFAULT_MIN_RATIO)
     a = p.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     state = Path(os.environ.get('TESTVM_ROOT', str(Path.home() / '.richos-testvm'))) / 'run' / a.vm
