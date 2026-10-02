@@ -6,7 +6,8 @@ is refused unless the same change renews that pin.
 Every commit case is a throwaway repository with the real shim, installer, autocheck.py and
 dependency-pins.py, installed as git hooks, and a small declaration that pins a node source, a
 hook-reader source and a repository-rooted external reader. Nothing touches this repository or
-its hooks, and no change is under richos/app, so autocheck's lint is never reached.
+its hooks, and no change is under richos/app, so autocheck's lint is never reached; a stand-in
+proof-for.sh that selects nothing answers the coverage lookup every commit makes.
 
   REFUSED  a changed node source, hook-reader source or external reader whose pin was not
            renewed; the same through `commit -a`; one committed earlier without the hooks;
@@ -36,6 +37,7 @@ HOOK = "richos/engine/scripts/lib/helper.sh"
 EXTERNAL = "richos/tools/external.py"
 FREE = "richos/engine/scripts/unpinned.sh"
 RENEW = "python3 richos/app/scripts/autocheck/dependency-pins.py --renew"
+SELECTOR = "richos/app/scripts/proof-for.sh"
 
 
 class Fixture(unittest.TestCase):
@@ -102,6 +104,10 @@ class Fixture(unittest.TestCase):
         for name in ("autocheck.py", "shim.sh", "install.sh", "dependency-pins.py"):
             if (AUTOCHECK / name).is_file():
                 shutil.copy(AUTOCHECK / name, dest / name)
+        # A commit with no app change still asks the land's selector (autocheck branch_selection,
+        # 1b25b64d1) and refuses when there is none. This one maps every change and selects
+        # nothing, so what passes or refuses here is the pin check alone.
+        self.write(SELECTOR, "#!/usr/bin/env bash\nexit 0\n")
         self.git("init", "-q")
         self.renew(NODE, HOOK, EXTERNAL)
         self.git("add", "-A")
