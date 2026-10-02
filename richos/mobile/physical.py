@@ -443,7 +443,7 @@ RULES = [
         r"|\bios-deploy\b"
         r"|platform=iOS,\s*(?:id|name)="), False),
     ("a Gradle task that installs on EVERY attached device, a phone included", re.compile(
-        r"(?<![\w-]):?\b(?:install|uninstall)(?:Debug|Release|All)\w*\b|\bconnected\w*(?:AndroidTest|Check)\b"), True),
+        r"(?<![\w-]):?\b(?:install|uninstall)(?:Debug|Release|SeedTwin|All)\w*\b|\bconnected\w*(?:AndroidTest|Check)\b"), True),
     ("a Debug build for a physical iPhone", re.compile(r"Debug-iphoneos"), True),
 ]
 

@@ -5,6 +5,11 @@
 #   randroid test [core|app|all] [gradle args]   L1: JVM tests (core, CLI; app via Robolectric)
 #   randroid build [debug|release]      assemble an APK (release is signed when the upload key is in
 #                                       the environment, see bundle)
+#   randroid build twin                 the release build's DEBUGGABLE TWIN: the same code and application
+#                                       ID, debuggable, signed with the upload key (needs it in the
+#                                       environment, richos-hq with-android-signing.py), so `adb install
+#                                       -r` takes it over the release app with its data. Only `device
+#                                       perf|seed` uses it; verify-bundle and check-release refuse it
 #   randroid bundle [--allow-dirty]     the signed Android App Bundle (.aab) for Google Play, verified
 #                                       as below; needs the upload key and the Firebase values in the
 #                                       environment (richos-hq with-android-signing.py and
@@ -47,10 +52,14 @@
 #       install [APK]                   the release APK (default: `randroid build release`'s), over
 #                                       the installed app with `adb install -r`, data kept; refuses a
 #                                       debuggable APK; stamps it for `device perf`
-#       seed TWIN_APK [perf args]       the made-up conversation through the release build's
+#       seed [TWIN_APK] [perf args]     the made-up conversation through the release build's
 #                                       debuggable twin (perf.py --seed-twin; the twin is replaced by
-#                                       the release build in the same call)
-#       perf [perf args]                cold start, return from background, ... (perf.py android)
+#                                       the release build in the same call). Without TWIN_APK the
+#                                       twin is built here (`build twin`); a twin signed with another
+#                                       key than the installed app is refused before anything installs
+#       perf [perf args]                cold start, return from background, ... (perf.py android); the
+#                                       seeded conversation goes through the twin the same way, unless
+#                                       --conversation as-installed or --seed-twin APK is given
 #       record FILE.mp4 [--seconds N]   a screen recording (at most 180 s)
 #       texts|wait|gone|tap|node|swipe|type-file|keys|field|unlabeled|shot|burst|idle-frames|state|observe
 #                                       the walk steps (richos/app/scripts/qa/phone-android.py)
@@ -390,6 +399,15 @@ emu() {
   esac
 }
 
+# The debuggable twin of the release build: assembleSeedTwin, signed with the upload key. Gradle's own
+# up-to-date check is the reuse: unchanged source rebuilds nothing. Never signed with another key (a
+# twin the phone would refuse is worthless and an unsigned one cannot be installed at all).
+build_twin() {
+  upload_key_present || fail "REFUSED: the debuggable twin must carry the upload key, the key of the release build on the phone; run through richos-hq scripts/with-android-signing.py" 3
+  gradle -q --no-configuration-cache :app:assembleSeedTwin >&2 || fail "the debuggable twin did not build"
+  built_apk seedTwin || fail "no twin APK recorded in output-metadata.json"
+}
+
 # --- a physical phone -------------------------------------------------------------------------
 # The ONLY way anything touches one (CEO 2026-10-02: only the release build goes on his phones and
 # every test on them tests it). The rules (release only, never an uninstall, the installed build
@@ -460,11 +478,19 @@ PY
         --aapt2 "${RANDROID_AAPT2:-$ANDROID_HOME/build-tools/36.0.0/aapt2}" ;;
     record) exec "${hold[@]}" python3 "$phys" android-record --adb "$ADB" --serial "$serial" --out "${1:?record FILE.mp4}" "${@:2}" ;;
     perf|seed)
-      local extra=()
+      local extra=(--apksigner "${RANDROID_APKSIGNER:-$ANDROID_HOME/build-tools/36.0.0/apksigner}")
       if [ "$sub" = seed ]; then
-        [ "$#" -ge 1 ] || fail "seed takes the release build's debuggable twin: randroid device seed TWIN_APK"
-        extra=(--seed-twin "$1" --only seed); shift
+        extra+=(--only seed)
+        case "${1:-}" in -*|"") ;; *) extra+=(--seed-twin "$1"); shift ;; esac
       fi
+      # The seeded conversation on a release build goes through its debuggable twin (install -r only,
+      # the app's data kept). Built here, before the phone is held, unless one was given or the run
+      # measures whatever the app holds.
+      case " ${extra[*]} $* " in
+        *" --seed-twin "*|*" --conversation as-installed "*|*" --conversation=as-installed "*) ;;
+        *) local twin; twin="$(build_twin)" || exit $?
+           extra+=(--seed-twin "$twin") ;;
+      esac
       case " $* " in *" --stamp "*) ;; *)
         local rel; rel="$(built_apk release 2>/dev/null)" && [ -f "$rel.stamp.json" ] && extra+=(--stamp "$rel.stamp.json") ;;
       esac
@@ -500,6 +526,7 @@ headers = len(re.findall(rb"^Class #\d+", run.stdout, re.M))
 classes = [c.decode("utf-8", "backslashreplace") for c in re.findall(rb"^\s*Class descriptor\s*:\s*'([^'\n]*)'", run.stdout, re.M)]
 leaks = [c for c in classes if c.startswith("Ldev/richos/android/app/debug/") or c.startswith("Ldev/richos/android/core/dev/")]
 markers = [m for m in ("dev.richos.android.app.debug", "DevBridge", "devbridge") if m in manifest]
+debuggable = bool(re.search(r"android:debuggable\(0x0101000f\)=(?:true|0xffffffff)", manifest))
 package = re.search(r'A: package="([^"]*)"', manifest)
 code = re.search(r'versionCode\(0x0101021b\)=(\d+)', manifest)
 name = re.search(r'versionName\(0x0101021c\)="([^"]*)"', manifest)
@@ -507,7 +534,7 @@ print(json.dumps({"classes": len(classes), "classHeaders": headers, "declaredCla
                   "complete": run.returncode == 0 and declared > 0 and declared == headers == len(classes),
                   "appEntry": "Ldev/richos/android/app/MainActivity;" in classes,
                   "bridgeClasses": leaks[:20], "bridgeClassCount": len(leaks), "manifestMarkers": markers,
-                  "package": package.group(1) if package else None,
+                  "package": package.group(1) if package else None, "debuggable": debuggable,
                   "versionCode": int(code.group(1)) if code else None,
                   "versionName": name.group(1) if name else None}))
 PY
@@ -633,6 +660,7 @@ checks = {
     "releasePolicy": policy_code == "0",
     "signedByUploadKeyOnly": sig["verified"] and not sig["unsignedEntries"] and sig["signers"] == 1 and sig["sha256"] == [expected.upper()],
     "permanentId": scan["package"] == package,
+    "notDebuggable": scan["debuggable"] is False,  # the debuggable twin (randroid build twin) never ships
     "bridgeAbsent": scan["complete"] and scan["appEntry"] and scan["bridgeClassCount"] == 0 and not scan["manifestMarkers"],
     "versionCode": (scan["versionCode"] or 0) > 1 and (not want or scan["versionCode"] == int(want)),
 }
@@ -680,6 +708,7 @@ def clean(s):  # a partial dump proves nothing either way: clean only when all o
     return s["complete"] and s["classes"] > 0 and s["appEntry"] and s["bridgeClassCount"] == 0 and not s["manifestMarkers"]
 probe = d["complete"] and d["bridgeClassCount"] > 0 and len(d["manifestMarkers"]) > 0
 ids = r["package"] == package and b["package"] == package
+notdebug = r["debuggable"] is False and b["debuggable"] is False  # the debuggable twin never ships
 if keyed:
     signed = (rs["verified"] and rs["sha256"] == [expected]
               and bs["verified"] and not bs["unsignedEntries"] and bs["signers"] == 1 and bs["sha256"] == [expected])
@@ -687,11 +716,11 @@ if keyed:
 else:
     signed = True
     signature = {"checked": False, "why": "no upload key in this environment; the release outputs are unsigned (richos-hq scripts/with-android-signing.py supplies it)"}
-ok = clean(r) and clean(b) and probe and ids and signed and policy["apk"]["ok"] and policy["bundle"]["ok"]
+ok = clean(r) and clean(b) and probe and ids and notdebug and signed and policy["apk"]["ok"] and policy["bundle"]["ok"]
 print(json.dumps({"ok": ok, "mode": "check-release", "command": "check-release",
                   "result": {"apk": apk, "bundle": aab, "release": r, "bundleScan": b, "debugProbe": d,
                              "releaseClean": clean(r), "bundleClean": clean(b), "scannerSeesDebugBridge": probe,
-                             "permanentId": ids, "signature": signature, "releasePolicy": policy}}, indent=2))
+                             "permanentId": ids, "notDebuggable": notdebug, "signature": signature, "releasePolicy": policy}}, indent=2))
 sys.exit(0 if ok else 1)
 PY
 }
@@ -767,7 +796,8 @@ case "$mode" in
         if upload_key_present; then gradle -q --no-configuration-cache :app:assembleRelease
         else gradle -q :app:assembleRelease; fi
         built_apk release ;;
-      *) fail "build takes debug or release" ;;
+      twin) build_twin ;;
+      *) fail "build takes debug, release or twin" ;;
     esac ;;
   bundle) bundle "$@" ;;
   verify-bundle)
@@ -777,6 +807,6 @@ case "$mode" in
   emu) emu "$@" ;;
   device) device "$@" ;;
   doctor) doctor ;;
-  ""|-h|--help|help) sed -n '2,67p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,76p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) fail "unknown mode '$mode'; see randroid --help" ;;
 esac

@@ -68,6 +68,20 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("upload")
         }
+        // The DEBUGGABLE TWIN of the release build (CEO 2026-10-02): the release build's code (same
+        // source set, same R8 rules, same application ID and version), `debuggable true`, and the
+        // release build's signing key, so a replace-in-place takes it over the release app KEEPING
+        // the app's data. Its only use is `randroid device perf|seed`, which puts it over the app, writes
+        // the made-up conversation with run-as and puts the release build back in the same call.
+        // It has no `seedTwin` source set, so it carries no development bridge. It never ships:
+        // `randroid verify-bundle` and `check-release` refuse a debuggable APK or bundle. Built only
+        // with the upload key in the environment (`randroid build twin` refuses without it).
+        create("seedTwin") {
+            initWith(getByName("release"))
+            isDebuggable = true
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.findByName("upload")
+        }
     }
 
     compileOptions {

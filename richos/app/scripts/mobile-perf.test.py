@@ -1710,9 +1710,20 @@ def _():
     raises(condition.ConditionError, condition.file_fixture, 0)
 
 
+SIGNER_OF = {}  # local APK path -> certificate digest; anything else reads as the one upload key
+
+
+def fake_signer(apk, apksigner):
+    return SIGNER_OF.get(apk, "a" * 64)
+
+
+android.signer_sha256 = fake_signer  # apksigner reads real APKs; the fake phone's are bytes
+
+
 def release_setup(tmp):
     """A stamped release APK and its debuggable twin, as local files the fake adb installs."""
     import hashlib
+    SIGNER_OF.clear()
     release, twin = os.path.join(tmp, "release.apk"), os.path.join(tmp, "twin.apk")
     for path, data in ((release, b"release-bytes"), (twin, b"twin-bytes")):
         with open(path, "wb") as f:
@@ -2230,6 +2241,52 @@ def _():
         assert not any(c.startswith("uninstall") or "pm clear" in c for c in fake.calls), fake.calls
         assert record["savedState"]["restored"] is True and fake.core == own, (record["savedState"], sorted(fake.core))
         assert fake.installed == json.load(open(stamp))["sha256"] and not fake.debuggable, "the release build is back"
+
+
+@case("T1 a twin signed with a different key than the installed app is refused with a plain sentence BEFORE any install; nothing uninstalled, data untouched")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        own = {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"}
+        fake.core = dict(own)
+        SIGNER_OF[twin] = "b" * 64
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        msg = raises(perfcore.Refused, keep_run, args, fake)
+        assert "signed with a different key" in msg and "CEO's decision" in msg, msg
+        assert not any(c.startswith(("uninstall", "install")) for c in fake.calls), fake.calls
+        assert fake.installed == json.load(open(stamp))["sha256"] and not fake.debuggable and fake.core == own
+
+
+@case("T2 the twin is never left installed: a seeding that fails after the twin went on puts the release build back over it (install -r, data kept)")
+def _():
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        own = {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"}
+        fake.core = dict(own)
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        with patch.object(android, "write_core_files", side_effect=perfcore.Unmeasurable("the write failed")):
+            raises(perfcore.Unmeasurable, keep_run, args, fake)
+        installs = [c for c in fake.calls if c.startswith(("uninstall", "install"))]
+        assert all(c.startswith("install -r ") for c in installs) and installs[0].endswith("twin.apk"), installs
+        assert fake.installed == json.load(open(stamp))["sha256"] and not fake.debuggable, "the release build is back, not the twin"
+        assert fake.core == own, "the app's data is as found"
+
+
+@case("T3 randroid: the twin is a build type with the release code, debuggable, the upload key; the bundle and release checks refuse a debuggable build; the scan refuses the twin's Gradle install task")
+def _():
+    gradle = open(os.path.join(MOBILE, "native-android/app/build.gradle.kts")).read()
+    twin = gradle[gradle.index('create("seedTwin")'):]
+    twin = twin[:twin.index("\n        }")]
+    assert 'initWith(getByName("release"))' in twin and "isDebuggable = true" in twin, twin
+    assert 'signingConfigs.findByName("upload")' in twin and "applicationIdSuffix" not in twin, twin
+    cli = open(os.path.join(MOBILE, "native-android/bin/randroid")).read()
+    assert '"notDebuggable": scan["debuggable"] is False' in cli and "ok = clean(r) and clean(b) and probe and ids and notdebug" in cli
+    assert "REFUSED: the debuggable twin must carry the upload key" in cli and ":app:assembleSeedTwin" in cli
+    sys.path.insert(0, MOBILE)
+    import physical
+    planted = "./gradlew :app:install" + "SeedTwin"  # the rule must name it, and the line is not itself one
+    assert "EVERY attached device" in physical.rule_for(planted, True)
 
 
 @case("K6 an exception that ends the run AND a failed restore raise RestoreFailed (exit non-zero, loud last line), the cause kept")

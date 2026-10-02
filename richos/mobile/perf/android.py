@@ -543,6 +543,35 @@ def write_core_files(dev, files, scratch):
     return written
 
 
+def signer_sha256(apk, apksigner):
+    """The SHA-256 of the certificate that signed `apk`, from apksigner's own reading; Unmeasurable when
+    it cannot be read (no apksigner, an unsigned APK, more than one signer)."""
+    import os
+    import subprocess
+    if not apksigner or not os.path.isfile(apksigner):
+        raise Unmeasurable(f"no apksigner at {apksigner!r}: who signed {apk} cannot be read, so the twin is not installed")
+    p = subprocess.run([apksigner, "verify", "--print-certs", apk], capture_output=True, text=True, timeout=120)
+    digests = sorted(set(re.findall(r"certificate SHA-256 digest: ([0-9a-fA-F]{64})", p.stdout)))
+    if p.returncode != 0 or len(digests) != 1:
+        raise Unmeasurable(f"{apk} does not verify with exactly one signer (apksigner exit {p.returncode}, "
+                           f"{len(digests)} certificates): {(p.stderr or p.stdout).strip()[-200:]}")
+    return digests[0].lower()
+
+
+def require_same_signer(installed_apk, twin_apk, apksigner):
+    """Before the twin goes anywhere near the phone: the installed app's signer and the twin's must be
+    the same certificate, or `install -r` is refused and the only way forward is an uninstall (the app's
+    data wiped, the CEO's decision). Plain sentence, nothing touched."""
+    have, want = signer_sha256(installed_apk, apksigner), signer_sha256(twin_apk, apksigner)
+    if have != want:
+        raise Refused(f"the debuggable twin is signed with a different key than the RichConnect on the phone (the phone's "
+                      f"app: {have[:12]}…, the twin: {want[:12]}…), so Android would refuse to install it over the app. "
+                      "Nothing was touched and nothing was uninstalled: replacing a differently signed build means an "
+                      "uninstall, which wipes the app's data, and that is the CEO's decision. Build the twin through "
+                      "richos-hq scripts/with-android-signing.py so it carries the upload key (`randroid build twin`)")
+    return have
+
+
 def install_over(dev, apk, what):
     """`adb install -r`: replaces the installed build and KEEPS its data. Never an uninstall. When the
     phone refuses (a signature that differs from the installed build's, a lower version code) it is
@@ -578,7 +607,16 @@ def seed_release(dev, files, twin_apk, release_apk, release_sha256, scratch, log
         twin_sha = hashlib.sha256(f.read()).hexdigest()
     log("seed: install -r the debuggable twin over the app, write the fixture, install -r the release build back (no uninstall)")
     install_over(dev, twin_apk, "the debuggable twin")
-    written = write_core_files(dev, files, scratch)
+    try:
+        written = write_core_files(dev, files, scratch)
+    except BaseException:
+        # The twin never stays on the phone: the release build goes back over it (data kept) whatever
+        # went wrong; the original failure is the one that is raised.
+        try:
+            install_over(dev, release_apk, "the stamped release APK (after a failed seeding)")
+        except Exception as e:  # noqa: BLE001
+            log(f"seed: the release build could not be put back over the twin ({e}); the keeper puts the saved build back")
+        raise
     install_over(dev, release_apk, "the stamped release APK")
     if debuggable(dev):
         raise Refused("after installing the release APK over the twin the app is still debuggable; not the release build")
@@ -606,8 +644,10 @@ class StateKeeper:
     is installed and reads its hash back. It returns the problems it found, [] when everything
     matches; the private copy is deleted only then. Nothing installed means nothing to put back."""
 
-    def __init__(self, dev, root=None, log=lambda s: None, accept_loss=None, twin_apk=None, clock=time.time_ns):
+    def __init__(self, dev, root=None, log=lambda s: None, accept_loss=None, twin_apk=None, clock=time.time_ns,
+                 apksigner=None):
         self.dev, self.log, self.accept_loss, self.twin_apk = dev, log, accept_loss, twin_apk
+        self.apksigner = apksigner
         self.root = root or KEEP_ROOT
         self.clock = clock
         self.saved = False
@@ -671,6 +711,9 @@ class StateKeeper:
         self.apk, self.apk_sha = local, sha
         if can_read:
             if not self.apk_debuggable:
+                # the twin and the app on the phone must carry one signature, checked on the copy just
+                # pulled, before anything is installed
+                require_same_signer(local, self.twin_apk, self.apksigner)
                 install_over(self.dev, self.twin_apk, "the debuggable twin (to read the app's data)")
             data = self.dev.run_bytes("exec-out", "run-as", PACKAGE, "tar", "-cf", "-", ".")
             self.tar = os.path.join(base, "data.tar")

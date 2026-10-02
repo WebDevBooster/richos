@@ -461,7 +461,8 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                           f"then `randroid device --serial {dev.serial} install`")
     keeper = android.StateKeeper(dev, root=getattr(args, "keep_dir", None) or os.environ.get("RICHOS_PERF_KEEP_DIR"),
                                  log=log, accept_loss=getattr(args, "accept_state_loss", None),
-                                 twin_apk=getattr(args, "seed_twin", None))
+                                 twin_apk=getattr(args, "seed_twin", None),
+                                 apksigner=getattr(args, "apksigner", None))
     try:
         record, failures = measure_android(args, dev, stamp, keeper, host, log)
     except BaseException as e:  # noqa: BLE001 — including an interrupt: the phone is given back whatever ended the run
@@ -858,6 +859,8 @@ def parse_args(argv):
                         "the twin over the app (data kept), write the fixture with run-as, `install -r` the stamped release APK "
                         "(the stamp's artifact) back. Never an uninstall: a different signature is refused and reported. The app's "
                         "build and data are saved first (read through the twin) and put back after the run")
+    a.add_argument("--apksigner", help="the Android SDK's apksigner: reads who signed the twin and the installed app, "
+                                       "which must be the same certificate before the twin is installed")
     a.add_argument("--accept-state-loss", metavar="WHO",
                    help="only when the app's saved state cannot be copied off the phone (a release build with no twin to read "
                         "it through): the run is refused unless that state is already empty or WHO agreed to lose it; WHO is recorded")

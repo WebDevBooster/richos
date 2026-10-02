@@ -280,8 +280,14 @@ def _():
                             "--serial", "PHONE1", "--kind", "physical", "--conversation", "as-installed"],
                            capture_output=True, text=True, env=env)
         assert p.returncode == 3 and "randroid device perf" in p.stderr and ph.calls == [], (p.returncode, p.stderr, ph.calls)
-        code, out = ph.randroid("device", "--serial", "PHONE1", "seed")
-        assert code == 1 and "debuggable twin" in out, (code, out)
+        # seed builds the release build's twin itself; without the upload key it cannot carry the
+        # release signature, so it refuses (exit 3) with the sentence before the phone is touched
+        from unittest.mock import patch
+        with patch.dict(os.environ):
+            for key in [k for k in os.environ if k.startswith("ORG_GRADLE_PROJECT_richos.upload.")]:
+                del os.environ[key]
+            code, out = ph.randroid("device", "--serial", "PHONE1", "seed")
+        assert code == 3 and "debuggable twin must carry the upload key" in out and ph.calls == [], (code, out, ph.calls)
 
 
 # -- one user per phone (CEO 2026-10-02) ---------------------------------------------------------
