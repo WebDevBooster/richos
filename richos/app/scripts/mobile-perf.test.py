@@ -1799,6 +1799,16 @@ def _():
         live["conditions"]["networkCondition"] = "live"
         out = run_perf(*base, "--build", "release", write(tmp, "live.json", live))
         assert out.returncode == 3 and "the Mac was reachable" in out.stderr, (out.returncode, out.stderr)
+        # a declaration kept in a richos-hq worktree is named as it will be in richos-hq, not by the worktree's path
+        wt = os.path.join(tmp, "richos-hq-wt", "someone")
+        os.makedirs(os.path.join(wt, "docs", "mobile-perf", "conditions"))
+        with open(os.path.join(wt, ".git"), "w") as f:
+            f.write(f"gitdir: {os.path.join(tmp, 'richos-hq', '.git', 'worktrees', 'someone')}\n")
+        inside = os.path.join(wt, "docs", "mobile-perf", "conditions", "d.json")
+        assert benchmark._display(inside) == os.path.join("richos-hq", "docs", "mobile-perf", "conditions", "d.json")
+        with open(os.path.join(wt, ".git"), "w") as f:
+            f.write(f"gitdir: {os.path.join(tmp, 'elsewhere', '.git', 'worktrees', 'someone')}\n")
+        assert benchmark._display(inside) == inside
 
 
 if __name__ == "__main__":

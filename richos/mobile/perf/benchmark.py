@@ -260,7 +260,28 @@ def _display(path):
     marker = os.sep + "richos-hq" + os.sep
     if marker in full:
         return "richos-hq" + os.sep + full.split(marker, 1)[1]
+    top = _worktree_of(full, "richos-hq")
+    if top:  # a richos-hq worktree: name the file as it will be in the repository
+        return "richos-hq" + os.sep + os.path.relpath(full, top)
     return path
+
+
+def _worktree_of(full, repo_name):
+    """The top of the git worktree holding `full` when that worktree belongs to a repository named
+    `repo_name` (its .git file points into <repo_name>/.git/worktrees/); else None."""
+    here = os.path.dirname(full)
+    while here and here != os.path.dirname(here):
+        dot_git = os.path.join(here, ".git")
+        if os.path.isfile(dot_git):
+            with open(dot_git) as f:
+                line = f.read().strip()
+            gitdir = line.split("gitdir:", 1)[1].strip() if line.startswith("gitdir:") else ""
+            main = gitdir.split(os.sep + ".git" + os.sep + "worktrees" + os.sep, 1)[0]
+            return here if os.path.basename(main) == repo_name else None
+        if os.path.isdir(dot_git):
+            return None
+        here = os.path.dirname(here)
+    return None
 
 
 def _sha256(path):
