@@ -499,8 +499,6 @@ def _():
 # empty and is not listed fails; a listed one that now shows something fails until its line is removed
 # here, so the list never outlives the defect.
 KNOWN_OPEN = {
-    "iphone": "the generated launch screen is one flat color; isaac-opus-white1 is fixing the iPhone's blank start "
-              "(2026-10-02): remove this line in the land that makes it show something",
     "android-pre31": "Android 10 and 11 (minSdk 29) show the flat launch ground with no logo before the first frame; "
                      "reported by quint-opus-blank1 on 2026-10-02 (Android 12+, where the CEO's phone is, shows the icon)",
 }
