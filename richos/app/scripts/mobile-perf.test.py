@@ -2092,6 +2092,8 @@ class FakePhone:
             self.env = kw.get("env") or {}
             steps = json.load(open(cmd[3]))
             assert "--prebuilt" in cmd and arg("--stamp"), cmd  # the stamped app's own runner: nothing new installed
+            # room for native-work's CPU admission (up to 1800 s), which the device runner's limit counts
+            assert arg("--allowance") == "1800", cmd
             out = arg("--out")
             os.makedirs(out, exist_ok=True)
             label = steps[1]["label"]

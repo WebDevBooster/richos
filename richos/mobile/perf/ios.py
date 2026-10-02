@@ -923,7 +923,12 @@ PHONE_IOS = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file_
                                          "qa", "phone-ios.py"))
 RUNNER_APP = "RichOSNativeUITests-Runner.app"
 STOP_TRIES = 10
-SCREEN_ALLOWANCE_S = 120
+# The UI-test session starts xcodebuild through the engine's native-work.py, which holds it until the
+# Mac's CPU is under the admission line (up to 1800 s), and the device runner's limit (allowance + 60 s)
+# counts that wait. With 120 s, the check after the first 100+100 series (2026-10-02) was stopped
+# before xcodebuild began: the Mac was 93-95% busy. The three steps take seconds; the allowance is
+# the room to be admitted, phone-ios.py's maximum.
+SCREEN_ALLOWANCE_S = 1800
 # devicectl's error when the source of `copy from` does not exist (measured on the iPhone, 2026-10-02).
 NO_FILE_NODE = "Failed to retrieve the file node"
 
@@ -1068,7 +1073,7 @@ def device_screen_check(hw, team, stamp_path, marker, out_dir, runner=subprocess
     try:
         p = runner([sys.executable, PHONE_IOS, "run", steps, "--out", os.path.join(out_dir, "run"), "--prebuilt",
                     "--stamp", stamp_path, "--allowance", str(SCREEN_ALLOWANCE_S)],
-                   capture_output=True, text=True, env=env, timeout=SCREEN_ALLOWANCE_S + 900)
+                   capture_output=True, text=True, env=env, timeout=SCREEN_ALLOWANCE_S + 600)
     except (subprocess.TimeoutExpired, OSError) as e:
         result["why"] = f"the UI-test runner did not answer: {e}"
         return result

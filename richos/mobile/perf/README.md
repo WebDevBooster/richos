@@ -193,7 +193,10 @@ only worth keeping if two builds are measured the same way, so:
   - After the launches, `phone-ios.py run --prebuilt --stamp` runs the stamped build's own runner, so
     nothing new is installed: it brings the app to the front and waits for an element whose
     accessibility label holds the newest seeded CEO row. Its app-only screenshot is kept with the
-    evidence. iOS has no `devicectl` screenshot.
+    evidence. iOS has no `devicectl` screenshot. The session's xcodebuild is admitted by the engine's
+    `native-work.py` only below the Mac's CPU line, and the device runner's limit counts that wait, so
+    the check asks for the largest allowance (1800 s); a check that still cannot start leaves the
+    record unverified, never compared.
   - Then the phone's own directory is copied back and read back byte for byte
     (`conditions.savedStateRestored`), and the copy is deleted from the Mac; its manifest stays. Any
     failure, and SIGTERM or SIGHUP, restores first and reports after. If the restore itself fails,
@@ -319,7 +322,8 @@ This needs a Release build signed for the phone, installed and stamped. The app 
 saved state on the phone (any pairing will do; it is copied off and put back). The phone stays
 unlocked and awake on USB for the whole series, and no other agent uses it. Each trial records for
 `--trace-seconds` (10 s), then exports four tables (1.7–2.4 s each on this Mac), so each 100-trial
-class takes over half an hour. Run from the repository root:
+class takes over half an hour. The on-screen check then waits for the Mac's CPU admission (see
+below). Run from the repository root:
 
 ```sh
 UDID=<the iPhone's UDID from xcrun devicectl list devices>
