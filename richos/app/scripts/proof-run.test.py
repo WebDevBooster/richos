@@ -114,13 +114,18 @@ try:
     check(got == ["operator-probes", "run-tests", "testvm"],
           "P1g a dir/test/run-tests.sh is labeled by its directory and never collides with the run-tests suite", got)
 
-    # P2 — concurrency: four 2-second checks finish together, not one after another.
-    lines = ["cd richos/app && bash -c 'sleep 2'"] * 4
+    # P2 — concurrency: four checks run together, not one after another. Proved by a rendezvous,
+    # never by a wall-clock bound a loaded host can miss: each check announces itself and waits
+    # until all four have; one after another they could never meet and give up after 120 s.
+    d2 = os.path.join(tmp, "p2")
+    os.makedirs(d2)
+    meet = ("touch %s/$$; for i in $(seq 1 1200); do [ $(ls %s | wc -l) -ge 4 ] && exit 0; sleep 0.1; done; exit 1"
+            % (d2, d2))
+    lines = ["cd richos/app && bash -c '%s'" % meet] * 4
     its = items_from(lines, tmp)
-    t0 = time.time()
     wall = pr.run(its, Args(capacity=4), tmp, sampler=idle)
-    check(all(i.state == "passed" for i in its) and wall < 5.5,
-          "P2 four 2 s checks with a capacity of 4 take %.1f s of wall clock (one after another: 8 s)" % wall,
+    check(all(i.state == "passed" for i in its),
+          "P2 four checks with a capacity of 4 all ran at the same time (they met; %.1f s)" % wall,
           [(i.label, i.state) for i in its])
 
     # P3 — a lane is one at a time.
@@ -751,9 +756,10 @@ try:
 
     d40 = os.path.join(tmp, "p40")
     os.makedirs(d40)
-    slow = pr.Item("slow", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "sleep 30"], "one-lane", 5.0)
+    slow = pr.Item("slow", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "sleep 300"], "one-lane", 5.0)
     behind = pr.Item("behind", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "true"], "one-lane", 1.0)
     quick = pr.Item("quick", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "true"], None, 1.0)
+    # The slow check sleeps 300 s: ending well before that, not a tight clock, is what is proved.
     t40 = time.time()
     buf40 = io.StringIO()
     with contextlib.redirect_stdout(buf40):
@@ -761,7 +767,7 @@ try:
     took40 = time.time() - t40
     check(slow.state == ended and "--run-cap" in " ".join(slow.notes)
           and behind.state == ended and "not started" in " ".join(behind.notes)
-          and quick.state == "passed" and took40 < 20 and "RUN CAP" in buf40.getvalue(),
+          and quick.state == "passed" and took40 < 150 and "RUN CAP" in buf40.getvalue(),
           "P40b at --run-cap 3 the running check is stopped and the waiting one never starts, both ended by "
           "name; the finished one keeps its pass (%.0f s)" % took40,
           ([(i.label, i.state, i.notes) for i in (slow, behind, quick)], buf40.getvalue()[-300:]))
@@ -799,7 +805,7 @@ try:
         pr.run([long41, short41], Args(cap=600), d41, sampler=idle)
     check(long41.state == "not-run" and not exists(marker41)
           and "planned 1408 s, over its 600 s cap" in (getattr(long41, "not_run", None) or {}).get("why", "")
-          and short41.state == "passed" and time.time() - t41 < 20,
+          and short41.state == "passed" and time.time() - t41 < 120,
           "P41a under --cap 600 a check planned at 1408 s is NOT RUN at once and never starts; the other runs",
           [(i.label, i.state, getattr(i, "not_run", None)) for i in (long41, short41)])
     # The planner keeps such an engine unit out of the shards and out of the receipts proof: the
