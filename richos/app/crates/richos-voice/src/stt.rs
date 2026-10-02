@@ -781,19 +781,15 @@ pub fn clean_transcript(raw: &str) -> String {
 
 /// Whisper's documented silence/noise hallucinations. This is a NARROW, evidence-based list,
 /// not a general stopword filter: "yes", "no", "yeah" and "okay" are real CEO decisions and
-/// must survive. Verified on this machine — 1.000 s of digital silence through `small.en`
-/// returns the single word "you".
+/// must survive. "you", "thank you" and "goodbye" are NOT here (hunt part 1, finding 37): the
+/// silence that makes `small.en` say "you" never reaches it, because the controller refuses
+/// audio with no measured voice before any transcript exists (`VoiceEvidence`), so a short
+/// phrase that arrives here was said by someone.
 const NOISE_TRANSCRIPTS: &[&str] = &[
-    "you",
-    "thank you",
-    "thanks",
-    "thank you very much",
     "thanks for watching",
     "thank you for watching",
     "please subscribe",
     "subscribe",
-    "bye",
-    "goodbye",
 ];
 
 /// Is this transcript worth sending to Rich as a turn?
@@ -918,14 +914,19 @@ mod tests {
         assert_eq!(clean_transcript(""), "");
     }
 
-    /// INVARIANT: the exact hallucination this machine produces from digital silence is
-    /// rejected. Measured, not guessed: 1.000 s of zeros through small.en returns "you".
+    /// INVARIANT: the video-outro hallucinations are rejected.
     #[test]
-    fn the_word_whisper_hallucinates_from_silence_is_rejected() {
-        assert!(!is_meaningful("\n you"), "the measured silence hallucination got through");
-        assert!(!is_meaningful("You."));
-        assert!(!is_meaningful("Thank you."));
+    fn the_video_outro_hallucinations_are_rejected() {
         assert!(!is_meaningful("Thanks for watching!"));
+        assert!(!is_meaningful("Please subscribe."));
+    }
+
+    /// Finding 37: a real thank-you or goodbye that passed the audio-evidence gate is a turn.
+    #[test]
+    fn a_real_thank_you_or_goodbye_is_a_turn() {
+        for said in ["Thank you.", "Thanks", "Goodbye", "Bye.", "You."] {
+            assert!(is_meaningful(said), "{said} was dropped as noise");
+        }
     }
 
     /// INVARIANT: non-speech annotations alone are not a turn.
