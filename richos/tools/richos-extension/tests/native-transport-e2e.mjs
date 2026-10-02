@@ -250,7 +250,7 @@ async function findRichosSw(cdp) {
     for (const t of targetInfos.filter((t) => t.type === 'service_worker' && t.url.startsWith('chrome-extension://'))) {
       const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: t.targetId, flatten: true });
       const name = await evaluate(cdp, sessionId, 'chrome.runtime.getManifest().name');
-      if (name === 'RichOS') return { swSession: sessionId, extensionId: new URL(t.url).host };
+      if (name === 'RichOS Helper') return { swSession: sessionId, extensionId: new URL(t.url).host };
       await cdp.send('Target.detachFromTarget', { sessionId });
     }
     return null;

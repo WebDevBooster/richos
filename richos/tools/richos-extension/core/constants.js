@@ -10,8 +10,8 @@
 
 /** Product identity. The brand the CEO installs; `loro` is the destination, not the tool. */
 export const PRODUCT = {
-  name: 'RichOS',
-  shortName: 'RichOS',
+  name: 'RichOS Helper',
+  shortName: 'RichOS Helper',
   /** Bump on every user-visible change (semver habit, same as the other extensions). */
   version: '1.0.0',
 };
@@ -96,7 +96,7 @@ export const CORE_SETTINGS_SCHEMA = {
       key: 'suppressDownloadUi',
       type: 'boolean',
       label: 'Hide Chrome download bubble',
-      help: 'Keeps session writes off-screen. Side effect: while RichOS holds this, ALL Chrome downloads are silent.',
+      help: 'Keeps session writes off-screen. Side effect: while RichOS Helper holds this, ALL Chrome downloads are silent.',
     },
     {
       key: 'notifyOnStartStop',

@@ -167,7 +167,7 @@ async function armTabImpl(tabId, trigger = 'auto') {
     await raiseAlert({
       code: 'second-call-tab',
       level: 'amber',
-      title: 'RichOS: a second call is not being captured',
+      title: 'RichOS Helper: a second call is not being captured',
       message: 'Another call tab is open while a session is already recording. Only one call is captured at a time.',
     });
     return { ok: false, error: 'a session is already active' };
@@ -204,11 +204,11 @@ async function armTabImpl(tabId, trigger = 'auto') {
     await raiseAlert({
       code: 'needs-invocation',
       level: 'red',
-      title: 'RichOS: click to start capturing this call',
+      title: 'RichOS Helper: click to start capturing this call',
       message:
-        'Chrome will not release this tab\'s audio until you invoke the extension for it. Click the RichOS icon (or press the shortcut) on the call tab now.',
+        'Chrome will not release this tab\'s audio until you invoke the extension for it. Click the RichOS Helper icon (or press the shortcut) on the call tab now.',
     });
-    await setHealth({ level: 'red', text: 'ARM', title: 'RichOS: call tab NOT being captured — click to arm' });
+    await setHealth({ level: 'red', text: 'ARM', title: 'RichOS Helper: call tab NOT being captured — click to arm' });
   }
   return { ok: false, error: minted.error, needsInvocation: minted.needsInvocation };
 }
@@ -289,7 +289,7 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
     await raiseAlert({
       code: 'recorder-start-failed',
       level: 'red',
-      title: 'RichOS: capture did NOT start',
+      title: 'RichOS Helper: capture did NOT start',
       message: `This call is not being recorded: ${started?.error || 'the recorder could not start'}`,
       sessionId: record.sessionId,
       force: true,
@@ -310,7 +310,7 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
     await raiseAlert({
       code: 'partial-start',
       level: 'red',
-      title: 'RichOS: only part of this call is being captured',
+      title: 'RichOS Helper: only part of this call is being captured',
       message: (started.problems || []).join(' | ') || 'one audio channel could not be acquired',
       sessionId: record.sessionId,
       force: true,
@@ -327,9 +327,9 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
   startWatchdog();
 
   if (record.mode === 'full') {
-    await setHealth({ level: 'green', text: badgeTextFor('green'), title: `RichOS: recording ${platform.label}` });
+    await setHealth({ level: 'green', text: badgeTextFor('green'), title: `RichOS Helper: recording ${platform.label}` });
     await notifyRoutine({
-      title: 'RichOS: capture started',
+      title: 'RichOS Helper: capture started',
       message: `${platform.label} — saving to ${await dropRoot()}/${record.dir}`,
     });
   } else {
@@ -368,7 +368,7 @@ async function upgradeToFullAudio(tabId, trigger) {
       await raiseAlert({
         code: 'recorder-start-failed',
         level: 'red',
-        title: 'RichOS: audio capture did NOT start',
+        title: 'RichOS Helper: audio capture did NOT start',
         message: `Captions are still being collected, but audio could not start: ${started?.error || 'unknown'}`,
         sessionId: active.record.sessionId,
         force: true,
@@ -383,7 +383,7 @@ async function upgradeToFullAudio(tabId, trigger) {
       await raiseAlert({
         code: 'tab-arm-failed',
         level: 'red',
-        title: 'RichOS: could not add tab audio',
+        title: 'RichOS Helper: could not add tab audio',
         message: `Your microphone and captions are still being captured. Tab audio failed: ${result?.error || 'unknown'}`,
         sessionId: active.record.sessionId,
       });
@@ -398,7 +398,7 @@ async function upgradeToFullAudio(tabId, trigger) {
   active.state.tabEnabled = true;
   active.record.mode = 'full';
   active.attempts = {};
-  await setHealth({ level: 'green', text: badgeTextFor('green'), title: `RichOS: recording ${active.record.platform.label} (full)` });
+  await setHealth({ level: 'green', text: badgeTextFor('green'), title: `RichOS Helper: recording ${active.record.platform.label} (full)` });
   await persistActive();
   return { ok: true, sessionId: active.record.sessionId, mode: 'full', upgraded: true };
 }
@@ -415,14 +415,14 @@ async function raiseTabAudioArmAlert(platform) {
   await setHealth({
     level: 'red',
     text: 'ARM',
-    title: `RichOS: ${platform.label} — recording mic + captions, click to add tab audio`,
+    title: `RichOS Helper: ${platform.label} — recording mic + captions, click to add tab audio`,
   });
   await raiseAlert({
     code: 'needs-invocation',
     level: 'red',
-    title: 'RichOS: click to capture the full call',
+    title: 'RichOS Helper: click to capture the full call',
     message:
-      'Your microphone and the live captions are being captured now. Click the RichOS icon on the call tab (or press Alt+Shift+L) to add the other side\'s tab audio — the ground-truth recording.',
+      'Your microphone and the live captions are being captured now. Click the RichOS Helper icon on the call tab (or press Alt+Shift+L) to add the other side\'s tab audio — the ground-truth recording.',
   });
 }
 
@@ -457,17 +457,17 @@ async function announceCaptionsOnlyHealth(now = Date.now()) {
     text: 'ARM',
     title:
       captionsHealth.level === 'amber'
-        ? `RichOS: ${active.record.platform.label} — captions-only (degraded), ${active.captions.count} captions so far, click to add audio`
-        : `RichOS: ${active.record.platform.label} — captions only, NO audio, click to record audio`,
+        ? `RichOS Helper: ${active.record.platform.label} — captions-only (degraded), ${active.captions.count} captions so far, click to add audio`
+        : `RichOS Helper: ${active.record.platform.label} — captions only, NO audio, click to record audio`,
   });
   await raiseAlert({
     code: captionsHealth.level === 'red' ? 'needs-invocation' : 'captions-only-degraded',
     level: captionsHealth.level,
     title:
       captionsHealth.level === 'red'
-        ? 'RichOS: click to capture the full call'
-        : 'RichOS: captions-only — click to add audio (ground truth)',
-    message: `${detail}. Click the RichOS icon on the call tab, or press Alt+Shift+L.`,
+        ? 'RichOS Helper: click to capture the full call'
+        : 'RichOS Helper: captions-only — click to add audio (ground truth)',
+    message: `${detail}. Click the RichOS Helper icon on the call tab, or press Alt+Shift+L.`,
     sessionId: active.record.sessionId,
   });
 }
@@ -626,8 +626,8 @@ async function demoteToBrowser(reason) {
   await raiseAlert({
     code: 'native-transport-degraded',
     level: 'amber',
-    title: 'RichOS: keeping this recording in the browser',
-    message: `The local service became unreachable (${reason}). Capture continues in durable browser storage. Export from RichOS after the call.`,
+    title: 'RichOS Helper: keeping this recording in the browser',
+    message: `The local service became unreachable (${reason}). Capture continues in durable browser storage. Export from RichOS Helper after the call.`,
     sessionId: active.record.sessionId,
   });
 }
@@ -735,13 +735,13 @@ async function runTick() {
     await setHealth({
       level: 'red',
       text: 'ARM',
-      title: `RichOS: recording mic + captions (${active.captions.count} captions) — click to add tab audio`,
+      title: `RichOS Helper: recording mic + captions (${active.captions.count} captions) — click to add tab audio`,
     });
     await raiseAlert({
       code: 'needs-invocation',
       level: 'red',
-      title: 'RichOS: click to add tab audio (ground truth)',
-      message: 'Your microphone and the live captions are being captured. Click the RichOS icon on the call tab (or press Alt+Shift+L) to add the other side\'s tab audio.',
+      title: 'RichOS Helper: click to add tab audio (ground truth)',
+      message: 'Your microphone and the live captions are being captured. Click the RichOS Helper icon on the call tab (or press Alt+Shift+L) to add the other side\'s tab audio.',
       sessionId: active.record.sessionId,
     });
   } else {
@@ -757,8 +757,8 @@ async function runTick() {
       const fired = await raiseAlert({
         code: reason.code,
         level: 'red',
-        title: 'RichOS: call capture problem',
-        message: `${reason.detail}. Recovery is running; check the RichOS icon.`,
+        title: 'RichOS Helper: call capture problem',
+        message: `${reason.detail}. Recovery is running; check the RichOS Helper icon.`,
         sessionId: active.record.sessionId,
       });
       if (fired) active.record.alerts.push({ t: now, code: reason.code, detail: reason.detail });
@@ -793,10 +793,10 @@ async function runTick() {
  * @returns {string}
  */
 function healthTitle(evaluation) {
-  if (!active) return 'RichOS';
+  if (!active) return PRODUCT.name;
   const mb = (active.state.bytesTotal / 1048576).toFixed(1);
   const mins = Math.round((Date.now() - active.record.startedAt) / 60000);
-  const head = `RichOS: recording ${mins}m · ${mb} MB · ${active.state.chunkCount} chunks`;
+  const head = `RichOS Helper: recording ${mins}m · ${mb} MB · ${active.state.chunkCount} chunks`;
   if (evaluation.level === 'green') return `${head} · healthy`;
   return `${head}\n${evaluation.reasons.map((r) => `${r.level.toUpperCase()}: ${r.detail}`).join('\n')}`;
 }
@@ -839,8 +839,8 @@ async function runRecovery(action, now) {
         active.state.awaitingTabAudio = true;
         active.record.mode = 'mic+captions';
         await raiseAlert({
-          code: 'tab-failover', level: 'red', title: 'RichOS: recording your microphone only',
-          message: 'Click the RichOS icon on the call tab or press Alt+Shift+L to restore the other side’s audio.',
+          code: 'tab-failover', level: 'red', title: 'RichOS Helper: recording your microphone only',
+          message: 'Click the RichOS Helper icon on the call tab or press Alt+Shift+L to restore the other side’s audio.',
           sessionId: active.record.sessionId,
         });
         await persistActive();
@@ -854,7 +854,7 @@ async function runRecovery(action, now) {
         await raiseAlert({
           code: 'mic-lost',
           level: 'red',
-          title: 'RichOS: your microphone is not being recorded',
+          title: 'RichOS Helper: your microphone is not being recorded',
           message: `The microphone could not be re-acquired (${result?.error || 'unknown'}). The other side is still being captured.`,
           sessionId: active.record.sessionId,
         });
@@ -887,7 +887,7 @@ async function recreateOffscreenAndRestart() {
     await raiseAlert({
       code: 'recorder-unrecoverable',
       level: 'red',
-      title: 'RichOS: recording has STOPPED',
+      title: 'RichOS Helper: recording has STOPPED',
       message: `The recorder could not be restarted (${started?.error || 'unknown'}). Everything captured so far is safe on disk.`,
       sessionId: active.record.sessionId,
       force: true,
@@ -908,7 +908,7 @@ async function watchUnarmedCallTabs() {
   const callTabs = tabs.filter((t) => !endedCall(t) && isCallTab({ url: t.url, audible: t.audible }));
   if (!callTabs.length) {
     unarmedSince = null;
-    if (!active) await setHealth({ level: 'idle', text: '', title: 'RichOS: idle' });
+    if (!active) await setHealth({ level: 'idle', text: '', title: 'RichOS Helper: idle' });
     return;
   }
   if (active) return;
@@ -916,12 +916,12 @@ async function watchUnarmedCallTabs() {
   if (unarmedSince == null) unarmedSince = now;
   if (now - unarmedSince < THRESHOLDS.unarmedAlarmMs) return;
 
-  await setHealth({ level: 'red', text: 'ARM', title: 'RichOS: a call is open and NOT being captured' });
+  await setHealth({ level: 'red', text: 'ARM', title: 'RichOS Helper: a call is open and NOT being captured' });
   await raiseAlert({
     code: 'call-not-captured',
     level: 'red',
-    title: 'RichOS: this call is NOT being recorded',
-    message: 'A call tab is open with no capture running. Click the RichOS icon on that tab (or press the shortcut) to start.',
+    title: 'RichOS Helper: this call is NOT being recorded',
+    message: 'A call tab is open with no capture running. Click the RichOS Helper icon on that tab (or press the shortcut) to start.',
   });
 }
 
@@ -1009,14 +1009,14 @@ export async function finalize(reason) {
     await raiseAlert({
       code: 'finalise-failed',
       level: 'red',
-      title: 'RichOS: saving this call did not complete',
+      title: 'RichOS Helper: saving this call did not complete',
       message: `${record.sessionId}: ${detail.split('\n')[0]}. The audio is still in the browser and will be recovered on restart.`,
       sessionId: record.sessionId,
       force: true,
     });
     await chrome.storage.local.remove(KEYS.activeSession);
     active = null;
-    await setHealth({ level: 'red', text: '!', title: 'RichOS: last session did not save cleanly' });
+    await setHealth({ level: 'red', text: '!', title: 'RichOS Helper: last session did not save cleanly' });
     return { ok: false, error: detail };
   }
 }
@@ -1103,14 +1103,14 @@ async function runFinalizeNative(record, reason) {
   }
 
   await indexSession(record, verdict);
-  if (!verdict.ok) await raiseAlert({ code: 'session-suspect', level: 'red', title: 'RichOS: this call needs attention', message: verdict.problems.join('; '), sessionId: record.sessionId });
+  if (!verdict.ok) await raiseAlert({ code: 'session-suspect', level: 'red', title: 'RichOS Helper: this call needs attention', message: verdict.problems.join('; '), sessionId: record.sessionId });
   await notifyRoutine({
-    title: 'RichOS: capture streamed to the local service',
+    title: 'RichOS Helper: capture streamed to the local service',
     message: `${(audio.bytesTotal / 1048576).toFixed(1)} MB · ${audio.chunkCount} chunks · native-messaging → loro`,
   });
   await chrome.storage.local.remove(KEYS.activeSession);
   active = null;
-  await setHealth({ level: verdict.ok ? 'idle' : 'red', text: verdict.ok ? '' : '!', title: verdict.ok ? 'RichOS: idle' : 'RichOS: last session needs attention' });
+  await setHealth({ level: verdict.ok ? 'idle' : 'red', text: verdict.ok ? '' : '!', title: verdict.ok ? 'RichOS Helper: idle' : 'RichOS Helper: last session needs attention' });
   if (!(await anyActiveWork())) await closeOffscreen();
   return { ok: true, sessionId: record.sessionId, transport: 'native', verdict };
 }
@@ -1135,12 +1135,12 @@ async function runFinalizeBrowser(record, reason) {
   record.verification = verdict;
   await writeSessionFile(record);
   await indexSession(record, verdict);
-  if (!verdict.ok) await raiseAlert({ code: 'session-suspect', level: 'red', title: 'RichOS: this call needs attention',
+  if (!verdict.ok) await raiseAlert({ code: 'session-suspect', level: 'red', title: 'RichOS Helper: this call needs attention',
     message: verdict.problems.join('; '), sessionId: record.sessionId });
   await chrome.storage.local.remove(KEYS.activeSession);
   active = null;
   await setHealth({ level: verdict.ok ? 'idle' : 'red', text: verdict.ok ? '' : '!',
-    title: verdict.ok ? 'RichOS: recording retained; export from the popup' : 'RichOS: last session needs attention' });
+    title: verdict.ok ? 'RichOS Helper: recording retained; export from the popup' : 'RichOS Helper: last session needs attention' });
   await closeOffscreen();
   return { ok: true, sessionId: record.sessionId, transport: 'browser', exportPending: true, verdict };
 }
@@ -1218,7 +1218,7 @@ async function writeSessionFile(record) {
     await put(DB.stores.sessions, structuredClone(record));
     return { ok: true };
   } catch (err) {
-    await raiseAlert({ code: 'session-checkpoint-failed', level: 'red', title: 'RichOS: cannot preserve this session',
+    await raiseAlert({ code: 'session-checkpoint-failed', level: 'red', title: 'RichOS Helper: cannot preserve this session',
       message: String(err?.message || err), sessionId: record.sessionId });
     throw err;
   }
@@ -1291,7 +1291,7 @@ export async function recoverAfterRestart() {
       };
       active.record.notes.push('service worker restarted mid-session; recorder was still alive');
       startWatchdog();
-      await setHealth({ level: 'amber', text: badgeTextFor('amber'), title: 'RichOS: reattached to a running session' });
+      await setHealth({ level: 'amber', text: badgeTextFor('amber'), title: 'RichOS Helper: reattached to a running session' });
     } else {
       active = {
         record: saved.record,
@@ -1310,7 +1310,7 @@ export async function recoverAfterRestart() {
       await raiseAlert({
         code: 'session-interrupted',
         level: 'red',
-        title: 'RichOS: a recording was interrupted',
+        title: 'RichOS Helper: a recording was interrupted',
         message: `Recovering ${saved.record.sessionId} from disk. Everything written before the interruption is safe.`,
         sessionId: saved.record.sessionId,
         force: true,
@@ -1381,8 +1381,8 @@ async function recoverOrphans() {
     await raiseAlert({
       code: 'orphan-recovered',
       level: 'amber',
-      title: 'RichOS: recovered orphaned audio',
-      message: `${sessionId}: ${(record.audio.bytesTotal / 1048576).toFixed(1)} MB retained in the browser; export from the RichOS popup.`,
+      title: 'RichOS Helper: recovered orphaned audio',
+      message: `${sessionId}: ${(record.audio.bytesTotal / 1048576).toFixed(1)} MB retained in the browser; export from the RichOS Helper popup.`,
       sessionId,
       force: true,
     });
@@ -1440,7 +1440,7 @@ async function recoverCaptionOnlyOrphans(handled) {
     await raiseAlert({
       code: 'captions-only-recovered',
       level: 'red',
-      title: 'RichOS: a call was captured as captions only — NO audio',
+      title: 'RichOS Helper: a call was captured as captions only — NO audio',
       message: `${sessionId}: ${count} captions but no audio. The call was not fully captured; investigate.`,
       sessionId,
       force: true,
@@ -1483,7 +1483,7 @@ async function onMessage(msg, sender) {
       await raiseAlert({
         code: 'chunk-write-failed',
         level: 'red',
-        title: 'RichOS: audio is not reaching disk',
+        title: 'RichOS Helper: audio is not reaching disk',
         message: msg.error || 'a chunk could not be written to browser storage',
         sessionId: msg.sessionId,
       });
@@ -1492,7 +1492,7 @@ async function onMessage(msg, sender) {
       await raiseAlert({
         code: 'recorder-error',
         level: 'red',
-        title: 'RichOS: the recorder reported an error',
+        title: 'RichOS Helper: the recorder reported an error',
         message: msg.error || 'unknown recorder error',
         sessionId: msg.sessionId,
       });

@@ -6,7 +6,7 @@ Browser storage is local to the Chrome profile. Do not remove the extension, cle
 
 Recorder lifecycle requests are serialized. A rotation waits for its final chunk transaction, assigns each event to an immutable part/sequence and preserves working streams if replacement acquisition fails. Failure notifications share one surface and notify once per unresolved condition, including across worker restarts. The badge and incident log remain active.
 
-# RichOS — the capture extension
+# RichOS Helper
 
 One Chrome extension, several modules. The first module is **call capture**: it records both
 sides of your calls to local disk and checks, second by second, that the audio is really being
@@ -26,7 +26,7 @@ is no OS-specific code anywhere in it.
 
 The invariant underneath it: **never lose the audio.** Audio is ground truth. If the raw audio
 exists, no transcription problem is ever fatal — the worst case is running the transcriber
-again on a file you already have. That is why RichOS captures audio first and treats platform
+again on a file you already have. That is why RichOS Helper captures audio first and treats platform
 captions as a strictly secondary layer, not a foundation.
 
 **Three independent capture channels, so a detected call is never fully uncaptured:**

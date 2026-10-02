@@ -19,7 +19,7 @@ file for what was actually built and why it differs.
 
 ## Why one unified extension
 
-The CEO installs **RichOS**, not a collection of tools. Call capture is module 1; the existing
+The CEO installs **RichOS Helper**, not a collection of tools. Call capture is module 1; the existing
 GPT Exporter (`richos/engine/tools/gpt-exporter/`) becomes module 2 — both are loro capture channels.
 The split is enforced structurally:
 

@@ -823,9 +823,16 @@ test('health + caption stream builders produce the shapes the host appends to *.
   assert.equal(caption.line.text, 'hello');
 });
 
-test('the extension declares nativeMessaging and all product versions agree', () => {
+test('RichOS Helper identity and product versions agree across the extension', () => {
   const manifestPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'manifest.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  assert.equal(PRODUCT.name, 'RichOS Helper');
+  assert.equal(manifest.name, PRODUCT.name);
+  assert.equal(manifest.action.default_title, PRODUCT.name);
+  for (const page of ['popup/popup.html', 'options/options.html', 'core/offscreen.html']) {
+    const html = readFileSync(join(dirname(manifestPath), page), 'utf8');
+    assert.ok(html.includes(`<title>${PRODUCT.name}`), `${page} uses the product name`);
+  }
   assert.ok(manifest.permissions.includes('nativeMessaging'), 'nativeMessaging permission is required for chrome.runtime.connectNative');
   assert.equal(manifest.version, PRODUCT.version, 'manifest.json version must match PRODUCT.version (bumped for the transport cutover)');
   const packagePath = join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json');

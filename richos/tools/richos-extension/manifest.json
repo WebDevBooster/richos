@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "RichOS",
+  "name": "RichOS Helper",
   "version": "1.0.0",
-  "description": "RichOS capture. Records call audio locally, health-checks it second by second, and alarms you during the call if anything stops.",
+  "description": "RichOS Helper. Records call audio locally, health-checks it second by second, and alarms you during the call if anything stops.",
   "minimum_chrome_version": "116",
   "permissions": [
     "tabCapture",
@@ -64,7 +64,7 @@
   },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "RichOS",
+    "default_title": "RichOS Helper",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -80,7 +80,7 @@
       "suggested_key": {
         "default": "Alt+Shift+L"
       },
-      "description": "Arm RichOS capture on the current tab"
+      "description": "Arm RichOS Helper capture on the current tab"
     }
   },
   "icons": {
