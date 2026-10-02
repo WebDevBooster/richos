@@ -1,9 +1,12 @@
 # Module seam: `chatgpt-export` (not implemented yet)
 
+The [integration plan](INTEGRATION.md) records the inspected GPT Exporter 2.2.0
+baseline, the proposed RichOS Helper workflow and the coexistence/recovery gates.
+
 This directory is an intentional empty seam. The existing standalone **GPT Exporter**
 extension (`richos/engine/tools/gpt-exporter/`) folds in here as a second RichOS module in a later
 pass — both it and call capture are loro capture channels, so the CEO should install **one**
-RichOS extension, not two tools.
+RichOS Helper extension, not two tools.
 
 **Do not port it as part of the call-capture work.** That is a separate task.
 
