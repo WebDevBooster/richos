@@ -14531,7 +14531,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/lib/native-work.py",
-          "sha256": "4c47080a3f1f988d785b3010b03eda455babd8db9416e4393625b1993cc69820",
+          "sha256": "8607d0707e59c450365b9dbe9ba73778ecfd8790809a8be010eaebdd5880eb47",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14574,7 +14574,7 @@
     },
     "scripts/lib/native-work.py#cpu-fixtures": {
       "source": "scripts/lib/native-work.py",
-      "sha256": "4c47080a3f1f988d785b3010b03eda455babd8db9416e4393625b1993cc69820",
+      "sha256": "8607d0707e59c450365b9dbe9ba73778ecfd8790809a8be010eaebdd5880eb47",
       "keys": [],
       "edges": [
         {
@@ -14584,7 +14584,7 @@
           "to": "scripts/lib/cpu_guard.py"
         }
       ],
-      "evidence": "Source-bound CPU fixture uses capped/needs_compiler_lane/wait_for_headroom with a fake provider. run either refuses immediately or executes with sys.platform=linux and run_command patched. Real native build and Darwin reserve admission do not execute."
+      "evidence": "Source-bound CPU fixture uses capped/needs_compiler_lane/wait_for_headroom with a fake provider. run either refuses immediately or executes with sys.platform=linux and run_command patched. Real native build and Darwin reserve admission do not execute. announce_admission writes the optional RICHOS_NATIVE_ADMITTED_FILE (a caller-named marker file, unset in these fixtures) and one stderr line; it reads no other file."
     },
     "scripts/lib/testdevices.py#cpu-fixtures": {
       "source": "scripts/lib/testdevices.py",

@@ -73,7 +73,23 @@ def needs_compiler_lane(command):
                 and not builds.intersection(command[1:]))
 
 
+def announce_admission(started):
+    """Tell the caller the command was ADMITTED, so a caller's time limit can start now and
+    never count the wait for a worker, the compiler lane or CPU headroom. A caller that sets
+    RICHOS_NATIVE_ADMITTED_FILE gets that file (atomically) holding the seconds waited; every
+    caller sees the same fact on stderr."""
+    waited = round(time.monotonic() - started, 1)
+    print('native-work: admitted after %s s' % waited, file=sys.stderr, flush=True)
+    target = os.environ.get('RICHOS_NATIVE_ADMITTED_FILE')
+    if target:
+        temporary = target + '.tmp'
+        with open(temporary, 'w') as handle:
+            handle.write(str(waited))
+        os.replace(temporary, target)
+
+
 def run(command):
+    started = time.monotonic()
     cpu_guard.require_managed_ancestor()
     if sys.platform == 'darwin' and not cpu_guard.healthy():
         raise RuntimeError('CPU watchdog is not healthy; native work refused. Run cpu_guard.py status.')
@@ -106,6 +122,7 @@ def run(command):
         env = {**os.environ, 'RICHOS_MACHINE_WORKERS': directory,
                'JAVA_TOOL_OPTIONS': (os.environ.get('JAVA_TOOL_OPTIONS', '') + ' -XX:ActiveProcessorCount=1').strip(),
                'CARGO_BUILD_JOBS': '1', 'SWIFTPM_MAX_CONCURRENT_OPERATIONS': '1'}
+        announce_admission(started)
         cpu_guard.register(os.getpid(), 'native build: ' + os.path.basename(command[0]), 'workload')
         return worker_tokens.run_command(command, token, env)
     finally:
