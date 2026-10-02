@@ -17,6 +17,10 @@ export function installWindowsHost({ extensionId, nodePath = process.execPath, h
     if (!path.isAbsolute(value) || /[\r\n"%!]/.test(value)) throw new Error('Paths must be absolute and cannot contain quotes, percent signs, exclamation marks or newlines');
   }
   if (!fs.statSync(nodePath).isFile() || !fs.statSync(hostPath).isFile()) throw new Error('Node executable or native host entrypoint missing');
+  // Fail before registration if an incomplete source package cannot even start the host.
+  execFileSync(nodePath, [hostPath], { input: Buffer.alloc(0), timeout: 10000,
+    env: { ...process.env, ...(dropZone ? { RICHOS_DROP_ZONE: dropZone } : {}) },
+    stdio: ['pipe', 'pipe', 'pipe'] });
   fs.mkdirSync(installDir, { recursive: true });
   if (dropZone) fs.mkdirSync(dropZone, { recursive: true });
   const launcher = path.join(installDir, 'richos-host.cmd');

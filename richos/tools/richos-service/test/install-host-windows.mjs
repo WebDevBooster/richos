@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { installWindowsHost, uninstallWindowsHost, REGISTRY_KEY } from '../host/install-host-windows.mjs';
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-windows-host-'));
+const scratch = fs.mkdtempSync(path.join(process.env.RICHOS_TEST_SCRATCH_ROOT || os.tmpdir(), 'richos-windows-host-'));
 try {
   const calls = [];
   const opts = { extensionId: 'abcdefghijklmnopabcdefghijklmnop', nodePath: process.execPath,
@@ -21,6 +21,10 @@ try {
   assert.throws(() => installWindowsHost({ ...opts, platform: 'darwin' }));
   assert.throws(() => installWindowsHost({ ...opts, dropZone: path.join(scratch, '%unsafe%') }));
   assert.throws(() => installWindowsHost({ ...opts, hostPath: path.join(scratch, 'missing') }));
+  const brokenHost = path.join(scratch, 'broken-host.mjs');
+  fs.writeFileSync(brokenHost, "import './missing-runtime-file.mjs';\n");
+  assert.throws(() => installWindowsHost({ ...opts, hostPath: brokenHost }), 'an incomplete host must not be registered');
+  assert.equal(calls.length, 1);
   uninstallWindowsHost({ platform: 'win32', registry: args => calls.push(args) });
   assert.deepEqual(calls[1], ['delete', REGISTRY_KEY, '/f']);
   console.log('PASS Windows host files, quoting, exact extension origin, registry arguments and uninstall');
