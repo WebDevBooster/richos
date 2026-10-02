@@ -84,6 +84,15 @@ a reviewed contract in proof-inputs.json is keyed by the inputs it declares; eve
 is keyed by the whole checkout's content (WHOLE_CHECKOUT there), so a refused land tried again,
 or the push after it, never re-runs a check that already passed on that exact content.
 
+Two gaps kept that promise from the merge gate until 2026-10-02 (the land of
+cc/zach-opus-e2fix1, 214 checks, refused four times with no check failing; every retry re-ran
+what had passed). Engine units without a reviewed contract (91 of the 214) were `fresh`, never
+reused, and now take the whole-checkout identity like every other unqualified check; the
+coverage proof still re-reads each one (proof_evidence.verify_target_receipts). And a check's
+identity carried --admission-wait, --slot-wait and --engine-slot-wait, so the gate's retry
+(900 s) matched nothing its first run (893 s, what was left of the gate) had passed: those
+bound how long a check may wait to START, never what it runs, and are no longer part of it.
+
 WHY THIS EXISTS (2026-09-23). Verification exposed unbounded nested workers, descendants
 surviving timeouts and failures that were discovered only after long waits. This runner
 owns scheduling, admission, logs and cancellation so callers do not reconstruct that protocol.
@@ -612,18 +621,29 @@ def input_identity(item, args, logdir, snapshot=None):
     environment = execution_environment(item)
     result = proof_evidence.recipe_identity(ROOT, proof_evidence.contract_for(ROOT, item.label),
                                             environment, snapshot)
-    if result.get("fresh") and not item.engine_unit and item.label != "engine receipts" and item.argv:
+    if result.get("fresh") and item.label not in proof_evidence.VERIFIES_OWN_INPUTS and item.argv:
         # No reviewed contract: keyed by the whole checkout's content, so a retry of the same
         # tree (--resume, a refused land tried again, the push after it) keeps what passed
-        # (proof_evidence.WHOLE_CHECKOUT). Engine units keep their own receipts and stay fresh.
+        # (proof_evidence.WHOLE_CHECKOUT). Engine units too (2026-10-02): they were `fresh`, so
+        # a gate round that ran out of time lost every unit it had passed. A reused unit's
+        # receipt is copied with its provenance and the coverage proof re-reads it. Only
+        # `engine receipts`, the coverage proof itself, always runs.
         try:
             result = proof_evidence.checkout_identity(ROOT, item.argv, environment, snapshot)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             result = {"fresh": "%s; whole-checkout identity unavailable: %s" % (result["fresh"], exc)}
     result["command"] = proof_evidence.command_identity(item, ROOT, logdir)
-    result["settings"] = {key: getattr(args, key, None) for key in (
-        "capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast", "admission_wait", "slot_wait", "engine_slot_wait")}
+    result["settings"] = {key: getattr(args, key, None) for key in IDENTITY_SETTINGS}
     return result
+
+
+# The runner settings that are part of a check's identity: those that change how it runs (its
+# worker budget, its engine shards, the CPU line it ran under, its deadline). Not the bounds on
+# how long it may WAIT to start (--admission-wait, --slot-wait, --engine-slot-wait): a check
+# admitted after 10 s or after 800 s runs the same commands on the same inputs. Until
+# 2026-10-02 they were in it, and the merge gate's retry (900 s) reused nothing its first run
+# (893 s) had passed: 214 of 214 identities differed in `settings` alone.
+IDENTITY_SETTINGS = ("capacity", "engine_shards", "max_cpu", "budget", "deadline", "fail_fast")
 
 
 def describe_input_change(item, baseline, items, limit=5):

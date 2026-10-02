@@ -9,7 +9,7 @@ Git runs these itself. Nobody runs them by hand and nobody has to be told to (CE
 | `git commit` | every branch but `main`, in every worktree | `lint.sh --changed --strict`: the lint ratchets for what differs from `HEAD` (static and load rules; Clippy for a Rust set whose inputs changed), and no count may grow, whatever room a ceiling has | refuses the commit, with the lint's reason |
 | `git commit` | every branch but `main`, in every worktree | a branch-changed file that a reviewed check pins by SHA-256 in `docs/development/verification-input-qualifications.json` must have its pin renewed in the same change (the merge would refuse it with `UnqualifiedReader`); read only when a changed path is named there | refuses the commit, naming the file, the unit and the fix |
 | `git merge` into a branch | every branch but `main` | `lint.sh --changed` (ceilings; what main brings was held to its land) | refuses the merge |
-| `git merge` into `main`, a commit on `main` | the main checkout | the suites that own the changed files (`proof-for.sh --gate`), run by `proof-run.py`, plus `lint.sh --changed` when the land changes something under `richos/app` and that selection does not already include `lint.test.sh`; each check capped at 600 s, the gate at 900 s | a failing check refuses the merge before main moves; nothing else does |
+| `git merge` into `main`, a commit on `main` | the main checkout | the suites that own the changed files (`proof-for.sh --gate`), run by `proof-run.py`, plus `lint.sh --changed` when the land changes something under `richos/app` and that selection does not already include `lint.test.sh`; each check capped at 600 s, the gate run in rounds of at most 900 s that keep every pass (at most six) | a failing check refuses the merge before main moves; nothing else does |
 | `git push` of `main` | wherever main is pushed from | the same land checks (the lint as `--all`: HEAD is already the land), only when main's tip has no land receipt (a fast-forward, a cherry-pick, a `--no-verify` merge) | refuses the push |
 
 No formatter runs: the repository does not enforce one.
@@ -77,8 +77,54 @@ every job capped at 10 minutes. A merge into main runs exactly:
    cover or name its files. The merge of zach-opus-lander1 (three mega-lander files) ran
    make-engine-asset, gui-boot and proof-for for that reason; it no longer does.
 3. **Caps**: `proof-run.py --cap 600` stops every check, engine units included, at ten
-   minutes whatever a dated weight predicts, and `--run-cap` ends the run at what is left of
-   the gate's 900 s; admission and the proof-run slot wait no longer than that either.
+   minutes whatever a dated weight predicts, and `--run-cap` ends each round at 900 s (the
+   first at what is left of it after the selection); admission and the proof-run slot wait at
+   most 900 s in every round.
+4. **Rounds (since 2026-10-02)**: a round that ends with checks that have no verdict (timed
+   out at their cap, or ended at the round's cap) is followed by another that resumes it,
+   keeps every pass, and runs only those checks. See "A large land runs in rounds" below.
+
+## A large land runs in rounds (2026-10-02)
+
+The combined land of 13 finished fixes, `cc/zach-opus-e2fix1` (about 114 changed paths, 214
+checks), was refused four times without a failing check. Measured from those attempts
+(`merge-integ1`, `merge-e46`, `merge-e46b`, `merge-e2` and their state directories):
+
+- The checks that reached a verdict took 6608 s between them. The largest:
+  `native-android-app` 471 s, contract-integrity section `Q` 261 s, `proof-run` 260 s, section
+  `P` 198 s, `verification-inputs` 192 s, section `MT` 181 s, `native-android-ui` 180 s, `lint`
+  171 s, section `manifest` 170 s, `quota-watch` 151 s, `autocheck` 148 s. 36 never reached one.
+- Every run kept only about three checks going at once (2557-3291 s of check time in each
+  ~914 s run): a check starts only when total CPU is under CEO ruling §77's 80% line, and the
+  gate's own checks keep the Mac above it. Summed, checks waited 64,000-91,000 s for admission
+  in each run. So the plan needed about 2200 s even when the Mac was 78% idle at the start; no
+  run of 900 s could hold it.
+- Every retry re-ran what had passed. 214 of 214 identities differed from the run before only in
+  `settings`: the first run waited for admission what was left of the gate (893 s) and its retry
+  900 s, and both waits were part of each check's identity. And 91 engine units with no reviewed
+  input contract were `fresh`, which the runner never reuses.
+
+Now:
+
+1. **A pass survives the round, and the attempt.** A check's identity no longer holds how long
+   it may wait to start (`proof-run.py` IDENTITY_SETTINGS), every round passes the same waits,
+   and an engine unit with no contract is keyed by the checkout's content like every other
+   unqualified check (its receipt is copied with its provenance; `engine receipts` re-reads
+   the content and proves the union). A pass is reused only on the same content and inputs:
+   the merge result tree, the installs, tools and environment; a changed tree runs everything
+   whose inputs changed. The next `git merge` (or the `git commit` that concludes a refused one)
+   on the same tree resumes the last round, so it too runs only what has no verdict.
+2. **Rounds, not one scaled cap.** A cap derived from planned weights trusts dated data that is
+   wrong in both directions; a round boundary instead saves every verdict, and a round that
+   decides nothing ends the gate at once instead of spending a longer cap. Each round is at most
+   900 s and names only the checks with no verdict (`--only-check`).
+3. **It stops** when every check has a verdict (the land), when a check fails (refused, as
+   before), when a check times out at its own 600 s cap a second time ("NO VERDICT AFTER ONE
+   RETRY", a hang is still ended and reported), when a round decides nothing the round before it
+   had not, or after six rounds: **the total bound is 6 x 900 s = 5400 s**, about twice what
+   this land needed. The last two refuse with "NO VERDICT AFTER N ROUNDS: <check>". A land that
+   fits one round, as most do, behaves exactly as before.
+4. The land receipt records `rounds`.
 
 **Left to the nightly, by name**: suites that need a device this Mac has one of: the
 iPhone simulator (native-ios-app, native-ios-share, native-ios-ui, mobile-ios) or a screen,
@@ -125,7 +171,7 @@ here. `merge-check-scope.test.py` (NightlyConditions) proves it against the real
 anything starts ("planned N s, over its 600 s cap; not started, the nightly runs it"): it
 takes no token, lane or admission, and an engine unit leaves the receipts proof. The rest
 start cheapest first, so the short checks the change owns finish while the long ones would
-still be queued, and what the gate's 900 s cap can still cut is the longest work, last. The
+still be queued, and what a round's 900 s cap can still cut is the longest work, last. The
 planned weight is dated data (`lib/ci-unit-weights.tsv`, this checkout's measured history); a
 stale row is fixed by measuring the unit, as section SCR's 676.8 s was (4.8 s measured).
 
@@ -188,14 +234,16 @@ then a `host-gap`, `unchanged-inputs` or `suite-skipped` NOT RUN refused it, and
 the change, and the merge gate blocks only on failures (above); the nightly answers for it.
 
 **One exception (since 2026-10-01): an owning check that ends `timed-out` or `cancelled` is run
-once more, alone, and refuses the merge if it still has no verdict.** Merge `7af4c981e` landed
+again, and refuses the merge if it never reaches a verdict.** Merge `7af4c981e` landed
 although its owning suites `native-android-app` (timed out) and `native-android-ui` (ended at the
 gate's cap) had no verdict, with the Mac near 99% CPU; both passed when run alone afterward. So
 when such a unit appears, the gate resumes the saved plan (`proof-run.py --resume`, every pass
-kept, a fresh gate allowance, the verification-retries procedure) and decides on that second
-answer. A unit with no verdict again refuses the merge, naming it with "re-run it alone". The other
-no-verdict states (`not-admitted`, stopped by the controller, runner failed) stay NOT RUN, named
-as above; a merge that passes on the retry carries no NOT RUN for that unit.
+kept, a fresh round, the verification-retries procedure) and decides on that answer. Since
+2026-10-02 that is the next round ("A large land runs in rounds"): a unit that times out twice,
+or has no verdict when a round decides nothing new or the six rounds are spent, refuses the merge,
+naming it with "re-run it alone". The other no-verdict states (`not-admitted`, stopped by the
+controller, runner failed) stay NOT RUN, named as above; a merge that passes on a later round
+carries no NOT RUN for that unit.
 
 The original reasoning for the screen case, which still holds:
 
