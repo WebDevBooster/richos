@@ -19,6 +19,11 @@ node_modules/
 # receipt that lands in git turns every UI tweak into a binary diff.
 .shots/
 
+# Reference pictures a gate's self-test creates and removes inside this directory (they must be
+# inside it to count as references), one `<pid>` folder per run. Output, never an input:
+# `scripts/lib/proof_evidence.py` DECLARED_OUTPUT_DIRECTORIES leaves it out of every identity.
+.generated-references/
+
 # Vouch's own source, at the commit `.github/workflows/vouch-pr.yml` pins, fetched by
 # `vouch-template.js` and verified against the sha256 the evidence records.
 #

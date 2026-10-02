@@ -32,7 +32,9 @@ const { tinyPng } = require("./fixtures/tiny-png");
 // It sits inside the tests directory (so `publishShot` treats it as a reference) but is created
 // here and removed here; no committed reference or other suite's kept candidate is ever read,
 // overwritten or deleted by this gate.
-const FIXTURE_KEY = path.join("shots-gate-honesty-" + process.pid, "fixture-reference.png");
+// It sits under `.generated-references/`, a declared output directory (recheck R07 v2): a
+// directory of its own beside the committed pictures was an input another proof could bind.
+const FIXTURE_KEY = path.join(".generated-references", "gate-honesty-" + process.pid, "fixture-reference.png");
 const REFERENCE = path.join(__dirname, FIXTURE_KEY);
 const KEPT = path.join(__dirname, ".shots", "changed", FIXTURE_KEY);
 const REFERENCE_BYTES = tinyPng(24); // differs from the picture the `changed` child publishes

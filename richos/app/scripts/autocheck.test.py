@@ -188,7 +188,9 @@ import sys
 # and exits 0 is a suite run-tests.sh did not run, for that reason; one that prints
 # "STATE <state> [<reason>]" ended in that runner state (timed-out at its cap, ended at the run's
 # cap, not admitted, invalid for that reason). Its own arguments go to <log>.runner. It takes
-# --cap and --run-cap and leaves them to the real runner (proof-run.test.py P40).
+# --cap and --run-cap and leaves them to the real runner (proof-run.test.py P40). It takes
+# --only-check LABEL (a resume that runs only the named checks), as the retry of a check with
+# no verdict passes it.
 from pathlib import Path
 with open(os.environ["AUTOCHECK_FIXTURE_LOG"] + ".runner", "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
@@ -210,6 +212,7 @@ else:
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("reuse " + str(prior) + "\\n")
 (directory / "plan.json").write_text(json.dumps(lines))
+only = [sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--only-check"]
 rows = []
 for line in lines:
     line = line.strip()
@@ -217,6 +220,11 @@ for line in lines:
         old = next((row for row in previous if row["check"] == line and row["result"] == "passed"), None)
         if old:
             rows.append(old)
+            continue
+        if only and line not in only:
+            # --only-check: what is not named is left out of this run, as the real runner does.
+            rows.append({"check": line, "result": "not-run",
+                         "not_run": {"why": "not selected for this retry", "suites": []}})
             continue
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("run " + line + "\\n")
@@ -523,6 +531,24 @@ class Commit(Fixture):
         self.git("commit", "-q", "-m", "docs")
         self.assertNotIn("ran-release-policy", self.tools())
 
+    def test_an_unstaged_policy_header_does_not_decide_a_non_app_commit(self):
+        # Recheck R10 v2 (2026-10-01): for a commit with no staged richos/app file, whether the
+        # phone policy applied was read from the working-tree header, so an unstaged edit that
+        # drops the phone folder from the inputs let a staged Logger through.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        before = self.head()
+        self.write("richos/mobile/native-ios/App/Platform/BackgroundSendTime.swift",
+                   "let log = Logger(subsystem: \"x\")\n")
+        self.git("add", "-A")
+        policy = self.repo / "richos/app/scripts/native-release-policy.test.sh"
+        policy.write_text(policy.read_text().replace("richos/mobile/native-ios/App ", "nothing "))
+        out = self.git("commit", "-m", "logs", expect=1)
+        self.assertIn("COMMIT REFUSED: this change breaks the phone apps' release policy", out.stderr)
+        self.assertEqual(self.head(), before)
+        self.assertIn("nothing ", policy.read_text())  # the unstaged edit is still there
+        self.assert_aside_restored()
+
     def test_the_whole_branch_is_asked_not_only_the_staged_files(self):
         # An uncovered path committed earlier with --no-verify is still in what the land will
         # diff, so the next ordinary commit on the branch refuses it too.
@@ -746,6 +772,27 @@ class Commit(Fixture):
         self.assertEqual((self.repo / "richos/app/src/claims.txt").read_text(), "true\neditor save during the check\n")
         self.assert_aside_restored()
 
+    def test_a_deletion_while_the_check_runs_is_recorded_and_named_never_silently_undone(self):
+        # Recheck N01 v2 (2026-10-01): a file deleted during the check was recreated from the
+        # index and the older unstaged patch reapplied over it; no bytes were saved for the
+        # deletion, so the restore reported nothing and removed the aside.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, staged\n")
+        self.git("add", "-A")
+        self.write("richos/app/src/thing.txt", "fine, unstaged edit\n")
+        before = self.head()
+        env = dict(self.env, AUTOCHECK_FIXTURE_DURING_CHECK="rm -f richos/app/src/thing.txt")
+        out = self.git("commit", "-m", "a deletion lands while the check runs", env=env, expect=None)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertEqual(self.head(), before)
+        self.assertIn("richos/app/src/thing.txt was deleted while the check ran", out.stderr)
+        marker = self.repo / ".git/richos-autocheck-aside/changed-during-check/richos/app/src/thing.txt.deleted-during-check"
+        self.assertTrue(marker.is_file(), "the deletion left no record:\n" + out.stderr)
+        self.assertIn(str(marker), out.stderr)
+        self.assertEqual((self.repo / "richos/app/src/thing.txt").read_text(), "fine, unstaged edit\n")
+        self.assertEqual(self.git("commit", "-m", "again", expect=None).returncode, 1)
+
     def test_a_save_elsewhere_while_the_check_runs_commits_and_is_named(self):
         # The ordinary case: editing goes on during the commit, in a file the commit's unstaged
         # edits do not touch. It is not refused, nothing is reset, and the save is named.
@@ -940,6 +987,30 @@ class Land(Fixture):
     # 2026-10-01, merge 7af4c981e: owning suites timed out and were ended at the Mac's 99% CPU
     # and the merge landed. No verdict twice (the retry alone included) refuses, naming the unit
     # and saying to re-run it alone; a pass on the retry lands.
+    def test_the_retry_alone_runs_only_the_check_that_had_no_verdict(self):
+        # Hunt v2 V02 (2026-10-01): the retry said "alone" but resumed the whole saved plan, so
+        # every other unfinished check went back into the same scheduler and the contention
+        # that timed the first one out came back. The retry now names its checks.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/state.txt", "once-timed-out\n")
+        self.write("richos/app/src/screen.txt", "busy\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "two owning checks")
+        self.git("checkout", "-q", "main")
+        self.log.unlink(missing_ok=True)
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        state, screen = "cd richos/app && bash scripts/state.sh", "cd richos/app && bash scripts/screen.sh"
+        retries = [line for line in self.side_log(".runner").splitlines() if "--resume" in line]
+        self.assertEqual(len(retries), 1, self.side_log(".runner"))
+        self.assertIn("--only-check " + state, retries[0])
+        self.assertNotIn(screen, retries[0])
+        self.assertEqual(self.tools().count("run " + state), 2)
+        self.assertEqual(self.tools().count("run " + screen), 1, "the retry ran a check it was not asked to retry")
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        self.assertEqual([(row["check"], row["why"]) for row in receipt["not_run"]], [(screen, "busy")])
+        self.assertIn("MERGE INTO MAIN ALLOWED WITH 1 CHECK(S) NOT RUN", out.stderr)
+
     def test_a_check_that_times_out_twice_refuses_the_merge(self):
         self.refused_after_retry("timed-out")
 

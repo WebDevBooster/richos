@@ -1179,6 +1179,34 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         self.assertNotEqual(with_tracked, evidence.recipe_identity(self.root, recipe, {}),
                             "an output directory holding a tracked file is bound")
 
+    def test_a_ui_gates_generated_reference_is_output_and_no_gate_makes_one_elsewhere(self):
+        # Recheck R07 v2 (2026-10-01): gate-honesty.js made `shots-gate-honesty-<pid>/` inside
+        # ui/tests, unignored, so a proof whose inputs include richos/app/ui bound it and lost
+        # its pass when the gate removed it. The pattern: a UI gate creating its own
+        # reference folder in the tests tree outside a declared output directory.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=env)
+        ui = self.root / "richos/app/ui"
+        tests = ui / "tests"
+        tests.mkdir(parents=True)
+        (tests / ".gitignore").write_text(".generated-references/\n")
+        (ui / "main.js").write_text("export const x = 1;\n")
+        self.qualification("fixture input contract", paths=["richos/app/ui"])
+        recipe = {"paths": ["richos/app/ui"], "tools": [], "environment": [], "external": [],
+                  "qualification": "qualification.json"}
+        base = evidence.recipe_identity(self.root, recipe, {})
+        reference = tests / ".generated-references" / "gate-honesty-4242" / "fixture-reference.png"
+        reference.parent.mkdir(parents=True)
+        reference.write_bytes(b"png")
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "a reference created mid-proof")
+        shutil.rmtree(reference.parent)
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "a reference removed mid-proof")
+        import re
+        gates = Path(__file__).resolve().parent.parent / "ui/tests"
+        stray = [f"{js.name}: {m}" for js in sorted(gates.glob("*.js"))
+                 for m in re.findall(r'"shots-[A-Za-z0-9-]*"\s*\+\s*process\.pid', js.read_text())]
+        self.assertEqual(stray, [], "a gate makes its reference folder outside .generated-references")
+
     def test_an_invalidated_pass_names_what_changed_and_the_checks_started_by_then(self):
         crate, recipe, _env = self.cache_fixture()
         scripts = self.root / "richos/app/scripts"
@@ -1375,6 +1403,57 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         reused = {row["check"]: row["reused_from"] for row in json.loads((runs[2] / "summary.json").read_text())["checks"]}
         self.assertEqual(set(reused), {"pass", "retry"})
         self.assertTrue(all(reused.values()), reused)
+
+    def test_resume_only_check_runs_the_named_check_and_leaves_the_other_unfinished_ones(self):
+        # Hunt v2 V02 (2026-10-01): --resume restored every unfinished check to the scheduler,
+        # so a retry described as "alone" ran the competing checks again, concurrently.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        git = lambda *a: subprocess.run(["git", "-C", str(self.root), "-c", "user.name=fixture",
+                                         "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null",
+                                         "-c", "commit.gpgsign=false", *a],
+                                        check=True, env=env, capture_output=True)
+        git("init", "-q")
+        output = Path(self.tmp.name) / "executions"
+        failure = Path(self.tmp.name) / "failure"
+        failure.touch()
+        names = ("pass", "retry", "other")
+        for name in names:
+            (self.root / (name + ".test.sh")).write_text(
+                'printf "%s\\n" "' + name + '" >> "$1"\n' + ('exit 0\n' if name == "pass" else '[ ! -f "$2" ]\n'))
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        lines = [f"cd . && bash {name}.test.sh {output} {failure}" for name in names]
+        idle = lambda: {"cpu_user_percent": 5, "cpu_system_percent": 2,
+            "memory_pressure": "normal", "swapout_mb_per_s": 0, "memory_free_percent": 80,
+            "swap_used_mb": 0}
+        runs = [Path(self.tmp.name) / name for name in ("first", "resumed")]
+        captured = io.StringIO()
+        with patch.dict(os.environ, {"RICHOS_MACHINE_WORKERS": str(Path(self.tmp.name) / "machine"),
+                                      "CLAUDE_CONFIG_DIR": str(Path(self.tmp.name) / "config")}), \
+                patch.object(runner, "ROOT", str(self.root)), \
+                patch.object(runner, "default_logdir", return_value=str(Path(self.tmp.name) / "history")), \
+                patch.object(evidence, "pool_directory", return_value=Path(self.tmp.name) / "pool"), \
+                patch.object(runner, "supply_runtime", return_value="private fixture"), \
+                patch.object(runner.reserve, "host_sample", side_effect=idle), \
+                patch.object(runner, "selection", return_value=lines), \
+                contextlib.redirect_stdout(captured):
+            self.assertEqual(runner.main(["--log-dir", str(runs[0])]), 1)
+            failure.unlink()
+            self.assertEqual(sorted(output.read_text().splitlines()), ["other", "pass", "retry"])
+            code = runner.main(["--resume", str(runs[0]), "--only-check", "retry", "--log-dir", str(runs[1])])
+            self.assertEqual(code, 3, captured.getvalue()[-3000:])  # nothing failed; `other` is NOT RUN
+            # The retry ran only `retry`; `other` did not run again, and says why.
+            self.assertEqual(sorted(output.read_text().splitlines()), ["other", "pass", "retry", "retry"])
+            rows = {row["check"]: row for row in json.loads((runs[1] / "summary.json").read_text())["checks"]}
+            self.assertEqual(rows["retry"]["result"], "passed")
+            self.assertEqual(rows["pass"]["result"], "passed")
+            self.assertEqual(rows["other"]["result"], "not-run")
+            self.assertEqual(rows["other"]["not_run"]["suites"][0]["state"], "retry-unselected")
+            # A name the saved plan does not hold is refused, never ignored.
+            with self.assertRaises(SystemExit) as refused:
+                runner.main(["--resume", str(runs[0]), "--only-check", "nosuch",
+                             "--log-dir", str(Path(self.tmp.name) / "third")])
+            self.assertIn("nosuch", str(refused.exception))
 
     def test_a_saved_pass_is_not_reused_after_an_installed_dependency_changes(self):
         # Hunt part 2, finding 11: a check that passed with an ignored node_modules dependency

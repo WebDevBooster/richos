@@ -181,17 +181,22 @@ def commit_check(repo, what):
     if not app:
         say(f"autocheck: {what}: nothing under richos/app changed, so no lint applies "
             f"({time.monotonic() - started:.1f}s)")
-        if what == "commit" and policy_applies(repo, staged):
-            with StagedOnly(repo) as aside:
-                if aside.summary:
-                    say(f"autocheck: {what}: {aside.summary} set aside for the check, so it sees only what is committed")
-                if release_policy(repo, what):
-                    return 1
-        # The land's coverage rule applies to every code path, not only richos/app (2026-10-01:
-        # a Swift file under richos/mobile and step lists under docs/verification passed here
-        # and were refused at the merge). Lookup only: no suite runs for a change outside the app.
-        if what == "commit" and branch_selection(repo, what, run_quick=False):
-            return 1
+        if what != "commit":
+            return 0
+        # Everything below reads files (the policy suite's header and inputs, proof-for.sh and
+        # its tables), so it runs with only what the commit holds in the tree: an unstaged edit
+        # to any of them must neither call for a check nor excuse one (recheck R10 v2, the same
+        # mistake as the app path's R10 at a new site).
+        with StagedOnly(repo) as aside:
+            if aside.summary:
+                say(f"autocheck: {what}: {aside.summary} set aside for the check, so it sees only what is committed")
+            if policy_applies(repo, staged) and release_policy(repo, what):
+                return 1
+            # The land's coverage rule applies to every code path, not only richos/app (2026-10-01:
+            # a Swift file under richos/mobile and step lists under docs/verification passed here
+            # and were refused at the merge). Lookup only: no suite runs for a change outside the app.
+            if branch_selection(repo, what, run_quick=False):
+                return 1
         return 0
     with StagedOnly(repo) as aside:
         if aside.summary:
@@ -318,6 +323,9 @@ ASIDE = "richos-autocheck-aside"
 CHANGED = "changed-during-check"
 
 
+DELETED_SUFFIX = ".deleted-during-check"
+
+
 class StagedOnly:
     def __init__(self, repo):
         self.repo = repo
@@ -329,6 +337,7 @@ class StagedOnly:
         self.patched = False
         self.patch_paths = set()
         self.summary = ""
+        self.deleted = []
 
     def how_to_restore(self):
         lines = [f"Your unstaged edits and untracked files are in {self.dir}.",
@@ -428,7 +437,15 @@ class StagedOnly:
             for name in collided:
                 source = self.repo.top / name
                 if not os.path.lexists(source):
-                    continue  # deleted during the check: no bytes to keep
+                    # Deleted during the check. The deletion is newer work than the saved patch
+                    # and has no bytes, so it is recorded as a named marker the restore reports
+                    # and keeps; it is never treated as nothing to preserve (recheck N01 v2).
+                    marker = self.changed / (name + DELETED_SUFFIX)
+                    marker.parent.mkdir(parents=True, exist_ok=True)
+                    marker.write_text("deleted while the commit check ran; the edit from before the check "
+                                      "was put back over it\n")
+                    self.deleted.append(name)
+                    continue
                 target = self.changed / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(source), str(target))
@@ -449,6 +466,11 @@ class StagedOnly:
         return kept
 
     def settle_changed(self, kept, problems):
+        for name in self.deleted:
+            back = ("your edit from before the check is back in place" if not self.patched
+                    else f"your edit from before the check is still in {self.patch}")
+            problems.append(f"{name} was deleted while the check ran; {back}, and the deletion is "
+                            f"recorded at {self.changed / (name + DELETED_SUFFIX)}")
         """Drop a moved-aside copy that is byte-identical to what is now back in place (a
         restore after a failed set-aside, or a write of the same bytes); name the rest."""
         for name in kept:
@@ -977,6 +999,14 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
             again_summary = str(root / (again.name + "-summary.json"))
             argv = ["--resume", str(directory), "--retry-reason",
                     "merge gate: an owning check ended with no verdict at a time cap; the one retry alone"]
+            # ALONE means only these checks (hunt v2 V02): a bare --resume put every unfinished
+            # check back in the same concurrent scheduler, and the contention came back. A
+            # runner without --only-check retries the whole saved plan, as before.
+            only = knows(repo, PROOF_RUN, "--only-check")
+            if only:
+                for name in retry:
+                    argv += ["--only-check", name]
+            first_others = [row for row in not_run if row["check"] not in retry]
             if knows(repo, PROOF_RUN, "--run-cap"):
                 argv += ["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(GATE_CAP_SECONDS),
                          "--admission-wait", str(GATE_CAP_SECONDS), "--slot-wait", str(GATE_CAP_SECONDS)]
@@ -991,6 +1021,9 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
                 blocking += [{"check": row["check"], "result": row["state"], "retried": True}
                              for row in not_run if row.get("state") in RETRY_STATES]
                 not_run = [row for row in not_run if row.get("state") not in RETRY_STATES]
+                if only:
+                    # The checks the retry left out keep the first attempt's own row and reason.
+                    not_run = first_others + [row for row in not_run if row["check"] in retry]
         not_run = nightly + not_run
     finally:
         os.unlink(plan)
