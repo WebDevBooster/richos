@@ -221,6 +221,8 @@ async function launchChrome(profileDir, downloadDir, httpsPort, extraArgs = []) 
   const args = [
     `--user-data-dir=${profileDir}`, `--load-extension=${EXT_DIR}`, `--disable-extensions-except=${EXT_DIR}`,
     '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',
+    // This profile is disposable. Keep browser encryption away from the user's Keychain.
+    ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
     '--enable-logging=stderr', '--vmodule=native_message*=1',
     '--disable-features=DialMediaRouteProvider,MediaRouter',
     '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
