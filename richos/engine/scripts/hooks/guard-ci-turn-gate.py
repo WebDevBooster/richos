@@ -249,6 +249,12 @@ class Budget(object):
         self.expired_on.append(what)
 
 
+# rc `run` returns when the budget ran out: an answer that may still arrive,
+# never a reason to forget an obligation (P3-13).
+TIMEOUT_RC = 124
+TRANSIENT = "transient: "
+
+
 def run(cmd, budget, floor=0.05):
     """A subprocess bounded by what is left of the budget.
 
@@ -258,14 +264,14 @@ def run(cmd, budget, floor=0.05):
     """
     remaining = budget.left()
     if remaining <= floor:
-        return 1, "", "the %.1fs budget was already spent" % budget.seconds
+        return TIMEOUT_RC, "", "the %.1fs budget was already spent" % budget.seconds
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=remaining)
     except FileNotFoundError:
         return 1, "", "`%s` is not on PATH" % cmd[0]
     except subprocess.TimeoutExpired:
         budget.note(" ".join(cmd[:3]))
-        return 1, "", ("it did not answer inside the %.1fs budget this gate is "
+        return TIMEOUT_RC, "", ("it did not answer inside the %.1fs budget this gate is "
                        "allowed per turn" % budget.seconds)
     except Exception as exc:                                    # pragma: no cover
         return 1, "", "it could not be run (%s)" % exc
@@ -525,12 +531,16 @@ def repo_facts(directory, remote, budget, cache):
         cache[key] = res
         return res
     rc, out, err = run(["git", "-C", directory, "rev-parse", "--show-toplevel"], budget)
+    if rc == TIMEOUT_RC:
+        return ("", "", TRANSIENT + err)
     if rc != 0:
         res = ("", "", "it is not a git repository (%s): %s" % (err, directory))
         cache[key] = res
         return res
     root = out.strip()
     rc, out, err = run(["git", "-C", root, "remote", "get-url", remote], budget)
+    if rc == TIMEOUT_RC:
+        return (root, "", TRANSIENT + err)
     if rc != 0:
         res = (root, "", "it has no `%s` remote (%s)" % (remote, err))
         cache[key] = res
@@ -569,6 +579,8 @@ def head_of(root, remote, branch, budget):
     rc, out, _err = run(["git", "-C", root, "rev-parse", "--verify", "--quiet", ref], budget)
     if rc == 0 and out.strip():
         return out.strip(), ""
+    if rc == TIMEOUT_RC:
+        return "", TRANSIENT + _err
     return "", ("nothing here records which commit was pushed: there is no `%s` in "
                 "this checkout" % ref)
 
@@ -979,6 +991,9 @@ def evaluate(payload, budget):
         if slug and pause_for(slug):
             # Keep the push history for restoration; do not read CI or demand an ack.
             continue
+        if err.startswith(TRANSIENT):
+            unreadable.append("%s: %s" % (os.path.basename(push["dir"] or "?"), err[len(TRANSIENT):]))
+            continue
         if err:
             permanent(key, "%s: %s" % (os.path.basename(push["dir"] or "?"), err))
             continue
@@ -990,6 +1005,10 @@ def evaluate(payload, budget):
             continue
         judged.add((slug, branch))
         sha, err = head_of(root, remote, branch, budget)
+        if err.startswith(TRANSIENT):
+            judged.discard((slug, branch))
+            unreadable.append("%s: %s" % (slug, err[len(TRANSIENT):]))
+            continue
         if err:
             permanent(key, "%s: %s" % (slug, err))
             continue
