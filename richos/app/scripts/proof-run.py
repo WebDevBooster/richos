@@ -999,6 +999,14 @@ def leave_over_cap(items, args):
                           "suites": [{"name": it.label, "state": "over-cap", "reason": over_cap_why(it.weight, cap)}]}
             it.notes.append("NOT RUN: " + over_cap_why(it.weight, cap))
             left.append(it)
+    trim_receipts(items, left)
+    for it in left:
+        print("  NOT RUN %-40s %s" % (it.label, over_cap_why(it.weight, cap)), flush=True)
+    return left
+
+
+def trim_receipts(items, left):
+    """The engine receipts proof covers exactly the units that were not left out of this run."""
     gone = {it.argv[it.argv.index("--only-units") + 1] for it in left if it.engine_unit}
     for receipts in (it for it in items if it.label == "engine receipts" and "--units-file" in it.argv):
         path = receipts.argv[receipts.argv.index("--units-file") + 1]
@@ -1014,8 +1022,38 @@ def leave_over_cap(items, args):
         if not kept and receipts.state == "waiting":
             receipts.state, receipts.rc = "not-run", None
             receipts.not_run = {"why": "no engine unit it proves was started", "suites": []}
+
+
+RETRY_UNSELECTED = ("not selected for this retry: the run it resumed holds its result, "
+                    "and a retry runs only the checks it names")
+
+
+def leave_unselected(items, selected):
+    """--only-check (a resume that runs ONLY the named checks; hunt v2 V02, 2026-10-01).
+
+    A `--resume` keeps every validated pass and then runs everything else in the frozen plan,
+    all of it again, concurrently. The merge gate's retry of checks that timed out under
+    contention said it ran them "alone" and still put every unfinished check back in the same
+    scheduler, so the contention came back and a second no-verdict refused the merge. With
+    --only-check the checks not named, and not already passed, are NOT RUN here (their earlier
+    result stays in the run that was resumed) and take no worker token, lane or admission. The
+    named checks keep the runner's full parallelism among themselves. The engine receipts proof
+    covers the units that are left."""
+    names = set(selected)
+    unknown = sorted(names - {it.label for it in items})
+    if unknown:
+        raise SystemExit("proof-run: --only-check names no check of the saved plan: " + ", ".join(unknown))
+    left = []
+    for it in items:
+        if it.state == "waiting" and it.label not in names and it.label != "engine receipts":
+            it.state, it.rc = "not-run", None
+            it.not_run = {"why": RETRY_UNSELECTED,
+                          "suites": [{"name": it.label, "state": "retry-unselected", "reason": RETRY_UNSELECTED}]}
+            it.notes.append("NOT RUN: " + RETRY_UNSELECTED)
+            left.append(it)
+    trim_receipts(items, left)
     for it in left:
-        print("  NOT RUN %-40s %s" % (it.label, over_cap_why(it.weight, cap)), flush=True)
+        print("  NOT RUN %-40s %s" % (it.label, RETRY_UNSELECTED), flush=True)
     return left
 
 
@@ -1930,6 +1968,8 @@ def main(argv=None):
     p.add_argument("--resume", help="retry the exact saved plan and validate reusable evidence")
     p.add_argument("--reuse", action="append", default=[],
                    help="validate prior evidence against the newly selected target plan and inputs")
+    p.add_argument("--only-check", action="append", default=[], metavar="LABEL",
+                   help="with --resume: run only this check (repeatable); the other unfinished checks stay NOT RUN here")
     p.add_argument("--retry-reason", help="diagnosis authorizing the one retry of unchanged failed inputs")
     failure_mode = p.add_mutually_exclusive_group()
     failure_mode.add_argument("--keep-going", action="store_true", help="continue independent checks (the default)")
@@ -1961,6 +2001,8 @@ def main(argv=None):
         NIGHTLY_CONDITIONS = False
     if args.resume and (args.commands or rest or args.as_printed or args.reuse):
         p.error("--resume takes its frozen plan from the saved run; no new selection is allowed")
+    if args.only_check and not args.resume:
+        p.error("--only-check selects among the checks of a saved plan: it needs --resume")
     if args.capacity < 1 or args.engine_shards < 1:
         p.error("--capacity and --engine-shards must be at least 1")
     for name in ("admission_wait", "slot_wait", "max_cpu", "budget", "deadline", "sample_every"):
@@ -2069,6 +2111,8 @@ def main(argv=None):
                     proof_evidence.reuse(previous, items, args.evidence, exact=False)
                 finally:
                     lease.close()
+            if args.only_check:
+                leave_unselected(items, args.only_check)
             run(items, args, logdir)
             args.evidence.finalize(items)
         finally:
