@@ -371,14 +371,19 @@ if "--dry-run" in toks or (verb == "push" and "-n" in toks):
 named = ""
 if verb == "push":
     # `git push origin main`, `git push origin HEAD:main`, `git push -u origin main`
-    for r in refs[1:] if len(refs) > 1 else []:
-        tail = r.split(":")[-1].replace("refs/heads/", "")
-        if tail == watched:
+    tails = [r.split(":")[-1].replace("refs/heads/", "") for r in refs[1:]]
+    if watched:
+        if watched in tails:
             named = watched
-            break
-    if not named and len(refs) > 1:
-        print("skip\t`git push` names refs and none of them is %s" % watched)
-        raise SystemExit(0)
+        elif tails:
+            print("skip\t`git push` names refs and none of them is %s" % watched)
+            raise SystemExit(0)
+    else:
+        # P3-12: the watched branch is not known yet (the default setting asks
+        # the library later, once the repository is resolved). Skipping here
+        # skipped every explicit push. Pass the named refs on, comma-joined;
+        # the check after resolution decides.
+        named = ",".join(tails)
 
 # The ack, read off the command line itself — visible in the transcript, so a
 # reviewer sees the claim next to the act it excuses.
@@ -461,7 +466,8 @@ CURRENT_BRANCH="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null \
 # A merge lands into wherever HEAD is. A push lands into what it names, or into
 # HEAD's upstream when it names nothing. Either way: if neither the named ref
 # nor the current branch is the watched one, this is not the land being gated.
-if [ "$NAMED_BRANCH" != "$WATCHED_BRANCH" ] && [ "$CURRENT_BRANCH" != "$WATCHED_BRANCH" ]; then
+case ",$NAMED_BRANCH," in *",$WATCHED_BRANCH,"*) _NAMED_HIT=1 ;; *) _NAMED_HIT=0 ;; esac
+if [ "$_NAMED_HIT" -ne 1 ] && [ "$CURRENT_BRANCH" != "$WATCHED_BRANCH" ]; then
     exit 0
 fi
 

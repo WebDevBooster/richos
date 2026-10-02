@@ -161,6 +161,9 @@ BUDGET_SECONDS = 2.0
 # A green reading of a finished commit never changes, so it is cached forever.
 # A RED one is re-read after this, because `gh run rerun` must be a way out.
 RED_RECHECK_SECONDS = 300
+# A green reading is re-read after this long, so a later rerun of the same
+# commit is seen (P3-15).
+GREEN_RECHECK_SECONDS = 600
 # NO GRACE-PERIOD GUESS FOR "NO RUNS YET" — REMOVED 2026-09-28, AND WHY.
 # This used to promote a commit with zero runs to "running" for
 # RUNS_APPEAR_GRACE_SECONDS on the theory that GitHub takes a few seconds to
@@ -246,6 +249,12 @@ class Budget(object):
         self.expired_on.append(what)
 
 
+# rc `run` returns when the budget ran out: an answer that may still arrive,
+# never a reason to forget an obligation (P3-13).
+TIMEOUT_RC = 124
+TRANSIENT = "transient: "
+
+
 def run(cmd, budget, floor=0.05):
     """A subprocess bounded by what is left of the budget.
 
@@ -255,14 +264,14 @@ def run(cmd, budget, floor=0.05):
     """
     remaining = budget.left()
     if remaining <= floor:
-        return 1, "", "the %.1fs budget was already spent" % budget.seconds
+        return TIMEOUT_RC, "", "the %.1fs budget was already spent" % budget.seconds
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=remaining)
     except FileNotFoundError:
         return 1, "", "`%s` is not on PATH" % cmd[0]
     except subprocess.TimeoutExpired:
         budget.note(" ".join(cmd[:3]))
-        return 1, "", ("it did not answer inside the %.1fs budget this gate is "
+        return TIMEOUT_RC, "", ("it did not answer inside the %.1fs budget this gate is "
                        "allowed per turn" % budget.seconds)
     except Exception as exc:                                    # pragma: no cover
         return 1, "", "it could not be run (%s)" % exc
@@ -307,6 +316,12 @@ def _tokens(segment):
 
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAPPERS = ("command", "exec", "nohup", "time", "sudo", "env", "nice", "builtin")
+# Wrapper options that take a VALUE as the next token (`env -u NAME`, `sudo -u
+# USER`). The value is not the program (P3-34).
+_WRAPPER_VALUE_OPTS = {
+    "env": ("-u", "-C", "-S", "--unset", "--chdir"),
+    "sudo": ("-u", "-g", "-C", "-D", "-h", "-p", "-R", "-T", "-U"),
+}
 
 
 def _command_word_index(toks):
@@ -328,9 +343,11 @@ def _command_word_index(toks):
             continue
         if t in _WRAPPERS:
             k += 1
-            # a wrapper's own options (env -i, nice -n 5) are not the command
+            valued = _WRAPPER_VALUE_OPTS.get(t, ())
+            # a wrapper's own options (env -i, nice -n 5, env -u NAME) are not the command
             while k < len(toks) and (toks[k].startswith("-")
                                      or (k > 0 and toks[k - 1] == "-n" and toks[k].isdigit())
+                                     or (k > 0 and toks[k - 1] in valued)
                                      or _ASSIGNMENT.match(toks[k])):
                 k += 1
             continue
@@ -403,14 +420,18 @@ def parse_pushes(command, cwd):
         remote = positional[0] if positional else "origin"
         if remote.startswith(("http", "git@", "ssh://", "/", ".")):
             remote = "origin"       # a URL pushed to directly has no tracking ref
-        if len(positional) >= 2:
-            # <remote> <refspec>; the DESTINATION side of `src:dst` is the branch
-            ref = positional[1]
+        # <remote> <refspec>...; the DESTINATION side of `src:dst` is the
+        # branch, and EVERY refspec is a push (P3-16).
+        branches = []
+        for ref in positional[1:]:
             branch = ref.split(":")[-1]
             branch = re.sub(r"^refs/heads/", "", branch)
             if branch in ("HEAD", ""):
                 branch = ""
-        out.append({"dir": where, "remote": remote, "branch": branch})
+            if branch not in branches:
+                branches.append(branch)
+        for branch in branches or [branch]:
+            out.append({"dir": where, "remote": remote, "branch": branch})
     return out
 
 
@@ -447,6 +468,8 @@ def observe_pushes(transcript_path, state, budget):
                 raw = fh.readline()
                 if not raw:
                     break
+                if not raw.endswith(b"\n"):
+                    break               # half-written record: leave the offset before it (P3-18)
                 offset = fh.tell()
                 line = raw.decode("utf-8", "replace").strip()
                 if not line:
@@ -508,12 +531,16 @@ def repo_facts(directory, remote, budget, cache):
         cache[key] = res
         return res
     rc, out, err = run(["git", "-C", directory, "rev-parse", "--show-toplevel"], budget)
+    if rc == TIMEOUT_RC:
+        return ("", "", TRANSIENT + err)
     if rc != 0:
         res = ("", "", "it is not a git repository (%s): %s" % (err, directory))
         cache[key] = res
         return res
     root = out.strip()
     rc, out, err = run(["git", "-C", root, "remote", "get-url", remote], budget)
+    if rc == TIMEOUT_RC:
+        return (root, "", TRANSIENT + err)
     if rc != 0:
         res = (root, "", "it has no `%s` remote (%s)" % (remote, err))
         cache[key] = res
@@ -552,6 +579,8 @@ def head_of(root, remote, branch, budget):
     rc, out, _err = run(["git", "-C", root, "rev-parse", "--verify", "--quiet", ref], budget)
     if rc == 0 and out.strip():
         return out.strip(), ""
+    if rc == TIMEOUT_RC:
+        return "", TRANSIENT + _err
     return "", ("nothing here records which commit was pushed: there is no `%s` in "
                 "this checkout" % ref)
 
@@ -593,10 +622,11 @@ def write_runs_cache(doc):
 
 
 def cache_is_usable(doc):
-    """The asymmetry, stated once: GREEN AND FINISHED IS FOREVER, RED IS NOT.
+    """The asymmetry, stated once: GREEN LASTS LONGER THAN RED, NEITHER IS FOREVER.
 
     A commit whose runs are all completed and green cannot become red on its
-    own, so that reading is final and the steady state costs no network at all.
+    own, but a rerun can change it, so green is re-read after
+    GREEN_RECHECK_SECONDS (P3-15).
     A RED reading is re-read after RED_RECHECK_SECONDS because `gh run rerun`
     is a legitimate way out and a gate that could not see one would have to be
     disabled to escape. An in-flight reading is the one state expected to
@@ -607,7 +637,7 @@ def cache_is_usable(doc):
     st = doc.get("state")
     age = doc.get("age_seconds", 1 << 30)
     if st == "green":
-        return True
+        return age < GREEN_RECHECK_SECONDS
     if st == "red":
         return age < RED_RECHECK_SECONDS
     if st == "running":
@@ -925,7 +955,13 @@ def evaluate(payload, budget):
 
     findings, running, unreadable = [], [], []
     facts_cache = {}
-    targets = sorted(pushes.items(), key=lambda kv: -float((kv[1] or {}).get("at") or 0))[:MAX_TARGETS]
+    # Never-checked targets first (newest first), then the longest-unchecked, so
+    # an older obligation is not starved by newer ones (P3-17).
+    targets = sorted(pushes.items(), key=lambda kv: (float((kv[1] or {}).get("checked_at") or 0),
+                                                     -float((kv[1] or {}).get("at") or 0)))[:MAX_TARGETS]
+    _now = time.time()
+    for _k, _p in targets:
+        _p["checked_at"] = _now
     judged = set()
 
     # AN ANSWER THAT CAN NEVER ARRIVE IS NOT A FINDING TO REPEAT.
@@ -955,6 +991,9 @@ def evaluate(payload, budget):
         if slug and pause_for(slug):
             # Keep the push history for restoration; do not read CI or demand an ack.
             continue
+        if err.startswith(TRANSIENT):
+            unreadable.append("%s: %s" % (os.path.basename(push["dir"] or "?"), err[len(TRANSIENT):]))
+            continue
         if err:
             permanent(key, "%s: %s" % (os.path.basename(push["dir"] or "?"), err))
             continue
@@ -966,6 +1005,10 @@ def evaluate(payload, budget):
             continue
         judged.add((slug, branch))
         sha, err = head_of(root, remote, branch, budget)
+        if err.startswith(TRANSIENT):
+            judged.discard((slug, branch))
+            unreadable.append("%s: %s" % (slug, err[len(TRANSIENT):]))
+            continue
         if err:
             permanent(key, "%s: %s" % (slug, err))
             continue
