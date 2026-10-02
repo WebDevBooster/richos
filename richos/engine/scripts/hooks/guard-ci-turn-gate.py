@@ -307,6 +307,12 @@ def _tokens(segment):
 
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAPPERS = ("command", "exec", "nohup", "time", "sudo", "env", "nice", "builtin")
+# Wrapper options that take a VALUE as the next token (`env -u NAME`, `sudo -u
+# USER`). The value is not the program (P3-34).
+_WRAPPER_VALUE_OPTS = {
+    "env": ("-u", "-C", "-S", "--unset", "--chdir"),
+    "sudo": ("-u", "-g", "-C", "-D", "-h", "-p", "-R", "-T", "-U"),
+}
 
 
 def _command_word_index(toks):
@@ -328,9 +334,11 @@ def _command_word_index(toks):
             continue
         if t in _WRAPPERS:
             k += 1
-            # a wrapper's own options (env -i, nice -n 5) are not the command
+            valued = _WRAPPER_VALUE_OPTS.get(t, ())
+            # a wrapper's own options (env -i, nice -n 5, env -u NAME) are not the command
             while k < len(toks) and (toks[k].startswith("-")
                                      or (k > 0 and toks[k - 1] == "-n" and toks[k].isdigit())
+                                     or (k > 0 and toks[k - 1] in valued)
                                      or _ASSIGNMENT.match(toks[k])):
                 k += 1
             continue
