@@ -260,13 +260,14 @@ def do_assess(job):
             continue
         mid = str(a.get("matched_item") or "")
         if mid and mid != "UNMATCHED":
-            asked_ids.add(mid)
+            # Row IDs repeat across repositories: identity is (repo, id).
+            asked_ids.add((str(a.get("repo") or ""), mid))
 
-    unasked = [i for i in prepared if str(i.get("id") or "") not in asked_ids]
+    unasked = [i for i in prepared if (str(i.get("repo") or ""), str(i.get("id") or "")) not in asked_ids]
 
     sys.stdout.write("PREPARED\t%d\n" % len(prepared))
     sys.stdout.write("ASKED\t%d\n" % len([i for i in prepared
-                                          if str(i.get("id") or "") in asked_ids]))
+                                          if (str(i.get("repo") or ""), str(i.get("id") or "")) in asked_ids]))
     sys.stdout.write("UNASKED\t%d\n" % len(unasked))
     for item in unasked:
         sys.stdout.write("ASK\t%s\t%s\t%s\t%s\n" % (
