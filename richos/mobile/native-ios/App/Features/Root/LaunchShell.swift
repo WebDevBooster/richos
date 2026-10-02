@@ -48,34 +48,6 @@ enum LaunchShell {
     static let lampArtSize = CGSize(width: 390, height: 844)
 }
 
-/// iOS draws the launch screen from a picture it renders once and keeps in the app's own
-/// `Library/SplashBoard`, and an update installed over the app does not always replace it: on the test
-/// iPhone (2026-10-02) the update carrying LaunchScreen.storyboard still opened on the white picture
-/// of the generated launch screen, rendered by the build before it (the snapshots in
-/// `Library/SplashBoard/Snapshots` kept their earlier dates). So, once per installed build, that folder
-/// is removed and iOS renders the launch screen again for the next start. The first start after an
-/// update can still show the old picture; every start after it shows this build's.
-///
-/// Battery and speed: one file-attribute read and one preference read per launch, on a utility queue
-/// (nothing on the main thread); one folder removal per installed build.
-enum LaunchScreenCache {
-    private static let key = "richos.launchScreen.build"
-
-    static func refreshAfterUpdate() {
-        DispatchQueue.global(qos: .utility).async {
-            guard let executable = Bundle.main.executableURL,
-                  let built = (try? executable.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            else { return }
-            let build = String(built.timeIntervalSince1970)
-            let defaults = UserDefaults.standard
-            guard defaults.string(forKey: key) != build else { return }
-            let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            try? FileManager.default.removeItem(at: library.appendingPathComponent("SplashBoard"))
-            defaults.set(build, forKey: key)
-        }
-    }
-}
-
 /// The nameplate, with "Rich" laid out but not drawn, so the pill is exactly as wide as the real one.
 struct LaunchNameplate: View {
     @Environment(\.palette) private var palette
