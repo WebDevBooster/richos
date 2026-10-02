@@ -237,6 +237,29 @@ if [ "$RC" = "1" ] && grep -q 'EXPIRED' "$SANDBOX/out"; then
 else
     bad "S8   rc=$RC on an expired entry"; sed 's/^/          /' "$SANDBOX/out"
 fi
+
+# S8b: the expiry is read on the OPERATOR'S calendar (local), never UTC. Pinned with two
+# zones at the extremes (UTC+14 and UTC-12): at every hour of the day at least one of them is
+# on a different calendar date from UTC, which is what made S8 fail 00:00-01:00 BST. In each
+# zone, an expiry of local yesterday is expired and an expiry of local today is still live.
+for TZNAME in Pacific/Kiritimati Etc/GMT+12; do
+    LTODAY="$(TZ=$TZNAME python3 -c 'import datetime; print(datetime.date.today().isoformat())')"
+    LYEST="$(TZ=$TZNAME python3 -c 'import datetime; print((datetime.date.today() - datetime.timedelta(days=1)).isoformat())')"
+    printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\texpired tolerance\n' "$LYEST" > "$KR"
+    RC="$(TZ=$TZNAME run_shard --only-units scripts/lib/red.test.sh)"
+    if [ "$RC" = "1" ] && grep -q 'EXPIRED' "$SANDBOX/out"; then
+        ok "S8b  $TZNAME: local yesterday is expired"
+    else
+        bad "S8b  $TZNAME: local yesterday ($LYEST) not expired, rc=$RC"
+    fi
+    printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tlive tolerance\n' "$LTODAY" > "$KR"
+    RC="$(TZ=$TZNAME run_shard --only-units scripts/lib/red.test.sh)"
+    if [ "$RC" = "0" ] && grep -q 'KNOWN-RED' "$SANDBOX/out" && ! grep -q 'EXPIRED' "$SANDBOX/out"; then
+        ok "S8b  $TZNAME: an expiry of local today is still live"
+    else
+        bad "S8b  $TZNAME: local today ($LTODAY) treated as expired, rc=$RC"
+    fi
+done
 rm -f "$KR"
 
 # --- S9: receipts ---------------------------------------------------------

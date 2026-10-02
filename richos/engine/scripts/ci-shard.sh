@@ -396,7 +396,10 @@ kr_declared() { kr_field "$1" 1 >/dev/null 2>&1 && kr_applies "$1"; }
 kr_expired()  { # <unit-id> — 0 when today is past the expiry
     local exp; exp="$(kr_field "$1" 3 2>/dev/null)" || return 1
     [ -n "$exp" ] || return 1
-    [ "$(date -u +%Y-%m-%d)" \> "$exp" ]
+    # LOCAL date: the expiry is a date the operator writes, so it is read on the operator's
+    # calendar. ci-receipts.py (lib/) reads the same column the same way; a UTC "today" here
+    # made S8 fail 00:00-01:00 BST, when local yesterday equals the UTC date.
+    [ "$(date +%Y-%m-%d)" \> "$exp" ]
 }
 
 # ---------------------------------------------------------------------------
