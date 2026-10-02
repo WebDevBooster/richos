@@ -9,7 +9,7 @@
 
 import { KEYS, PRODUCT, DB } from '../../core/constants.js';
 import { getModuleSettings } from '../../core/settings.js';
-import { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists } from '../../core/offscreen-host.js';
+import { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists, acquireOffscreen } from '../../core/offscreen-host.js';
 import { writeUrl, dropPath, setDownloadUi } from '../../core/output.js';
 import { raiseAlert, setHealth, resetAlertThrottle, notifyRoutine, resolveAlerts } from '../../core/alerts.js';
 import { put, get, getAll, deleteBySession } from '../../core/idb.js';
@@ -21,7 +21,7 @@ import {
   SURFACE,
 } from '../../core/native-host-client.js';
 import { MODULE_ID, CAPTURE_DEFAULTS, SETTINGS_SCHEMA, THRESHOLDS, ACTIONS, SESSION_STATUS, FILES } from './constants.js';
-import { detectPlatform, shouldAutoArm, isCallTab } from './platforms.js';
+import { detectPlatform, shouldAutoArm, isCallTab, isExcludedCapturePage } from './platforms.js';
 import { newCaptureState, applyHeartbeat, evaluateHealth, evaluateCaptionsOnlyHealth, badgeTextFor } from './health.js';
 import { newSessionRecord, accrueHealth, verifySession, audioFileName } from './session.js';
 
@@ -156,6 +156,14 @@ async function armTabImpl(tabId, trigger = 'auto') {
   const settings = await getModuleSettings(MODULE_ID);
   if (!settings.enabled) return { ok: false, error: 'call capture is disabled in settings' };
 
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+    if (isExcludedCapturePage(tab.url)) return { ok: false, error: 'Call capture is disabled on ChatGPT pages' };
+  } catch {
+    return { ok: false, error: 'tab is gone' };
+  }
+
   // Upgrade path: a mic+captions (or captions-only) session is already running for this tab and
   // the CEO has now invoked the extension — add the ground-truth tab audio to it.
   if (active && active.tabId === tabId && (active.awaitingTabAudio || active.state.micOnlyFailover)) {
@@ -173,12 +181,6 @@ async function armTabImpl(tabId, trigger = 'auto') {
     return { ok: false, error: 'a session is already active' };
   }
 
-  let tab;
-  try {
-    tab = await chrome.tabs.get(tabId);
-  } catch {
-    return { ok: false, error: 'tab is gone' };
-  }
 
   await restoreEndedTabs();
   if (endedCall(tab)) return { ok: false, error: 'this Zoom meeting has ended' };
@@ -873,7 +875,7 @@ async function runRecovery(action, now) {
 async function recreateOffscreenAndRestart() {
   if (!active) return;
   const settings = await getModuleSettings(MODULE_ID);
-  await closeOffscreen();
+  await closeOffscreen({ force: true });
   await ensureOffscreen();
   const minted = await mintStreamId(active.tabId);
   const started = await callOffscreen({
@@ -1146,11 +1148,13 @@ async function runFinalizeBrowser(record, reason) {
 }
 
 let exportTask = null;
+let releaseCallExport = null;
 async function exportBufferedSession(sessionId) {
   if (active || exportTask) return { ok: false, error: 'finish the call and current export first' };
   const record = await get(DB.stores.sessions, sessionId);
   if (!record || record.status === SESSION_STATUS.open) return { ok: false, error: 'no closed session to export' };
   exportTask = (async () => {
+    releaseCallExport = await acquireOffscreen('callCaptureExport');
     await ensureOffscreen();
     const archive = await callOffscreen({ type: 'cc:archive', sessionId });
     if (!archive?.ok) return { ok: false, error: archive?.error || 'archive assembly failed' };
@@ -1169,7 +1173,7 @@ async function exportBufferedSession(sessionId) {
     return { ok: true, sessionId, downloadId: written.downloadId };
   })();
   try { return await exportTask; }
-  finally { exportTask = null; if (!active) await closeOffscreen(); }
+  finally { exportTask = null; await releaseCallExport?.(); releaseCallExport = null; if (!active) await closeOffscreen(); }
 }
 
 /** @returns {Promise<boolean>} */

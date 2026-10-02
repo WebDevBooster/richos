@@ -4,12 +4,12 @@ import vm from 'node:vm';
 const source = await readFile(new URL('../popup/popup.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../popup/popup.html', import.meta.url), 'utf8');
 const elements = new Map();
-function element() { return { children: [], listeners: {}, hidden: false, append(child) { this.children.push(child); }, replaceChildren() { this.children = []; }, addEventListener(type, handler) { this.listeners[type] = handler; } }; }
+function element() { return { attributes: {}, getAttribute(key) { return this.attributes[key]; }, children: [], listeners: {}, hidden: false, append(child) { this.children.push(child); }, replaceChildren() { this.children = []; }, addEventListener(type, handler) { this.listeners[type] = handler; } }; }
 for (const match of html.matchAll(/id="([^"]+)"/g)) elements.set(match[1], element());
 let status = { active: false, recent: [], pendingExports: [{ sessionId: 'call', startedAt: 1700000000000, bytes: 10000 }] };
 const messages = [];
 const context = vm.createContext({ document: { getElementById: id => elements.get(id), createElement: element }, Date, console,
-  setInterval() {}, chrome: { runtime: { async sendMessage(message) { messages.push(message); return message.type === 'core:get-status' ? { modules: { callCapture: status } } : { ok: true }; }, openOptionsPage() {} } } });
+  setInterval() {}, chrome: { runtime: { async sendMessage(message) { messages.push(message); return message.type === 'core:get-status' ? { modules: { callCapture: status, gptExporter: { isRunning: true, job: { phase: 'saving' } } } } : { ok: true }; }, openOptionsPage() {} } } });
 vm.runInContext(source, context);
 await new Promise(r => setImmediate(r));
 assert.equal(elements.get('exports').children.length, 2, 'pending session must expose explicit export');
@@ -23,3 +23,14 @@ await vm.runInContext('refresh()', context);
 assert.equal(elements.get('exports').children.length, 0, 'export must not be offered during a call');
 assert.ok(elements.get('hint').textContent.includes('retained in this browser'));
 console.log('PASS popup explicit export, selected session and in-call export suppression');
+
+elements.get('gpt-panel').hidden = true;
+await elements.get('gpt-open').listeners.click();
+assert.equal(elements.get('gpt-panel').src, '../modules/gpt-exporter/panel.html');
+assert.equal(elements.get('gpt-panel').hidden, false);
+assert.equal(elements.get('gpt-section').hidden, false);
+assert.equal(elements.get('gpt-summary').textContent, 'Export running: saving');
+const css = await readFile(new URL('../popup/popup.css', import.meta.url), 'utf8');
+assert.ok(css.includes('#gpt-panel { width: 100%;') && css.includes('height: 600px'));
+assert.ok(html.includes('title="ChatGPT export"') && !html.includes('src="../modules/gpt-exporter/panel.html"'));
+console.log('PASS shared popup keeps call status and hosts exporter controls only on request');

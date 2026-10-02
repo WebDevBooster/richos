@@ -105,6 +105,7 @@ export function detectPlatform(url) {
  * @returns {{arm: boolean, reason: string, platform: object|null}}
  */
 export function shouldAutoArm(tab, settings, now) {
+  if (isExcludedCapturePage(tab.url)) return { arm: false, reason: 'excluded-site', platform: null };
   const platform = detectPlatform(tab.url || '');
   if (settings.armMode !== 'auto') return { arm: false, reason: 'manual-mode', platform };
 
@@ -136,4 +137,9 @@ export function isCallTab(tab) {
   const platform = detectPlatform(tab.url || '');
   if (!platform) return false;
   return platform.requiresAudible ? Boolean(tab.audible) : true;
+}
+
+/** ChatGPT belongs exclusively to the exporter, including manual/unknown-audible capture. */
+export function isExcludedCapturePage(url) {
+  try { return ['chatgpt.com', 'chat.openai.com'].includes(new URL(url).hostname); } catch { return false; }
 }

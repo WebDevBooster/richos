@@ -1,10 +1,10 @@
 {
   "name": "richos-extension",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
-  "description": "RichOS Chrome extension (unified). Module 1: call capture. Node fields exist only so the test harness can import the extension's pure modules directly.",
+  "description": "RichOS Helper with independent call capture and GPT Exporter modules.",
   "scripts": {
     "test": "node tests/run.js",
     "test:live": "node tests/live-capture.mjs"

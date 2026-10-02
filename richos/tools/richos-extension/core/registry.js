@@ -14,7 +14,7 @@
  *     async onSettingsChanged(settings)  // optional
  *   }
  *
- * `modules/chatgpt-export/` will register itself here and reuse settings, output and
+ * `modules/gpt-exporter/` registers itself here and reuse settings, output and
  * alerting rather than duplicating them.
  */
 

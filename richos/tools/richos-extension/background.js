@@ -3,18 +3,20 @@
  *
  * The shell owns nothing but wiring: it registers modules, routes messages and boots.
  * All capture behavior lives in `modules/call-capture/`; the next module
- * (`modules/chatgpt-export/`) registers the same way and reuses core settings/output/alerts.
+ * (`modules/gpt-exporter/`) registers the same way and reuses core settings/output/alerts.
  *
  * MV3 note: every listener below is registered in the first turn of worker evaluation, so an
  * evicted worker wakes up correctly on the next event.
  */
 
 import { registerModule, initModules, routeMessage } from './core/registry.js';
+import { gptExporterModule } from './modules/gpt-exporter/controller.js';
 import { callCaptureModule, __testHooks } from './modules/call-capture/controller.js';
 import { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists } from './core/offscreen-host.js';
 import * as idb from './core/idb.js';
 
 registerModule(callCaptureModule);
+registerModule(gptExporterModule);
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || (msg.target && msg.target !== 'sw')) return false;
@@ -40,5 +42,6 @@ void initModules();
  */
 globalThis.__richos = {
   callCapture: __testHooks,
+  gptExporter: gptExporterModule,
   core: { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists, idb },
 };
