@@ -350,21 +350,54 @@ def _():
     assert "BLANK_LIMIT_MS" not in text and "400" not in open(os.path.join(PERF, "blankstart.py")).read()
 
 
-@case("iPhone: one session recording, each tap judged in its own window, the clocks joined at the first tap")
+@case("iPhone: one session recording, each tap judged in its own window, placed by the recording's start on the phone's clock")
 def _():
-    # the phone's clock runs 100 s ahead of the video's; three tap launches 4 s apart, each sent Home
-    # 2.9 s after its tap, and the home screen back 0.1 s later
-    launches = [(101.0, 103.9), (105.0, 107.9), (109.0, 111.9)]
-    seq = []
-    for k, video_tap in enumerate((1.0, 5.0, 9.0)):
-        seq += [(video_tap - 1.0, HOME), (video_tap, HOME_PRESSED), (video_tap + 0.05, paint(WHITE)),
-                (video_tap + 0.05 + (0.6 if k == 1 else 0.2), FINAL)]
-    seq.append((12.0, HOME))
+    # The recording began at 1000.0 on the phone's clock. Before the first tap the session shows the
+    # app, then swipes across the Home Screen (so the video's first change is NOT the tap); the Home
+    # Screen is still from 1 s before each tap. Three launches, each sent Home 2.9 s after its tap.
+    started_at = 1000.0
+    launches = [(1002.0, 1004.9), (1006.0, 1008.9), (1010.0, 1012.9)]
+    seq = [(0.0, FINAL), (0.4, HOME_PRESSED), (0.7, HOME)]
+    for k, video_tap in enumerate((2.0, 6.0, 10.0)):
+        if k:
+            seq.append((video_tap - 1.05, HOME))
+        seq += [(video_tap, HOME_PRESSED), (video_tap + 0.05, paint(WHITE)), (video_tap + 0.05 + (0.6 if k == 1 else 0.2), FINAL)]
     frames = [blank.Frame(t, W, H, f) for t, f in seq]
-    m = blankstart.iphone_cold_blank("/phone/session.mp4", launches, decode=lambda p: (frames, {"durationS": 13.0}))
+    m = blankstart.iphone_cold_blank("/phone/session.mp4", started_at, launches, decode=lambda p: (frames, {"durationS": 14.0}))
     assert m["samplesMs"] == [200.0, 600.0, 200.0], m
-    assert m["verdict"] == "PASS" and [o["recording"] for o in m["overLimit"]] == ["/phone/session.mp4#4.500-7.900"], m
-    assert "no tap moments" in raises(perfcore.Unmeasurable, blankstart.iphone_cold_blank, "/x.mp4", [], decode=None)
+    assert m["verdict"] == "PASS" and [o["recording"] for o in m["overLimit"]] == ["/phone/session.mp4#5.000-8.900"], m
+    assert "no tap moments" in raises(perfcore.Unmeasurable, blankstart.iphone_cold_blank, "/x.mp4", 0.0, [], decode=None)
+
+
+@case("iPhone: a phone-ios.py run directory gives the taps (tapAt), the leaves (next Home or terminate) and the recording's start")
+def _():
+    import json
+    steps = [{"do": "home", "start": 999.0, "ok": True, "detail": {}},
+             {"do": "tap", "start": 1001.5, "ok": True, "detail": {"label": "RichConnect", "tapAt": 1002.0}},
+             {"do": "sleep", "start": 1003.0, "ok": True, "detail": {}},
+             {"do": "home", "start": 1004.9, "ok": True, "detail": {}},
+             {"do": "tap", "start": 1005.0, "ok": True, "detail": {"label": "Settings", "tapAt": 1005.2}},
+             {"do": "tap", "start": 1005.5, "ok": False, "detail": {"label": "RichConnect", "tapAt": 1006.0}},
+             {"do": "tap", "start": 1009.5, "ok": True, "detail": {"label": "RichConnect", "tapAt": 1010.0}}]
+    lines = [json.dumps(s) + "\n" for s in steps]
+    assert blankstart.launches_from_steps(lines) == [(1002.0, 1004.9), (1010.0, None)], blankstart.launches_from_steps(lines)
+    with tempfile.TemporaryDirectory() as run:
+        os.makedirs(os.path.join(run, "attachments"))
+        with open(os.path.join(run, "steps.jsonl"), "w") as f:
+            f.writelines(lines[:4])
+        manifest = [{"attachments": [{"exportedFileName": "a.txt", "timestamp": 1.0},
+                                     {"exportedFileName": "REC.mp4", "timestamp": 1000.0}]}]
+        with open(os.path.join(run, "attachments", "manifest.json"), "w") as f:
+            json.dump(manifest, f)
+        assert blankstart.recording_from_run(run) == (os.path.join(run, "attachments", "REC.mp4"), 1000.0)
+        frames = [blank.Frame(t, W, H, f) for t, f in [(0.0, FINAL), (0.4, HOME_PRESSED), (0.7, HOME), (2.0, HOME_PRESSED),
+                                                        (2.05, paint(WHITE)), (2.65, FINAL)]]
+        starts = blankstart.iphone_run(run, decode=lambda p: (frames, {"durationS": 6.0}))
+        assert len(starts) == 1 and starts[0]["result"]["longestBlankMs"] == 600.0, starts
+        manifest[0]["attachments"].append({"exportedFileName": "TWO.mov", "timestamp": 2.0})
+        with open(os.path.join(run, "attachments", "manifest.json"), "w") as f:
+            json.dump(manifest, f)
+        assert "expected one screen recording" in raises(perfcore.Unmeasurable, blankstart.recording_from_run, run)
 
 
 # ------------------------------------------------------------------------------------------------

@@ -421,7 +421,8 @@ pilot; statements there that markers were absent are superseded by this section.
 
 The rule: from the moment any part of the app is visible, something useful or pleasing is on
 screen. White or one flat color is blank, and recoloring it does not help; the app's logo is not
-blank. A blank stretch, or content drawn and then moved, longer than `blank.BLANK_LIMIT_MS` fails.
+blank; an empty launch window still framed by a sliver of home screen during the opening animation
+is blank. A blank stretch, or content drawn and then moved, longer than `blank.BLANK_LIMIT_MS` fails.
 That constant is the one place the limit lives: 400 ms, above the Android release cold start he
 calls fine (its flat stretch after the logo, up to 350 ms) and below the half second he named as
 painful.
@@ -430,13 +431,14 @@ painful.
 python3 richos/mobile/perf/blank.py analyze <recording.mp4>             # one start: every blank stretch and jump, from the tap
 python3 richos/mobile/perf/blank.py series <recording.mp4>...           # several: median (p95 from 20), every start over the limit listed
 python3 richos/mobile/perf/blank.py frames <recording.mp4> --png <dir>  # what each frame was judged
+python3 richos/mobile/perf/blankstart.py iphone <phone-ios run dir>...  # iPhone tap launches recorded with phone-ios.py --screen-recording
 python3 richos/mobile/perf/launchscreen.py                              # the launch surfaces the apps declare: EMPTY or SHOWS
 ```
 
 | Part | What it does | Where it runs |
 |---|---|---|
 | `blank.py` | Decodes a recording with macOS AVFoundation (`framedump.swift`; no installed decoder), scales each frame to 144 px wide and judges it: blank when under 1% of the screen (system bars left out) differs from its dominant color. The opening animation of an empty window counts toward the stretch it grows into; a logo window's does not. A jump is a frame whose content, pixel for pixel, matches the settled screen only when moved 5% of its height or more. Times run from the tap: `--tap-at`, or the still home screen's first visible reaction. | Anyone, on any recording; `blankstart.py` |
-| `blankstart.py` | Android: `perf.py android` runs phase `cold-blank` with every `cold` run: `--blank-starts` (10) cold starts, each a force-stop, Home, and an `input tap` on the RichConnect icon on the launcher's first page while `screenrecord` records from 1 s before. iPhone: `iphone_cold_blank(recording, launches)` judges an XCTest screen recording of a tap-launch session, one window per (tap, leave) pair on the phone's clock. The record's `coldBlank` metric holds every start, the series verdict and the starts over the limit; a FAIL makes the run exit 1. | `perf.py android`; the iPhone call site arrives with the iPhone's tap launches |
+| `blankstart.py` | Android: `perf.py android` runs phase `cold-blank` with every `cold` run: `--blank-starts` (10) cold starts, each a force-stop, Home, and an `input tap` on the RichConnect icon on the launcher's first page while `screenrecord` records from 1 s before. iPhone: `iphone_cold_blank(recording, started_at, launches)` judges an XCTest screen recording of a tap-launch session (`phone-ios.py run --screen-recording`), one window per (tap, leave) pair on the phone's clock, placed by the recording's manifest `timestamp`; `python3 richos/mobile/perf/blankstart.py iphone RUN_DIR...` does the same from `phone-ios.py` run directories (their `steps.jsonl` and attachments). The record's `coldBlank` metric holds every start, the series verdict and the starts over the limit; a FAIL makes the run exit 1. | `perf.py android`; the iPhone call site arrives with the iPhone's tap launches |
 | `launchscreen.py` | Reads the launch surface each app declares (the iPhone launch screen; Android 12+'s system splash icon; Android 10-11's window background) and says EMPTY or SHOWS. | `richos/app/scripts/mobile-blank.test.sh`, selected by `proof-for.sh` at every commit that touches these files or the launch resources, and run at every land |
 
 Recordings of a phone are private: `perf.py` keeps them beside the record (`<out>.evidence/cold-blank/`,
