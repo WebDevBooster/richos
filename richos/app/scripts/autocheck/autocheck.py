@@ -1018,7 +1018,10 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         commands += [c for c in found if c not in commands]
     commands, nightly = for_the_nightly(repo, commands)
     # The physical-phone check reads the whole tree, about a second; every land runs it (physical_check).
-    commands += [f"python3 {PHYSICAL_CHECK} scan"] if (repo.top / PHYSICAL_CHECK).is_file() else []
+    # Written in the selection's own form, `cd <dir> && <command>`, the only line proof-run.py reads:
+    # the bare `python3 richos/mobile/physical.py scan` refused every land that selected it (2026-10-02).
+    scanner = Path(PHYSICAL_CHECK)
+    commands += [f"cd {scanner.parent} && python3 {scanner.name} scan"] if (repo.top / PHYSICAL_CHECK).is_file() else []
     commands += ["cd richos/engine && python3 scripts/mutation-anchors.py --quiet"] if any(p.startswith("richos/engine/") for p in covered | set(staged)) and (repo.top / "richos/engine/scripts/mutation-anchors.py").is_file() else []  # every mutant's target text still exists (the passes run only in the nightly; ~1 s)
     if nightly:
         say(f"autocheck: {what}: left to the nightly: " + ", ".join(f"{row['check']} ({row['why']})" for row in nightly))
