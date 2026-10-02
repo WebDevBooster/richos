@@ -1333,7 +1333,7 @@ def unprofiled_summary(launches, returns):
     return {"cold": cold, "warm": warm}
 
 
-def device_tap_series(hw, team, stamp_path, launches, returns, away, out_dir, runner=subprocess.run):
+def device_tap_series(hw, team, stamp_path, launches, returns, away, out_dir, runner=subprocess.run, screen_recording=False):
     """The tap launches and returns through the stamped build's runner. Returns (rows, summary-or-error)."""
     os.makedirs(out_dir, exist_ok=True)
     steps = tap_steps(launches, returns, away)
@@ -1353,7 +1353,8 @@ def device_tap_series(hw, team, stamp_path, launches, returns, away, out_dir, ru
     env = {**os.environ, "RICHOS_IOS_DEVICE": hw, "RICHOS_APPLE_TEAM": team}
     try:
         p = runner([sys.executable, PHONE_IOS, "run", steps_path, "--out", os.path.join(out_dir, "run"), "--prebuilt",
-                    "--stamp", stamp_path, "--allowance", str(allowance)],
+                    "--stamp", stamp_path, "--allowance", str(allowance)]
+                   + (["--screen-recording"] if screen_recording else []),
                    capture_output=True, text=True, env=env, timeout=allowance + 1800)
     except (subprocess.TimeoutExpired, OSError) as e:
         return [], f"the UI-test runner did not answer: {e}"
@@ -1389,7 +1390,8 @@ def _tap_series(args, record, state, seed, scratch, hw, work):
         record["notMeasured"].append({"what": "unprofiled taps", "why": f"the timing marker could not be written: {e}"})
         return 1
     rows, error = device_tap_series(hw, os.environ["RICHOS_APPLE_TEAM"], args.stamp, launches, returns,
-                                    getattr(args, "away", 2.0), out_dir)
+                                    getattr(args, "away", 2.0), out_dir,
+                                    screen_recording=getattr(args, "screen_recording", False))
     got = os.path.join(out_dir, "after", "RichOS")
     read_back = None
     try:

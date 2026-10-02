@@ -829,6 +829,9 @@ def parse_args(argv):
     i.add_argument("--tap-returns", type=int, default=0,
                    help="iPhone, seeded: returns by a tap on the icon, each with a probe touch on the transcript at a "
                         "set offset: is a touch delivered before iOS makes the scene active? (record `unprofiled`)")
+    i.add_argument("--screen-recording", action="store_true",
+                   help="with --tap-launches/--tap-returns: keep XCTest's recording of the phone's screen for the tap "
+                        "session (phone-ios.py run --screen-recording), under the evidence directory's taps/run")
     i.add_argument("--xctrace", action="store_true",
                    help="simulator only: run the physical trace path as a dry run (its frame data is refused)")
     i.add_argument("--app-arg", action="append",
