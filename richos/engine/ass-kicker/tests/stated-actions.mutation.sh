@@ -286,15 +286,50 @@ mutant refusal-lacks-the-declaration-form "n." "$P" \
     "an escape described but not spelled is an escape that gets waived by guesswork."
 
 # --- 4b. ARM 3: RECORDED, NOT WRITTEN ---------------------------------------
-mutant arm3-does-not-block "R6." "$P" \
-    '            return ARM3_BLOCK if enforce else 0' \
-    '            return 0' \
-    "the CEO asked for a hammer; a refusal printed beside a turn that ends anyway is the notice he already had."
+mutant arm3-alert-not-issued "R6." "$P" \
+    '    if arm3 is not None and not unmet and not undeclared:\n        emit_alert(arm3)' \
+    '    if False:\n        emit_alert(arm3)' \
+    "the CEO asked for an alert when a recorded claim had no matching write; a check that finds it and says nothing is no check."
 
-mutant arm3-stands-down-on-refire "R13." "$P" \
-    'ARM3_REFIRE_BLOCK = 2    #' \
-    'ARM3_REFIRE_BLOCK = 0    #' \
-    "the re-fire carries the corrected reply; standing down there lets the same false claim through on the second try."
+mutant arm3-silent-on-refire "R13." "$P" \
+    '            _arm3_log(payload, arm3)\n            emit_alert(arm3)' \
+    '            _arm3_log(payload, arm3)' \
+    "the re-fire carries the reply that ends the turn; staying silent there lets the false claim through when ARM 1 or 2 refused first."
+
+mutant arm3-alert-shown-to-the-ceo "R1." "$H" \
+    'out["hookSpecificOutput"] = {"hookEventName": "Stop"' \
+    'out["systemMessage"] = os.environ["ALERT_LINE"]\nout["hookSpecificOutput"] = {"hookEventName": "Stop"' \
+    "the CEO said he does not need to see it: the alert is the lead's, in the lead's own context, with no user-visible message."
+
+mutant arm3-alert-only-on-systemmessage "R1." "$H" \
+    'out["hookSpecificOutput"] = {"hookEventName": "Stop", "additionalContext": os.environ["ALERT_LINE"]}' \
+    'out["systemMessage"] = os.environ["ALERT_LINE"]' \
+    "a systemMessage reaches the person and never the model, so the lead would not read it (measured, stop-hook-notice.sh)."
+
+mutant arm3-alerts-on-a-written-record "R10." "$P" \
+    '    return [(s, c, p) for s, c, p in v["failing"] if c in ALERT_CODES]' \
+    '    return list(v["failing"])' \
+    "a claim backed by a durable write is true; alerting because the reply did not recite a path or SHA is the refusal this alert replaced."
+
+mutant arm3-alerts-on-a-citation "R4." "$P" \
+    'ALERT_CODES = ("nothing", "private")' \
+    'ALERT_CODES = ("nothing", "private", "state")' \
+    "'it is written in the three places I read' cites an existing record; it is not a claim that this turn wrote one."
+
+mutant arm3-confession-is-a-claim "R30." "$P" \
+    'if (ARM3_CONFESS_RE.search(c[m.start():]) or' \
+    'if (False or' \
+    "'I recorded it wrong.' confesses a past error; it claims no record in this turn."
+
+mutant arm3-others-saved-is-a-claim "R31." "$P" \
+    ' or ARM3_OTHERS_SAVED_RE.search(c)' \
+    ' or False' \
+    "'saved their work' is version control about somebody else's work, not a record."
+
+mutant arm3-description-is-a-claim "R32." "$P" \
+    'or ARM3_DESCRIBES_RE.search(s)):' \
+    'or False):' \
+    "'Documented, never fixed.' describes an existing document; it claims no write."
 
 mutant arm3-list-items-skipped "R1." "$P" \
     '        if m:\n            line = line[m.end():]' \
@@ -311,7 +346,7 @@ mutant arm3-shell-variable-not-expanded "R21." "$P" \
     '    pass' \
     "the 2026-09-08 memory write was M=…; cat > \"\$M/…\"; an unexpanded target is no target."
 
-mutant arm3-memory-is-a-record "R8." "$P" \
+mutant arm3-memory-is-a-record "R7." "$P" \
     '        return "memory"' \
     '        return "file"' \
     "a note in the private memory directory is not a record; §97 and the CEO both say so."
@@ -330,26 +365,6 @@ mutant arm3-ecs-not-private "R27." "$P" \
     '"ecs": bool(ECS_RE.search(command))}' \
     '"ecs": False}' \
     "most September 'Recorded.' lines had only an ECS checkpoint behind them; the refusal must say so."
-
-mutant arm3-commit-not-required "R10." "$P" \
-    '            if any(k == "repo" for _p, k in named) and not cited:' \
-    '            if False:' \
-    "a repository record without its commit is a file in a worktree that can still be thrown away."
-
-mutant arm3-typed-sha-counts "R12." "$P" \
-    ' and s in traffic]' \
-    ']' \
-    "a SHA is read from the turn's own output, never typed; a typed one proves nothing."
-
-mutant arm3-citation-borrows-a-path "R4b." "$P" \
-    '            here = bool(LOCATION_RE.search(win)) or any(s in win.lower() for s in cited)' \
-    '            here = concrete or bool(cited)' \
-    "the 2026-09-20 claim named no file; a path three paragraphs down excused it before this term."
-
-mutant arm3-registry-entry-not-counted "R26." "$P" \
-    '        if writes["record_script"] and entry_named:\n            continue' \
-    '        if False:\n            continue' \
-    "the workspace registry and the escalation ledger are records when the reply names the entry."
 
 mutant arm3-third-person-scanned "R23." "$P" \
     '            if not m and not (i > 0 and third):' \

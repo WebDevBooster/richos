@@ -107,7 +107,7 @@ def main():
     a = ap.parse_args()
     files = sorted((os.path.join(a.dir, f) for f in os.listdir(a.dir) if f.endswith(".jsonl")),
                    key=os.path.getmtime)
-    n_files = n_points = n_claims = n_refused = n_backed = n_unread = 0
+    n_files = n_points = n_claims = n_refused = n_backed = n_unread = n_alerted = 0
     out = open(a.out, "w", encoding="utf-8") if a.out else None
     tmpdir = tempfile.mkdtemp(prefix="record-claims-replay.")
     try:
@@ -129,6 +129,8 @@ def main():
                            "stop_hook_active": refired, "last_assistant_message": text}
                 v = gsa.record_claim_verdict(payload, text)
                 n_claims += 1
+                if gsa.unbacked_claims(v):
+                    n_alerted += 1
                 if v["verdict"] == "refused":
                     n_refused += 1
                 elif v["verdict"] == "backed":
@@ -138,6 +140,7 @@ def main():
                 if out:
                     out.write(json.dumps({"session": payload["session_id"][:8], "ts": ts, "prompt_id": pid,
                                           "refire": refired, "verdict": v["verdict"],
+                                          "alerted": bool(gsa.unbacked_claims(v)),
                                           "claims": v["claims"], "failing": v["failing"],
                                           "written": v["written"]}) + "\n")
     finally:
@@ -147,6 +150,7 @@ def main():
         if out:
             out.close()
     print(json.dumps({"files": n_files, "stop_points": n_points, "claim_turns": n_claims,
+                      "alerted": n_alerted, "judged_unbacked_or_unplaced": n_refused,
                       "refused": n_refused, "backed": n_backed, "unread": n_unread}))
 
 

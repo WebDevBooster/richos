@@ -302,6 +302,7 @@ fi
 
 # EXACTLY ONE NOTICE PER TURN — the ledger holds one state per (session, hook),
 # so the recovery line is an `else` of the declaration line, never before it.
+NOTICE_OUT=""
 DECLARED_LINE="$(printf '%s\n' "$ANALYZER_OUT" | grep -m1 "^RICHOS_STOP_DECLARED	" || true)"
 if [ -n "$DECLARED_LINE" ]; then
     # A DECLARED STOP IS SHOWN TO HIM, ALWAYS. Keyed on the case plus a hash of
@@ -310,11 +311,33 @@ if [ -n "$DECLARED_LINE" ]; then
     D_CASE="$(printf '%s' "$DECLARED_LINE" | cut -f2)"
     D_WHY="$(printf '%s' "$DECLARED_LINE" | cut -f3 | tr -d '\000-\010\013\014\016-\037')"
     D_TOP="$(printf '%s' "$DECLARED_LINE" | cut -f4)"
-    stop_notice_abnormal "declared:${D_CASE}:$(printf '%s' "$D_WHY" | cksum | tr -d ' ')" \
-        "STOP DECLARED — a teammate (\"${D_TOP}\") finished this turn, nothing was started, and the turn was let through on a declared exception (${D_CASE}), not on a check. The reason given, which is DECLARED AND NOT VERIFIED: \"${D_WHY}\". $HOOK_TAG"
+    NOTICE_OUT="$(stop_notice_abnormal "declared:${D_CASE}:$(printf '%s' "$D_WHY" | cksum | tr -d ' ')" \
+        "STOP DECLARED — a teammate (\"${D_TOP}\") finished this turn, nothing was started, and the turn was let through on a declared exception (${D_CASE}), not on a check. The reason given, which is DECLARED AND NOT VERIFIED: \"${D_WHY}\". $HOOK_TAG")"
 else
-    stop_notice_normal \
-        "STATED-ACTIONS GATE — RUNNING AGAIN. Reports are being checked against the turn's own tool calls once more. $HOOK_TAG"
+    NOTICE_OUT="$(stop_notice_normal \
+        "STATED-ACTIONS GATE — RUNNING AGAIN. Reports are being checked against the turn's own tool calls once more. $HOOK_TAG")"
+fi
+
+# THE RECORD ALERT (ARM 3). A reply that claims something was recorded, in a
+# turn that wrote nothing to a durable record, tells the LEAD, and only the
+# lead, to write it. Never a refusal, never a block, never shown to the CEO:
+# additionalContext named for Stop reaches the model (the envelope
+# notice-hook-staleness.sh uses), and systemMessage is deliberately absent.
+# Both outputs leave in ONE JSON line.
+ALERT_LINE="$(printf '%s\n' "$ANALYZER_OUT" | grep -m1 "^RICHOS_RECORD_ALERT	" | cut -f2- || true)"
+if [ -n "$ALERT_LINE" ]; then
+    ALERT_LINE="$ALERT_LINE" NOTICE_OUT="$NOTICE_OUT" python3 -c '
+import json, os
+out = {}
+try:
+    out = json.loads(os.environ.get("NOTICE_OUT", "").strip().splitlines()[-1])
+except Exception:
+    out = {}
+out["hookSpecificOutput"] = {"hookEventName": "Stop", "additionalContext": os.environ["ALERT_LINE"]}
+print(json.dumps(out))
+' || printf '%s\n' "$NOTICE_OUT"
+elif [ -n "$NOTICE_OUT" ]; then
+    printf '%s\n' "$NOTICE_OUT"
 fi
 
 # Only 2 is a block. Anything else — including a crash in the analyzer — lets

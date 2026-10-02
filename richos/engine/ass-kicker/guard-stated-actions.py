@@ -9,8 +9,8 @@ turn's REPORT agrees with the turn's ACTIONS, in three arms:
                              nothing.
   ARM 3  RECORDED, NOT       the text claims something was recorded, saved,
          WRITTEN             written down, logged, filed or made a rule, and
-                             the turn wrote it nowhere durable, or the reply
-                             does not say where.
+                             the turn wrote it nowhere durable. An ALERT to
+                             the lead, never a refusal.
 
 ===========================================================================
 ARM 3 — RECORDED, NOT WRITTEN (added 2026-10-02)
@@ -42,26 +42,26 @@ target is classified: the memory directory and ECS are PRIVATE; scratch and
 temp are nothing; a git work tree file is a REPOSITORY record; anything else
 durable is a FILE record.
 
-THE VERDICT, per claim:
-  * it names a repository file this turn wrote: the reply must also carry a
-    commit SHA that this turn's own traffic produced or read;
-  * it names a durable file this turn wrote, or the entry an engine record
-    command wrote, or cites in its own sentence a commit the turn saw: backed;
-  * it says plainly "in my private notes" and the turn wrote the memory
-    directory (or names the ECS record and the turn wrote one): backed;
-  * it points at "my notes" / "memory" without saying private: REFUSED;
-  * it wrote something durable and the reply does not say where: REFUSED;
-  * it wrote only private notes: REFUSED; it wrote nothing at all: REFUSED;
-  * a citation of an existing record ("it is written in", "already
-    recorded") must name its place in its own sentence: else REFUSED.
-
-THE HAMMER: the refusal quotes every failing sentence, says what the turn
-actually wrote, and lists the three ways out (write and commit it and say
-where; say "in my private notes"; or remove the claim). It runs on the
-re-fire too (ARMS 1 and 2 stand down there; ARM 3 does not), because the
-re-fire carries the corrected reply: a reply still claiming an unwritten record
-is refused again. There is no declaration or override line for it. Removing a
-false sentence needs no tool, so the arm cannot strand a turn.
+THE ALERT (CEO, 2026-10-02, replacing the refusal this arm first shipped as:
+"check whether or not a 'recorded' claim was followed by the appropriate action
+and then issue an alert if it wasn't", then "I don't need to see it. YOU need to
+see it and do your job."). Per claim, the turn either wrote it to a durable
+record or it did not:
+  * a repository or durable file, an engine record command's entry, or any
+    write at all: backed, SILENT. No SHA recital, no "where" recital;
+  * "in my private notes" and the turn wrote the memory directory: backed;
+  * the turn wrote ONLY a private note (memory or ECS) and the reply does not
+    say "in my private notes", or points at "my notes" without saying private:
+    ALERT;
+  * the turn wrote nothing at all: ALERT;
+  * a citation of an existing record ("it is written in", "already recorded"):
+    not an act of this turn, SILENT.
+The alert is one stdout line, RICHOS_RECORD_ALERT<TAB>text, which the wrapper
+turns into a Stop `additionalContext` (the lead's own context). It is never a
+refusal, never a block, and never a user-visible message. It runs on the
+re-fire too, because the re-fire carries the reply that ends the turn. The three
+misread classes the corpus replay found (a past confession, a teammate's "saved",
+a description of an existing document) are not claims.
 
 MEASURED: every Stop point in the governed project's lead transcripts (72
 sessions, 2026-08-07 to 2026-10-02), replayed through this file by
@@ -806,6 +806,19 @@ ARM3_SAVED_QTY_RE = re.compile(r"\bsaved\s+(?:you\s+|us\s+|me\s+|him\s+)?(?:\d|a
                                r"few)|an?\s+hour|time|minutes|hours|seconds|money|tokens|nothing|"
                                r"everything\s+from)", re.I)
 ARM3_LOGGED_IN_RE = re.compile(r"\blogged\s+(?:in|out|into|on)\b", re.I)
+# The three misread classes the corpus replay found (stated-actions.corpus.md):
+# a past CONFESSION ("I recorded it wrong."), a TEAMMATE's version-control
+# "saved" ("saved their work"), and a DESCRIPTION of an existing document
+# ("Documented, never fixed."). None of them claims a record made this turn.
+ARM3_CONFESS_RE = re.compile(r"\b(?:wrong(?:ly)?|incorrectly|falsely|mistakenly|by\s+mistake|inaccurately|"
+                             r"untruthfully|misrecorded|misfiled|too\s+early|prematurely)\b", re.I)
+ARM3_OTHERS_SAVED_RE = re.compile(r"\b(?:saved|filed|logged|captured|recorded)\s+(?:their|his|her|its)\s+"
+                                  r"(?:work|edits?|changes?|progress|branch|commits?|state|session)\b"
+                                  r"|\b(?:saved|logged|filed)\s+(?:work|edits|changes|progress)\b", re.I)
+ARM3_DESCRIBES_RE = re.compile(r"\bdocumented\s*,?\s*(?:and\s+)?(?:never|not|but\s+not|yet\s+to|still|"
+                               r"nowhere|unfixed|unresolved)\b"
+                               r"|\b(?:recorded|saved|logged|filed|captured)\s*,?\s*(?:and\s+)?(?:never|but\s+never|"
+                               r"but\s+not|yet\s+to|still\s+(?:not|open|unfixed))\b", re.I)
 # A sentence whose subject is somebody else: in "He nearly wrote five notes,
 # caught it, and recorded the anomaly", the bare "recorded" of the third
 # clause is HIS act, not the lead's.
@@ -907,6 +920,9 @@ def record_claims(message):
             if re.search(r"record", m.group(0), re.I) and ARM3_MEDIA_RE.search(s):
                 continue
             if ARM3_SAVED_QTY_RE.search(c) or ARM3_LOGGED_IN_RE.search(c):
+                continue
+            if (ARM3_CONFESS_RE.search(c[m.start():]) or ARM3_OTHERS_SAVED_RE.search(c)
+                    or ARM3_DESCRIBES_RE.search(s)):
                 continue
             # The tense is read from the clause, never the sentence: "I've
             # recorded Quint's workspace as merging: his record is already
@@ -1294,60 +1310,54 @@ def _arm3_log(payload, v):
         pass
 
 
-def arm3_refusal(v):
-    """THE HAMMER. Loud on purpose: the CEO asked for one, after asking
-    "recorded WHERE?" more times than any other single question of its kind."""
-    bar = "#" * 78
-    codes = {c for _s, c, _p in v["failing"]}
-    if codes <= {"nothing", "private"}:
-        headline = "This reply claims something was recorded. This turn did not record it."
-    elif codes <= {"sha"}:
-        headline = "This reply claims a record in a repository and names no commit."
-    else:
-        headline = "This reply claims something was recorded and does not say WHERE."
-    out = [bar,
-           "###  RECORDED WHERE?  TURN REFUSED.",
-           "###  " + headline,
-           bar]
-    for sentence, _code, problem in v["failing"]:
-        out.append("")
-        out.append("  YOU WROTE:")
-        out.append("      \"%s\"" % sentence)
-        out.append("")
-        out.append("  WHAT THIS TURN ACTUALLY DID: %s." % problem)
-    durable = [p for p, k in v["written"] if k in ("repo", "file")]
-    others = [p for p, k in v["written"] if k not in ("repo", "file")]
-    out.append("")
-    if durable:
-        out.append("  Files this turn wrote to a record: %s" % ", ".join(durable))
-    if others:
-        out.append("  Files this turn wrote that are NOT a record: %s" % ", ".join(others))
-    if not durable and not others:
-        out.append("  Files this turn wrote: none.")
-    out.append("")
-    out.append("  The CEO has had to ask \"recorded WHERE?\" over and over, because the")
-    out.append("  answer was nowhere (%s)." % CEO_ASKED_WHERE)
-    out.append("")
-    out.append("  DO ONE OF THESE, NOW, IN THIS TURN:")
-    out.append("    1. WRITE IT to a durable record (a repository file such as the rules")
-    out.append("       file or the decisions page), COMMIT it, and say WHERE: the path, or")
-    out.append("       the record and section, and the commit SHA.")
-    out.append("    2. If it is only in your memory directory, SAY SO in plain words:")
-    out.append("       \"in my private notes\". A note is not a record and not a rule.")
-    out.append("    3. Or REMOVE THE CLAIM and write what is true: it has not been recorded.")
-    out.append("")
-    out.append("  This refusal repeats on every attempt until the reply is true. There is")
-    out.append("  no override line and no stand-down. Do not weaken or unwire this hook.")
-    out.append("(hook: scripts/hooks/guard-stated-actions.sh, ARM 3)")
-    return "\n".join(out)
+ALERT_CODES = ("nothing", "private")
+
+
+def unbacked_claims(v):
+    """The claims the turn wrote nothing for: no durable write at all
+    ("nothing"), or only a private note the reply never called one
+    ("private"). A claim backed by a durable write is never alerted on, whether
+    or not the reply says where or cites a commit; a citation of an existing
+    record ("state") is not an act of this turn."""
+    if not v or v.get("verdict") != "refused":
+        return []
+    return [(s, c, p) for s, c, p in v["failing"] if c in ALERT_CODES]
+
+
+def arm3_alert_line(v):
+    """THE ALERT: one line (the host prefixes every line of a notice), never a
+    refusal. Names the claim and says nothing was written. '' when none."""
+    bad = unbacked_claims(v)
+    if not bad:
+        return ""
+    parts = []
+    for sentence, code, _p in bad[:3]:
+        one = " ".join(sentence.split())[:160]
+        if code == "private":
+            what = ("this turn wrote only a private memory note, and the reply never said "
+                    "\"in my private notes\"")
+        else:
+            what = "this turn wrote NOTHING to any durable record"
+        parts.append("the reply says: \"%s\" and %s" % (one.replace('"', "'"), what))
+    more = " (+%d more)" % (len(bad) - 3) if len(bad) > 3 else ""
+    return ("RECORD ALERT: " + " | ".join(parts) + more +
+            ". Lead: write it to the record now (a repository file, committed), or say it was not recorded.")
 
 
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
 
-ARM3_BLOCK = 2           # ARM 3 refuses a first Stop
-ARM3_REFIRE_BLOCK = 2    # ... and refuses the re-fire too, while the claim stands
+ALERT_PREFIX = "RICHOS_RECORD_ALERT\t"   # stdout line the hook wrapper turns into a notice
+
+
+def emit_alert(arm3):
+    """Print the alert line for the wrapper. Never blocks, never changes an
+    exit code: ARM 3 is an alert, not a refusal."""
+    line = arm3_alert_line(arm3)
+    if line:
+        sys.stdout.write(ALERT_PREFIX + line + "\n")
+    return bool(line)
 
 
 def main():
@@ -1360,18 +1370,16 @@ def main():
     if not message.strip():
         return 0
 
-    # ARM 3 runs FIRST and runs on the re-fire too. ARMS 1 and 2 stand down
-    # once a Stop hook has refused this turn; ARM 3 does not, because the
-    # re-fire carries the NEW reply, and a reply that still claims a record
-    # nobody wrote is refused again. Removing the claim needs no tool, so this
-    # can never strand a turn.
+    # ARM 3 is an ALERT (CEO 2026-10-02: "check whether or not a 'recorded'
+    # claim was followed by the appropriate action and then issue an alert if
+    # it wasn't"). It never refuses and never blocks. It runs on the re-fire
+    # too, because the re-fire carries the final reply, which is the one that
+    # reaches him.
     arm3 = record_claim_verdict(payload, message)
     if payload.get("stop_hook_active"):
         if arm3 is not None:
             _arm3_log(payload, arm3)
-            if arm3["failing"]:
-                sys.stderr.write(arm3_refusal(arm3) + "\n")
-                return ARM3_REFIRE_BLOCK if os.environ.get("RICHOS_SA_ENFORCE", "1") != "0" else 0
+            emit_alert(arm3)
         return 0
 
     entity_root = (os.environ.get("RICHOS_SA_ENTITY_ROOT") or payload.get("cwd") or os.getcwd())
@@ -1457,17 +1465,10 @@ def main():
     if arm3 is not None:
         record["arm3"] = {"claims": len(arm3["claims"]), "failing": len(arm3["failing"]),
                           "verdict": arm3["verdict"]}
-    if arm3 is not None and arm3["failing"]:
-        # THE HAMMER is printed on its own, ahead of anything ARM 1 or 2 has to
-        # say, and it blocks whatever they decided.
-        sys.stderr.write(arm3_refusal(arm3) + "\n")
-        if not unmet and not undeclared:
-            record["verdict"] = "block" if enforce else "report-only"
-            log()
-            # Spelled apart from ARM 1's return on purpose: the mutation harness
-            # rewrites that line by its text, and must reach ARM 1's, not this.
-            return ARM3_BLOCK if enforce else 0
-        sys.stderr.write("\n  (The same turn ALSO fails the stated-actions check below.)\n\n")
+    # The alert is spoken once, on the reply that ends the turn: when ARM 1 or 2
+    # is about to refuse this reply, the re-fire carries the one that counts.
+    if arm3 is not None and not unmet and not undeclared:
+        emit_alert(arm3)
 
     if not unmet and not undeclared:
         if reported:

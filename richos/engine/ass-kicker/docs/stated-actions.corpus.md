@@ -283,3 +283,22 @@ on a path starting with `//`.
 re-fire. The re-fire carries the corrected reply; if it still claims a record
 nobody wrote, it is refused again. Removing a false sentence needs no tool, so
 this cannot strand a turn, and there is no declaration line that excuses it.
+
+### ARM 3 became an alert (CEO, 2026-10-02)
+
+The refusal described above is replaced. His spec: check whether a "recorded"
+claim was followed by the appropriate action and issue an alert if it was not;
+then, "I don't need to see it. YOU need to see it and do your job." So ARM 3 no
+longer refuses, blocks or re-fires, recites no SHA, and shows the CEO nothing:
+it puts one line in the lead's own context (a Stop `additionalContext`) when the
+turn wrote nothing durable behind the claim, or only a private note the reply
+did not call one. Any durable write silences it, whether or not the reply names
+a place.
+
+Replay of the same 72 lead sessions (5,357 Stop points) after the change: 374
+claim turns, 87 alerted (a private note only, or nothing written), 287 silent
+(143 backed, 144 with a durable write behind them or a citation of an existing
+record). Read by hand, 6 of the 87 are clear misreads (a citation of an existing
+rule, a description of a document, a confession, git "saved and pushed") and 7
+more cannot be settled from the sentence alone; the other 74 are true alerts.
+The three misread classes named above are now excluded by the detector.
