@@ -295,6 +295,9 @@ class Run(Base):
         self.assertIn("does not exist in main yet", android["why"])
         titles = [e["title"] for e in self.escalated()]
         self.assertTrue(any("Android run COULD NOT MEASURE" in t for t in titles), titles)
+        for text in (self.escalations.read_text(), (self.base / "home/ledger.jsonl").read_text()):
+            self.assertNotIn(SERIAL, text, "the owner's device identifiers never reach the ledger or an escalation")
+            self.assertNotIn(IDENT, text)
 
     def test_W8_a_verb_that_would_uninstall_is_refused_and_the_phone_is_untouched(self):
         self.request()
@@ -333,6 +336,8 @@ class Run(Base):
             outcomes = self.run_round(env=env)
             self.assertEqual(outcomes[0]["verdict"], "unmeasured")
             self.assertIn("stayed busy", outcomes[0]["why"])
+            self.assertIn("time.sleep(60) <phone>", outcomes[0]["why"], "the busy process is named, the serial is not")
+            self.assertNotIn(SERIAL[:6], self.escalations.read_text(), "not even a shortened serial")
             self.assertIsNone(user.poll(), "the user's process is still running: nothing interrupted it")
             self.assertNotIn("cli-android", self.tools(), "nothing was installed or measured")
         finally:
@@ -466,9 +471,10 @@ class Busy(unittest.TestCase):
                  (40, 1, "adb -L tcp:5037 fork-server server --reply-fd 4"),
                  (50, 10, "adb -s emulator-5554 shell getprop"), (60, 10, "adb shell input keyevent 3"),
                  (70, 1, "/Library/Developer/PrivateFrameworks/CoreDevice.framework/CoreDeviceService")]
-        found = [pid for pid, _ in watch.users("android", [SERIAL], procs=procs, me=20)]
-        self.assertEqual(found, [30, 60], "another agent's phone tool and a serial-less adb client; not this run, "
-                                          "not the adb server, not an emulator")
+        users = watch.users("android", [SERIAL], procs=procs, me=20)
+        self.assertEqual([pid for pid, _ in users], [30, 60], "another agent's phone tool and a serial-less adb "
+                                                              "client; not this run, not the adb server, not an emulator")
+        self.assertEqual(users[0][1], "python3 phone-android.py tap --serial <phone> Send")
         self.assertEqual(watch.users("ios", [IDENT], procs=procs, me=20), [])
 
     def test_B2_the_wait_resets_on_every_busy_sample_and_never_interrupts(self):

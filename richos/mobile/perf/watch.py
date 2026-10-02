@@ -197,10 +197,20 @@ def mounted(path):
 # ------------------------------------------------------------------------------------------------
 
 _LEDGER_LOCK = threading.Lock()
+# Every identifier of a phone this run has seen (serial, UDID, CoreDevice id). The owner's device
+# identifiers never appear in the ledger or an escalation: escalation text is quoted into records,
+# and a public commit refuses them (engine/scripts/lib/device-identifiers.py).
+_PHONE_IDS = set()
+
+
+def scrub(text):
+    for ident in sorted(_PHONE_IDS, key=len, reverse=True):
+        text = text.replace(ident, "<phone>")
+    return text
 
 
 def record(event, **fields):
-    row = {"at": now(), "event": event, **fields}
+    row = json.loads(scrub(json.dumps({"at": now(), "event": event, **fields})))
     with _LEDGER_LOCK:
         home().mkdir(parents=True, exist_ok=True)
         with open(home() / "ledger.jsonl", "a") as f:
@@ -274,8 +284,8 @@ def runner_alive():
 def escalate(repo, title, question, tried, meanwhile="Nothing: the next land that touches richos/mobile/ "
              "runs the check again; `python3 richos/mobile/perf/watch.py status` shows every run."):
     """Raise one escalation in the lead's ledger. Returns True when delivered."""
-    fields = {"title": title, "state": "work-complete", "for": "lead", "question": question,
-              "tried": tried, "meanwhile": meanwhile}
+    fields = {k: scrub(v) for k, v in {"title": title, "state": "work-complete", "for": "lead", "question": question,
+                                       "tried": tried, "meanwhile": meanwhile}.items()}
     with tempfile.NamedTemporaryFile("w", prefix="phone-watch-esc-", suffix=".json", delete=False) as f:
         json.dump(fields, f)
         path = f.name
@@ -302,6 +312,7 @@ def changed_paths(repo, old, new):
 
 
 def mobile_commits(repo, base, tip, limit=30):
+    limit = limit if base else 10  # with no good run to start from, only the latest few
     spec = [f"{base}..{tip}"] if base else ["-n", str(limit), tip]
     out = git(repo, "log", "--oneline", "--no-decorate", *spec, "--", MOBILE, check=False)
     return (out.stdout.strip().splitlines() if out.returncode == 0 else [])[:limit]
@@ -452,7 +463,12 @@ def users(platform, idents, procs=None, me=None):
             # An adb client with no serial reaches whatever is attached; the server itself does not.
             hit = exe == "adb" and "fork-server" not in args and "emulator-" not in args
         if hit:
-            found.append((pid, args[:160]))
+            # Masked BEFORE it is shortened: a cut identifier would no longer be recognized.
+            words = args.split(" ", 1)
+            shown = " ".join([os.path.basename(words[0]), *words[1:]])
+            for ident in sorted((i for i in idents if i), key=len, reverse=True):
+                shown = shown.replace(ident, "<phone>")
+            found.append((pid, shown[:160]))
     return found
 
 
@@ -522,11 +538,14 @@ def find_phone(platform, work):
         phones = android_phones()
         if not phones:
             raise Unmeasured("no Android phone is wired to this Mac (adb devices lists none)")
+        _PHONE_IDS.update(phones)
         return phones[0], phones
     phones = iphones(work)
     if not phones:
         raise Unmeasured("no iPhone is wired to this Mac (devicectl lists none)")
-    return phones[0]["identifier"], [v for d in phones for v in (d["identifier"], d.get("udid")) if v]
+    idents = [v for d in phones for v in (d["identifier"], d.get("udid")) if v]
+    _PHONE_IDS.update(idents)
+    return phones[0]["identifier"], idents
 
 
 class Guard:
@@ -582,8 +601,9 @@ def run_logged(argv, log_path, env=None, cwd=None):
 
 
 def log_tail(log_path, lines=2):
+    """The last lines a tool printed (the logged command lines themselves are left out)."""
     try:
-        text = Path(log_path).read_text().strip().splitlines()
+        text = [line for line in Path(log_path).read_text().strip().splitlines() if not line.startswith("$ ")]
     except OSError:
         return ""
     return " / ".join(line.strip()[:200] for line in text[-lines:])
