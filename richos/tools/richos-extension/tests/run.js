@@ -84,6 +84,13 @@ test('recognizes the Zoom web client and extracts the meeting number', () => {
   assert.equal(zoom?.slug, '81234567890');
 });
 
+test('Zoom host and guest meeting routes are calls, but the dashboard is not', () => {
+  assert.equal(detectPlatform('https://app.zoom.us/wc/12345678901/start')?.slug, '12345678901');
+  assert.equal(detectPlatform('https://app.zoom.us/wc/join/12345678901')?.slug, '12345678901');
+  assert.equal(detectPlatform('https://app.zoom.us/wc/home?ref_from=launch'), null);
+  assert.equal(isCallTab({ url: 'https://app.zoom.us/wc/home', audible: false }), false);
+});
+
 test('recognizes Teams web meetings and Whereby rooms', () => {
   assert.equal(detectPlatform('https://teams.microsoft.com/v2/?meetingjoin=true')?.id, 'teams-web');
   assert.equal(detectPlatform('https://teams.live.com/l/meetup-join/xyz')?.id, 'teams-web');
