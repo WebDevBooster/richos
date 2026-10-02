@@ -629,8 +629,17 @@ rm -f "$E/scripts/lib/ownworld.test.sh"
 # operator's config/state, which a stricter witness of the whole directory
 # (Codex's wrapper, run 336) reported as a change to an isolated record. The
 # per-unit home must absorb it: the unit PASSES, and the operator's config is
-# byte for byte what it was, with no scratch ledger in it. The positive control
-# beside it is S15b: a worktree-ledger row is still red.
+# byte for byte what it was, with no row of the UNIT's allocation in it. The
+# positive control beside it is S15b: a worktree-ledger row is still red.
+#
+# The one row the operator's scratch ledger may gain is the RUNNER's own
+# (2026-10-02, cc/zach-opus-tmpvanish1): ci-shard.sh takes its run folder from
+# the registered allocator (lib/scratch.sh, working rule 5), so the reaper can
+# remove that folder if ci-shard.sh is SIGKILLed, and the allocator records it
+# in the ledger of whoever runs ci-shard.sh, here the operator. That is the
+# runner's registration, not a unit's write, so this case checks it instead of
+# forbidding the file: exactly one `ci-shard` allocation, released when the run
+# ended, and nothing else. A unit's allocation reaching that ledger is still red.
 cp "$ENGINE_ROOT/scripts/lib/scratch.sh" "$E/scripts/lib/scratch.sh"
 mkdir -p "$SANDBOX/unit-tmp"
 cat > "$E/scripts/lib/scratchonly.test.sh" <<SCRATCHONLY
@@ -643,20 +652,37 @@ printf '%s\n' "\$(scratch_ledger)" > "$FLAGS/scratch-ledger-path.txt"
 exit 0
 SCRATCHONLY
 chmod +x "$E/scripts/lib/scratchonly.test.sh"
-op_record_state() { # every path under the operator's config, and every file's hash
-    ( cd "$OPCFG" && find . -print | LC_ALL=C sort && find . -type f -exec shasum -a 256 {} + | LC_ALL=C sort )
+op_record_state() { # every path under the operator's config, and every file's hash, but the scratch ledger (judged below)
+    ( cd "$OPCFG" && find . -print | grep -vxF ./state/scratch-ledger.jsonl | LC_ALL=C sort \
+      && find . -type f ! -path ./state/scratch-ledger.jsonl -exec shasum -a 256 {} + | LC_ALL=C sort )
+}
+op_ledger_only_the_runner() { # exactly one `ci-shard` allocation, released, and no other row
+    python3 - "$OPCFG/state/scratch-ledger.jsonl" <<'PY'
+import json, os, sys
+try:
+    rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+except OSError as e:
+    print(f"no scratch ledger: {e}"); sys.exit(1)
+real = lambda p: os.path.realpath(p or "")  # scratch_new records TMPDIR's spelling, scratch_release the real path
+new = [r for r in rows if r.get("event") == "new"]
+released = {real(r.get("path")) for r in rows if r.get("event") == "release"}
+other = [r for r in rows if r.get("event") not in ("new", "release")]
+if len(new) != 1 or new[0].get("label") != "ci-shard" or real(new[0].get("path")) not in released or other \
+        or len(rows) != 2:
+    print("unexpected rows: " + "; ".join(json.dumps(r) for r in rows)); sys.exit(1)
+PY
 }
 rm -f "$OPCFG/state/scratch-ledger.jsonl"
 OP_BEFORE="$(op_record_state)"
 RC="$(op_shard --only-units scripts/lib/scratchonly.test.sh)"
 OP_AFTER="$(op_record_state)"
 UNIT_LEDGER="$(cat "$FLAGS/scratch-ledger-path.txt" 2>/dev/null || true)"
-if [ "$RC" = "0" ] && [ -n "$UNIT_LEDGER" ] && [ "$OP_BEFORE" = "$OP_AFTER" ] \
-   && [ ! -e "$OPCFG/state/scratch-ledger.jsonl" ] \
+if LEDGER_WHY="$(op_ledger_only_the_runner)"; then LEDGER_OK=1; else LEDGER_OK=0; fi
+if [ "$RC" = "0" ] && [ -n "$UNIT_LEDGER" ] && [ "$OP_BEFORE" = "$OP_AFTER" ] && [ "$LEDGER_OK" = 1 ] \
    && case "$UNIT_LEDGER" in "$OPHOME"/*) false ;; *) true ;; esac; then
-    ok "S15i Codex 337: a unit that only allocates and releases scratch PASSES, its first scratch ledger is created in its own home ($UNIT_LEDGER), and the operator's config is unchanged"
+    ok "S15i Codex 337: a unit that only allocates and releases scratch PASSES, its first scratch ledger is created in its own home ($UNIT_LEDGER), and the operator's config is unchanged but for the runner's own released ci-shard allocation"
 else
-    bad "S15i rc=$RC — the first scratch_new reached the operator's config (unit's ledger: ${UNIT_LEDGER:-none})"
+    bad "S15i rc=$RC — the first scratch_new reached the operator's config (unit's ledger: ${UNIT_LEDGER:-none}; operator's scratch ledger: ${LEDGER_WHY:-only the runner allocation})"
     diff <(printf '%s\n' "$OP_BEFORE") <(printf '%s\n' "$OP_AFTER") | sed 's/^/          /'
     sed 's/^/          /' "$SANDBOX/out"
 fi
