@@ -8884,8 +8884,8 @@
     },
     "scripts/lib/device-identifiers.py": {
       "source": "scripts/lib/device-identifiers.py",
-      "sha256": "ea6527aad936c0f53655e12733e298e3b25bc9e05eba67f84f34adb931dc4c7c",
-      "evidence": "Full file reviewed (2026-10-02). Environment reads: RICHOS_DEVICE_IDENTIFIERS_FILE only, an operator-scope path override, never an orchestration.config key; HOME via expanduser. The one subprocess is the external git executable (rev-parse --is-inside-work-tree on the list's folder), not an engine reader. Manifest rows and blobs are supplied data; no engine imports, no config reads, no writes.",
+      "sha256": "aa681157712058a199f4f9fc63bb860da8a74be5d1d386b8daf53e23a2f24d4f",
+      "evidence": "Full file reviewed (2026-10-02, renewed for --scan-tree). Environment reads: RICHOS_DEVICE_IDENTIFIERS_FILE only, an operator-scope path override, never an orchestration.config key; HOME via expanduser. The only subprocess is the external git executable (rev-parse --is-inside-work-tree on the list's folder; ls-files and grep --cached on the repository path the caller names), not an engine reader. Manifest rows and blobs are supplied data; no engine imports, no config reads, no writes.",
       "keys": [],
       "edges": []
     },
@@ -8954,7 +8954,7 @@
     },
     "scripts/hooks/publication-boundary.test.sh": {
       "source": "scripts/hooks/publication-boundary.test.sh",
-      "sha256": "198c80c5befcad56b01869137fe5bfd4beb627065efb3759042a0bbd5e76609b",
+      "sha256": "4870131f14f3470e95ad64e94822b5df3871d89ea9a606c829433d9ac3b0147c",
       "evidence": "Harness and executable call inventory reviewed. All publication declarations, corpus content and Git histories are generated fixtures. Real engine root remains the adoption seat. PUBLICATION_DECLARATION uses its unsourced environment/default value, not orchestration.config. Three literal source replacements mutate only the publication predicate and published-copy field; installer/probe reads are text assertions.",
       "keys": [],
       "edges": [
@@ -16604,7 +16604,7 @@
         "scripts/hooks/guard-publication-writes.sh"
       ],
       "sources": {
-        "scripts/hooks/publication-boundary.test.sh": "198c80c5befcad56b01869137fe5bfd4beb627065efb3759042a0bbd5e76609b",
+        "scripts/hooks/publication-boundary.test.sh": "4870131f14f3470e95ad64e94822b5df3871d89ea9a606c829433d9ac3b0147c",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",

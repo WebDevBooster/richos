@@ -936,6 +936,27 @@ class Land(Fixture):
         self.assertIn("lint --changed", self.tools())
         self.git("merge", "--abort")
 
+    def test_a_merge_whose_tree_holds_a_listed_device_identifier_is_refused_without_printing_it(self):
+        # 2026-10-02: a CoreDevice id reached a branch in a commit made before the commit-time
+        # scan existed, and a merge carries what a branch already holds. The gate reads the whole
+        # tree being landed: file:line and a masked preview, never the identifier (synthetic here).
+        serial = "ZZDEVSERIAL0042"
+        listing = self.base / "device-identifiers"
+        listing.write_text(f"# synthetic\n{serial}\n")
+        self.env["RICHOS_DEVICE_IDENTIFIERS_FILE"] = str(listing)
+        self.make()
+        self.branch_with("feature", "richos/app/src/audit.txt", f"line one\nphone {serial}\n", no_verify=True)
+        before = self.head("main")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        text = out.stdout + out.stderr
+        self.assertIn("MERGE INTO MAIN REFUSED: the tree holds an identifier of a known test device", text)
+        self.assertIn("richos/app/src/audit.txt:2", text)
+        self.assertNotIn(serial, text)
+        self.assertEqual(self.head("main"), before)
+        self.git("merge", "--abort")
+        self.branch_with("clean", "richos/app/src/audit.txt", "phone <android-phone>\n")
+        self.git("merge", "--no-ff", "-m", "land clean", "clean")
+
     def test_the_merge_gate_selects_with_gate_lints_the_change_and_caps_the_run(self):
         # 2026-09-30: merges of 25 to 71 minutes, whole-product suites for tooling changes and
         # no cap that a planned weight could not stretch. The land asks proof-for.sh for the
