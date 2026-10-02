@@ -199,6 +199,8 @@ pub struct WorkVerdict {
 ///   here guesses.
 /// - **[`Unattributed::WorkerLogUnreadable`]** — [`Liveness::Unknown`]. The directory is
 ///   known and its worker log is there, and it could not be read.
+/// - **[`Unattributed::WorkerLogDamaged`]** — [`Liveness::Unknown`]. The log was read and a
+///   line of it was not a record.
 ///
 /// **The match is exhaustive rather than wildcarded, and that earned its keep on the first
 /// compile:** `OverrideNotADirectory` was added to `worker_status` after this file was
@@ -249,6 +251,12 @@ pub fn workers(view: &WorkerStatusView) -> (Liveness, Option<String>) {
         Some(Unattributed::WorkerLogUnreadable) => (
             Liveness::Unknown,
             Some("RichOS could not read its record of which workers are running.".into()),
+        ),
+        // Finding 41, v2 re-check: part of the log could not be read, and that part may have
+        // started a worker or ended one.
+        Some(Unattributed::WorkerLogDamaged) => (
+            Liveness::Unknown,
+            Some("RichOS could not read part of its record of which workers are running.".into()),
         ),
     }
 }
@@ -526,6 +534,7 @@ mod tests {
             items: Vec::new(),
             liveness_unknown: unknown,
             unattributed: None,
+            completion_history_unavailable: None,
         }
     }
 
