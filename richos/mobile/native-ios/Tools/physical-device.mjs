@@ -13,7 +13,8 @@
 // cache as before and is never published.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runDeviceProcess } from '../../cli/device-runner.mjs';
@@ -83,6 +84,29 @@ export function deviceArgs(args, env) {
     else rest.push(args[i]);
   }
   return { args: rest, env: { ...env, RICHOS_IOS_DEVICE: device }, expect };
+}
+
+// xcodebuild's `-destination id=` knows a phone only by its hardware UDID (8-16 hex); devicectl,
+// and so `--device` from richos/mobile/perf/watch.py, uses the CoreDevice identifier (a UUID).
+// Handing xcodebuild the CoreDevice identifier is "Unable to find a device matching the provided
+// destination specifier" (the 2026-10-02 17:22Z phone speed run). `devices` is devicectl's
+// `list devices` JSON `result.devices`; devicectl accepts the hardware UDID too, so one spelling serves both.
+export function hardwareUdid(device, devices) {
+  const want = String(device).toLowerCase();
+  for (const d of devices) {
+    const udid = d.hardwareProperties?.udid;
+    if (udid && (String(d.identifier).toLowerCase() === want || udid.toLowerCase() === want)) return udid;
+  }
+  if (/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$|^[0-9A-Fa-f]{40}$/.test(device)) return device;
+  throw Error('Refused: that iPhone is not in `xcrun devicectl list devices`; connect it with its cable and unlock it once');
+}
+
+function listedDevices() {
+  const dir = mkdtempSync(join(tmpdir(), 'rios-devices-'));
+  try {
+    execFileSync('xcrun', ['devicectl', 'list', 'devices', '--json-output', join(dir, 'd.json')], { stdio: 'ignore', timeout: 60000 });
+    return JSON.parse(readFileSync(join(dir, 'd.json'), 'utf8')).result.devices;
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 // A store entry is named by the FIRST commit that built its tree, so a later commit with the same
@@ -249,6 +273,7 @@ export async function main(args, env = process.env) {
   env = parsed.env;
   const [command, selection] = parsed.args;
   const settings = configuration(env, command, selection);
+  if (command !== 'stamp') settings.device = hardwareUdid(settings.device, listedDevices());
   const cache = join(env.RICHOS_NATIVE_IOS_CACHE, 'physical');
   mkdirSync(cache, { recursive: true });
   if (!realpathSync(cache).startsWith('/Volumes/E1TB/')) throw Error('Physical cache must remain on the external SSD');
