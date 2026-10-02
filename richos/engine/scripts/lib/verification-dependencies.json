@@ -5804,7 +5804,7 @@
     },
     "ass-kicker/guard-stated-actions.py": {
       "source": "ass-kicker/guard-stated-actions.py",
-      "sha256": "4cac3b0ff319b9f76a5f3475f04d2d8231d078f519184d10f38723d3ae3270c2",
+      "sha256": "10c7983c62979512e67c0e02dd52c0bcd4eee06579752937cd0906a78e7c285d",
       "evidence": "AST I/O/import boundaries: parses payload/transcript data, lists role names, reads team JSON and appends a verdict ledger. The only dynamic imports are the fixed turn-manifest and idle-land analyzers. Neither transcript commands nor role Markdown are executed. Ambient roster inputs require separate execution-reuse qualification. ARM 3 (record claims) additionally reads the turn's tool inputs and results from the transcript, checks each write target's ancestors for a .git entry, and runs a read-only git check-ignore there; it writes nothing beyond the same verdict ledger and, on stdout, one RICHOS_RECORD_ALERT line the wrapper turns into lead-only context (read-only, no new file or key).",
       "keys": [],
       "edges": [
@@ -5844,7 +5844,7 @@
     },
     "ass-kicker/tests/guard-stated-actions.test.sh": {
       "source": "ass-kicker/tests/guard-stated-actions.test.sh",
-      "sha256": "644e8cc86ae961a5a126d116fd5e3604e6dbaefd5c3fc9176d394febc214fea9",
+      "sha256": "097e7c8c80a6716c215b14d9b37011e14d6175a9769e9badc44b4718350f258c",
       "evidence": "All hook invocations use the explicit private entity or private unadopted repository. Entity configs are empty or contain literal flag overrides; transcripts and role Markdown are generated as data. Mirror fixtures exercise missing helpers; the real analyzer is otherwise invoked. No mutation harness is called here. Case R29 runs the corpus replay tool on a generated one-session fixture directory with a sandbox --out path.",
       "keys": [],
       "edges": [
@@ -16090,8 +16090,8 @@
       "all_events": true,
       "evidence": "Every scoped section derives its sandbox inventory from the entire real hooks manifest before dispatch. All event changes remain observable, including future events. These source bindings cover the shared inventory builders and all currently qualified scoped execution closures.",
       "sources": {
-        "ass-kicker/guard-stated-actions.py": "4cac3b0ff319b9f76a5f3475f04d2d8231d078f519184d10f38723d3ae3270c2",
-        "ass-kicker/tests/guard-stated-actions.test.sh": "644e8cc86ae961a5a126d116fd5e3604e6dbaefd5c3fc9176d394febc214fea9",
+        "ass-kicker/guard-stated-actions.py": "10c7983c62979512e67c0e02dd52c0bcd4eee06579752937cd0906a78e7c285d",
+        "ass-kicker/tests/guard-stated-actions.test.sh": "097e7c8c80a6716c215b14d9b37011e14d6175a9769e9badc44b4718350f258c",
         "ass-kicker/tests/stated-actions.mutation.sh": "80f74088499eed72e5349e2c36af809e1600be59ebbddc197344fb4943239ad0",
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
@@ -16931,7 +16931,7 @@
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-stale-staging.sh": "3aaaea16970f7d9cb08b4600ba1a2edad55333c24115e7fb759cedc9512b1a6e",
         "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
-        "ass-kicker/guard-stated-actions.py": "4cac3b0ff319b9f76a5f3475f04d2d8231d078f519184d10f38723d3ae3270c2",
+        "ass-kicker/guard-stated-actions.py": "10c7983c62979512e67c0e02dd52c0bcd4eee06579752937cd0906a78e7c285d",
         "scripts/hooks/turn-manifest.py": "e04420bc04a4910a3ee370a031e62b4ca6b6a52a8499cba824d6363fd732a8b1",
         "scripts/hooks/guard-stop-live-work.sh": "5cd71abf69697f041f48560ab09d6e7f7f4b2324761916b07b589569ff7dd17e",
         "scripts/lib/stop-live-work.py": "d39269d911e9456fd0bbce45b95e67919c36dd4b7ecb96c58b3e4a8bd262532a",
