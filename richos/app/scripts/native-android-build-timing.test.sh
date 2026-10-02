@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='build-timing-', dir=os.environ.get('TMP
     seen = root / 'seen'
     fake = root / 'randroid'
     fake.write_text('#!/bin/sh\n'
-                    'echo "native-work: 1 core; stand-in" >&2\n'
+                    'echo "native-work: 1 core; stand-in (admitted after 0.5 s)" >&2\n'
                     'if grep -q BUILD_TIMING_PROBE "%s"; then echo edited >> "%s"; else echo clean >> "%s"; fi\n'
                     % (source, seen, seen))
     fake.chmod(0o755)
@@ -39,7 +39,9 @@ with tempfile.TemporaryDirectory(prefix='build-timing-', dir=os.environ.get('TMP
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
     assert [b['build'] for b in report['builds']] == ['prime', 'no-op', 'incremental', 'revert'], report
-    assert all(b['exit'] == 0 and b['native_work'] == ['native-work: 1 core; stand-in'] for b in report['builds']), report
+    assert all(b['exit'] == 0 and b['native_work'] == ['native-work: 1 core; stand-in (admitted after 0.5 s)']
+               and b['admitted_after'] == 0.5 and b['build_seconds'] == round(b['seconds'] - 0.5, 1)
+               for b in report['builds']), report
     assert seen.read_text().split() == ['clean', 'clean', 'edited', 'clean'], seen.read_text()
     assert source.read_bytes() == original, 'the edit was left behind'
     source.write_bytes(original + b'// somebody else\n')

@@ -208,6 +208,7 @@ def run(command):
     lane_dir = Path(directory).parent / 'native-build-v1'
     worker_tokens.init(lane_dir, 1)
     lane = token = None
+    started = time.monotonic()
     try:
         # ONE ORDER, THE PROOF WORKERS' OWN: the machine worker first, the compiler lane
         # second. A proof worker already holds its slot when it reaches a build and then
@@ -239,13 +240,21 @@ def run(command):
         plan = None
         if gradle and daemons_enabled():
             plan = gradle_daemons.prepare(workspace, gradle_daemons.gradle_home(), gradle_processors(cores))
-        print('native-work: %d core%s; Cargo %d, a JVM %d, Gradle %s (%d cpus, %s, %d worker%s admitted, target %d%%)' % (
-            cores, '' if cores == 1 else 's', one_process(cores), JVM_CORES,
-            'cold, 1 processor' if gradle and not plan else
-            '%s daemon, %d processor%s' % ('warm' if plan['reused'] else 'new', plan['processors'],
-                                         '' if plan['processors'] == 1 else 's') if plan else 'n/a',
-            cpus, 'CPU not measured' if busy is None else '%.0f%% busy at admission' % busy,
-            held, '' if held == 1 else 's', DEFAULT_MAX_CPU - CEO_HEADROOM_PERCENT), file=sys.stderr, flush=True)
+        if not gradle:
+            gradle_line = ''
+        elif plan:
+            gradle_line = ', Gradle %s daemon %d processor%s' % (
+                'warm' if plan['reused'] else 'new', plan['processors'], '' if plan['processors'] == 1 else 's')
+        else:
+            gradle_line = ', Gradle cold 1 processor'
+        # Admitted after: the wait for a machine worker, the compiler lane and CPU headroom,
+        # so a build's own time can be told from its time in the queue.
+        print('native-work: %d core%s; Cargo %d, a JVM %d%s (%d cpus, %s, %d worker%s admitted, target %d%%, '
+              'admitted after %.1f s)' % (
+                  cores, '' if cores == 1 else 's', one_process(cores), JVM_CORES, gradle_line,
+                  cpus, 'CPU not measured' if busy is None else '%.0f%% busy at admission' % busy,
+                  held, '' if held == 1 else 's', DEFAULT_MAX_CPU - CEO_HEADROOM_PERCENT,
+                  time.monotonic() - started), file=sys.stderr, flush=True)
         command = capped(command, cores, daemon=plan)
         env = {**os.environ, 'RICHOS_MACHINE_WORKERS': directory,
                'JAVA_TOOL_OPTIONS': (os.environ.get('JAVA_TOOL_OPTIONS', '') + ' -XX:ActiveProcessorCount=%d' % JVM_CORES).strip(),

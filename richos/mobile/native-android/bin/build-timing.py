@@ -25,6 +25,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -50,7 +51,12 @@ def build(label):
     result = subprocess.run([str(RANDROID), 'build', 'release'], capture_output=True, text=True)
     seconds = round(time.monotonic() - started, 1)
     admission = [line for line in result.stderr.splitlines() if line.startswith('native-work:')]
+    # native-work says how long admission (machine worker, compiler lane, CPU headroom) took;
+    # the build's own time is the rest.
+    waited = [float(m.group(1)) for line in admission for m in [re.search(r'admitted after ([0-9.]+) s', line)] if m]
     row = {'build': label, 'seconds': seconds, 'exit': result.returncode,
+           'admitted_after': waited[0] if waited else None,
+           'build_seconds': round(seconds - waited[0], 1) if waited else None,
            'host_busy_before': busy, 'native_work': admission}
     if result.returncode:
         row['stderr_tail'] = result.stderr[-2000:]
