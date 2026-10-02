@@ -2257,7 +2257,7 @@
     },
     "scripts/lib/ci-surface.py": {
       "source": "scripts/lib/ci-surface.py",
-      "sha256": "dbd588a4a4f4f0f75cd0025630c6138b6266f94f827ac1e73ffe0e34b88266f7",
+      "sha256": "1f9db70f27901ad81502a653ef2bcf9e1a37a6cfde96ba4d69fe451bc38f23f4",
       "evidence": "The adoption marker is used only by os.path.isfile in repository discovery. Values come from workflow source, API/cache data and the separate CI pause registry. Subprocesses are gh api and git history queries; no workflow program or orchestration setting is executed.",
       "keys": [],
       "edges": [
@@ -16261,7 +16261,7 @@
         "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/ci-status.sh": "cdc53d28b1814b1e53d6fe9debf95b4a72d361a34e650da60f53ac19462ff3b6",
-        "scripts/lib/ci-surface.py": "dbd588a4a4f4f0f75cd0025630c6138b6266f94f827ac1e73ffe0e34b88266f7",
+        "scripts/lib/ci-surface.py": "1f9db70f27901ad81502a653ef2bcf9e1a37a6cfde96ba4d69fe451bc38f23f4",
         "scripts/escalate.sh": "9f9de4d2efea2703c9e6fd0ff7f9c3479c5cb15fc6e0df7ec58ae4a8339616f0",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/escalations.py": "b221aa573110d20f2031d76edec1312c3875929e517ced3f631923468729086b",
@@ -16908,7 +16908,7 @@
         "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/ci-status.sh": "cdc53d28b1814b1e53d6fe9debf95b4a72d361a34e650da60f53ac19462ff3b6",
-        "scripts/lib/ci-surface.py": "dbd588a4a4f4f0f75cd0025630c6138b6266f94f827ac1e73ffe0e34b88266f7",
+        "scripts/lib/ci-surface.py": "1f9db70f27901ad81502a653ef2bcf9e1a37a6cfde96ba4d69fe451bc38f23f4",
         "scripts/escalate.sh": "9f9de4d2efea2703c9e6fd0ff7f9c3479c5cb15fc6e0df7ec58ae4a8339616f0",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/lib/escalations.py": "b221aa573110d20f2031d76edec1312c3875929e517ced3f631923468729086b",
