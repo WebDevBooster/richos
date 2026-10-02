@@ -31,8 +31,9 @@ const checks = {
 };
 
 export const DEFAULT_STORE = '/Volumes/E1TB/caches/richos-native-ios/physical-store';
-// A signed Release device build, including native-work's CPU-admission wait before it starts.
-export const BUILD_LIMIT_MS = 1800000;
+// A signed Release device build, counted from native-work's admission: the wait before it (a machine
+// worker, the build lane, CPU headroom) has its own bound, device-runner's ADMISSION_LIMIT_MS.
+export const BUILD_LIMIT_MS = 600000;
 const APP = 'Release-iphoneos/RichOSNative.app';
 const RUNNER = 'Release-iphoneos/RichOSNativeUITests-Runner.app';
 
@@ -312,11 +313,11 @@ export async function main(args, env = process.env) {
         '-destination', `id=${settings.device}`, '-derivedDataPath', derived,
         `DEVELOPMENT_TEAM=${settings.team}`, 'CODE_SIGN_STYLE=Automatic', 'CODE_SIGN_IDENTITY=Apple Development',
         'RICHOS_APS_ENVIRONMENT=development', '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
-      // The limit also holds native-work's wait for the Mac's CPU line before xcodebuild starts:
-      // on 2026-10-02 that wait was 557 s of a 600 s limit, and the Release build (one Swift job) was
-      // stopped mid-compile ("BUILD INTERRUPTED"). The test sessions' allowance had the same lesson.
+      // The limit starts when native-work admits the build (`admission: true`), never at the queue:
+      // on 2026-10-02 the wait for the Mac's CPU line was 557 s of a 600 s limit counted from the
+      // queue, and the Release build (one Swift job) was stopped mid-compile ("BUILD INTERRUPTED").
       const built = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'build-for-testing', ...base],
-        { log, env, health, timeoutMs: BUILD_LIMIT_MS });
+        { log, env, health, timeoutMs: BUILD_LIMIT_MS, admission: true });
       if (built.status !== 0) throw Error(`Device build failed: ${log}`);
     },
   });
@@ -361,7 +362,7 @@ p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(pli
     const tested = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'test-without-building',
       '-xctestrun', spec, '-destination', `id=${settings.device}`, '-resultBundlePath', result,
       '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', String(allowance)],
-    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: (allowance + 60) * 1000 });
+    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: (allowance + 60) * 1000, admission: true });
     if (tested.status !== 0) throw Error(`Physical check failed: ${result}. No retry attempted.`);
     const summary = JSON.parse(execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', result, '--format', 'json'], { encoding: 'utf8', env }));
     writeFileSync(result + '.summary.json', JSON.stringify(summary, null, 2));
