@@ -411,14 +411,18 @@ def parse_pushes(command, cwd):
         remote = positional[0] if positional else "origin"
         if remote.startswith(("http", "git@", "ssh://", "/", ".")):
             remote = "origin"       # a URL pushed to directly has no tracking ref
-        if len(positional) >= 2:
-            # <remote> <refspec>; the DESTINATION side of `src:dst` is the branch
-            ref = positional[1]
+        # <remote> <refspec>...; the DESTINATION side of `src:dst` is the
+        # branch, and EVERY refspec is a push (P3-16).
+        branches = []
+        for ref in positional[1:]:
             branch = ref.split(":")[-1]
             branch = re.sub(r"^refs/heads/", "", branch)
             if branch in ("HEAD", ""):
                 branch = ""
-        out.append({"dir": where, "remote": remote, "branch": branch})
+            if branch not in branches:
+                branches.append(branch)
+        for branch in branches or [branch]:
+            out.append({"dir": where, "remote": remote, "branch": branch})
     return out
 
 
