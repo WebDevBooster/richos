@@ -49,7 +49,7 @@ end-to-end run, on candidate `.5`:
 
 ```
 vm=richos-test-1 ip=192.168.64.4 pid=717 ssh=admin@192.168.64.4 windows=1 elapsed=100s
-tailnet=richos-test-1.tail770f6e.ts.net
+tailnet=richos-test-1.tail1a2b3c.ts.net
 claude: host 2.1.277 guest 2.1.277
 claude login: guest logged in
 ```
@@ -371,14 +371,14 @@ Once. Nothing else about the phone path needs a person again.
    <https://login.tailscale.com/admin/dns> → **HTTPS Certificates: Enable**. Without it
    the control plane will not certify any node and the app shows "not set up yet" with
    no code. Measured on this Mac 2026-09-19: it is **already on** — `tailscale status
-   --json` reports `CertDomains: ["mm1.tail770f6e.ts.net"]`.
+   --json` reports `CertDomains: ["mm1.tail1a2b3c.ts.net"]`.
 
 ### What `run.sh` does with it
 
 Nothing, until there is a guest — then, before the app launches:
 
 ```
-tailnet.sh join <vm>   →   tailnet=richos-test-a.tail770f6e.ts.net
+tailnet.sh join <vm>   →   tailnet=richos-test-a.tail1a2b3c.ts.net
 ```
 
 * The key is staged **as a file inside the guest** and passed as `--auth-key file:…`.
@@ -485,7 +485,7 @@ It is never the host's keychain: `prepare` refuses any path that is not under
 ### Reaching it
 
 ```sh
-curl -sk https://richos-test-a.tail770f6e.ts.net:8443/     # from this Mac
+curl -sk https://richos-test-a.tail1a2b3c.ts.net:8443/     # from this Mac
 ```
 
 Inside the guest, the pairing URL opens in Safari and resolves through MagicDNS — which

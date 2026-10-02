@@ -72,7 +72,7 @@ const WANT = process.argv.includes('--webkit') ? ['webkit']
 const SHOTS_DIR = process.env.PHONE_SHOTS_DIR
 	|| path.join(__dirname, '..', '..', '..', '..', 'docs', 'verification', 'phone-app-2026-09-18');
 
-// Phone widths that matter: the smallest phone still on iOS 16 (SE, 320), the CEO's HONOR X6b
+// Phone widths that matter: the smallest phone still on iOS 16 (SE, 320), the CEO's Android phone
 // (360 — the width that rendered "Runni / ng", audit §4.3), his iPhone X (375), the modern base
 // (390) and the Max (430).
 const WIDTHS = [320, 360, 375, 390, 430];
@@ -536,7 +536,7 @@ async function runEngine(playwright, engine) {
 		// was on screen in 0.096 s and stayed pinned. So delivery was never the problem and the
 		// RESTING POSITION was.
 		//
-		// MEASURED HERE, at his HONOR X6b's width, on this app in this browser:
+		// MEASURED HERE, at his Android phone's width, on this app in this browser:
 		//
 		//   before  reopen -> thread clientHeight 399, scrollTop 1377, scrollHeight 1975, gap 199
 		//   after   reopen -> thread clientHeight 399, scrollTop 1576, scrollHeight 1975, gap   0

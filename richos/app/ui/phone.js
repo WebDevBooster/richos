@@ -506,7 +506,7 @@
   /// **WHAT THE PAIRED PHONE HAS TO DO BEFORE IT CAN BE REACHED — in that phone's own words.**
   ///
   /// Ray's candidate .11 defect 4.5. The card said *"Add Rich to your phone's Home Screen and
-  /// allow notifications when it asks."* On his HONOR X6b, Chrome's menu offers **"Install and
+  /// allow notifications when it asks."* On his Android phone, Chrome's menu offers **"Install and
   /// create shortcut"** and has no item by the other name at all — so the Mac named a control
   /// the device does not have.
   ///

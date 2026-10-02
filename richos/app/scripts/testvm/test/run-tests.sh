@@ -286,7 +286,7 @@ t_done
 t "join: the key reaches the guest as a FILE and never as a command argument"
   write_key 600 "$FAKE_KEY"
   : > "$TMP/log.key"
-  src="$TMP/certsrc"; make_cert "$src" "richos-test-a.tail770f6e.ts.net" 90
+  src="$TMP/certsrc"; make_cert "$src" "richos-test-a.tail1a2b3c.ts.net" 90
   cat "$src/cert.pem" "$src/key.pem" > "$TMP/cert.bundle"
   out="$(env STUB_LOG="$TMP/log.key" STUB_CERT_PEM="$TMP/cert.bundle" "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
   log="$(cat "$TMP/log.key")"
@@ -325,22 +325,22 @@ t_done
 
 t "join: it prints the name the DAEMON reports, not the one it asked for"
   write_key 600 "$FAKE_KEY"
-  out="$(env STUB_LOG=/dev/null STUB_CERT_PEM="$TMP/cert.bundle" STUB_DNSNAME="richos-test-a-1.tail770f6e.ts.net" "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>/dev/null)"
-  eq "$(printf '%s\n' "$out" | tailnet_name_from_join_output)" "richos-test-a-1.tail770f6e.ts.net"
+  out="$(env STUB_LOG=/dev/null STUB_CERT_PEM="$TMP/cert.bundle" STUB_DNSNAME="richos-test-a-1.tail1a2b3c.ts.net" "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>/dev/null)"
+  eq "$(printf '%s\n' "$out" | tailnet_name_from_join_output)" "richos-test-a-1.tail1a2b3c.ts.net"
 t_done
 
 t "join: a collided name is CALLED OUT, because every URL built from it would be wrong"
   write_key 600 "$FAKE_KEY"
-  err="$(env STUB_LOG=/dev/null STUB_CERT_PEM="$TMP/cert.bundle" STUB_DNSNAME="richos-test-a-1.tail770f6e.ts.net" "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1 >/dev/null)"
+  err="$(env STUB_LOG=/dev/null STUB_CERT_PEM="$TMP/cert.bundle" STUB_DNSNAME="richos-test-a-1.tail1a2b3c.ts.net" "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1 >/dev/null)"
   has "$err" "asked for 'richos-test-a'"
 t_done
 
 t "join: a certificate that came back is cached under the name the daemon gave"
-  rm -rf "$TESTVM_CERTCACHE/richos-test-a.tail770f6e.ts.net"
+  rm -rf "$TESTVM_CERTCACHE/richos-test-a.tail1a2b3c.ts.net"
   write_key 600 "$FAKE_KEY"
   STUB_LOG=/dev/null STUB_CERT_PEM="$TMP/cert.bundle" \
     "$TESTVM_DIR/tailnet.sh" join richos-test-a >/dev/null 2>&1
-  cert_cache_usable "richos-test-a.tail770f6e.ts.net"; ok $? "the cache must hold a usable cert"
+  cert_cache_usable "richos-test-a.tail1a2b3c.ts.net"; ok $? "the cache must hold a usable cert"
 t_done
 
 t "join: the second run offers the cached certificate back to the guest"
@@ -348,7 +348,7 @@ t "join: the second run offers the cached certificate back to the guest"
   : > "$TMP/log.reuse"
   STUB_LOG="$TMP/log.reuse" STUB_CERT_PEM="$TMP/cert.bundle" \
     "$TESTVM_DIR/tailnet.sh" join richos-test-a >/dev/null 2>&1
-  has "$(cat "$TMP/log.reuse")" "certs/richos-test-a.tail770f6e.ts.net.crt"
+  has "$(cat "$TMP/log.reuse")" "certs/richos-test-a.tail1a2b3c.ts.net.crt"
 t_done
 
 t "join: a key the tailnet refuses is reported as a key problem, not as a mystery"
@@ -387,7 +387,7 @@ t "daemon: a join issued before tailscaled is up WAITS for it instead of failing
   out="$(env STUB_LOG="$TMP/log.late" STUB_CERT_PEM="$TMP/cert.bundle" \
              STUB_DAEMON_READY_AFTER=3 TESTVM_DAEMON_POLL_SECONDS=0 \
              "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"; ok $? "a late daemon must not lose the join"
-  has "$out" "tailnet=richos-test-a.tail770f6e.ts.net"
+  has "$out" "tailnet=richos-test-a.tail1a2b3c.ts.net"
   has "$out" "answered after 3 read(s)"
 t_done
 
@@ -547,10 +547,10 @@ t "nodes: richos-test-* peers are listed, and nobody else's machines are"
   cat > "$TMP/fake-ts" <<'STUB'
 #!/usr/bin/env bash
 cat <<'JSON'
-{"BackendState":"Running","Self":{"DNSName":"mm1.tail770f6e.ts.net."},
- "Peer":{"k1":{"HostName":"richos-test-a","DNSName":"richos-test-a.tail770f6e.ts.net.","Online":true},
-         "k2":{"HostName":"richos-test-b","DNSName":"richos-test-b.tail770f6e.ts.net.","Online":false},
-         "k3":{"HostName":"alexs-iphone","DNSName":"alexs-iphone.tail770f6e.ts.net.","Online":true}}}
+{"BackendState":"Running","Self":{"DNSName":"mm1.tail1a2b3c.ts.net."},
+ "Peer":{"k1":{"HostName":"richos-test-a","DNSName":"richos-test-a.tail1a2b3c.ts.net.","Online":true},
+         "k2":{"HostName":"richos-test-b","DNSName":"richos-test-b.tail1a2b3c.ts.net.","Online":false},
+         "k3":{"HostName":"test-iphone","DNSName":"test-iphone.tail1a2b3c.ts.net.","Online":true}}}
 JSON
 STUB
   chmod +x "$TMP/fake-ts"
@@ -558,7 +558,7 @@ STUB
   has   "$out" "richos-test-a"
   has   "$out" "richos-test-b"
   has   "$out" "offline"
-  hasnt "$out" "alexs-iphone"
+  hasnt "$out" "test-iphone"
 t_done
 
 t "nodes: a Mac with no tailscale on it answers calmly instead of failing"
@@ -570,8 +570,8 @@ t_done
 # the contract between tailnet.sh's output and run.sh's summary
 # ===========================================================================
 t "summary: run.sh reads the name out of join's output, in both of its shapes"
-  eq "$(printf 'tailnet=richos-test-a.tail770f6e.ts.net\n' | tailnet_name_from_join_output)" "richos-test-a.tail770f6e.ts.net"
-  eq "$(printf 'tailnet=richos-test-b.tail770f6e.ts.net certificates=off\n' | tailnet_name_from_join_output)" "richos-test-b.tail770f6e.ts.net"
+  eq "$(printf 'tailnet=richos-test-a.tail1a2b3c.ts.net\n' | tailnet_name_from_join_output)" "richos-test-a.tail1a2b3c.ts.net"
+  eq "$(printf 'tailnet=richos-test-b.tail1a2b3c.ts.net certificates=off\n' | tailnet_name_from_join_output)" "richos-test-b.tail1a2b3c.ts.net"
   eq "$(printf 'no tailnet here\n' | tailnet_name_from_join_output)" ""
 t_done
 
@@ -610,7 +610,7 @@ t "summary: a SUCCESSFUL join is not mistaken for a cause"
   write_key 600 "$FAKE_KEY"
   rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
   out="$(env STUB_LOG=/dev/null STUB_CERT_PEM="$TMP/cert.bundle" "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>/dev/null)"; ok $?
-  eq "$(printf '%s\n' "$out" | tailnet_name_from_join_output)" "richos-test-a.tail770f6e.ts.net"
+  eq "$(printf '%s\n' "$out" | tailnet_name_from_join_output)" "richos-test-a.tail1a2b3c.ts.net"
 t_done
 
 t "summary: run.sh carries the refusal block and the escape hatch, in that order"

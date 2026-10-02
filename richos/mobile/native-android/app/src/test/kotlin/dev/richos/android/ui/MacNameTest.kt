@@ -18,7 +18,7 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
 /**
- * G1 (UX audit richos-hq fffe1d1d §4.2): no user ever sees the mockup's sample "Alex’s Mac". While
+ * G1 (UX audit richos-hq fffe1d1d §4.2): no user ever sees the mockup's sample "Sam’s Mac". While
  * the Mac reports no name, Settings reads "Paired with your Mac" and the share sheet "Rich on your
  * Mac", the iPhone's fallback.
  */

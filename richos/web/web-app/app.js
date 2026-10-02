@@ -1067,7 +1067,7 @@ function whatTheSixWordsAre() {
 
 /// **WHAT THIS PHONE CALLS THE CONTROL THAT PUTS THE APP ON ITS HOME SCREEN.**
 ///
-/// The Mac's card says *"Add Rich to your phone's Home Screen"*. On the CEO's HONOR X6b, Chrome's
+/// The Mac's card says *"Add Rich to your phone's Home Screen"*. On the CEO's Android phone, Chrome's
 /// menu offers **"Install and create shortcut"** and there is no item by the other name at all
 /// (Ray, candidate .11, §4.5, verified on the device). On his iPhone X, Safari's Share menu does
 /// say "Add to Home Screen". One instruction cannot be right for both, and an instruction that

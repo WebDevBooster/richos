@@ -24,7 +24,7 @@ final class ShareSheetTests: XCTestCase {
     }
 
     private func pair(appearance: String = "dark") throws {
-        try ShareContext(paired: true, macName: "Alex’s Mac", threadID: "thr_5c1e", macAcceptsAttachments: true,
+        try ShareContext(paired: true, macName: "Sam’s Mac", threadID: "thr_5c1e", macAcceptsAttachments: true,
                          appearance: appearance).write(container: container)
     }
 
@@ -96,7 +96,7 @@ final class ShareSheetTests: XCTestCase {
         XCTAssertEqual(model.phase, .compose)
         XCTAssertEqual(model.photoCount, 1)
         XCTAssertTrue(model.canSend)
-        XCTAssertEqual(model.context.macName, "Alex’s Mac")
+        XCTAssertEqual(model.context.macName, "Sam’s Mac")
         try snapshot(model, "share-compose")
         try snapshot(model, "share-compose", appearance: .light)
     }

@@ -42,7 +42,7 @@ public struct Fixture: Sendable {
 
     static let tailnet = MacLink(origin: "https://mm1.tail1a2b3c.ts.net:8443", route: .tailnet)
     static let pairedMac = MacLink(origin: "https://mm1.tail1a2b3c.ts.net:8443", route: .tailnet,
-                                   deviceID: "dev_8d4c57b7ff82", threadID: "thr_5c1e", name: "Alex’s Mac")
+                                   deviceID: "dev_8d4c57b7ff82", threadID: "thr_5c1e", name: "Sam’s Mac")
     static let composerWidth = 386.0  // the 16 Pro capsule: 402 pt less the 8 pt margins
 
     static func make(_ edit: (inout AppState) -> Void) -> AppState {

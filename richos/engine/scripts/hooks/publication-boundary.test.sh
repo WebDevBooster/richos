@@ -1348,6 +1348,52 @@ for g in guard-publication-writes.sh guard-publication-commits.sh; do
     fi
 done
 
+# ---------------------------------------------------------------------------
+# (n) THE OWNER'S OWN TEST DEVICES. A serial reached four public audit files and
+# no scanner flagged it. The identifiers live in a private list read at check
+# time; the ids below are SYNTHETIC — the real serial must never enter this file.
+# ---------------------------------------------------------------------------
+DI_ID="ZZDEVSERIAL0042"
+DI_LIST="$SCRATCH/device-identifiers"
+printf '# synthetic test device\n%s\n' "$DI_ID" > "$DI_LIST"
+SB_DI="$(make_default_sandbox)"
+di_commit() { # <name> <expect-rc> <list-file> [needle-in-stderr]
+    local out rc
+    out="$(bash_payload "git -C $SB_DI commit -m msg" "$SB_DI" \
+        | RICHOS_DEVICE_IDENTIFIERS_FILE="$3" "$COMMIT_HOOK" 2>&1 >/dev/null)"
+    rc=$?
+    if [ "$rc" -ne "$2" ]; then bad "$1 (expected exit $2, got $rc)"; return; fi
+    if [ -n "${4:-}" ] && ! printf '%s' "$out" | grep -qF -- "$4"; then
+        bad "$1 (stderr did not say \"$4\")"; return
+    fi
+    if printf '%s' "$out" | grep -qF -- "$DI_ID"; then bad "$1 (the refusal printed the identifier)"; return; fi
+    ok "$1"
+}
+printf 'Devices: phone (serial %s)\n' "$DI_ID" > "$SB_DI/docs/audit.md"
+git -C "$SB_DI" add docs/audit.md
+di_commit "device id: a staged serial is refused, with the fix named" 2 "$DI_LIST" "neutral label"
+printf 'Devices: phone (serial %s)\n' "$(printf '%s' "$DI_ID" | tr 'A-Z' 'a-z')" > "$SB_DI/docs/audit.md"
+git -C "$SB_DI" add docs/audit.md
+di_commit "device id: the match is case-insensitive" 2 "$DI_LIST"
+printf 'Devices: phone (serial <android-phone>)\n' > "$SB_DI/docs/audit.md"
+git -C "$SB_DI" add docs/audit.md
+di_commit "device id: a neutral label commits" 0 "$DI_LIST"
+printf 'Devices: phone (serial %s)\n' "$DI_ID" > "$SB_DI/docs/audit.md"
+git -C "$SB_DI" add docs/audit.md
+di_commit "device id: a public clone WITHOUT the list still runs, says what it could not check" 0 "$SCRATCH/no-such-list" "NOT CHECKED"
+mkdir -p "$SB_DI/inside"; printf '%s\n' "$DI_ID" > "$SB_DI/inside/list"
+di_commit "device id: a list inside a git work tree is BROKEN and refuses" 2 "$SB_DI/inside/list" "work tree"
+printf 'short\n' > "$SCRATCH/short-list"
+di_commit "device id: an entry shorter than 8 characters is BROKEN and refuses" 2 "$SCRATCH/short-list" "shorter"
+rm -rf "$SB_DI"
+# The predicate itself (scripts/lib/device-identifiers.py): the list path honors the override and defaults outside every repository.
+if [ "$(RICHOS_DEVICE_IDENTIFIERS_FILE=/x/y python3 "$ENGINE_ROOT/scripts/lib/device-identifiers.py" --list-path)" = "/x/y" ] &&
+   [ "$(env -u RICHOS_DEVICE_IDENTIFIERS_FILE HOME=/h python3 "$ENGINE_ROOT/scripts/lib/device-identifiers.py" --list-path)" = "/h/.richos-privacy/device-identifiers" ]; then
+    ok "device id: device-identifiers.py --list-path honors the override and defaults to ~/.richos-privacy"
+else
+    bad "device id: device-identifiers.py --list-path"
+fi
+
 rm -rf "$SB"
 
 echo ""

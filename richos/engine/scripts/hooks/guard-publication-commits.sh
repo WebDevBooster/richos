@@ -666,6 +666,50 @@ WORKTREE_EOF
 
 [ -s "$WORK/manifest" ] || exit 0
 
+# --- The owner's OWN test devices ------------------------------------------
+# A serial, UDID, CoreDevice UUID or tailnet hostname of a known test device is
+# not private SPEECH and not a person's name, so neither scanner below can see
+# it: four public audit files carried an Android serial for two weeks. The list
+# lives outside every repository (scripts/lib/device-identifiers.py) and is read
+# NOW, at check time. ABSENT is announced, never silently passed.
+DI_RESULT="$(python3 "$SCRIPT_DIR/../lib/device-identifiers.py" --scan-manifest "$WORK/manifest" 2>/dev/null || printf 'BROKEN\tthe device-identifier scanner could not run\n')"
+case "$(printf '%s' "$DI_RESULT" | sed -n '1p' | cut -f1)" in
+  CLEAN) ;;
+  ABSENT)
+    {
+        echo "=== DEVICE-IDENTIFIER DENY-LIST: ABSENT — NOT CHECKED ==="
+        echo "  expected : $(printf '%s' "$DI_RESULT" | sed -n '1p' | cut -f2)"
+        echo "  This is 'no check ran', not 'no identifiers'. This repository gets"
+        echo "  PUBLISHED; the owner's test-device serials, UDIDs and tailnet names"
+        echo "  were not looked for in this commit. One identifier per line in that"
+        echo "  file, outside every repository."
+    } >&2 ;;
+  BROKEN)
+    echo "=== DEVICE-IDENTIFIER DENY-LIST: BROKEN — REFUSING ===" >&2
+    printf '  %s\n' "$(printf '%s' "$DI_RESULT" | sed -n '1p' | cut -f2-)" >&2
+    exit 2 ;;
+  FOUND)
+    {
+        echo "=== DEVICE IDENTIFIER: BLOCKED ==="
+        echo "  Refusing this commit in $PB_REPO — it carries an identifier of a known test"
+        echo "  device (serial, UDID, CoreDevice UUID or tailnet name), redacted below:"
+        printf '%s\n' "$DI_RESULT" | tail -n +2 | while IFS="$(printf '\t')" read -r _l _p; do
+            [ -n "$_l" ] || continue
+            echo "    - $_l (matches $_p)"
+        done
+        echo ""
+        echo "  FIX: replace it with a neutral label — <android-phone>, <iphone>,"
+        echo "  tail1a2b3c.ts.net — and commit again. Nothing from the owner's phones"
+        echo "  goes into this repository. The list is read from"
+        echo "  $(python3 "$SCRIPT_DIR/../lib/device-identifiers.py" --list-path); edit that file, never this"
+        echo "  repository, if an entry is wrong."
+    } >&2
+    exit 2 ;;
+  *)
+    echo "ERROR: guard-publication-commits.sh: unexpected device-identifier scanner output — refusing (fail-closed)" >&2
+    exit 2 ;;
+esac
+
 JOB="$WORK/job.json"
 PB_MANIFEST="$WORK/manifest" PB_JOB="$JOB" \
   PB_MIN_SPEECH="$PB_MIN_SPEECH_LINES" PB_MIN_QUOTE="$PB_MIN_QUOTE_WORDS" \

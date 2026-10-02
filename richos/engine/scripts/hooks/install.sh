@@ -525,6 +525,10 @@ HOOK_FILES+=(
     # the lock, ignore the key.
     "$REPO_ROOT/scripts/lib/named-persons.sh"
     "$REPO_ROOT/scripts/lib/named-persons.py"
+    # The device-identifier predicate: guard-publication-commits.sh delegates
+    # the refusal of the owner's test-device serials, UDIDs and tailnet names to
+    # it. Same argument: hash the lock, hash the key.
+    "$REPO_ROOT/scripts/lib/device-identifiers.py"
     # The declaration RESOLVER. Not a hook, and the newest instance of the same
     # sentence: it is the only code that answers "does this repository declare
     # X, and which file is it?", and THREE contracts take that answer whole —

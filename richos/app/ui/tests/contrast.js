@@ -498,7 +498,7 @@ const SURFACES = [
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",
       account: "Google as someone@gmail.com",
-      phone: "HONOR X6b",
+      phone: "Android phone",
       phoneOnline: false,
     }},
     drive: async (p) => {

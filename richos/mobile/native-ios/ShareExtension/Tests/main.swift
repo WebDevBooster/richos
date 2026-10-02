@@ -129,11 +129,11 @@ var state = AppState()
 check("C1 a new install is unpaired for the extension", SharePlatform.context(for: state, macAcceptsAttachments: true) == .unpaired)
 state.pairing = .paired
 state.consentGiven = true
-state.mac = MacLink(origin: "https://c-x.richos.ceo", route: .connect, threadID: "thr_5c1e", name: "Alex’s Mac")
+state.mac = MacLink(origin: "https://c-x.richos.ceo", route: .connect, threadID: "thr_5c1e", name: "Sam’s Mac")
 state.appearance = .light
 let context = SharePlatform.context(for: state, macAcceptsAttachments: true)
 check("C2 paired: the Mac's name, the conversation and the appearance reach the extension",
-      context.paired && context.macName == "Alex’s Mac" && context.threadID == "thr_5c1e" && context.appearance == "light")
+      context.paired && context.macName == "Sam’s Mac" && context.threadID == "thr_5c1e" && context.appearance == "light")
 var noConsent = state
 noConsent.consentGiven = false
 check("C3 paired but the disclosure not yet accepted: nothing is sent from Share", !SharePlatform.context(for: noConsent, macAcceptsAttachments: true).paired)
