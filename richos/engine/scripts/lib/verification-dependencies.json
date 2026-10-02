@@ -7011,6 +7011,9 @@
         },
         {
           "to": "scripts/hooks/guard-shared-scratchpad.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-unguarded-rm.sh"
         }
       ],
       "presence": "Copies real orchestration.config into private root fixtures."
@@ -9608,6 +9611,9 @@
         },
         {
           "to": "scripts/hooks/guard-shared-scratchpad.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-unguarded-rm.sh"
         }
       ]
     },
@@ -10032,6 +10038,9 @@
         },
         {
           "to": "scripts/hooks/guard-shared-scratchpad.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-unguarded-rm.sh"
         }
       ]
     },
@@ -10513,6 +10522,10 @@
         },
         {
           "to": "scripts/hooks/guard-shared-scratchpad.sh",
+          "fixture": true
+        },
+        {
+          "to": "scripts/hooks/guard-unguarded-rm.sh",
           "fixture": true
         }
       ]
@@ -11182,6 +11195,9 @@
         },
         {
           "to": "scripts/hooks/guard-shared-scratchpad.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-unguarded-rm.sh"
         }
       ]
     },
@@ -14473,6 +14489,9 @@
         },
         {
           "to": "scripts/hooks/guard-shared-scratchpad.sh"
+        },
+        {
+          "to": "scripts/hooks/guard-unguarded-rm.sh"
         }
       ],
       "evidence": "D1 runs Bash find ~ -name x through exactly the source-bound Bash manifest. Includes every executed module and pre-classification helper; foreign_app_data takes its complete rule path."
@@ -15559,6 +15578,41 @@
       ],
       "evidence": "Builds a private sandbox Claude scratch root with one session directory, exports SCRATCH_CLAUDE_ROOTS to it, and feeds PreToolUse[Bash] payloads to the hook; no command under test is executed. Greps the manifest for the module's line."
     },
+    "scripts/hooks/guard-unguarded-rm.sh": {
+      "source": "scripts/hooks/guard-unguarded-rm.sh",
+      "sha256": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/unevaluated-notice.sh"
+        },
+        {
+          "to": "scripts/lib/unguarded_rm.py"
+        }
+      ],
+      "evidence": "Bash-chain module added 2026-10-02 (cc/zach-sonnet-rmguard1). Sources the unevaluated notice; exits 0 before any interpreter unless the payload text contains rm or find. Otherwise passes the payload on stdin to the fixed unguarded_rm.py check and returns its refusal (exit 2) or a pass. Reads no orchestration value."
+    },
+    "scripts/lib/unguarded_rm.py": {
+      "source": "scripts/lib/unguarded_rm.py",
+      "sha256": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
+      "keys": [],
+      "edges": [],
+      "evidence": "Classifies the supplied command text with its own tokenizer (json, os, re, sys only): an rm, rmdir or find -delete whose path starts with an unguarded variable or names a critical path. The working directory comes from the payload and HOME from the payload or the process environment; no orchestration key, no subprocess, no writes."
+    },
+    "scripts/hooks/guard-unguarded-rm.test.sh": {
+      "source": "scripts/hooks/guard-unguarded-rm.test.sh",
+      "sha256": "8d141b933bcbe5151a5ee13d36c6e67b0557bdacf1b187a1f174eeff82e57ca2",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/hooks/guard-unguarded-rm.sh"
+        },
+        {
+          "to": "scripts/hooks/dispatch-pretooluse.sh#find-payload"
+        }
+      ],
+      "evidence": "Feeds PreToolUse[Bash] payloads with literal test paths (HOME /Users/tester) to the hook; no command under test is executed. D1 sends one non-commit Bash payload (rm -f $D/*.jsonl, no agent_id) through the real Bash dispatcher, which runs every module on the same non-commit route as the find-payload fragment."
+    },
     "scripts/scratch-land-scope.test.sh": {
       "source": "scripts/scratch-land-scope.test.sh",
       "sha256": "5af641ebd295110524f09bc09ec290ef467d8df4696f9686a7bcbf5d82b3e73b",
@@ -15760,6 +15814,7 @@
     "ecs/tests/run.test.sh": "ecs/tests/run.test.sh",
     "scripts/hooks/lifecycle-payload-transport.test.sh": "scripts/hooks/lifecycle-payload-transport.test.sh",
     "scripts/hooks/guard-shared-scratchpad.test.sh": "scripts/hooks/guard-shared-scratchpad.test.sh",
+    "scripts/hooks/guard-unguarded-rm.test.sh": "scripts/hooks/guard-unguarded-rm.test.sh",
     "scripts/scratch-land-scope.test.sh": "scripts/scratch-land-scope.test.sh"
   },
   "hook_readers": {
@@ -16277,6 +16332,8 @@
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
+        "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
+        "scripts/lib/unguarded_rm.py": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
         "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121",
         "ass-kicker/tests/record-claims.replay.py": "094a016f81b059134abe4293ceef446032f0ddafe433042a49f53ac4d6f5b0cd"
       }
@@ -16502,6 +16559,8 @@
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
+        "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
+        "scripts/lib/unguarded_rm.py": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
         "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121"
       }
     },
@@ -16733,6 +16792,8 @@
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
+        "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
+        "scripts/lib/unguarded_rm.py": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
         "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121"
       },
       "evidence": "R1 checks event/matcher registrations of these five hooks. Dispatcher manifest is independently bound; no other hook registration runs."
@@ -16944,6 +17005,8 @@
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
+        "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
+        "scripts/lib/unguarded_rm.py": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
         "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121"
       },
       "evidence": "Enumerates PreToolUse/Stop registrations and matcher payloads; boundary assertion classifies every event. Full dynamic helper inventory is source-bound."
