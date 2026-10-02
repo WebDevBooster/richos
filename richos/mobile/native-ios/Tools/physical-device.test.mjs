@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { KEEP, allowanceSeconds, buildTree, configuration, deviceArgs, deviceToolSources, main, plan, prebuilt, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
+import { KEEP, allowanceSeconds, buildTree, configuration, deviceArgs, deviceToolSources, hardwareUdid, main, plan, prebuilt, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
 
 test('only verify may reuse an earlier build, and only when asked', () => {
   assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'verify'), true);
@@ -248,4 +248,16 @@ test('--expect-commit compares build trees, never commit names: same tree passes
   assert.doesNotThrow(() => sameTree({ expect: 'later', wanted: 't1', head: { tree: 't1', dirty: false } }));
   assert.throws(() => sameTree({ expect: 'other', wanted: 't2', head: { tree: 't1', dirty: false } }), /freshness mismatch.*nothing was built or installed/);
   assert.throws(() => sameTree({ expect: 'x', wanted: 't1', head: { tree: 't1', dirty: true } }), /uncommitted changes/);
+});
+
+// xcodebuild finds a phone only by its hardware UDID; watch.py names it by its CoreDevice identifier.
+test('the phone is handed to xcodebuild by its hardware UDID, whichever spelling named it', () => {
+  const core = '11111111-2222-3333-4444-555555555555', udid = '00001111-0000222233334444';
+  const devices = [{ identifier: 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE', hardwareProperties: { udid: '00009999-0000888877776666' } },
+    { identifier: core, hardwareProperties: { udid } }];
+  assert.equal(hardwareUdid(core, devices), udid, 'the CoreDevice identifier becomes the hardware UDID');
+  assert.equal(hardwareUdid(core.toLowerCase(), devices), udid);
+  assert.equal(hardwareUdid(udid, devices), udid, 'a hardware UDID stays itself');
+  assert.equal(hardwareUdid(udid, []), udid, 'a hardware UDID devicectl did not list is still a valid destination');
+  assert.throws(() => hardwareUdid(core, []), /not in `xcrun devicectl list devices`/);
 });
