@@ -630,8 +630,13 @@ async function buildStreamedParts(sessionId) {
   /** @type {Map<number, any>} */
   const byPart = new Map();
   let bytesTotal = 0;
+  chunks.sort((a, b) => a.seq - b.seq);
   for (const c of chunks) {
     const p = byPart.get(c.part) || { part: c.part, file: FILES.audioPart(c.part), bytes: 0, chunks: 0, written: true };
+    if (!byPart.has(c.part)) {
+      const header = new Uint8Array(c.data || new ArrayBuffer(0));
+      if (header.length < 4 || header[0] !== 0x1a || header[1] !== 0x45 || header[2] !== 0xdf || header[3] !== 0xa3) p.error = 'WebM part does not begin with an EBML header';
+    }
     p.bytes += c.bytes;
     p.chunks += 1;
     bytesTotal += c.bytes;
@@ -1308,7 +1313,14 @@ async function recoverOrphans() {
   );
   for (const sessionId of ids) {
     const checkpoint = await get(DB.stores.sessions, sessionId);
-    if (checkpoint?.status !== 'open' && checkpoint?.exportPending) continue;
+    if (checkpoint?.status !== 'open' && checkpoint?.exportPending) {
+      checkpoint.audio = await buildStreamedParts(sessionId);
+      for (const part of checkpoint.audio.parts) { delete part.written; part.persisted = true; }
+      checkpoint.verification = verifySession(checkpoint);
+      await writeSessionFile(checkpoint);
+      await indexSession(checkpoint, checkpoint.verification);
+      continue;
+    }
     const record = checkpoint || {
       schemaVersion: 1,
       sessionId,

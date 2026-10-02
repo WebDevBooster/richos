@@ -337,6 +337,15 @@ test('a session that recorded real audio and closed cleanly verifies OK', () => 
   assert.equal(verdict.durationSeconds, 1800);
 });
 
+test('failed writes and invalid WebM headers cannot be verified as saved audio', () => {
+  const record = newSessionRecord({ startedAt: T0, platform: { id: 'zoom-web', slug: 'x' }, tabId: 1, settings: CAPTURE_DEFAULTS });
+  record.status = 'closed'; record.endedAt = T0 + 1000;
+  record.audio = { parts: [{ part: 0, bytes: 10000, error: 'WebM part does not begin with an EBML header' }], bytesTotal: 10000, chunkCount: 1 };
+  assert.equal(verifySession(record).ok, false);
+  record.audio.parts[0] = { part: 0, bytes: 10000, written: false };
+  assert.equal(verifySession(record).ok, false);
+});
+
 test('any second spent red is remembered in the session record', () => {
   const record = newSessionRecord({
     startedAt: T0,

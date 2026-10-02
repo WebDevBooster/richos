@@ -4,6 +4,7 @@ import { DB, KEYS } from '../core/constants.js';
 import { CAPTURE_DEFAULTS } from '../modules/call-capture/constants.js';
 let now = 1700000000000;
 Date.now = () => now;
+globalThis.IDBKeyRange = { only: value => value };
 const store = {};
 const calls = [];
 const rows = new Map();
@@ -35,7 +36,7 @@ globalThis.__controllerDependencies = {
   }, setDownloadUi: async () => {},
   raiseAlert: async () => true, setHealth: async () => {}, resetAlertThrottle: async () => {}, notifyRoutine: async () => {}, resolveAlerts: async () => {},
   async put(storeName, record) { rows.set(`${storeName}:${record.sessionId}`, structuredClone(record)); },
-  async get(storeName, id) { return rows.get(`${storeName}:${id}`); }, async getAll() { return []; }, async deleteBySession() {},
+  async get(storeName, id) { return rows.get(`${storeName}:${id}`); }, async getAll(storeName) { return storeName === DB.stores.chunks ? [{ part: 0, seq: 0, bytes: 10000, data: new Uint8Array(10000).buffer }] : []; }, async deleteBySession() {},
 };
 let source = await readFile(new URL('../modules/call-capture/controller.js', import.meta.url), 'utf8');
 for (const dependency of ['settings.js','offscreen-host.js','output.js','alerts.js','idb.js']) {
@@ -72,6 +73,8 @@ try {
   assert.equal(downloads, 0, 'watchdog failure checkpoints must not create downloads');
   const closed = await controller.finalize('test-complete');
   assert.equal(closed.exportPending, true);
+  assert.equal(closed.verdict.ok, false);
+  assert.ok(closed.verdict.problems.some(p => p.includes('EBML header')), 'corrupt orphan or native parts must not be labelled usable');
   assert.equal(downloads, 0, 'automatic close must not create downloads');
   assert.equal((await controller.callCaptureModule.getStatus()).pendingExports.length, 1);
   const sessionId = closed.sessionId;

@@ -117,6 +117,9 @@ export class NativeHostClient {
       this._port = chrome.runtime.connectNative(this.hostId);
       this._port.onMessage.addListener((msg) => this._onMessage(msg));
       this._port.onDisconnect.addListener(() => {
+        // Consume Chrome's disconnect error so a host failure is handled through fallback,
+        // rather than surfacing as an unchecked runtime error.
+        this.lastError = chrome.runtime.lastError?.message || null;
         this.available = false;
         this._port = null;
         for (const waiter of this._waiters.values()) waiter(null);
