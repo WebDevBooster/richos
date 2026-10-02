@@ -215,8 +215,47 @@ has a number for it; anything else is listed as NOT COMPARED with the reason, ne
 exists only when someone runs the series. On the Android phone that is
 `perf.py android --production ... --kind physical --seed-twin <debug.apk> --only cold,warm --cold 100 --warm 100`.
 No iPhone benchmark can exist until the iPhone seeding path does (see "Conditions"; a simulator
-is seeded, but simulator numbers are never a phone benchmark). No commit
-runs a phone. The fixture suite (`mobile-perf.test.sh`) runs on any change to this tool.
+is seeded, but simulator numbers are never a phone benchmark). No commit runs a phone; a land that
+touches `richos/mobile/` does, by itself (below). The fixture suite (`mobile-perf.test.sh`) runs on
+any change to this tool.
+
+### It runs by itself after every mobile land (`watch.py`)
+
+The CEO, 2026-10-01: the cold start and back-from-background benchmarks must always be maintained;
+on 2026-10-02 his Android starts were slower than the day before and nothing had told anyone. So the
+comparison no longer waits for someone to run it:
+
+- **What starts it.** Git. `autocheck.py`'s post-merge and post-commit hooks on main call
+  `watch.py trigger` with main's old and new commit, in every checkout; it acts only in the
+  operator's main checkout (the one the engine plugin is loaded from). When the land changed anything
+  under `richos/mobile/`, it records the request and starts one detached `watch.py run`, and the land
+  returns at once. A land that touches nothing under `richos/mobile/` starts nothing.
+- **What a run does,** per wired phone, Android and iPhone in parallel, in its own clone of main's tip
+  on the external SSD: it waits until no process outside the run has named the phone or run a phone
+  tool for 10 minutes (it never interrupts anything; still busy after 6 hours is reported), then
+  calls the platform command lines' phone verbs only: `randroid device install` / `randroid device
+  perf` and `rios device install` / `rios device perf` (the release build of the clone installed over
+  the existing app with its data kept, the benchmark's fixed conversation seeded, 100 cold starts and
+  100 returns measured, the app's own saved state put back). **These verbs are being added by
+  zach-opus-releaseonly1; until they land every run reports COULD NOT MEASURE naming the missing
+  verb.** Then `perf.py compare` judges the record; both metrics must be compared. A phone whose app
+  cannot have changed (every change since its last good run is in the other app's directory) is not
+  measured again.
+- **Never an uninstall.** Everything a verb starts reaches adb and xcrun through `phone_guard.py`
+  (first on PATH), which refuses an uninstall, a data clear and an install without `-r`, and stops
+  the whole run at the first refusal (CEO rule 2026-10-01).
+- **What reaches Rich.** SLOWER, REFUSED or COULD NOT MEASURE raises an escalation (`escalate.sh`)
+  naming the commit range since that phone's last good run and the commits in it that touch
+  `richos/mobile/`. A good run is recorded, so the next regression names a short range.
+- **A missed run.** The request is written before the runner starts and every round records
+  `started` and `finished` under a lock held for the runner's life. The next move of main reports
+  any request no finished round covers, with no runner alive, as MISSED (once) and retries it.
+- **Blank screen:** quint-opus-blank1's check joins the verdict in `blank_screen_problems()` when it
+  lands in perf.py.
+- `python3 richos/mobile/perf/watch.py status` prints the last good run per phone, what is pending
+  and the recent outcomes; `watch.py busy android|ios` shows what keeps a phone busy right now. State
+  is private, in `/Volumes/E1TB/state/richos/phone-speed-watch/`. Tests:
+  `richos/app/scripts/phone-speed-watch.test.sh` (fake phones and a fake land).
 
 **Raising a number.** A faster series is reported as FASTER and changes nothing by itself.
 `perf.py benchmark-update <record.json>...` raises a benchmark when the series is faster, adds every
