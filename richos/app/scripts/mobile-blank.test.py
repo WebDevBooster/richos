@@ -20,6 +20,8 @@ REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 sys.path.insert(0, PERF)
 
 import blank  # noqa: E402
+import blankstart  # noqa: E402
+import perf  # noqa: E402
 import perfcore  # noqa: E402
 
 failures = []
@@ -254,6 +256,114 @@ def _():
 def _():
     v = blank.judge_series([start(250, "a"), {"recording": "b", "error": "the recording did not decode"}])
     assert v["verdict"] == "FAIL" and v["unanswered"][0]["recording"] == "b", v
+
+
+# ------------------------------------------------------------------------------------------------
+# the phones
+# ------------------------------------------------------------------------------------------------
+
+class ScriptedPhone:
+    """A Measure and Device for blankstart: a launcher with the RichConnect icon, adb commands kept."""
+
+    def __init__(self, icon=True):
+        self.calls, self.icon = [], icon
+        self.d = self
+        self.adb, self.serial = "/fake/adb", "PHONE1"
+
+    def sh(self, command, check=True):
+        self.calls.append(("sh", command))
+        return ""
+
+    def run(self, *args, check=True):
+        self.calls.append(("run",) + args)
+        if args[0] == "pull":
+            with open(args[2], "wb") as f:
+                f.write(b"mp4")
+        return ""
+
+    def sleep(self, s):
+        self.calls.append(("sleep", s))
+
+    def dump_ui(self):
+        nodes = [{"text": "Phone", "desc": "", "bounds": (0, 0, 100, 100)}]
+        if self.icon:
+            nodes.append({"text": "RichConnect", "desc": "", "bounds": (200, 1500, 300, 1600)})
+        return nodes
+
+
+class Recorder:
+    started = []
+
+    def __init__(self, argv, **kw):
+        Recorder.started.append(argv)
+        self.returncode = 0
+
+    def communicate(self, timeout=None):
+        return b"", b""
+
+
+@case("Android: each start is a force-stop, Home, a tap on the icon while screenrecord runs, then the judged recording")
+def _():
+    phone, judged = ScriptedPhone(), []
+    Recorder.started = []
+
+    def analyze(path):
+        judged.append(path)
+        return launch([(0.05, paint(LIGHT_GROUND)), (0.30, FINAL)])
+    with tempfile.TemporaryDirectory() as tmp:
+        m = blankstart.android_cold_blank(phone, 3, tmp, popen=Recorder, analyze=analyze)
+        assert sorted(os.listdir(os.path.join(tmp, "cold-blank"))) == ["start-001.mp4", "start-002.mp4", "start-003.mp4"]
+    argv = Recorder.started[0]
+    assert len(Recorder.started) == 3 and argv[:5] == ["/fake/adb", "-s", "PHONE1", "shell", "screenrecord"], argv
+    assert argv[argv.index("--time-limit") + 1] == str(blankstart.RECORD_S), argv
+    shells = [c[1] for c in phone.calls if c[0] == "sh"]
+    assert shells[:3] == ["am force-stop dev.richos.connect", "input keyevent KEYCODE_HOME", "input keyevent KEYCODE_HOME"], shells
+    assert "input tap 250 1550" in shells and shells.count("input tap 250 1550") == 3, shells
+    assert m["verdict"] == "PASS" and m["samplesMs"] == [250.0] * 3 and m["limitMs"] == blank.BLANK_LIMIT_MS, m
+    assert m["method"] and m["stats"]["n"] == 3 and len(judged) == 3
+
+
+@case("Android: no icon on the launcher's first page refuses with that sentence, and recordings without --out are deleted")
+def _():
+    msg = raises(perfcore.Unmeasurable, blankstart.android_cold_blank, ScriptedPhone(icon=False), 1, None, popen=Recorder,
+                 analyze=lambda p: None)
+    assert "first page" in msg, msg
+    kept = []
+    m = blankstart.android_cold_blank(ScriptedPhone(), 1, None, popen=Recorder,
+                                      analyze=lambda p: kept.append(p) or launch([(0.05, paint(WHITE)), (0.65, FINAL)]))
+    assert not os.path.exists(os.path.dirname(kept[0])), "the scratch recordings were left behind"
+    assert m["verdict"] == "FAIL" and m["recordingsKept"] is False and m["overLimit"][0]["worstMs"] == 600.0, m
+
+
+@case("perf.py android: --blank-starts defaults to a series, a cold run includes the blank check, 0 skips it")
+def _():
+    base = ["android", "--adb", "/fake/adb", "--serial", "P", "--kind", "physical"]
+    assert perf.parse_args(base).blank_starts == 10
+    assert perf.parse_args(base + ["--blank-starts", "0"]).blank_starts == 0
+    with open(os.path.join(PERF, "perf.py")) as f:
+        text = f.read()
+    assert 'only.add("cold-blank")' in text and 'record["metrics"]["coldBlank"] = cb' in text
+    assert 'failures += cb["verdict"] != "PASS"' in text, "a failing blank check must fail the run"
+    # perf.py and the phone glue judge with blank.py's limit, never a copy of it
+    assert "blankstart.android_cold_blank" in text and blankstart.blank is blank
+    assert "BLANK_LIMIT_MS" not in text and "400" not in open(os.path.join(PERF, "blankstart.py")).read()
+
+
+@case("iPhone: one session recording, each tap judged in its own window, the clocks joined at the first tap")
+def _():
+    # the phone's clock runs 100 s ahead of the video's; three tap launches 4 s apart, each sent Home
+    # 2.9 s after its tap, and the home screen back 0.1 s later
+    launches = [(101.0, 103.9), (105.0, 107.9), (109.0, 111.9)]
+    seq = []
+    for k, video_tap in enumerate((1.0, 5.0, 9.0)):
+        seq += [(video_tap - 1.0, HOME), (video_tap, HOME_PRESSED), (video_tap + 0.05, paint(WHITE)),
+                (video_tap + 0.05 + (0.6 if k == 1 else 0.2), FINAL)]
+    seq.append((12.0, HOME))
+    frames = [blank.Frame(t, W, H, f) for t, f in seq]
+    m = blankstart.iphone_cold_blank("/phone/session.mp4", launches, decode=lambda p: (frames, {"durationS": 13.0}))
+    assert m["samplesMs"] == [200.0, 600.0, 200.0], m
+    assert m["verdict"] == "PASS" and [o["recording"] for o in m["overLimit"]] == ["/phone/session.mp4#4.500-7.900"], m
+    assert "no tap moments" in raises(perfcore.Unmeasurable, blankstart.iphone_cold_blank, "/x.mp4", [], decode=None)
 
 
 if __name__ == "__main__":
