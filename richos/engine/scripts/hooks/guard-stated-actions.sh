@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # guard-stated-actions.sh — BLOCKING Stop hook. Refuses to let a turn end when
-# its REPORT does not match its ACTIONS, in two arms:
+# its REPORT does not match its ACTIONS, in three arms:
 #
 #   ARM 1  STATED, NOT TAKEN    the final text states an action ("Frank breaks
 #                               it first", "I'm dispatching Zach") and the
@@ -9,6 +9,16 @@
 #   ARM 2  THE TURN THAT STOPS  a teammate's completion arrived in this turn,
 #                               and the turn ends having started nothing and
 #                               declared nothing.
+#   ARM 3  RECORDED, NOT        the final text claims something was recorded,
+#          WRITTEN              saved, written down or made a rule, and the
+#                               turn wrote it nowhere durable, or the reply
+#                               does not say where (path, or record and
+#                               section, and the commit for a repository).
+#                               The CEO, 2026-10-02: "Get a hook added that
+#                               HITS YOU WITH A HAMMER every time you claim to
+#                               have 'recorded' something without actually
+#                               doing it." ARM 3 runs on the re-fire as well,
+#                               and has no declaration line.
 #
 # THE FAILURE, PRECISELY
 #   2026-09-02. Seven times in one session the lead wrote a sentence describing
@@ -55,9 +65,9 @@
 #
 #   Six words and thirty characters of reason, minimum; a BARE MARKER EXEMPTS
 #   NOTHING; and this wrapper puts every declaration in front of the CEO
-#   through `systemMessage`, unverified and labeled as such. ARM 1 has no
-#   escape and needs none: the honest routes are to make the call, or to
-#   write what is true.
+#   through `systemMessage`, unverified and labeled as such. ARMS 1 and 3
+#   have no escape and need none: the honest routes are to make the call or
+#   write the record, or to write what is true.
 #
 # FAIL-OPEN, LIKE ITS SIBLINGS AND FOR THEIR REASON
 #   A PreToolUse guard that fails closed refuses one tool call; a Stop guard
@@ -74,7 +84,8 @@
 #   0  report matches the turn, declared, exempt, not evaluable, stood down,
 #      or anything went wrong
 #   2  BLOCKED — the report states an action the turn did not take, or a
-#      teammate finished and the turn ends undeclared having started nothing
+#      teammate finished and the turn ends undeclared having started nothing,
+#      or the report claims a record the turn did not write or does not locate
 #
 # Self-test:  scripts/hooks/guard-stated-actions.sh --self-test
 
