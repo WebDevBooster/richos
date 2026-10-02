@@ -435,6 +435,18 @@ else
     bad "R17  rc=$RC — the gate did not watch the branch recorded for this body of work: <$OUT>"
 fi
 
+# R19 (P3-12): with the shipped (empty) setting and a recorded branch, an
+# explicit push naming the recorded branch from ANOTHER checked-out branch is a
+# land of the watched branch and is refused. It used to be skipped before the
+# watched branch was resolved.
+git -C "$DEVREPO" checkout -q main
+run red "$DEVREPO" "$G push origin dev/work"
+if [ "$RC" -eq 2 ]; then
+    ok "R19  an explicit push naming the recorded branch is judged under the default (empty) setting"
+else
+    bad "R19  rc=$RC — an explicit push of the watched branch was skipped: <$OUT>"
+fi
+
 GATE_BRANCH="main"
 
 echo ""
