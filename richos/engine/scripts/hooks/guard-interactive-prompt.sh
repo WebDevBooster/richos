@@ -191,12 +191,27 @@ if [ -f "$_UE_LIB" ]; then
         "whether this command opens an interactive prompt with nobody at the keyboard"
 fi
 
-RESULT="$(printf '%s' "$INPUT" | python3 "$ANALYZER" 2>/dev/null || true)"
-[ -n "$RESULT" ] || exit 0
+# FAIL-CLOSED, as the header promises (hunt part 3, finding 28): an analyzer
+# that crashes, prints nothing or prints something unreadable produced NO
+# verdict, and no verdict is not "clean".
+_ANALYZER_FAILED=""
+RESULT="$(printf '%s' "$INPUT" | python3 "$ANALYZER" 2>/dev/null)" || _ANALYZER_FAILED=1
+[ -n "$RESULT" ] || _ANALYZER_FAILED=1
 
 VERDICT="$(printf '%s' "$RESULT" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("verdict","clean"))
-except Exception: print("clean")')"
+except Exception: print("unreadable")')"
+[ "$VERDICT" != "unreadable" ] || _ANALYZER_FAILED=1
+if [ -n "$_ANALYZER_FAILED" ]; then
+    {
+        echo "=== guard-interactive-prompt: BLOCKED (no verdict) ==="
+        echo "  scripts/lib/interactive-prompt.py crashed or returned nothing readable, so"
+        echo "  this command was NOT checked for an interactive prompt. A check that"
+        echo "  produced no answer is not a clean answer."
+        echo "(hook: scripts/hooks/guard-interactive-prompt.sh)"
+    } >&2
+    exit 2
+fi
 
 case "$VERDICT" in
   clean) exit 0 ;;

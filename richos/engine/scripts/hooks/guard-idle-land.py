@@ -225,6 +225,10 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
     bash_by_id, uptodate = {}, set()
     backgrounded = False
     started = False
+    # Every tool call as (id, name, backgrounded), and the ids whose result
+    # says the call FAILED or was REFUSED: a refused Agent call started no
+    # agent, so neither it nor its background flag counts (hunt part 3, 19).
+    calls, errored = [], set()
     # WHEN THE TURN BEGAN, from the host's own record of it: the timestamp on
     # the first record bearing this prompt_id. confirm_landing uses it to ask
     # whether a merge or push CHANGED a ref during this turn, rather than only
@@ -282,16 +286,15 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
                         if not isinstance(b, dict) or b.get("type") != "tool_use":
                             continue
                         name = b.get("name", "")
-                        tools.append(name)
                         inp = b.get("input") or {}
                         if not isinstance(inp, dict):
                             inp = {}
+                        calls.append((b.get("id"), name,
+                                      inp.get("run_in_background") is True))
                         # A tool call sent to the background IS work started:
                         # the turn handed something off and is now waiting on
                         # it, which is the same shape as a dispatch and has to
                         # be read the same way. See started_work().
-                        if inp.get("run_in_background") is True:
-                            backgrounded = True
                         if name == "Bash":
                             cmd_text = str(inp.get("command", "") or "")
                             bash.append(cmd_text)
@@ -301,6 +304,8 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
                     for b in content:
                         if not isinstance(b, dict) or b.get("type") != "tool_result":
                             continue
+                        if b.get("is_error") is True and b.get("tool_use_id"):
+                            errored.add(b["tool_use_id"])
                         cmd_text = bash_by_id.get(b.get("tool_use_id"))
                         if cmd_text is None:
                             continue
@@ -314,6 +319,11 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
         return None
     if not started:
         return None
+    for cid, cname, bg in calls:
+        if cid is not None and cid in errored:
+            continue
+        tools.append(cname)
+        backgrounded = backgrounded or bg
     # NO `said` KEY, deliberately. A caller reaching for the operator's words
     # gets a KeyError at the line that reaches, not a quiet empty string that
     # lets the old behavior grow back looking harmless.
