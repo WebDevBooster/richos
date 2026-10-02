@@ -64,7 +64,8 @@ that cannot start a runner reports it at once. `watch.py status` prints all of i
 
 State (private: records name the phones) lives in RICHOS_PHONE_WATCH_HOME, default
 /Volumes/E1TB/state/richos/phone-speed-watch: ledger.jsonl, good.json, run.lock, runner.log,
-runs/<round>/<platform>/ (record, log, guard), checkout/ (the build clone).
+runs/<round>/<platform>/ (record, log, guard; the newest 20 rounds and every round a good run
+points at are kept), checkout/ (the build clone).
 
   watch.py trigger --repo DIR --from OLD --to NEW
   watch.py run --repo DIR
@@ -764,6 +765,27 @@ def platforms():
     return [p for p in setting("PLATFORMS", ",".join(PLATFORMS)).split(",") if p in PLATFORMS]
 
 
+KEEP_ROUNDS = 20
+
+
+def prune_runs():
+    """Keep the newest KEEP_ROUNDS rounds' directories (records, logs, an iPhone series' traces) and
+    every round a good run points at; the ledger keeps every outcome forever."""
+    runs = home() / "runs"
+    if not runs.is_dir():
+        return []
+    kept = {Path(g["record"]).parents[1].name for g in good().values() if g.get("record")}
+    rounds = sorted((p for p in runs.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+    removed = []
+    for old in rounds[KEEP_ROUNDS:]:
+        if old.name not in kept:
+            shutil.rmtree(old, ignore_errors=True)
+            removed.append(old.name)
+    if removed:
+        record("pruned", rounds=removed)
+    return removed
+
+
 def cmd_run(args):
     repo = Path(args.repo).resolve()
     with run_lock(block=True):
@@ -790,6 +812,7 @@ def cmd_run(args):
             for t in threads:
                 t.join()
             record("finished", round=round_id, main=sha, verdicts={o["platform"]: o["verdict"] for o in outcomes})
+            prune_runs()
 
 
 def cmd_status(args):

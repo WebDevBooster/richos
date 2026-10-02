@@ -17,6 +17,7 @@ to a scratch file. No phone, emulator, simulator, build or window; nothing touch
           reports and leaves the user running
   W11     a phone whose app cannot have changed is not measured again
   W12     the land through git itself: autocheck's post-merge hook starts the run
+  W13     old rounds are pruned to the newest 20; the good run's round is always kept
   G1-G3   the guard: uninstall, pm clear and install without -r are refused and stop the run;
           install -r and reads pass; xcrun devicectl uninstall is refused
   B1      the busy test: another process naming the phone is busy, this run's own tree is not,
@@ -351,6 +352,24 @@ class Run(Base):
         self.assertNotIn("cli-android", self.tools())
         good = json.loads((self.base / "home/good.json").read_text())
         self.assertEqual(good["android"]["commit"], ios_sha, "the good run moves forward, so the next range is short")
+
+
+class Prune(unittest.TestCase):
+    def test_W13_old_rounds_are_pruned_and_the_good_run_is_kept(self):
+        with tempfile.TemporaryDirectory(prefix="phone-watch-prune-") as tmp:
+            os.environ["RICHOS_PHONE_WATCH_HOME"] = tmp
+            try:
+                runs = Path(tmp) / "runs"
+                names = [f"20261002T{i:06d}Z-abc" for i in range(25)]
+                for name in names:
+                    (runs / name / "android").mkdir(parents=True)
+                watch.set_good("android", {"commit": "abc", "record": str(runs / names[0] / "android/android.json")})
+                removed = watch.prune_runs()
+                left = sorted(p.name for p in runs.iterdir())
+            finally:
+                del os.environ["RICHOS_PHONE_WATCH_HOME"]
+        self.assertEqual(removed, list(reversed(names[1:5])))
+        self.assertEqual(left, [names[0], *names[5:]], "the newest 20 and the good run's round are kept")
 
 
 class Land(Base):
