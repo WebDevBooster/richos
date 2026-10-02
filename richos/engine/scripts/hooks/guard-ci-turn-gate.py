@@ -161,6 +161,9 @@ BUDGET_SECONDS = 2.0
 # A green reading of a finished commit never changes, so it is cached forever.
 # A RED one is re-read after this, because `gh run rerun` must be a way out.
 RED_RECHECK_SECONDS = 300
+# A green reading is re-read after this long, so a later rerun of the same
+# commit is seen (P3-15).
+GREEN_RECHECK_SECONDS = 600
 # NO GRACE-PERIOD GUESS FOR "NO RUNS YET" — REMOVED 2026-09-28, AND WHY.
 # This used to promote a commit with zero runs to "running" for
 # RUNS_APPEAR_GRACE_SECONDS on the theory that GitHub takes a few seconds to
@@ -607,10 +610,11 @@ def write_runs_cache(doc):
 
 
 def cache_is_usable(doc):
-    """The asymmetry, stated once: GREEN AND FINISHED IS FOREVER, RED IS NOT.
+    """The asymmetry, stated once: GREEN LASTS LONGER THAN RED, NEITHER IS FOREVER.
 
     A commit whose runs are all completed and green cannot become red on its
-    own, so that reading is final and the steady state costs no network at all.
+    own, but a rerun can change it, so green is re-read after
+    GREEN_RECHECK_SECONDS (P3-15).
     A RED reading is re-read after RED_RECHECK_SECONDS because `gh run rerun`
     is a legitimate way out and a gate that could not see one would have to be
     disabled to escape. An in-flight reading is the one state expected to
@@ -621,7 +625,7 @@ def cache_is_usable(doc):
     st = doc.get("state")
     age = doc.get("age_seconds", 1 << 30)
     if st == "green":
-        return True
+        return age < GREEN_RECHECK_SECONDS
     if st == "red":
         return age < RED_RECHECK_SECONDS
     if st == "running":
