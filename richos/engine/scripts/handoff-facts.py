@@ -310,11 +310,15 @@ def measure_agents():
         line = next((l.strip() for l in out.split("\n")
                      if l.strip() and not l.strip().startswith("===")
                      and not l.strip().startswith("entity:")), "")
-        if line:
+        # Hunt P5-31: only a command that succeeded can have measured a zero; a failed one
+        # (rc != 0, e.g. "ERROR: cannot resolve the entity") measured nothing.
+        if line and rc == 0:
             return {"fact": "agents alive", "value": "%s%s" % (line[:110], where),
                     "cmd": cmd, "ok": True, "alive": 0, "indeterminate": 0}
         return {"fact": "agents alive", "ok": False,
-                "value": "UNMEASURED — no verdict line (rc %d)" % rc, "cmd": cmd}
+                "value": "UNMEASURED — no verdict line (rc %d)%s" % (
+                    rc, ": " + out.split("\n")[0][:100] if rc != 0 and out else ""),
+                "cmd": cmd}
     counts = {v: verdicts.count(v) for v in set(verdicts)}
     alive = counts.get("ALIVE", 0)
     ind = counts.get("INDETERMINATE", 0)

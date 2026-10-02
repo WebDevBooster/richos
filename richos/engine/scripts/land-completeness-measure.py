@@ -153,6 +153,31 @@ def strip_noncommand(cmd):
     return "\n".join(out)
 
 
+_SEPARATORS = {";", "&&", "||", "|", "&", "(", "{", "then", "do", "else", "!"}
+
+
+def _command_tokens(cmd):
+    """shlex tokens with `;`, `&&`, `|` split out as their own tokens."""
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        return list(lex)
+    except Exception:
+        return cmd.split()
+
+
+def _at_command_position(toks, i):
+    """True when toks[i] starts a command, not an argument of `echo`/`printf`.
+
+    Hunt P5-46: `echo git merge cc/example` printed a merge and was credited as
+    one. A command starts the line or follows a separator, after any leading
+    VAR=value assignments."""
+    k = i - 1
+    while k >= 0 and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[k]):
+        k -= 1
+    return k < 0 or toks[k] in _SEPARATORS
+
+
 def classify_land(cmd):
     """Is this command a `git merge`? Returns the merged ref or None.
 
@@ -164,14 +189,11 @@ def classify_land(cmd):
     if not cmd or not cmd.strip():
         return None
     cmd = strip_noncommand(cmd)
-    try:
-        toks = shlex.split(cmd, comments=False)
-    except Exception:
-        toks = cmd.split()
+    toks = _command_tokens(cmd)
     i = 0
     while i < len(toks):
         t = toks[i]
-        if t == "git" or t.endswith("/git"):
+        if (t == "git" or t.endswith("/git")) and _at_command_position(toks, i):
             j = i + 1
             while j < len(toks) and toks[j].startswith("-"):
                 j += 2 if toks[j] in _ARG_TAKING else 1
@@ -203,12 +225,10 @@ def is_removal(cmd):
             return True
     # A raw `git worktree remove`. Matched as a token sequence, not a substring,
     # so prose in a commit message does not count as the act.
-    try:
-        toks = shlex.split(cmd, comments=False)
-    except Exception:
-        toks = cmd.split()
+    toks = _command_tokens(cmd)
     for k in range(len(toks) - 2):
-        if toks[k].endswith("git") and toks[k + 1] == "worktree" and toks[k + 2] == "remove":
+        if (toks[k].endswith("git") and _at_command_position(toks, k)
+                and toks[k + 1] == "worktree" and toks[k + 2] == "remove"):
             return True
     return False
 
@@ -219,6 +239,7 @@ def walk_transcript(path):
         fh = open(path, encoding="utf-8", errors="replace")
     except Exception:
         return
+    pending = {}
     with fh as f:
         for line in f:
             try:
@@ -237,9 +258,15 @@ def walk_transcript(path):
                         cmd = inp.get("command") or ""
                         ref = classify_land(cmd)
                         if ref:
-                            yield ("land", ts, {"ref": ref, "cmd": cmd[:400]})
+                            ev = ("land", ts, {"ref": ref, "cmd": cmd[:400]})
                         elif is_removal(cmd):
-                            yield ("removal", ts, {"cmd": cmd[:400]})
+                            ev = ("removal", ts, {"cmd": cmd[:400]})
+                        else:
+                            continue
+                        # Hunt P5-46: credited only once its tool_result arrives
+                        # and is not an error; a refused or failed request is not
+                        # a landing.
+                        pending[b.get("id")] = ev
                     elif name == "SendMessage":
                         yield ("message", ts, {"to": str(inp.get("to") or "")})
                     elif name == "Agent":
@@ -252,6 +279,10 @@ def walk_transcript(path):
                     text = content
                 elif isinstance(content, list):
                     for b in content:
+                        if isinstance(b, dict) and b.get("type") == "tool_result":
+                            ev = pending.pop(b.get("tool_use_id"), None)
+                            if ev is not None and not b.get("is_error"):
+                                yield ev
                         if isinstance(b, dict) and b.get("type") == "text":
                             text += b.get("text") or ""
                 if text:
