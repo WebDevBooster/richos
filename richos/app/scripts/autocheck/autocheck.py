@@ -60,6 +60,7 @@ LINT_DRIVER = "richos/app/scripts/lint/driver.py"
 PROOF_FOR = "richos/app/scripts/proof-for.sh"
 PROOF_RUN = "richos/app/scripts/proof-run.py"
 BATTERY_CHECK = "richos/app/scripts/battery-check.py"
+PHYSICAL_CHECK = "richos/mobile/physical.py"
 MOBILE = "richos/mobile/"
 ENGINE_ESCALATE = "richos/engine/scripts/escalate.sh"
 ACTIVE = "RICHOS_AUTOCHECK_ACTIVE"
@@ -193,6 +194,8 @@ def commit_check(repo, what):
                 say(f"autocheck: {what}: {aside.summary} set aside for the check, so it sees only what is committed")
             if policy_applies(repo, staged) and release_policy(repo, what):
                 return 1
+            if physical_check(repo, what):
+                return 1
             # The land's coverage rule applies to every code path, not only richos/app (2026-10-01:
             # a Swift file under richos/mobile and step lists under docs/verification passed here
             # and were refused at the merge). Lookup only: no suite runs for a change outside the app.
@@ -205,6 +208,8 @@ def commit_check(repo, what):
         rc = lint_and_select(repo, what, app)
         if rc == 0 and what == "commit" and policy_applies(repo, staged):
             rc = release_policy(repo, what)
+        if rc == 0:
+            rc = physical_check(repo, what)
     if rc == 0:
         say(f"autocheck: {what}: passed in {time.monotonic() - started:.1f}s")
     return rc
@@ -250,6 +255,35 @@ def release_policy(repo, what):
         banner(f"{what.upper()} REFUSED: this change breaks the phone apps' release policy", [
             "The rule and the file are printed just above. The merge runs the same suite and would refuse it.",
             "Fix the change and commit again.",
+        ])
+        return 1
+    return 0
+
+
+# ONLY THE RELEASE BUILD ON A PHYSICAL PHONE, AND ONLY THROUGH THE COMMAND LINES (CEO 2026-10-02).
+# A debuggable build ran on the wired Android phone for eight hours and he judged the app by it; it got
+# there by a path outside `randroid device` / `rios device`. physical.py scan reads the whole tree
+# (about a second) and refuses an install on, uninstall from or data clear of a phone anywhere outside
+# those two command lines, a Gradle task that installs on every attached device, and a Debug build
+# for a physical iPhone. A tree without the scanner (older than this rule) has nothing to run.
+
+def physical_check(repo, what):
+    if not (repo.top / PHYSICAL_CHECK).is_file():
+        return 0
+    say(f"+ python3 {PHYSICAL_CHECK} scan")
+    try:
+        result = subprocess.run([sys.executable, PHYSICAL_CHECK, "scan", "--root", str(repo.top)], cwd=repo.top,
+                                env=repo.env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        banner(f"{what.upper()} REFUSED: the physical-phone check did not finish in 120 s",
+               ["It measures about a second; a hang is a failure, not a pass."])
+        return 1
+    if result.returncode:
+        sys.stderr.write((result.stdout + result.stderr)[-4000:])
+        banner(f"{what.upper()} REFUSED: this change touches a physical phone outside randroid device / rios device", [
+            "The file, the line and the rule are printed just above. Only the release build goes on a physical",
+            "phone, only through the two command lines, and nothing uninstalls the app or clears its data.",
+            "The merge runs the same check and would refuse it.",
         ])
         return 1
     return 0
@@ -983,6 +1017,8 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
             return refuse_selection(what, rc)
         commands += [c for c in found if c not in commands]
     commands, nightly = for_the_nightly(repo, commands)
+    # The physical-phone check reads the whole tree, about a second; every land runs it (physical_check).
+    commands += [f"python3 {PHYSICAL_CHECK} scan"] if (repo.top / PHYSICAL_CHECK).is_file() else []
     commands += ["cd richos/engine && python3 scripts/mutation-anchors.py --quiet"] if any(p.startswith("richos/engine/") for p in covered | set(staged)) and (repo.top / "richos/engine/scripts/mutation-anchors.py").is_file() else []  # every mutant's target text still exists (the passes run only in the nightly; ~1 s)
     if nightly:
         say(f"autocheck: {what}: left to the nightly: " + ", ".join(f"{row['check']} ({row['why']})" for row in nightly))
@@ -1312,7 +1348,7 @@ def pre_push(repo, stdin_text):
 # After the fact: what --no-verify skipped is recorded where the lead sees it
 # ---------------------------------------------------------------------------------------
 
-def record_skip(repo, title, question):
+def record_skip(repo, title, question, tried=None, meanwhile=None):
     repo.state.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     with open(repo.state / "bypass.log", "a") as log:
@@ -1320,8 +1356,8 @@ def record_skip(repo, title, question):
     local = repo.top / ENGINE_ESCALATE
     tool = local if local.is_file() else Path.home() / ".claude/richos-engine/scripts/escalate.sh"
     fields = dict(title=title, state="work-complete", question=question,
-                  tried="The automatic commit and land checks (richos/app/scripts/autocheck) did not run for this change.",
-                  meanwhile="The commit exists; the land check will still run if it is merged into main.")
+                  tried=tried or "The automatic commit and land checks (richos/app/scripts/autocheck) did not run for this change.",
+                  meanwhile=meanwhile or "The commit exists; the land check will still run if it is merged into main.")
     with tempfile.NamedTemporaryFile("w", prefix="autocheck-skip-", suffix=".json", delete=False) as f:
         json.dump(fields, f)
         path = f.name
@@ -1350,6 +1386,38 @@ def existed_before(repo, revs):
     return any(git("cat-file", "-e", f"{rev}:{SELF}", check=False, cwd=repo.top).returncode == 0 for rev in revs)
 
 
+PHONE_WATCH = "richos/mobile/perf/watch.py"
+
+
+def phone_watch(repo, old, new):
+    """Main moved from `old` to `new`: hand it to the phone speed watch (CEO 2026-10-01: the mobile
+    apps' start times are checked by the system after every mobile change, never by him). watch.py
+    decides everything: it acts only in the operator's main checkout, reports missed runs, and starts
+    a detached run on the phones only when old..new touches richos/mobile/. It returns at once; the
+    land never waits for a phone. A trigger that cannot run is recorded for the lead."""
+    script = repo.top / PHONE_WATCH
+    if not old or not script.is_file():
+        return
+    env = {k: v for k, v in repo.env.items() if not k.startswith("GIT_")}
+    env.pop(ACTIVE, None)
+    try:
+        result = subprocess.run([sys.executable, str(script), "trigger", "--repo", str(repo.top), "--from", old,
+                                 "--to", new], cwd=repo.top, env=env, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result = None
+        detail = str(exc)
+    else:
+        detail = (result.stdout + result.stderr).strip()
+        for line in detail.splitlines()[-4:]:
+            say(line)
+    if result is None or result.returncode:
+        record_skip(repo, f"the phone speed watch did not run for main {new[:12]}",
+                    f"{PHONE_WATCH} trigger failed ({detail[-300:]}). Was the phone speed check of this land run?",
+                    tried=f"autocheck's hook on main ran {PHONE_WATCH} trigger.",
+                    meanwhile="The land is complete; its phone speed check did not start.")
+
+
 def post_commit(repo):
     head = git("rev-parse", "HEAD", cwd=repo.top)
     tree = repo.head_tree()
@@ -1357,6 +1425,8 @@ def post_commit(repo):
     if not existed_before(repo, ["HEAD^1"]):
         return 0
     if repo.branch == LAND_BRANCH:
+        parent = git("rev-parse", "-q", "--verify", "HEAD^1", check=False, cwd=repo.top).stdout.strip()
+        phone_watch(repo, parent, head)
         if not repo.land_receipt(tree).exists():
             how = action or "git commit --no-verify"
             record_skip(repo, f"main moved to {head[:12]} without the land checks ({how})",
@@ -1405,6 +1475,8 @@ def post_merge(repo, squash):
         return 0
     merged = made_a_merge_commit(repo, parents)
     if repo.branch == LAND_BRANCH:
+        orig = git("rev-parse", "-q", "--verify", "ORIG_HEAD", check=False, cwd=repo.top).stdout.strip()
+        phone_watch(repo, orig, head)
         if not repo.land_receipt(tree).exists():
             how = "git merge --no-verify" if merged else "a fast-forward"
             record_skip(repo, f"main moved to {head[:12]} without the land checks ({how})",

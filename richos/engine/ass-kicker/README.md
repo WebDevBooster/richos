@@ -44,6 +44,12 @@ and require the corresponding regression case to fail.
   tests the narrow report patterns and benign alternatives through the Stop
   hook. The [historical corpus report](docs/stated-actions.corpus.md) records the
   original measurement. Its numbers are dated observations, not a new benchmark.
+- **An agent claims something was recorded, saved or made a rule, and nothing
+  durable was written.** ARM 3 of the same Stop hook is an alert, never a
+  refusal: one line in the lead's own context, nothing shown to the CEO. It is
+  tested by the same suite (cases R1 to R33). The corpus report's
+  ARM 3 section gives the replay counts; `tests/record-claims.replay.py`
+  reproduces them from any directory of lead transcripts, printing counts only.
 
 ## Architecture
 

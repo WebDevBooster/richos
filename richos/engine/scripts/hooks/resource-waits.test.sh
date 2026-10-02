@@ -422,6 +422,23 @@ stop_run
 [ "$SRC" = "2" ] && ok "RW19 the pair to RW18: the same record with a live pid refuses the turn" \
                  || bad "RW19 live-pid record" "rc=$SRC"
 
+# RW18z — the deterministic form of RW18's load flake: a waiter that has exited
+# but is not yet reaped (a zombie; kill -0 still succeeds) is not a wait.
+rm -f "$RICHOS_WAITS_DIR"/*.json
+python3 -c 'import subprocess,sys,time
+p=subprocess.Popen(["true"]); print(p.pid, flush=True); time.sleep(60)' > "$SANDBOX/zpid" 2>/dev/null &
+ZPAR=$!; OWNED_PIDS="$OWNED_PIDS $ZPAR"
+for _ in $(seq 50); do [ -s "$SANDBOX/zpid" ] && break; python3 -c 'import time; time.sleep(0.1)'; done
+ZPID="$(cat "$SANDBOX/zpid")"; settle
+write_record "$ZPID" cpu-admission "$T0"
+stop_run
+if [ "$SRC" = "0" ] && [ -z "$SERR" ]; then
+    ok "RW18z a record whose process exited but is unreaped (zombie) does not refuse the turn"
+else
+    bad "RW18z zombie-pid record" "rc=$SRC err=$(printf '%s' "$SERR" | head -c 300)"
+fi
+stop_pid "$ZPAR"
+
 # RW31 — a pid reused by a process that started after the wait began.
 rm -f "$RICHOS_WAITS_DIR"/*.json
 spawn sleep 120; REUSED=$SPAWNED

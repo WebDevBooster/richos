@@ -845,6 +845,10 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # as its own is shared, and on 2026-10-01 two teammates' end-of-task cleanups
 # (rm -rf / rm -f <session>/scratchpad/*) destroyed the lead's briefs and a live
 # teammate's files. The lead's calls pass. Suite: guard-shared-scratchpad.test.sh.
+# guard-unguarded-rm.sh, ADDED 2026-10-02 — BLOCKING, a module of the Bash chain's manifest. It refuses
+# an rm or rmdir (or find -delete) whose path starts with an unguarded variable, or names a critical
+# path, which is Claude Code's own circuit breaker: it asked the CEO a Yes/No even with bypass
+# permissions on. The refusal carries the exact rewrite. Suite: guard-unguarded-rm.test.sh.
 # operator-claim.sh, guard-operator-claim.sh, guard-shared-writes.sh,
 # release-shared-writes.sh and guard-live-names.sh, ADDED 2026-09-25 — the engine
 # side of several operator leads on one Mac (richos-hq spec r3 (e) the claim, e3,
@@ -900,6 +904,7 @@ guard-resource-waits.sh
 guard-failure-type-answer.sh
 guard-foreign-app-data.sh
 guard-shared-scratchpad.sh
+guard-unguarded-rm.sh
 operator-claim.sh
 guard-operator-claim.sh
 guard-shared-writes.sh

@@ -39,12 +39,14 @@ enum ReadinessMarks {
 
     static func viewportReady() {
         os_signpost(.event, log: PerformanceMarks.log, name: "viewport-ready")
+        LaunchTiming.record("viewport-ready")
         viewport = true
         launchIfReady()
     }
 
     static func composerReady() {
         os_signpost(.event, log: PerformanceMarks.log, name: "composer-ready")
+        LaunchTiming.record("composer-ready")
         composer = true
         launchIfReady()
     }
@@ -72,6 +74,7 @@ enum ReadinessMarks {
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false,
                                                           CFIndex(Int32.max)) { _, _ in
             os_signpost(.event, log: PerformanceMarks.log, name: "input-ready")
+            MainActor.assumeIsolated { LaunchTiming.record("input-ready") }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
@@ -104,14 +107,20 @@ struct UsefulFrameMarker: UIViewRepresentable {
             guard active else { wasActive = false; return }
             if cold {
                 os_signpost(.event, log: PerformanceMarks.log, name: "useful-content")
+                LaunchTiming.record("useful-content")
                 cold = false
             }
             if !wasActive {
                 os_signpost(.event, log: PerformanceMarks.log, name: "foreground-useful")
+                LaunchTiming.record("foreground-useful")
                 wasActive = true
             }
             os_signpost(.event, log: PerformanceMarks.log, name: "transcript-drawn")
         }
         func leftForeground() { wasActive = false }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let window { LaunchTiming.observeTouches(in: window) }
+        }
     }
 }

@@ -84,6 +84,13 @@ test('recognizes the Zoom web client and extracts the meeting number', () => {
   assert.equal(zoom?.slug, '81234567890');
 });
 
+test('Zoom host and guest meeting routes are calls, but the dashboard is not', () => {
+  assert.equal(detectPlatform('https://app.zoom.us/wc/12345678901/start')?.slug, '12345678901');
+  assert.equal(detectPlatform('https://app.zoom.us/wc/join/12345678901')?.slug, '12345678901');
+  assert.equal(detectPlatform('https://app.zoom.us/wc/home?ref_from=launch'), null);
+  assert.equal(isCallTab({ url: 'https://app.zoom.us/wc/home', audible: false }), false);
+});
+
 test('recognizes Teams web meetings and Whereby rooms', () => {
   assert.equal(detectPlatform('https://teams.microsoft.com/v2/?meetingjoin=true')?.id, 'teams-web');
   assert.equal(detectPlatform('https://teams.live.com/l/meetup-join/xyz')?.id, 'teams-web');
@@ -239,6 +246,19 @@ test('exact digital silence on the microphone is red (device switched / muted at
   assert.ok(result.actions.includes(ACTIONS.reacquireMic));
 });
 
+test('quiet microphone with recent PCM frames after proven signal is amber, without recovery', () => {
+  const state = healthyState();
+  state.ctxState = 'running';
+  state.micNonZeroAt = T0 - THRESHOLDS.digitalSilenceRedMs - 1000;
+  state.micFramesAt = T0;
+  const result = evaluateHealth(state, T0);
+  assert.equal(result.level, 'amber');
+  assert.ok(result.reasons.some(r => r.code === 'mic-quiet'));
+  assert.ok(!result.actions.includes(ACTIONS.reacquireMic));
+  state.micFramesAt = T0 - THRESHOLDS.heartbeatAmberMs;
+  assert.equal(evaluateHealth(state, T0).level, 'red', 'stale frame evidence must not hide a silent failure');
+});
+
 test('a suspended audio graph is red — it would record perfect silence while looking healthy', () => {
   const state = healthyState();
   state.ctxState = 'suspended';
@@ -324,6 +344,15 @@ test('a session that recorded real audio and closed cleanly verifies OK', () => 
   assert.equal(verdict.durationSeconds, 1800);
 });
 
+test('failed writes and invalid WebM headers cannot be verified as saved audio', () => {
+  const record = newSessionRecord({ startedAt: T0, platform: { id: 'zoom-web', slug: 'x' }, tabId: 1, settings: CAPTURE_DEFAULTS });
+  record.status = 'closed'; record.endedAt = T0 + 1000;
+  record.audio = { parts: [{ part: 0, bytes: 10000, error: 'WebM part does not begin with an EBML header' }], bytesTotal: 10000, chunkCount: 1 };
+  assert.equal(verifySession(record).ok, false);
+  record.audio.parts[0] = { part: 0, bytes: 10000, written: false };
+  assert.equal(verifySession(record).ok, false);
+});
+
 test('any second spent red is remembered in the session record', () => {
   const record = newSessionRecord({
     startedAt: T0,
@@ -332,15 +361,34 @@ test('any second spent red is remembered in the session record', () => {
     extensionVersion: '0.1.0',
     settings: CAPTURE_DEFAULTS,
   });
-  accrueHealth(record, { level: 'green' });
-  accrueHealth(record, { level: 'red' });
-  accrueHealth(record, { level: 'amber' });
+  accrueHealth(record, { level: 'green' }, T0 + 1000);
+  accrueHealth(record, { level: 'red' }, T0 + 2000);
+  accrueHealth(record, { level: 'amber' }, T0 + 3000);
   assert.equal(record.health.redSeconds, 1);
   assert.equal(record.health.worstLevel, 'red');
   record.status = 'closed';
   record.endedAt = T0 + 600000;
   record.audio = { parts: [{ part: 0, bytes: 5000000, chunks: 100 }], bytesTotal: 5000000, chunkCount: 100 };
   assert.equal(verifySession(record).ok, false, 'a red second must make the session suspect');
+});
+
+test('health evaluations cannot accumulate more seconds than actual elapsed time', () => {
+  const record = newSessionRecord({ startedAt: T0, platform: { id: 'zoom-web', slug: 'x' }, tabId: 1, settings: CAPTURE_DEFAULTS });
+  for (let i = 0; i < 21; i++) accrueHealth(record, { level: 'red' }, T0 + 1000);
+  accrueHealth(record, { level: 'amber' }, T0 + 1750);
+  accrueHealth(record, { level: 'red' }, T0 + 1500); // stale evaluation
+  assert.equal(record.health.redSeconds, 1);
+  assert.equal(record.health.amberSeconds, 0.75);
+  assert.equal(record.health.heartbeats, 2);
+});
+test('a quiet Zoom tab does not request fresh tab capture, but a missing stream still alarms', () => {
+  const state = healthyState();
+  state.tabAudible = false;
+  state.tabNonZeroAt = T0 - THRESHOLDS.digitalSilenceRedMs - 1000;
+  assert.ok(!evaluateHealth(state, T0).reasons.some(r => r.code === 'tab-digital-silence'));
+  state.tabTrack = null;
+  assert.equal(evaluateHealth(state, T0).level, 'red');
+  assert.ok(evaluateHealth(state, T0).actions.includes(ACTIONS.reattachTab));
 });
 
 group('drop-zone paths');
@@ -756,9 +804,9 @@ test('message builders produce the exact shapes the service host-handlers consum
   assert.equal(close.record.endedAt, 123);
 });
 
-test('chooseSink falls back to Downloads when the service is unavailable (graceful degrade)', () => {
-  assert.equal(chooseSink({ available: false }), 'downloads');
-  assert.equal(chooseSink(null), 'downloads');
+test('chooseSink falls back to durable browser storage when the service is unavailable (graceful degrade)', () => {
+  assert.equal(chooseSink({ available: false }), 'browser');
+  assert.equal(chooseSink(null), 'browser');
   assert.equal(chooseSink({ available: true }), 'native');
 });
 

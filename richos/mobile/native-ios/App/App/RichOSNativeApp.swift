@@ -18,6 +18,10 @@ struct RichOSNativeApp: App {
     @State private var platform: PlatformEffects?
     @State private var networkMonitor = NetworkMonitor()
 
+    /// The app's first line of code: `LaunchTiming` notes the process's start here, only on a phone
+    /// being measured (one file-existence check otherwise).
+    init() { LaunchTiming.start() }
+
     /// When the core is next owed a `tick`, while the app is on screen; `nil` otherwise.
     private var nextTick: Int64? {
         guard scenePhase == .active, let store, store.ticking else { return nil }

@@ -11,7 +11,7 @@
 // that is an empty binary delta ("App installation will use binary delta information"), and the
 // runner's identity on the phone does not change. Uncommitted source builds in the checkout's own
 // cache as before and is never published.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -42,7 +42,7 @@ export function allowanceSeconds(config) {
 }
 
 export function configuration(env, command, selection) {
-  if (!['build', 'verify'].includes(command)) throw Error('device build | device verify pairing|text|recording|quiet|voice|notifications|script');
+  if (!['build', 'install', 'stamp', 'verify'].includes(command)) throw Error('device build | device install | device stamp | device verify pairing|text|recording|quiet|voice|notifications|script');
   if (!/^[A-Fa-f0-9-]{20,64}$/.test(env.RICHOS_IOS_DEVICE || '')) throw Error('Set RICHOS_IOS_DEVICE to the connected physical UDID');
   if (!/^[A-Z0-9]{10}$/.test(env.RICHOS_APPLE_TEAM || '')) throw Error('Set RICHOS_APPLE_TEAM to the signing team');
   if (command === 'verify' && !checks[selection]) throw Error('Choose one named physical check');
@@ -53,6 +53,41 @@ export function verifyPushEnvironment(configured, signed) {
   if (!['development', 'production'].includes(configured) || configured !== signed) {
     throw Error('APNs registration environment must match the signed aps-environment entitlement');
   }
+}
+
+// ONLY THE RELEASE BUILD GOES ON THE PHONE (CEO, 2026-10-02). The bundle about to be installed is
+// read by richos/mobile/physical.py: a Debug bundle carries every development marker `rios sim
+// check-release` proves, a Release bundle none; anything else is refused with the sentence, before
+// the phone is touched. The products here are built `-configuration Release`; this is the proof.
+export function releaseOnly(app, run = spawnSync) {
+  const checked = run('python3', ['-B', physicalTool, 'ios-app', app], { encoding: 'utf8' });
+  if (checked.status !== 0) {
+    let why = (checked.stderr || checked.stdout || '').trim();
+    try { const parsed = JSON.parse(why); why = parsed.refused || parsed.error || why; } catch { /* the raw text */ }
+    throw Error(`Refused: ${why}`);
+  }
+  return JSON.parse(checked.stdout).result;
+}
+
+// The grammar richos/mobile/perf/watch.py calls: `--device ID` names the phone (instead of
+// RICHOS_IOS_DEVICE) and `--expect-commit SHA` refuses unless the products are that commit's.
+export function deviceArgs(args, env) {
+  const rest = [];
+  let device = env.RICHOS_IOS_DEVICE, expect = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--device') device = args[++i];
+    else if (args[i] === '--expect-commit') expect = args[++i];
+    else rest.push(args[i]);
+  }
+  return { args: rest, env: { ...env, RICHOS_IOS_DEVICE: device }, expect };
+}
+
+// A store entry is named by the FIRST commit that built its tree, so a later commit with the same
+// app sources has the same bytes: `--expect-commit` compares the build TREE of that commit with
+// the tree being installed, never the commit names. Uncommitted sources match no commit.
+export function sameTree({ expect, wanted, head }) {
+  if (head.dirty) throw Error(`Refused: --expect-commit ${expect}, but this checkout's app sources have uncommitted changes; they match no commit`);
+  if (wanted !== head.tree) throw Error(`Refused: freshness mismatch: the app sources of ${expect} are not this checkout's (build tree ${String(wanted).slice(0, 12)}…, here ${String(head.tree).slice(0, 12)}…); nothing was built or installed`);
 }
 
 // Only `verify` may reuse this checkout's own earlier products on request; `build` never does.
@@ -155,14 +190,28 @@ export function prune(store, keep, now = Date.now()) {
   return removed;
 }
 
+// The products a prebuilt run hands the phone. `phone-ios.py run --prebuilt --stamp` names the
+// Build/Products directory of the app it checked against its stamp (RICHOS_PHYSICAL_PRODUCTS), so the
+// phone gets exactly those bytes: this checkout's own earlier build, or a shared-store entry such as
+// the one a measured Release build came from. Without the name, this checkout's own build.
+export function prebuiltProducts(env, own) {
+  const named = env.RICHOS_PHYSICAL_PRODUCTS;
+  if (!named) return own;
+  for (const rel of [APP, RUNNER]) {
+    if (!existsSync(join(named, rel))) throw Error(`RICHOS_PHYSICAL_PRODUCTS ${named} has no ${rel}`);
+  }
+  return named;
+}
+
 // Products for this run, and how they were obtained. `deps` are the side effects (git, Xcode, the
 // build itself, hashing, copying), injected so the decision is provable without a phone.
 export async function resolveProducts({ command, env, team, derived, store }, deps) {
   const source = deps.source();
   const own = join(derived, 'Build/Products');
   if (prebuilt(env, command)) {
-    if (!existsSync(join(own, APP))) throw Error('RICHOS_PHYSICAL_PREBUILT=1 but there is no earlier build to reuse; run once without it');
-    return { mode: 'checkout', products: own };
+    const products = prebuiltProducts(env, own);
+    if (!existsSync(join(products, APP))) throw Error('RICHOS_PHYSICAL_PREBUILT=1 but there is no earlier build to reuse; run once without it');
+    return { mode: 'checkout', products };
   }
   const key = source.dirty ? null : storeKey({ tree: source.tree, team, xcode: deps.xcode() });
   const entry = key ? stored(store, key, deps.hash) : null;
@@ -185,18 +234,26 @@ function git(...args) {
 }
 
 const perf = resolve(root, '../perf');
+const physicalTool = resolve(root, '../physical.py');
 const hashTree = path => existsSync(path)
   ? execFileSync('python3', ['-B', '-c', 'import sys; sys.path.insert(0, sys.argv[1]); import perfcore; print(perfcore.tree_sha256(sys.argv[2]))', perf, path], { encoding: 'utf8' }).trim()
   : 'absent';
 
 export async function main(args, env = process.env) {
-  const [command, selection] = args;
+  // The phone is touched only through `rios device ...` (bin/rios sets this; physical.py).
+  if (env.RICHOS_DEVICE_VERB !== 'rios') throw Error('A physical iPhone is touched only through `rios device ...`, which puts only the Release build on it (CEO 2026-10-02)');
+  const parsed = deviceArgs(args, env);
+  env = parsed.env;
+  const [command, selection] = parsed.args;
   const settings = configuration(env, command, selection);
   const cache = join(env.RICHOS_NATIVE_IOS_CACHE, 'physical');
   mkdirSync(cache, { recursive: true });
   if (!realpathSync(cache).startsWith('/Volumes/E1TB/')) throw Error('Physical cache must remain on the external SSD');
   const store = env.RICHOS_PHYSICAL_STORE || DEFAULT_STORE;
   if (!resolve(store).startsWith('/Volumes/E1TB/')) throw Error('RICHOS_PHYSICAL_STORE must be on /Volumes/E1TB');
+  if (env.RICHOS_PHYSICAL_PRODUCTS && !resolve(env.RICHOS_PHYSICAL_PRODUCTS).startsWith('/Volumes/E1TB/')) {
+    throw Error('RICHOS_PHYSICAL_PRODUCTS must be on /Volumes/E1TB');
+  }
   let config;
   if (command === 'verify') {
     const file = env.RICHOS_MOBILE_TEST_CONFIG;
@@ -220,12 +277,30 @@ export async function main(args, env = process.env) {
     if (baseline.some(device => !current.includes(device))) throw Error('USB device disappeared or reset; stopped without retry or USB reset');
   };
   let xcode;
+  // --full-tree: from a subdirectory, ls-tree would otherwise filter the subtree by that
+  // subdirectory's own path and list nothing.
+  const treeOf = rev => buildTree(git('ls-tree', '--full-tree', git('rev-parse', `${rev}:./`)));
+  const source = () => ({ tree: treeOf('HEAD'), commit: git('rev-parse', 'HEAD'),
+    dirty: git('status', '--porcelain', '--', '.', ...NOT_BUILD_INPUTS.map(name => `:(exclude)${name}`)) !== '' });
+  const xcodeVersion = () => (xcode ??= execFileSync('xcodebuild', ['-version'], { encoding: 'utf8', env }).trim().replace(/\s+/g, ' '));
+  if (parsed.expect) sameTree({ expect: parsed.expect, wanted: treeOf(parsed.expect), head: source() });
+  if (command === 'stamp') {
+    // `rios device perf`'s stamp: the store's Release bytes for this tree, never a build. Its commit
+    // is the one asked about (same build tree, sameTree above); builtFrom names the commit that built it.
+    const head = source();
+    if (head.dirty) throw Error('Refused: uncommitted app sources have no published build to measure; commit, then `rios device install`');
+    const entry = stored(store, storeKey({ tree: head.tree, team: settings.team, xcode: xcodeVersion() }), hashTree);
+    if (!entry) throw Error('Refused: this tree has no Release build in the store yet; run `rios device install` first');
+    const app = join(entry.products, APP);
+    releaseOnly(app);
+    const file = join(cache, `stamp-${head.tree.slice(0, 12)}.json`);
+    writeFileSync(file, JSON.stringify({ artifact: app, sha256: entry.app, commit: parsed.expect || head.commit, tree: head.tree,
+      builtFrom: entry.commit, dirty: false, paths: ['richos/mobile/native-ios'], stampedAt: new Date().toISOString() }, null, 1));
+    return { stamp: file };
+  }
   const resolved = await resolveProducts({ command, env, team: settings.team, derived, store }, {
-    // --full-tree: from a subdirectory, ls-tree would otherwise filter the subtree by that
-    // subdirectory's own path and list nothing.
-    source: () => ({ tree: buildTree(git('ls-tree', '--full-tree', git('rev-parse', 'HEAD:./'))), commit: git('rev-parse', 'HEAD'),
-      dirty: git('status', '--porcelain', '--', '.', ...NOT_BUILD_INPUTS.map(name => `:(exclude)${name}`)) !== '' }),
-    xcode: () => (xcode ??= execFileSync('xcodebuild', ['-version'], { encoding: 'utf8', env }).trim().replace(/\s+/g, ' ')),
+    source,
+    xcode: xcodeVersion,
     hash: hashTree,
     copy: (from, to) => execFileSync('ditto', [from, to]),
     build: async () => {
@@ -248,9 +323,15 @@ p=pathlib.Path(sys.argv[1]);info=plistlib.loads((p/'Info.plist').read_bytes())
 signed=plistlib.loads(subprocess.check_output(['codesign','-d','--entitlements',':-',str(p)],stderr=subprocess.DEVNULL))
 print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment')]))`, app], { encoding: 'utf8', env }));
   verifyPushEnvironment(...push);
+  build.configuration = releaseOnly(app).configuration;
   // A reused build wrote no build log; never name one that does not exist.
   if (!existsSync(log)) build.log = null;
   if (command === 'build') return { log: build.log === null ? null : log, app, build };
+  if (command === 'install') {
+    // Over the installed app: the bundle is replaced in place and the app's data kept; it is never removed.
+    execFileSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', settings.device, app], { encoding: 'utf8', env, timeout: 600000 });
+    return { installed: app, build };
+  }
   const spec = join(cache, `physical-${stamp}.xctestrun`);
   // Rewrite only the runner's environment and paths. Private config is fed via stdin,
   // never process arguments, app launch arguments or a committed test resource.

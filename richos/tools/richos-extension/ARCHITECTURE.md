@@ -11,7 +11,7 @@ file for what was actually built and why it differs.
 |---|---|---|
 | macOS-first, with a local native helper | **Cross-platform Chrome extension only** | The CEO's calls run on Windows; development and testing happen on a Mac. A Chrome MV3 extension is the same code on every OS, so "which machine" stops being an engineering question. There is no OS-conditional code in the extension. |
 | Native-messaging helper as the outside-the-browser watchdog, from day one | **Deferred** (specified below, not built) | It is the single largest piece of work in the brief and it is per-OS. Everything else in the guarantee — chunked durable writes, second-by-second health, in-call alarms, recovery, verification — is achievable inside the browser, and is now proven to work in a browser. Shipping that first gets the guarantee into use in days rather than weeks, and real usage tells us whether the remaining ceiling actually bites. |
-| Session directory written into the loro repo | **Written to Chrome's downloads folder, moved by a sync helper** | Extensions may only write inside the downloads folder. The alternative is the native host (below). One command bridges the gap. |
+| Session directory written into the loro repo | **Native files or durable browser storage with explicit archive export** | Native messaging writes files continuously. Browser fallback retains IndexedDB data until the user exports one ZIP and extracts it for the sync helper. |
 | Health pill injected into the meeting page | **Toolbar badge + popup only** | Nothing may be visible to the other party or appear in a screenshare. The badge is also strictly more reliable than an in-page element: it lives in the browser chrome, so it survives anything that happens to the page. |
 | Live in-tab chime | **Off by default** | An open microphone would put the chime into the call. |
 | Caption adapters (Stage 1+) | **Built as a secondary failsafe + enrichment layer (Meet first)** | Audio-first is still the whole point; captions never become the guarantee. But collecting them is pure upside (§Captions below): a zero-gesture third channel, per-remote-speaker names, and an accuracy cross-check — losing them costs only enrichment, because the audio is recoverable. |
@@ -59,9 +59,9 @@ document is core-owned because Chrome permits exactly one per extension.
 │    · captions persisted to IndexedDB (same count → captions.ndjson)│
 │    · TRANSPORT (chosen at call start, per session):             │
 │      ├─ native (default): connectNative ─► local service ───────┼──► loro wiki/raw/meetings/<session>/
-│      └─ downloads (fallback): chrome.downloads ─► Downloads/richos-capture/<session>/
+│      └─ browser (fallback): IndexedDB ─► explicit ZIP export after call/
 └─────────────────────────────────────────────────────────────────┘
-        native transport (default)          downloads fallback │ sync/richos-sync.mjs
+        native transport (default)          explicit archive   │ extract + sync/richos-sync.mjs
         RichOS local service (richos/tools/richos-service):            ▼
         host writes the contract dir + runs the pipeline   loro wiki/raw/meetings/<session>/
                                 │                                │
@@ -70,16 +70,17 @@ document is core-owned because Chrome permits exactly one per extension.
      (captions.ndjson → per-speaker names merged in + accuracy cross-check score)
 ```
 
-**Transport (native-messaging streaming, default; Downloads fallback).** At call start the controller
-tries `chrome.runtime.connectNative('com.richos.host')`. If the local service answers, the whole
-session — `session-start`, then every audio chunk, health record and caption revision, then
-`session-close` — is streamed to it over Chrome's length-prefixed native-messaging channel, and the
-host writes the session directory straight into loro and runs the pipeline. If the service is absent,
-or the port dies mid-call, the controller falls back to the Downloads path unchanged. Chunks are
-committed to IndexedDB on **both** transports (the durability backbone), and each chunk streamed to
-the host is read back from that exact IndexedDB record — so the bytes that cross native messaging are
-byte-identical to what the Downloads path would assemble (collector-path parity), and a service that
-vanishes at any point loses no audio (the full session is exported to Downloads at finalize).
+**Transport (native messaging or browser storage).** At call start the controller tries
+`chrome.runtime.connectNative('com.richos.host')`. An acknowledged host receives session metadata,
+chunks, health and captions and writes the session directory continuously. Each chunk commits to
+IndexedDB first. Native delivery reads those exact durable bytes, splits large messages and waits
+for acknowledgements. If a native request fails, the controller retains the complete browser copy.
+
+Capture, finalization and orphan recovery never start Chrome downloads. Browser fallback records
+`exportPending` and the popup exposes one explicit ZIP export for a closed session. Cancellation
+keeps all rows for retry. Successful export clears that pending state; successful native finalization
+also clears it. Diagnostic retained copies do not become new pending orphans on worker restart.
+The native host can run transcription after close when its separate dependencies are installed.
 
 ### Load-bearing details
 
@@ -90,7 +91,7 @@ vanishes at any point loses no audio (the full session is exported to Downloads 
   transcription with no diarization model.
 - **Chunks are awaited.** `persistChunk` commits to IndexedDB before acknowledging, so the
   crash window is one `chunkMs` (default 3 s), not "whatever was buffered".
-- **Parts.** Every recovery starts a new `audio-part-NN.webm`. Each part is a self-contained
+- **Parts.** An actual recorder restart starts a new `audio-part-NN.webm`. Keeping a valid audio graph does not rotate it. Each part is a self-contained
   WebM, so a corrupted part cannot poison the ones after it. Chunks *within* a part must be
   exported together — the first chunk carries the header. (Violating this produced an
   unplayable fragment during development; orphan recovery now refuses to export a session the
@@ -115,7 +116,7 @@ vanishes at any point loses no audio (the full session is exported to Downloads 
 | Recorder state | `MediaRecorder.state` | — | not recording | restart |
 | Audio graph | `AudioContext.state` | — | not running | resume, then restart |
 | Track liveness | `MediaStreamTrack.readyState` | muted | ended | re-attach tab / re-acquire mic |
-| Digital silence per channel | worklet peak | — | 20 s | re-attach tab / re-acquire mic |
+| Digital silence per channel | worklet peak + fresh PCM frames | proven quiet input is amber | never-proven or stale zero input after warmup | preserve live sources; alert on loss |
 | Speech present | worklet peak vs floor | 120 s | never red | none (nobody talking is legitimate) |
 | Not armed at all | tab scan | — | 10 s | loud alarm; only a human click can fix it |
 
@@ -229,8 +230,8 @@ The extension cannot survive Chrome itself dying, and cannot hear desktop-app ca
 small process outside the browser. It is **one codebase with per-OS builds** and it keeps the
 extension connected over Chrome's native-messaging stdio channel (no listening port, starts and dies
 with the browser). The extension side of that channel is `core/native-host-client.js`, wired into the
-controller as the default transport (above), with the Downloads path as the automatic runtime
-fallback. Scope, in priority order, with status:
+controller as the default transport (above), with durable browser storage as the automatic runtime
+fallback. Archive download requires an explicit user action. Scope, in priority order, with status:
 
 1. **Outside-the-browser watchdog.** ✅ Built. The host holds its own heartbeat timer; a browser that
    stops talking becomes an alarm the browser cannot suppress, and open sessions are finalized

@@ -460,7 +460,11 @@ final class PhysicalDeviceTests: XCTestCase {
             detail["waitedMs"] = Int(Date().timeIntervalSince(begin) * 1000)
             detail["label"] = element.label
             switch action {
-            case "tap": element.tap()
+            case "tap":
+                // The phone-clock moment the tap is asked for, after the element was found: a launch
+                // timed from the tap (`perf.py ios --tap-launches`) starts no earlier than this.
+                detail["tapAt"] = Date().timeIntervalSince1970
+                element.tap()
             case "type":
                 if step["focus"] as? Bool != false { element.tap() }
                 let deletes = step["delete"] as? Int ?? 0
@@ -488,6 +492,25 @@ final class PhysicalDeviceTests: XCTestCase {
                 }
             default: break
             }
+        case "tapThen":
+            // A tap on the target and, `after` seconds later, a touch at screen point `at`, as ONE
+            // synthesized event record, so the second touch lands at that offset whatever the first
+            // one starts (XCTest's own `tap()` waits for the system to settle first). For: does an app
+            // returning to the front receive a touch before iOS makes its scene active?
+            guard let element = target(step, springboard) else { return "step names no id or label" }
+            guard element.waitForExistence(timeout: timeout) else { return "not on screen within \(timeout) s" }
+            guard let at = step["at"] as? [Double], at.count == 2, let after = step["after"] as? Double else {
+                return "tapThen needs at [x, y] and after (seconds)"
+            }
+            let frame = element.frame
+            detail["label"] = element.label
+            detail["first"] = [frame.midX, frame.midY]
+            detail["synthesizedAt"] = Date().timeIntervalSince1970
+            if let reason = TouchRecord.synthesize([(CGPoint(x: frame.midX, y: frame.midY), 0),
+                                                    (CGPoint(x: at[0], y: at[1]), after)]) {
+                return reason
+            }
+            detail["returnedAt"] = Date().timeIntervalSince1970
         case "count":
             guard let label = step["label"] as? String else { return "count needs a label" }
             let root = root(step, springboard)
@@ -530,6 +553,58 @@ final class PhysicalDeviceTests: XCTestCase {
             add(tree)
         default:
             return "unknown step \(action)"
+        }
+        return nil
+    }
+}
+
+/// Touches at exact offsets in one record, through XCTest's own event record classes (the ones its
+/// public `tap()` builds; they have no public initializer). Each touch is down at its offset and up
+/// 50 ms later, in portrait screen points. Returns why it could not, or nil.
+enum TouchRecord {
+    private typealias Alloc = @convention(c) (AnyClass, Selector) -> Unmanaged<AnyObject>
+    private typealias InitRecord = @convention(c) (Unmanaged<AnyObject>, Selector, NSString, Int) -> Unmanaged<AnyObject>?
+    private typealias InitPath = @convention(c) (Unmanaged<AnyObject>, Selector, CGPoint, Double) -> Unmanaged<AnyObject>?
+    private typealias Lift = @convention(c) (AnyObject, Selector, Double) -> Void
+    private typealias Add = @convention(c) (AnyObject, Selector, AnyObject) -> Void
+    private typealias Synthesize = @convention(c) (AnyObject, Selector, UnsafeMutablePointer<Unmanaged<NSError>?>?) -> Bool
+
+    private static func implementation<T>(_ cls: AnyClass, _ name: String, classMethod: Bool = false, as: T.Type) -> T? {
+        let selector = NSSelectorFromString(name)
+        let method = classMethod ? class_getClassMethod(cls, selector) : class_getInstanceMethod(cls, selector)
+        return method.map { unsafeBitCast(method_getImplementation($0), to: T.self) }
+    }
+
+    static func synthesize(_ touches: [(CGPoint, Double)]) -> String? {
+        guard let recordClass = NSClassFromString("XCSynthesizedEventRecord"),
+              let pathClass = NSClassFromString("XCPointerEventPath"),
+              let alloc = implementation(recordClass, "alloc", classMethod: true, as: Alloc.self),
+              let allocPath = implementation(pathClass, "alloc", classMethod: true, as: Alloc.self),
+              let initRecord = implementation(recordClass, "initWithName:interfaceOrientation:", as: InitRecord.self),
+              let initPath = implementation(pathClass, "initForTouchAtPoint:offset:", as: InitPath.self),
+              let lift = implementation(pathClass, "liftUpAtOffset:", as: Lift.self),
+              let add = implementation(recordClass, "addPointerEventPath:", as: Add.self),
+              let synthesize = implementation(recordClass, "synthesizeWithError:", as: Synthesize.self) else {
+            return "this XCTest has no event record classes"
+        }
+        // alloc returns +1; init consumes it and returns +1, which ARC then owns.
+        guard let record = initRecord(alloc(recordClass, NSSelectorFromString("alloc")),
+                                      NSSelectorFromString("initWithName:interfaceOrientation:"),
+                                      "richos-touch-record", 1)?.takeRetainedValue() else {
+            return "the event record could not be made"
+        }
+        for (point, offset) in touches {
+            guard let path = initPath(allocPath(pathClass, NSSelectorFromString("alloc")),
+                                      NSSelectorFromString("initForTouchAtPoint:offset:"), point, offset)?
+                    .takeRetainedValue() else {
+                return "a touch path could not be made"
+            }
+            lift(path, NSSelectorFromString("liftUpAtOffset:"), offset + 0.05)
+            add(record, NSSelectorFromString("addPointerEventPath:"), path)
+        }
+        var error: Unmanaged<NSError>?
+        guard synthesize(record, NSSelectorFromString("synthesizeWithError:"), &error) else {
+            return "the touches were not synthesized: \(error?.takeUnretainedValue().localizedDescription ?? "no error given")"
         }
         return nil
     }

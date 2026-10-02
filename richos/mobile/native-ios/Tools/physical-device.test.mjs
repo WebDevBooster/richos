@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { KEEP, allowanceSeconds, buildTree, configuration, deviceToolSources, plan, prebuilt, prune, resolveProducts, storeKey, verifyPushEnvironment } from './physical-device.mjs';
+import { KEEP, allowanceSeconds, buildTree, configuration, deviceArgs, deviceToolSources, main, plan, prebuilt, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
 
 test('only verify may reuse an earlier build, and only when asked', () => {
   assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'verify'), true);
@@ -130,6 +130,30 @@ test('changed source builds; uncommitted source is never published; a store entr
   } finally { rmSync(world, { recursive: true, force: true }); }
 });
 
+test('a prebuilt run hands the phone the products its stamp named: a store entry is used as it is, never rebuilt', async () => {
+  const world = mkdtempSync(join(tmpdir(), 'physical-store-'));
+  try {
+    const store = join(world, 'store');
+    const publisher = checkout(world, 'publisher');
+    const stored = await resolveProducts({ command: 'verify', env: {}, team: 'ABCDEFGHIJ', derived: publisher.derived, store }, publisher.deps);
+    // Another checkout whose own tree differs (a perf tool branch) walks the measured build's products.
+    const other = checkout(world, 'perf', { tree: 'b'.repeat(40), commit: 'd'.repeat(40), dirty: false });
+    const env = { RICHOS_PHYSICAL_PREBUILT: '1', RICHOS_PHYSICAL_PRODUCTS: stored.products };
+    const r = await resolveProducts({ command: 'verify', env, team: 'ABCDEFGHIJ', derived: other.derived, store }, other.deps);
+    assert.equal(r.mode, 'checkout');
+    assert.equal(r.products, stored.products);
+    assert.equal(runner(r.products), runner(stored.products));
+    assert.equal(other.deps.builds, 0, 'the named products are used as they are');
+    // Without the name, a prebuilt run is this checkout's own build, as before.
+    await assert.rejects(resolveProducts({ command: 'verify', env: { RICHOS_PHYSICAL_PREBUILT: '1' }, team: 'ABCDEFGHIJ',
+      derived: other.derived, store }, other.deps), /no earlier build/);
+    // A named directory without the runner is refused rather than half-installed.
+    rmSync(join(world, 'publisher', 'derived', 'Build/Products/Release-iphoneos/RichOSNativeUITests-Runner.app'), { recursive: true });
+    await assert.rejects(resolveProducts({ command: 'verify', env: { ...env, RICHOS_PHYSICAL_PRODUCTS: join(world, 'publisher', 'derived', 'Build/Products') },
+      team: 'ABCDEFGHIJ', derived: other.derived, store }, other.deps), /has no Release-iphoneos\/RichOSNativeUITests-Runner\.app/);
+  } finally { rmSync(world, { recursive: true, force: true }); }
+});
+
 test('the store key changes with the tree, the team or Xcode, and with nothing else', () => {
   const k = storeKey({ tree: TREE, team: 'ABCDEFGHIJ', xcode: 'Xcode 26.3' });
   assert.equal(k, storeKey({ tree: TREE, team: 'ABCDEFGHIJ', xcode: 'Xcode 26.3' }));
@@ -171,7 +195,7 @@ test('the store stays bounded without removing a recent entry or the one in use'
 // CEO, 2026-10-01: the phone is dedicated to testing; its app and runner stay installed for good.
 const REMOVES_AN_APP = /(['"])(uninstall|erase)\1|devicectl[^\n]*\buninstall\b|\buninstall_app\b|ideviceinstaller|simctl[^\n]*\b(uninstall|erase)\b/i;
 test('no device tool can uninstall or wipe an app on the phone', () => {
-  for (const bad of ["['device', 'uninstall', 'app']", 'xcrun devicectl device uninstall app --device x', 'ideviceinstaller -U dev.richos.connect']) {
+  for (const bad of ["['device', 'uninstall', 'app']", 'xcrun devicectl device uninstall app --device x', 'ideviceinstaller -U dev.richos.connect']) {  // device-cli-exempt: planted commands that prove the never-uninstall pattern catches them
     assert.match(bad, REMOVES_AN_APP, `the check must catch: ${bad}`);
   }
   const sources = deviceToolSources();
@@ -181,4 +205,47 @@ test('no device tool can uninstall or wipe an app on the phone', () => {
       assert.doesNotMatch(line, REMOVES_AN_APP, `${file}:${i + 1} would remove an app from the test phone: ${line.trim()}`);
     });
   }
+});
+
+// CEO, 2026-10-02: only the build users get (Release) goes on the phone, and only through `rios device`.
+test('only `rios device` reaches the phone: started any other way, nothing is configured, built or installed', async () => {
+  await assert.rejects(main(['install'], { ...env }), /only through `rios device/);
+  await assert.rejects(main(['verify', 'script'], { ...env, RICHOS_DEVICE_VERB: 'randroid' }), /only through `rios device/);
+  assert.equal(configuration(env, 'install').device, env.RICHOS_IOS_DEVICE);
+});
+
+// The development markers `rios sim check-release` proves: every Debug bundle carries all, Release none.
+const MARKERS = ['rios-commands', 'rios-fixture', 'rios-interactive-fixture', 'rios-appearance', 'rios-notifications',
+  'rios-cards', 'compose-draft', 'Henderson proposal'];
+test('a Debug bundle is refused before it reaches the phone; a Release bundle passes', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'release-only-'));
+  try {
+    const debug = join(dir, 'Debug-iphoneos', 'RichOSNative.app');  // device-cli-exempt: a synthetic Debug bundle the refusal must catch
+    const release = join(dir, 'Release-iphoneos', 'RichOSNative.app');
+    mkdirSync(debug, { recursive: true });
+    mkdirSync(release, { recursive: true });
+    writeFileSync(join(debug, 'RichOSNative'), `binary ${MARKERS.join(' ')} bytes`);
+    writeFileSync(join(release, 'RichOSNative'), 'binary bytes with no development code');
+    assert.throws(() => releaseOnly(debug), /Refused: .*a Debug bundle.*only the build users get/);
+    assert.deepEqual(releaseOnly(release), { app: release, configuration: 'release' });
+    writeFileSync(join(release, 'Partial'), MARKERS[0]);
+    assert.throws(() => releaseOnly(release), /not a Release bundle/, 'some markers, not all: neither build, refused');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// richos/mobile/perf/watch.py calls `rios device install --device ID --expect-commit SHA`.
+test('--device and --expect-commit are read wherever they stand; the rest is the command', () => {
+  const parsed = deviceArgs(['install', '--device', 'a'.repeat(40), '--expect-commit', 'abc1234'], { RICHOS_APPLE_TEAM: 'ABCDEFGHIJ' });
+  assert.deepEqual(parsed.args, ['install']);
+  assert.equal(parsed.env.RICHOS_IOS_DEVICE, 'a'.repeat(40));
+  assert.equal(parsed.expect, 'abc1234');
+  assert.equal(deviceArgs(['build'], env).env.RICHOS_IOS_DEVICE, env.RICHOS_IOS_DEVICE);
+});
+
+test('--expect-commit compares build trees, never commit names: same tree passes, another tree or uncommitted sources are refused', () => {
+  assert.doesNotThrow(() => sameTree({ expect: 'later', wanted: 't1', head: { tree: 't1', dirty: false } }));
+  assert.throws(() => sameTree({ expect: 'other', wanted: 't2', head: { tree: 't1', dirty: false } }), /freshness mismatch.*nothing was built or installed/);
+  assert.throws(() => sameTree({ expect: 'x', wanted: 't1', head: { tree: 't1', dirty: true } }), /uncommitted changes/);
 });

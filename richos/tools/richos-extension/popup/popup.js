@@ -114,7 +114,7 @@ async function refresh() {
       ? 'No audio channel yet — only captions are being collected. Click above (or Alt+Shift+L) to start recording audio.'
       : status.awaitingTabAudio
       ? 'Your mic + captions are already recording. Click above (or Alt+Shift+L) to add the other side\'s audio.'
-      : 'Audio is written to disk continuously — a crash loses seconds, never the call.';
+      : status.transport === 'native' ? 'Audio is saved continuously to the local service.' : 'Audio is retained in this browser. Finish the call then export the recording.';
   } else {
     const open = status.callTabsOpen || [];
     const last = status.lastSession;
@@ -124,7 +124,7 @@ async function refresh() {
           day: 'numeric',
           hour: '2-digit',
           minute: '2-digit',
-        })} · ${mb(last.bytes || 0)} · ${last.ok ? 'saved OK' : `needs attention: ${(last.problems || []).join('; ')}`}</dd>
+        })} · ${mb(last.bytes || 0)} · ${last.exportPending ? 'retained; export pending' : last.ok ? 'saved OK' : `needs attention: ${(last.problems || []).join('; ')}`}</dd>
         <dt>Saving to</dt><dd class="path">${status.saveLocation || ''}</dd></dl>`
       : `<dl class="rows"><dt>Saving to</dt><dd class="path">${status.saveLocation || ''}</dd></dl>`;
     $('status').innerHTML =
@@ -138,6 +138,23 @@ async function refresh() {
     $('arm').textContent = 'Arm capture on this tab';
     $('stop').hidden = true;
     $('hint').textContent = 'Shortcut: Alt+Shift+L arms the current tab without opening this popup.';
+  }
+  $('exports').replaceChildren();
+  if (!status.active && status.pendingExports?.length) {
+    const label = document.createElement('p');
+    label.textContent = 'Recordings retained in this browser';
+    $('exports').append(label);
+    for (const session of status.pendingExports) {
+      const button = document.createElement('button');
+      button.textContent = `Export ${new Date(session.startedAt).toLocaleString()} (${mb(session.bytes || 0)})`;
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        const result = await ask({ module: 'callCapture', type: 'cc:export-session', sessionId: session.sessionId });
+        if (!result?.ok) $('problems').textContent = result?.error || 'Export did not finish; recording retained.';
+        await refresh();
+      });
+      $('exports').append(button);
+    }
   }
   $('recent').innerHTML = renderRecent(status.recent);
 }

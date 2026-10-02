@@ -5,9 +5,20 @@
 #   bin/rios headless <command>       the real core, headless (loop L1')
 #   bin/rios sim <command>            the same commands inside the Debug app on a simulator
 #                                     this command created (loop L2)
-#   bin/rios perf (--simulator UDID | --device UDID | --reparse DIR) --stamp FILE [perf args]
+#   bin/rios perf (--simulator UDID | --reparse DIR) --stamp FILE [perf args]
 #                                     cold launch and warm return to the presented, input-ready
 #                                     viewport (richos/mobile/perf/perf.py ios; perf/README.md)
+#   bin/rios device <command>         a PHYSICAL iPhone; the only way anything touches one. Only the
+#                                     Release build goes on it and every test on it tests that build
+#                                     (CEO 2026-10-02); nothing uninstalls or wipes an app.
+#       build | install               the Release products (built once per committed tree); install
+#                                     puts them over the installed app (devicectl), data kept
+#       verify <check>                one XCUITest check against the Release app (Tools/physical-device.mjs)
+#       perf --device UDID ...        cold launch and warm return on the phone (perf.py ios)
+#       run|approval|procs|apps|lock|battery|syslog ...   the walk and its reads (qa/phone-ios.py)
+#       status                        the iPhone's lock: free or held, and by whom
+#       hold -- <command>             run <command> holding the iPhone (many commands, one use)
+#     Each holds the iPhone's lock for its whole length; --wait SECONDS waits for another holder.
 #   bin/rios --help                   every command
 #
 # Build output never lands in the repository: SwiftPM's scratch directory, DerivedData and the
@@ -46,7 +57,42 @@ fi
 
 if [ "${1:-}" = "device" ]; then
   shift
-  exec node "$HERE/Tools/physical-device.mjs" "$@"
+  # The tools below refuse a phone unless this verb started them (richos/mobile/physical.py).
+  # One user per phone: each command holds the iPhone's lock for its whole length (a UI-test
+  # session, a perf series); another holder means a refusal naming it, or a wait of at most
+  # --wait seconds (RICHOS_DEVICE_WAIT). `device status` says free or held, and by whom.
+  export RICHOS_DEVICE_VERB=rios PYTHONDONTWRITEBYTECODE=1
+  PHYS="$HERE/../physical.py"
+  wait="${RICHOS_DEVICE_WAIT:-0}"; rest=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in --wait) wait="${2:-}"; shift 2 || shift $# ;; *) rest+=("$1"); shift ;; esac
+  done
+  set -- ${rest[@]+"${rest[@]}"}
+  HOLD=(python3 "$PHYS" hold --platform ios --phone iphone --wait "$wait" --)
+  case "${1:-}" in
+    status) exec python3 "$PHYS" status --platform ios --phone iphone ;;
+    hold)
+      shift; [ "${1:-}" = "--" ] && shift
+      [ "$#" -ge 1 ] || { echo '{"ok":false,"error":"rios device hold -- <command>"}' >&2; exit 2; }
+      exec "${HOLD[@]}" "$@" ;;
+    perf)
+      shift
+      # Unless a stamp is named: the store's Release bytes for this checkout's committed app tree
+      # (`device stamp`, never a build; --expect-commit compares that commit's tree).
+      named=0; pick=(); prev=""
+      for a in "$@"; do
+        [ "$a" = "--stamp" ] && named=1
+        case "$prev" in --device|--expect-commit) pick+=("$prev" "$a") ;; esac
+        prev="$a"
+      done
+      if [ "$named" = 0 ]; then
+        out="$(node "$HERE/Tools/physical-device.mjs" stamp ${pick[@]+"${pick[@]}"})" || exit 3
+        set -- "$@" --stamp "$(printf '%s' "$out" | python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["stamp"])')"
+      fi
+      exec "${HOLD[@]}" python3 "$HERE/../perf/perf.py" ios "$@" ;;
+    run|approval|procs|apps|lock|battery|syslog) exec "${HOLD[@]}" python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
+    *) exec "${HOLD[@]}" node "$HERE/Tools/physical-device.mjs" "$@" ;;
+  esac
 fi
 
 if [ "${1:-}" = "test" ]; then

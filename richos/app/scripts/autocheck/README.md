@@ -11,6 +11,7 @@ Git runs these itself. Nobody runs them by hand and nobody has to be told to (CE
 | `git merge` into a branch | every branch but `main` | `lint.sh --changed` (ceilings; what main brings was held to its land) | refuses the merge |
 | `git merge` into `main`, a commit on `main` | the main checkout | the suites that own the changed files (`proof-for.sh --gate`), run by `proof-run.py`, plus `lint.sh --changed` when the land changes something under `richos/app` and that selection does not already include `lint.test.sh`; each check capped at 600 s, the gate run in rounds of at most 900 s that keep every pass (at most six) | a failing check refuses the merge before main moves; nothing else does |
 | `git push` of `main` | wherever main is pushed from | the same land checks (the lint as `--all`: HEAD is already the land), only when main's tip has no land receipt (a fast-forward, a cherry-pick, a `--no-verify` merge) | refuses the push |
+| main moved (post-merge, post-commit) | the operator's main checkout | `richos/mobile/perf/watch.py trigger`: when the land changed `richos/mobile/`, a detached run measures each wired phone's cold start and return against the benchmarks (`richos/mobile/perf/README.md`, "It runs by itself"); it also reports any earlier run that never finished | never refuses (main has moved); a slower, refused or unmeasured run, a missed run and a trigger that could not run are escalations in the lead's ledger |
 
 No formatter runs: the repository does not enforce one.
 

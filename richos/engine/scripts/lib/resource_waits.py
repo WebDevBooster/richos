@@ -316,7 +316,18 @@ def pid_alive(pid):
         return True
     except OSError:
         return False
-    return True
+    return not _is_zombie(pid)
+
+
+def _is_zombie(pid):
+    """kill(pid, 0) succeeds on a zombie (exited, not yet reaped by its parent,
+    which under load can take seconds). A zombie waits for nothing."""
+    try:
+        out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return False
+    return out.strip().startswith("Z")
 
 
 def parse_etime(text):

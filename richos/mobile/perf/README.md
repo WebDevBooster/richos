@@ -20,18 +20,22 @@ python3 <richos-hq>/scripts/with-android-firebase.py richos/mobile/native-androi
 richos/mobile/native-android/bin/randroid emu perf --out <file.json> [--expect-commit <sha>] [--theme dark] [--only cold,warm]
 richos/mobile/native-android/bin/randroid emu delete
 
-# an Android phone (named explicitly; the tool checks it is not an emulator). A release build is seeded
-# with the made-up conversation through its debuggable twin, which REPLACES the app's saved state on the phone
-python3 richos/mobile/perf/perf.py android --production --route managed --adb <adb> --serial <serial> --kind physical \
-  --stamp <apk>.stamp.json --seed-twin <debug.apk> --out <file.json>
+# an Android phone: ONLY through `randroid device` (CEO 2026-10-02: only the release build goes on a phone
+# and every test on it tests that build; perf.py refuses a phone it did not start, and a debuggable build).
+# `randroid device --serial <serial> install` puts the release APK over the app and stamps it. A release build is seeded
+# with the made-up conversation through its debuggable twin (signed with the same key): `adb install -r` the twin,
+# write the fixture with run-as, `install -r` the release build back. Never an uninstall, never a data clear; the
+# app's build and data are saved first and put back after the run.
+richos/mobile/native-android/bin/randroid device --serial <serial> perf --production --route managed \
+  --seed-twin <debug.apk> --out <file.json>
 
 # iOS: a named simulator or physical iPhone; trace series retain every raw trace (see "iOS launch and return").
-# A simulator is seeded with Android's made-up conversation by default and the app's own state is put back after
+# Both are seeded with Android's made-up conversation by default, and the app's own state is put back after
 richos/mobile/native-ios/bin/rios perf --simulator <UDID> --stamp <stamp.json> --out <file.json>
-# An iPhone has no seeding path yet, so the condition is named explicitly and the record is never compared
-richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 100 --out <file.json>
-richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 0 --warm 100 --out <file.json>
+RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/rios device perf --device <UDID> --stamp <stamp.json> \
+  --evidence-dir /Volumes/E1TB/reports/<run> --cold 100 --warm 100 --out <file.json>
 richos/mobile/native-ios/bin/rios perf --reparse <series-dir> --out <file.json>   # re-read retained traces, capture nothing
+python3 richos/mobile/perf/perf.py ios-restore --device <UDID> --backup <evidence>/ios-seed-*/backup   # only after a killed run
 
 python3 richos/mobile/perf/perf.py check <record.json>...   # a record's structural promises
 python3 richos/mobile/perf/perf.py budgets                   # the PRD §7 targets it compares to
@@ -144,11 +148,32 @@ only worth keeping if two builds are measured the same way, so:
   - Any other build: `synthetic-conversation/1`, 100 rows by default, written into the app's own
     saved-state files (`files/core/session.json` and `history.json`) and read back by SHA-256.
     Its pairing names a host under `.invalid`, which never resolves, so the Mac is unreachable by
-    construction. A debuggable build is written with `run-as`. A release build is seeded through its
-    debuggable twin (`--seed-twin <debug.apk>`, same commit, same signing key). The tool
-    uninstalls the app, installs the twin, writes the files, then installs the stamped release APK
-    over it with the data kept. **That replaces the app's saved state on the phone.** A release build
-    without `--seed-twin` is refused before anything on the device changes.
+    construction. A debuggable build is written with `run-as`, in place. A release build is seeded
+    through its debuggable twin (`--seed-twin <debug.apk>`, same commit, **same signing key**):
+    `adb install -r` the twin over the app (its data kept), write the files with `run-as`, then
+    `adb install -r` the stamped release APK back over it, data kept. **Nothing is ever uninstalled
+    and no data is ever cleared** (the phone is not a disposable test device, CEO 2026-10-01). If the
+    phone refuses an install (another signature, a lower version) the run is refused and reports the
+    phone's own words; Android replaces a package whole or not at all, so the app is untouched. A
+    release build without `--seed-twin` is refused before anything on the device changes. The
+    function is `android.seed_release(dev, files, twin_apk, release_apk, release_sha256, scratch, log)`.
+  - **The phone is given back as it was found** (`android.StateKeeper(dev, root, log, accept_loss,
+    twin_apk)`; `perf.run_android` calls `save()` first and `restore()` in a `finally`). Before either
+    seeding path touches the phone, the tool copies the installed APK (`adb pull`) and the app's whole
+    private data directory (a tar streamed back through `run-as`; a release build is read by
+    installing the twin over it) to a private directory under `/Volumes/E1TB/tmp/claude/perf-keep/`
+    (mode 0700, never in a repository; `RICHOS_PERF_KEEP_DIR` moves it), with a SHA-256 manifest.
+    However the run ends (success, failure or interrupt) it puts the data back in place (`run-as`:
+    the files the run added are removed, the saved tar is extracted over the rest), reads the data
+    hashes back, installs the saved APK with `install -r` and reads its hash back
+    (`savedState.restored`). The private copy is deleted only after the hashes match. When it cannot
+    put things back, its last stderr line is `SAVED STATE NOT RESTORED ...`, it exits 6 and the copy
+    stays, its path in the message.
+  - **Without `run-as` and without a twin, the data cannot be saved and the seeding would lose it**
+    (this lost the CEO's pairing on 2026-10-02). The tool REFUSES before touching the phone unless
+    `--accept-state-loss <who>` names who agreed to lose that saved state (recorded as
+    `savedState.dataLostBy`); the build itself is still put back. Nothing installed means nothing to
+    lose or restore.
 
   The default sizes are the ones the established benchmarks were taken with. `--rows N` is a
   different condition. After the cold series the tool checks the seeded conversation's marker row is
@@ -175,12 +200,45 @@ only worth keeping if two builds are measured the same way, so:
     with the Mac's Vision framework (`bin/rios screen-text`). The newest seeded CEO row must be on
     screen. If it is not, or the screen cannot be read, the record names that and is never compared.
   - A Debug launch argument (`--app-arg`) or `--mac reachable` is refused before anything changes.
-  - **An iPhone is refused for now.** It needs `devicectl` copies into the app data container, with
-    a backup of the phone's own saved state, and an on-screen check through the phone's UI-test
-    runner. Neither has been run on a phone yet.
+- **`perf.py ios --device` (run as `rios device perf`) seeds the same conversation on an iPhone by default**, through `devicectl`
+  and the phone's own UI-test runner (proven on the test iPhone on 2026-10-02):
+  - It needs the stamp of the installed build (a `rios device build`'s stamp, or the `stamp.json` of a
+    shared-store entry), `RICHOS_APPLE_TEAM`, and `--evidence-dir` on the external SSD. The runner beside
+    the stamped app (`RichOSNativeUITests-Runner.app`) does the on-screen check, so a stamp without one
+    is refused. So is a session the phone would interrupt to ask its owner to allow UI automation
+    (`phone-ios.py approval`). All of these refuse before the phone changes.
+  - The tool terminates the app and copies its whole saved-state directory off the phone
+    (`Library/Application Support/RichOS` in the data container, recordings and empty directories
+    included) into `<evidence>/ios-seed-*/backup`, with a manifest. A phone whose app has no such
+    directory is refused: `devicectl` cannot remove a directory, so it could not be put back exactly.
+  - It replaces that directory with exactly the two files `rios perf-seed` wrote and reads it back
+    byte for byte (`devicectl device copy to --remove-existing-content true`, then `copy from`). The
+    cold and warm series then run on it. Measured on the phone: such a copy leaves exactly the source,
+    empty directories and modification times included.
+  - **Ownership.** The directory a `copy to` names as its destination is left owned by root (mode
+    0755); everything created inside the copied tree belongs to the app's user. Until 2026-10-02 the
+    state was written with RichOS as the destination, so the app could not create a file in its own
+    state directory: every save failed and the app showed "This iPhone could not save your latest
+    changes" on every launch of the 2026-10-02 benchmark, and on the phone afterwards, while the
+    byte-for-byte check passed. The seed and the restore now write into the parent
+    (`Library/Application Support`, refused if it holds anything but RichOS), so RichOS is created
+    inside the copied tree, and every write is checked with `devicectl device info files`: every
+    entry of RichOS must belong to the owner of the container's `Library` and be writable by it.
+  - After the launches, `phone-ios.py run --prebuilt --stamp` runs the stamped build's own runner, so
+    nothing new is installed: it brings the app to the front and waits for an element whose
+    accessibility label holds the newest seeded CEO row. Its app-only screenshot is kept with the
+    evidence. iOS has no `devicectl` screenshot. The session's xcodebuild is admitted by the engine's
+    `native-work.py` only below the Mac's CPU line, and the device runner's limit counts that wait, so
+    the check asks for the largest allowance (1800 s); a check that still cannot start leaves the
+    record unverified, never compared.
+  - Then the phone's own directory is copied back and read back byte for byte
+    (`conditions.savedStateRestored`), and the copy is deleted from the Mac; its manifest stays. Any
+    failure, and SIGTERM or SIGHUP, restores first and reports after. If the restore itself fails,
+    the copy is kept and the record names the `perf.py ios-restore` command that puts it back.
+  - The app's Keychain is never touched. The seeded pairing names a host under `.invalid`, so the app
+    forgets no key of the phone's real pairing (keys are kept per Mac).
 - **`--conversation as-installed`** measures whatever the app holds. The record says so, and is never
-  compared with anything. On an iPhone it is the only choice until the iPhone path exists:
-  `--conversation as-installed --mac reachable|unreachable`.
+  compared with anything (`--conversation as-installed --mac reachable|unreachable`).
 - **`perf.py compare` compares a record only with a class whose device matches and whose condition is
   equal on every key.** A device match under another condition, a record that names no condition, an
   as-installed record or an unverified one is NOT COMPARED with the reason "different conditions".
@@ -213,10 +271,54 @@ has a number for it; anything else is listed as NOT COMPARED with the reason, ne
 
 **What still needs a phone.** The comparison only judges a record that exists, and a phone record
 exists only when someone runs the series. On the Android phone that is
-`perf.py android --production ... --kind physical --seed-twin <debug.apk> --only cold,warm --cold 100 --warm 100`.
-No iPhone benchmark can exist until the iPhone seeding path does (see "Conditions"; a simulator
-is seeded, but simulator numbers are never a phone benchmark). No commit
-runs a phone. The fixture suite (`mobile-perf.test.sh`) runs on any change to this tool.
+`randroid device --serial <serial> perf --production ... --seed-twin <debug.apk> --only cold,warm --cold 100 --warm 100`.
+On the iPhone it is `rios device perf --device <UDID> --stamp <stamp.json> --evidence-dir <ssd> --cold 100 --warm 100`
+(simulator numbers are never a phone benchmark). No commit runs a phone; a land that
+touches `richos/mobile/` does, by itself (below). The fixture suite (`mobile-perf.test.sh`) runs on
+any change to this tool.
+
+### It runs by itself after every mobile land (`watch.py`)
+
+The CEO, 2026-10-01: the cold start and back-from-background benchmarks must always be maintained;
+on 2026-10-02 his Android starts were slower than the day before and nothing had told anyone. So the
+comparison no longer waits for someone to run it:
+
+- **What starts it.** Git. `autocheck.py`'s post-merge and post-commit hooks on main call
+  `watch.py trigger` with main's old and new commit, in every checkout; it acts only in the
+  operator's main checkout (the one the engine plugin is loaded from). When the land changed anything
+  under `richos/mobile/`, it records the request and starts one detached `watch.py run`, and the land
+  returns at once. A land that touches nothing under `richos/mobile/` starts nothing.
+- **What a run does,** per wired phone, Android and iPhone in parallel, in its own clone of main's tip
+  on the external SSD: it waits until no process outside the run has named the phone or run a phone
+  tool for 10 minutes (it never interrupts anything; still busy after 6 hours is reported), then
+  calls the platform command lines' phone verbs only: `randroid device install` / `randroid device
+  perf` and `rios device install` / `rios device perf` (the release build of the clone installed over
+  the existing app with its data kept, the benchmark's fixed conversation seeded, 100 cold starts and
+  100 returns measured, the app's own saved state put back). A checkout without these verbs reports
+  COULD NOT MEASURE naming the missing verb. The perf verb's exit 1 (a phase failed) or 4 (slower)
+  with its record written is a measurement and is judged; any other failure could not measure.
+  Then `perf.py compare` judges the record; both metrics must be compared. A phone whose app
+  cannot have changed (every change since its last good run is in the other app's directory) is not
+  measured again.
+- **Never an uninstall.** Everything a verb starts reaches adb and xcrun through `phone_guard.py`
+  (first on PATH), which refuses an uninstall, a data clear and an install without `-r`, and stops
+  the whole run at the first refusal (CEO rule 2026-10-01).
+- **What reaches Rich.** SLOWER, REFUSED or COULD NOT MEASURE raises an escalation (`escalate.sh`)
+  naming the commit range since that phone's last good run and the commits in it that touch
+  `richos/mobile/`. A good run is recorded, so the next regression names a short range.
+- **A missed run.** The request is written before the runner starts and every round records
+  `started` and `finished` under a lock held for the runner's life. The next move of main reports
+  any request no finished round covers, with no runner alive, as MISSED (once) and retries it.
+- **Blank screen** (CEO 2026-10-02: no blank screen on start)**:** on Android the perf verb runs the
+  cold-start blank check inside the same measurement (perf.py's `cold-blank` phase, `--blank-starts`
+  10, `blankstart.py` judged by `blank.py`), and `blank_screen_problems()` reads its verdict from the
+  record's `metrics.coldBlank`: a FAIL is a regression exactly as a slower p95 is, and an Android
+  record without the verdict could not measure. The iPhone's check needs isaac-opus-white1's screen
+  recording of the tap launches; until then its outcome says it was not checked.
+- `python3 richos/mobile/perf/watch.py status` prints the last good run per phone, what is pending
+  and the recent outcomes; `watch.py busy android|ios` shows what keeps a phone busy right now. State
+  is private, in `/Volumes/E1TB/state/richos/phone-speed-watch/`. Tests:
+  `richos/app/scripts/phone-speed-watch.test.sh` (fake phones and a fake land).
 
 **Raising a number.** A faster series is reported as FASTER and changes nothing by itself.
 `perf.py benchmark-update <record.json>...` raises a benchmark when the series is faster, adds every
@@ -235,7 +337,7 @@ file holds no serial, UDID, sample or trace.
 | Managed Connect and Tailscale routes | The debug build's scripted Mac has no network. | A paired lab Mac (native-android README), counting the phone's requests at the Mac and the Connect Worker while backgrounded (Sage T7). |
 | Release-configuration timing | A debuggable, unminified build is slower than release. | A profileable release-configuration build signed for local install, reaching the conversation through a real pairing. |
 | Production persistence cost | In a development world the core persists through the bridge's document, not `AppPorts`' `JsonFile`. `RichCore.commit` changes show here; `JsonFile` changes need a paired production core. | The same typing phase against a paired production core. |
-| iOS launch acceptance | The tool now measures the presented, input-ready endpoint (below), but no physical series has run. | The two 100-trial commands below on the phone, with a stamped Release build. |
+| iOS launch acceptance | The tool measures the presented, input-ready endpoint (below) on the seeded condition; the series is evidence, never a verdict. | The 100-trial command below on the phone, with a stamped Release build; a reviewer decides. |
 | Return to a waiting reply on screen | `warmResume` ends when retained content accepts input; it does not wait for the reply already waiting on the Mac. Re-walk 4 (2026-10-01) saw 1.12-2.11 s on six returns and 17.11 s on one. | A `returnToReply` class: lab Mac with the reply held, send, Home, the reply finishes on the Mac, return; from `AppResume` to the presented frame of the first `transcript-drawn` after `text-received`, with a trial longer than the slowest return (30 s); a trial without the reply is kept as at least 30 s, never dropped. |
 
 ## iOS launch and return (PRD §7)
@@ -293,63 +395,88 @@ table has no process creation and its frame records are not a display pipeline, 
 capture, marks and join, never a phone number. Pass fixture arguments with `--app-arg=-rios-fixture
 --app-arg=conv-populated`, using the `=` form so the value is not read as an option.
 
-### A 100-trial series on the connected iPhone, per class
+### A 100-trial series on the connected iPhone, both classes
 
-This needs a Release build signed for the phone, installed and stamped, and paired with an isolated
-test conversation that already has history. The composer must be enabled. The phone stays unlocked
-and awake on USB for the whole series. Each trial records for `--trace-seconds` (10 s), then exports
-four tables. Each export took 1.7–2.4 s on this Mac, measured offline, plus an occasional re-read.
-So a 100-trial class needs roughly 35 minutes, and the phone's own launch and transfer time is not
-yet measured. Run from the repository root:
+This needs a Release build signed for the phone, installed and stamped. The app must already have
+saved state on the phone (any pairing will do; it is copied off and put back). The phone stays
+unlocked and awake on USB for the whole series, and no other agent uses it. Each trial records for
+`--trace-seconds` (10 s), then exports four tables (1.7–2.4 s each on this Mac), so each 100-trial
+class takes over half an hour. The on-screen check then waits for the Mac's CPU admission (see
+below). Run from the repository root:
 
 ```sh
 UDID=<the iPhone's UDID from xcrun devicectl list devices>
 RUN=/Volumes/E1TB/reports/<date>-ios-launch-timing
-RICHOS_IOS_DEVICE=$UDID RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/rios device build   # prints {log, app}
-APP=<the printed app: …/physical/derived/Build/Products/Release-iphoneos/RichOSNative.app>
-mkdir -p "$RUN"
-python3 richos/mobile/perf/perf.py stamp --artifact "$APP" --checkout "$PWD" --paths richos/mobile/native-ios > "$RUN/stamp.json"
-xcrun devicectl device install app --device "$UDID" "$APP"
-SHA=$(git rev-parse HEAD)
+export RICHOS_APPLE_TEAM=<team>
+RICHOS_IOS_DEVICE=$UDID richos/mobile/native-ios/bin/rios device build   # prints {app, build}; build.key names the store entry
+STAMP=/Volumes/E1TB/caches/richos-native-ios/physical-store/<build.key>/stamp.json   # or perf.py stamp of a checkout build
+mkdir -p "$RUN" && cp "$STAMP" "$RUN/stamp.json"
+RICHOS_IOS_DEVICE=$UDID richos/mobile/native-ios/bin/rios device install   # Release only, over the app, data kept
 
-# one trial of each class first: proves the device, the tool and this phone's lists before a long series
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
-  --evidence-dir "$RUN/traces" --cold 1 --out "$RUN/pilot-cold.json"
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
-  --evidence-dir "$RUN/traces" --cold 0 --warm 1 --out "$RUN/pilot-warm.json"
-
-# the series: cold launches, then warm returns
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
-  --evidence-dir "$RUN/traces" --cold 100 --out "$RUN/cold-100.json"
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
-  --evidence-dir "$RUN/traces" --cold 0 --warm 100 --away 2 --out "$RUN/warm-100.json"
+# one trial of each class first: proves the device, the seeding, the check and the restore in two minutes
+richos/mobile/native-ios/bin/rios device perf --device "$UDID" --stamp "$RUN/stamp.json" --evidence-dir "$RUN/pilot" \
+  --cold 1 --warm 1 --out "$RUN/pilot.json"
+# the series: one seeding, 100 cold launches, 100 warm returns, the on-screen check, the restore
+richos/mobile/native-ios/bin/rios device perf --device "$UDID" --stamp "$RUN/stamp.json" --evidence-dir "$RUN/series" \
+  --cold 100 --warm 100 --away 2 --out "$RUN/series.json"
 ```
 
-**Output.** Each command writes one record and prints `record: <file>`. It exits 0 when every trial
-was measured, 1 when the series stopped (`phases.cold` or `phases.warm` names the trial and the
-reason) and 3 when it refused before measuring. The distribution is at `metrics.coldLaunch.stats`
-or `metrics.warmResume.stats`: `n`, `min`, `p50`, `p95` (from 20 samples), `p99` (from 100) and
-`max`, in milliseconds. `samplesMs` holds every sample. `budget` sets p95 beside the PRD target
-(1,000 ms cold, 200 ms warm), never as a verdict. `phaseStatsMs` splits each sample into
-`usefulDraw` (cold) or `foregroundDraw` (warm), `commitEnd`, `inputReady` and `presented`.
-`outliers`, `rejected` and `evidence` name the retained traces. `acceptance` stays **NOT VERIFIED**
-until both classes have at least 100 trials on a physical device with a Release build. Run as the two
-commands above, each record lists the class it lacks ("no warm return distribution" in
-`cold-100.json`, "no cold launch distribution" in `warm-100.json`). That is expected: the pair,
-from one stamped build, is the protocol's evidence. The build
-configuration is read from the stamped bundle's bytes, using `rios sim check-release`'s own
-development markers. Even then the record says "EVIDENCE ONLY (a reviewer decides)". Keep `$RUN` on
-the external SSD and private. Summaries go to `richos-hq`'s `docs/verification/`, never to this
-repository.
+A store entry is keyed by the app's build inputs (the native-ios tree without `Tools`, `docs`, `bin`
+and `README.md`), so its stamp names the first commit that built that tree. A later commit whose app
+tree is unchanged installs the same bytes; `--expect-commit` compares with the stamp's commit.
 
-What this path has not yet proven on a phone (the pilots settle each one, and the first failure
-stops with the reason):
-- the `devicectl device info processes` JSON field names (`result.runningProcesses`,
-  `processIdentifier`, `executable`);
-- whether `--notify-tracing-started` reaches the Mac during a device recording;
-- whether UIKit emits `AppResume` on iOS 26.3.1 as it does on the iOS 26.3 Simulator.
+**Output.** The command writes one record and prints `record: <file>`. It exits 0 when every trial
+was measured and the seeded row was on screen, 1 when the series stopped or the check failed
+(`phases.cold`, `phases.warm` and `condition.verified` say which and why), 3 when it refused before
+measuring and 4 when it is slower than the benchmark taken under the same condition. The distribution
+is at `metrics.coldLaunch.stats` and `metrics.warmResume.stats`: `n`, `min`, `p50`, `p95` (from 20
+samples), `p99` (from 100) and `max`, in milliseconds. `samplesMs` holds every sample. `budget` sets
+p95 beside the PRD target (1,000 ms cold, 200 ms warm), never as a verdict. `phaseStatsMs` splits each
+sample into `usefulDraw` (cold) or `foregroundDraw` (warm), `commitEnd`, `inputReady` and `presented`.
+`outliers`, `rejected` and `evidence` name the retained traces. With both classes at 100 trials on a
+physical device and a Release build, `acceptance` reads "EVIDENCE ONLY (a reviewer decides)". The
+build configuration is read from the stamped bundle's bytes, using `rios sim check-release`'s own
+development markers. Keep `$RUN` on the external SSD and private. Summaries go to `richos-hq`'s
+`docs/verification/`, never to this repository.
+
+The first seeded pilot (2026-10-02) settled what the trace path had not yet proven on a phone: the
+`devicectl device info processes` field names, `--notify-tracing-started` reaching the Mac during a
+device recording, and UIKit's `AppResume` on iOS 26.3.1.
 
 Profiler overhead is included in every number.
+
+### Tap launches and returns with no profiler (`--tap-launches N`, `--tap-returns N`)
+
+Instruments launches the app itself and attaches before any app code runs, so its "Process Creation"
+period carries the profiler's own launch. To see what a person waits for, the same seeded run can
+also launch the app the way a person does, with nothing attached:
+
+```sh
+RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/rios device perf --device "$UDID" --stamp "$RUN/stamp.json" \
+  --evidence-dir "$RUN/taps" --cold 0 --warm 0 --tap-launches 30 --tap-returns 30 --out "$RUN/taps.json"
+```
+
+- After the trace series (if any), the tool adds one empty file, `perf-launch-timing.on`, to the seeded
+  saved state and reads the directory back. Only while that file is there does the app write its own
+  times (`native-ios/App/Platform/LaunchTiming.swift`) to `perf-launch-timing.jsonl` beside it. The
+  restore at the end puts the phone's own directory back exactly, so both files leave with the seed.
+  Release builds carry the code; without the file it costs one file-existence check at launch.
+- The stamped build's UI-test runner (`phone-ios.py run --prebuilt`) taps the RichConnect icon on the
+  Home Screen: N times after terminating the app (cold launches), then N times after Home (returns).
+  Each `tap` step logs `tapAt`, the phone-clock moment the tap was asked for.
+- The app logs, on the same wall clock: `process` with the kernel's start time of the process
+  (`sysctl` `KERN_PROC_PID` `p_starttime`, the spawn), and the moment its first line of code ran;
+  the scene transitions; `useful-content`; `viewport-ready`, `composer-ready` and `input-ready`.
+  The record's `unprofiled.launches` holds, per launch, tap to spawn, spawn to first code, spawn to
+  activation, spawn to the useful draw, spawn to `input-ready` and tap to `input-ready`.
+- What the app cannot see is the presentation of the `input-ready` commit. The profiled series
+  measure it (`input-ready -> presented`, 39-48 ms on the test iPhone); add it, stated as such.
+- Each return is a `tapThen` step: the tap on the icon and, at a set offset (100, 200, 300, 450 or
+  600 ms, cycled), a touch in the middle of the transcript, as one synthesized event record. The
+  app's window logs every touch it receives with the scene's activation state at that moment.
+  `unprofiled.returns` holds, per return, the scene's transitions from the tap and the probe touch:
+  received or not, its own timestamp, and whether it arrived before iOS made the scene active.
+- These numbers are evidence beside the profiled series, never compared with a benchmark.
 
 ## Tests
 
@@ -363,11 +490,23 @@ the committed emulator numbers recompute exactly from the committed baseline. Th
 (C1-C7): the same condition and slower is refused; a different condition, none, as-installed or an
 unverified seed is not compared, slower or faster; the seeded files are the 2026-10-02 fixture byte
 for byte; twin and run-as seeding against a scripted adb (a release build without a twin is refused
-untouched); declarations; benchmark files without conditions; an iPhone refusing the default. C9-C12:
-on a scripted simulator, the app is given exactly what `rios perf-seed` wrote from Android's fixture,
-the record states the same condition and its on-screen check, the app's own state is put back; an
-unseen or unreadable screen is never compared; refusals leave the simulator untouched; no app target
-can link the seeder. No emulator, simulator, build or window.
+untouched); declarations; benchmark files without conditions; an iPhone without a stamp refused
+untouched. C9-C12: on a scripted simulator, the app is given exactly what `rios perf-seed` wrote from
+Android's fixture, the record states the same condition and its on-screen check, the app's own state
+is put back; an unseen or unreadable screen is never compared; refusals leave the simulator
+untouched; no app target can link the seeder. C13-C15: on a scripted iPhone (devicectl with the copy
+semantics measured on the phone, and phone-ios.py), both series launch into exactly the seeded files,
+the row is checked through the stamped build's runner and the phone's own state, recordings and empty
+directories included, comes back byte for byte and leaves the Mac; a row not on screen, a seed that
+reads back wrong and a real SIGTERM mid-series each restore first; a failed restore keeps the copy and
+`ios-restore` puts it back; every refusal leaves the phone untouched and no copy on the Mac. C16: the
+tap steps pass `phone-ios.py`'s own validation and its runner has every step; the runner's tap
+times and the app's own lines join into launch and return samples, with a launch that never became
+ready, two processes after one tap and a relaunch during a return rejected; taps are refused off a
+seeded iPhone. C17: on a scripted iPhone with the ownership measured on the test phone, the seed and
+the restore leave RichOS the app's own and give it back to a phone the old seeding left root-owned; a
+write whose bytes read back right but whose owner is wrong is refused, and a parent holding anything
+else is never written. No emulator, simulator, phone, build or window.
 
 `bin/rios test --filter PerfSeedTests` (the core's tests, on this Mac): the seeder takes condition.py's
 own output, writes all 100 rows as the app's saved state and loads them back through the core;
@@ -383,8 +522,8 @@ and record that condition; the tool does not disable Wi-Fi or alter Tailscale. U
 daily phone and the PRD's separately scheduled overnight test.
 
 ```sh
-python3 richos/mobile/perf/perf.py android --production --route managed \
-  --adb /opt/homebrew/bin/adb --serial SERIAL --kind physical --stamp BUILD.stamp.json --seed-twin DEBUG_TWIN.apk \
+richos/mobile/native-android/bin/randroid device --serial SERIAL perf --production --route managed \
+  --stamp BUILD.stamp.json --seed-twin DEBUG_TWIN.apk \
   --expect-commit COMMIT --only cold,warm,scroll --cold 100 --warm 100 --out PRIVATE_RECORD.json
 ```
 
@@ -416,3 +555,31 @@ was visible, that collection-view layout had settled or that every control was u
 visible viewport and a frame trace. This follow-up supplies production measurement hooks and
 controls, not physical-device timing or energy certification. Earlier tables describe the original
 pilot; statements there that markers were absent are superseded by this section.
+
+## No blank screen at a cold start (CEO, 2026-10-02)
+
+The rule: from the moment any part of the app is visible, something useful or pleasing is on
+screen. White or one flat color is blank, and recoloring it does not help; the app's logo is not
+blank; an empty launch window still framed by a sliver of home screen during the opening animation
+is blank. A blank stretch, or content drawn and then moved, longer than `blank.BLANK_LIMIT_MS` fails.
+That constant is the one place the limit lives: 400 ms, above the Android release cold start he
+calls fine (its flat stretch after the logo, up to 350 ms) and below the half second he named as
+painful.
+
+```sh
+python3 richos/mobile/perf/blank.py analyze <recording.mp4>             # one start: every blank stretch and jump, from the tap
+python3 richos/mobile/perf/blank.py series <recording.mp4>...           # several: median (p95 from 20), every start over the limit listed
+python3 richos/mobile/perf/blank.py frames <recording.mp4> --png <dir>  # what each frame was judged
+python3 richos/mobile/perf/blankstart.py iphone <phone-ios run dir>...  # iPhone tap launches recorded with phone-ios.py --screen-recording
+python3 richos/mobile/perf/launchscreen.py                              # the launch surfaces the apps declare: EMPTY or SHOWS
+```
+
+| Part | What it does | Where it runs |
+|---|---|---|
+| `blank.py` | Decodes a recording with macOS AVFoundation (`framedump.swift`; no installed decoder), scales each frame to 144 px wide and judges it: blank when under 1% of the screen (system bars left out) differs from its dominant color. The opening animation of an empty window counts toward the stretch it grows into; a logo window's does not. A jump is a frame whose content, pixel for pixel, matches the settled screen only when moved 5% of its height or more. Times run from the tap: `--tap-at`, or the still home screen's first visible reaction. | Anyone, on any recording; `blankstart.py` |
+| `blankstart.py` | Android: `perf.py android` runs phase `cold-blank` with every `cold` run: `--blank-starts` (10) cold starts, each a force-stop, Home, and an `input tap` on the RichConnect icon on the launcher's first page while `screenrecord` records from 1 s before. iPhone: `iphone_cold_blank(recording, started_at, launches)` judges an XCTest screen recording of a tap-launch session (`phone-ios.py run --screen-recording`), one window per (tap, leave) pair on the phone's clock, placed by the recording's manifest `timestamp`; `python3 richos/mobile/perf/blankstart.py iphone RUN_DIR...` does the same from `phone-ios.py` run directories (their `steps.jsonl` and attachments). The record's `coldBlank` metric holds every start, the series verdict and the starts over the limit; a FAIL makes the run exit 1. | `perf.py android`; the iPhone call site arrives with the iPhone's tap launches |
+| `launchscreen.py` | Reads the launch surface each app declares (the iPhone launch screen; Android 12+'s system splash icon; Android 10-11's window background) and says EMPTY or SHOWS. | `richos/app/scripts/mobile-blank.test.sh`, selected by `proof-for.sh` at every commit that touches these files or the launch resources, and run at every land |
+
+Recordings of a phone are private: `perf.py` keeps them beside the record (`<out>.evidence/cold-blank/`,
+on the external SSD) or deletes them after judging when there is no `--out`. The repository's tests
+build their frames synthetically.

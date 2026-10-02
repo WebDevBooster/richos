@@ -19,7 +19,9 @@
  */
 
 import { DB } from '../../core/constants.js';
-import { put, putAll, getAll, deleteBySession } from '../../core/idb.js';
+import { put, putAll, get, getAll, deleteBySession } from '../../core/idb.js';
+import { sessionZip } from '../../core/zip.js';
+import { FILES } from './constants.js';
 import { THRESHOLDS } from './constants.js';
 
 /** @type {null | {
@@ -120,6 +122,7 @@ const LEVEL_SAMPLE_MS = 100;
  */
 async function attachLevelMeter(source, which) {
   if (!session?.workletReady) return null;
+  const owner = session;
   try {
     const node = new AudioWorkletNode(session.ctx, 'richos-level-meter', {
       numberOfInputs: 1,
@@ -128,7 +131,7 @@ async function attachLevelMeter(source, which) {
       channelCountMode: 'explicit',
     });
     node.port.onmessage = (event) => {
-      if (!session) return;
+      if (session !== owner || owner.stopping) return;
       const { peak, rms: windowRms, frames } = event.data || {};
       const key = which === 'mic' ? 'mic' : 'tab';
       session.levels[`${key}Peak`] = Math.max(session.levels[`${key}Peak`], peak || 0);
@@ -198,37 +201,40 @@ async function connectSource(stream, index, which) {
   return { source, analyser, meter };
 }
 
-/** Persist one chunk. Awaited before we acknowledge — this is the durability boundary. */
-async function persistChunk(blob) {
-  const buffer = await blob.arrayBuffer();
-  const record = {
-    sessionId: session.sessionId,
-    seq: session.seq,
-    part: session.part,
-    t: Date.now(),
-    bytes: buffer.byteLength,
-    data: buffer,
-  };
-  session.seq += 1;
-  try {
-    await put(DB.stores.chunks, record);
-  } catch (err) {
-    session.lastError = `chunk-write-failed: ${String((err && err.message) || err)}`;
-    await toWorker({ type: 'cc:chunk-error', sessionId: session.sessionId, error: session.lastError });
-    return;
-  }
-  session.chunkCount += 1;
-  session.bytesTotal += record.bytes;
-  session.lastChunkAt = record.t;
-  await toWorker({
-    type: 'cc:chunk',
-    sessionId: session.sessionId,
-    seq: record.seq,
-    part: record.part,
-    bytes: record.bytes,
-    bytesTotal: session.bytesTotal,
-    t: record.t,
+/** Capture identity at event delivery, before any asynchronous conversion or commit. */
+function queueChunk(owner, part, blob) {
+  const identity = { sessionId: owner.sessionId, seq: owner.seq++, part, t: Date.now() };
+  owner.pendingWrites = owner.pendingWrites.then(async () => {
+    try {
+      const buffer = await blob.arrayBuffer();
+      const record = { ...identity, bytes: buffer.byteLength, data: buffer };
+      await put(DB.stores.chunks, record);
+      owner.chunkCount += 1;
+      owner.bytesTotal += record.bytes;
+      owner.lastChunkAt = record.t;
+      await toWorker({ type: 'cc:chunk', ...identity, bytes: record.bytes, bytesTotal: owner.bytesTotal });
+    } catch (err) {
+      owner.lastError = `chunk-write-failed: ${String(err?.message || err)}`;
+      await toWorker({ type: 'cc:chunk-error', sessionId: owner.sessionId, error: owner.lastError });
+    }
   });
+}
+
+/** A finite stop deadline is a failure, never permission to claim a successful flush. */
+async function flushRecorder(owner) {
+  const recorder = owner.recorder;
+  if (recorder && recorder.state !== 'inactive') {
+    await new Promise((resolve, reject) => {
+      const finished = () => { clearTimeout(deadline); resolve(); };
+      const deadline = setTimeout(() => {
+        recorder.removeEventListener('stop', finished);
+        reject(new Error('recorder stop timed out'));
+      }, 10000);
+      recorder.addEventListener('stop', finished, { once: true });
+      try { recorder.stop(); } catch (err) { clearTimeout(deadline); reject(err); }
+    });
+  }
+  await owner.pendingWrites;
 }
 
 /** Build (or rebuild) the MediaRecorder for the current part. */
@@ -240,13 +246,15 @@ function buildRecorder() {
     mimeType,
     audioBitsPerSecond: session.settings.audioBitsPerSecond || 96000,
   });
+  const owner = session;
+  const part = owner.part;
   recorder.ondataavailable = (event) => {
     if (!event.data || !event.data.size) return;
-    void persistChunk(event.data);
+    queueChunk(owner, part, event.data);
   };
   recorder.onerror = (event) => {
-    session.lastError = `recorder-error: ${event?.error?.name || 'unknown'}`;
-    void toWorker({ type: 'cc:recorder-error', sessionId: session.sessionId, error: session.lastError });
+    owner.lastError = `recorder-error: ${event?.error?.name || 'unknown'}`;
+    void toWorker({ type: 'cc:recorder-error', sessionId: owner.sessionId, error: owner.lastError });
   };
   session.recorder = recorder;
   recorder.start(session.settings.chunkMs || 3000);
@@ -255,7 +263,8 @@ function buildRecorder() {
 
 /** One heartbeat: the only source of truth the health evaluator ever sees. */
 async function heartbeat() {
-  if (!session) return;
+  if (!session || session.stopping) return;
+  const owner = session;
   const levels = takeLevels();
   const record = {
     sessionId: session.sessionId,
@@ -266,6 +275,8 @@ async function heartbeat() {
     micRmsMean: Number(levels.micRmsMean.toFixed(6)),
     tabRmsMean: Number(levels.tabRmsMean.toFixed(6)),
     levelSamples: levels.levelSamples,
+    micFrames: levels.micFrames,
+    tabFrames: levels.tabFrames,
     recorderState: session.recorder ? session.recorder.state : 'inactive',
     part: session.part,
     chunkCount: session.chunkCount,
@@ -290,7 +301,8 @@ async function heartbeat() {
   if (session.healthBuffer.length >= 5) {
     const batch = session.healthBuffer.splice(0, session.healthBuffer.length);
     try {
-      await putAll(DB.stores.health, batch);
+      owner.pendingHealth = owner.pendingHealth.then(() => putAll(DB.stores.health, batch));
+      await owner.pendingHealth;
     } catch {
       /* health records are diagnostics; never let them break the recording */
     }
@@ -302,8 +314,8 @@ async function heartbeat() {
  * Start a capture session.
  * @param {{sessionId: string, streamId: string|null, settings: any}} msg
  */
-export async function start(msg) {
-  if (session) await stop({ reason: 'superseded' });
+async function startSession(msg) {
+  if (session) await stopSession({ reason: 'superseded' });
   const settings = msg.settings || {};
   session = {
     sessionId: msg.sessionId,
@@ -320,6 +332,8 @@ export async function start(msg) {
     tabAnalyser: null,
     part: 0,
     seq: 0,
+    pendingWrites: Promise.resolve(),
+    pendingHealth: Promise.resolve(),
     chunkCount: 0,
     bytesTotal: 0,
     lastChunkAt: null,
@@ -334,6 +348,14 @@ export async function start(msg) {
     startedAt: Date.now(),
     lastError: null,
   };
+  // Continue a recovered session without overwriting its durable chunks or mixing WebM parts.
+  const previous = await getAll(DB.stores.chunks, 'bySession', IDBKeyRange.only(msg.sessionId));
+  if (previous.length) {
+    session.seq = Math.max(...previous.map(c => c.seq)) + 1;
+    session.part = Math.max(...previous.map(c => c.part)) + 1;
+    session.chunkCount = previous.length;
+    session.bytesTotal = previous.reduce((sum, c) => sum + c.bytes, 0);
+  }
   session.merger = session.ctx.createChannelMerger(2);
   session.dest = session.ctx.createMediaStreamDestination();
   session.merger.connect(session.dest);
@@ -363,10 +385,13 @@ export async function start(msg) {
       const wired = await connectSource(session.tabStream, 1, 'tab');
       session.tabSource = wired.source;
       session.tabAnalyser = wired.analyser;
+      session.tabMeter = wired.meter;
       // TRAP 1: tabCapture mutes the tab. Give the audio back to the speakers.
       session.tabSource.connect(session.ctx.destination);
-      session.tabStream.getAudioTracks()[0].addEventListener('ended', () => {
-        void toWorker({ type: 'cc:track-ended', sessionId: session.sessionId, which: 'tab' });
+      const owner = session;
+      const stream = owner.tabStream;
+      stream.getAudioTracks()[0].addEventListener('ended', () => {
+        if (session === owner && owner.tabStream === stream && !owner.stopping) void toWorker({ type: 'cc:track-ended', sessionId: owner.sessionId, which: 'tab' });
       });
     } catch (err) {
       problems.push(`tab-audio: ${String((err && err.message) || err)}`);
@@ -384,9 +409,12 @@ export async function start(msg) {
       const wired = await connectSource(session.micStream, 0, 'mic');
       session.micSource = wired.source;
       session.micAnalyser = wired.analyser;
+      session.micMeter = wired.meter;
       // TRAP 2: never connect the mic to ctx.destination — that is an echo loop.
-      session.micStream.getAudioTracks()[0].addEventListener('ended', () => {
-        void toWorker({ type: 'cc:track-ended', sessionId: session.sessionId, which: 'mic' });
+      const owner = session;
+      const stream = owner.micStream;
+      stream.getAudioTracks()[0].addEventListener('ended', () => {
+        if (session === owner && owner.micStream === stream && !owner.stopping) void toWorker({ type: 'cc:track-ended', sessionId: owner.sessionId, which: 'mic' });
       });
     } catch (err) {
       problems.push(`microphone: ${String((err && err.message) || err)}`);
@@ -396,7 +424,7 @@ export async function start(msg) {
   if (!session.tabStream && !session.micStream) {
     const error = `no audio source could be acquired — ${problems.join('; ')}`;
     session.lastError = error;
-    await stop({ reason: 'no-source' });
+    await stopSession({ reason: 'no-source' });
     return { ok: false, error, problems };
   }
 
@@ -420,69 +448,58 @@ export async function start(msg) {
  * Roll to a new part with a fresh MediaRecorder. Used by recovery: a new part is a
  * self-contained WebM, so even a corrupt previous part cannot poison what follows.
  */
-export async function restartRecorder() {
-  if (!session) return { ok: false, error: 'no-session' };
+async function rotateRecorder() {
+  if (!session || session.stopping) return { ok: false, error: 'no-session' };
   try {
-    if (session.recorder && session.recorder.state !== 'inactive') {
-      const flushed = new Promise((resolve) => {
-        session.recorder.addEventListener('stop', resolve, { once: true });
-      });
-      session.recorder.stop();
-      await flushed;
-    }
-  } catch {
-    /* a wedged recorder is exactly why we are here */
+    await flushRecorder(session);
+    session.part += 1;
+    const mimeType = buildRecorder();
+    return { ok: true, part: session.part, mimeType };
+  } catch (err) {
+    session.lastError = String(err?.message || err);
+    return { ok: false, error: session.lastError };
   }
-  session.part += 1;
-  const mimeType = buildRecorder();
-  return { ok: true, part: session.part, mimeType };
 }
 
 /**
  * Re-acquire the tab stream after it ended (tab moved windows, reloaded, device switched).
  * @param {{streamId: string|null}} msg
  */
-export async function reattachTab(msg) {
-  if (!session) return { ok: false, error: 'no-session' };
+async function replaceSource(which, streamId) {
+  if (!session || session.stopping) return { ok: false, error: 'no-session' };
+  const owner = session;
+  const oldStream = owner[`${which}Stream`];
+  let replacement;
+  let wired;
   try {
-    if (session.tabSource) session.tabSource.disconnect();
-    if (session.tabStream) session.tabStream.getTracks().forEach((t) => t.stop());
-    if (!msg.streamId) throw new Error('no stream id available (needs an extension invocation on the tab)');
-    session.tabStream = await getTabStream(msg.streamId);
-    const wired = await connectSource(session.tabStream, 1, 'tab');
-    session.tabSource = wired.source;
-    session.tabAnalyser = wired.analyser;
-    session.tabSource.connect(session.ctx.destination);
-    session.micOnlyFailover = false;
-    await restartRecorder();
-    return { ok: true };
+    if (which === 'tab' && !streamId) throw new Error('no stream id available (needs an extension invocation on the tab)');
+    replacement = which === 'tab' ? await getTabStream(streamId) : await getMicStream(owner.settings);
+    if (replacement.getAudioTracks()[0]?.readyState !== 'live') throw new Error('replacement track is not live');
+    wired = await connectSource(replacement, which === 'tab' ? 1 : 0, which);
+    if (which === 'tab') wired.source.connect(owner.ctx.destination);
+    // Commit the replacement only after acquisition and graph wiring succeed.
+    owner[`${which}Source`]?.disconnect();
+    owner[`${which}Meter`]?.disconnect();
+    oldStream?.getTracks().forEach(t => t.stop());
+    owner[`${which}Stream`] = replacement;
+    owner[`${which}Source`] = wired.source;
+    owner[`${which}Analyser`] = wired.analyser;
+    owner[`${which}Meter`] = wired.meter;
+    replacement.getAudioTracks()[0].addEventListener('ended', () => {
+      if (session === owner && owner[`${which}Stream`] === replacement) {
+        void toWorker({ type: 'cc:track-ended', sessionId: owner.sessionId, which });
+      }
+    });
+    if (which === 'tab') owner.micOnlyFailover = false;
+    // The destination stream is unchanged. The existing recorder safely consumes the new graph.
+    return { ok: true, device: trackInfo(replacement) };
   } catch (err) {
-    // Half a call beats none: keep recording the microphone and stay loud about it.
-    session.micOnlyFailover = true;
-    session.tabStream = null;
-    session.tabSource = null;
-    session.tabAnalyser = null;
-    return { ok: false, error: String((err && err.message) || err), micOnlyFailover: true };
-  }
-}
-
-/** Re-acquire the microphone (Bluetooth handoff / default device change). */
-export async function reacquireMic() {
-  if (!session) return { ok: false, error: 'no-session' };
-  try {
-    if (session.micSource) session.micSource.disconnect();
-    if (session.micStream) session.micStream.getTracks().forEach((t) => t.stop());
-    session.micStream = await getMicStream(session.settings);
-    const wired = await connectSource(session.micStream, 0, 'mic');
-    session.micSource = wired.source;
-    session.micAnalyser = wired.analyser;
-    await restartRecorder();
-    return { ok: true, device: trackInfo(session.micStream) };
-  } catch (err) {
-    session.micStream = null;
-    session.micSource = null;
-    session.micAnalyser = null;
-    return { ok: false, error: String((err && err.message) || err) };
+    wired?.source.disconnect();
+    wired?.meter?.disconnect();
+    replacement?.getTracks().forEach(t => t.stop());
+    const preserved = oldStream?.getAudioTracks()[0]?.readyState === 'live';
+    if (which === 'tab') owner.micOnlyFailover = !preserved;
+    return { ok: false, error: String(err?.message || err), preserved: Boolean(preserved), micOnlyFailover: owner.micOnlyFailover };
   }
 }
 
@@ -490,24 +507,14 @@ export async function reacquireMic() {
  * Stop the session and flush everything.
  * @param {{reason?: string}} [msg]
  */
-export async function stop(msg = {}) {
+async function stopSession(msg = {}) {
   if (!session) return { ok: true, alreadyStopped: true };
   session.stopping = true;
   clearInterval(session.heartbeatTimer);
   clearInterval(session.levelTimer);
-  try {
-    if (session.recorder && session.recorder.state !== 'inactive') {
-      const flushed = new Promise((resolve) => {
-        session.recorder.addEventListener('stop', resolve, { once: true });
-      });
-      session.recorder.stop();
-      await flushed;
-      // Give the final ondataavailable its microtask turn to commit.
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
-  } catch {
-    /* ignore */
-  }
+  try { await flushRecorder(session); }
+  catch (err) { session.lastError = String(err?.message || err); }
+  await session.pendingHealth.catch(() => {});
   if (session.healthBuffer.length) {
     try {
       await putAll(DB.stores.health, session.healthBuffer.splice(0));
@@ -524,7 +531,7 @@ export async function stop(msg = {}) {
     /* ignore */
   }
   const summary = {
-    ok: true,
+    ok: !session.lastError?.startsWith('chunk-write-failed') && session.lastError !== 'recorder stop timed out',
     sessionId: session.sessionId,
     reason: msg.reason || 'stopped',
     parts: session.part + 1,
@@ -536,6 +543,20 @@ export async function stop(msg = {}) {
   session = null;
   return summary;
 }
+
+// Lifecycle requests can arrive concurrently from heartbeats, alarms and the popup.
+// Serialize them so recovery can never start a new recorder after stop has begun.
+let lifecycle = Promise.resolve();
+function serialize(operation) {
+  const next = lifecycle.then(operation);
+  lifecycle = next.catch(() => {});
+  return next;
+}
+export function start(msg) { return serialize(() => startSession(msg)); }
+export function stop(msg = {}) { return serialize(() => stopSession(msg)); }
+export function restartRecorder() { return serialize(rotateRecorder); }
+export function reattachTab(msg) { return serialize(() => replaceSource('tab', msg.streamId)); }
+export function reacquireMic() { return serialize(() => replaceSource('mic')); }
 
 /** @returns {object} live status for the popup / watchdog */
 export function status() {
@@ -654,6 +675,35 @@ export async function testInjectAudio(msg) {
   }
 }
 
+/** Assemble an explicit export from durable rows. No downloads occur inside recording. */
+export async function archive(msg) {
+  if (session) return { ok: false, error: 'stop the call before exporting' };
+  const record = await get(DB.stores.sessions, msg.sessionId);
+  if (!record || record.status === 'open') return { ok: false, error: 'session is not closed' };
+  const chunks = await getAll(DB.stores.chunks, 'bySession', IDBKeyRange.only(msg.sessionId));
+  chunks.sort((a, b) => a.seq - b.seq);
+  const parts = new Map();
+  for (const chunk of chunks) {
+    if (!parts.has(chunk.part)) parts.set(chunk.part, []);
+    parts.get(chunk.part).push(new Uint8Array(chunk.data));
+  }
+  const entries = [];
+  for (const [part, data] of parts) {
+    const bytes = new Uint8Array(data.reduce((sum, chunk) => sum + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of data) { bytes.set(chunk, offset); offset += chunk.length; }
+    entries.push({ name: `${record.dir}/${FILES.audioPart(part)}`, data: bytes });
+  }
+  for (const [store, file, sort] of [[DB.stores.health, FILES.health, 't'], [DB.stores.captions, FILES.captions, 'seq']]) {
+    const rows = await getAll(store, 'bySession', IDBKeyRange.only(msg.sessionId));
+    rows.sort((a, b) => a[sort] - b[sort]);
+    if (rows.length) entries.push({ name: `${record.dir}/${file}`, data: rows.map(({ sessionId, seq, ...row }) => JSON.stringify(row)).join('\n') });
+  }
+  entries.push({ name: `${record.dir}/${FILES.session}`, data: JSON.stringify({ ...record, exportPending: false, transport: 'downloads-archive' }, null, 2) });
+  const blob = sessionZip(entries);
+  return { ok: true, url: URL.createObjectURL(blob), bytes: blob.size };
+}
+
 /** Route a `cc:` message inside the offscreen document. */
 export async function handleMessage(msg) {
   switch (msg.type) {
@@ -671,6 +721,8 @@ export async function handleMessage(msg) {
       return reacquireMic();
     case 'cc:status':
       return status();
+    case 'cc:archive':
+      return archive(msg);
     case 'cc:assemble':
       return assemble(msg);
     case 'cc:health-jsonl':

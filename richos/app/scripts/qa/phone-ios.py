@@ -16,9 +16,10 @@
                                                    the one signed build of that source tree is reused
                                                    from the shared store automatically (see
                                                    physical-device.mjs), so a walk starts in seconds;
-                                                   --prebuilt reuses THIS checkout's earlier products
-                                                   and refuses unless the app still hashes to
-                                                   STAMP.json (perf.py stamp)
+                                                   --prebuilt reuses the products the stamp names
+                                                   (this checkout's earlier build, or a shared-store
+                                                   entry's stamp.json) and refuses unless the app
+                                                   still hashes to STAMP.json (perf.py stamp)
     phone-ios.py approval --device UDID            will the next run ask the phone's owner to approve
                                                    UI automation? Asks nothing of the phone's screen.
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
@@ -46,6 +47,13 @@
     phone-ios.py syslog-rate FILE [--process P] [--bucket S] [--from HH:MM:SS] [--to HH:MM:SS]
                                                    entries ONE process (exact name) wrote per S seconds of
                                                    a `syslog` capture: what the app did while hidden
+
+ONLY THROUGH `rios device` (CEO, 2026-10-02: only the build users get goes on his phones and every
+test on them tests it). `run`, `approval`, `procs`, `apps`, `lock`, `battery` and `syslog` touch the
+phone, so they run as `rios device <command> ...` and refuse (exit 3) when started any other way;
+`rios device verify` runs only the Release build and refuses a bundle carrying Debug's development
+markers. `check`, `parse-log`, `summary`, `vocabulary`, `pair-steps` and `syslog-rate` touch no
+phone and run directly.
 
 The iPhone counterpart of phone-android.py. iOS 26 offers no shell on the phone, so every tap,
 type, Home, lock and screenshot goes through one XCUITest check that executes a list of steps
@@ -96,6 +104,10 @@ the phone's Apple Account, so `ocr-gate.sh` every Settings frame before it enter
                                   portrait-only app is seen to stay upright. End on portrait.
     open{url}                     an https link, opened as a person's tap opens one: in Safari
                                   (test content only, e.g. an isolated lab's own image).
+    tapThen{after, at: [x, y]}    tap the target and, `after` seconds later (0-2), touch screen point
+                                  `at`, as one synthesized event record: a touch at an exact moment
+                                  of an app's return (`perf.py ios --tap-returns`). A `tap` step's
+                                  detail also carries `tapAt`, the phone-clock moment it was asked for.
 
 An "id" names the FIRST element carrying that identifier (SwiftUI repeats a container's identifier
 on its children).
@@ -140,11 +152,11 @@ ACTIONS = {
     "value": {"equals"}, "type": {"text", "delete", "focus"}, "press": {"seconds", "drag"},
     "swipe": {"direction"}, "count": {"label", "equals"}, "alert": {"button"},
     "shot": {"name", "screen"}, "tree": {"name"},
-    "appearance": {"set"}, "orientation": {"set"}, "open": {"url"},
+    "appearance": {"set"}, "orientation": {"set"}, "open": {"url"}, "tapThen": {"after", "at"},
 }
 APPEARANCES = ("light", "dark")
 ORIENTATIONS = ("portrait", "landscapeLeft", "landscapeRight", "portraitUpsideDown")
-NEEDS_TARGET = {"wait", "tap", "exists", "gone", "value", "type", "press", "swipe"}
+NEEDS_TARGET = {"wait", "tap", "exists", "gone", "value", "type", "press", "swipe", "tapThen"}
 COMMON = {"do", "id", "label", "kind", "in", "timeout", "optional"}
 PLACES = ("springboard", "tailscale", "settings", "safari")
 # The Tailscale app shows the person's own account and devices: a list that touches it may press
@@ -197,6 +209,11 @@ def validate(steps):
             raise CannotAnswer(f"step {i} (orientation) may only set {', '.join(ORIENTATIONS)}")
         if action == "open" and not (isinstance(step.get("url"), str) and step["url"].startswith("https://")):
             raise CannotAnswer(f"step {i} (open) needs an https url: it opens Safari, never another app's own scheme")
+        if action == "tapThen" and not (
+                isinstance(step.get("after"), (int, float)) and 0 <= step["after"] <= 2
+                and isinstance(step.get("at"), list) and len(step["at"]) == 2
+                and all(isinstance(v, (int, float)) and 0 <= v <= 2000 for v in step["at"])):
+            raise CannotAnswer(f"step {i} (tapThen) needs after (0 to 2 s) and at [x, y] in screen points")
         if "in" in step and step["in"] not in PLACES:
             raise CannotAnswer(f"step {i}: 'in' may only be one of {', '.join(PLACES)}")
         if action in ("launch", "terminate") and step.get("in") == "springboard":
@@ -337,7 +354,9 @@ def pair_steps(config_path, v2_hold=None):
 # a kind not listed here (mark, waitState, ...) measured ~0 and counts as 0.
 STEP_MEDIAN_S = {"tap": 2.0, "wait": 1.2, "type": 2.9, "press": 2.64, "swipe": 2.69, "launch": 2.64,
                  "value": 1.48, "appearance": 1.17, "terminate": 1.08, "home": 0.46, "activate": 0.4,
-                 "tree": 0.52, "shot": 0.15, "exists": 0.13}
+                 "tree": 0.52, "shot": 0.15, "exists": 0.13,
+                 # Not yet measured on the phone: a tap's median, plus its `after` (at most 2 s).
+                 "tapThen": 4.0}
 # XCUITest stops a test at its execution-time allowance: the steps after it never run and the
 # shots and trees they took are never exported (lost: a 158-step list measured 245 s against the
 # default 240 s, 2026-10-01). Ask for this much headroom over the measured-median estimate.
@@ -388,7 +407,11 @@ def stamped_identity(stamp_path):
     if actual != stamp.get("sha256") or stamp.get("dirty"):
         raise CannotAnswer(f"freshness mismatch: {artifact} hashes {actual[:12]}…, the stamp says "
                            f"{str(stamp.get('sha256'))[:12]}… (dirty={stamp.get('dirty')})")
-    return {"artifact": artifact, "sha256": actual, "commit": stamp.get("commit")}
+    # The Build/Products directory holding the stamped app (.../Products/Release-iphoneos/RichOSNative.app):
+    # the run hands the phone these products and no others (physical-device.mjs prebuiltProducts),
+    # whether they are this checkout's earlier build or a shared-store entry a measured build came from.
+    products = os.path.dirname(os.path.dirname(os.path.realpath(artifact)))
+    return {"artifact": artifact, "sha256": actual, "commit": stamp.get("commit"), "products": products}
 
 
 SESSION_LOGS = "/Volumes/E1TB/caches/richos-native-ios/*/physical/*-test.log"
@@ -785,6 +808,7 @@ def run(args):
     env = {**os.environ, "RICHOS_MOBILE_TEST_CONFIG": str(config)}
     if args.prebuilt:
         env["RICHOS_PHYSICAL_PREBUILT"] = "1"
+        env["RICHOS_PHYSICAL_PRODUCTS"] = identity["products"]
         (out / "identity.json").write_text(json.dumps(identity, indent=1))
     p = subprocess.run([str(RIOS), "device", "verify", "script"], capture_output=True, text=True, env=env)
     ran_to = time.time()
@@ -1057,6 +1081,12 @@ def main(argv):
                 return emit({"steps": parse_log(Path(args.log).read_text(errors="replace"))})
             except FileNotFoundError:
                 raise CannotAnswer(f"no log at {args.log}")
+        # Everything below touches the phone: only through `rios device ...` (CEO 2026-10-02: only the
+        # Release build goes on his phones and every test on them tests it).
+        if os.environ.get("RICHOS_DEVICE_VERB") != "rios":
+            return emit({"refused": f"`{args.command}` touches a physical iPhone, which is done only through "
+                                    f"`rios device {args.command} ...`: the one command line that puts only the Release "
+                                    "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
                 "syslog": syslog, "approval": approval}[args.command](args)
     except CannotAnswer as error:

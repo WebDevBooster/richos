@@ -580,8 +580,69 @@ done
 # shellcheck source=lib/record-canary.sh
 . "$ENGINE_ROOT/scripts/lib/record-canary.sh"
 
-LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ci-shard.XXXXXX")"
-trap 'rm -f "$ALL_UNITS" "$SELECTED"; rm -rf "$LOG_DIR"' EXIT
+# THE RUN'S FOLDER, AND WHO MAY REMOVE IT (2026-10-02).
+#
+# What happened: the merge gate of cc/zach-sonnet-vinputs1 failed three
+# attempts in a row on by-reference.test.sh and operator-fences.test.sh with
+#   FileNotFoundError: .../T//ci-shard.cH28fX/1.timing.json.new
+# and it read as "something deleted the folder while the unit ran". It did
+# not. Each traceback was the LAST write to its log, at 601 s, the gate's
+# 600 s cap, and no verdict line followed it. The deleter was THIS SCRIPT: the
+# gate's stop (proof-run.py stop_item, then proc_tree.finish_scope) sends TERM
+# to every process of the check at once. Bash, with TERM untrapped, ran the EXIT
+# trap below at once and removed the folder while worker_tokens.py, its own
+# child, was still stopping the unit and had yet to write its timing file into
+# it. The unit's own output (1.log) went with the folder, so the one record of
+# where the unit was when it was stopped was destroyed by the stop itself.
+#
+# Two rules, so that cannot happen again:
+#   1. The folder is never removed while its unit is running. TERM, INT and HUP
+#      are TRAPPED (ci_shard_stopped). Bash defers a trapped signal until the
+#      foreground child returns, so the handler, and the EXIT trap after it,
+#      run only once the unit and worker_tokens.py have finished. The handler
+#      prints the unit's own last output before the folder goes.
+#   2. The folder comes from the engine's scratch allocator (lib/scratch.sh,
+#      CLAUDE.md working rule 5), with this script's pid recorded in the ledger
+#      and in the name. If this script is SIGKILLed, nothing removes the folder
+#      here; the scratch reaper's allocator arm removes it once that pid has
+#      ended, and keeps it while the pid is alive, whether or not any file in it
+#      is open.
+# A fixture that copies only this script and no lib/scratch.sh keeps the old
+# bare mktemp; rule 1 holds either way.
+LOG_DIR=""
+LOG_DIR_ALLOCATED=0
+CI_SHARD_UNIT_RUNNING=0
+ci_shard_cleanup() {
+    rm -f "$ALL_UNITS" "$SELECTED"
+    [ -n "$LOG_DIR" ] || return 0
+    if [ "$LOG_DIR_ALLOCATED" -eq 1 ]; then
+        scratch_release "$LOG_DIR" || true
+    else
+        rm -rf "$LOG_DIR"
+    fi
+}
+ci_shard_stopped() { # <signal-number>
+    trap - TERM INT HUP
+    if [ "$CI_SHARD_UNIT_RUNNING" -eq 1 ] && [ -f "${LOG:-}" ]; then
+        printf '\n        STOPPED by signal %s while %s ran, after it finished stopping. NO VERDICT, NO RECEIPT.\n' \
+            "$1" "${id:-its unit}"
+        printf '        Its final output, kept before its folder is removed:\n'
+        tail -40 "$LOG" | sed 's/^/          /'
+    fi
+    exit $((128 + $1))
+}
+trap ci_shard_cleanup EXIT
+trap 'ci_shard_stopped 15' TERM
+trap 'ci_shard_stopped 2' INT
+trap 'ci_shard_stopped 1' HUP
+if [ -f "$SCRIPT_DIR/lib/scratch.sh" ]; then
+    # shellcheck source=lib/scratch.sh
+    . "$SCRIPT_DIR/lib/scratch.sh"
+    LOG_DIR="$(scratch_new ci-shard)" || die "the scratch allocator (lib/scratch.sh) could not allocate this run's folder." 2
+    LOG_DIR_ALLOCATED=1
+else
+    LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ci-shard.XXXXXX")"
+fi
 tw_pick_mtime "$LOG_DIR"
 lc_add_root "$PWD"
 lc_add_root "$ENGINE_ROOT"
@@ -641,9 +702,13 @@ while IFS= read -r id; do
     TIMING="$LOG_DIR/$i.timing.json"
     export RICHOS_UNIT_DEADLINE_MARKER="$LOG.deadline"
     if [ "$RECORD_BASE_HEALTHY" -eq 1 ]; then
+        # A stop signal that lands now is handled when this returns (see
+        # ci_shard_stopped), so the folder outlives the unit and its timing file.
+        CI_SHARD_UNIT_RUNNING=1
         ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine --timing "$TIMING" -- \
             bash -c 'run_with_deadline "$@"' bash "$DEADLINE" "$LOG" "${ARGV[@]}"
         RC=$?
+        CI_SHARD_UNIT_RUNNING=0
     else
         printf "ci-shard.sh: NOT RUN: private home unavailable\n" >"$LOG"
         RC=1

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The physical-iPhone check launcher (`rios device build|verify`): its selection, the bounded time
+# The physical-iPhone check launcher (`rios device build|install|verify`): Release bundles only,: its selection, the bounded time
 # allowance of a walker's script, the reuse of an earlier build and the APNs signing match. Host-only
 # node tests, a second or two: no device, no build, no simulator, no window.
 #
@@ -7,7 +7,7 @@
 # only on a physical iPhone, and on a simulator they skip. Their proof is a physical run, recorded
 # privately in richos-hq (e.g. docs/verification/2026-09-24-native-acceptance-r1-iphone/).
 # run-tests: no-host-screen: node unit tests only; nothing is drawn, captured or pressed
-# run-tests: inputs richos/app/scripts/native-ios-physical-tool.test.sh richos/mobile/native-ios/Tools/physical-device.mjs richos/mobile/native-ios/Tools/physical-device.test.mjs
+# run-tests: inputs richos/app/scripts/native-ios-physical-tool.test.sh richos/mobile/native-ios/Tools/physical-device.mjs richos/mobile/native-ios/Tools/physical-device.test.mjs richos/mobile/physical.py richos/mobile/perf/ios.py
 # run-tests: covers richos/mobile/native-ios/Tools/physical-device.mjs richos/mobile/native-ios/Tools/physical-device.test.mjs
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

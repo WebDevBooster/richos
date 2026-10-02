@@ -3,13 +3,18 @@
 <!--
   The RichOS iPhone app's privacy manifest (required by App Store Connect since 2024-05-01).
 
-  REQUIRED-REASON APIs: none. The Release app and both extensions call no API in Apple's
-  required-reason list (file timestamps, system boot time, disk space, active keyboards,
-  UserDefaults). That is measured, not assumed: `Release/check-release.sh` scans every Release
-  Mach-O's symbols for each category and fails if one appears that is not declared here. The
-  preserved app declared two (file timestamps C617.1, disk space E174.1); this app does not store
-  recordings by date or check free space, so it has neither. Add a category here in the same
-  commit as the code that needs it; the check will refuse the build otherwise.
+  REQUIRED-REASON APIs: one, system boot time (35F9.1). `App/Platform/LaunchTiming.swift` (the
+  launch and return timing a perf run switches on with its marker file) stamps each line it writes
+  with `ProcessInfo.systemUptime`, to measure the time between events inside the app; the lines
+  stay in the app's own container, and what leaves the phone (pulled by the Mac's perf tool) is
+  only elapsed time between in-app events, which 35F9.1 allows off the device. No other API in
+  Apple's required-reason list (file timestamps, disk space, active keyboards, UserDefaults) is
+  called. That is measured, not assumed: `Release/check-release.sh` scans every Release Mach-O's
+  symbols for each category and fails if one appears that is not declared here, or one is
+  declared that none uses. The preserved app declared two (file timestamps C617.1, disk space
+  E174.1); this app does not store recordings by date or check free space, so it has neither.
+  Add a category here in the same commit as the code that needs it; the check will refuse the
+  build otherwise.
 
   COLLECTED DATA ("collect" = sent off the phone and kept by us or a partner longer than the
   request needs; developer.apple.com/app-store/app-privacy-details). Messages, voice, photos and
@@ -37,7 +42,16 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyAccessedAPITypes</key>
-	<array/>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
 		<dict>

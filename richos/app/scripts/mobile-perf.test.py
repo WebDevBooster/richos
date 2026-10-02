@@ -27,7 +27,33 @@ import ios  # noqa: E402
 import perf  # noqa: E402
 import perfcore  # noqa: E402
 
+# A physical phone is measured only when `randroid device` / `rios device` started the run (they set
+# RICHOS_DEVICE_VERB). Every case below runs as the verb would run it; DV1-DV2 call the unwrapped
+# functions to prove the refusal without it.
+VERB = "RICHOS_DEVICE_VERB"
+BARE_RUN_ANDROID, BARE_RUN_IOS = perf.run_android, ios.run_ios
+
+
+def as_verb(cli, fn):
+    def wrapped(*a, **kw):
+        before = os.environ.get(VERB)
+        os.environ[VERB] = cli
+        try:
+            return fn(*a, **kw)
+        finally:
+            if before is None:
+                os.environ.pop(VERB, None)
+            else:
+                os.environ[VERB] = before
+    return wrapped
+
+
+perf.run_android = as_verb("randroid", BARE_RUN_ANDROID)
+ios.run_ios = as_verb("rios", BARE_RUN_IOS)
+
 failures = []
+# Library/Application Support: the state directory's parent, through which the state is written.
+STATE_PARENT = os.path.dirname(ios.STATE_DIR)
 
 
 def case(name):
@@ -328,7 +354,10 @@ def quiet(_line):
     pass
 
 
-SHA = "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf"
+import hashlib  # noqa: E402
+
+APK_BYTES = b"richos-connect-test-apk"
+SHA = hashlib.sha256(APK_BYTES).hexdigest()  # the installed APK's bytes, so a pulled copy hashes to what the phone reports
 
 
 class FakeAdb:
@@ -340,19 +369,59 @@ class FakeAdb:
         self.state = {"draft": "", "messages": [], "paired": True}
         self.debuggable, self.apks = debuggable, apks or {}  # apks: local path -> (sha256, debuggable)
         self.pushed, self.core = {}, {}  # device path -> bytes; files/core name -> bytes (the app's data)
+        self.contents = {SHA: APK_BYTES}  # apk sha256 -> bytes (what `adb pull` returns)
+        self.flags = {installed: debuggable}  # apk sha256 -> debuggable
+        self.fail = set()  # verbs that fail: "pull", "install", "tar-x", "tar-c"
+        self.bad_signature = set()  # local APK paths the phone refuses to install over the app
         self.ui_text = "Synthetic message 4 for the launch"  # the newest row a UI dump shows
 
+    def tar_bytes(self):
+        import io
+        import tarfile
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as t:
+            for name, data in sorted(self.core.items()):
+                info = tarfile.TarInfo(f"./files/core/{name}")
+                info.size = len(data)
+                t.addfile(info, io.BytesIO(data))
+        return buf.getvalue()
+
     def file_command(self, args):
-        """push, install, uninstall and run-as against an app whose data is `self.core`."""
-        import hashlib
+        """push, pull, install, uninstall and run-as against an app whose data is `self.core`."""
+        import io
+        import tarfile
         cmd = " ".join(args[1:]) if args[0] == "shell" else None
         if args[0] == "push":
             with open(args[1], "rb") as f:
                 self.pushed[args[2]] = f.read()
+        elif args[0] == "pull":
+            if "pull" in self.fail:
+                return types.SimpleNamespace(returncode=1, stdout="", stderr="pull failed")
+            with open(args[2], "wb") as f:
+                f.write(self.contents.get(self.installed, b""))
         elif args[0] == "uninstall":
             self.installed, self.core = None, {}
         elif args[0] == "install":
-            self.installed, self.debuggable = self.apks[args[-1]]
+            if "install" in self.fail:
+                return types.SimpleNamespace(returncode=1, stdout="", stderr="install failed")
+            if args[-1] in self.bad_signature:
+                return types.SimpleNamespace(returncode=1, stdout="",
+                                             stderr="Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match]")
+            assert "-r" in args, f"an install without -r would replace the app the hard way: {args}"
+            if args[-1] in self.apks:
+                self.installed, self.debuggable = self.apks[args[-1]]
+            else:  # an APK this tool pulled earlier: its bytes say which build it is
+                with open(args[-1], "rb") as f:
+                    data = f.read()
+                self.installed = hashlib.sha256(data).hexdigest()
+                self.contents[self.installed] = data
+                self.debuggable = self.flags[self.installed]
+            self.flags[self.installed] = self.debuggable
+            self.contents.setdefault(self.installed, b"")
+        elif args[0] == "exec-out" and args[1:3] == ["run-as", "dev.richos.connect"] and args[3] == "tar":
+            if "tar-c" in self.fail:
+                return types.SimpleNamespace(returncode=1, stdout=b"", stderr=b"tar failed")
+            return self.tar_bytes()
         elif cmd and cmd.startswith("run-as dev.richos.connect"):
             if not self.debuggable:
                 return "run-as: package not debuggable: dev.richos.connect"
@@ -363,6 +432,16 @@ class FakeAdb:
             elif rest.startswith("sha256sum "):
                 name = rest.split("/")[-1]
                 return f"{hashlib.sha256(self.core[name]).hexdigest()}  files/core/{name}" if name in self.core else ""
+            elif rest.startswith("sh -c"):
+                return "".join(f"{hashlib.sha256(d).hexdigest()}  ./files/core/{n}\n" for n, d in sorted(self.core.items()))
+            elif rest.startswith("rm -f"):
+                self.core.pop(rest.split("/")[-1].strip("'"), None)
+            elif rest.startswith("tar -xf"):
+                if "tar-x" in self.fail:
+                    return "tar: extract failed"
+                with tarfile.open(fileobj=io.BytesIO(self.pushed[rest.split()[-1]])) as t:
+                    for m in t.getmembers():
+                        self.core[m.name.split("/")[-1]] = t.extractfile(m).read()
         else:
             return None
         return ""
@@ -384,7 +463,11 @@ class FakeAdb:
         cmd = " ".join(args[1:]) if args[0] == "shell" else " ".join(args)
         self.calls.append(cmd)
         out = self.file_command(args)
+        if isinstance(out, types.SimpleNamespace):
+            return out
         if out is not None:
+            if not text:
+                return types.SimpleNamespace(returncode=0, stdout=out, stderr=b"")
             return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
         out = ""
         if cmd.startswith("getprop ro.kernel.qemu"):
@@ -392,7 +475,7 @@ class FakeAdb:
         elif cmd.startswith("getprop"):
             out = "x"
         elif cmd.startswith("pm path"):
-            out = "package:/data/app/~~x/dev.richos.connect/base.apk"
+            out = "package:/data/app/~~x/dev.richos.connect/base.apk" if self.installed else ""
         elif cmd.startswith("sha256sum"):
             out = f"{self.installed}  /data/app/base.apk"
         elif cmd.startswith("dumpsys package"):
@@ -438,6 +521,7 @@ def android_args(tmp, **over):
                             "--owned-by", "randroid", "--stamp", stamp, "--cold", "2", "--warm", "2",
                             "--history", "4", "--idle-seconds", "1", "--background-seconds", "1",
                             "--only", "seed,cold,idle-conversation,warm,background"])
+    base.keep_dir = os.path.join(tmp, "keep")
     for k, v in over.items():
         setattr(base, k, v)
     return base
@@ -499,7 +583,7 @@ def _():
 @case("R10 physical background observation preserves battery history and reports unknown work")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
-        fake = FakeAdb(qemu="0")
+        fake = FakeAdb(qemu="0", debuggable=False)
         record, failures_ = perf.run_android(
             android_args(tmp, kind="physical", production=True, route="managed", only="background", conversation="as-installed"),
             runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
@@ -754,6 +838,22 @@ def _():
         assert 'os_signpost' in calls[0] and 'Frame Lifetimes' in calls[0] and '--launch' in calls[0]
         assert os.path.exists(os.path.join(retained, 'launch-0001.rejected.json'))
         assert open(os.path.join(retained, 'launch-0001.log.stderr')).read() == 'device disconnected'
+
+
+@case("I6a xctrace temp files land in the run's own folder and are removed, even when the capture fails")
+def _():
+    from unittest.mock import patch
+    seen = []
+    def stub(cmd, **kwargs):
+        tmp = os.environ["TMPDIR"]
+        seen.append(tmp)
+        open(os.path.join(tmp, "instruments-1.ktrace"), "w").write("x")
+        return subprocess.CompletedProcess(cmd, 1, "", "boom")
+    with tempfile.TemporaryDirectory() as evidence, tempfile.TemporaryDirectory() as usertmp, \
+            patch.dict(os.environ, {"TMPDIR": usertmp}), patch.object(ios, "evidence_root_ok", return_value=True):
+        ios.device_cold("test-device", 1, evidence, stub)
+        assert seen and seen[0].startswith(evidence) and not os.path.exists(seen[0])
+        assert os.environ["TMPDIR"] == usertmp and os.listdir(usertmp) == []
 
 
 @case("I6b traces are refused outside the mounted external SSD, before anything is captured")
@@ -1628,9 +1728,20 @@ def _():
     raises(condition.ConditionError, condition.file_fixture, 0)
 
 
+SIGNER_OF = {}  # local APK path -> certificate digest; anything else reads as the one upload key
+
+
+def fake_signer(apk, apksigner):
+    return SIGNER_OF.get(apk, "a" * 64)
+
+
+android.signer_sha256 = fake_signer  # apksigner reads real APKs; the fake phone's are bytes
+
+
 def release_setup(tmp):
     """A stamped release APK and its debuggable twin, as local files the fake adb installs."""
     import hashlib
+    SIGNER_OF.clear()
     release, twin = os.path.join(tmp, "release.apk"), os.path.join(tmp, "twin.apk")
     for path, data in ((release, b"release-bytes"), (twin, b"twin-bytes")):
         with open(path, "wb") as f:
@@ -1639,6 +1750,8 @@ def release_setup(tmp):
     stamp = write(tmp, "release-stamp.json", {"commit": "b4b1b517011837108979b5e690cb84105fef6a53", "dirty": False,
                                                "sha256": rsha, "artifact": release, "paths": ["richos/mobile/native-android"]})
     fake = FakeAdb(installed=rsha, qemu="0", debuggable=False, apks={release: (rsha, False), twin: (tsha, True)})
+    fake.contents = {rsha: b"release-bytes"}
+    fake.flags = {rsha: False, tsha: True}
     return fake, stamp, twin
 
 
@@ -1669,9 +1782,10 @@ def _():
         with patch.object(android.Measure, "cold", fake_cold):
             record, failures_ = perf.run_android(args, runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
         installs = [c for c in fake.calls if c.startswith(("uninstall", "install"))]
-        assert [c.split()[0] for c in installs] == ["uninstall", "install", "install"], installs
-        assert installs[1].endswith("twin.apk") and installs[2].endswith("-r " + fake_release(stamp)), installs
-        assert fake.core == condition.file_fixture(100), sorted(fake.core)
+        assert all(c.startswith("install -r ") for c in installs), installs  # never an uninstall, data kept every time
+        assert installs[0].endswith("twin.apk") and installs[2].endswith(fake_release(stamp)), installs
+        assert installs[-1].endswith("base.apk"), installs  # the build found on the phone, put back from the saved copy
+        assert record["savedState"]["restored"] is True and record["savedState"]["dataLostBy"] is None, record
         assert failures_ == 0 and record["build"]["configuration"] == "release", (failures_, record["phases"])
         cond = record["condition"]
         assert (cond["conversation"]["fixture"], cond["conversation"]["rows"], cond["mac"], cond["build"]) == \
@@ -1698,9 +1812,10 @@ def _():
         fake = FakeAdb()
         record, failures_ = perf.run_android(android_args(tmp, production=True, route="managed", only="cold", rows=None),
                                              runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
-        assert record["phases"].get("seed") == "measured" and fake.core == condition.file_fixture(100), record["phases"]
+        assert record["phases"].get("seed") == "measured" and fake.core == {}, record["phases"]  # the app's own data is back
+        assert any(c.startswith("push") and c.endswith("richos-perf-session.json") for c in fake.calls)  # the fixture was written
         assert record["condition"]["conversation"]["fixture"] == "synthetic-conversation/1" and record["condition"]["build"] == "debug"
-        assert not any(c.startswith(("uninstall", "install")) for c in fake.calls), "run-as seeding never reinstalls"
+        assert record["savedState"]["restored"] is True, record["savedState"]
         bridge, _ = perf.run_android(android_args(tmp, only="cold"), runner=FakeAdb(), sleep=lambda s: None, log=quiet, host=lambda: {})
         assert bridge["phases"].get("seed") == "measured" and bridge["condition"]["conversation"]["rows"] == 4, bridge["phases"]
 
@@ -1759,11 +1874,11 @@ def _():
                                           write(tmp, "e.json", dict(retired, retired=[{"name": "x"}])))
 
 
-@case("C7 iOS: an iPhone's default is refused until its path exists; as-installed states the Mac; merge and a pair refuse mixed conditions")
+@case("C7 iOS: an iPhone's default without a stamp is refused untouched; as-installed states the Mac; merge and a pair refuse mixed conditions")
 def _():
     touched = []
     msg = raises(perfcore.Refused, ios.run_ios, ios_args(conversation="fixture"), runner=lambda cmd, **kw: touched.append(cmd))
-    assert "simulator only" in msg and "as-installed" in msg and not touched, (msg, touched)
+    assert "seeded only for a stamped build" in msg and not touched, (msg, touched)
     assert "--mac" in raises(perfcore.Refused, ios.run_ios, ios_args(mac=None), runner=devicectl_listing)
     from unittest.mock import patch
     sample = {**ios.launch_sample(launch_tables()), "trial": 1, "trace": "/t/launch-0001.trace", "exportAttempts": 5}
@@ -1997,6 +2112,647 @@ def _():
     assert "static let seedingMarkers = [PerfSeed.marker]" in sim
     # longer than Swift's 15-byte small strings, so the literal is stored whole and a byte search can find it
     assert len("rios-perf-seed-fixture-writer") > 15
+
+
+def keep_setup(tmp, own=None, installed_debuggable=True):
+    """A phone holding the CEO's build and saved app data, and the args to seed it by run-as."""
+    fake = FakeAdb()
+    fake.debuggable = installed_debuggable
+    fake.flags = {SHA: installed_debuggable}
+    fake.core = dict(own if own is not None else {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"})
+    return fake, android_args(tmp, production=True, route="managed", only="cold", rows=None)
+
+
+def keep_run(args, fake):
+    return perf.run_android(args, runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+
+
+@case("K1 run-as seeding saves the app's data and APK first and puts both back, read back by hash, keeping nothing private afterwards")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, args = keep_setup(tmp)
+        own, apk = dict(fake.core), fake.contents[SHA]
+        record, _ = keep_run(args, fake)
+        saved = record["savedState"]
+        assert saved["restored"] is True and saved["apkSha256"] == SHA and saved["dataFiles"] == 2, saved
+        assert fake.core == own and fake.installed == SHA and fake.contents[SHA] == apk, (sorted(fake.core), fake.installed)
+        pulled = [i for i, c in enumerate(fake.calls) if c.startswith("pull ")]
+        tar_out = [i for i, c in enumerate(fake.calls) if c.startswith("exec-out run-as dev.richos.connect tar")]
+        written = [i for i, c in enumerate(fake.calls) if c.startswith("push ") and "richos-perf-session" in c]
+        assert pulled and tar_out and pulled[0] < written[0] and tar_out[0] < written[0], fake.calls  # saved before the first write
+        assert not os.path.isdir(os.path.join(tmp, "keep")) or not os.listdir(os.path.join(tmp, "keep")), "private copy deleted after a verified restore"
+        assert not any(c.startswith(("uninstall", "install", "pm clear")) or "pm clear" in c for c in fake.calls), \
+            "the app is never uninstalled or its data cleared on a default phone"
+
+
+@case("K2 a run that fails or is interrupted midway still puts the phone back")
+def _():
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmp:
+        for boom in (RuntimeError("the measurement blew up"), KeyboardInterrupt()):
+            fake, args = keep_setup(tmp)
+            own = dict(fake.core)
+
+            def cold(self, trials, marker=None, physical=False):
+                raise boom
+            with patch.object(android.Measure, "cold", cold):
+                try:
+                    if isinstance(boom, KeyboardInterrupt):
+                        keep_run(args, fake)
+                    else:  # phases swallow ordinary failures; make the run itself raise
+                        with patch.object(perf, "android_gaps", side_effect=boom):
+                            keep_run(args, fake)
+                    raise AssertionError("expected the failure to propagate")
+                except (RuntimeError, KeyboardInterrupt) as e:
+                    assert e is boom
+            assert fake.core == own and fake.installed == SHA, (type(boom).__name__, sorted(fake.core))
+
+
+@case("K3 a release build with no twin to read it through is REFUSED before the phone is touched, unless someone agreed to lose its data")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        fake.core = {"session.json": b"the CEO's pairing"}
+        dev = android.Device("/fake/adb", "emulator-5580", runner=fake, sleep=lambda s: None)
+        msg = raises(perfcore.Refused, android.StateKeeper(dev, root=os.path.join(tmp, "keep"), log=quiet).save)
+        assert "release build" in msg and "--accept-state-loss" in msg, msg
+        assert not any(c.startswith(("uninstall", "install", "push", "pull", "run-as", "exec-out", "am force-stop")) for c in fake.calls), fake.calls
+        assert not os.path.exists(os.path.join(tmp, "keep")), "nothing was saved either"
+        keeper = android.StateKeeper(dev, root=os.path.join(tmp, "keep"), log=quiet, accept_loss="the CEO, in the test")
+        keeper.save()
+        assert keeper.lost == "the CEO, in the test" and keeper.tar is None
+        assert keeper.restore() == [] and fake.core == {"session.json": b"the CEO's pairing"}
+
+
+@case("K4 an app that is not installed has nothing to lose: seeding goes ahead and nothing is saved")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        keeper = android.StateKeeper(android.Device("/fake/adb", "emulator-5580", runner=fake, sleep=lambda s: None),
+                                     root=os.path.join(tmp, "keep"), log=quiet)
+        fake.installed = None
+        fake.calls.clear()
+        keeper.save()
+        assert keeper.restore() == [] and not any(c.startswith(("pull", "uninstall", "install")) for c in fake.calls), fake.calls
+
+
+@case("K5 a restore that cannot put it back says so loudly as the last line, exits non-zero, and keeps the private copy")
+def _():
+    import io
+    from contextlib import redirect_stderr
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, args = keep_setup(tmp)
+        own = dict(fake.core)
+        fake.fail = {"tar-x"}  # the saved data will not extract
+        record, _ = keep_run(args, fake)
+        saved = record["savedState"]
+        assert saved["restored"] is False and any("KEPT at" in p for p in saved["problems"]), saved
+        kept = os.path.join(tmp, "keep")
+        assert os.listdir(kept), "the copy stays when the phone is not whole"
+        keep_dir = os.path.join(kept, os.listdir(kept)[0])
+        assert os.path.isfile(os.path.join(keep_dir, "data.tar")) and os.path.isfile(os.path.join(keep_dir, "base.apk"))
+        assert fake.core != own
+        # perf.main: the last stderr line is the loud one, and the exit code is non-zero
+        out = os.path.join(tmp, "rec.json")
+        from unittest.mock import patch
+        err = io.StringIO()
+        with patch.object(perf, "run_android", lambda a: (record, 0)), patch.object(perf, "judge", lambda r, b: False), \
+                patch.object(perfcore, "check_record", lambda r: []), redirect_stderr(err):
+            code = perf.main(["android", "--adb", "/fake/adb", "--serial", "emulator-5580", "--kind", "emulator",
+                              "--owned-by", "randroid", "--out", out])
+        lines = [l for l in err.getvalue().splitlines() if l.strip()]
+        assert code == perf.EXIT_NOT_RESTORED != 0 and lines[-1].startswith("SAVED STATE NOT RESTORED"), (code, lines[-1:])
+        # a failure to install the saved APK is the same
+
+
+@case("K8 a twin signed with another key is refused and reported: nothing uninstalled, the app and its data untouched")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        own = {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"}
+        fake.core = dict(own)
+        fake.bad_signature = {twin}
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        msg = raises(perfcore.Refused, keep_run, args, fake)
+        assert "NOT uninstalled" in msg and "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in msg, msg
+        assert not any(c.startswith("uninstall") for c in fake.calls), fake.calls
+        assert fake.installed == json.load(open(stamp))["sha256"] and fake.core == own, "the app and its data are as found"
+
+
+@case("K9 --seed-twin on a release phone holding data never uninstalls: install -r the twin, write, install -r back, data restored")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        from unittest.mock import patch
+        fake, stamp, twin = release_setup(tmp)
+        own = {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"}
+        fake.core = dict(own)
+        fake.ui_text = "Perf probe 50: what is on my plate this afternoon?"
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        cold = {"first": [500], "useful": [700], "rejected": [], "presentationSamples": []}
+
+        def fake_cold(self, trials, marker=None, physical=False):
+            seeded = dict(fake.core)  # what the app would have read while measured
+            assert seeded == condition.file_fixture(100), sorted(seeded)
+            return dict(cold, screenCheck={"composerOnScreen": True, "newestMessageOnScreen": True})
+        with patch.object(android.Measure, "cold", fake_cold):
+            record, failures_ = keep_run(args, fake)
+        assert not any(c.startswith("uninstall") or "pm clear" in c for c in fake.calls), fake.calls
+        assert record["savedState"]["restored"] is True and fake.core == own, (record["savedState"], sorted(fake.core))
+        assert fake.installed == json.load(open(stamp))["sha256"] and not fake.debuggable, "the release build is back"
+
+
+@case("T1 a twin signed with a different key than the installed app is refused with a plain sentence BEFORE any install; nothing uninstalled, data untouched")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        own = {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"}
+        fake.core = dict(own)
+        SIGNER_OF[twin] = "b" * 64
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        msg = raises(perfcore.Refused, keep_run, args, fake)
+        assert "signed with a different key" in msg and "CEO's decision" in msg, msg
+        assert not any(c.startswith(("uninstall", "install")) for c in fake.calls), fake.calls
+        assert fake.installed == json.load(open(stamp))["sha256"] and not fake.debuggable and fake.core == own
+
+
+@case("T2 the twin is never left installed: a seeding that fails after the twin went on puts the release build back over it (install -r, data kept)")
+def _():
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        own = {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"}
+        fake.core = dict(own)
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        with patch.object(android, "write_core_files", side_effect=perfcore.Unmeasurable("the write failed")):
+            raises(perfcore.Unmeasurable, keep_run, args, fake)
+        installs = [c for c in fake.calls if c.startswith(("uninstall", "install"))]
+        assert all(c.startswith("install -r ") for c in installs) and installs[0].endswith("twin.apk"), installs
+        assert fake.installed == json.load(open(stamp))["sha256"] and not fake.debuggable, "the release build is back, not the twin"
+        assert fake.core == own, "the app's data is as found"
+
+
+@case("T3 randroid: the twin is a build type with the release code, debuggable, the upload key; the bundle and release checks refuse a debuggable build; the scan refuses the twin's Gradle install task")
+def _():
+    gradle = open(os.path.join(MOBILE, "native-android/app/build.gradle.kts")).read()
+    twin = gradle[gradle.index('create("seedTwin")'):]
+    twin = twin[:twin.index("\n        }")]
+    assert 'initWith(getByName("release"))' in twin and "isDebuggable = true" in twin, twin
+    assert 'signingConfigs.findByName("upload")' in twin and "applicationIdSuffix" not in twin, twin
+    cli = open(os.path.join(MOBILE, "native-android/bin/randroid")).read()
+    assert '"notDebuggable": scan["debuggable"] is False' in cli and "ok = clean(r) and clean(b) and probe and ids and notdebug" in cli
+    assert "REFUSED: the debuggable twin must carry the upload key" in cli and ":app:assembleSeedTwin" in cli
+    sys.path.insert(0, MOBILE)
+    import physical
+    planted = "./gradlew :app:install" + "SeedTwin"  # the rule must name it, and the line is not itself one
+    assert "EVERY attached device" in physical.rule_for(planted, True)
+
+
+@case("K6 an exception that ends the run AND a failed restore raise RestoreFailed (exit non-zero, loud last line), the cause kept")
+def _():
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, args = keep_setup(tmp)
+        fake.fail = {"tar-x"}
+        with patch.object(perf, "android_gaps", side_effect=RuntimeError("boom")):
+            try:
+                keep_run(args, fake)
+                raise AssertionError("expected RestoreFailed")
+            except perf.RestoreFailed as e:
+                assert isinstance(e.__cause__, RuntimeError) and "KEPT at" in str(e), e
+
+
+@case("K7 the seeding docstrings and the README no longer say the saved state is lost")
+def _():
+    for path in (os.path.join(PERF, "android.py"), os.path.join(PERF, "README.md")):
+        text = open(path).read()
+        assert "previous saved\n    state for this app is gone" not in text, path
+        assert "replaces the app's saved state on the phone" not in text, path
+    readme = open(os.path.join(PERF, "README.md")).read()
+    assert "--accept-state-loss" in readme and "--disposable-phone" not in readme and "install -r" in readme
+
+
+@case("DV1 a physical phone is measured only through randroid device / rios device: without it, refused before any adb or devicectl call")
+def _():
+    saved = os.environ.pop(VERB, None)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeAdb(qemu="0", debuggable=False)
+            msg = raises(perfcore.Refused, BARE_RUN_ANDROID, android_args(tmp, kind="physical", production=True, route="managed",
+                         only="cold", conversation="as-installed"), runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+            assert "randroid device perf" in msg and fake.calls == [], (msg, fake.calls)
+            calls = []
+            msg = raises(perfcore.Refused, BARE_RUN_IOS, types.SimpleNamespace(device="u", stamp=None, expect_commit=None),
+                         runner=lambda *a, **k: calls.append(a))
+            assert "rios device perf" in msg and calls == [], (msg, calls)
+    finally:
+        if saved is not None:
+            os.environ[VERB] = saved
+
+
+@case("DV2 a DEBUGGABLE build on a physical phone is refused before anything is saved, seeded, installed or measured")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeAdb(qemu="0", debuggable=True)
+        msg = raises(perfcore.Refused, perf.run_android, android_args(tmp, kind="physical", production=True, route="managed",
+                     only="cold", conversation="as-installed"), runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert "DEBUGGABLE" in msg and "randroid device" in msg, msg
+        touched = [c for c in fake.calls if c.startswith(("install", "uninstall", "pull", "push", "am ", "run-as"))]
+        assert touched == [], touched
+
+
+# ---------------------------------------------------------------------------------------------
+# the same condition on an iPhone: devicectl into the app's data container, the UI-test runner
+# ---------------------------------------------------------------------------------------------
+
+HW = "00000000-FAKEFAKEFAKEFAKE"
+
+
+class FakePhone:
+    """devicectl, `rios perf-seed` and phone-ios.py for one iPhone. The app's data container is a real
+    directory, with the copy semantics measured on the test iPhone (a directory copied to it with
+    --remove-existing-content true becomes exactly the source); the app runs or not, and a write to its
+    state while it runs is refused, as a running app would write over it."""
+
+    def __init__(self, tmp, screen_ok=True, corrupt_seed=False, fail_restore=False, approval=False, no_state=False,
+                 root_owned_state=False, all_root=False, parent_extra=False):
+        self.container = os.path.join(tmp, "phone-container")
+        self.state = os.path.join(self.container, ios.STATE_DIR)
+        # Ownership as measured on the test iPhone (2026-10-02): the directory a `copy to` names as its
+        # destination is root's (uid 0, 0755); everything created inside the copied tree is the app's
+        # (uid 501). `root_owned_state`: the phone as the old seeding left it; `all_root`: a devicectl
+        # that leaves everything root's, which the owner check must refuse.
+        self.root_owned = {STATE_PARENT}
+        if root_owned_state:
+            self.root_owned.add(ios.STATE_DIR)
+        self.all_root = all_root
+        os.makedirs(os.path.join(self.container, "Library"), exist_ok=True)
+        if parent_extra:
+            os.makedirs(os.path.join(self.container, STATE_PARENT, "SomethingElse"))
+        if not no_state:
+            os.makedirs(os.path.join(self.state, "Attachments"))  # empty: it must come back too
+            os.makedirs(os.path.join(self.state, "Recordings"))
+            for name, data in (("state.json", b'{"the person\'s own":"pairing"}'), ("history.json", b'{"their":"history"}'),
+                               ("completion-budget.json", b"[]"), ("Recordings/kept.wav", b"RIFF voice")):
+                with open(os.path.join(self.state, name), "wb") as f:
+                    f.write(data)
+        self.screen_ok, self.corrupt_seed, self.fail_restore, self.approval = screen_ok, corrupt_seed, fail_restore, approval
+        self.running, self.puts, self.calls, self.env = True, 0, [], None
+        self.fixture_seen = self.written = None
+
+    def now(self):
+        return ios.tree_manifest(self.state) if os.path.isdir(self.state) else None
+
+    def copies_to(self):
+        return [c for c in self.calls if c[:5] == ["xcrun", "devicectl", "device", "copy", "to"]]
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(cmd)
+        ok = lambda out="": subprocess.CompletedProcess(cmd, 0, out, "")
+        arg = lambda name: cmd[cmd.index(name) + 1]
+        if cmd[:4] == ["xcrun", "devicectl", "list", "devices"]:
+            with open(arg("--json-output"), "w") as f:
+                json.dump({"result": {"devices": [{"identifier": "test-device", "hardwareProperties": {
+                    "marketingName": "Fixture iPhone", "udid": HW}, "deviceProperties": {"osVersionNumber": "26.0"}}]}}, f)
+            return ok()
+        if cmd[:5] == ["xcrun", "devicectl", "device", "info", "processes"]:
+            procs = [{"processIdentifier": 717, "executable": "file:///private/var/containers/Bundle/Application/X/"
+                                                              "RichOSNative.app/RichOSNative"}] if self.running else []
+            with open(arg("--json-output"), "w") as f:
+                json.dump({"result": {"runningProcesses": procs}}, f)
+            return ok()
+        if cmd[:5] == ["xcrun", "devicectl", "device", "process", "terminate"]:
+            self.running = False
+            return ok()
+        if cmd[:5] == ["xcrun", "devicectl", "device", "info", "files"]:
+            assert arg("--domain-type") == "appDataContainer" and arg("--domain-identifier") == ios.BUNDLE, cmd
+            files = []
+            for here, dirs, names in os.walk(self.container):
+                for name in dirs + names:
+                    rel = os.path.relpath(os.path.join(here, name), self.container)
+                    uid = 0 if (self.all_root and rel.startswith(STATE_PARENT)) or rel in self.root_owned else 501
+                    files.append({"relativePath": rel, "metadata": {"ownerUid": uid,
+                                                                    "permissions": 0o755 if name in dirs else 0o644}})
+            with open(arg("--json-output"), "w") as f:
+                json.dump({"result": {"files": files}}, f)
+            return ok()
+        if cmd[:4] == ["xcrun", "devicectl", "device", "copy"]:
+            assert arg("--domain-type") == "appDataContainer" and arg("--domain-identifier") == ios.BUNDLE, cmd
+            if cmd[4] == "from":
+                assert arg("--source") == ios.STATE_DIR, cmd
+                if not os.path.isdir(self.state):
+                    return subprocess.CompletedProcess(cmd, 1, "", f"ERROR: {ios.NO_FILE_NODE} for {ios.STATE_DIR}")
+                import shutil
+                shutil.copytree(self.state, arg("--destination"))
+                return ok()
+            dest = arg("--destination")
+            assert dest in (STATE_PARENT, ios.STATE_DIR) and arg("--remove-existing-content") == "true", cmd
+            assert not self.running, "the app's state was written while the app was running"
+            self.puts += 1
+            if self.fail_restore and self.puts >= 2:
+                return subprocess.CompletedProcess(cmd, 1, "", "ERROR: the device went away")
+            import shutil
+            target = os.path.join(self.container, dest)
+            shutil.rmtree(target, ignore_errors=True)
+            shutil.copytree(arg("--source"), target)
+            # the destination is root's, everything inside the copied tree the app's
+            self.root_owned = {p for p in self.root_owned if not p.startswith(dest + "/")} | {dest}
+            if self.corrupt_seed and self.puts == 1:
+                with open(os.path.join(self.state, "history.json"), "ab") as f:
+                    f.write(b" ")
+            return ok()
+        if cmd[0] == ios.RIOS and cmd[1] == "perf-seed":
+            fixture, expected, out = cmd[2], cmd[3], cmd[4]
+            files = {n: open(os.path.join(fixture, n), "rb").read() for n in sorted(os.listdir(fixture))}
+            self.fixture_seen = (files, expected)
+            os.makedirs(out)
+            self.written = {"state.json": b'{"schema":2,"seeded":true}', "history.json": b'{"messages":"100 rows"}'}
+            for name, data in self.written.items():
+                with open(os.path.join(out, name), "wb") as f:
+                    f.write(data)
+            import hashlib
+            sha = lambda b: hashlib.sha256(b).hexdigest()
+            return ok(json.dumps({"ok": True, "result": {
+                "fixture": "synthetic-conversation/1", "fixtureSha256": expected, "rows": json.loads(files["history.json"])["cursor"] // 2,
+                "fixtureFiles": {n: sha(b) for n, b in files.items()}, "written": {n: sha(b) for n, b in self.written.items()}}}))
+        if cmd[:2] == [sys.executable, ios.PHONE_IOS] and cmd[2] == "approval":
+            assert arg("--device") == HW, cmd
+            return ok(json.dumps({"approvalExpected": self.approval, "why": "fixture forecast"}))
+        if cmd[:2] == [sys.executable, ios.PHONE_IOS] and cmd[2] == "run":
+            self.env = kw.get("env") or {}
+            steps = json.load(open(cmd[3]))
+            assert "--prebuilt" in cmd and arg("--stamp"), cmd  # the stamped app's own runner: nothing new installed
+            # room for native-work's CPU admission (up to 1800 s), which the device runner's limit counts
+            assert arg("--allowance") == "1800", cmd
+            out = arg("--out")
+            os.makedirs(out, exist_ok=True)
+            label = steps[1]["label"]
+            seeded = self.now() == ios.tree_manifest(self._seed_dir()) if self.written else False
+            seen = self.screen_ok and seeded
+            rows = [{"i": 0, "do": "activate", "ok": True, "detail": {}},
+                    {"i": 1, "do": "wait", "ok": seen, "error": None if seen else "not on screen within 15 s",
+                     "detail": {"label": f"You, 8:00 AM: {label}", "waitedMs": 900} if seen else {}}]
+            with open(os.path.join(out, "steps.jsonl"), "w") as f:
+                f.write("\n".join(json.dumps(r) for r in rows) + "\n")
+            return subprocess.CompletedProcess(cmd, 0 if seen else 1, json.dumps({"passed": seen, "out": out}), "")
+        raise AssertionError(f"unexpected command {cmd}")
+
+    def _seed_dir(self):
+        """The seeded files as a directory, to compare the phone's state with (what the app read)."""
+        d = os.path.join(os.path.dirname(self.container), "expected-seed")
+        if not os.path.isdir(d):
+            os.makedirs(d)
+            for name, data in self.written.items():
+                with open(os.path.join(d, name), "wb") as f:
+                    f.write(data)
+        return d
+
+
+def phone_stamp(tmp, runner_app=True):
+    products = os.path.join(tmp, "Products", "Release-iphoneos")
+    app = os.path.join(products, "RichOSNative.app")
+    os.makedirs(app)
+    with open(os.path.join(app, "RichOSNative"), "wb") as f:
+        f.write(b"release bytes")  # no development marker: a Release bundle
+    if runner_app:
+        os.makedirs(os.path.join(products, ios.RUNNER_APP))
+    return write(tmp, "stamp.json", {"commit": "c" * 40, "dirty": False, "sha256": perfcore.tree_sha256(app), "artifact": app})
+
+
+def run_phone(phone, tmp, trace=None, **over):
+    """run_ios against `phone`. The trace series is replaced: it records what the app's state was when
+    the series launched it (and the app is running afterwards, as after a launch)."""
+    from unittest.mock import patch
+    seen = []
+    def series(cls, driver, trials, evidence, runner, popen, sleep, seconds=10, away=2.0, app_args=()):
+        seen.append((cls, phone.now()))
+        if trace:
+            trace(cls)
+        phone.running = True
+        d = os.path.join(evidence, f"ios-{cls}")
+        os.makedirs(d, exist_ok=True)
+        sample = ({**ios.launch_sample(launch_tables())} if cls == "cold" else {**ios.return_sample(return_tables(), 717)})
+        sample.update(trial=1, trace=os.path.join(d, "t.trace"), exportAttempts=1)
+        return [sample], [], d
+    args = dict(device="test-device", conversation="fixture", mac=None, rows=None, cold=1, warm=1,
+                evidence_dir=os.path.join(tmp, "evidence"), stamp=over.pop("stamp", None) or phone_stamp(tmp))
+    args.update(over)
+    with patch.object(ios, "trace_series", series), patch.object(ios, "evidence_root_ok", return_value=True), \
+         patch.dict(os.environ, {"RICHOS_APPLE_TEAM": "ABCDEFGHIJ"}):
+        record, failed = ios.run_ios(ios_args(**args), runner=phone, sleep=lambda s: None)
+    return record, failed, seen
+
+
+@case("C13 iPhone: the app's own state is copied off, the app gets exactly Android's fixture, both series run on it, the row is checked on screen, and the phone's state comes back byte for byte")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        phone = FakePhone(tmp)
+        before = phone.now()
+        record, failed, seen = run_phone(phone, tmp)
+        files, expected = phone.fixture_seen
+        assert files == condition.file_fixture(100) and expected == COND["conversation"]["sha256"], sorted(files)
+        # both series launched into exactly what perf-seed wrote, and nothing of the phone's own state
+        want = ios.tree_manifest(phone._seed_dir())
+        assert [c for c, _ in seen] == ["cold", "warm"] and all(state == want for _, state in seen), seen
+        cond = record["condition"]
+        assert condition.same(cond, COND) and cond["build"] == "release" and condition.why_not_comparable(cond, COND) is None
+        assert "devicectl" in cond["conversation"]["seededBy"] and set(cond["conversation"]["files"]) == {"history.json", "state.json"}
+        assert cond["verified"]["onScreen"] is True and cond["verified"]["row"] == NEWEST_CEO, cond["verified"]
+        assert phone.env["RICHOS_IOS_DEVICE"] == HW and phone.env["RICHOS_APPLE_TEAM"] == "ABCDEFGHIJ"
+        c = record["conditions"]
+        assert c["savedStateRestored"] is True and c["ownStateBackup"]["entries"] == len(before) and c["seededState"]["entries"] == 2, c
+        assert record["route"]["name"] == "seeded fixture" and record["ranOnHardware"] and not failed, failed
+        assert set(record["metrics"]) == {"coldLaunch", "warmResume"}
+        assert phone.now() == before, phone.now()  # the phone's own state, empty directory and recording included
+        assert len(phone.copies_to()) == 2  # the seed, then the restore: nothing else was written
+        # both written through the parent, so the state directory is the app's own and it can save
+        assert all(c[c.index("--destination") + 1] == STATE_PARENT for c in phone.copies_to()), phone.copies_to()
+        assert ios.STATE_DIR not in phone.root_owned, phone.root_owned
+        # the phone's own conversation does not stay on the Mac once it is back; its manifest does
+        (seed_dir,) = [d for d in os.listdir(os.path.join(tmp, "evidence")) if d.startswith("ios-seed-")]
+        backup = os.path.join(tmp, "evidence", seed_dir, "backup")
+        assert os.listdir(backup) == ["manifest.json"] and json.load(open(os.path.join(backup, "manifest.json")))["manifest"] == before
+        # the retained series carry the checked condition, so a reparse is compared like the record
+        assert json.load(open(os.path.join(tmp, "evidence", "ios-cold", "series.json")))["condition"]["verified"]["onScreen"] is True
+        assert not perfcore.check_record(record), perfcore.check_record(record)
+
+
+@case("C14 iPhone: every failure puts the phone's own state back first — a row not on screen, a seed that reads back wrong, SIGTERM mid-series; a failed restore keeps the copy and ios-restore puts it back")
+def _():
+    import signal
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, phone, said in (("unseen", FakePhone(tmp + "/unseen", screen_ok=False), "not seen on screen"),
+                                  ("corrupt", FakePhone(tmp + "/corrupt", corrupt_seed=True), "could not be written")):
+            before = phone.now()
+            record, failed, seen = run_phone(phone, tmp + "/" + name)
+            assert failed and phone.now() == before and record["conditions"]["savedStateRestored"] is True, name
+            assert any(said in g["why"] for g in record["notMeasured"]), (name, record["notMeasured"])
+            if name == "corrupt":
+                assert not seen and record.get("condition") is None, "nothing is measured on a seed that did not read back"
+            else:
+                assert "was not on screen" in condition.why_not_comparable(record["condition"], COND)
+        # a real SIGTERM in the middle of the series: the restore runs before the run ends
+        phone = FakePhone(tmp + "/term")
+        before = phone.now()
+        handler = signal.getsignal(signal.SIGTERM)
+        assert "signal" in raises(ios.Interrupted, run_phone, phone, tmp + "/term",
+                                  trace=lambda cls: os.kill(os.getpid(), signal.SIGTERM))
+        assert phone.now() == before and signal.getsignal(signal.SIGTERM) is handler, "restored, and the handler put back"
+        # the restore itself fails: the record says so, the copy stays, and ios-restore puts it back verified
+        phone = FakePhone(tmp + "/lost", fail_restore=True)
+        before = phone.now()
+        record, failed, _ = run_phone(phone, tmp + "/lost")
+        assert record["conditions"]["savedStateRestored"] is False and phone.now() != before
+        why = next(g["why"] for g in record["notMeasured"] if g["what"] == "the app's own saved state after the run")
+        assert "perf.py ios-restore --device test-device --backup" in why, why
+        backup = why.split("--backup ")[1].strip()
+        assert ios.tree_manifest(os.path.join(backup, "RichOS")) == before
+        phone.fail_restore = False
+        assert "was taken from test-device" in raises(perfcore.Refused, ios.restore_device, "another-phone", backup, phone, lambda s: None)
+        out = ios.restore_device("test-device", backup, phone, lambda s: None)
+        assert out["restored"] and phone.now() == before and not os.path.exists(os.path.join(backup, "RichOS")), out
+
+
+@case("C15 iPhone refusals change nothing on the phone: no stamp, no runner beside the app, no team, no SSD, a reachable Mac, a launch argument, an expected approval prompt, no saved state to put back")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, over, env, said in (
+                ("nostamp", {"stamp": None}, None, "stamped build"),
+                ("mac", {"mac": "reachable"}, None, "unreachable by construction"),
+                ("arg", {"app_arg": ["-x"]}, None, "launch argument"),
+                ("team", {}, {"RICHOS_APPLE_TEAM": ""}, "RICHOS_APPLE_TEAM"),
+        ):
+            phone = FakePhone(tmp + "/" + name)
+            from unittest.mock import patch
+            args = dict(device="test-device", conversation="fixture", mac=None, rows=None, cold=1, warm=1,
+                        evidence_dir=os.path.join(tmp, name, "evidence"), stamp=phone_stamp(tmp + "/" + name))
+            args.update(over)
+            with patch.object(ios, "evidence_root_ok", return_value=True), \
+                 patch.dict(os.environ, env or {"RICHOS_APPLE_TEAM": "ABCDEFGHIJ"}):
+                assert said in raises(perfcore.Refused, ios.run_ios, ios_args(**args), runner=phone), name
+            assert phone.calls == [], (name, phone.calls)  # refused before the phone was asked anything
+        phone = FakePhone(tmp + "/ssd")
+        with patch.dict(os.environ, {"RICHOS_APPLE_TEAM": "ABCDEFGHIJ"}):
+            assert "/Volumes/E1TB" in raises(perfcore.Refused, ios.run_ios, ios_args(
+                device="test-device", conversation="fixture", mac=None, rows=None, stamp=phone_stamp(tmp + "/ssd"),
+                evidence_dir=os.path.join(tmp, "ssd", "evidence")), runner=phone)
+        assert phone.calls == []
+        noruner = tmp + "/norunner"
+        os.makedirs(noruner)
+        phone = FakePhone(noruner)
+        assert ios.RUNNER_APP in raises(perfcore.Refused, run_phone, phone, noruner, stamp=phone_stamp(noruner, runner_app=False))
+        assert phone.calls == []
+        for name, phone, said in (("approval", FakePhone(tmp + "/approval", approval=True), "allow UI automation"),
+                                  ("empty", FakePhone(tmp + "/empty", no_state=True), "no saved state on this iPhone")):
+            before = phone.now()
+            assert said in raises(perfcore.Refused, run_phone, phone, tmp + "/" + name), name
+            assert not phone.copies_to() and phone.now() == before, (name, phone.calls)
+            leftovers = [d for d in os.listdir(os.path.join(tmp, name, "evidence"))] if os.path.isdir(os.path.join(tmp, name, "evidence")) else []
+            assert leftovers == [], (name, leftovers)  # no partial copy of anything stays on the Mac
+
+
+@case("C17 iPhone ownership: the seed and the restore leave the state directory the app's own, and give it back to "
+      "a phone the old seeding left root-owned; a write that leaves it root's is refused even though its bytes read "
+      "back right (the 2026-10-02 benchmark's save-failure banner); a parent holding anything else is never written")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        phone = FakePhone(tmp + "/broken", root_owned_state=True)  # as the 2026-10-02 runs left the test iPhone
+        before = phone.now()
+        record, failed, _ = run_phone(phone, tmp + "/broken")
+        assert not failed and record["conditions"]["savedStateRestored"] is True, record["notMeasured"]
+        assert phone.now() == before and ios.STATE_DIR not in phone.root_owned, phone.root_owned
+    with tempfile.TemporaryDirectory() as tmp:
+        phone = FakePhone(tmp, all_root=True)  # bytes right, owner wrong
+        before = phone.now()
+        record, failed, seen = run_phone(phone, tmp)
+        assert failed and "could not save into its state directory" in record["phases"]["seed"], record["phases"]
+        assert not seen and "coldLaunch" not in record["metrics"]  # nothing measured on a state the app cannot save
+        assert record["conditions"]["savedStateRestored"] is False and phone.now() == before
+        assert any("ios-restore" in n["why"] for n in record["notMeasured"]), record["notMeasured"]
+    with tempfile.TemporaryDirectory() as tmp:
+        phone = FakePhone(tmp, parent_extra=True)
+        before = phone.now()
+        record, failed, seen = run_phone(phone, tmp)
+        assert failed and "holds more than RichOS" in record["phases"]["seed"] and not phone.copies_to(), record["phases"]
+        assert phone.now() == before and not seen
+    state = ios.DeviceState(types.SimpleNamespace(target="x", pid=lambda: None))
+    listing = {"Library": (501, 0o755), STATE_PARENT: (0, 0o755), ios.STATE_DIR: (0, 0o755),
+               ios.STATE_DIR + "/state.json": (501, 0o644)}
+    said = raises(perfcore.Unmeasurable, state.check_owner, listing)
+    assert "uid 501" in said and ios.STATE_DIR + " (uid 0" in said, said
+    listing[ios.STATE_DIR] = (501, 0o555)  # the app's, but not writable by it
+    assert "mode 0o555" in raises(perfcore.Unmeasurable, state.check_owner, listing)
+    listing[ios.STATE_DIR] = (501, 0o755)
+    assert state.check_owner(listing) == 501
+
+
+def timing_line(e, pid, wall_s, **extra):
+    return json.dumps({"e": e, "pid": pid, "wallUs": int(round(wall_s * 1e6)), "uptime": wall_s - 1000.0, **extra})
+
+
+@case("C16 unprofiled taps: the step list passes phone-ios.py's own validation; the runner's tap times and the app's "
+      "own lines join into launch and return samples; a launch with no input-ready, two processes after one tap and a "
+      "relaunch during a return are rejected; a probe touch before activation is reported so; refused off a seeded iPhone")
+def _():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("phone_ios", os.path.join(HERE, "qa", "phone-ios.py"))
+    phone_ios = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(phone_ios)
+    steps = ios.tap_steps(2, 3, 2.0)
+    assert phone_ios.validate(steps) == steps
+    assert [s["after"] for s in steps if s["do"] == "tapThen"] == [0.1, 0.2, 0.3]
+    assert sum(1 for s in steps if s["do"] == "tap") == 2 and sum(1 for s in steps if s["do"] == "terminate") == 2
+    assert "tapThen" in phone_ios.ACTIONS and phone_ios.vocabulary(phone_ios.RUNNER)["same"]
+    rows = [{"i": 0, "do": "tap", "ok": True, "detail": {"tapAt": 100.0}},
+            {"i": 1, "do": "tap", "ok": True, "detail": {"tapAt": 110.0}},
+            {"i": 2, "do": "tap", "ok": True, "detail": {"tapAt": 120.0}},
+            {"i": 3, "do": "tapThen", "ok": True, "after": 0.1, "detail": {"synthesizedAt": 130.0}},
+            {"i": 4, "do": "tapThen", "ok": True, "after": 0.45, "detail": {"synthesizedAt": 140.0}},
+            {"i": 5, "do": "tapThen", "ok": True, "after": 0.2, "detail": {"synthesizedAt": 150.0}},
+            {"i": 6, "do": "tapThen", "ok": True, "after": 0.9, "detail": {"synthesizedAt": 160.0}}]
+    lines = [
+        timing_line("process", 7, 100.20, startUs=int(100.05e6)),  # launch 1: spawn 50 ms after the tap
+        timing_line("did-activate", 7, 100.30), timing_line("useful-content", 7, 100.31),
+        timing_line("input-ready", 7, 100.32),
+        timing_line("process", 8, 110.20, startUs=int(110.06e6)),  # launch 2: no input-ready
+        timing_line("process", 9, 120.20, startUs=int(120.04e6)), timing_line("process", 10, 120.30, startUs=int(120.25e6)),
+        timing_line("input-ready", 9, 120.40),
+        # return 1: the probe touch arrives at +120 ms, before activation at +447 ms
+        timing_line("will-enter-foreground", 10, 130.02), timing_line("touch", 10, 130.12, eventUptime=130.11 - 1000.0,
+                                                                      scene="foregroundInactive", view="UICollectionView"),
+        timing_line("did-activate", 10, 130.447), timing_line("input-ready", 10, 130.48),
+        # return 2: no touch reached the app
+        timing_line("will-enter-foreground", 10, 140.02), timing_line("did-activate", 10, 140.45),
+        timing_line("input-ready", 10, 140.49),
+        # return 3: a relaunch
+        timing_line("process", 11, 150.2, startUs=int(150.05e6)), timing_line("did-activate", 11, 150.5),
+        # return 4, the last: the touch at +900 ms arrives after activation; the on-screen check's launch
+        # 15 s later is not this return's
+        timing_line("will-enter-foreground", 11, 160.02), timing_line("did-activate", 11, 160.46),
+        timing_line("touch", 11, 160.91, eventUptime=160.90 - 1000.0, scene="foregroundActive", view="UICollectionView"),
+        timing_line("input-ready", 11, 160.5), timing_line("process", 12, 175.2, startUs=int(175.05e6)),
+        "{torn",
+    ]
+    events = ios.parse_timing("\n".join(lines))
+    launches, rejected = ios.tap_launch_samples(rows, events)
+    assert [s["trial"] for s in launches] == [1], launches
+    assert launches[0]["tapToProcessStartMs"] == 50.0 and launches[0]["processStartToInputReadyMs"] == 270.0
+    assert launches[0]["processStartToMainMs"] == 150.0 and launches[0]["tapToInputReadyMs"] == 320.0
+    assert [(r["trial"], r["why"]) for r in rejected] == [
+        (2, "no input-ready line from the launched process"), (3, "2 processes started between this tap and the next")]
+    returns, rejected = ios.tap_return_samples(rows, events)
+    assert [s["trial"] for s in returns] == [1, 2, 4] and rejected[0]["trial"] == 3 and "relaunch" in rejected[0]["why"]
+    one, two, four = returns
+    assert four["touch"]["received"] and not four["touch"]["beforeActive"] and four["touch"]["scene"] == "foregroundActive"
+    assert one["touch"]["received"] and one["touch"]["beforeActive"] and one["touch"]["scene"] == "foregroundInactive"
+    assert one["touch"]["eventMs"] == 110.0 and one["activeMs"] == 447.0 and one["probeAfterMs"] == 100.0
+    assert two["touch"] == {"received": False} and two["inputReadyMs"] == 490.0
+    summary = ios.unprofiled_summary(launches, returns)
+    assert summary["warm"]["probeTouches"]["100.0"]["receivedBeforeActive"] == 1
+    assert summary["warm"]["probeTouches"]["450.0"]["received"] == 0
+    for over in (dict(simulator="sim", device=None, conversation="fixture", mac=None),
+                 dict(conversation="as-installed", mac="reachable")):
+        args = ios_args(tap_launches=30, tap_returns=0, **over)
+        assert "seeded conversation" in raises(perfcore.Refused, ios.run_ios, args, runner=lambda *a, **k: 1 / 0)
 
 
 if __name__ == "__main__":

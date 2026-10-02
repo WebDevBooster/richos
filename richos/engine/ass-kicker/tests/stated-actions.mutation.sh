@@ -72,7 +72,8 @@ build() {
     local dir="$1"
     mkdir -p "$dir/scripts/hooks" "$dir/scripts/lib" "$dir/ass-kicker/tests"
     cp "$ENGINE_ROOT/ass-kicker/guard-stated-actions.py" "$dir/ass-kicker/"
-    cp "$ENGINE_ROOT/ass-kicker/tests/guard-stated-actions.test.sh" "$dir/ass-kicker/tests/"
+    cp "$ENGINE_ROOT/ass-kicker/tests/guard-stated-actions.test.sh" \
+       "$ENGINE_ROOT/ass-kicker/tests/record-claims.replay.py" "$dir/ass-kicker/tests/"
     cp "$ENGINE_ROOT/scripts/hooks/guard-stated-actions.sh" \
        "$ENGINE_ROOT/scripts/hooks/turn-manifest.py" \
        "$ENGINE_ROOT/scripts/hooks/guard-idle-land.py" "$dir/scripts/hooks/"
@@ -283,6 +284,102 @@ mutant refusal-lacks-the-declaration-form "n." "$P" \
     '        out.append("           stop-declared: <case> — <why, in a full sentence>")' \
     '        out.append("           (declare the stop in the documented form)")' \
     "an escape described but not spelled is an escape that gets waived by guesswork."
+
+# --- 4b. ARM 3: RECORDED, NOT WRITTEN ---------------------------------------
+mutant arm3-alert-not-issued "R6." "$P" \
+    '    if arm3 is not None and not unmet and not undeclared:\n        emit_alert(arm3)' \
+    '    if False:\n        emit_alert(arm3)' \
+    "the CEO asked for an alert when a recorded claim had no matching write; a check that finds it and says nothing is no check."
+
+mutant arm3-silent-on-refire "R13." "$P" \
+    '            _arm3_log(payload, arm3)\n            emit_alert(arm3)' \
+    '            _arm3_log(payload, arm3)' \
+    "the re-fire carries the reply that ends the turn; staying silent there lets the false claim through when ARM 1 or 2 refused first."
+
+mutant arm3-alert-shown-to-the-ceo "R1." "$H" \
+    'out["hookSpecificOutput"] = {"hookEventName": "Stop"' \
+    'out["systemMessage"] = os.environ["ALERT_LINE"]\nout["hookSpecificOutput"] = {"hookEventName": "Stop"' \
+    "the CEO said he does not need to see it: the alert is the lead's, in the lead's own context, with no user-visible message."
+
+mutant arm3-alert-only-on-systemmessage "R1." "$H" \
+    'out["hookSpecificOutput"] = {"hookEventName": "Stop", "additionalContext": os.environ["ALERT_LINE"]}' \
+    'out["systemMessage"] = os.environ["ALERT_LINE"]' \
+    "a systemMessage reaches the person and never the model, so the lead would not read it (measured, stop-hook-notice.sh)."
+
+mutant arm3-alerts-on-a-written-record "R10." "$P" \
+    '    return [(s, c, p) for s, c, p in v["failing"] if c in ALERT_CODES]' \
+    '    return list(v["failing"])' \
+    "a claim backed by a durable write is true; alerting because the reply did not recite a path or SHA is the refusal this alert replaced."
+
+mutant arm3-alerts-on-a-citation "R4." "$P" \
+    'ALERT_CODES = ("nothing", "private")' \
+    'ALERT_CODES = ("nothing", "private", "state")' \
+    "'it is written in the three places I read' cites an existing record; it is not a claim that this turn wrote one."
+
+mutant arm3-confession-is-a-claim "R30." "$P" \
+    'if (ARM3_CONFESS_RE.search(c[m.start():]) or' \
+    'if (False or' \
+    "'I recorded it wrong.' confesses a past error; it claims no record in this turn."
+
+mutant arm3-others-saved-is-a-claim "R31." "$P" \
+    ' or ARM3_OTHERS_SAVED_RE.search(c)' \
+    ' or False' \
+    "'saved their work' is version control about somebody else's work, not a record."
+
+mutant arm3-description-is-a-claim "R32." "$P" \
+    'or ARM3_DESCRIBES_RE.search(s)):' \
+    'or False):' \
+    "'Documented, never fixed.' describes an existing document; it claims no write."
+
+mutant arm3-list-items-skipped "R1." "$P" \
+    '        if m:\n            line = line[m.end():]' \
+    '        if m:\n            continue' \
+    "the 2026-10-02 claim was a bulleted line; ARM 1 skips lists, ARM 3 must not."
+
+mutant arm3-cd-not-followed "R1." "$P" \
+    '                b = _resolve(d, b)' \
+    '                pass' \
+    "the 2026-10-02 memory write was cd …/memory && cat > …; without the cd it reads as a file in the working directory."
+
+mutant arm3-shell-variable-not-expanded "R21." "$P" \
+    '    command = expand(command)' \
+    '    pass' \
+    "the 2026-09-08 memory write was M=…; cat > \"\$M/…\"; an unexpanded target is no target."
+
+mutant arm3-memory-is-a-record "R7." "$P" \
+    '        return "memory"' \
+    '        return "file"' \
+    "a note in the private memory directory is not a record; §97 and the CEO both say so."
+
+mutant arm3-private-notes-not-honored "R8." "$P" \
+    '        if (memory and PRIVATE_NOTES_RE.search(sentence)) or \' \
+    '        if False or \' \
+    "'in my private notes' is the truth told plainly, and the brief lets it through."
+
+mutant arm3-notes-pointer-ignored "R5b." "$P" \
+    '        if NOTES_POINTER_RE.search(sentence):' \
+    '        if False:' \
+    "'saved this as a rule in my notes' was excused by an unrelated commit until this term existed."
+
+mutant arm3-ecs-not-private "R27." "$P" \
+    '"ecs": bool(ECS_RE.search(command))}' \
+    '"ecs": False}' \
+    "most September 'Recorded.' lines had only an ECS checkpoint behind them; the refusal must say so."
+
+mutant arm3-third-person-scanned "R23." "$P" \
+    '            if not m and not (i > 0 and third):' \
+    '            if not m:' \
+    "'He …, and recorded the anomaly' is a teammate's act, not the lead's claim."
+
+mutant arm3-earlier-turn-judged "R22." "$P" \
+    '            elif ARM3_PAST_RE.search(seg):\n                continue' \
+    '            elif False:\n                continue' \
+    "'the thing I recorded an hour ago' refers to another turn; this turn's calls cannot judge it."
+
+mutant arm3-noun-use-scanned "R24." "$P" \
+    '    r"(?:now\s+)?" + REC_VERB + _FOLLOW, re.I)' \
+    '    r"(?:now\s+)?" + REC_VERB + r"\b", re.I)' \
+    "'Recorded numbers:' is a noun phrase; the corpus had three of these shapes."
 
 # --- 5. THE WRAPPER'S OWN STAND-DOWNS ARE SEEN ----------------------------
 mutant stood-down-silently "t." "$H" \

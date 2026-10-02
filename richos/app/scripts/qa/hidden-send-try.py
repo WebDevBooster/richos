@@ -27,6 +27,10 @@ lab's tunnel helper (its own `--metrics` port, read from its command line) into 
 the number of requests that reached the lab and when, which is how a second request with the same
 client id is told from a late answer to the first.
 
+Run it as `randroid device --serial S hidden-send ...` (CEO, 2026-10-02: only the release build goes on
+his phones and every test on them tests it): started any other way it refuses, and before the first
+mark it refuses an emulator or a debuggable RichConnect (exit 3, richos/mobile/physical.py).
+
 Exit 0 when every step ran; 2 with a sentence when it cannot (no serial, bad coordinates). It prints
 the marks it wrote. The serial is an argument, never written anywhere.
 """
@@ -38,12 +42,16 @@ import time
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "mobile"))
+import physical  # noqa: E402 — richos/mobile/physical.py: the physical-phone rules
+
 MARK = str(Path(__file__).resolve().parent / "step-mark.py")
+ADB = "adb"  # --adb: the one randroid found
 KEEP = ("cloudflared_tunnel_total_requests", "cloudflared_tunnel_request_errors", "cloudflared_tunnel_response_by_code")
 
 
 def adb(serial, *args):
-    done = subprocess.run(["adb", "-s", serial, "shell", *args], capture_output=True, text=True, timeout=30)
+    done = subprocess.run([ADB, "-s", serial, "shell", *args], capture_output=True, text=True, timeout=30)
     if done.returncode != 0:
         raise SystemExit("adb %s failed: %s" % (" ".join(args), done.stderr.strip() or done.stdout.strip()))
 
@@ -81,7 +89,7 @@ def sockets(serial, uid, path, seconds, stop):
     with open(path, "a", encoding="utf-8") as out:
         while time.time() < end and not stop.is_set():
             try:
-                done = subprocess.run(["adb", "-s", serial, "shell", "cat", "/proc/net/tcp6", "/proc/net/tcp"], capture_output=True, text=True, timeout=10)
+                done = subprocess.run([ADB, "-s", serial, "shell", "cat", "/proc/net/tcp6", "/proc/net/tcp"], capture_output=True, text=True, timeout=10)
             except (OSError, subprocess.TimeoutExpired) as e:
                 done = None
                 why = str(e)
@@ -106,6 +114,7 @@ def sockets(serial, uid, path, seconds, stop):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--serial", required=True)
+    p.add_argument("--adb", default="adb", help="adb executable (randroid device passes the one it found)")
     p.add_argument("--log", required=True)
     p.add_argument("--n", type=int, required=True)
     p.add_argument("--send", required=True, help="X,Y of the Send button in screen pixels")
@@ -125,6 +134,17 @@ def main():
         return 2
     if a.metrics_port and not a.metrics_file:
         print("--metrics-port wants --metrics-file", file=sys.stderr)
+        return 2
+    global ADB
+    ADB = a.adb
+    try:
+        physical.require_verb("randroid")
+        physical.gate(ADB, a.serial)
+    except physical.Refused as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 3
+    except physical.CannotAnswer as e:
+        print(str(e), file=sys.stderr)
         return 2
     stop = threading.Event()
     began = time.time()
@@ -159,7 +179,7 @@ def main():
     finally:
         stop.set()
         if off:
-            subprocess.run(["adb", "-s", a.serial, "shell", "svc", "wifi", "enable"], capture_output=True, timeout=30)
+            subprocess.run([ADB, "-s", a.serial, "shell", "svc", "wifi", "enable"], capture_output=True, timeout=30)
     return 0
 
 

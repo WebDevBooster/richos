@@ -1,166 +1,109 @@
-# RichOS capture — test protocol
+# RichOS capture verification
 
-Two parts:
+A passing fake-device harness does not establish that a real Zoom call records correctly.
+Keep automated regression results separate from actual host and guest call evidence.
+Read the repository [verification retry procedure](../../../docs/development/verification-retries.md)
+before running checks. Preserve failures and retry only the unresolved unit unless source or
+execution inputs invalidate other evidence.
 
-- **Part A — automated**, runs anywhere in about a minute and needs no call and no human.
-- **Part B — a real call**, which is the only way to exercise tab audio, because Chrome
-  requires a human invocation before it releases a tab's audio to an extension.
+## Automated checks
 
-Nothing in this protocol is OS-specific. It was developed and run on macOS; Part C is the same
-protocol re-run on Windows or Linux to confirm the extension behaves identically.
+From this directory:
 
----
-
-## Part A — automated (no call needed)
-
-```
-cd richos/tools/richos-extension
-node tests/run.js            # expect: 30 passed, 0 failed
-node tests/live-capture.mjs  # expect: 27 checks passed, 0 failed
-```
-
-The live harness needs a Chrome for Testing / Chromium build (branded Chrome refuses
-`--load-extension`); it finds any Playwright/Puppeteer build in the usual caches, or set
-`CHROME_PATH`. `ffprobe`/`ffmpeg` are optional but recommended — they are what verifies the
-exported audio really contains sound.
-
-Deliberate-failure variant (proves the alarm fires, not just that the happy path works):
-
-```
-RICHOS_FAKE_AUDIO_FILE=1 RICHOS_SILENCE_TEST=1 node tests/live-capture.mjs
-# expect: 29 passed, including
-#   "a silent capture device raises a RED digital-silence alarm during the call"
-#   "the alarm was recorded in the durable alert log"
+```sh
+node tests/run.js
+node tests/recorder-lifecycle.mjs
+node tests/alerts.mjs
+node tests/controller-recovery.mjs
+node tests/zoom-lifecycle.mjs
+node tests/export-archive.mjs
+node tests/popup-export.mjs
+node tests/live-capture.mjs
+node tests/native-transport-e2e.mjs
 ```
 
-**What Part A already proves** (verified on macOS, Chrome for Testing 149, headless):
+The repository's `extension-*.test.sh` wrappers declare the corresponding proof inputs.
 
-- the extension loads with no manifest error and the service worker boots clean;
-- it logs no errors and throws no uncaught exceptions for a whole session;
-- a real Meet URL is recognized by the real platform-detection code;
-- `session.json` is on disk *before* any audio is;
-- audio chunks are written continuously and are durable in IndexedDB;
-- per-second health records carry real, non-zero levels from a live audio device;
-- a service-worker restart re-attaches to the running recorder and audio keeps flowing;
-- closing the call tab finalizes the session, exports it, and self-verifies it;
-- files land at `richos-capture/<session>/{session.json,audio-part-00.webm,health.ndjson}`
-  and the directory recorded inside `session.json` matches the folder on disk;
-- the exported file decodes as 2-channel Opus and measures −20 dB, i.e. it contains sound.
+The live harness uses a disposable profile and a local HTTPS Meet-shaped fixture. It checks
+worker restart, captions, durable browser checkpoints, no automatic downloads, one explicit ZIP
+and decoding every exported stereo audio part. Set `CHROME_PATH` to an installed Chrome for
+Testing build if the selected build cannot load the fixture. Python 3 independently checks the ZIP.
 
-**What Part A cannot prove:** tab audio (needs the human invocation), real speech quality,
-real device switching, and real browser/OS-level kills. That is Part B.
+The native harness additionally requires macOS `say`, working `ffmpeg`, `ffprobe`, `whisper-cli`
+and a Whisper model. Set `RICHOS_WHISPER_MODEL` explicitly when needed. The launcher preserves
+that process's PATH. Chrome must be allowed to launch and read its native helper, including
+external-volume access on macOS. A failed prerequisite is a failed or unrun check, never a pass.
+`--leg=native` and `--leg=fallback` support isolated retries; retain both complete leg results for
+full coverage. The default runs both. Native fixture speech injected into the encode graph proves
+transport and processing only. It does not prove a real microphone or Zoom remote channel.
 
----
+## Real Windows Zoom acceptance
 
-## Part B — a real call (the one that matters)
+Use two separate Windows console sessions with Chrome. Keep **Ask where to save each file**
+enabled so an accidental download cannot hide the original defect. Each computer needs a working
+microphone input and an independent audio output. In an unattended lab, render distinct spoken
+fixtures through a virtual input cable and route received Zoom audio to a separate output.
 
-### B0. Install
+Test both roles in each supported transport configuration:
 
-1. `chrome://extensions/` → Developer mode → **Load unpacked** → `richos/tools/richos-extension`
-2. Pin the RichOS icon.
-3. Popup → **Settings** → **Grant** microphone access (once).
-4. Leave everything else at defaults.
+| Role | Required behavior |
+| --- | --- |
+| Host initiating a new meeting | Numeric `/wc/<id>/start` is detected. Zoom dashboard is not a call. |
+| Guest joining another person's meeting | Numeric `/wc/<id>/join` is detected, including iframe layouts. |
+| Host ending for everyone | Capture closes and does not arm the dashboard. |
+| Guest receiving host-ended dialog | Capture closes while the terminal dialog remains visible. It does not rearm that ended meeting. |
 
-Expected: badge is grey/empty. No notifications of any kind. Nothing visible in any web page.
+Grant microphone permission once. Invoke RichOS on the focused call tab using its toolbar action
+or **Alt+Shift+L** to obtain Chrome's real tab-audio grant. Confirm full mode and live microphone
+and tab tracks. Verify Zoom is connected to computer audio and its microphone is actually
+unmuted. A keyboard action reporting success is insufficient; inspect the resulting control state.
 
-### B1. Arm a real call
+After both participants connect, render distinct speech on each side. Then leave both inputs
+quiet for more than 60 seconds. Confirm audio chunks keep growing, the audio graph and tracks
+remain live and silence does not detach or reacquire an otherwise valid source. Quiet proven
+input may be amber. Missing or never-proven input remains a failure requiring investigation.
 
-1. Open a Google Meet (or Zoom web / Teams web) call.
-2. Watch the badge. Expect it to go **red `ARM`** within ~10 s with one desktop alert saying
-   the call is not being recorded (this is Chrome's tab-audio grant, not a defect).
-3. Press **Alt+Shift+L** (or click the RichOS icon) **while the call tab is focused**.
-4. Expect: badge goes **green `REC`** within a couple of seconds.
-5. Open the popup. Expect: platform name, elapsed time climbing, MB and chunk count climbing,
-   all health pills green, and the save location.
+At close, preserve:
 
-**Critical check — you must still hear the meeting.** `chrome.tabCapture` mutes the captured
-tab by default; the recorder routes it back to your speakers. If the other party goes silent
-the moment you arm, stop and report it — that is a blocker.
+- Session metadata, health logs, audio parts and deployed file hashes for both computers.
+- The guest's undismissed terminal-dialog state and inactive recorder status.
+- Chrome notification and pending-download state, plus native window inspection when available.
+- Actual native file paths or the browser pending export followed by its explicit ZIP.
+- Independent decoding of **every** audio part and both channels. Left must contain local speech
+  and right must contain the other participant's speech. Verify the distinct spoken words through
+  listening or independent transcription. Aggregate byte growth and `verification.ok` alone do
+  not establish that both speakers were captured.
 
-Also confirm the other participants see and hear nothing unusual: no banner, no notification,
-no bot joining. Ask one of them directly if you can.
+Test native saving and browser fallback on both roles. In browser fallback, no Save As dialog
+may open during capture or automatic close. Explicit **Export** may open one dialog. Cancel it,
+confirm the recording remains pending, retry and save. Check ZIP CRCs and exact extracted bytes.
+Successful export must remain completed across a worker restart, even if diagnostic copies are kept.
 
-### B2. Talk, and confirm both channels
+## Failure and recovery coverage
 
-Speak for ~15 s. Have the other side speak for ~15 s. In the popup, both level pills should be
-green and the MB counter should keep climbing (roughly 0.7 MB per minute).
+Exercise these separately and report the exact coverage reached:
 
-### B3. End the call
+| Case | Expected result |
+| --- | --- |
+| Worker eviction | Recorder continues, existing session and counters reconcile, alerts do not flood. |
+| Delayed blob conversion or IDB write | Rotation and stop wait for durable writes; every part retains its own header and session identity. |
+| Native host disconnect or missing acknowledgement | Complete browser copy remains available for explicit export. |
+| Refused tab grant | A valid existing tab stream stays connected. A genuinely missing remote stream is visibly incomplete. |
+| Microphone or tab track ends | Report source loss and preserve the other source. Recovery releases a working source only after replacement is ready. |
+| Extension or browser restart | Interrupted data is retained and flagged. Completed exports are not relabelled as new orphans. |
+| Repeated failure health updates | One visible incident notification, durable dedupe across worker restart and clearing after resolution. |
+| Old corrupt WebM parts | Verification rejects missing EBML headers and retains the data for diagnosis. |
+| Explicit export cancellation | All stored rows remain intact and the action can be retried. |
 
-Close the tab (or leave the meeting and close it). Expect:
+Physical device removal, browser termination, non-English Zoom dialogs, other platforms and long
+soak tests require their own actual evidence. Do not infer them from English Zoom on two PCs.
+Captions depend on the platform adapter and must be reported separately from primary audio.
+Transcription dependencies belong to the native service and must be installed and tested before
+claiming automatic transcription on a given Windows machine.
 
-- badge returns to grey;
-- popup shows the last call with "saved OK";
-- `Downloads/richos-capture/<timestamp>--<platform>--<code>/` contains `session.json`,
-  `audio-part-00.webm`, `health.ndjson`;
-- open the `.webm` in VLC (or `ffplay`): **left channel = you, right channel = them**;
-- `session.json` shows `"status": "closed"` and `"verification": {"ok": true, ...}`.
+## Report identity
 
-If `ffmpeg` is installed, the one-line proof it is not silent:
-
-```
-ffmpeg -i audio-part-00.webm -af volumedetect -f null -   # mean_volume should be > -60 dB
-```
-
----
-
-## Part B2 — failure drills (do these deliberately, in a test call with a colleague or a
-second device)
-
-Each drill has an expected *observable* result. If any drill produces silence from the
-extension, that is a bug and the guarantee is not met.
-
-| # | Drill | How | Expected |
-|---|---|---|---|
-| 1 | **Tab audio dies** | Drag the call tab out into its own window, or reload the call tab mid-call | Badge → red within ~7–15 s, alert "recording your microphone only" (or re-attach succeeds and it returns to green). Audio file keeps growing either way. |
-| 2 | **Microphone dies** | Unplug/disconnect the mic (or switch Bluetooth headset off) mid-call | Badge → red within ~20 s, alert about the microphone; the other side keeps recording. Reconnect → recovery. |
-| 3 | **Digital silence** | Mute the microphone at the OS level (not in the meeting app) | Red "digital silence on your microphone" within ~20 s. |
-| 4 | **Service worker eviction** | `chrome://serviceworker-internals` → find RichOS → **Stop**. Or just wait; MV3 evicts routinely | Recording continues; badge stays green; chunk count keeps climbing. This is the routine case and must be invisible. |
-| 5 | **Extension reload mid-call** | `chrome://extensions` → reload RichOS while recording | On reload: red alert "a recording was interrupted"; the audio recorded up to that moment appears in the drop zone. Re-arm to continue the call. |
-| 6 | **Tab crash** | Open `chrome://crash` in the call tab? No — instead close the call tab abruptly | Session finalizes and exports; last-call result visible in the popup. |
-| 7 | **Browser killed** | Quit Chrome (or kill it from Task Manager / Activity Monitor) mid-call | On next launch: red alert about an interrupted recording, and the captured audio appears in the drop zone. Everything after the kill is gone — this is the documented ceiling. |
-| 8 | **Never armed** | Join a call and deliberately do nothing | Red `ARM` badge + alert within ~10 s, repeating. You must not be able to sit through a whole call unaware. |
-| 9 | **Drop-zone write blocked** | Point the drop folder at something invalid in Settings | Alert "cannot write to the drop zone"; capture continues in the browser. |
-| 10 | **Disclosure banner** | Settings → turn on the participant disclosure, grant page access, join a call | A small banner appears in the meeting page (this is the ONLY thing ever injected). Turn it back off and confirm it is gone. |
-
-After the drills, run the sync helper and confirm it refuses to quietly move the damaged
-sessions:
-
-```
-node sync/richos-sync.mjs --to <somewhere> --dry-run
-# expect: ANOMALIES listed for the interrupted sessions, exit code 2
-```
-
----
-
-## Part C — cross-platform confirmation (Windows / Linux)
-
-The extension is the same folder; there is no per-OS build. Re-running this short list on a
-second OS is enough to confirm parity:
-
-1. `chrome://extensions` → Load unpacked → same folder. **Expect: no manifest errors.**
-2. Grant microphone access from Settings.
-3. Join a real call, arm with **Alt+Shift+L**, confirm green badge and that you still hear the
-   meeting. (On Windows, check the shortcut is not taken by another app: `chrome://extensions/shortcuts`.)
-4. End the call and confirm the session folder appears under your Downloads folder, with a
-   directory name containing no `:` characters (Windows would reject them).
-5. Play the `.webm` and confirm left = you, right = them.
-6. Run drill #3 (mute the mic at the OS level) and confirm the red alarm.
-7. Run drill #4 (stop the service worker) and confirm recording continues.
-8. `node tests/run.js` — the pure harness runs anywhere node does.
-
-Report per step: pass/fail, the badge behavior you saw, and the contents of the session
-folder.
-
----
-
-## Reporting template
-
-```
-Environment: <OS + version> / Chrome <version> / extension <manifest version>
-Part A:  tests/run.js <n> passed · live-capture <n> passed · silence test <n> passed
-Part B:  platform used, arming behavior, badge states seen, could I still hear the meeting?
-Drills:  1..10 → pass/fail + what you observed
-Files:   session dir listing, session.json status + verification, volumedetect result
-Anything the other party noticed: <should be "nothing">
-```
+Record OS, Chrome version, extension version, Git commit and deployed file hashes. Include role,
+transport, start and end timestamps, device routing, actual speech/decode results, health verdict,
+notifications, dialogs, export results and recovery behavior. Mark every prerequisite failure,
+timeout and unrun scenario explicitly. Link original failures and reconciled successful retries.

@@ -43,7 +43,8 @@
 #           unattached phone, times out as a failure, reads a closure state and
 #           an idle-frame rhythm, types through a key map, reads the editable
 #           field, runs one closure cell, finds unnamed controls, all against a
-#           scripted adb (no phone)
+#           scripted adb (no phone); A22-A23 refuses unless randroid device started
+#           it, and refuses a phone holding a debuggable RichConnect
 #   L1-L4   lab-ledger: exactly once passes; missing, duplicated or altered
 #           fails; a timeline without the isolated lab's owner marker is refused
 #   LP1-LP4 lab-pause: the lab's listener is held stopped between two marks and
@@ -52,17 +53,20 @@
 #   SM1-SM2 step-mark: one timestamped line appended to a step log; no words refused
 #   HS1-HS3 hidden-send-try: tap Send, Home, Wi-Fi off, release, Wi-Fi on in order
 #           against a scripted adb; Wi-Fi put back on when the switch failed half
-#           way; a malformed Send position refused
+#           way; a malformed Send position refused; HS6-HS7 a debuggable build or a
+#           start outside randroid device refused before the first mark
 #   TR1-TR4 tunnel-requests: the lab tunnel's request counter sampled from a scripted
 #           helper and counted between two instants (two rises); an unreadable
 #           reading in the window, a window the readings miss and a port without
 #           the counter are each refused
+#   I0      phone-ios: a command that touches the phone refuses unless rios device ran it
 #   I1-I16  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
 #           a reused build trusted only against its stamp, no lock without a
 #           person to open it, a bounded log capture kept on the SSD; I35-I36 a
 #           list the XCUITest allowance cannot hold is refused before the phone
-#           is touched (later shots would be lost); I17-I18
+#           is touched (later shots would be lost); I37 a reused build is the
+#           products its stamp names (a shared-store entry included); I17-I18
 #           pair-steps for pairing v2 waits for each word and holds before the press;
 #           I19-I23 appearance and orientation steps, summary of a finished run;
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
@@ -681,7 +685,7 @@ if [ -n "\${FAKE_FAIL_PACKAGE:-}" ]; then
 fi
 if [ -n "\${FAKE_FAIL_READS:-}" ]; then
   case "\$cmd" in
-    "dumpsys package "*|"cat /proc/uptime"|"input "*) ;;
+    "dumpsys package "*|"cat /proc/uptime"|"input "*|"getprop ro.kernel.qemu"*) ;;
     *) echo "permission denied" >&2; exit 1 ;;
   esac
 fi
@@ -691,6 +695,8 @@ if [ -n "\${FAKE_FAIL_DUMP:-}" ]; then
   case "\$cmd" in "uiautomator dump "*) echo "ERROR: could not get idle state." >&2; exit 1 ;; esac
 fi
 case "\$cmd" in
+  # The gate's probe (richos/mobile/physical.py): not an emulator, and the installed build's flags.
+  "getprop ro.kernel.qemu"*) printf '\\n\\n--richos--\\n    versionName=1.0.0\\n    pkgFlags=[ %s ]\\n' "\${FAKE_PKG_FLAGS:-HAS_CODE ALLOW_CLEAR_USER_DATA}" ;;
   "input "*) echo "\$cmd" >> "\$LOG" ;;
   "dumpsys package "*) printf '    appId=10359\n    User 0: installed=true stopped=false\n' ;;
   "cat /proc/uptime") echo "1000.00 2000.00" ;;
@@ -712,6 +718,16 @@ exit 0
 SH
 chmod +x "$FAKE"
 PA="$QA/phone-android.py"
+# randroid device starts phone-android.py with this set; without it the tool refuses (A20).
+export RICHOS_DEVICE_VERB=randroid
+
+run env -u RICHOS_DEVICE_VERB "$PA" --adb "$FAKE" --serial FAKE123 texts
+expect "A22 started without randroid device, it refuses before touching the phone" 3 "only through \`randroid device"
+: > "$TMP/adb.log"
+run env FAKE_PKG_FLAGS="DEBUGGABLE HAS_CODE" "$PA" --adb "$FAKE" --serial FAKE123 tap "Send message" --timeout 1
+if [ "$CODE" = 3 ] && printf '%s' "$OUT" | grep -q "DEBUGGABLE RichConnect" && [ ! -s "$TMP/adb.log" ]; then
+  ok "A23 a phone holding a debuggable RichConnect is refused, nothing tapped: only the release build is tested"
+else bad "A23 a debuggable build is refused" "exit $CODE, log: $(tr '\n' ' ' < "$TMP/adb.log"): $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"; fi
 
 run "$PA" texts
 expect "A1 no --serial is refused: a bare adb reaches whatever is attached" 2 "name the phone with --serial"
@@ -886,6 +902,7 @@ expect "SM2 a mark with no words is refused, nothing appended" 2 "step-mark.py F
 mkdir -p "$TMP/fakebin"
 cat > "$TMP/fakebin/adb" <<'FAKE'
 #!/bin/sh
+case "$*" in *"getprop ro.kernel.qemu"*) printf '\n\n--richos--\n    pkgFlags=[ %s ]\n' "${FAKE_PKG_FLAGS:-HAS_CODE}"; exit 0 ;; esac
 echo "$*" >> "$FAKE_ADB_LOG"
 [ -n "$FAKE_ADB_FAIL" ] && case "$*" in *"$FAKE_ADB_FAIL"*) echo "scripted failure" >&2; exit 1 ;; esac
 exit 0
@@ -908,10 +925,18 @@ if [ "$CODE" != 0 ] && [ "$(tail -n 1 "$TMP/hs-adb.log")" = "-s TESTSERIAL shell
 else
   bad "HS2 Wi-Fi is put back on however the try ends" "exit $CODE, last adb call '$(tail -n 1 "$TMP/hs-adb.log")'"
 fi
+: > "$TMP/hs.log"; : > "$TMP/hs-adb.log"
+FAKE_PKG_FLAGS="DEBUGGABLE HAS_CODE" FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 652,896
+if [ "$CODE" = 3 ] && [ ! -s "$TMP/hs-adb.log" ] && [ ! -s "$TMP/hs.log" ]; then
+  ok "HS6 a debuggable RichConnect on the phone is refused before the first mark or tap"
+else bad "HS6 a debuggable build is refused before anything" "exit $CODE, adb '$(tr '\n' ';' < "$TMP/hs-adb.log")': $(printf '%s' "$OUT" | cut -c1-200)"; fi
+FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run env -u RICHOS_DEVICE_VERB python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 652,896
+expect "HS7 started without randroid device, it refuses" 3 "only through \`randroid device"
 # R39: an unreadable socket table is recorded as unreadable, never as "none".
 : > "$TMP/hs.log"; : > "$TMP/hs-adb.log"; rm -f "$TMP/hs-sock.txt"
 cat > "$TMP/fakebin/adb" <<'FAKE'
 #!/bin/sh
+case "$*" in *"getprop ro.kernel.qemu"*) printf '\n\n--richos--\n    pkgFlags=[ HAS_CODE ]\n'; exit 0 ;; esac
 case "$*" in *"cat /proc/net"*) [ -n "$FAKE_PROC_DENIED" ] && { echo "Permission denied" >&2; exit 1; }
   echo "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode"
   echo "   0: 00000000:0000 00000000:01BB 01 0:0 00:0 0 10001 0 0"; exit 0 ;; esac
@@ -998,6 +1023,10 @@ fi
 kill "$TRPID" 2>/dev/null; wait "$TRPID" 2>/dev/null
 
 echo "=== I. phone-ios: a physical iPhone's real controls, validated before any build ==="
+run env -u RICHOS_DEVICE_VERB python3 "$QA/phone-ios.py" procs --device x
+expect "I0 a command that touches the phone, started without rios device, is refused" 3 "rios device procs"
+# rios device starts phone-ios.py with this set (bin/rios); check, summary and the readers need none.
+export RICHOS_DEVICE_VERB=rios
 
 printf '%s' '[{"do":"launch"},{"do":"tap","id":"composer.send"},{"do":"sleep","seconds":2},{"do":"alert","button":"Allow","in":"springboard"}]' > "$TMP/ios-ok.json"
 run python3 "$QA/phone-ios.py" check "$TMP/ios-ok.json"
@@ -1052,6 +1081,20 @@ mkdir -p "$TMP/Fake.app" && printf 'bytes' > "$TMP/Fake.app/RichOSNative"
 printf '{"artifact":"%s","sha256":"0000000000000000","commit":"abc","dirty":false}' "$TMP/Fake.app" > "$TMP/fake-stamp.json"
 run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt --stamp "$TMP/fake-stamp.json"
 expect "I11 a reused app whose bytes differ from its stamp is refused: identity or refuse" 2 "freshness mismatch"
+
+mkdir -p "$TMP/Store/Products/Release-iphoneos/RichOSNative.app" && printf 'bytes' > "$TMP/Store/Products/Release-iphoneos/RichOSNative.app/RichOSNative"
+run python3 - "$QA/phone-ios.py" "$TMP/Store/Products/Release-iphoneos/RichOSNative.app" "$TMP/store-stamp.json" <<'PY'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("phone_ios", sys.argv[1])
+tool = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tool)
+sys.path.insert(0, str(tool.ROOT / "richos/mobile/perf"))
+import perfcore
+with open(sys.argv[3], "w") as f:
+    json.dump({"artifact": sys.argv[2], "sha256": perfcore.tree_sha256(sys.argv[2]), "commit": "abc", "dirty": False}, f)
+print(json.dumps(tool.stamped_identity(sys.argv[3])))
+PY
+expect "I37 a reused build hands the phone the products its stamp names (a store entry's stamp names the store)" 0 "\"products\": \"$(cd "$TMP/Store/Products" && pwd -P)\""
 
 printf '%s' '[{"do":"launch"},{"do":"lock"}]' > "$TMP/ios-lock.json"
 run python3 "$QA/phone-ios.py" check "$TMP/ios-lock.json"
@@ -1335,6 +1378,7 @@ if [ "$CODE" = 2 ] && printf '%s' "$OUT" | grep -qF "pairing window lasts five m
 else bad "P05 pairing waits for the approval" "exit $CODE out: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"; fi
 
 echo ""
+unset RICHOS_DEVICE_VERB
 echo "=== V. pair-words: the six v2 words on both sides, checked before They match ==="
 PW="$QA/pair-words.py"
 CORPUS_FP="$DIR/../../mobile/conformance/vectors/fingerprint.json"

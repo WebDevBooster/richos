@@ -61,6 +61,20 @@ from perfcore import Refused, Unmeasurable  # noqa: E402
 AS_INSTALLED = condition.AS_INSTALLED
 
 EXIT_SLOWER = 4
+EXIT_NOT_RESTORED = 6
+
+
+class RestoreFailed(Exception):
+    """The run could not put the phone's build and saved app data back; the saved copy is kept."""
+
+    def __init__(self, problems):
+        super().__init__("; ".join(problems))
+        self.problems = problems
+
+
+def not_restored_line(problems):
+    return ("SAVED STATE NOT RESTORED: the phone is NOT as the run found it (" + "; ".join(problems) +
+            "). Do not trust the app's pairing or conversation on this phone until it is put back.")
 EXIT_NOT_COMPARED = 5
 
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
@@ -422,17 +436,55 @@ def android_identity(dev, stamp, kind):
     return build, device, int(uid.group(1)) if uid else None
 
 
-def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
+def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None, popen=None):
     """The Android run. `runner`, `sleep`, `host` and `touch` are replaceable for the suite."""
     import android
     if args.production and not args.route:
         raise Refused("--production requires --route managed or tailnet")
     if args.kind == "emulator" and args.owned_by != "randroid":
         raise Refused("an emulator is measured only through `randroid emu perf` (its recorded serial), never by a raw serial")
+    if args.kind == "physical" and os.environ.get("RICHOS_DEVICE_VERB") != "randroid":
+        raise Refused("a physical phone is measured only through `randroid device perf` (or `randroid device "
+                      "seed`), which checks that the build on it is the release build (CEO 2026-10-02)")
     stamp = load_stamp(args.stamp, args.expect_commit)
     log = log or (lambda s: print(s, file=sys.stderr, flush=True))
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
                          touch=touch or lease_toucher(args.lease))
+    if args.kind == "physical":
+        # CEO 2026-10-02: only the release build goes on a physical phone and every test on one tests
+        # it. Checked before anything is saved, seeded or measured, so a debuggable build is neither
+        # measured nor kept to be put back afterwards.
+        check_kind(dev, "physical")
+        if android.debuggable(dev):
+            raise Refused(f"{dev.serial} has a DEBUGGABLE RichConnect installed: only the release build is measured on a "
+                          "physical phone (CEO 2026-10-02). Put the release build over it first: `randroid build release`, "
+                          f"then `randroid device --serial {dev.serial} install`")
+    keeper = android.StateKeeper(dev, root=getattr(args, "keep_dir", None) or os.environ.get("RICHOS_PERF_KEEP_DIR"),
+                                 log=log, accept_loss=getattr(args, "accept_state_loss", None),
+                                 twin_apk=getattr(args, "seed_twin", None),
+                                 apksigner=getattr(args, "apksigner", None))
+    try:
+        record, failures = measure_android(args, dev, stamp, keeper, host, log, popen=popen)
+    except BaseException as e:  # noqa: BLE001 — including an interrupt: the phone is given back whatever ended the run
+        problems = keeper.restore()
+        if problems:
+            raise RestoreFailed(problems) from e
+        raise
+    problems = keeper.restore()
+    if problems:
+        record["savedState"] = {"restored": False, "problems": problems}
+    elif keeper.apk is not None:
+        record["savedState"] = {"restored": True, "apkSha256": keeper.apk_sha,
+                                "dataFiles": None if keeper.tar is None else len(keeper.manifest),
+                                "dataLostBy": keeper.lost}
+    return record, failures
+
+
+def measure_android(args, dev, stamp, keeper, host, log, popen=None):
+    """The measurement inside run_android's save-and-restore. `popen` is the cold-blank phase's
+    screen recorder (blankstart.android_cold_blank), replaceable for the suite like `runner`."""
+    import android
+    runner = dev.runner if dev.runner is not subprocess.run else None
     conversation = getattr(args, "conversation", "fixture")
     mac = getattr(args, "mac", "unreachable")
     twin = getattr(args, "seed_twin", None)
@@ -442,6 +494,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                           "by construction; --mac reachable needs the Debug build's bridge")
         check_kind(dev, args.kind)  # before anything on the device changes
         rows = args.rows or condition.FILE_DEFAULT_ROWS
+        keeper.save()  # the seeding below overwrites the app's saved state; refuses first when it cannot be kept
         with tempfile.TemporaryDirectory() as scratch:
             twin_seed = android.seed_release(dev, condition.file_fixture(rows), twin, stamp.get("artifact"),
                                              stamp.get("sha256"), scratch, log)
@@ -452,8 +505,8 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
             plan = "twin"
         elif not build["debuggable"]:
             raise Refused("a release build is measured under the seeded condition only through its debuggable twin: "
-                          "--seed-twin <debug APK of the same commit, signed with the same key> (this replaces the app's "
-                          "saved state on the device), or --conversation as-installed, whose record is never compared")
+                          "--seed-twin <debug APK of the same commit, signed with the same key> (the app's saved state "
+                          "is saved first and put back after the run), or --conversation as-installed, whose record is never compared")
         elif not args.production:
             plan = "bridge"
         else:
@@ -464,7 +517,8 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     if args.kind == "emulator" and args.lease and not runner:
         pace, waits = emulator_pacer(args.lease)
     m = android.Measure(dev, log=log, settle_s=args.settle, pace=pace,
-                        evidence_dir=str(args.out) + ".evidence" if args.kind == "physical" and not runner else None)
+                        evidence_dir=(getattr(args, "evidence_dir", None) or str(args.out) + ".evidence")
+                        if args.kind == "physical" and not runner else None)
     record = {"schema": perfcore.SCHEMA, "platform": "android", "startedAt": now_iso(),
               "tool": {"path": "richos/mobile/perf/perf.py", **perfcore.source_identity(REPO, ["richos/mobile/perf"])},
               "build": build, "device": device, "metrics": {}, "phases": {}, "notMeasured": []}
@@ -473,6 +527,8 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     only = set(args.only.split(",")) if args.only else None
     if only is not None and plan:
         only.add("seed")  # the condition is this run's own seeding, never an earlier run's
+    if only is not None and "cold" in only:
+        only.add("cold-blank")  # a cold run always records the screen from the tap (blankstart.py)
     failures = 0
 
     lost = []
@@ -546,6 +602,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                 how = (f"the debuggable twin (sha256 {twin_seed['twinSha256']}) was installed, the fixture written "
                        "into files/core with run-as and read back, then the stamped release APK installed over it")
             else:
+                keeper.save()  # files/core is overwritten below; refuses here, before the phone is touched
                 def run_as():
                     with tempfile.TemporaryDirectory() as scratch:
                         return android.write_core_files(dev, condition.file_fixture(rows), scratch)
@@ -591,6 +648,13 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                 "(MainActivity ReportDrawnWhen: first frame after the saved state is read); see conditions.networkCondition"),
                 cold["useful"], "coldLaunch", firstFrameMs=cold["first"], firstFrameStats=perfcore.stats(cold["first"]),
                 rejected=cold["rejected"], screenCheck=cold["screenCheck"], presentationSamples=cold.get("presentationSamples", []))
+        if args.blank_starts and (runner is None or popen is not None):  # a scripted adb scripts its recorder too
+            import blankstart  # the no-blank-screen check (CEO 2026-10-02): its own module, limit in blank.py
+            cb = phase("cold-blank", lambda: blankstart.android_cold_blank(
+                m, args.blank_starts, str(args.out) + ".evidence" if args.out else None, log, **({"popen": popen} if popen else {})))
+            if cb:
+                record["metrics"]["coldBlank"] = cb
+                failures += cb["verdict"] != "PASS"
         if bridge and args.live_spot_check:
             def live():
                 m.transport("accept")
@@ -781,9 +845,12 @@ def parse_args(argv):
     a.add_argument("--stamp", help="the build stamp (perf.py stamp) of the installed APK")
     a.add_argument("--expect-commit", help="refuse unless the installed build was made, clean, from this commit")
     a.add_argument("--out", help="write the record here (default stdout)")
-    a.add_argument("--only", help="comma-separated phases: seed,cold,cold-live,idle-conversation,idle-settings,"
+    a.add_argument("--only", help="comma-separated phases: seed,cold (with cold-blank),cold-blank,cold-live,idle-conversation,idle-settings,"
                                   "warm,scroll,tap,typing,streaming,background,idle-pairing")
     a.add_argument("--cold", type=int, default=20)
+    a.add_argument("--blank-starts", type=int, default=10,
+                   help="cold starts from a tap on the home-screen icon, screen-recorded and judged by blank.py "
+                        "(phase cold-blank, run with cold; 20 or more are judged by p95, fewer by the median; 0 skips)")
     a.add_argument("--live-spot-check", type=int, default=3)
     a.add_argument("--warm", type=int, default=20)
     a.add_argument("--away", type=float, default=2.0)
@@ -802,13 +869,20 @@ def parse_args(argv):
     a.add_argument("--mac", choices=condition.MAC_STATES, default="unreachable",
                    help="the Mac's state while measured (default unreachable; reachable only through the Debug bridge)")
     a.add_argument("--seed-twin", metavar="DEBUG_APK",
-                   help="seed a release build through its debuggable twin (same commit, same signing key): UNINSTALLS the "
-                        "app, so its saved state on the device is replaced by the made-up conversation; the stamped "
-                        "release APK (the stamp's artifact) is installed over it")
+                   help="seed a release build through its debuggable twin (same commit, SAME SIGNING KEY): `adb install -r` "
+                        "the twin over the app (data kept), write the fixture with run-as, `install -r` the stamped release APK "
+                        "(the stamp's artifact) back. Never an uninstall: a different signature is refused and reported. The app's "
+                        "build and data are saved first (read through the twin) and put back after the run")
+    a.add_argument("--apksigner", help="the Android SDK's apksigner: reads who signed the twin and the installed app, "
+                                       "which must be the same certificate before the twin is installed")
+    a.add_argument("--accept-state-loss", metavar="WHO",
+                   help="only when the app's saved state cannot be copied off the phone (a release build with no twin to read "
+                        "it through): the run is refused unless that state is already empty or WHO agreed to lose it; WHO is recorded")
     a.add_argument("--type-text", default="measuredtypingcost")
     a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")
     a.add_argument("--benchmark", help="the benchmark file the record is judged against (default: the private benchmark file, see benchmark.py)")
+    a.add_argument("--evidence-dir", help="a physical phone's retained traces (default: the record's path + .evidence)")
     i = sub.add_parser("ios", help="measure an iOS build with explicit evidence boundaries")
     target = i.add_mutually_exclusive_group(required=True)
     target.add_argument("--simulator", help="a simulator UDID (never 'booted')")
@@ -823,6 +897,12 @@ def parse_args(argv):
     i.add_argument("--warm", type=int, default=0, help="warm returns in the retained process (0 skips the class)")
     i.add_argument("--away", type=float, default=2.0, help="seconds with Settings in front before each return")
     i.add_argument("--trace-seconds", type=int, default=10, help="Instruments recording length per trial")
+    i.add_argument("--tap-launches", type=int, default=0,
+                   help="iPhone, seeded: cold launches by a tap on the Home Screen icon with no profiler, timed by the "
+                        "app's own clocks from the kernel's process start (record `unprofiled`, never compared)")
+    i.add_argument("--tap-returns", type=int, default=0,
+                   help="iPhone, seeded: returns by a tap on the icon, each with a probe touch on the transcript at a "
+                        "set offset: is a touch delivered before iOS makes the scene active? (record `unprofiled`)")
     i.add_argument("--xctrace", action="store_true",
                    help="simulator only: run the physical trace path as a dry run (its frame data is refused)")
     i.add_argument("--app-arg", action="append",
@@ -830,16 +910,20 @@ def parse_args(argv):
     i.add_argument("--background-seconds", type=float, default=60.0)
     i.add_argument("--background-settle", type=float, default=5.0)
     i.add_argument("--conversation", choices=("fixture", AS_INSTALLED), default="fixture",
-                   help="fixture (default): Android's made-up conversation written as the app's saved state on a simulator "
-                        "(rios perf-seed), checked on screen after the launches, the app's own state put back after; an "
-                        "iPhone is refused until its path exists (README 'Conditions'). as-installed: whatever the app "
-                        "holds, recorded as uncontrolled and never compared")
+                   help="fixture (default): Android's made-up conversation written as the app's saved state (rios "
+                        "perf-seed), on a simulator into its data container, on an iPhone with devicectl after a copy of "
+                        "the phone's own state is taken; checked on screen after the launches; the app's own state put "
+                        "back and read back after. as-installed: whatever the app holds, recorded as uncontrolled and "
+                        "never compared")
     i.add_argument("--rows", type=int, default=None,
                    help=f"rows in the seeded conversation (default {condition.FILE_DEFAULT_ROWS}, Android's benchmark count)")
     i.add_argument("--mac", choices=condition.MAC_STATES,
                    help="the Mac's state while measured: unreachable by construction when seeded; with --conversation "
                         "as-installed, as the operator set it")
     i.add_argument("--benchmark", help="the benchmark file the record is judged against (default: the private benchmark file, see benchmark.py)")
+    ir = sub.add_parser("ios-restore", help="put an iPhone app's own saved state back from the copy a killed seeded run kept")
+    ir.add_argument("--device", required=True, help="the iPhone the copy was taken from")
+    ir.add_argument("--backup", required=True, help="<evidence>/ios-seed-*/backup (holds RichOS/ and manifest.json)")
     s = sub.add_parser("stamp", help="the identity of a build artifact")
     s.add_argument("--artifact", required=True)
     s.add_argument("--checkout", required=True)
@@ -905,6 +989,10 @@ def main(argv=None):
             return cmd_benchmark_update(args)
         if args.cmd == "declare-condition":
             return cmd_declare_condition(args)
+        if args.cmd == "ios-restore":
+            import ios
+            print(json.dumps({"ok": True, **ios.restore_device(args.device, args.backup)}))
+            return 0
         if args.cmd == "android":
             record, failures = run_android(args)
         else:
@@ -915,10 +1003,20 @@ def main(argv=None):
         if problems:
             record.setdefault("recordProblems", problems)
         emit(record, args.out)
+        kept = (record.get("savedState") or {})
+        if kept.get("restored") is False:
+            print(not_restored_line(kept["problems"]), file=sys.stderr, flush=True)  # the last line
+            return EXIT_NOT_RESTORED
         return EXIT_SLOWER if slower else 1 if failures or problems else 0
     except Refused as e:
         print(json.dumps({"ok": False, "refused": str(e)}), file=sys.stderr)
         return 3
+    except RestoreFailed as e:
+        cause = e.__cause__
+        if cause is not None:
+            print(json.dumps({"ok": False, "error": f"{type(cause).__name__}: {cause}"}), file=sys.stderr)
+        print(not_restored_line(e.problems), file=sys.stderr, flush=True)  # the last line
+        return EXIT_NOT_RESTORED
     except Unmeasurable as e:
         print(json.dumps({"ok": False, "error": str(e)}), file=sys.stderr)
         return 1
