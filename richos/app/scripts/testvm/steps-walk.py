@@ -45,6 +45,14 @@ def run(args, timeout=120):
         return 124, f'timeout after {timeout}s: {e}'
 
 
+def keys_script(text):
+    """The AppleScript that types TEXT. A backslash and a double quote are the two characters an
+    AppleScript string literal gives meaning to; each is escaped so a message that carries one
+    is typed as written and never ends the literal early."""
+    literal = text.replace('\\', '\\\\').replace('"', '\\"')
+    return f'tell application "System Events" to keystroke "{literal}"'
+
+
 def step_run(vm, step, out):
     op = step['op']
     if op == 'tree':
@@ -60,8 +68,7 @@ def step_run(vm, step, out):
     if op == 'guest':
         return run([str(HERE / 'guest.sh'), vm, step['command']])
     if op == 'keys':
-        return run([str(HERE / 'guest.sh'), vm, 'osascript', '-e',
-                    f'tell application "System Events" to keystroke "{step["text"]}"'])
+        return run([str(HERE / 'guest.sh'), vm, 'osascript', '-e', keys_script(step['text'])])
     if op == 'push':
         return run([str(HERE / 'guest.sh'), vm, '--push', step['src'], step['dest']])
     if op == 'handfile':
@@ -114,13 +121,18 @@ def problems(steps):
     return found
 
 
+def plan_problems(path):
+    """Every defect of the step list in the file PATH; an unreadable file is a defect too."""
+    try:
+        return problems(json.loads(Path(path).read_text()))
+    except (OSError, ValueError) as e:
+        return [f'unreadable: {e}']
+
+
 def check_files(paths):
     bad = 0
     for path in paths:
-        try:
-            found = problems(json.loads(Path(path).read_text()))
-        except (OSError, ValueError) as e:
-            found = [f'unreadable: {e}']
+        found = plan_problems(path)
         for line in found:
             print(f'{path}: {line}')
         bad += bool(found)
@@ -136,6 +148,13 @@ def main():
     p.add_argument('--out', required=True, type=Path)
     a = p.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
+    # The same check `--check` runs, enforced before the first step: an empty or malformed plan is
+    # refused here, not run to a successful nothing (or to a failure found after a guest was booted).
+    found = plan_problems(a.steps)
+    if found:
+        for line in found:
+            print(f'{a.steps}: {line}', file=sys.stderr)
+        return 2
     steps = json.loads(a.steps.read_text())
     record, failed = [], False
     for i, step in enumerate(steps):

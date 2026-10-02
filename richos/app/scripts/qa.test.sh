@@ -810,13 +810,21 @@ mkdir -p "$TMP/notlab"; cp "$TMP/lab/timeline.json" "$TMP/notlab/timeline.json"
 run "$QA/lab-ledger.py" --timeline "$TMP/notlab/timeline.json" one
 expect "L4 a timeline that is not the isolated lab's is refused, never read" 2 "owner marker"
 echo "=== P. lab-pause: the isolated lab Mac held silent between two phone marks ==="
-# A stand-in listener: sleep reached through a link whose name carries the listener's test name,
-# so its command line is the one the tool checks for. It is this suite's own child, stopped here.
+# A stand-in listener: a python sleeper whose command line carries the listener's test name and
+# whose environment carries this lab's RICHOS_MOBILE_MAC_DIR (as mac-server.mjs gives the real one),
+# the two things the tool checks. (Not /bin/sleep: a system binary hides its environment from ps.)
+# It is this suite's own child, stopped here.
 mkdir -p "$TMP/lp/data"
 printf 'richos-mobile-isolated-v1' > "$TMP/lp/data/lab-owner"
-ln -sf /bin/sleep "$TMP/lp/mobile_mac_server::serve"
-"$TMP/lp/mobile_mac_server::serve" 60 &
+RICHOS_MOBILE_MAC_DIR="$TMP/lp/data" python3 -c 'import time; time.sleep(60)' 'mobile_mac_server::serve' &
 LPPID=$!
+mkdir -p "$TMP/lp-foreign/data"
+RICHOS_MOBILE_MAC_DIR="$TMP/lp-foreign/data" python3 -c 'import time; time.sleep(60)' 'mobile_mac_server::serve' &
+LPFOREIGN=$!
+# load-bound: a fresh child shows its environment to ps only once it has finished starting
+for LPWHO in "$LPPID" "$LPFOREIGN"; do
+  n=0; until ps -E -p "$LPWHO" -o command= | grep -q 'RICHOS_MOBILE_MAC_DIR=' || [ "$n" -ge 200 ]; do sleep 0.05; n=$((n + 1)); done
+done
 printf '{"pid": %s, "data": "%s"}' "$LPPID" "$TMP/lp/data" > "$TMP/lp/mac.json"
 : > "$TMP/lp/run-test.log"
 ( echo 'PHONE_STEP {"detail":{"label":"PAUSE MAC 1"}}' >> "$TMP/lp/run-test.log"
@@ -840,6 +848,16 @@ printf '{"pid": %s, "data": "%s"}' "$$" "$TMP/lp/data" > "$TMP/lp/other.json"
 mkdir -p "$TMP/lp-other"; cp "$TMP/lp/other.json" "$TMP/lp-other/mac.json"
 run python3 "$QA/lab-pause.py" --lab "$TMP/lp-other" --log "$TMP/lp/run-test.log" --stop-at x --cont-at y --timeout 2
 expect "LP3 a pid that is not the lab's listener is refused, never paused" 2 "is not the lab's listener"
+# R35: a listener of ANOTHER lab (same command name) now holds the pid the cache recorded.
+mkdir -p "$TMP/lp-stale"; printf '{"pid": %s, "data": "%s"}' "$LPFOREIGN" "$TMP/lp/data" > "$TMP/lp-stale/mac.json"
+run python3 "$QA/lab-pause.py" --lab "$TMP/lp-stale" --log "$TMP/lp/run-test.log" --stop-at x --cont-at y --timeout 2
+FSTAT="$(ps -p "$LPFOREIGN" -o stat= | tr -d ' ')"
+if [ "$CODE" = 2 ] && printf '%s' "$OUT" | grep -q 'listener of another lab' && case "$FSTAT" in T*) false ;; *) true ;; esac; then
+  ok "LP5 a pid that is another lab's listener (same command name, other data directory) is refused and never paused"
+else
+  bad "LP5 another lab's listener is refused, never paused" "exit $CODE, state '$FSTAT': $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"
+fi
+kill "$LPFOREIGN" 2>/dev/null; wait "$LPFOREIGN" 2>/dev/null
 echo 'PHONE_STEP {"detail":{"label":"PAUSE MAC 2"}}' >> "$TMP/lp/run-test.log"
 run python3 "$QA/lab-pause.py" --lab "$TMP/lp" --log "$TMP/lp/run-test.log" --stop-at 'PAUSE MAC 2' --cont-at 'never written' --timeout 3
 NOW="$(ps -p "$LPPID" -o stat= | tr -d ' ')"
@@ -885,6 +903,29 @@ if [ "$CODE" != 0 ] && [ "$(tail -n 1 "$TMP/hs-adb.log")" = "-s TESTSERIAL shell
   ok "HS2 a Wi-Fi switch that failed half way is still put back on: the last adb call is the enable"
 else
   bad "HS2 Wi-Fi is put back on however the try ends" "exit $CODE, last adb call '$(tail -n 1 "$TMP/hs-adb.log")'"
+fi
+# R39: an unreadable socket table is recorded as unreadable, never as "none".
+: > "$TMP/hs.log"; : > "$TMP/hs-adb.log"; rm -f "$TMP/hs-sock.txt"
+cat > "$TMP/fakebin/adb" <<'FAKE'
+#!/bin/sh
+case "$*" in *"cat /proc/net"*) [ -n "$FAKE_PROC_DENIED" ] && { echo "Permission denied" >&2; exit 1; }
+  echo "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode"
+  echo "   0: 00000000:0000 00000000:01BB 01 0:0 00:0 0 10001 0 0"; exit 0 ;; esac
+echo "$*" >> "$FAKE_ADB_LOG"
+exit 0
+FAKE
+FAKE_PROC_DENIED=1 FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 1,2 --sockets-uid 10001 --sockets-file "$TMP/hs-sock.txt" --observe 1
+if [ "$CODE" = 0 ] && grep -q ' unreadable Permission denied' "$TMP/hs-sock.txt" && ! grep -q ' none$' "$TMP/hs-sock.txt"; then
+  ok "HS4 a denied /proc/net read is recorded 'unreadable Permission denied', never 'none'"
+else
+  bad "HS4 an unreadable socket table is not 'none'" "exit $CODE: $(tr '\n' ';' < "$TMP/hs-sock.txt" 2>/dev/null | cut -c1-200)"
+fi
+rm -f "$TMP/hs-sock.txt"
+FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 1,2 --sockets-uid 10001 --sockets-file "$TMP/hs-sock.txt" --observe 1
+if [ "$CODE" = 0 ] && grep -q ' ESTABLISHED:01BB$' "$TMP/hs-sock.txt"; then
+  ok "HS5 a readable table still records the app's socket (control)"
+else
+  bad "HS5 a readable socket table is recorded" "exit $CODE: $(tr '\n' ';' < "$TMP/hs-sock.txt" 2>/dev/null | cut -c1-200)"
 fi
 run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send nonsense
 expect "HS3 a Send position that is not X,Y is refused before any adb call" 2 "X,Y integers"
