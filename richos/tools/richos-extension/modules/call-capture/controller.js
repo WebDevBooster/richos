@@ -1340,6 +1340,8 @@ async function recoverOrphans() {
   );
   for (const sessionId of ids) {
     const checkpoint = await get(DB.stores.sessions, sessionId);
+    // Retained diagnostic copies of a completed native save are not orphaned calls.
+    if (checkpoint?.status !== SESSION_STATUS.open && !checkpoint?.exportPending && (checkpoint?.exportedAt || (checkpoint?.transport === 'native' && checkpoint?.verification?.ok))) continue;
     if (checkpoint?.status !== 'open' && checkpoint?.exportPending) {
       checkpoint.audio = await buildStreamedParts(sessionId);
       for (const part of checkpoint.audio.parts) { delete part.written; part.persisted = true; }
@@ -1407,6 +1409,8 @@ async function recoverCaptionOnlyOrphans(handled) {
   const ids = [...new Set(captionRows.map((r) => r.sessionId))].filter((id) => id && !handled.has(id));
   for (const sessionId of ids) {
     const checkpoint = await get(DB.stores.sessions, sessionId);
+    // Retained diagnostic copies of a completed native save are not orphaned calls.
+    if (checkpoint?.status !== SESSION_STATUS.open && !checkpoint?.exportPending && (checkpoint?.exportedAt || (checkpoint?.transport === 'native' && checkpoint?.verification?.ok))) continue;
     if (checkpoint?.status !== 'open' && checkpoint?.exportPending) continue;
     const record = checkpoint || {
       schemaVersion: 1,

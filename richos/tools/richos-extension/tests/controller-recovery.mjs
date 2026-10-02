@@ -11,6 +11,7 @@ const rows = new Map();
 let invoked = true;
 let downloads = 0;
 let cancelExport = true;
+let orphanIDs = [];
 const settings = { ...CAPTURE_DEFAULTS, armMode: 'manual', captureCaptions: false };
 globalThis.chrome = {
   runtime: { id: 'extension', getManifest: () => ({ version: '0.3.0' }) },
@@ -23,6 +24,7 @@ globalThis.__controllerDependencies = {
   ensureOffscreen: async () => {}, closeOffscreen: async () => {}, offscreenExists: async () => true,
   async callOffscreen(message) {
     calls.push(message);
+    if (message.type === 'cc:orphans') return {ok:true,sessionIds:orphanIDs};
     if (message.type === 'cc:start') return { ok: true, hasMic: true, hasTab: true };
     if (message.type === 'cc:stop') return { ok: true };
     if (message.type === 'cc:archive') return { ok: true, url: 'blob:archive' };
@@ -93,5 +95,14 @@ try {
   assert.equal(ended.exportPending,true);
   assert.equal((await controller.callCaptureModule.getStatus()).active,false);
   assert.equal((await controller.armTab(8,'auto')).error,'this Zoom meeting has ended');
+  const saved = {...rows.get(`${DB.stores.sessions}:${ended.sessionId}`),status:'closed',transport:'native',exportPending:false,verification:{ok:true,problems:[]}};
+  rows.set(`${DB.stores.sessions}:${saved.sessionId}`,structuredClone(saved));
+  orphanIDs=[saved.sessionId];
+  await controller.__testHooks.recoverAfterRestart();
+  assert.deepEqual(rows.get(`${DB.stores.sessions}:${saved.sessionId}`),saved,'diagnostic native copies must preserve the completed save and verdict');
+  const exportedCopy={...saved,transport:'browser',exportedAt:now,verification:{ok:false,problems:['flagged but explicitly exported']}};
+  rows.set(`${DB.stores.sessions}:${saved.sessionId}`,structuredClone(exportedCopy));
+  await controller.__testHooks.recoverAfterRestart();
+  assert.deepEqual(rows.get(`${DB.stores.sessions}:${saved.sessionId}`),exportedCopy,'successful explicit exports must not be repeated just because diagnostic rows remain');
   console.log('PASS production controller invocation recovery, durable fallback and cancelled export retry');
 } finally { await controller.finalize('test-cleanup'); }
