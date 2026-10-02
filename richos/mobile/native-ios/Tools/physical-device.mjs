@@ -31,6 +31,8 @@ const checks = {
 };
 
 export const DEFAULT_STORE = '/Volumes/E1TB/caches/richos-native-ios/physical-store';
+// A signed Release device build, including native-work's CPU-admission wait before it starts.
+export const BUILD_LIMIT_MS = 1800000;
 const APP = 'Release-iphoneos/RichOSNative.app';
 const RUNNER = 'Release-iphoneos/RichOSNativeUITests-Runner.app';
 
@@ -252,8 +254,11 @@ export async function main(args, env = process.env) {
         '-destination', `id=${settings.device}`, '-derivedDataPath', derived,
         `DEVELOPMENT_TEAM=${settings.team}`, 'CODE_SIGN_STYLE=Automatic', 'CODE_SIGN_IDENTITY=Apple Development',
         'RICHOS_APS_ENVIRONMENT=development', '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
+      // The limit also holds native-work's wait for the Mac's CPU line before xcodebuild starts:
+      // on 2026-10-02 that wait was 557 s of a 600 s limit, and the Release build (one Swift job) was
+      // stopped mid-compile ("BUILD INTERRUPTED"). The test sessions' allowance had the same lesson.
       const built = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'build-for-testing', ...base],
-        { log, env, health, timeoutMs: 600000 });
+        { log, env, health, timeoutMs: BUILD_LIMIT_MS });
       if (built.status !== 0) throw Error(`Device build failed: ${log}`);
     },
   });
