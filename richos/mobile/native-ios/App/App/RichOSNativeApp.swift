@@ -99,9 +99,9 @@ struct RichOSNativeApp: App {
                             }
                         }
                 } else {
-                    // Until the saved state is read: the launch screen, drawn live, so the first frame
-                    // continues it exactly and the conversation's words and rows then appear in place
-                    // (LaunchShell). This was `Color.clear` over the window's white: a blank frame.
+                    // Until the saved state is read: the launch screen (the app icon on the launch
+                    // ground), drawn live, so the first frame continues it exactly until the conversation
+                    // appears (LaunchShell). This was `Color.clear` over the window's white: a blank frame.
                     LaunchShellView()
                 }
             }
