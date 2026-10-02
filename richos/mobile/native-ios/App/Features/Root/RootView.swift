@@ -260,14 +260,18 @@ struct ScreenView: View {
                         // kept voice card's buttons); where they are taller, or the header needs the
                         // room (the SE fit), the region scrolls as a whole and the edge that hides more
                         // fades and carries an arrow (EdgeCuedScroll), so nothing is cut unannounced.
-                        EdgeCuedScroll(id: "cards") {
+                        // R2 at the floor (re-walk 4): and nothing is cut at all: the edge that hides more
+                        // keeps a strip for its arrow alone, and every line and button shows whole or not
+                        // at all (`wholeLines`).
+                        EdgeCuedScroll(id: "cards", wholeLines: true) {
                             AboveComposer(cards: model.cards, toast: model.toast, send: send)
                                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
                         }
                         // R2 (the iPhone re-walk): and the conversation keeps `conversationMinimum` between
                         // the header and the cards, so with the keyboard up the message just sent is not
                         // behind the header. The cards yield (they scroll, with their cue) before the
-                        // conversation does, down to a floor where a card's title still shows.
+                        // conversation does, down to a floor where a card's title still shows. One card
+                        // yields as several do (R3).
                         .frame(maxHeight: min(max(aboveHeight, 1), height * 0.6, cardsRoom()))
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardsHeight = $0 }
                         // I05: a card raised while another shows is brought into view, the least
@@ -300,15 +304,16 @@ struct ScreenView: View {
     /// What the cards may take: what they take now, plus what the gap between the header and the zone
     /// holds beyond the conversation's minimum (negative when the gap is already short of it). It reads
     /// only measured screen positions, so it holds with the keyboard up or down at any text size, and it
-    /// settles where the gap is the minimum. One card is never squeezed (D10: the kept voice card whole
-    /// above the field, with the keyboard up); with several cards the region scrolls, to a floor of
-    /// 80 pt, rather than leaving the conversation less than the minimum.
+    /// settles where the gap is the minimum. The same for one card as for several (R3, iPhone re-walk 4:
+    /// the kept voice card alone, kept whole, left the conversation 66 pt with the keyboard up and the
+    /// sender's own last message behind the header). What the conversation needs does not depend on how
+    /// many cards there are; the cards are the part that can scroll, with a cue at the edge that hides
+    /// more and nothing cut (D10's defect was a card cut unannounced under the field), down to a floor
+    /// of 80 pt. Where there is room, as with the keyboard down, one card still shows whole.
     private func cardsRoom() -> CGFloat {
-        guard cardsHeight > 0, zoneTop > headerBottom, aboveHeight > Self.oneCardAtMost else { return .infinity }
+        guard cardsHeight > 0, zoneTop > headerBottom else { return .infinity }
         return max(80, cardsHeight + zoneTop - headerBottom - Self.conversationMinimum)
     }
-    /// The tallest the cards can be and still be one card (the kept voice card is about 175 pt).
-    private static let oneCardAtMost: CGFloat = 235
 
     /// The thread fades out under the header (`.thread` `mask-image`). `safeTop` is where the header
     /// block's 60 pt begin; the stops sit 30, 64 and 100 pt below it.

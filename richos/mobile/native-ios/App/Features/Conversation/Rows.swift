@@ -308,14 +308,24 @@ struct MessageRow: View {
         .accessibilityIdentifier("row.\(row.id)")
     }
 
+    /// "Not sent · needs attention  Discard", and under it the Mac's reason when it gave one (iPhone
+    /// re-walk 4: a refused voice message did not say why).
     private var attentionLine: some View {
-        HStack(spacing: 8) {
-            (Text("Not sent").run(Typography.read.weight(600), dynamicTypeSize).foregroundColor(palette.danger)
-             + Text(" · needs attention").foregroundColor(palette.ink))
-            Button { send(.discard(id: row.id)) } label: { QuietLabel(text: "Discard") }
-                .buttonStyle(.plain)
-                .foregroundStyle(palette.ink)
-                .accessibilityLabel("Discard this message")
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 8) {
+                (Text("Not sent").run(Typography.read.weight(600), dynamicTypeSize).foregroundColor(palette.danger)
+                 + Text(" · needs attention").foregroundColor(palette.ink))
+                Button { send(.discard(id: row.id)) } label: { QuietLabel(text: "Discard") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(palette.ink)
+                    .accessibilityLabel("Discard this message")
+            }
+            if let refusal = row.refusal {
+                Text(refusal)
+                    .foregroundStyle(palette.ink)
+                    .multilineTextAlignment(.trailing)
+                    .accessibilityIdentifier("row.\(row.id).reason")
+            }
         }
         .type(Typography.read)
         .fixedSize(horizontal: false, vertical: true)
