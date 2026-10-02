@@ -85,7 +85,7 @@ MUTANTS = (
      "native-android-ui.test.sh is filed under android only"),
     ("the suites that build the iPhone app are filed under Android", refile("native-ios-", "android"), False, None,
      "native-ios-app.test.sh is filed under android only"),
-    ("no suite filed under the iPhone app reads its version", refile("native-", "android"), False, None,
+    ("no suite filed under the iPhone app reads its version", refile(("native-", "mobile-perf"), "android"), False, None,
      "V1 a suite filed under the iPhone app proves an iPhone version change: none"),
     ("a test holds the two versions together again (0394da20)", None, True, None,
      "these files read both apps' versions"),
