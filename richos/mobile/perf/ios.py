@@ -1102,6 +1102,245 @@ def device_screen_check(hw, team, stamp_path, marker, out_dir, runner=subprocess
     return result
 
 
+# ---------------------------------------------------------------------------------------------
+# Taps with no profiler attached: the app's own clocks (native-ios/App/Platform/LaunchTiming.swift)
+# ---------------------------------------------------------------------------------------------
+
+# The app writes its launch and return lines only while this file is in its saved-state directory.
+TIMING_MARKER = "perf-launch-timing.on"
+TIMING_FILE = "perf-launch-timing.jsonl"
+ICON_LABEL = "RichConnect"
+TAP_SETTLE_S = 2.0   # after a terminate, before the tap
+TAP_DWELL_S = 4.0    # after a tap: the launch or return finishes and the app has written its lines
+# Where a return's probe touch lands: the middle of the transcript on an iPhone SE in portrait, where
+# no control is. Its offsets after the tap that brings the app back, cycled over the returns.
+PROBE_POINT = (187.0, 300.0)
+PROBE_OFFSETS_S = (0.1, 0.2, 0.3, 0.45, 0.6)
+TAP_ALLOWANCE_MAX_S = 1800
+UNPROFILED_METHOD = (
+    "No profiler: the phone's UI-test runner taps the RichConnect icon on the Home Screen (a cold launch after "
+    "`terminate`, a return after Home), and the app writes its own times (LaunchTiming.swift): the kernel's start "
+    "time of the process (sysctl KERN_PROC_PID p_starttime, the wall clock at spawn), its first line of code, scene "
+    "activation, the useful draw and input-ready (the main run loop idle after the commit that made the viewport and "
+    "composer ready). The runner's `tapAt` is the phone-clock moment the tap was asked for, before XCTest synthesized "
+    "it; one wall clock on one phone. Presentation of the input-ready commit is not visible in the app: the profiled "
+    "series measured it at 39-48 ms after input-ready")
+
+
+def tap_steps(launches, returns, away, offsets=PROBE_OFFSETS_S, point=PROBE_POINT):
+    """The runner's list: `launches` cold launches by a tap on the icon, then `returns` returns by a tap
+    on the icon after `away` s at Home, each with a touch at `point` `offsets[i]` s after that tap."""
+    steps = [{"do": "home"}, {"do": "sleep", "seconds": TAP_SETTLE_S}]
+    for n in range(1, launches + 1):
+        steps += [{"do": "terminate"}, {"do": "sleep", "seconds": TAP_SETTLE_S}, {"do": "mark", "label": f"launch {n}"},
+                  {"do": "tap", "in": "springboard", "label": ICON_LABEL, "timeout": 10},
+                  {"do": "sleep", "seconds": TAP_DWELL_S}]
+    for n in range(1, returns + 1):
+        steps += [{"do": "home"}, {"do": "sleep", "seconds": away}, {"do": "mark", "label": f"return {n}"},
+                  {"do": "tapThen", "in": "springboard", "label": ICON_LABEL, "timeout": 10,
+                   "after": offsets[(n - 1) % len(offsets)], "at": list(point)},
+                  {"do": "sleep", "seconds": TAP_DWELL_S}]
+    return steps
+
+
+def parse_timing(text):
+    """The app's timing lines; a line that is not one JSON object (a torn last write) is skipped."""
+    out = []
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and isinstance(event.get("e"), str) and isinstance(event.get("wallUs"), int):
+            out.append(event)
+    return sorted(out, key=lambda e: e["wallUs"])
+
+
+def _first_event(events, name, pid=None, after_us=None, before_us=None):
+    for e in events:
+        if (e["e"] == name and (pid is None or e.get("pid") == pid) and (after_us is None or e["wallUs"] >= after_us)
+                and (before_us is None or e["wallUs"] < before_us)):
+            return e
+    return None
+
+
+def _ms(a_us, b_us):
+    return None if a_us is None or b_us is None else round((b_us - a_us) / 1000.0, 3)
+
+
+def tap_launch_samples(rows, events):
+    """One sample per logged tap launch: the process that started after the tap (exactly one), and its
+    marks from the kernel's start time. Returns (samples, rejected)."""
+    taps = [r for r in rows if r.get("do") == "tap" and r.get("ok") and (r.get("detail") or {}).get("tapAt")]
+    samples, rejected = [], []
+    for n, tap in enumerate(taps, 1):
+        tap_us = tap["detail"]["tapAt"] * 1e6
+        # The launch belongs to this tap: it starts after it, before the next tap, and within the dwell.
+        next_us = min(taps[n]["detail"]["tapAt"] * 1e6 if n < len(taps) else float("inf"),
+                      tap_us + (TAP_DWELL_S + 6.0) * 1e6)
+        procs = [e for e in events if e["e"] == "process" and e.get("startUs", -1) > 0
+                 and tap_us <= e["startUs"] < next_us]
+        if len(procs) != 1:
+            rejected.append({"trial": n, "why": f"{len(procs)} processes started between this tap and the next"})
+            continue
+        p = procs[0]
+        start, pid = p["startUs"], p["pid"]
+        marks = {name: _first_event(events, name, pid=pid, after_us=start, before_us=next_us)
+                 for name in ("did-activate", "composer-ready", "useful-content", "viewport-ready", "input-ready")}
+        if marks["input-ready"] is None:
+            rejected.append({"trial": n, "pid": pid, "why": "no input-ready line from the launched process"})
+            continue
+        wall = {k: (v["wallUs"] if v else None) for k, v in marks.items()}
+        samples.append({"trial": n, "pid": pid,
+                        "tapToProcessStartMs": _ms(tap_us, start),
+                        "processStartToMainMs": _ms(start, p["wallUs"]),
+                        "processStartToActiveMs": _ms(start, wall["did-activate"]),
+                        "processStartToComposerReadyMs": _ms(start, wall["composer-ready"]),
+                        "processStartToUsefulMs": _ms(start, wall["useful-content"]),
+                        "processStartToViewportReadyMs": _ms(start, wall["viewport-ready"]),
+                        "processStartToInputReadyMs": _ms(start, wall["input-ready"]),
+                        "tapToInputReadyMs": _ms(tap_us, wall["input-ready"])})
+    return samples, rejected
+
+
+def tap_return_samples(rows, events):
+    """One sample per logged return (a `tapThen` on the icon): the scene's transitions in the retained
+    process, and what became of the probe touch: received or not, when, and in which scene state."""
+    probes = [r for r in rows if r.get("do") == "tapThen" and r.get("ok") and (r.get("detail") or {}).get("synthesizedAt")]
+    samples, rejected = [], []
+    for n, probe in enumerate(probes, 1):
+        start = probe["detail"]["synthesizedAt"] * 1e6
+        end = probes[n]["detail"]["synthesizedAt"] * 1e6 if n < len(probes) else None
+        window = [e for e in events if e["wallUs"] >= start and (end is None or e["wallUs"] < end)]
+        if any(e["e"] == "process" for e in window):
+            rejected.append({"trial": n, "why": "a new process started: a relaunch, not a return"})
+            continue
+        marks = {name: _first_event(window, name) for name in
+                 ("will-enter-foreground", "did-activate", "foreground-useful", "input-ready")}
+        if marks["did-activate"] is None:
+            rejected.append({"trial": n, "why": "the app logged no activation after the tap"})
+            continue
+        wall = {k: (v["wallUs"] if v else None) for k, v in marks.items()}
+        touch = next((e for e in window if e["e"] == "touch"), None)
+        sample = {"trial": n, "probeAfterMs": round(float(probe.get("after", 0)) * 1000, 1),
+                  "enterForegroundMs": _ms(start, wall["will-enter-foreground"]),
+                  "activeMs": _ms(start, wall["did-activate"]),
+                  "foregroundUsefulMs": _ms(start, wall["foreground-useful"]),
+                  "inputReadyMs": _ms(start, wall["input-ready"]),
+                  "touch": {"received": touch is not None}}
+        if touch is not None:
+            event_us = touch["wallUs"] - (touch["uptime"] - touch["eventUptime"]) * 1e6
+            sample["touch"].update({"eventMs": _ms(start, event_us), "receivedMs": _ms(start, touch["wallUs"]),
+                                    "scene": touch.get("scene"), "view": touch.get("view"),
+                                    "beforeActive": touch["wallUs"] < wall["did-activate"],
+                                    "receivedToActiveMs": _ms(touch["wallUs"], wall["did-activate"])})
+        samples.append(sample)
+    return samples, rejected
+
+
+def unprofiled_summary(launches, returns):
+    def stats(key, samples):
+        values = [s[key] for s in samples if s.get(key) is not None]
+        return perfcore.stats(values) if values else None
+    cold = {"n": len(launches)}
+    for key in ("tapToProcessStartMs", "processStartToMainMs", "processStartToActiveMs", "processStartToUsefulMs",
+                "processStartToInputReadyMs", "tapToInputReadyMs"):
+        cold[key] = stats(key, launches)
+    by_offset = {}
+    for s in returns:
+        slot = by_offset.setdefault(str(s["probeAfterMs"]), {"returns": 0, "received": 0, "receivedBeforeActive": 0,
+                                                            "scenes": {}, "receivedMs": []})
+        slot["returns"] += 1
+        t = s["touch"]
+        if t["received"]:
+            slot["received"] += 1
+            slot["receivedBeforeActive"] += 1 if t["beforeActive"] else 0
+            slot["scenes"][t["scene"]] = slot["scenes"].get(t["scene"], 0) + 1
+            slot["receivedMs"].append(t["receivedMs"])
+    warm = {"n": len(returns), "activeMs": stats("activeMs", returns), "inputReadyMs": stats("inputReadyMs", returns),
+            "enterForegroundMs": stats("enterForegroundMs", returns), "probeTouches": by_offset}
+    return {"cold": cold, "warm": warm}
+
+
+def device_tap_series(hw, team, stamp_path, launches, returns, away, out_dir, runner=subprocess.run):
+    """The tap launches and returns through the stamped build's runner. Returns (rows, summary-or-error)."""
+    os.makedirs(out_dir, exist_ok=True)
+    steps = tap_steps(launches, returns, away)
+    steps_path = os.path.join(out_dir, "steps.json")
+    with open(steps_path, "w") as f:
+        json.dump(steps, f)
+    expected = launches * (1.08 + TAP_SETTLE_S + 2.0 + TAP_DWELL_S) + returns * (0.46 + away + 4.0 + TAP_DWELL_S)
+    allowance = min(TAP_ALLOWANCE_MAX_S, max(120, int(expected * 1.25) + 60))
+    env = {**os.environ, "RICHOS_IOS_DEVICE": hw, "RICHOS_APPLE_TEAM": team}
+    try:
+        p = runner([sys.executable, PHONE_IOS, "run", steps_path, "--out", os.path.join(out_dir, "run"), "--prebuilt",
+                    "--stamp", stamp_path, "--allowance", str(allowance)],
+                   capture_output=True, text=True, env=env, timeout=allowance + 1800)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return [], f"the UI-test runner did not answer: {e}"
+    try:
+        summary = json.loads(p.stdout)
+    except ValueError:
+        return [], f"phone-ios.py run printed no summary (exit {p.returncode}): {(p.stderr or '').strip()[-300:]}"
+    try:
+        with open(os.path.join(summary.get("out") or os.path.join(out_dir, "run"), "steps.jsonl")) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+    except (OSError, ValueError) as e:
+        return [], f"the runner's step log could not be read: {e}"
+    by_index = {i: s for i, s in enumerate(steps)}
+    for r in rows:  # the step's own definition beside its result (a probe's offset)
+        if r.get("do") == "tapThen" and isinstance(r.get("i"), int):
+            r["after"] = by_index.get(r["i"], {}).get("after")
+    return rows, None
+
+
+def _tap_series(args, record, state, seed, scratch, hw, work):
+    """With the timing marker added to the seeded state, the tap launches and returns, then the app's own
+    lines read off the phone. The seeded conversation is unchanged; the restore removes the marker and
+    the lines with the rest. Returns the number of failures (0 or 1)."""
+    launches, returns = getattr(args, "tap_launches", 0) or 0, getattr(args, "tap_returns", 0) or 0
+    timed = os.path.join(scratch, "timed", "RichOS")
+    shutil.copytree(seed, timed)
+    open(os.path.join(timed, TIMING_MARKER), "w").close()
+    out_dir = os.path.join(work, "taps")
+    try:
+        state.put(timed, scratch)
+    except (Unmeasurable, subprocess.TimeoutExpired) as e:
+        record["phases"]["taps"] = f"failed: {e}"
+        record["notMeasured"].append({"what": "unprofiled taps", "why": f"the timing marker could not be written: {e}"})
+        return 1
+    rows, error = device_tap_series(hw, os.environ["RICHOS_APPLE_TEAM"], args.stamp, launches, returns,
+                                    getattr(args, "away", 2.0), out_dir)
+    got = os.path.join(out_dir, "after", "RichOS")
+    try:
+        state.read(got)
+        with open(os.path.join(got, TIMING_FILE)) as f:
+            text = f.read()
+    except (Unmeasurable, OSError, subprocess.TimeoutExpired) as e:
+        text, error = "", error or f"the app's timing lines could not be read: {e}"
+    finally:
+        if os.path.isdir(got):  # keep only the app's timing lines with the evidence
+            for name in os.listdir(got):
+                if name != TIMING_FILE:
+                    path = os.path.join(got, name)
+                    shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
+    events = parse_timing(text)
+    cold, cold_rejected = tap_launch_samples(rows, events)
+    warm, warm_rejected = tap_return_samples(rows, events)
+    record["unprofiled"] = {"method": UNPROFILED_METHOD, "evidence": out_dir, "requested": {"launches": launches, "returns": returns},
+                            "launches": cold, "returns": warm, "rejected": {"launches": cold_rejected, "returns": warm_rejected},
+                            "summary": unprofiled_summary(cold, warm)}
+    if error:
+        record["unprofiled"]["error"] = error
+    short = len(cold) < launches or len(warm) < returns
+    record["phases"]["taps"] = (f"{len(cold)} of {launches} launches, {len(warm)} of {returns} returns"
+                                + (f"; {error}" if error else ""))
+    if short or error:
+        record["notMeasured"].append({"what": "unprofiled taps", "why": record["phases"]["taps"]})
+        return 1
+    return 0
+
+
 SEEDED_BY_DEVICE = ("condition.py wrote Android's fixture files; `rios perf-seed` translated them through the app's own "
                     "core (EffectRunner .persist) into its saved state and loaded every row back; the app was terminated, "
                     "its saved-state directory on the iPhone (Library/Application Support/RichOS in its data container) "
@@ -1217,6 +1456,8 @@ def _seeded_device(args, record, driver, hw, stamp, runner, popen, sleep, rios):
                                "persistence": "production (the app's own Application Support/RichOS files)"}
             record["phases"]["seed"] = "measured"
             failures = _trace_classes(record, driver, args, runner, popen, sleep)
+            if getattr(args, "tap_launches", 0) or getattr(args, "tap_returns", 0):
+                failures += _tap_series(args, record, state, seed, scratch, hw, work)
             verified = device_screen_check(hw, os.environ["RICHOS_APPLE_TEAM"], args.stamp, marker,
                                            os.path.join(work, "screen-check"), runner)
             failures += _record_verified(record, verified)
@@ -1284,6 +1525,9 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
         raise Refused(f"freshness mismatch: the stamp is {stamp and stamp.get('commit')} (dirty {stamp and stamp.get('dirty')}), not {args.expect_commit}")
     measuring = not getattr(args, "reparse", None)
     seeding = measuring and getattr(args, "conversation", "fixture") != condition.AS_INSTALLED
+    if (getattr(args, "tap_launches", 0) or getattr(args, "tap_returns", 0)) and not (seeding and getattr(args, "device", None)):
+        raise Refused("--tap-launches and --tap-returns run on an iPhone with the seeded conversation: the app writes "
+                      "its own times only while the seeded state carries the timing marker, and the restore removes it")
     if seeding and not args.simulator:
         _device_refusals(args, stamp)
     elif seeding:

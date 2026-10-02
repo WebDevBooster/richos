@@ -366,6 +366,39 @@ device recording, and UIKit's `AppResume` on iOS 26.3.1.
 
 Profiler overhead is included in every number.
 
+### Tap launches and returns with no profiler (`--tap-launches N`, `--tap-returns N`)
+
+Instruments launches the app itself and attaches before any app code runs, so its "Process Creation"
+period carries the profiler's own launch. To see what a person waits for, the same seeded run can
+also launch the app the way a person does, with nothing attached:
+
+```sh
+RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" \
+  --evidence-dir "$RUN/taps" --cold 0 --warm 0 --tap-launches 30 --tap-returns 30 --out "$RUN/taps.json"
+```
+
+- After the trace series (if any), the tool adds one empty file, `perf-launch-timing.on`, to the seeded
+  saved state and reads the directory back. Only while that file is there does the app write its own
+  times (`native-ios/App/Platform/LaunchTiming.swift`) to `perf-launch-timing.jsonl` beside it. The
+  restore at the end puts the phone's own directory back exactly, so both files leave with the seed.
+  Release builds carry the code; without the file it costs one file-existence check at launch.
+- The stamped build's UI-test runner (`phone-ios.py run --prebuilt`) taps the RichConnect icon on the
+  Home Screen: N times after terminating the app (cold launches), then N times after Home (returns).
+  Each `tap` step logs `tapAt`, the phone-clock moment the tap was asked for.
+- The app logs, on the same wall clock: `process` with the kernel's start time of the process
+  (`sysctl` `KERN_PROC_PID` `p_starttime`, the spawn), and the moment its first line of code ran;
+  the scene transitions; `useful-content`; `viewport-ready`, `composer-ready` and `input-ready`.
+  The record's `unprofiled.launches` holds, per launch, tap to spawn, spawn to first code, spawn to
+  activation, spawn to the useful draw, spawn to `input-ready` and tap to `input-ready`.
+- What the app cannot see is the presentation of the `input-ready` commit. The profiled series
+  measure it (`input-ready -> presented`, 39-48 ms on the test iPhone); add it, stated as such.
+- Each return is a `tapThen` step: the tap on the icon and, at a set offset (100, 200, 300, 450 or
+  600 ms, cycled), a touch in the middle of the transcript, as one synthesized event record. The
+  app's window logs every touch it receives with the scene's activation state at that moment.
+  `unprofiled.returns` holds, per return, the scene's transitions from the tap and the probe touch:
+  received or not, its own timestamp, and whether it arrived before iOS made the scene active.
+- These numbers are evidence beside the profiled series, never compared with a benchmark.
+
 ## Tests
 
 `richos/app/scripts/mobile-perf.test.sh`: the parsers against output captured from the API 34
@@ -387,8 +420,11 @@ semantics measured on the phone, and phone-ios.py), both series launch into exac
 the row is checked through the stamped build's runner and the phone's own state, recordings and empty
 directories included, comes back byte for byte and leaves the Mac; a row not on screen, a seed that
 reads back wrong and a real SIGTERM mid-series each restore first; a failed restore keeps the copy and
-`ios-restore` puts it back; every refusal leaves the phone untouched and no copy on the Mac. No
-emulator, simulator, phone, build or window.
+`ios-restore` puts it back; every refusal leaves the phone untouched and no copy on the Mac. C16: the
+tap steps pass `phone-ios.py`'s own validation and its runner has every step; the runner's tap
+times and the app's own lines join into launch and return samples, with a launch that never became
+ready, two processes after one tap and a relaunch during a return rejected; taps are refused off a
+seeded iPhone. No emulator, simulator, phone, build or window.
 
 `bin/rios test --filter PerfSeedTests` (the core's tests, on this Mac): the seeder takes condition.py's
 own output, writes all 100 rows as the app's saved state and loads them back through the core;

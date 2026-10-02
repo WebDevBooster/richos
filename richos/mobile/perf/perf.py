@@ -823,6 +823,12 @@ def parse_args(argv):
     i.add_argument("--warm", type=int, default=0, help="warm returns in the retained process (0 skips the class)")
     i.add_argument("--away", type=float, default=2.0, help="seconds with Settings in front before each return")
     i.add_argument("--trace-seconds", type=int, default=10, help="Instruments recording length per trial")
+    i.add_argument("--tap-launches", type=int, default=0,
+                   help="iPhone, seeded: cold launches by a tap on the Home Screen icon with no profiler, timed by the "
+                        "app's own clocks from the kernel's process start (record `unprofiled`, never compared)")
+    i.add_argument("--tap-returns", type=int, default=0,
+                   help="iPhone, seeded: returns by a tap on the icon, each with a probe touch on the transcript at a "
+                        "set offset: is a touch delivered before iOS makes the scene active? (record `unprofiled`)")
     i.add_argument("--xctrace", action="store_true",
                    help="simulator only: run the physical trace path as a dry run (its frame data is refused)")
     i.add_argument("--app-arg", action="append",

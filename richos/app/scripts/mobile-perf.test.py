@@ -2258,6 +2258,69 @@ def _():
             assert leftovers == [], (name, leftovers)  # no partial copy of anything stays on the Mac
 
 
+def timing_line(e, pid, wall_s, **extra):
+    return json.dumps({"e": e, "pid": pid, "wallUs": int(round(wall_s * 1e6)), "uptime": wall_s - 1000.0, **extra})
+
+
+@case("C16 unprofiled taps: the step list passes phone-ios.py's own validation; the runner's tap times and the app's "
+      "own lines join into launch and return samples; a launch with no input-ready, two processes after one tap and a "
+      "relaunch during a return are rejected; a probe touch before activation is reported so; refused off a seeded iPhone")
+def _():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("phone_ios", os.path.join(HERE, "qa", "phone-ios.py"))
+    phone_ios = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(phone_ios)
+    steps = ios.tap_steps(2, 3, 2.0)
+    assert phone_ios.validate(steps) == steps
+    assert [s["after"] for s in steps if s["do"] == "tapThen"] == [0.1, 0.2, 0.3]
+    assert sum(1 for s in steps if s["do"] == "tap") == 2 and sum(1 for s in steps if s["do"] == "terminate") == 2
+    assert "tapThen" in phone_ios.ACTIONS and phone_ios.vocabulary(phone_ios.RUNNER)["same"]
+    rows = [{"i": 0, "do": "tap", "ok": True, "detail": {"tapAt": 100.0}},
+            {"i": 1, "do": "tap", "ok": True, "detail": {"tapAt": 110.0}},
+            {"i": 2, "do": "tap", "ok": True, "detail": {"tapAt": 120.0}},
+            {"i": 3, "do": "tapThen", "ok": True, "after": 0.1, "detail": {"synthesizedAt": 130.0}},
+            {"i": 4, "do": "tapThen", "ok": True, "after": 0.45, "detail": {"synthesizedAt": 140.0}},
+            {"i": 5, "do": "tapThen", "ok": True, "after": 0.2, "detail": {"synthesizedAt": 150.0}}]
+    lines = [
+        timing_line("process", 7, 100.20, startUs=int(100.05e6)),  # launch 1: spawn 50 ms after the tap
+        timing_line("did-activate", 7, 100.30), timing_line("useful-content", 7, 100.31),
+        timing_line("input-ready", 7, 100.32),
+        timing_line("process", 8, 110.20, startUs=int(110.06e6)),  # launch 2: no input-ready
+        timing_line("process", 9, 120.20, startUs=int(120.04e6)), timing_line("process", 10, 120.30, startUs=int(120.25e6)),
+        timing_line("input-ready", 9, 120.40),
+        # return 1: the probe touch arrives at +120 ms, before activation at +447 ms
+        timing_line("will-enter-foreground", 10, 130.02), timing_line("touch", 10, 130.12, eventUptime=130.11 - 1000.0,
+                                                                      scene="foregroundInactive", view="UICollectionView"),
+        timing_line("did-activate", 10, 130.447), timing_line("input-ready", 10, 130.48),
+        # return 2: no touch reached the app
+        timing_line("will-enter-foreground", 10, 140.02), timing_line("did-activate", 10, 140.45),
+        timing_line("input-ready", 10, 140.49),
+        # return 3: a relaunch
+        timing_line("process", 11, 150.2, startUs=int(150.05e6)), timing_line("did-activate", 11, 150.5),
+        "{torn",
+    ]
+    events = ios.parse_timing("\n".join(lines))
+    launches, rejected = ios.tap_launch_samples(rows, events)
+    assert [s["trial"] for s in launches] == [1], launches
+    assert launches[0]["tapToProcessStartMs"] == 50.0 and launches[0]["processStartToInputReadyMs"] == 270.0
+    assert launches[0]["processStartToMainMs"] == 150.0 and launches[0]["tapToInputReadyMs"] == 320.0
+    assert [(r["trial"], r["why"]) for r in rejected] == [
+        (2, "no input-ready line from the launched process"), (3, "2 processes started between this tap and the next")]
+    returns, rejected = ios.tap_return_samples(rows, events)
+    assert [s["trial"] for s in returns] == [1, 2] and rejected[0]["trial"] == 3 and "relaunch" in rejected[0]["why"]
+    one, two = returns
+    assert one["touch"]["received"] and one["touch"]["beforeActive"] and one["touch"]["scene"] == "foregroundInactive"
+    assert one["touch"]["eventMs"] == 110.0 and one["activeMs"] == 447.0 and one["probeAfterMs"] == 100.0
+    assert two["touch"] == {"received": False} and two["inputReadyMs"] == 490.0
+    summary = ios.unprofiled_summary(launches, returns)
+    assert summary["warm"]["probeTouches"]["100.0"]["receivedBeforeActive"] == 1
+    assert summary["warm"]["probeTouches"]["450.0"]["received"] == 0
+    for over in (dict(simulator="sim", device=None, conversation="fixture", mac=None),
+                 dict(conversation="as-installed", mac="reachable")):
+        args = ios_args(tap_launches=30, tap_returns=0, **over)
+        assert "seeded conversation" in raises(perfcore.Refused, ios.run_ios, args, runner=lambda *a, **k: 1 / 0)
+
+
 if __name__ == "__main__":
     total = sum(1 for line in open(__file__) if line.startswith("@case("))
     if failures:
