@@ -12,9 +12,11 @@ that follows such a refusal tests nothing, and it said so only after a build, an
 So `rios device` (verify, run, perf, hold) calls this module around the phone's one use:
 
     preflight   one cheap launch of RichConnect through devicectl, then it is closed again. A refusal
-                that names the missing verification raises `Unreachable` with ONE plain sentence
-                naming the fix, before anything is built, installed or run. A locked phone, a missing
-                tool or any other answer is not a verdict on the network: it is said and the run goes on.
+                that names the missing verification restarts the PHONE once (the function below,
+                CEO 2026-10-02: no passcode, so it comes back usable without a hand) and opens the app
+                again; only when that still fails does it raise `Unreachable` with ONE plain sentence,
+                before anything is built, installed or run. A locked phone, a missing tool or any other
+                answer is not a verdict on the network: it is said and the run goes on.
     postflight  the same launch after the run, however the run ended. When the phone now refuses,
                 the run left its network off (a step list that switches Wi-Fi off in Settings and did not
                 get to switch it back): `RICHOS_PHONE_NET_RESTORE` (default `phone-ios.py wifi-restore`)
@@ -23,7 +25,7 @@ So `rios device` (verify, run, perf, hold) calls this module around the phone's 
 
 The phone is named by RICHOS_IOS_DEVICE (what xcodebuild and devicectl both accept). Nothing here
 installs, uninstalls or erases anything, and it never touches the phone's screen beyond opening and
-closing the app.
+closing the app and, when the trust check fails, one restart of the phone.
 """
 import json
 import os
@@ -33,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 PACKAGE = "dev.richos.connect"
@@ -48,9 +51,18 @@ LOCKED = re.compile(r"\blocked\b|unlock", re.I)
 # Settings shows no Verify App button for this team-provisioned app (2026-09-27, and the CEO 2026-10-02);
 # sending a person to look for one wastes his time. `rios device trust` names the actual cause.
 FIX = ("The test iPhone cannot reach Apple to verify RichConnect's developer certificate, so iOS will not open "
-       "the app; `rios device trust` names why (the phone's DNS, VPN or profiles). Settings has no Verify App "
-       "button for this app, so do not look for one: once the phone's Wi-Fi reaches Apple (Tailscale and any "
-       "VPN off), one tap on RichConnect's icon on the phone verifies it; then run again.")
+       "the app, and restarting the phone once (`rios device reboot`) did not clear it; `rios device trust` names "
+       "why (the phone's DNS, VPN or profiles). Settings has no Verify App button for this app, so do not look "
+       "for one: the phone's Wi-Fi has to reach Apple (Tailscale and any VPN off).")
+
+# When the trust check fails, the automation restarts the phone itself (CEO 2026-10-02: the test iPhone has
+# no passcode, so it comes back usable on its own). On 2026-10-02 the phone's Wi-Fi DNS server stopped
+# answering it (a capture on the phone: its queries to the router went out and nothing came back, while
+# the router answered the Mac) and a restart of the phone cleared it. After the phone is back, RichConnect
+# is opened every SETTLE_STEP seconds until iOS verifies it or SETTLE_SECONDS pass (Wi-Fi rejoining and
+# Apple's check take a moment after boot).
+SETTLE_SECONDS = float(os.environ.get("RICHOS_PHONE_REBOOT_SETTLE", "120"))
+SETTLE_STEP = float(os.environ.get("RICHOS_PHONE_REBOOT_STEP", "10"))
 
 
 class Unreachable(Exception):
@@ -93,15 +105,48 @@ def launch_check(device, timeout=60):
         return {"state": "unknown", "detail": text[-300:]}
 
 
+def reboot(device, say):
+    """Restart the phone (devicectl, a full reboot, waiting until it is connected again), then open
+    RichConnect until iOS verifies it or SETTLE_SECONDS pass. Returns the last launch_check result with
+    'rebooted' and the seconds it took. Nothing is installed, removed or erased; the app's data stays."""
+    started = time.monotonic()
+    try:
+        p = _xcrun("devicectl", "device", "reboot", "--device", device, "--wait-for-device", timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"state": "unknown", "detail": f"devicectl reboot did not answer ({type(error).__name__})", "rebooted": False}
+    if p.returncode != 0:
+        return {"state": "unknown", "rebooted": False,
+                "detail": "devicectl reboot failed: " + ((p.stderr or "") + (p.stdout or "")).strip()[-300:]}
+    back = time.monotonic() - started
+    say(f"the phone restarted and is connected again after {back:.0f} s; opening RichConnect until iOS verifies it")
+    deadline = time.monotonic() + SETTLE_SECONDS
+    tries = 0
+    while True:
+        result = launch_check(device)
+        tries += 1
+        if result["state"] == "ok" or time.monotonic() + SETTLE_STEP > deadline:
+            break
+        time.sleep(SETTLE_STEP)
+    return {**result, "rebooted": True, "backAfterSeconds": round(back), "launchTries": tries,
+            "totalSeconds": round(time.monotonic() - started)}
+
+
 def preflight(say, device=None):
-    """Raises Unreachable (the sentence) when the phone will not open the app for want of verification."""
+    """Raises Unreachable (the sentence) when the phone will not open the app for want of verification,
+    after one restart of the phone (reboot) has not cleared it."""
     device = device or os.environ.get("RICHOS_IOS_DEVICE")
     if not device:
         say("phone network check skipped: RICHOS_IOS_DEVICE names no phone")
         return
     result = launch_check(device)
     if result["state"] == "untrusted":
-        raise Unreachable(FIX + f" (devicectl said: {result['detail']})")
+        say("the phone cannot verify RichConnect with Apple; restarting it once (rios device reboot): "
+            + result["detail"].replace("\n", " ")[-200:])
+        result = reboot(device, say)
+        if result["state"] != "ok":
+            raise Unreachable(FIX + f" (after the restart: {result['state']}: {result['detail']})")
+        say(f"after the restart the phone opens RichConnect ({result['totalSeconds']} s): the run goes on")
+        return
     if result["state"] != "ok":
         say(f"phone network check could not decide ({result['state']}: {result['detail']}); the run goes on")
 

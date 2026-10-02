@@ -27,6 +27,9 @@
     phone-ios.py wifi-restore --out DIR            read the phone's Wi-Fi switch in Settings; turn it on if
                                                    it is off (`run` does this itself after any list that
                                                    acted on Wi-Fi, however the list ended)
+    phone-ios.py reboot --device ID                restart the phone (devicectl), wait until it is back and
+                                                   open RichConnect until iOS verifies it; the remedy when
+                                                   `trust` fails (the phone has no passcode, CEO 2026-10-02)
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
     phone-ios.py summary DIR                       a finished `run` DIR read back: one row per step
                                                    (outcome, seconds, what it waited for, the audit's
@@ -88,9 +91,12 @@ REFUSES a run that is expected to ask unless --approval-announced says the CEO w
 First launch of a newly signed development app can require Apple's online verification.
 On the physical SE on 2026-09-27, Xcode reported an untrusted certificate but the icon showed
 "Unable to Verify App" and Settings had no Developer App profile. One tap on the app icon while
-the phone was online resolved it. If that exact refusal occurs, inspect the launch error and
-provisioning profile first, then request that one hand step once before retrying. Do not send
-the person searching for a trust profile that is absent or repeatedly retry the unchanged refusal.
+the phone was online resolved it. On 2026-10-02 the same refusal ("Profile Needs Network
+Validation") came from the phone's Wi-Fi DNS server no longer answering it, and a restart of the
+phone cleared it; the phone has no passcode, so it comes back usable on its own (CEO 2026-10-02).
+So `rios device verify|run|perf|hold` restart the phone ONCE on their own when the launch is
+refused this way (`rios device reboot`, phone_net.py) and go on, or say why not. Do not send the
+person searching for a trust profile that is absent or repeatedly retry the unchanged refusal.
 
 Steps are JSON objects with "do" and, where needed, "id" (accessibility identifier), "label"
 (substring of the accessibility label) or "kind" ("switch" or "button": the first one), "in":
@@ -1196,8 +1202,24 @@ def trust(args):
     report["reading"] = trust_reading(kept)
     if result.get("state") == "ok":
         report["reading"]["cause"] = None
+    elif result.get("state") == "untrusted":
+        # The fix the automation applies on its own (CEO 2026-10-02): the phone has no passcode, so a
+        # restart brings it back usable, and on 2026-10-02 a restart cleared the DNS that did not answer.
+        report["remedy"] = (f"rios device reboot --device {args.device}: restarts the phone and opens RichConnect "
+                            "until iOS verifies it; rios device run, verify, perf and hold do this once on their own "
+                            "before they give up")
     report["log"] = {"out": str(out), "lines": len(kept)}
     return emit(report, 0 if result.get("state") == "ok" else 1)
+
+
+def restart_phone(args):
+    """`rios device reboot --device ID`: restart the phone through devicectl, wait until it is connected
+    again, and open RichConnect until iOS verifies it (phone_net.reboot). Exit 0 when the app opens.
+    Nothing is installed, removed or erased; the phone has no passcode, so it comes back usable."""
+    sys.path.insert(0, str(ROOT / "richos/mobile"))
+    import phone_net
+    result = phone_net.reboot(args.device, lambda line: print(line, file=sys.stderr, flush=True))
+    return emit(result, 0 if result.get("state") == "ok" else 1)
 
 
 SYSLOG_KEEP = ("RichOSNative", "dev.richos.connect")
@@ -1345,7 +1367,7 @@ def main(argv):
     ps = sub.add_parser("pair-steps")
     ps.add_argument("config")
     ps.add_argument("--v2-hold", type=int, default=None)
-    for name in ("procs", "apps", "lock", "battery", "syslog", "trust"):
+    for name in ("procs", "apps", "lock", "battery", "syslog", "trust", "reboot"):
         s = sub.add_parser(name)
         s.add_argument("--device", required=True)
         if name == "procs":
@@ -1387,7 +1409,8 @@ def main(argv):
                                     f"`rios device {args.command} ...`: the one command line that puts only the Release "
                                     "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
-                "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore, "trust": trust}[args.command](args)
+                "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore, "trust": trust,
+                "reboot": restart_phone}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error), **getattr(error, "extra", {})}, 2)
     except subprocess.TimeoutExpired as error:
