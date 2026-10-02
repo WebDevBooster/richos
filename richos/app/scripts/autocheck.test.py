@@ -1265,6 +1265,36 @@ class Land(Fixture):
         self.assertTrue((self.repo / ".git/richos-autocheck/land" / tree).exists())
         self.assertEqual(self.recorded(), "")
 
+    def test_every_line_of_the_land_plan_is_one_the_real_runner_reads_the_phone_scan_included(self):
+        # 2026-10-02: the land added the physical-phone scan as a bare `python3 richos/mobile/
+        # physical.py scan`, and the real proof-run.py refused the whole plan ("cannot read line 2
+        # of the selection") before any check ran, so every land that selected it was refused. The
+        # fixture runner runs any shell line, so only the real runner's reader can catch it.
+        scanner = self.repo / "richos/mobile/physical.py"
+        scanner.parent.mkdir(parents=True, exist_ok=True)
+        scanner.write_text("import os, sys\n"
+                           "with open(os.environ['AUTOCHECK_FIXTURE_LOG'], 'a') as log:\n"
+                           "    log.write('physical ' + ' '.join(sys.argv[1:]) + '\\n')\n"
+                           "print('physical.py scan: no phone install, uninstall or wipe outside the command lines')\n")
+        self.make()
+        self.branch_with("feature", "richos/app/src/thing.txt", "fine, better\n")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertIn("every selected check passed", out.stderr)
+        self.assertIn("physical scan", self.tools())
+        plan = next((self.base / "proof-runs").glob("*/attempt-*/plan.json"))
+        lines = json.loads(plan.read_text())
+        self.assertTrue(any("physical.py scan" in line for line in lines), lines)
+        selection = self.base / "selection.txt"
+        selection.write_text("\n".join(lines) + "\n")
+        logs = self.base / "real-runner-logs"
+        env = dict(self.env, RICHOS_RUNTIME_DIR=str(self.base / "no-runtime"))
+        real = subprocess.run([sys.executable, str(HERE / "proof-run.py"), "--commands", str(selection),
+                               "--dry-run", "--log-dir", str(logs)],
+                              env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        self.assertEqual(real.returncode, 0, real.stdout + real.stderr)
+        self.assertIn("from %d selected command(s)" % len(lines), real.stdout)
+        self.assertIn("cd richos/mobile && python3 physical.py scan", real.stdout)
+
     def test_a_land_that_changes_nothing_under_the_app_runs_no_application_lint(self):
         # Hunt part 2, finding 13: a docs-only land paid for `lint.sh --all` (58 s warm) although
         # nothing it changed is application code. The commit check already skips it.
