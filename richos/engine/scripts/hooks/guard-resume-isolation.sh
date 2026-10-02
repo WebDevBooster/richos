@@ -529,7 +529,9 @@ def wt_present(m):
     .claude/worktrees/)."""
     cwd = str(m.get("cwd") or "")
     if "/.claude/worktrees/" in cwd:
-        return os.path.isdir(cwd)
+        # P3-24: a LEFTOVER directory (git removed the worktree, files remain)
+        # has no .git entry; only a real worktree does.
+        return os.path.isdir(cwd) and os.path.exists(os.path.join(cwd, ".git"))
     return None
 
 # Exact match on name OR agentId (both addressing forms).

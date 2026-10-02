@@ -1344,7 +1344,7 @@
     },
     "scripts/hooks/guard-resume-isolation.sh#pause-rejection": {
       "source": "scripts/hooks/guard-resume-isolation.sh",
-      "sha256": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+      "sha256": "ded132e75baf721ffb5a62f4d541d6c66902a4cee21eeee643250d2d821ede57",
       "evidence": "The pause fixture sends an invalid pause message and exits at pause_protocol validation before recipient/workspace/liveness handling. It sources real config and materializes the SESSION_TEAMS_DIR default before rejection. Root resolution is the only other helper reached.",
       "keys": [
         "SESSION_TEAMS_DIR"
@@ -3678,7 +3678,7 @@
     },
     "scripts/hooks/guard-resume-isolation.sh#pause-terminal-fixture": {
       "source": "scripts/hooks/guard-resume-isolation.sh",
-      "sha256": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+      "sha256": "ded132e75baf721ffb5a62f4d541d6c66902a4cee21eeee643250d2d821ede57",
       "evidence": "The pause fixture now passes a valid message as well as an invalid one. It sources the engine config (SESSION_TEAMS_DIR), resolves roots, checks pause syntax and queries its explicitly empty private workspace registry. On unregistered recipient it reads roster and identity data, with fixed agent-liveness and teammate-identity imports. The generated payload has no resume acknowledgement and never executes a message or lifecycle command.",
       "keys": [
         "SESSION_TEAMS_DIR"
@@ -4160,7 +4160,7 @@
     },
     "scripts/hooks/guard-resume-isolation.sh": {
       "source": "scripts/hooks/guard-resume-isolation.sh",
-      "sha256": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+      "sha256": "ded132e75baf721ffb5a62f4d541d6c66902a4cee21eeee643250d2d821ede57",
       "evidence": "Sources entity config, validates fixed pause syntax, checks the workspace recipient and parses roster/transcript/lock evidence with fixed agent-liveness and teammate-identity imports. Message strings are data, never sent or executed. Resume acknowledgement appends a log and returns. No dynamic commands from settings.",
       "keys": [
         "SESSION_TEAMS_DIR"
@@ -4185,7 +4185,7 @@
     },
     "scripts/hooks/guard-resume-isolation.test.sh": {
       "source": "scripts/hooks/guard-resume-isolation.test.sh",
-      "sha256": "5ac890c807ee15f75bd087fd44388cd500e1772e755f2d2422fe6b83fbf237a5",
+      "sha256": "8ae5846c35bb94ec07b9231a32210c1be6ce8c9874bda992c6e1cc0ff45dcf89",
       "evidence": "Real guard first resolves the real engine and sources its config. Additional copied-guard cases use literal SESSION_TEAMS_DIR fixtures. Real workspaces CLI calls integration/register-spawn/hook/pause and the guard queries recipient; private registry and Git worktrees do not replace engine cleanup settings. The finite pause/identity/liveness helpers are included and no nested suite or model agent is invoked. Renewed 2026-09-28: the registry, CLAUDE_CONFIG_DIR and the land-lock directory are private from the first guard call.",
       "keys": [],
       "edges": [
@@ -16122,8 +16122,8 @@
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/hooks/guard-model-ceiling.test.sh": "9e3f365b80479392d8ac4ce1039cab1ca2dc232113c8ee7fe54d620adc9c1930",
         "scripts/hooks/guard-resume-isolation.mutation.sh": "9412888b69763091752d97010e075441fb5fb232ed8ab4557858a94757df9b14",
-        "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
-        "scripts/hooks/guard-resume-isolation.test.sh": "5ac890c807ee15f75bd087fd44388cd500e1772e755f2d2422fe6b83fbf237a5",
+        "scripts/hooks/guard-resume-isolation.sh": "ded132e75baf721ffb5a62f4d541d6c66902a4cee21eeee643250d2d821ede57",
+        "scripts/hooks/guard-resume-isolation.test.sh": "8ae5846c35bb94ec07b9231a32210c1be6ce8c9874bda992c6e1cc0ff45dcf89",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
         "scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
@@ -16921,7 +16921,7 @@
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/hooks/guard-reference-ledger.sh": "d80ab9294a7ff64b244285f5467ecf728b692701b6a5d526152909335b750874",
-        "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+        "scripts/hooks/guard-resume-isolation.sh": "ded132e75baf721ffb5a62f4d541d6c66902a4cee21eeee643250d2d821ede57",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
@@ -17044,7 +17044,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
         "scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
-        "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
+        "scripts/hooks/guard-resume-isolation.sh": "ded132e75baf721ffb5a62f4d541d6c66902a4cee21eeee643250d2d821ede57",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
         "scripts/hooks/guard-bash-main-writes.sh": "17813a0bf3a26cd016d0c641c71825c282d443af06325b31d3622b0910a7f039",
@@ -17267,8 +17267,8 @@
       "commands": [],
       "sources": {
         "mega-lander/workspaces.py": "c82315d22f2a816da94000766f54b7442d718a9a5571b71c6d41245ce519e1b5",
-        "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
-        "scripts/hooks/guard-resume-isolation.test.sh": "5ac890c807ee15f75bd087fd44388cd500e1772e755f2d2422fe6b83fbf237a5",
+        "scripts/hooks/guard-resume-isolation.sh": "ded132e75baf721ffb5a62f4d541d6c66902a4cee21eeee643250d2d821ede57",
+        "scripts/hooks/guard-resume-isolation.test.sh": "8ae5846c35bb94ec07b9231a32210c1be6ce8c9874bda992c6e1cc0ff45dcf89",
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
         "scripts/lib/agent_hold.py": "4c4cac39ae2c3e8423f65ceb8ad73949c538ac38214e285345651e94167874a1",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
