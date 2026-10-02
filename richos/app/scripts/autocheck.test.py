@@ -117,6 +117,9 @@ fi
 if printf '%s\\n' "$paths" | grep -q 'state'; then
     echo "  cd richos/app && bash scripts/state.sh"
 fi
+if printf '%s\\n' "$paths" | grep -q 'later'; then
+    echo "  cd richos/app && bash scripts/later.sh"
+fi
 if printf '%s\\n' "$paths" | grep -q 'mutant'; then
     # The unit the merge of 4e73fd89 ran into its cap, and an ordinary unit beside it.
     shard="bash scripts/ci-shard.sh --only-units"
@@ -224,7 +227,9 @@ for line in lines:
         if only and line not in only:
             # --only-check: what is not named is left out of this run, as the real runner does.
             rows.append({"check": line, "result": "not-run",
-                         "not_run": {"why": "not selected for this retry", "suites": []}})
+                         "not_run": {"why": "not selected for this retry",
+                                     "suites": [{"name": line, "state": "retry-unselected",
+                                                 "reason": "not selected for this retry"}]}})
             continue
         with open(os.environ["AUTOCHECK_FIXTURE_LOG"], "a") as log:
             log.write("run " + line + "\\n")
@@ -273,15 +278,18 @@ cd "$(dirname "$0")/.."
 echo "NOT-RUN $(cat src/screen.txt)"
 """
 STATE = """#!/usr/bin/env bash
-# Fixture check that ends in the runner state src/state.txt names (and its reason, if any).
+# Fixture check that ends in the runner state src/<its name>.txt names (and its reason, if any).
 cd "$(dirname "$0")/.."
-state=$(cat src/state.txt)
-# "once-<state>" ends in <state> on its first run only; the retry alone then passes.
+name=$(basename "$0" .sh)
+state=$(cat "src/$name.txt")
+runs=$(( $(cat "$AUTOCHECK_FIXTURE_LOG.$name.runs" 2>/dev/null || echo 0) + 1 ))
+echo "$runs" > "$AUTOCHECK_FIXTURE_LOG.$name.runs"
+# "once-<state>" ends in <state> on its first run only, "twice-<state>" on its first two; then it
+# passes. "held-<state>" ends in <state> while <log>.hold exists (a Mac that stays too busy).
 case "$state" in
-    once-*)
-        if [ -e "$AUTOCHECK_FIXTURE_LOG.once" ]; then exit 0; fi
-        touch "$AUTOCHECK_FIXTURE_LOG.once"
-        state="${state#once-}" ;;
+    once-*) if [ "$runs" -gt 1 ]; then exit 0; fi; state="${state#once-}" ;;
+    twice-*) if [ "$runs" -gt 2 ]; then exit 0; fi; state="${state#twice-}" ;;
+    held-*) if [ ! -e "$AUTOCHECK_FIXTURE_LOG.hold" ]; then exit 0; fi; state="${state#held-}" ;;
 esac
 echo "STATE $state"
 """
@@ -315,7 +323,8 @@ class Fixture(unittest.TestCase):
         for rel, text, mode in (("scripts/lint.sh", LINT, 0o755), ("scripts/lint/driver.py", DRIVER, 0o644),
                                 ("scripts/proof-for.sh", PROOF_FOR, 0o755), ("scripts/proof-run.py", PROOF_RUN, 0o644),
                                 ("scripts/suite.sh", SUITE, 0o755), ("scripts/screen.sh", SCREEN, 0o755),
-                                ("scripts/state.sh", STATE, 0o755), ("scripts/run-tests.sh", RUN_TESTS, 0o755),
+                                ("scripts/state.sh", STATE, 0o755), ("scripts/later.sh", STATE, 0o755),
+                                ("scripts/run-tests.sh", RUN_TESTS, 0o755),
                                 ("scripts/native-ios-share.test.sh", SIMULATOR_SUITE, 0o755),
                                 ("scripts/native-ios-ui.test.sh", SIMULATOR_SUITE, 0o755),
                                 ("scripts/front-door.test.sh", SCREEN_SUITE, 0o755),
@@ -961,13 +970,13 @@ class Land(Fixture):
                              [("cd richos/app && bash scripts/state.sh", why)])
         self.assertEqual(self.recorded(), "")
 
-    def refused_after_retry(self, state):
+    def refused_after_retry(self, state, after="ONE RETRY"):
         self.make()
         self.branch_with("feature", "richos/app/src/state.txt", state + "\n")
         before = self.head("main")
         out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
         self.assertIn("MERGE INTO MAIN REFUSED", out.stderr)
-        self.assertIn(f"NO VERDICT AFTER ONE RETRY: cd richos/app && bash scripts/state.sh ({state}); re-run it alone.",
+        self.assertIn(f"NO VERDICT AFTER {after}: cd richos/app && bash scripts/state.sh ({state}); re-run it alone.",
                       out.stderr)
         self.assertEqual(self.head("main"), before)
         self.assertEqual(self.tools().count("run cd richos/app && bash scripts/state.sh"), 2)
@@ -1015,7 +1024,99 @@ class Land(Fixture):
         self.refused_after_retry("timed-out")
 
     def test_a_check_ended_at_the_gate_cap_twice_refuses_the_merge(self):
-        self.refused_after_retry(ENDED)
+        # Ended in both rounds and nothing else decided in the second: a third would not either.
+        self.refused_after_retry(ENDED, after="2 ROUNDS")
+
+    # 2026-10-02, the combined land of cc/zach-opus-e2fix1 (214 checks): refused four times with
+    # no failing check, because the plan needed about 2200 s of a gate capped at 900 s, and every
+    # retry re-ran what had already passed. A large land runs in rounds that keep every pass.
+    def make_two_slow_checks(self, state, later=None):
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/state.txt", state + "\n")
+        if later:
+            self.write("richos/app/src/later.txt", later + "\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "two slow owning checks")
+        self.git("checkout", "-q", "main")
+        self.log.unlink(missing_ok=True)
+
+    def runner_calls(self):
+        return [line for line in self.side_log(".runner").splitlines() if line.strip()]
+
+    def test_a_large_land_runs_in_rounds_until_every_check_has_a_verdict_and_lands(self):
+        # Round 1: the suite and the lint pass, both slow checks are ended at the round's cap.
+        # Round 2 (only those two): `later` passes, `state` is ended again. Round 3 (only
+        # `state`): it passes. Nothing that passed runs again, and the merge lands.
+        self.make_two_slow_checks("twice-" + ENDED, "once-" + ENDED)
+        state, later = "cd richos/app && bash scripts/state.sh", "cd richos/app && bash scripts/later.sh"
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertIn("round 3 of at most 6", out.stderr)
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 1)
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/lint.sh --changed"), 1)
+        self.assertEqual((self.tools().count("run " + state), self.tools().count("run " + later)), (3, 2))
+        calls = self.runner_calls()
+        self.assertEqual(len(calls), 3, calls)
+        # Each round resumes the round before it, and names only what still has no verdict.
+        dirs = [call.split("--log-dir ")[1].split()[0] for call in calls]
+        self.assertIn("--resume " + dirs[0], calls[1])
+        self.assertIn("--resume " + dirs[1], calls[2])
+        self.assertIn("--only-check " + later, calls[1])
+        self.assertNotIn("--only-check " + later, calls[2])
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        self.assertEqual((receipt["not_run"], receipt["rounds"]), ([], 3))
+
+    def test_every_round_waits_for_admission_the_same_time_so_a_pass_keeps_its_identity(self):
+        # The runner keys a pass by its settings; the first run waited what was left of the
+        # gate (893 s) and the retry 900 s, so the retry matched none of the first run's passes.
+        self.make_two_slow_checks("once-" + ENDED)
+        self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        calls = self.runner_calls()
+        self.assertEqual(len(calls), 2, calls)
+        for flag in ("--admission-wait", "--slot-wait"):
+            values = {call.split(flag + " ")[1].split()[0] for call in calls}
+            self.assertEqual(values, {"900"}, (flag, calls))
+
+    def test_a_refused_attempt_keeps_its_passes_and_the_next_attempt_on_the_same_tree_runs_only_the_rest(self):
+        # Attempt 1 passes the suite and the lint and runs out of rounds for `state` (the Mac
+        # stays too busy: round 2 decides nothing). Attempt 2 on the same tree, the merge
+        # concluded with `git commit`, resumes it: only `state` runs, and the merge commits.
+        self.make_two_slow_checks("held-" + ENDED)
+        Path(str(self.log) + ".hold").touch()
+        state = "cd richos/app && bash scripts/state.sh"
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        self.assertIn(f"NO VERDICT AFTER 2 ROUNDS: {state} ({ENDED}); re-run it alone.", out.stderr)
+        self.assertIn("What passed on this tree is kept", out.stderr)
+        before = self.head("main")
+        Path(str(self.log) + ".hold").unlink()
+        self.git("commit", "-m", "land feature")
+        self.assertNotEqual(self.head("main"), before)
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 1)
+        self.assertEqual(self.tools().count("run " + state), 3)
+        calls = self.runner_calls()
+        self.assertIn("--resume " + calls[1].split("--log-dir ")[1].split()[0], calls[2])
+        for flag in ("--admission-wait", "--slot-wait"):
+            self.assertEqual({call.split(flag + " ")[1].split()[0] for call in calls}, {"900"}, calls)
+
+    def test_a_pass_not_carried_into_a_round_is_run_again_never_counted(self):
+        # A check that passed in round 1 and that the runner could not carry into round 2 (its
+        # inputs changed under it) is left out of round 2 like a check the round did not name.
+        # It has no verdict, so round 3 runs it; it is never counted as passed from round 1.
+        self.make()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/state.txt", "once-" + ENDED + "\n")
+        runner = self.repo / "richos/app/scripts/proof-run.py"
+        carried = "        old = next((row for row in previous if row[\"check\"] == line and row[\"result\"] == \"passed\"), None)\n"
+        self.assertIn(carried, runner.read_text())
+        runner.write_text(runner.read_text().replace(carried, carried.replace(
+            "), None)", "\n                    and not (\"suite.sh\" in line and only)), None)")))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "a slow check; the runner cannot carry the suite's pass into a named round")
+        self.git("checkout", "-q", "main")
+        self.log.unlink(missing_ok=True)
+        self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 2, self.tools())
+        self.assertIn("--only-check cd richos/app && bash scripts/suite.sh", self.runner_calls()[2])
 
     def test_a_check_that_times_out_and_passes_on_the_retry_lands(self):
         self.landed_after_retry("timed-out")
