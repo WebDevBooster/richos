@@ -236,7 +236,7 @@ export async function main(args, env = process.env) {
         `DEVELOPMENT_TEAM=${settings.team}`, 'CODE_SIGN_STYLE=Automatic', 'CODE_SIGN_IDENTITY=Apple Development',
         'RICHOS_APS_ENVIRONMENT=development', '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
       const built = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'build-for-testing', ...base],
-        { log, env, health, timeoutMs: 600000 });
+        { log, env, health, timeoutMs: 600000, admission: true });
       if (built.status !== 0) throw Error(`Device build failed: ${log}`);
     },
   });
@@ -269,7 +269,7 @@ p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(pli
     const tested = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'test-without-building',
       '-xctestrun', spec, '-destination', `id=${settings.device}`, '-resultBundlePath', result,
       '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', String(allowance)],
-    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: (allowance + 60) * 1000 });
+    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: (allowance + 60) * 1000, admission: true });
     if (tested.status !== 0) throw Error(`Physical check failed: ${result}. No retry attempted.`);
     const summary = JSON.parse(execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', result, '--format', 'json'], { encoding: 'utf8', env }));
     writeFileSync(result + '.summary.json', JSON.stringify(summary, null, 2));

@@ -38,6 +38,31 @@ test('device runner bounds a hung test and preserves its diagnostics', async t =
   }), /time limit/);
   assert.match(readFileSync(log, 'utf8'), /Device test stopped: Device test exceeded its time limit/);
 });
+// A stand-in for native-work: holds the command in "admission" for `queueMs`, then admits it the
+// way native-work does (writes RICHOS_NATIVE_ADMITTED_FILE), then runs for `runMs` (or hangs).
+const standIn = (queueMs, runMs) => ['-e', `setTimeout(()=>{require("node:fs").writeFileSync(process.env.RICHOS_NATIVE_ADMITTED_FILE,"${queueMs / 1000}");
+console.log("admitted"); ${runMs === null ? 'setInterval(()=>{},1000)' : `setTimeout(()=>{console.log("done")},${runMs})`}},${queueMs})`];
+test('a time limit starts at native-work admission: a command queued longer than the limit then admitted completes', async t => {
+  const { runDeviceProcess, log } = await setup(t);
+  const result = await runDeviceProcess(process.execPath, standIn(900, 100), { log, timeoutMs: 400, admission: true, admissionPollMs: 20 });
+  assert.equal(result.status, 0);
+  const text = readFileSync(log, 'utf8');
+  assert.match(text, /done/);
+  assert.match(text, /Device test admitted after 0\.9 s; its time limit starts now/);
+});
+test('a command that hangs after admission is still stopped at its time limit', async t => {
+  const { runDeviceProcess, log } = await setup(t);
+  await assert.rejects(runDeviceProcess(process.execPath, standIn(300, null), { log, timeoutMs: 300, admission: true, admissionPollMs: 20 }), /time limit/);
+  assert.match(readFileSync(log, 'utf8'), /admitted after/);
+});
+test('the admission wait has its own bound', async t => {
+  const { runDeviceProcess, log } = await setup(t);
+  await assert.rejects(runDeviceProcess(process.execPath, standIn(5000, 10), { log, timeoutMs: 5000, admission: true, admissionMs: 200, admissionPollMs: 20 }), /not admitted within/);
+});
+test('without admission the limit still counts from the start (unchanged)', async t => {
+  const { runDeviceProcess, log } = await setup(t);
+  await assert.rejects(runDeviceProcess(process.execPath, standIn(900, 100), { log, timeoutMs: 300 }), /time limit/);
+});
 test('device runner refuses to launch when its initial health check fails', async t => {
   const { runDeviceProcess, log } = await setup(t);
   await assert.rejects(runDeviceProcess('this-program-does-not-exist', [], {
