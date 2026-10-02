@@ -838,6 +838,10 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # keep clicking those things". Measured over 166,915 distinct Bash commands from
 # this Mac's transcripts: 113 refused. Suite: guard-foreign-app-data.test.sh;
 # harness: foreign-app-data.mutation.sh.
+# guard-unguarded-rm.sh, ADDED 2026-10-02 — BLOCKING, a module of the Bash chain's manifest. It refuses
+# an rm or rmdir (or find -delete) whose path starts with an unguarded variable, or names a critical
+# path, which is Claude Code's own circuit breaker: it asked the CEO a Yes/No even with bypass
+# permissions on. The refusal carries the exact rewrite. Suite: guard-unguarded-rm.test.sh.
 # operator-claim.sh, guard-operator-claim.sh, guard-shared-writes.sh,
 # release-shared-writes.sh and guard-live-names.sh, ADDED 2026-09-25 — the engine
 # side of several operator leads on one Mac (richos-hq spec r3 (e) the claim, e3,
@@ -892,6 +896,7 @@ failure-type-lookup.sh
 guard-resource-waits.sh
 guard-failure-type-answer.sh
 guard-foreign-app-data.sh
+guard-unguarded-rm.sh
 operator-claim.sh
 guard-operator-claim.sh
 guard-shared-writes.sh
