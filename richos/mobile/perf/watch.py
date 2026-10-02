@@ -47,9 +47,9 @@ its own clone of main's tip on the external SSD (never a worktree of the reposit
     could not measure.
   - runs `perf.py compare` on the record (it reads files only, never a phone). Both metrics must be
     compared; a NOT COMPARED metric is a run that could not measure.
-  - signs the Android build: `randroid device install` runs inside richos-hq's
-    scripts/with-android-signing.py (RICHOS_PHONE_WATCH_SIGNING names another), because randroid refuses
-    an unsigned Release APK. The iPhone has its own signing team (RICHOS_APPLE_TEAM).
+  - signs the Android build: `randroid device install` and `randroid device perf` run inside
+    richos-hq's scripts/with-android-signing.py (RICHOS_PHONE_WATCH_SIGNING names another), because
+    randroid refuses an unsigned Release APK and a debuggable twin without the upload key. The iPhone has its own signing team (RICHOS_APPLE_TEAM).
   - puts phone_guard.py in front of adb and xcrun for everything the verbs start (first on PATH):
     an uninstall or a data clear is refused, the run stops there and is reported REFUSED (CEO rule
     2026-10-01: never uninstall the app or clear its data, on either phone).
@@ -673,9 +673,10 @@ def verb(platform, name, checkout, phone, extra, guard, log_path, record_out=Non
     in MEASURED_EXITS that wrote the record there is a measurement, returned for judging."""
     spec = VERBS[platform]
     argv = [*cli(platform, checkout), *spec[name], spec["phone"], phone, *extra]
-    if platform == "android" and name == "install":
-        # randroid refuses an unsigned APK, and a phone installs only a signed one: the Release build must
-        # carry the upload key, which richos-hq's wrapper puts in the child's environment (never in this
+    if platform == "android":
+        # randroid refuses an unsigned APK, and a phone installs only a signed one: the Release build (install)
+        # and the debuggable twin the measurement builds (perf, "must carry the upload key, the key of the
+        # release build on the phone") must carry the upload key, which richos-hq's wrapper puts in the child's environment (never in this
         # public repository, never on a command line).
         wrapper = shlex.split(setting("SIGNING", DEFAULT_SIGNING))
         if not Path(wrapper[-1]).is_file():

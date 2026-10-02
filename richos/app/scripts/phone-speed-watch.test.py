@@ -293,14 +293,15 @@ class Run(Base):
         p = self.watch("run", "--repo", str(self.repo))
         self.assertIn("nothing pending", p.stderr)
 
-    def test_W17_the_android_install_runs_inside_the_signing_wrapper_and_the_iphone_does_not(self):
+    def test_W17_the_android_install_and_perf_run_inside_the_signing_wrapper_and_the_iphone_does_not(self):
         # The 2026-10-02 run: randroid refused the unsigned Release APK, so the Android was never measured.
         self.request()
         self.run_round()
         lines = self.tools().splitlines()
-        install = next(i for i, l in enumerate(lines) if l.startswith("cli-android device install"))
-        self.assertEqual(lines[install - 1], "signing-wrapper", lines)
-        self.assertEqual(lines.count("signing-wrapper"), 1, "only the Android install needs the key")
+        for verb in ("install", "perf"):  # perf builds the debuggable twin, which must carry the upload key too
+            at = next(i for i, l in enumerate(lines) if l.startswith(f"cli-android device {verb}"))
+            self.assertEqual(lines[at - 1], "signing-wrapper", (verb, lines))
+        self.assertEqual(lines.count("signing-wrapper"), 2, "the iPhone verbs never go through the Android key")
 
     def test_W18_a_missing_signing_wrapper_is_a_run_that_could_not_measure(self):
         self.request()
