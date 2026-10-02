@@ -36,7 +36,7 @@
 # run-tests: no-host-screen: simctl and XCUITest run on simulators this suite creates, booted headless without Simulator.app
 # run-tests: inputs richos/mobile/native-ios/TestSupport richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Platform/Shared/PlatformIdentity.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift richos/mobile/native-ios/App richos/mobile/native-ios/Core/Sources richos/mobile/native-ios/Core/Package.swift richos/mobile/native-ios/DevBridge richos/mobile/native-ios/Release/platform.yml richos/mobile/native-ios/ShareExtension richos/mobile/native-ios/NotificationService richos/mobile/native-ios/Release/App-Info.plist richos/mobile/native-ios/Release/RichOSNative.entitlements
 # run-tests: select-inputs richos/mobile/native-ios/App richos/mobile/native-ios/Core/Sources richos/mobile/native-ios/Core/Package.swift richos/mobile/native-ios/DevBridge richos/mobile/native-ios/project.yml richos/mobile/native-ios/Release/platform.yml richos/mobile/native-ios/ShareExtension richos/mobile/native-ios/NotificationService richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/TestSupport richos/mobile/native-ios/Release/App-Info.plist richos/mobile/native-ios/Release/RichOSNative.entitlements
-# run-tests: covers richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Conversation/EdgeCuedScroll.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UITests/PairWaitInteractionTests.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/TranscriptLaunchTests.swift richos/mobile/native-ios/UnitTests/LaunchTimingTests.swift richos/mobile/native-ios/App/Platform/LaunchTiming.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Design/SpinSchedule.swift richos/mobile/native-ios/UnitTests/ShareContextMirrorTests.swift richos/mobile/native-ios/App/Features/Conversation/ConnectionWords.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift richos/mobile/native-ios/UnitTests/NetworkMonitorTests.swift richos/mobile/native-ios/TestSupport/BuildStamp.swift richos/mobile/native-ios/TestSupport/TestBundle-Info.plist richos/mobile/native-ios/App/Features/Conversation/QuestionCardView.swift richos/mobile/native-ios/UITests/QuestionTests.swift richos/mobile/native-ios/App/Platform/BackgroundSendTime.swift richos/mobile/native-ios/App/Design/EdgeGuard.swift richos/mobile/native-ios/UnitTests/EdgeWindowTests.swift richos/mobile/native-ios/UnitTests/RefusalReasonTests.swift
+# run-tests: covers richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Conversation/EdgeCuedScroll.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UITests/PairWaitInteractionTests.swift richos/mobile/native-ios/DevBridge/DevBridgeFixtureMac.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/TranscriptLaunchTests.swift richos/mobile/native-ios/App/Features/Root/LaunchShell.swift richos/mobile/native-ios/App/Platform/LaunchScreen.storyboard richos/mobile/native-ios/App/Platform/Assets.xcassets/LaunchGround.colorset/Contents.json richos/mobile/native-ios/App/Platform/Assets.xcassets/LaunchIcon.imageset/Contents.json richos/mobile/native-ios/UnitTests/LaunchTimingTests.swift richos/mobile/native-ios/App/Platform/LaunchTiming.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Design/SpinSchedule.swift richos/mobile/native-ios/UnitTests/ShareContextMirrorTests.swift richos/mobile/native-ios/App/Features/Conversation/ConnectionWords.swift richos/mobile/native-ios/App/Platform/NetworkMonitor.swift richos/mobile/native-ios/UnitTests/NetworkMonitorTests.swift richos/mobile/native-ios/TestSupport/BuildStamp.swift richos/mobile/native-ios/TestSupport/TestBundle-Info.plist richos/mobile/native-ios/App/Features/Conversation/QuestionCardView.swift richos/mobile/native-ios/UITests/QuestionTests.swift richos/mobile/native-ios/App/Platform/BackgroundSendTime.swift richos/mobile/native-ios/App/Design/EdgeGuard.swift richos/mobile/native-ios/UnitTests/EdgeWindowTests.swift richos/mobile/native-ios/UnitTests/RefusalReasonTests.swift
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -583,6 +583,74 @@ for p in [Palette.sovereign, Palette.daybreak] {
     check(RoundSpec.disabledOrbFill(p) == p.signal && RoundSpec.disabledOrbOpacity == 0.45, "G13 \(theme): the disabled orb is gold at 45% (app.js setDisabled)")
     print(String(format: "  info  G13 \(theme): dimmed orb on surface %.2f:1 (inactive control, declared exemption)",
                  ratio(p.signal.opacity(RoundSpec.disabledOrbOpacity), p.surface)))
+}
+
+// THE LAUNCH SCREEN (the CEO, 2026-10-02: "From the moment any part of the app is visible, there must be
+// something useful or pleasing on screen; a blank or white screen never is"). iOS's generated launch
+// screen (`UILaunchScreen_Generation`, or an empty `UILaunchScreen`) is an empty window, white in light
+// mode, shown from the tap to the app's first frame: refused here, as Android's SpeckleTest refuses a
+// launch window that is not its launch ground. The launch screen is LaunchScreen.storyboard, ported
+// from Android's: the app icon centered on the ground of each look, and the app's first frame
+// (LaunchShell.swift) draws the same picture at the same size.
+do {
+    let root = CommandLine.arguments[1]
+    func read(_ path: String) -> String { (try? String(contentsOfFile: root + "/" + path, encoding: .utf8)) ?? "" }
+    let project = read("project.yml") + read("Release/platform.yml")
+    check(!project.contains("UILaunchScreen_Generation") && !project.contains("UILaunchScreen:"),
+          "launch screen: not iOS's generated, empty one (no UILaunchScreen_Generation, no UILaunchScreen)")
+    check(project.contains("INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen"),
+          "launch screen: the app names LaunchScreen.storyboard")
+    let board = read("App/Platform/LaunchScreen.storyboard")
+    check(board.contains("launchScreen=\"YES\""), "launch screen: App/Platform/LaunchScreen.storyboard is a launch screen")
+    check(board.contains("<color key=\"backgroundColor\" name=\"LaunchGround\"/>"), "launch screen: its window is the ground")
+    // What the storyboard draws, without its comments (which may name what it never draws).
+    let drawn = board.replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
+    check(!["<label", "<textView", "<textField", "<button", "speckle", "Speckle"].contains { drawn.contains($0) },
+          "launch screen: no text, no controls (HIG), never the speckle")
+    let images = drawn.components(separatedBy: "image=\"").dropFirst().compactMap { $0.split(separator: "\"").first.map(String.init) }
+    check(images == ["LaunchIcon"], "launch screen: draws one image, the app icon LaunchIcon (drew \(images))")
+    let iconSet = "App/Platform/Assets.xcassets/LaunchIcon.imageset/"
+    let iconFiles = ["LaunchIcon-light@2x.png", "LaunchIcon-dark@2x.png", "LaunchIcon-light@3x.png", "LaunchIcon-dark@3x.png"]
+    check(iconFiles.allSatisfy { read(iconSet + "Contents.json").contains("\"\($0)\"") && FileManager.default.fileExists(atPath: root + "/" + iconSet + $0) },
+          "launch screen: LaunchIcon has its light and dark art at 2x and 3x (\(iconFiles.joined(separator: ", ")); Tools/launch-icon.py renders it from AppIcon-1024.png)")
+    // The icon is drawn at its own size, fixed as Android's is: LaunchShell.iconPoints, the size the
+    // storyboard declares, and every rendering's pixels over its scale. Sized by a multiplier on the
+    // screen's width, the test iPhone's launch picture came out without it (2026-10-02).
+    func number(_ text: String, _ pattern: String) -> String? {
+        guard let r = text.range(of: pattern, options: .regularExpression) else { return nil }
+        return text[r].components(separatedBy: CharacterSet(charactersIn: "0123456789.").inverted).filter { !$0.isEmpty }.last
+    }
+    func pngWidth(_ path: String) -> Int? {
+        guard let d = FileManager.default.contents(atPath: root + "/" + path), d.count > 24 else { return nil }
+        return d[16..<20].reduce(0) { $0 << 8 | Int($1) }
+    }
+    let points = number(read("App/Features/Root/LaunchShell.swift"), "iconPoints: CGFloat = [0-9]+").flatMap { Int($0) }
+    let declared = number(drawn, "<image name=\"LaunchIcon\" width=\"[0-9]+").flatMap { Int($0) }
+    let rendered = iconFiles.map { f in pngWidth(iconSet + f).map { $0 / (f.contains("@3x") ? 3 : 2) } }
+    check(points != nil && declared == points && rendered.allSatisfy { $0 == points },
+          "launch screen: the icon is LaunchShell.iconPoints (\(points.map(String.init) ?? "none") pt) as the storyboard declares it (\(declared.map(String.init) ?? "none")) and as its art is rendered (\(rendered.map { $0.map(String.init) ?? "none" }))")
+    check(!drawn.contains("firstItem=\"LSi-cn-ivw\" firstAttribute=\"width\"") && !drawn.contains("firstItem=\"LSi-cn-ivw\" firstAttribute=\"height\"")
+          && !drawn.contains("multiplier="),
+          "launch screen: the icon has no size constraint and nothing is sized by a multiplier (the image's own size)")
+    check(drawn.contains("firstAttribute=\"centerX\" secondItem=\"LSr-oo-tvw\" secondAttribute=\"centerX\"")
+          && drawn.contains("firstAttribute=\"centerY\" secondItem=\"LSr-oo-tvw\" secondAttribute=\"centerY\""),
+          "launch screen: the icon is centered on the whole screen, as Android centers it")
+    // The ground of each look is the palette's ground, to the level.
+    let colorset = read("App/Platform/Assets.xcassets/LaunchGround.colorset/Contents.json")
+    let colors = ((try? JSONSerialization.jsonObject(with: Data(colorset.utf8))) as? [String: Any])?["colors"] as? [[String: Any]] ?? []
+    func level(_ value: Any?) -> Int? {
+        guard let s = value as? String else { return nil }
+        return s.hasPrefix("0x") ? Int(s.dropFirst(2), radix: 16) : Double(s).map { Int(($0 * 255).rounded()) }
+    }
+    for (look, palette) in [("light", Palette.daybreak), ("dark", Palette.sovereign)] {
+        let entry = colors.first { (($0["appearances"] as? [[String: String]])?.first?["value"] ?? "light") == look }
+        let c = ((entry?["color"] as? [String: Any])?["components"] as? [String: Any]) ?? [:]
+        let want = rgb(palette.ground)
+        let ok = [("red", want.0), ("green", want.1), ("blue", want.2)].allSatisfy { key, v in
+            level(c[key]) == Int((v * 255).rounded()) }
+        check(ok && (entry?["color"] as? [String: Any])?["color-space"] as? String == "srgb",
+              "launch screen: the \(look) window is the \(look) ground \(c) (Palette.\(look == "light" ? "daybreak" : "sovereign").ground)")
+    }
 }
 
 if failures > 0 { print("  \(failures) headless check(s) failed"); exit(1) }

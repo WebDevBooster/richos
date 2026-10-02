@@ -14634,7 +14634,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/lib/native-work.py",
-          "sha256": "ddfd5f23208e072911b165a244639c5272c5e1d6ba4665ad20dbe55741fd1806",
+          "sha256": "795019915565ec934f265dbcc8d9fbe42f3626f9278c569c973907cb177d6ebc",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14677,7 +14677,7 @@
     },
     "scripts/lib/native-work.py#cpu-fixtures": {
       "source": "scripts/lib/native-work.py",
-      "sha256": "ddfd5f23208e072911b165a244639c5272c5e1d6ba4665ad20dbe55741fd1806",
+      "sha256": "795019915565ec934f265dbcc8d9fbe42f3626f9278c569c973907cb177d6ebc",
       "keys": [],
       "edges": [
         {
@@ -14690,7 +14690,7 @@
           "to": "scripts/lib/cpu_policy.py"
         }
       ],
-      "evidence": "Source-bound CPU fixture uses capped/needs_compiler_lane/wait_for_headroom/allowance with a fake provider; allowance is pure arithmetic over cpu_policy.DEFAULT_MAX_CPU. run either refuses immediately, executes with sys.platform=linux and run_command patched, or (native-work.test.py CoresReachTheBuild) executes with sys.platform=darwin and wait_for_headroom, sharers, os.cpu_count, cpu_guard.healthy and run_command patched and a stub in sys.modules['reserve'], so reserve.py is neither imported nor sampled. Real native build and Darwin reserve admission do not execute."
+      "evidence": "Source-bound CPU fixture uses capped/needs_compiler_lane/wait_for_headroom/allowance with a fake provider; allowance is pure arithmetic over cpu_policy.DEFAULT_MAX_CPU. run either refuses immediately, executes with sys.platform=linux and run_command patched, or (native-work.test.py CoresReachTheBuild) executes with sys.platform=darwin and wait_for_headroom, sharers, os.cpu_count, cpu_guard.healthy and run_command patched and a stub in sys.modules['reserve'], so reserve.py is neither imported nor sampled. Real native build and Darwin reserve admission do not execute. announce_admission writes the optional RICHOS_NATIVE_ADMITTED_FILE (a caller-named marker file, unset in these fixtures); it reads no other file."
     },
     "scripts/lib/testdevices.py#cpu-fixtures": {
       "source": "scripts/lib/testdevices.py",

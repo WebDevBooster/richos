@@ -495,12 +495,18 @@ def _():
         shutil.rmtree(root)
 
 
+@case("static: the iPhone launch icon is a fresh render of the app icon (native-ios Tools/launch-icon.py --check)")
+def _():
+    import subprocess
+    tool = os.path.join(REPO, "richos", "mobile", "native-ios", "Tools", "launch-icon.py")
+    p = subprocess.run([sys.executable, tool, "--check"], capture_output=True, text=True)
+    assert p.returncode == 0, (p.stdout + p.stderr).strip()[-400:]
+
+
 # The launch surfaces of THIS tree that are empty today, each with who owns it. A surface that turns
 # empty and is not listed fails; a listed one that now shows something fails until its line is removed
 # here, so the list never outlives the defect.
 KNOWN_OPEN = {
-    "iphone": "the generated launch screen is one flat color; isaac-opus-white1 is fixing the iPhone's blank start "
-              "(2026-10-02): remove this line in the land that makes it show something",
     "android-pre31": "Android 10 and 11 (minSdk 29) show the flat launch ground with no logo before the first frame; "
                      "reported by quint-opus-blank1 on 2026-10-02 (Android 12+, where the CEO's phone is, shows the icon)",
 }

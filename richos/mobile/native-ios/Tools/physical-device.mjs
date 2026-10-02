@@ -32,6 +32,9 @@ const checks = {
 };
 
 export const DEFAULT_STORE = '/Volumes/E1TB/caches/richos-native-ios/physical-store';
+// A signed Release device build, counted from native-work's admission: the wait before it (a machine
+// worker, the build lane, CPU headroom) has its own bound, device-runner's ADMISSION_LIMIT_MS.
+export const BUILD_LIMIT_MS = 600000;
 const APP = 'Release-iphoneos/RichOSNative.app';
 const RUNNER = 'Release-iphoneos/RichOSNativeUITests-Runner.app';
 
@@ -335,8 +338,11 @@ export async function main(args, env = process.env) {
         '-destination', `id=${settings.device}`, '-derivedDataPath', derived,
         `DEVELOPMENT_TEAM=${settings.team}`, 'CODE_SIGN_STYLE=Automatic', 'CODE_SIGN_IDENTITY=Apple Development',
         'RICHOS_APS_ENVIRONMENT=development', '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
+      // The limit starts when native-work admits the build (`admission: true`), never at the queue:
+      // on 2026-10-02 the wait for the Mac's CPU line was 557 s of a 600 s limit counted from the
+      // queue, and the Release build (one Swift job) was stopped mid-compile ("BUILD INTERRUPTED").
       const built = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'build-for-testing', ...base],
-        { log, env, health, timeoutMs: 600000 });
+        { log, env, health, timeoutMs: BUILD_LIMIT_MS, admission: true });
       if (built.status !== 0) throw Error(`Device build failed: ${log}`);
     },
   });
@@ -360,22 +366,28 @@ print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment'
   const spec = join(cache, `physical-${stamp}.xctestrun`);
   // Rewrite only the runner's environment and paths. Private config is fed via stdin,
   // never process arguments, app launch arguments or a committed test resource.
+  // `screenRecording: "true"` keeps XCTest's own recording of the phone's screen for the whole
+  // session (recorded ON the phone by XCTest, as Xcode's test reports do; nothing on this Mac asks
+  // for camera or screen access). Off by default: the runner's other sessions keep deleting it.
   const prepare = `import sys,json,pathlib,plistlib
 root=pathlib.Path(sys.argv[1]); files=list(root.glob('RichOSPhysical_iphoneos*.xctestrun'))
 assert len(files)==1, 'Expected one physical test specification'
 x=plistlib.loads(files[0].read_bytes());t=x['RichOSNativeUITests']
 t['EnvironmentVariables']['RICHOS_PHYSICAL_CONFIG']=sys.stdin.read()
 t['OnlyTestIdentifiers']=['PhysicalDeviceTests/'+sys.argv[3]]
+if sys.argv[4]=='record':
+    t['PreferredScreenCaptureFormat']='screenRecording'; t['SystemAttachmentLifetime']='keepAlways'
 for k in ['TestHostPath','UITargetAppPath']: t[k]=t[k].replace('__TESTROOT__',str(root))
 t['DependentProductPaths']=[v.replace('__TESTROOT__',str(root)) for v in t.get('DependentProductPaths',[])]
 p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(plistlib.dumps(x))`;
-  execFileSync('python3', ['-c', prepare, products, spec, settings.test], { input: JSON.stringify(config), env });
+  execFileSync('python3', ['-c', prepare, products, spec, settings.test, config?.screenRecording === 'true' ? 'record' : ''],
+    { input: JSON.stringify(config), env });
   const allowance = allowanceSeconds(config);
   try {
     const tested = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'test-without-building',
       '-xctestrun', spec, '-destination', `id=${settings.device}`, '-resultBundlePath', result,
       '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', String(allowance)],
-    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: (allowance + 60) * 1000 });
+    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: (allowance + 60) * 1000, admission: true });
     if (tested.status !== 0) throw Error(`Physical check failed: ${result}. No retry attempted.`);
     const summary = JSON.parse(execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', result, '--format', 'json'], { encoding: 'utf8', env }));
     writeFileSync(result + '.summary.json', JSON.stringify(summary, null, 2));

@@ -7,11 +7,13 @@
                                                    a list its allowance cannot hold (XCUITest stops there
                                                    and every later step, shot and tree is lost)
     phone-ios.py run STEPS.json --out DIR [--allowance S] [--prebuilt --stamp STAMP.json]
-                 [--approval-announced]
+                 [--approval-announced] [--screen-recording]
                                                    run the steps through XCUITest on the phone
                                                    (`rios device verify script`), then write
                                                    DIR/steps.jsonl (one line per step, phone clock)
-                                                   and DIR/attachments/ (the steps' shots and trees).
+                                                   and DIR/attachments/ (the steps' shots and trees;
+                                                   with --screen-recording also XCTest's recording
+                                                   of the whole session, made on the phone)
                                                    Committed, unchanged app source is never rebuilt:
                                                    the one signed build of that source tree is reused
                                                    from the shared store automatically (see
@@ -915,7 +917,8 @@ def _run(args):
     config.unlink(missing_ok=True)
     fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IWUSR)
     with os.fdopen(fd, "w") as f:
-        json.dump({"isolatedLab": "true", "steps": json.dumps(steps), "allowanceSeconds": str(args.allowance)}, f)
+        json.dump({"isolatedLab": "true", "steps": json.dumps(steps), "allowanceSeconds": str(args.allowance),
+                   **({"screenRecording": "true"} if getattr(args, "screen_recording", False) else {})}, f)
     env = {**os.environ, "RICHOS_MOBILE_TEST_CONFIG": str(config)}
     if args.prebuilt:
         env["RICHOS_PHYSICAL_PREBUILT"] = "1"
@@ -963,6 +966,11 @@ def _run(args):
                "secondsToFirstStep": round(first - started, 1) if isinstance(first, (int, float)) else None,
                "automationEnableWaitSeconds": session and session["enableWaitSeconds"],
                "passcodeConfigured": session and session["passcodeConfigured"]}
+    if getattr(args, "screen_recording", False):
+        summary["screenRecordings"] = screen_recordings(attachments) if exported.returncode == 0 else []
+        if not summary["screenRecordings"]:
+            summary["passed"] = False
+            summary["error"] = summary.get("error") or "--screen-recording: the result bundle holds no screen recording"
     if session and session["timedOut"]:
         summary["error"] = (f"'{APPROVAL_TIMEOUT}': the phone asked its owner to allow UI automation and "
                             "nobody approved it at the phone in about 60 s; no step ran")
@@ -971,6 +979,25 @@ def _run(args):
         # escalation this tool raised is answered by the fact, not by memory.
         summary["approvalEscalationsClosed"] = close_approval_escalations(os.getcwd(), str(log))
     return summary
+
+
+VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v")
+
+
+def screen_recordings(attachments):
+    """The screen recordings XCTest kept for a `--screen-recording` session (physical-device.mjs sets
+    SystemAttachmentLifetime keepAlways), each with its manifest entry as exported."""
+    try:
+        manifest = json.loads((Path(attachments) / "manifest.json").read_text())
+    except (OSError, ValueError):
+        return []
+    found = []
+    for test in manifest if isinstance(manifest, list) else []:
+        for item in test.get("attachments", []):
+            name = str(item.get("exportedFileName", ""))
+            if name.lower().endswith(VIDEO_SUFFIXES):
+                found.append({**item, "file": str(Path(attachments) / name)})
+    return found
 
 
 def devicectl(args, device):
@@ -1148,6 +1175,9 @@ def main(argv):
     r.add_argument("--stamp")
     r.add_argument("--approval-announced", action="store_true",
                    help="the CEO was told before this run that the phone will ask him to allow UI automation")
+    r.add_argument("--screen-recording", action="store_true",
+                   help="keep XCTest's recording of the phone's screen for the whole session (recorded on the "
+                        "phone); the summary names it under screenRecordings, and its absence fails the run")
     sub.add_parser("wifi-restore").add_argument("--out", required=True)
     sub.add_parser("parse-log").add_argument("log")
     sub.add_parser("approval").add_argument("--device", required=True)

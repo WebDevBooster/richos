@@ -19,8 +19,12 @@ struct RichOSNativeApp: App {
     @State private var networkMonitor = NetworkMonitor()
 
     /// The app's first line of code: `LaunchTiming` notes the process's start here, only on a phone
-    /// being measured (one file-existence check otherwise).
-    init() { LaunchTiming.start() }
+    /// being measured (one file-existence check otherwise); and the saved state starts loading here
+    /// (`Boot`), while UIKit and SwiftUI build the scene, instead of after the first frame.
+    init() {
+        LaunchTiming.start()
+        Boot.start()
+    }
 
     /// When the core is next owed a `tick`, while the app is on screen; `nil` otherwise.
     private var nextTick: Int64? {
@@ -95,29 +99,18 @@ struct RichOSNativeApp: App {
                             }
                         }
                 } else {
-                    // Loading the saved state takes milliseconds; nothing is announced meanwhile.
-                    Color.clear
+                    // Until the saved state is read: the launch screen (the app icon on the launch
+                    // ground), drawn live, so the first frame continues it exactly until the conversation
+                    // appears (LaunchShell). This was `Color.clear` over the window's white: a blank frame.
+                    LaunchShellView()
                 }
             }
             .modifier(PhoneAppearanceMirror { appearance in store?.followPhone(appearance) })
             .task {
                 guard store == nil else { return }
-                let transport = URLSessionTransport()
-                // The courier reads voice messages from the same files the recorder writes.
-                let network = NetworkEffects(transport: transport, stream: transport, identities: PlatformEffects.identityStore(),
-                                             recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()),
-                                             attachments: FileAttachmentStore(directory: ShareIntake.attachmentsDirectory()))
-                let platform = PlatformEffects(network: network, attachments: ShareIntake.attachmentsDirectory())
-                let effects: (any EffectHandler)?
-                #if DEBUG
-                // Gesture fixtures use the real core and storage with controlled
-                // non-storage effects, just as the headless CLI does; `-rios-fixture-mac` adds a
-                // stand-in Mac for the wait for the press on the Mac (`DevBridgeFixtureMac`).
-                effects = DevBridge.interactiveFixture ? DevBridgeFixtureMac.fromLaunchArguments() : platform
-                #else
-                effects = platform
-                #endif
-                let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: effects, performance: PerformanceMarks.record)
+                // Started at the app's first line of code (Boot), so usually already loaded here.
+                let boot = await Boot.loaded()
+                let loaded = boot.store, platform = boot.platform, network = boot.network
                 // iOS's few seconds after Home for a message already sent (iPhone walk D3).
                 loaded.backgroundContinuation = BackgroundSendTime()
                 platform.dispatch = { loaded.receive($0) }
@@ -152,6 +145,7 @@ struct RichOSNativeApp: App {
                 #endif
                 // Before the first frame, so a phone set to light never flashes dark.
                 loaded.followPhone(SystemAppearance.current())
+                LaunchTiming.record("store-ready")
                 store = loaded
                 await ShareIntake.takeWaiting(into: loaded, nowMs: SystemClock().nowMs())
             }
@@ -181,6 +175,55 @@ struct RichOSNativeApp: App {
                 SharePlatform.mirror(state, macAcceptsAttachments: state.attachmentLimits != nil, limits: state.attachmentLimits)
             }
         }
+    }
+}
+
+/// The saved state's load, started at the app's first line of code (`RichOSNativeApp.init`).
+///
+/// It used to start in the root's `.task`, which SwiftUI runs once the first frame is drawn, so the disk
+/// read and the decode of the whole saved conversation came after everything else, in series. Now they
+/// run on the core's actor while UIKit and SwiftUI build the scene on the main thread (on the test
+/// iPhone's 2026-10-02 profiles, about 90 ms from the app's first line to its first frame). The effect
+/// handlers are the same objects, built in the same order, only sooner; the store is handed to the
+/// screens in the same `.task`, with every wiring step before it unchanged.
+@MainActor
+enum Boot {
+    struct Loaded {
+        let store: AppStore
+        let platform: PlatformEffects
+        let network: NetworkEffects
+    }
+
+    private static var load: Task<Loaded, Never>?
+
+    static func start() {
+        guard load == nil else { return }
+        LaunchTiming.record("state-load-start")
+        let transport = URLSessionTransport()
+        // The courier reads voice messages from the same files the recorder writes.
+        let network = NetworkEffects(transport: transport, stream: transport, identities: PlatformEffects.identityStore(),
+                                     recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()),
+                                     attachments: FileAttachmentStore(directory: ShareIntake.attachmentsDirectory()))
+        let platform = PlatformEffects(network: network, attachments: ShareIntake.attachmentsDirectory())
+        let effects: (any EffectHandler)?
+        #if DEBUG
+        // Gesture fixtures use the real core and storage with controlled
+        // non-storage effects, just as the headless CLI does; `-rios-fixture-mac` adds a
+        // stand-in Mac for the wait for the press on the Mac (`DevBridgeFixtureMac`).
+        effects = DevBridge.interactiveFixture ? DevBridgeFixtureMac.fromLaunchArguments() : platform
+        #else
+        effects = platform
+        #endif
+        load = Task { @MainActor in
+            let store = await AppStore.launch(storage: AppStore.defaultStorage(), effects: effects, performance: PerformanceMarks.record)
+            LaunchTiming.record("state-loaded")
+            return Loaded(store: store, platform: platform, network: network)
+        }
+    }
+
+    static func loaded() async -> Loaded {
+        start()
+        return await load!.value
     }
 }
 

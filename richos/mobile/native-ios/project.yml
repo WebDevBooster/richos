@@ -59,7 +59,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.richos.connect
         PRODUCT_NAME: RichOSNative
         INFOPLIST_KEY_CFBundleDisplayName: RichConnect
-        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        # The conversation's own frame from the tap (App/Features/Root/LaunchShell.swift), never iOS's
+        # generated launch screen, which is an empty white (or black) window (the CEO, 2026-10-02).
+        # native-ios-ui.test.sh refuses the generated one coming back.
+        INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
       configs:

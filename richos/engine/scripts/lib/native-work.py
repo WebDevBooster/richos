@@ -197,6 +197,21 @@ def needs_compiler_lane(command):
                 and not builds.intersection(command[1:]))
 
 
+def announce_admission(started):
+    """Tell the caller the command was ADMITTED, so a caller's time limit can start now and
+    never count the wait for a worker, the compiler lane or CPU headroom. A caller that sets
+    RICHOS_NATIVE_ADMITTED_FILE gets that file (atomically) holding the seconds waited. Every
+    caller already sees the same fact on stderr, at the end of the admission line run() prints
+    ("admitted after N s"), so this prints no second line."""
+    waited = round(time.monotonic() - started, 1)
+    target = os.environ.get('RICHOS_NATIVE_ADMITTED_FILE')
+    if target:
+        temporary = target + '.tmp'
+        with open(temporary, 'w') as handle:
+            handle.write(str(waited))
+        os.replace(temporary, target)
+
+
 def run(command):
     cpu_guard.require_managed_ancestor()
     if sys.platform == 'darwin' and not cpu_guard.healthy():
@@ -259,6 +274,7 @@ def run(command):
         env = {**os.environ, 'RICHOS_MACHINE_WORKERS': directory,
                'JAVA_TOOL_OPTIONS': (os.environ.get('JAVA_TOOL_OPTIONS', '') + ' -XX:ActiveProcessorCount=%d' % JVM_CORES).strip(),
                'CARGO_BUILD_JOBS': str(one_process(cores)), 'SWIFTPM_MAX_CONCURRENT_OPERATIONS': str(cores)}
+        announce_admission(started)
         # The build and the workspace's warm daemon are judged together against this grant.
         register(os.getpid(), 'native build: ' + os.path.basename(command[0]), cores)
         if plan:
