@@ -271,16 +271,22 @@ print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment'
   const spec = join(cache, `physical-${stamp}.xctestrun`);
   // Rewrite only the runner's environment and paths. Private config is fed via stdin,
   // never process arguments, app launch arguments or a committed test resource.
+  // `screenRecording: "true"` keeps XCTest's own recording of the phone's screen for the whole
+  // session (recorded ON the phone by XCTest, as Xcode's test reports do; nothing on this Mac asks
+  // for camera or screen access). Off by default: the runner's other sessions keep deleting it.
   const prepare = `import sys,json,pathlib,plistlib
 root=pathlib.Path(sys.argv[1]); files=list(root.glob('RichOSPhysical_iphoneos*.xctestrun'))
 assert len(files)==1, 'Expected one physical test specification'
 x=plistlib.loads(files[0].read_bytes());t=x['RichOSNativeUITests']
 t['EnvironmentVariables']['RICHOS_PHYSICAL_CONFIG']=sys.stdin.read()
 t['OnlyTestIdentifiers']=['PhysicalDeviceTests/'+sys.argv[3]]
+if sys.argv[4]=='record':
+    t['PreferredScreenCaptureFormat']='screenRecording'; t['SystemAttachmentLifetime']='keepAlways'
 for k in ['TestHostPath','UITargetAppPath']: t[k]=t[k].replace('__TESTROOT__',str(root))
 t['DependentProductPaths']=[v.replace('__TESTROOT__',str(root)) for v in t.get('DependentProductPaths',[])]
 p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(plistlib.dumps(x))`;
-  execFileSync('python3', ['-c', prepare, products, spec, settings.test], { input: JSON.stringify(config), env });
+  execFileSync('python3', ['-c', prepare, products, spec, settings.test, config?.screenRecording === 'true' ? 'record' : ''],
+    { input: JSON.stringify(config), env });
   const allowance = allowanceSeconds(config);
   try {
     const tested = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'test-without-building',
