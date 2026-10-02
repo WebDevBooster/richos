@@ -1394,6 +1394,30 @@ else
     bad "device id: device-identifiers.py --list-path"
 fi
 
+# --scan-tree: the merge gate's whole-index read (autocheck land_check). An identifier that is
+# ALREADY in a branch's tree (committed before the list existed, or carried in by a merge) is
+# found with file:line and a masked preview, never the identifier; a clean tree passes.
+DI_PY="$ENGINE_ROOT/scripts/lib/device-identifiers.py"
+DI_TREE="$SCRATCH/di-tree"
+rm -rf "$DI_TREE"; mkdir -p "$DI_TREE/docs"
+git -C "$DI_TREE" init -q
+printf 'one\ntwo\nphone (serial %s)\n' "$DI_ID" > "$DI_TREE/docs/old.md"
+printf 'nothing here\n' > "$DI_TREE/docs/clean.md"
+git -C "$DI_TREE" add -A
+di_tree() { RICHOS_DEVICE_IDENTIFIERS_FILE="$1" python3 "$DI_PY" --scan-tree "$DI_TREE"; }
+DI_OUT="$(di_tree "$DI_LIST")"
+if [ "$(printf '%s' "$DI_OUT" | sed -n 1p)" = "FOUND" ] && printf '%s' "$DI_OUT" | grep -qF 'docs/old.md:3' &&
+   ! printf '%s' "$DI_OUT" | grep -qF "$DI_ID"; then
+    ok "device id: --scan-tree finds a listed identifier already in the tree, names file:line, never prints it"
+else
+    bad "device id: --scan-tree on a tree holding an identifier ($DI_OUT)"
+fi
+printf 'phone (serial <android-phone>)\n' > "$DI_TREE/docs/old.md"
+git -C "$DI_TREE" add -A
+if [ "$(di_tree "$DI_LIST")" = "CLEAN" ]; then ok "device id: --scan-tree passes a tree without a listed identifier"; else bad "device id: --scan-tree clean tree"; fi
+if [ "$(di_tree "$SCRATCH/no-such-list" | cut -f1)" = "ABSENT" ]; then ok "device id: --scan-tree with no list says ABSENT, not CLEAN"; else bad "device id: --scan-tree ABSENT"; fi
+rm -rf "$DI_TREE"
+
 rm -rf "$SB"
 
 echo ""
