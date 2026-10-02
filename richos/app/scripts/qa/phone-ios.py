@@ -121,6 +121,7 @@ import json
 import math
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -885,6 +886,36 @@ def battery(args):
 
 SYSLOG_KEEP = ("RichOSNative", "dev.richos.connect")
 
+# A child this tool starts must never outlive it. SIGTERM/SIGHUP are turned into a normal exit so
+# the `finally:` runs; SIGKILL cannot be caught, so a watchdog (its own process, in its own session)
+# polls this tool's pid and kills the child the moment the tool is gone.
+WATCHDOG = (
+    "import os,sys,time,signal\n"
+    "parent,child=int(sys.argv[1]),int(sys.argv[2])\n"
+    "def alive(p):\n"
+    "    try: os.kill(p,0)\n"
+    "    except ProcessLookupError: return False\n"
+    "    except PermissionError: return True\n"
+    "    return True\n"
+    "while alive(parent) and alive(child): time.sleep(0.5)\n"
+    "if alive(child):\n"
+    "    try: os.kill(child,signal.SIGKILL)\n"
+    "    except ProcessLookupError: pass\n"
+)
+
+
+def spawn_owned(argv, **kwargs):
+    """Popen that ends with this process on exit, SIGTERM, SIGINT, SIGHUP or SIGKILL."""
+    def leave(signum, frame):
+        raise SystemExit(128 + signum)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, leave)
+    child = subprocess.Popen(argv, **kwargs)
+    subprocess.Popen([sys.executable, "-c", WATCHDOG, str(os.getpid()), str(child.pid)],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    return child
+
 
 def syslog(args):
     """The phone's own log for RichConnect only, for a bounded interval. Every other line on a
@@ -894,9 +925,9 @@ def syslog(args):
     out = Path(args.out)
     if not str(out.resolve()).startswith("/Volumes/E1TB/"):
         raise CannotAnswer("--out must be on /Volumes/E1TB")
-    relay = subprocess.Popen(["idevicesyslog", "-u", args.device, *(["-n"] if args.network else []), "--no-colors"],
+    relay = spawn_owned(["idevicesyslog", "-u", args.device, *(["-n"] if args.network else []), "--no-colors"],
                              stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, text=True, errors="replace")
+                          stderr=subprocess.DEVNULL, text=True, errors="replace")
     kept = total = 0
     deadline = time.monotonic() + args.seconds
     try:
