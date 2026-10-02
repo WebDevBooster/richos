@@ -30,7 +30,7 @@ VM="$1"; shift
 CMD="$*"
 STUB_LOG="${STUB_LOG:-/dev/null}"
 STUB_MODE="${STUB_MODE:-ok}"
-STUB_DNSNAME="${STUB_DNSNAME:-richos-test-a.tail770f6e.ts.net}"
+STUB_DNSNAME="${STUB_DNSNAME:-richos-test-a.tail1a2b3c.ts.net}"
 # One log record per call, including multi-line supervisor source.
 printf '%s\t%s\n' "$VM" "${CMD//$'\n'/ }" >> "$STUB_LOG"
 
