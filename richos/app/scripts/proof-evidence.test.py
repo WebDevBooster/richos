@@ -726,6 +726,85 @@ class Evidence(unittest.TestCase):
         self.assertEqual(list(self.root.rglob("__pycache__")), [],
                          "the runner and receipt verifier must not change source inputs")
 
+    def test_a_run_ended_at_its_cap_is_resumed_without_rerunning_its_passes_engine_units_included(self):
+        # 2026-10-02, the land of cc/zach-opus-e2fix1: 214 checks, four merge attempts, each run
+        # ended at the gate's cap, and every retry re-ran what had passed. 91 engine units had no
+        # reviewed contract and were `fresh` (never reused), and every identity carried the
+        # run's --admission-wait/--slot-wait, which the retry changed (893 s, then 900 s).
+        # Real runner, real ci-shard.sh, real coverage verifier; the units have no contract.
+        app, engine = self.copy_runner_fixture()
+        counter, hold = Path(self.tmp.name) / "executions", Path(self.tmp.name) / "hold"
+        for name in ("alpha", "beta"):
+            path = engine / "scripts" / (name + ".test.sh")
+            path.write_text('#!/bin/bash\nprintf "' + name + '\\n" >> "$FIXTURE_COUNTER"\n'
+                            + ('if [ -e "$FIXTURE_HOLD" ]; then sleep 120; fi\n' if name == "beta" else ""))
+            path.chmod(0o755)
+        (self.root / "LICENSE").write_text("fixture license\n")
+        def git(*args):
+            return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "-c", "user.name=fixture",
+                "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *args],
+                cwd=self.root, text=True, stderr=subprocess.PIPE).strip()
+        git("init", "-q", "-b", "main")
+        git("add", ".")
+        git("commit", "-qm", "fixture")
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("RICHOS_", "GIT_"))}
+        env.update(RICHOS_MACHINE_WORKERS=str(Path(self.tmp.name) / "machine"),
+            RICHOS_ENGINE_PASS_DIR=str(Path(self.tmp.name) / "slot"),
+            RICHOS_PROOF_RUN_DIR=str(Path(self.tmp.name) / "history"),
+            RICHOS_PROOF_RUN_SLOTS_DIR=str(Path(self.tmp.name) / "proof-slots"),
+            CLAUDE_CONFIG_DIR=str(Path(self.tmp.name) / "config"),
+            FIXTURE_COUNTER=str(counter), FIXTURE_HOLD=str(hold))
+        commands = Path(self.tmp.name) / "commands"
+        units = ",".join("scripts/%s.test.sh" % name for name in ("alpha", "beta"))
+        commands.write_text("cd richos/engine && " + " ".join(["bash", "scripts/ci-shard.sh", "--only-units", units]) + "\n")
+        def invoke(name, *options):
+            directory = Path(self.tmp.name) / name
+            result = subprocess.run([*idle_proof_run(app / "proof-run.py"), *options, "--log-dir", str(directory),
+                "--cap", "600"], cwd=self.root, env=env, text=True, capture_output=True, timeout=120)
+            detail = result.stdout + result.stderr + "\n" + "\n".join(p.read_text() for p in directory.glob("*.log"))
+            rows = {row["check"]: row for row in json.loads((directory / "summary.json").read_text())["checks"]}
+            return result.returncode, rows, detail
+        alpha, beta = "engine scripts/alpha.test.sh", "engine scripts/beta.test.sh"
+        # Attempt 1: alpha passes; beta is still running when the run's cap ends it.
+        hold.touch()
+        code, rows, detail = invoke("first", "--commands", str(commands), "--run-cap", "15",
+                                    "--admission-wait", "893", "--slot-wait", "893")
+        self.assertNotEqual(code, 0, detail)
+        self.assertEqual((rows[alpha]["result"], rows[beta]["result"]), ("passed", runner.CANCELED), detail)
+        self.assertEqual(counter.read_text().splitlines(), ["alpha", "beta"])
+        # Attempt 2, same tree, the gate's longer waits: only beta runs; alpha's pass and its
+        # receipt are carried over, and the coverage proof accepts the union.
+        hold.unlink()
+        code, rows, detail = invoke("second", "--resume", str(Path(self.tmp.name) / "first"),
+                                    "--admission-wait", "900", "--slot-wait", "900")
+        self.assertEqual(code, 0, detail)
+        self.assertEqual(counter.read_text().splitlines(), ["alpha", "beta", "beta"], detail)
+        self.assertTrue(rows[alpha]["reused_from"], rows[alpha])
+        self.assertEqual(rows["engine receipts"]["result"], "passed", detail)
+        # A changed tree (one new untracked file anywhere) runs both again.
+        (self.root / "unrelated.txt").write_text("a new file\n")
+        code, rows, detail = invoke("changed", "--commands", str(commands),
+                                    "--reuse", str(Path(self.tmp.name) / "second"))
+        self.assertEqual(code, 0, detail)
+        self.assertEqual(sorted(counter.read_text().splitlines()[3:]), ["alpha", "beta"], detail)
+        self.assertFalse(rows[alpha]["reused_from"], rows[alpha])
+
+    def test_a_check_is_not_keyed_by_how_long_it_may_wait_to_start(self):
+        # The gate's first run waits at most what is left of its 900 s and its retry a full
+        # 900 s; a check runs the same either way, so neither bound is part of its identity.
+        args = SimpleNamespace(capacity=8, engine_shards=5, max_cpu=80, budget=600, deadline=1800,
+                               fail_fast=False, admission_wait=893.0, slot_wait=893.0, engine_slot_wait=None)
+        item = runner.Item("check", str(self.root), ["bash", "check.sh"])
+        with patch.object(runner, "ROOT", str(self.root)), \
+                patch.object(evidence, "contract_for", return_value={"fresh": "fixture"}), \
+                patch.object(evidence, "checkout_identity", side_effect=lambda *a, **k: {"contract": evidence.WHOLE_CHECKOUT}):
+            first = runner.input_identity(item, args, str(self.root))
+            args.admission_wait = args.slot_wait = 900.0
+            args.engine_slot_wait = 30.0
+            self.assertEqual(runner.input_identity(item, args, str(self.root)), first)
+            args.capacity = 4
+            self.assertNotEqual(runner.input_identity(item, args, str(self.root)), first)
+
     def test_private_profile_drops_ambient_inputs_and_uses_fixed_fixture_seeds(self):
         self.qualification("Controlled private profile fixture.",
             environment=["NAMED_INPUT"], external=["FIXTURE_INPUT"])

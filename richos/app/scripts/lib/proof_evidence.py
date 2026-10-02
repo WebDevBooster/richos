@@ -945,9 +945,10 @@ def completed_receipt(item, sha, allow_known_red=False):
 #   * a check with no contract is keyed by the whole checkout's content (WHOLE_CHECKOUT), so for
 #     it every change IS an input change and its pass is invalidated, on its own, without
 #     stopping any other check;
-#   * a check with no identity at all (`fresh`: an engine unit without a contract, the receipts
-#     verifier) has only the whole source to bind it, so a source change invalidates it
-#     exactly as before.
+#   * a check with no identity at all (`fresh`: the receipts verifier, or a check with no
+#     command) has only the whole source to bind it, so a source change invalidates it
+#     exactly as before. An engine unit without a contract was one until 2026-10-02; it now
+#     has the whole-checkout identity (proof-run.py input_identity says why).
 # What stays global is HEAD: a commit or a checkout switch in the verified checkout is not an
 # editor save, receipts are bound to the commit, and it still marks the run contaminated.
 #
@@ -1338,9 +1339,19 @@ def verify_target_receipts(directory, rows, root):
             undeclared = True
             if outcome.get("source") != plan["source"] or current != plan["source"]:
                 raise ValueError("target source changed for " + unit + ", which declares no inputs")
-        actual = runner.input_identity(item, SimpleNamespace(**identity["settings"]), directory, snapshot)
-        if actual != identity:
-            raise ValueError("target execution inputs changed for " + unit)
+        if identity.get("contract") == WHOLE_CHECKOUT:
+            # A unit with no reviewed contract is keyed by the checkout's content (2026-10-02).
+            # What this verifier can read for itself is that content and where it is; the
+            # tools, environment and installs were compared by the runner, in the environment
+            # the unit ran in, when it finished (Record.save) and after the run. Read here in
+            # the verifier's own process, the environment holds the names the runner gives
+            # every check it launches (worker tokens, slot, scope), which no unit was keyed by.
+            if identity.get("checkout") != str(root) or identity.get("tree") != snapshot.checkout(root):
+                raise ValueError("target checkout content changed for " + unit)
+        else:
+            actual = runner.input_identity(item, SimpleNamespace(**identity["settings"]), directory, snapshot)
+            if actual != identity:
+                raise ValueError("target execution inputs changed for " + unit)
         receipt = outcome["receipt"]
         if file_digest(receipt["path"]) != receipt["sha256"]:
             raise ValueError("target receipt artifact changed for " + unit)
