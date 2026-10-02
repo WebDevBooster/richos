@@ -122,6 +122,7 @@ const LEVEL_SAMPLE_MS = 100;
  */
 async function attachLevelMeter(source, which) {
   if (!session?.workletReady) return null;
+  const owner = session;
   try {
     const node = new AudioWorkletNode(session.ctx, 'richos-level-meter', {
       numberOfInputs: 1,
@@ -130,7 +131,7 @@ async function attachLevelMeter(source, which) {
       channelCountMode: 'explicit',
     });
     node.port.onmessage = (event) => {
-      if (!session) return;
+      if (session !== owner || owner.stopping) return;
       const { peak, rms: windowRms, frames } = event.data || {};
       const key = which === 'mic' ? 'mic' : 'tab';
       session.levels[`${key}Peak`] = Math.max(session.levels[`${key}Peak`], peak || 0);
@@ -262,7 +263,8 @@ function buildRecorder() {
 
 /** One heartbeat: the only source of truth the health evaluator ever sees. */
 async function heartbeat() {
-  if (!session) return;
+  if (!session || session.stopping) return;
+  const owner = session;
   const levels = takeLevels();
   const record = {
     sessionId: session.sessionId,
@@ -273,6 +275,8 @@ async function heartbeat() {
     micRmsMean: Number(levels.micRmsMean.toFixed(6)),
     tabRmsMean: Number(levels.tabRmsMean.toFixed(6)),
     levelSamples: levels.levelSamples,
+    micFrames: levels.micFrames,
+    tabFrames: levels.tabFrames,
     recorderState: session.recorder ? session.recorder.state : 'inactive',
     part: session.part,
     chunkCount: session.chunkCount,
@@ -297,7 +301,8 @@ async function heartbeat() {
   if (session.healthBuffer.length >= 5) {
     const batch = session.healthBuffer.splice(0, session.healthBuffer.length);
     try {
-      await putAll(DB.stores.health, batch);
+      owner.pendingHealth = owner.pendingHealth.then(() => putAll(DB.stores.health, batch));
+      await owner.pendingHealth;
     } catch {
       /* health records are diagnostics; never let them break the recording */
     }
@@ -328,6 +333,7 @@ async function startSession(msg) {
     part: 0,
     seq: 0,
     pendingWrites: Promise.resolve(),
+    pendingHealth: Promise.resolve(),
     chunkCount: 0,
     bytesTotal: 0,
     lastChunkAt: null,
@@ -508,6 +514,7 @@ async function stopSession(msg = {}) {
   clearInterval(session.levelTimer);
   try { await flushRecorder(session); }
   catch (err) { session.lastError = String(err?.message || err); }
+  await session.pendingHealth.catch(() => {});
   if (session.healthBuffer.length) {
     try {
       await putAll(DB.stores.health, session.healthBuffer.splice(0));

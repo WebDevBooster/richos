@@ -66,6 +66,7 @@ export function newCaptureState(init) {
     tabSpeechAt: null,
     micOnlyFailover: false,
     tabAudible: true,
+    micFramesAt: null,
   };
 }
 
@@ -79,6 +80,7 @@ export function newCaptureState(init) {
 export function applyHeartbeat(state, hb, thresholds = THRESHOLDS) {
   const t = hb.t || Date.now();
   state.lastHeartbeatAt = t;
+  if (hb.micFrames > 0) state.micFramesAt = t;
   state.recorderState = hb.recorderState || state.recorderState;
   state.part = hb.part != null ? hb.part : state.part;
   state.micTrack = hb.micTrack || null;
@@ -245,13 +247,17 @@ export function evaluateHealth(state, now, thresholds = THRESHOLDS) {
     if (state.micEnabled) {
       const micSilentFor = now - (state.micNonZeroAt || state.startedAt);
       if (micSilentFor >= thresholds.digitalSilenceRedMs) {
-        signals.micLevel = 'red';
-        add(
-          'mic-digital-silence',
-          'red',
-          `exact digital silence on your microphone for ${Math.round(micSilentFor / 1000)}s (device switched or muted at the OS?)`,
-          ACTIONS.reacquireMic,
-        );
+        // After real microphone signal has been demonstrated, freshly delivered PCM zeros
+        // can be a quiet/ muted caller or Chrome's noise gate. Keep this visible as amber.
+        // Without current frame evidence, the original red failure detector remains intact.
+        const quietLiveInput = state.micNonZeroAt != null && state.micFramesAt != null &&
+          now - state.micFramesAt < thresholds.heartbeatAmberMs && state.ctxState === 'running' &&
+          state.micTrack?.readyState === 'live';
+        signals.micLevel = quietLiveInput ? 'amber' : 'red';
+        add(quietLiveInput ? 'mic-quiet' : 'mic-digital-silence', quietLiveInput ? 'amber' : 'red',
+          quietLiveInput ? 'microphone is delivering silent audio; check mute if speech is expected' :
+            `exact digital silence on your microphone for ${Math.round(micSilentFor / 1000)}s (device switched or muted at the OS?)`,
+          quietLiveInput ? undefined : ACTIONS.reacquireMic);
       } else {
         signals.micLevel = 'green';
       }

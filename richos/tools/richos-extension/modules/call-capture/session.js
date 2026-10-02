@@ -132,6 +132,9 @@ export function verifySession(record, minSeconds = 30) {
   if (durationSeconds >= minSeconds && hasAudio && record.audio.bytesTotal < 5000) {
     problems.push('audio is implausibly small for the session length');
   }
+  for (const part of record.audio.parts) {
+    if (part.written === false || part.error) problems.push(`audio part ${part.part} is not safely written: ${part.error || 'write failed'}`);
+  }
   if (record.health.redSeconds > 0) problems.push(`${record.health.redSeconds}s spent in a red health state`);
   if (record.status === SESSION_STATUS.open) problems.push('session was never closed');
   return { ok: problems.length === 0, problems, durationSeconds };

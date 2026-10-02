@@ -239,6 +239,19 @@ test('exact digital silence on the microphone is red (device switched / muted at
   assert.ok(result.actions.includes(ACTIONS.reacquireMic));
 });
 
+test('quiet microphone with recent PCM frames after proven signal is amber, without recovery', () => {
+  const state = healthyState();
+  state.ctxState = 'running';
+  state.micNonZeroAt = T0 - THRESHOLDS.digitalSilenceRedMs - 1000;
+  state.micFramesAt = T0;
+  const result = evaluateHealth(state, T0);
+  assert.equal(result.level, 'amber');
+  assert.ok(result.reasons.some(r => r.code === 'mic-quiet'));
+  assert.ok(!result.actions.includes(ACTIONS.reacquireMic));
+  state.micFramesAt = T0 - THRESHOLDS.heartbeatAmberMs;
+  assert.equal(evaluateHealth(state, T0).level, 'red', 'stale frame evidence must not hide a silent failure');
+});
+
 test('a suspended audio graph is red — it would record perfect silence while looking healthy', () => {
   const state = healthyState();
   state.ctxState = 'suspended';
