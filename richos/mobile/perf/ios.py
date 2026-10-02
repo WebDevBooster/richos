@@ -1127,20 +1127,36 @@ UNPROFILED_METHOD = (
     "series measured it at 39-48 ms after input-ready")
 
 
+# The test iPhone keeps RichConnect on its Home Screen's page 2 of 2 (read from SpringBoard's tree,
+# 2026-10-02). Home from the Home Screen shows page 1, so Home then one swipe left shows page 2 whichever
+# page was showing; the list ends with Home twice, back on page 1. Nothing on the Home Screen is moved.
+HOME_ICONS = "Home screen icons"
+ICON_PAGE_SWIPES = 1
+
+
+def _to_icon_page():
+    return [{"do": "home"}, {"do": "sleep", "seconds": 1}] + [
+        step for _ in range(ICON_PAGE_SWIPES)
+        for step in ({"do": "swipe", "in": "springboard", "id": HOME_ICONS, "direction": "left"},
+                     {"do": "sleep", "seconds": 1})]
+
+
 def tap_steps(launches, returns, away, offsets=PROBE_OFFSETS_S, point=PROBE_POINT):
     """The runner's list: `launches` cold launches by a tap on the icon, then `returns` returns by a tap
     on the icon after `away` s at Home, each with a touch at `point` `offsets[i]` s after that tap."""
     steps = [{"do": "home"}, {"do": "sleep", "seconds": TAP_SETTLE_S}]
     for n in range(1, launches + 1):
-        steps += [{"do": "terminate"}, {"do": "sleep", "seconds": TAP_SETTLE_S}, {"do": "mark", "label": f"launch {n}"},
-                  {"do": "tap", "in": "springboard", "label": ICON_LABEL, "timeout": 10},
-                  {"do": "sleep", "seconds": TAP_DWELL_S}]
+        steps += ([{"do": "terminate"}, {"do": "sleep", "seconds": TAP_SETTLE_S}] + _to_icon_page()
+                  + [{"do": "mark", "label": f"launch {n}"},
+                     {"do": "tap", "in": "springboard", "label": ICON_LABEL, "timeout": 10},
+                     {"do": "sleep", "seconds": TAP_DWELL_S}])
     for n in range(1, returns + 1):
-        steps += [{"do": "home"}, {"do": "sleep", "seconds": away}, {"do": "mark", "label": f"return {n}"},
-                  {"do": "tapThen", "in": "springboard", "label": ICON_LABEL, "timeout": 10,
-                   "after": offsets[(n - 1) % len(offsets)], "at": list(point)},
-                  {"do": "sleep", "seconds": TAP_DWELL_S}]
-    return steps
+        steps += ([{"do": "home"}, {"do": "sleep", "seconds": away}] + _to_icon_page()
+                  + [{"do": "mark", "label": f"return {n}"},
+                     {"do": "tapThen", "in": "springboard", "label": ICON_LABEL, "timeout": 10,
+                      "after": offsets[(n - 1) % len(offsets)], "at": list(point)},
+                     {"do": "sleep", "seconds": TAP_DWELL_S}])
+    return steps + [{"do": "home"}, {"do": "sleep", "seconds": 1}, {"do": "home"}]
 
 
 def parse_timing(text):
@@ -1269,7 +1285,10 @@ def device_tap_series(hw, team, stamp_path, launches, returns, away, out_dir, ru
     steps_path = os.path.join(out_dir, "steps.json")
     with open(steps_path, "w") as f:
         json.dump(steps, f)
-    expected = launches * (1.08 + TAP_SETTLE_S + 2.0 + TAP_DWELL_S) + returns * (0.46 + away + 4.0 + TAP_DWELL_S)
+    # phone-ios.py's measured medians: terminate 1.08, home 0.46, swipe 2.69, tap 2.0 s (tapThen 4.0, unmeasured).
+    to_page = 0.46 + 1 + ICON_PAGE_SWIPES * (2.69 + 1)
+    expected = (launches * (1.08 + TAP_SETTLE_S + to_page + 2.0 + TAP_DWELL_S)
+                + returns * (0.46 + away + to_page + 4.0 + TAP_DWELL_S))
     allowance = min(TAP_ALLOWANCE_MAX_S, max(120, int(expected * 1.25) + 60))
     env = {**os.environ, "RICHOS_IOS_DEVICE": hw, "RICHOS_APPLE_TEAM": team}
     try:
@@ -1312,14 +1331,17 @@ def _tap_series(args, record, state, seed, scratch, hw, work):
     rows, error = device_tap_series(hw, os.environ["RICHOS_APPLE_TEAM"], args.stamp, launches, returns,
                                     getattr(args, "away", 2.0), out_dir)
     got = os.path.join(out_dir, "after", "RichOS")
+    read_back = None
     try:
-        state.read(got)
+        read_back = state.read(got)
         with open(os.path.join(got, TIMING_FILE)) as f:
             text = f.read()
     except (Unmeasurable, OSError, subprocess.TimeoutExpired) as e:
         text, error = "", error or f"the app's timing lines could not be read: {e}"
     finally:
         if os.path.isdir(got):  # keep only the app's timing lines with the evidence
+            with open(os.path.join(out_dir, "after-manifest.json"), "w") as f:
+                json.dump(read_back, f, indent=1)  # what the directory held, before the seeded files are dropped
             for name in os.listdir(got):
                 if name != TIMING_FILE:
                     path = os.path.join(got, name)
