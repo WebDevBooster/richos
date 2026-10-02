@@ -1724,7 +1724,7 @@
     },
     "scripts/hooks/install.sh#private-home": {
       "source": "scripts/hooks/install.sh",
-      "sha256": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
+      "sha256": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
       "evidence": "The caller supplies a newly created HOME, distinct from pwd.getpwuid(uid).pw_dir, and a copied engine. The redirected-HOME condition keeps LAUNCHD_TOUCHABLE false even with CLAUDE_CONFIG_DIR equal to HOME/.claude. Only registration generation, file hashing and the private engine pointer run; no watchdog/reaper installer or orchestration config reader executes.",
       "keys": [],
       "edges": [
@@ -3916,7 +3916,7 @@
     },
     "scripts/hooks/guard-publication-commits.sh#undeclared-target": {
       "source": "scripts/hooks/guard-publication-commits.sh",
-      "sha256": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+      "sha256": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
       "evidence": "Git-jurisdiction fixture supplies a new target repository with no publication declaration. Module setup, payload classifier and seat/Git resolution run; pb_load_declaration returns absent before the checker or corpus path. Broken-library copies exit still earlier. Full source hash binds both the early return and excluded continuation.",
       "keys": [],
       "edges": [
@@ -5072,7 +5072,7 @@
     },
     "scripts/hooks/install.sh#private-config-dir": {
       "source": "scripts/hooks/install.sh",
-      "sha256": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
+      "sha256": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
       "evidence": "The contract harness supplies a newly created CLAUDE_CONFIG_DIR unequal to HOME/.claude. Under this content-bound precondition install validates/generates JSON settings, hashes files and updates only the private engine pointer. LAUNCHD_TOUCHABLE stays false, so watchdog/reaper installation is not reached. The only sourced engine helper is registered-hooks; no orchestration config is read.",
       "keys": [],
       "edges": [
@@ -6343,7 +6343,7 @@
     },
     "scripts/hooks/guard-publication-commits.sh#benign-bash": {
       "source": "scripts/hooks/guard-publication-commits.sh",
-      "sha256": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+      "sha256": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
       "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
       "keys": [],
       "edges": [
@@ -8852,7 +8852,7 @@
     },
     "scripts/hooks/guard-publication-commits.sh#scan": {
       "source": "scripts/hooks/guard-publication-commits.sh",
-      "sha256": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+      "sha256": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
       "evidence": "Complete executable hook reviewed. Payload shell commands are parsed as text; only fixed Git queries, inline JSON conversion and the bound publication scanner run. No orchestration config is sourced.",
       "keys": [],
       "edges": [
@@ -8875,7 +8875,7 @@
     },
     "scripts/hooks/publication-boundary.test.sh": {
       "source": "scripts/hooks/publication-boundary.test.sh",
-      "sha256": "140b288e44c4805083ee9df0c3f9fc7bc9fc5f7e7558f59b9568da4c26c3ff78",
+      "sha256": "198c80c5befcad56b01869137fe5bfd4beb627065efb3759042a0bbd5e76609b",
       "evidence": "Harness and executable call inventory reviewed. All publication declarations, corpus content and Git histories are generated fixtures. Real engine root remains the adoption seat. PUBLICATION_DECLARATION uses its unsourced environment/default value, not orchestration.config. Three literal source replacements mutate only the publication predicate and published-copy field; installer/probe reads are text assertions.",
       "keys": [],
       "edges": [
@@ -8896,6 +8896,9 @@
         },
         {
           "to": "scripts/lib/publication-boundary.py"
+        },
+        {
+          "to": "scripts/lib/device-identifiers.py"
         }
       ],
       "nonconfig_eval": "The single eval applies exactly three literal s.replace expressions shown at the callsites to fixture copies. It does not evaluate a config value or change execution targets."
@@ -9156,7 +9159,7 @@
     },
     "scripts/hooks/guard-publication-commits.sh#operator-lease-payload": {
       "source": "scripts/hooks/guard-publication-commits.sh",
-      "sha256": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+      "sha256": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
       "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
       "keys": [],
       "edges": [
@@ -10604,7 +10607,7 @@
     },
     "scripts/hooks/guard-publication-commits.sh#inventory-write": {
       "source": "scripts/hooks/guard-publication-commits.sh",
-      "sha256": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+      "sha256": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
       "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
       "keys": [],
       "edges": [
@@ -14026,7 +14029,7 @@
     },
     "scripts/hooks/guard-publication-commits.sh#find-payload": {
       "source": "scripts/hooks/guard-publication-commits.sh",
-      "sha256": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+      "sha256": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
       "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
       "keys": [],
       "edges": [
@@ -15903,7 +15906,7 @@
         "scripts/hooks/idle-land.mutation.sh": "28cf75331043b1a779457eb942b65ac46dc484496716ecad268763bffa258d99",
         "scripts/hooks/inflight-notify.mutation.sh": "f6b5be7ab1bc4ed684b2f6b011bb58bced5bbb27e8974d262410671ae48ad3e5",
         "scripts/hooks/inflight-notify.test.sh": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
-        "scripts/hooks/install.sh": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
+        "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/hooks/interactive-prompt.mutation.sh": "1bb0a806036cd202ca66914fd09a429847e66e1fdf2b365a209a317de668876a",
         "scripts/hooks/mechanical-findings.mutation.sh": "2d7eb897f7a8986e47fb1aebab8c351454178633c208d21a5e635e2cdcf54f99",
         "scripts/hooks/mechanical-findings.test.sh": "e23f188f029e21dec0e06c0758bb6912ede88002d366c5c3b331f3a0ca7a0397",
@@ -16032,7 +16035,7 @@
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f",
         "scripts/owned-state-checks/registered-executables.py": "cc79f6eed01ccc73a862f201bfae2257d7f36e305c183a6d3095a3a2b6202421",
         "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
-        "scripts/hooks/guard-publication-commits.sh": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+        "scripts/hooks/guard-publication-commits.sh": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
         "scripts/hooks/guard-reference-ledger.sh": "d80ab9294a7ff64b244285f5467ecf728b692701b6a5d526152909335b750874",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
         "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
@@ -16263,7 +16266,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f",
-        "scripts/hooks/install.sh": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
+        "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
         "scripts/hooks/dispatch-pretooluse.mutation.sh": "e9a8c8dc3e22ce7747a50256af7701d9e0f52db137c699cf73f14f0bc739c28b",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
@@ -16303,7 +16306,7 @@
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
         "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
-        "scripts/hooks/guard-publication-commits.sh": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+        "scripts/hooks/guard-publication-commits.sh": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
         "scripts/lib/row-currency.sh": "c9d7c6e3deee626a5f6591e9c0e5d78617d0db20ecfa6d827a79d39e22fa56fa",
@@ -16436,7 +16439,7 @@
         "scripts/hooks/guard-publication-writes.sh"
       ],
       "sources": {
-        "scripts/hooks/publication-boundary.test.sh": "140b288e44c4805083ee9df0c3f9fc7bc9fc5f7e7558f59b9568da4c26c3ff78",
+        "scripts/hooks/publication-boundary.test.sh": "198c80c5befcad56b01869137fe5bfd4beb627065efb3759042a0bbd5e76609b",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -16446,7 +16449,7 @@
         "scripts/lib/publication-boundary.sh": "b8e3d8f8b80e0048174b55ca2a479f0030e7b1c6f03caae6e7aa14def514ab4f",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/lib/publication-boundary.py": "41bfce6cd434f436098821e164d8af586af0df411c15bda9d5760b58050f2aff",
-        "scripts/hooks/guard-publication-commits.sh": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+        "scripts/hooks/guard-publication-commits.sh": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
@@ -16503,7 +16506,7 @@
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
-        "scripts/hooks/guard-publication-commits.sh": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+        "scripts/hooks/guard-publication-commits.sh": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
         "scripts/lib/publication-boundary.sh": "b8e3d8f8b80e0048174b55ca2a479f0030e7b1c6f03caae6e7aa14def514ab4f",
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
@@ -16744,7 +16747,7 @@
         "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
         "scripts/lib/named-persons.py": "3392076d89530f9a120fea16eaba9fa6053f577ae836023c691b5f0eb011c871",
-        "scripts/hooks/guard-publication-commits.sh": "4e990aae287803b208b2a1bf26f8398e06f1addcaf1ef0c8ec2556049fe1a4d1",
+        "scripts/hooks/guard-publication-commits.sh": "acc0b52bb6bb2a54af722b8a0e5782078fc97adca2767a6198dca32e354b2adf",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
         "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
@@ -16763,7 +16766,7 @@
       "sources": {
         "scripts/hooks/by-reference.test.sh": "ec0a5d73bd87902773018512e75cee27c40ca5fc784c29a5a910d048b134ef32",
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
-        "scripts/hooks/install.sh": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
+        "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
         "scripts/hooks/contract-integrity-probe.sh": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
