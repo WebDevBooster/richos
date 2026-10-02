@@ -548,6 +548,26 @@ else
   bad "M3 a script at the gate selects the suite that covers it" "exit $G3_RC: $(tr '\n' ' ' < "$WORK/g3.out")"
 fi
 
+# R46 — A REFERENCE SHOT SELECTS BY WHOLE FOLDER NAME (hunt part 2, R46). shots-5 is a prefix of
+# shots-5b and shots-5c; a suite that only reads those must not be selected for a shots-5 file.
+R46_SHOT=""
+for f in "$APP"/ui/tests/shots-5/*.png; do [ -e "$f" ] && { R46_SHOT="${f##*/}"; break; }; done
+R46_REL="${APP#"$ROOT"/}/ui/tests/shots-5/$R46_SHOT"
+run_pf "$WORK/r46.out" --paths "$R46_REL"
+R46_BAD=""
+for f in "$APP"/ui/tests/*.js; do
+  b="${f##*/}"
+  if grep -q "reference shot -> $b" "$WORK/r46.out" \
+     && ! grep -qE -- 'shots-5([^A-Za-z0-9_-]|$)' "$f"; then R46_BAD="$R46_BAD $b"; fi
+done
+if [ -z "$R46_SHOT" ]; then
+  bad "R46 a shots-5 file selects only suites that name shots-5" "no shots-5 reference shot in this checkout"
+elif [ -n "$R46_BAD" ]; then
+  bad "R46 a shots-5 file selects only suites that name shots-5" "also selected:$R46_BAD"
+else
+  ok "R46 a shots-5 file selects only suites that name shots-5, not shots-5b or shots-5c readers"
+fi
+
 echo
 TAIL=""
 [ "$NOTRUN" -gt 0 ] && TAIL=", $NOTRUN NOT RUN"
