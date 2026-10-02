@@ -18,7 +18,8 @@
     "nativeMessaging"
   ],
   "host_permissions": [
-    "https://meet.google.com/*"
+    "https://meet.google.com/*",
+    "https://*.zoom.us/*"
   ],
   "optional_host_permissions": [
     "<all_urls>"
@@ -33,6 +34,16 @@
       ],
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.zoom.us/wc/*"
+      ],
+      "js": [
+        "modules/call-capture/content-zoom.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "web_accessible_resources": [

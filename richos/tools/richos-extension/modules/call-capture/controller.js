@@ -31,6 +31,21 @@ let active = null;
 
 /** @type {Map<number, number>} tabId -> first time we saw it as a call tab */
 const seenCallTabs = new Map();
+const endedTabsKey = 'richos.callCapture.endedTabs';
+let endedTabs = {};
+
+async function restoreEndedTabs() {
+  endedTabs = (await chrome.storage.session.get(endedTabsKey))[endedTabsKey] || {};
+}
+function endedCall(tab) {
+  return endedTabs[tab.id] === detectPlatform(tab.url || '')?.slug;
+}
+async function rememberEndedTab(tabId, slug) {
+  await restoreEndedTabs();
+  endedTabs[tabId] = slug;
+  await chrome.storage.session.set({ [endedTabsKey]: endedTabs });
+}
+
 /** @type {number|null} when we first noticed an unarmed call tab */
 let unarmedSince = null;
 /** @type {any} */
@@ -72,6 +87,7 @@ async function init() {
     });
   }
 
+  await restoreEndedTabs();
   await applyCoreSideEffects();
   await recoverAfterRestart();
   await scanTabs();
@@ -164,6 +180,8 @@ async function armTabImpl(tabId, trigger = 'auto') {
     return { ok: false, error: 'tab is gone' };
   }
 
+  await restoreEndedTabs();
+  if (endedCall(tab)) return { ok: false, error: 'this Zoom meeting has ended' };
   const platform = detectPlatform(tab.url || '') || {
     id: 'unknown',
     label: 'Unrecognised tab',
@@ -886,7 +904,8 @@ async function watchUnarmedCallTabs() {
   const settings = await getModuleSettings(MODULE_ID);
   if (!settings.enabled) return;
   const tabs = await chrome.tabs.query({});
-  const callTabs = tabs.filter((t) => isCallTab({ url: t.url, audible: t.audible }));
+  await restoreEndedTabs();
+  const callTabs = tabs.filter((t) => !endedCall(t) && isCallTab({ url: t.url, audible: t.audible }));
   if (!callTabs.length) {
     unarmedSince = null;
     if (!active) await setHealth({ level: 'idle', text: '', title: 'RichOS: idle' });
@@ -911,6 +930,11 @@ async function watchUnarmedCallTabs() {
 // ---------------------------------------------------------------------------------------
 
 async function onTabChanged(tabId, changeInfo, tab) {
+  if (changeInfo.status === 'loading') {
+    await restoreEndedTabs();
+    delete endedTabs[tabId];
+    await chrome.storage.session.set({ [endedTabsKey]: endedTabs });
+  }
   if (active && tabId === active.tabId) {
     // Navigating away from the meeting ends the call for our purposes.
     if (changeInfo.url && !detectPlatform(changeInfo.url) && detectPlatform(active.record.tab.url || '')) {
@@ -924,6 +948,8 @@ async function onTabChanged(tabId, changeInfo, tab) {
 
 async function onTabRemoved(tabId) {
   seenCallTabs.delete(tabId);
+  delete endedTabs[tabId];
+  await chrome.storage.session.set({ [endedTabsKey]: endedTabs });
   if (active && tabId === active.tabId && !active.finalizing) {
     active.record.notes.push('call tab was closed');
     await finalize('tab-closed');
@@ -935,15 +961,16 @@ async function scanTabs() {
   const settings = await getModuleSettings(MODULE_ID);
   if (!settings.enabled) return;
   const now = Date.now();
+  await restoreEndedTabs();
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
-    if (!tab.id || !tab.url) continue;
+    if (!tab.id || !tab.url || endedCall(tab)) continue;
     if (!seenCallTabs.has(tab.id) && (detectPlatform(tab.url) || tab.audible)) seenCallTabs.set(tab.id, now);
   }
   if (active) return;
 
   for (const tab of tabs) {
-    if (!tab.id || !tab.url) continue;
+    if (!tab.id || !tab.url || endedCall(tab)) continue;
     const decision = shouldAutoArm(
       { url: tab.url, audible: tab.audible, openedAt: seenCallTabs.get(tab.id) || now },
       settings,
@@ -1466,6 +1493,17 @@ async function onMessage(msg, sender) {
         sessionId: msg.sessionId,
       });
       return { ok: true };
+    case 'cc:platform-ended': {
+      const platform = detectPlatform(sender?.url || '');
+      const tabPlatform = detectPlatform(sender?.tab?.url || '');
+      if (sender?.id !== chrome.runtime.id || platform?.id !== 'zoom-web' || platform.slug !== tabPlatform?.slug || !sender?.tab?.id) {
+        return { ok: false, ignored: true };
+      }
+      await rememberEndedTab(sender.tab.id, platform.slug);
+      if (!active || active.tabId !== sender.tab.id || active.record.platform.slug !== platform.slug) return { ok: true, ignored: true };
+      active.record.notes.push('Zoom reported that the meeting ended');
+      return finalize('platform-ended');
+    }
     case 'cc:track-ended':
       if (active) active.record.notes.push(`${msg.which} track ended`);
       await tick();
@@ -1617,7 +1655,7 @@ async function getStatus() {
   const root = await dropRoot();
   const pendingExports = index.filter(row => row.exportPending);
   const callTabs = tabs
-    .filter((t) => isCallTab({ url: t.url, audible: t.audible }))
+    .filter((t) => !endedCall(t) && isCallTab({ url: t.url, audible: t.audible }))
     .map((t) => ({ tabId: t.id, title: t.title, platform: detectPlatform(t.url || '')?.label || 'audible tab' }));
 
   if (!active) {

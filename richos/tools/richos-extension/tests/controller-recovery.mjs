@@ -13,10 +13,10 @@ let downloads = 0;
 let cancelExport = true;
 const settings = { ...CAPTURE_DEFAULTS, armMode: 'manual', captureCaptions: false };
 globalThis.chrome = {
-  runtime: { getManifest: () => ({ version: '0.3.0' }) },
+  runtime: { id: 'extension', getManifest: () => ({ version: '0.3.0' }) },
   tabCapture: { async getMediaStreamId() { if (!invoked) throw new Error('needs invocation'); return 'valid'; } },
   tabs: { async get(id) { return { id, url: 'https://app.zoom.us/wc/12345678901/start', audible: true }; }, async query() { return []; } },
-  storage: { local: { async get(key) { return structuredClone({ [key]: store[key] }); }, async set(value) { Object.assign(store, structuredClone(value)); }, async remove(key) { delete store[key]; } } },
+  storage: { session: { async get(key) { return structuredClone({ [key]: store[key] }); }, async set(value) { Object.assign(store, structuredClone(value)); } }, local: { async get(key) { return structuredClone({ [key]: store[key] }); }, async set(value) { Object.assign(store, structuredClone(value)); }, async remove(key) { delete store[key]; } } },
 };
 globalThis.__controllerDependencies = {
   getModuleSettings: async module => module === 'core' ? { dropFolder: 'capture' } : settings,
@@ -85,5 +85,13 @@ try {
   assert.equal((await controller.callCaptureModule.onMessage({ type: 'cc:export-session', sessionId })).ok, true);
   assert.equal((await controller.callCaptureModule.getStatus()).pendingExports.length, 0);
   assert.equal(downloads, 2, 'each explicit export produces exactly one download');
+  now += 1000;
+  await controller.armTab(8, 'shortcut');
+  assert.equal((await controller.callCaptureModule.onMessage({type:'cc:platform-ended'}, {id:'extension',url:'https://app.zoom.us/wc/99999999999/join',tab:{id:8,url:'https://app.zoom.us/wc/12345678901/start'}})).ignored,true);
+  assert.equal((await controller.callCaptureModule.getStatus()).active,true);
+  const ended = await controller.callCaptureModule.onMessage({type:'cc:platform-ended'}, {id:'extension',url:'https://app.zoom.us/wc/12345678901/start',tab:{id:8,url:'https://app.zoom.us/wc/12345678901/start'}});
+  assert.equal(ended.exportPending,true);
+  assert.equal((await controller.callCaptureModule.getStatus()).active,false);
+  assert.equal((await controller.armTab(8,'auto')).error,'this Zoom meeting has ended');
   console.log('PASS production controller invocation recovery, durable fallback and cancelled export retry');
 } finally { await controller.finalize('test-cleanup'); }
