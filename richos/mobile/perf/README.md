@@ -200,7 +200,7 @@ only worth keeping if two builds are measured the same way, so:
     with the Mac's Vision framework (`bin/rios screen-text`). The newest seeded CEO row must be on
     screen. If it is not, or the screen cannot be read, the record names that and is never compared.
   - A Debug launch argument (`--app-arg`) or `--mac reachable` is refused before anything changes.
-- **`perf.py ios --device` seeds the same conversation on an iPhone by default**, through `devicectl`
+- **`perf.py ios --device` (run as `rios device perf`) seeds the same conversation on an iPhone by default**, through `devicectl`
   and the phone's own UI-test runner (proven on the test iPhone on 2026-10-02):
   - It needs the stamp of the installed build (a `rios device build`'s stamp, or the `stamp.json` of a
     shared-store entry), `RICHOS_APPLE_TEAM`, and `--evidence-dir` on the external SSD. The runner beside
@@ -407,7 +407,7 @@ period carries the profiler's own launch. To see what a person waits for, the sa
 also launch the app the way a person does, with nothing attached:
 
 ```sh
-RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" \
+RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/rios device perf --device "$UDID" --stamp "$RUN/stamp.json" \
   --evidence-dir "$RUN/taps" --cold 0 --warm 0 --tap-launches 30 --tap-returns 30 --out "$RUN/taps.json"
 ```
 
