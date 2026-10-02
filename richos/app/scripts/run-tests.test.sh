@@ -1237,6 +1237,52 @@ else
   ok "C1 cleanup waits, escalates past a child that ignores TERM, and deletes the scratch only after it is gone"
 fi
 
+# R44 — AN OPTION WITH NO VALUE ENDS THE RUN (hunt part 2, R44). `--jobs` as the last word made
+# `shift 2` fail without shifting, so the argument loop never ended. The runner is started in
+# the background and given 10 s.
+R44BOX="$TMP/r44box"; mkdir -p "$R44BOX"
+install_harness "$R44BOX"
+printf '%s\n' 'echo "=== r44: all 1 passed ==="' > "$R44BOX/one.test.sh"
+env -i PATH="$FIXTURE_PATH" HOME="$FIXTURE_HOME" LC_ALL=C RUN_TESTS_STATE="$TMP/fixture-state" \
+    bash "$R44BOX/run-tests.sh" --jobs > "$TMP/r44.out" 2>&1 &
+R44PID=$!
+n=0; while kill -0 "$R44PID" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+if kill -0 "$R44PID" 2>/dev/null; then
+  kill -KILL "$R44PID" 2>/dev/null   # this test's own child, by its recorded pid
+  bad "R44 an option with no value is refused" "the runner was still looping after 10 s"
+else
+  wait "$R44PID" 2>/dev/null; R44RC=$?
+  if [ "$R44RC" -eq 2 ] && grep -q -- '--jobs needs a value' "$TMP/r44.out"; then
+    ok "R44 an option with no value exits 2 and names the option"
+  else
+    bad "R44 an option with no value is refused" "exit $R44RC: $(tr '\n' ' ' < "$TMP/r44.out")"
+  fi
+fi
+
+# R45 — EACH SCREEN SUITE KEEPS ITS OWN PROOF (hunt part 2, R45). Two suites that boot a window,
+# one --proof-out path: the second used to overwrite the first.
+R45BOX="$TMP/r45box"; mkdir -p "$R45BOX"
+install_harness "$R45BOX"
+for k in a b; do
+  { printf '%s\n' '# run-tests: host-screen'; printf '%s\n' "echo \"=== r45$k: all 1 passed ===\""; } > "$R45BOX/$k.test.sh"
+done
+env -i PATH="$FIXTURE_PATH" HOME="$FIXTURE_HOME" LC_ALL=C RUN_TESTS_STATE="$TMP/fixture-state" \
+    bash "$R45BOX/run-tests.sh" --proof-out "$TMP/r45.proof" > "$TMP/r45.out" 2>&1
+R45N="$(find "$TMP" -maxdepth 1 -name 'r45.proof*' | wc -l | tr -d ' ')"
+if [ "$R45N" -eq 2 ] && grep -q 'r45a' "$TMP/r45.proof" && grep -q 'r45b' "$TMP/r45.proof.b.test.sh"; then
+  ok "R45 two screen suites leave two proof files, none overwritten"
+else
+  bad "R45 each screen suite keeps its own proof" "found $R45N proof files; $(tr '\n' ' ' < "$TMP/r45.out" | cut -c1-300)"
+fi
+# ...and a proof path that cannot be written is not announced as written.
+env -i PATH="$FIXTURE_PATH" HOME="$FIXTURE_HOME" LC_ALL=C RUN_TESTS_STATE="$TMP/fixture-state" \
+    bash "$R45BOX/run-tests.sh" --proof-out "$TMP/no-such-dir/x.proof" > "$TMP/r45b.out" 2>&1 || true
+if grep -q 'could not write the gui proof' "$TMP/r45b.out" && ! grep -q 'gui proof written' "$TMP/r45b.out"; then
+  ok "R45 a failed proof write is reported, never announced as written"
+else
+  bad "R45 a failed proof write is reported" "$(grep 'gui proof' "$TMP/r45b.out" | tr '\n' ' ')"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
   echo "=== run-tests.test.sh: $FAIL FAILED, $PASS passed ==="
