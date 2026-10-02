@@ -95,8 +95,10 @@ struct RichOSNativeApp: App {
                             }
                         }
                 } else {
-                    // Loading the saved state takes milliseconds; nothing is announced meanwhile.
-                    Color.clear
+                    // Until the saved state is read: the launch screen, drawn live, so the first frame
+                    // continues it exactly and the conversation's words and rows then appear in place
+                    // (LaunchShell). This was `Color.clear` over the window's white: a blank frame.
+                    LaunchShellView()
                 }
             }
             .modifier(PhoneAppearanceMirror { appearance in store?.followPhone(appearance) })
