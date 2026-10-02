@@ -5,8 +5,8 @@
 # screen and the Android launch window are not empty (launchscreen.py) on synthetic trees and on
 # this tree. No phone recording ever enters the repository; nothing boots, builds, records or decodes.
 # run-tests: no-host-screen: synthetic frames, scripted phone and source reads only; no device, simulator or window
-# run-tests: inputs richos/mobile/perf/blank.py richos/mobile/perf/blankstart.py richos/mobile/perf/launchscreen.py richos/mobile/perf/framedump.swift richos/mobile/perf/perf.py richos/mobile/perf/perfcore.py richos/mobile/native-ios/project.yml richos/mobile/native-ios/App richos/mobile/native-android/app/build.gradle.kts richos/mobile/native-android/app/src/main/AndroidManifest.xml richos/mobile/native-android/app/src/main/res richos/app/scripts/mobile-blank.test.sh richos/app/scripts/mobile-blank.test.py
-# run-tests: covers richos/mobile/perf/blank.py richos/mobile/perf/blankstart.py richos/mobile/perf/launchscreen.py richos/mobile/perf/framedump.swift
+# run-tests: inputs richos/mobile/perf/blank.py richos/mobile/perf/blankstart.py richos/mobile/perf/launchscreen.py richos/mobile/perf/framedump.swift richos/mobile/perf/perf.py richos/mobile/perf/perfcore.py richos/mobile/native-ios/project.yml richos/mobile/native-ios/App richos/mobile/native-ios/Tools/launch-icon.py richos/mobile/native-android/app/build.gradle.kts richos/mobile/native-android/app/src/main/AndroidManifest.xml richos/mobile/native-android/app/src/main/res richos/app/scripts/mobile-blank.test.sh richos/app/scripts/mobile-blank.test.py
+# run-tests: covers richos/mobile/perf/blank.py richos/mobile/perf/blankstart.py richos/mobile/perf/launchscreen.py richos/mobile/perf/framedump.swift richos/mobile/native-ios/Tools/launch-icon.py
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHONDONTWRITEBYTECODE=1 python3 "$here/mobile-blank.test.py"
