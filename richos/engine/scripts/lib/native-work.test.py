@@ -149,21 +149,29 @@ class CoresReachTheBuild(unittest.TestCase):
             self.assertEqual(N.run(command), 0)
         return seen['command'], seen['env']
 
-    def test_a_quiet_mac_gives_gradle_swift_xcode_cargo_and_the_jvm_five_cores(self):
+    def test_a_quiet_mac_gives_five_cores_and_never_more_than_two_to_one_process(self):
         gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 5.0, 1)
-        self.assertIn('--max-workers=5', gradle)
+        self.assertIn('--max-workers=2', gradle)           # one JVM: PROCESS_CORES
         self.assertIn('--parallel', gradle)
         self.assertNotIn('--no-parallel', gradle)
         self.assertIn('--no-daemon', gradle)              # the supervisor ends every daemon anyway
-        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=5 -Dfile.encoding=UTF-8', gradle)
-        self.assertEqual(env['CARGO_BUILD_JOBS'], '5')
+        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=2 -Dfile.encoding=UTF-8', gradle)
+        self.assertEqual(env['CARGO_BUILD_JOBS'], '2')     # one rustc takes every job token
+        self.assertTrue(env['JAVA_TOOL_OPTIONS'].endswith('-XX:ActiveProcessorCount=2'))
         self.assertEqual(env['SWIFTPM_MAX_CONCURRENT_OPERATIONS'], '5')
-        self.assertTrue(env['JAVA_TOOL_OPTIONS'].endswith('-XX:ActiveProcessorCount=5'))
         swift, _ = self.admitted(['swift', 'build'], 5.0, 1)
-        self.assertEqual(swift[-2:], ['--jobs', '5'])
+        self.assertEqual(swift[-2:], ['--jobs', '5'])      # debug: one frontend process per job
         xcode, _ = self.admitted(['xcodebuild', 'build'], 5.0, 1)
         self.assertEqual(xcode[xcode.index('-jobs') + 1], '5')
         self.assertEqual(xcode[xcode.index('-parallel-testing-enabled') + 1], 'NO')
+        swift, _ = self.admitted(['swift', 'build', '-c', 'release'], 5.0, 1)
+        self.assertEqual(swift[-2:], ['--jobs', '2'])      # release: one whole-module frontend
+        xcode, _ = self.admitted(['xcodebuild', '-configuration', 'Release', 'build'], 5.0, 1)
+        self.assertEqual(xcode[xcode.index('-jobs') + 1], '2')
+
+    def test_one_process_stays_under_the_watchdogs_per_process_line(self):
+        self.assertLess(N.PROCESS_CORES, cpu_guard.JOB_CORES)
+        self.assertEqual([N.one_process(c) for c in (1, 2, 5, 6)], [1, 2, 2, 2])
 
     def test_four_workers_admitted_share_and_a_busy_mac_gives_one(self):
         gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 5.0, 4)

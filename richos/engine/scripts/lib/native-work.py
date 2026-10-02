@@ -18,9 +18,18 @@ A build now gets the cores free at admission below a target that leaves the CEO 
 On a 10-core Mac: alone and quiet (busy 5) 5 cores; four workers admitted at once 1
 each; busy 40 percent 2 cores; busy 59 percent or more 1 core. The most any build gets
 is cpus * 60 / 100 (6 here), so a lone build at its allowance leaves the Mac at about
-60 percent, 20 points (2 cores here) below the line where admission closes and the
-watchdog may stop a process using more than three cores. An unmeasured host gets 1.
-The decision is printed on stderr for every admitted build.
+60 percent, 20 points (2 cores here) below the line where admission closes. An
+unmeasured host gets 1. The decision is printed on stderr for every admitted build.
+
+ONE PROCESS NEVER GETS MORE THAN PROCESS_CORES (2). The watchdog stops any single
+process above cpu_guard.JOB_CORES (3) for ten seconds while the host is at the 80
+percent line, and other work takes the host there without the build's help. Where a
+tool does its work inside one process, its share is capped: Gradle's JVM (workers,
+R8 and the in-process Kotlin compiler; on 2026-10-02 a JVM given 4 used 6.08 cores and
+was stopped), every JVM through JAVA_TOOL_OPTIONS, Cargo (one rustc's codegen threads
+take every job token) and release Swift/Xcode compiles (the whole-module frontend runs
+a thread per job). Debug Swift and Xcode builds run one frontend process per job and
+get the whole allowance.
 """
 import os
 from pathlib import Path
@@ -32,6 +41,7 @@ import cpu_guard
 from cpu_policy import DEFAULT_MAX_CPU
 
 CEO_HEADROOM_PERCENT = 20
+PROCESS_CORES = 2
 
 
 def allowance(cpus, busy, sharers, limit=DEFAULT_MAX_CPU):
@@ -40,6 +50,20 @@ def allowance(cpus, busy, sharers, limit=DEFAULT_MAX_CPU):
         return 1
     free = cpus * (limit - CEO_HEADROOM_PERCENT - busy) / 100.0
     return max(1, int(free // max(1, sharers)))
+
+
+def one_process(cores):
+    """The share of a tool whose work runs inside one process (see PROCESS_CORES)."""
+    return max(1, min(int(cores), PROCESS_CORES))
+
+
+def release_build(command):
+    """A Swift or Xcode compile in a release configuration (whole-module, multithreaded)."""
+    args = [a.lower() for a in command[1:]]
+    for flag in ('-c', '--configuration', '-configuration'):
+        if flag in args and args.index(flag) + 1 < len(args) and args[args.index(flag) + 1] == 'release':
+            return True
+    return '--configuration=release' in args or 'archive' in args
 
 
 def capped(command, cores=1):
@@ -53,13 +77,14 @@ def capped(command, cores=1):
     if name in ('gradlew', 'gradle'):
         if any(a.startswith(('--max-workers', '-Dorg.gradle.workers.max', '-Dorg.gradle.jvmargs', '-Dkotlin.daemon.jvm.options')) or a == '--parallel' for a in command[1:]):
             raise ValueError('worker/JVM overrides are not allowed through native admission')
-        command += ['--no-daemon', '--parallel' if cores > 1 else '--no-parallel', '--max-workers=%d' % cores,
-                    '-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=%d -Dfile.encoding=UTF-8' % cores,
+        jvm = one_process(cores)
+        command += ['--no-daemon', '--parallel' if jvm > 1 else '--no-parallel', '--max-workers=%d' % jvm,
+                    '-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=%d -Dfile.encoding=UTF-8' % jvm,
                     '-Pkotlin.compiler.execution.strategy=in-process']
     elif name == 'swift' and len(command) > 1 and command[1] in ('build', 'test'):
         if any(a in ('-j', '--jobs', '--parallel') or a.startswith('--jobs=') for a in command[2:]):
             raise ValueError('parallelism is owned by native admission')
-        command += ['--jobs', str(cores)]
+        command += ['--jobs', str(one_process(cores) if release_build(command) else cores)]
     elif name == 'xcodebuild':
         if any(a in command for a in ('-jobs', '-parallel-testing-enabled', '-collect-test-diagnostics', '-enablePerformanceTestsDiagnostics')):
             raise ValueError('parallelism is owned by native admission')
@@ -73,7 +98,8 @@ def capped(command, cores=1):
                 command.append('-run-tests-until-failure')
         # Compile jobs follow the allowance; parallel TESTING stays off, because it
         # clones simulators and a run holds exactly one leased device.
-        command += ['-jobs', str(cores), '-parallel-testing-enabled', 'NO',
+        jobs = one_process(cores) if release_build(command) else cores
+        command += ['-jobs', str(jobs), '-parallel-testing-enabled', 'NO',
                     '-collect-test-diagnostics', 'never', '-enablePerformanceTestsDiagnostics', 'NO']
     return command
 
@@ -149,14 +175,14 @@ def run(command):
         # Unmeasured (not macOS) is 1 core whoever else is admitted.
         cpus, held = os.cpu_count() or 1, sharers(directory) if busy is not None else 1
         cores = allowance(cpus, busy, held)
-        print('native-work: %d core%s (%d cpus, %s, %d worker%s admitted, target %d%%)' % (
-            cores, '' if cores == 1 else 's', cpus,
+        print('native-work: %d core%s, %d in one process (%d cpus, %s, %d worker%s admitted, target %d%%)' % (
+            cores, '' if cores == 1 else 's', one_process(cores), cpus,
             'CPU not measured' if busy is None else '%.0f%% busy at admission' % busy,
             held, '' if held == 1 else 's', DEFAULT_MAX_CPU - CEO_HEADROOM_PERCENT), file=sys.stderr, flush=True)
         command = capped(command, cores)
         env = {**os.environ, 'RICHOS_MACHINE_WORKERS': directory,
-               'JAVA_TOOL_OPTIONS': (os.environ.get('JAVA_TOOL_OPTIONS', '') + ' -XX:ActiveProcessorCount=%d' % cores).strip(),
-               'CARGO_BUILD_JOBS': str(cores), 'SWIFTPM_MAX_CONCURRENT_OPERATIONS': str(cores)}
+               'JAVA_TOOL_OPTIONS': (os.environ.get('JAVA_TOOL_OPTIONS', '') + ' -XX:ActiveProcessorCount=%d' % one_process(cores)).strip(),
+               'CARGO_BUILD_JOBS': str(one_process(cores)), 'SWIFTPM_MAX_CONCURRENT_OPERATIONS': str(cores)}
         cpu_guard.register(os.getpid(), 'native build: ' + os.path.basename(command[0]), 'workload')
         return worker_tokens.run_command(command, token, env)
     finally:
