@@ -11,7 +11,7 @@ import { KEYS, PRODUCT, DB } from '../../core/constants.js';
 import { getModuleSettings } from '../../core/settings.js';
 import { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists } from '../../core/offscreen-host.js';
 import { writeText, writeUrl, dropPath, setDownloadUi } from '../../core/output.js';
-import { raiseAlert, setHealth, resetAlertThrottle, notifyRoutine } from '../../core/alerts.js';
+import { raiseAlert, setHealth, resetAlertThrottle, notifyRoutine, resolveAlerts } from '../../core/alerts.js';
 import { put, get, getAll, deleteBySession } from '../../core/idb.js';
 import {
   NativeHostClient,
@@ -142,7 +142,7 @@ async function armTabImpl(tabId, trigger = 'auto') {
 
   // Upgrade path: a mic+captions (or captions-only) session is already running for this tab and
   // the CEO has now invoked the extension — add the ground-truth tab audio to it.
-  if (active && active.tabId === tabId && active.awaitingTabAudio) {
+  if (active && active.tabId === tabId && (active.awaitingTabAudio || active.state.micOnlyFailover)) {
     return upgradeToFullAudio(tabId, trigger);
   }
   if (active) {
@@ -213,7 +213,7 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
   record.mode = mode;
   record.notes.push(`armed via ${trigger} (mode: ${mode})`);
 
-  resetAlertThrottle();
+  await resetAlertThrottle();
   const micEnabled = settings.captureMic !== false;
   const tabEnabled = mode === 'full';
   active = {
@@ -282,6 +282,12 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
   }
 
   active.audioActive = true;
+  if (mode === 'full' && started.micOnlyFailover) {
+    active.awaitingTabAudio = true;
+    active.state.awaitingTabAudio = true;
+    active.state.micOnlyFailover = true;
+    record.mode = 'mic+captions';
+  }
   if (mode === 'full' && (started.micOnlyFailover || !started.hasMic)) {
     for (const problem of started.problems || []) record.notes.push(problem);
     await raiseAlert({
@@ -368,6 +374,8 @@ async function upgradeToFullAudio(tabId, trigger) {
     }
   }
 
+  active.state.micOnlyFailover = false;
+  await resolveAlerts(['needs-invocation', 'tab-failover', 'tab-arm-failed']);
   active.awaitingTabAudio = false;
   active.state.awaitingTabAudio = false;
   active.state.tabEnabled = true;
@@ -424,7 +432,7 @@ async function announceCaptionsOnlyHealth(now = Date.now()) {
     now,
   );
   active.lastEval = { level: captionsHealth.level, reasons: captionsHealth.reasons, actions: [], signals: {}, at: now };
-  accrueHealth(active.record, { level: captionsHealth.level });
+  accrueHealth(active.record, { level: captionsHealth.level }, now);
   const detail = captionsHealth.reasons[0]?.detail || '';
 
   await setHealth({
@@ -653,13 +661,24 @@ function stopWatchdog() {
  * alive, and on the 1-minute alarm if the worker was evicted — so the longest we can be
  * blind is one alarm tick, and any heartbeat wakes us instantly.
  */
-async function tick() {
-  if (!active || active.finalizing) {
+let tickTask = null;
+function tick() {
+  if (tickTask) return tickTask;
+  tickTask = runTick().finally(() => { tickTask = null; });
+  return tickTask;
+}
+async function runTick() {
+  if (active?.finalizing) return;
+  if (!active) {
     await watchUnarmedCallTabs();
     return;
   }
+  const owner = active;
   const now = Date.now();
   const settings = await getModuleSettings(MODULE_ID);
+  if (active !== owner || owner.finalizing) return;
+  try { owner.state.tabAudible = (await chrome.tabs.get(owner.tabId)).audible !== false; } catch { /* tab closure is handled separately */ }
+  if (active !== owner || owner.finalizing) return;
 
   const maxMs = (settings.maxSessionMinutes || CAPTURE_DEFAULTS.maxSessionMinutes) * 60000;
   if (now - active.record.startedAt > maxMs) {
@@ -684,7 +703,7 @@ async function tick() {
 
   const evaluation = evaluateHealth(active.state, now);
   active.lastEval = { ...evaluation, at: now };
-  accrueHealth(active.record, evaluation);
+  accrueHealth(active.record, evaluation, now);
 
   if (active.awaitingTabAudio) {
     // Mic + captions are live, but tab-audio ground truth is not armed: keep the red ARM prompt.
@@ -727,7 +746,19 @@ async function tick() {
     }
   }
 
-  for (const action of evaluation.actions) await runRecovery(action, now);
+  const current = new Set(evaluation.reasons.map(r => r.code));
+  if (active.awaitingTabAudio) current.add('needs-invocation');
+  await resolveAlerts([
+    'needs-invocation', 'tab-failover', 'mic-lost', 'tab-arm-failed', 'partial-start',
+    'offscreen-silent', 'no-audio-ever', 'audio-stalled', 'audio-not-growing',
+    'recorder-inactive', 'audio-graph-not-running', 'tab-stream-ended', 'mic-stream-ended',
+    'tab-digital-silence', 'mic-digital-silence', 'captions-only-degraded',
+  ].filter(code => !current.has(code) &&
+    !(['tab-failover', 'tab-arm-failed', 'partial-start'].includes(code) && active.awaitingTabAudio)));
+  for (const action of evaluation.actions) {
+    if (active !== owner || owner.finalizing) return;
+    await runRecovery(action, now);
+  }
 
   if (now % 10000 < THRESHOLDS.heartbeatMs) await persistActive();
 }
@@ -751,7 +782,8 @@ function healthTitle(evaluation) {
  * @param {number} now
  */
 async function runRecovery(action, now) {
-  if (!active) return;
+  if (!active || active.finalizing) return;
+  const owner = active;
   const attempt = active.attempts[action] || { n: 0, at: 0 };
   if (now - attempt.at < THRESHOLDS.recoverBackoffMs) return;
   if (attempt.n >= THRESHOLDS.recoverMaxAttempts) return;
@@ -763,27 +795,35 @@ async function runRecovery(action, now) {
   switch (action) {
     case ACTIONS.restartRecorder: {
       const result = await callOffscreen({ type: 'cc:restart-recorder' });
+      if (active !== owner || owner.finalizing) return;
       if (!result?.ok) await recreateOffscreenAndRestart();
       break;
     }
     case ACTIONS.reattachTab: {
+      // Silence alone cannot justify releasing a live stream. Chrome may require a fresh
+      // invocation to mint another stream, so preserve it and let the badge report the issue.
+      if (active.state.tabTrack?.readyState === 'live') return;
       const minted = await mintStreamId(active.tabId);
-      const result = await callOffscreen({ type: 'cc:reattach-tab', streamId: minted.ok ? minted.streamId : null });
-      if (!result?.ok) {
+      const result = minted.ok
+        ? await callOffscreen({ type: 'cc:reattach-tab', streamId: minted.streamId })
+        : { ok: false, error: minted.error };
+      if (active !== owner || owner.finalizing) return;
+      if (!result?.ok && !result?.preserved) {
         active.state.micOnlyFailover = true;
+        active.awaitingTabAudio = true;
+        active.state.awaitingTabAudio = true;
+        active.record.mode = 'mic+captions';
         await raiseAlert({
-          code: 'tab-failover',
-          level: 'red',
-          title: 'RichOS: recording your microphone only',
-          message: minted.needsInvocation
-            ? 'Chrome needs you to click the RichOS icon on the call tab to give the tab audio back.'
-            : `Tab audio could not be recovered (${result?.error || 'unknown'}). Your side is still being recorded.`,
+          code: 'tab-failover', level: 'red', title: 'RichOS: recording your microphone only',
+          message: 'Click the RichOS icon on the call tab or press Alt+Shift+L to restore the other side’s audio.',
           sessionId: active.record.sessionId,
         });
+        await persistActive();
       }
       break;
     }
     case ACTIONS.reacquireMic: {
+      if (active.state.micTrack?.readyState === 'live') return;
       const result = await callOffscreen({ type: 'cc:reacquire-mic' });
       if (!result?.ok) {
         await raiseAlert({

@@ -65,6 +65,7 @@ export function newCaptureState(init) {
     micSpeechAt: null,
     tabSpeechAt: null,
     micOnlyFailover: false,
+    tabAudible: true,
   };
 }
 
@@ -206,7 +207,7 @@ export function evaluateHealth(state, now, thresholds = THRESHOLDS) {
   }
 
   if (state.tabEnabled) {
-    if (state.tabTrack && state.tabTrack.readyState === 'ended') {
+    if ((!state.tabTrack && !warming) || state.tabTrack?.readyState === 'ended') {
       signals.tabTrack = 'red';
       add('tab-stream-ended', 'red', 'the tab audio stream ended', ACTIONS.reattachTab);
     } else {
@@ -214,7 +215,7 @@ export function evaluateHealth(state, now, thresholds = THRESHOLDS) {
     }
   }
   if (state.micEnabled) {
-    if (state.micTrack && state.micTrack.readyState === 'ended') {
+    if ((!state.micTrack && !warming) || state.micTrack?.readyState === 'ended') {
       signals.micTrack = 'red';
       add('mic-stream-ended', 'red', 'the microphone stream ended', ACTIONS.reacquireMic);
     } else if (state.micTrack && state.micTrack.muted) {
@@ -227,7 +228,7 @@ export function evaluateHealth(state, now, thresholds = THRESHOLDS) {
 
   // --- 4. Digital silence: the stream is technically alive but carries nothing ----------
   if (!warming) {
-    if (state.tabEnabled && !state.micOnlyFailover) {
+    if (state.tabEnabled && !state.micOnlyFailover && state.tabAudible !== false) {
       const tabSilentFor = now - (state.tabNonZeroAt || state.startedAt);
       if (tabSilentFor >= thresholds.digitalSilenceRedMs) {
         signals.tabLevel = 'red';

@@ -332,15 +332,34 @@ test('any second spent red is remembered in the session record', () => {
     extensionVersion: '0.1.0',
     settings: CAPTURE_DEFAULTS,
   });
-  accrueHealth(record, { level: 'green' });
-  accrueHealth(record, { level: 'red' });
-  accrueHealth(record, { level: 'amber' });
+  accrueHealth(record, { level: 'green' }, T0 + 1000);
+  accrueHealth(record, { level: 'red' }, T0 + 2000);
+  accrueHealth(record, { level: 'amber' }, T0 + 3000);
   assert.equal(record.health.redSeconds, 1);
   assert.equal(record.health.worstLevel, 'red');
   record.status = 'closed';
   record.endedAt = T0 + 600000;
   record.audio = { parts: [{ part: 0, bytes: 5000000, chunks: 100 }], bytesTotal: 5000000, chunkCount: 100 };
   assert.equal(verifySession(record).ok, false, 'a red second must make the session suspect');
+});
+
+test('health evaluations cannot accumulate more seconds than actual elapsed time', () => {
+  const record = newSessionRecord({ startedAt: T0, platform: { id: 'zoom-web', slug: 'x' }, tabId: 1, settings: CAPTURE_DEFAULTS });
+  for (let i = 0; i < 21; i++) accrueHealth(record, { level: 'red' }, T0 + 1000);
+  accrueHealth(record, { level: 'amber' }, T0 + 1750);
+  accrueHealth(record, { level: 'red' }, T0 + 1500); // stale evaluation
+  assert.equal(record.health.redSeconds, 1);
+  assert.equal(record.health.amberSeconds, 0.75);
+  assert.equal(record.health.heartbeats, 2);
+});
+test('a quiet Zoom tab does not request fresh tab capture, but a missing stream still alarms', () => {
+  const state = healthyState();
+  state.tabAudible = false;
+  state.tabNonZeroAt = T0 - THRESHOLDS.digitalSilenceRedMs - 1000;
+  assert.ok(!evaluateHealth(state, T0).reasons.some(r => r.code === 'tab-digital-silence'));
+  state.tabTrack = null;
+  assert.equal(evaluateHealth(state, T0).level, 'red');
+  assert.ok(evaluateHealth(state, T0).actions.includes(ACTIONS.reattachTab));
 });
 
 group('drop-zone paths');
