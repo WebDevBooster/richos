@@ -298,7 +298,7 @@ def verify(plan_path, weights_path=None, emit_path=None, proof_run=None):
     if claimed:
         table = known_red_table(os.environ.get("RICHOS_CI_KNOWN_RED") or os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "ci-known-red.tsv"))
-        today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.date.today().isoformat()  # local, as ci-shard.sh kr_expired reads it
         unexcused = []
         for u in claimed:
             if table is None:
