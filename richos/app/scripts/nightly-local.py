@@ -564,7 +564,6 @@ BUILD_MILESTONES = (
     ("build/engine-asset", r"^building the engine asset for "),
     ("build/engine-asset-recheck", r"^=== --check: building a second time"),
     ("build/engine-member-audit", r"^=== every member accounted for"),
-    ("build/engine-release-create", r"^https://github\.com/\S+/releases/tag/"),
     ("build/engine-verify-download", r"^fetching the PUBLISHED asset"),
     ("build/app-preflight", r"^building RichOS \S+ for "),
     ("build/app-compile", r"^building \(release\) with RICHOS_REQUIRE_REAL_ICONS"),
