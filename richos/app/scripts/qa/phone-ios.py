@@ -97,6 +97,10 @@ the phone's Apple Account, so `ocr-gate.sh` every Settings frame before it enter
                                   portrait-only app is seen to stay upright. End on portrait.
     open{url}                     an https link, opened as a person's tap opens one: in Safari
                                   (test content only, e.g. an isolated lab's own image).
+    tapThen{after, at: [x, y]}    tap the target and, `after` seconds later (0-2), touch screen point
+                                  `at`, as one synthesized event record: a touch at an exact moment
+                                  of an app's return (`perf.py ios --tap-returns`). A `tap` step's
+                                  detail also carries `tapAt`, the phone-clock moment it was asked for.
 
 An "id" names the FIRST element carrying that identifier (SwiftUI repeats a container's identifier
 on its children).
@@ -140,11 +144,11 @@ ACTIONS = {
     "value": {"equals"}, "type": {"text", "delete", "focus"}, "press": {"seconds", "drag"},
     "swipe": {"direction"}, "count": {"label", "equals"}, "alert": {"button"},
     "shot": {"name", "screen"}, "tree": {"name"},
-    "appearance": {"set"}, "orientation": {"set"}, "open": {"url"},
+    "appearance": {"set"}, "orientation": {"set"}, "open": {"url"}, "tapThen": {"after", "at"},
 }
 APPEARANCES = ("light", "dark")
 ORIENTATIONS = ("portrait", "landscapeLeft", "landscapeRight", "portraitUpsideDown")
-NEEDS_TARGET = {"wait", "tap", "exists", "gone", "value", "type", "press", "swipe"}
+NEEDS_TARGET = {"wait", "tap", "exists", "gone", "value", "type", "press", "swipe", "tapThen"}
 COMMON = {"do", "id", "label", "kind", "in", "timeout", "optional"}
 PLACES = ("springboard", "tailscale", "settings", "safari")
 # The Tailscale app shows the person's own account and devices: a list that touches it may press
@@ -197,6 +201,11 @@ def validate(steps):
             raise CannotAnswer(f"step {i} (orientation) may only set {', '.join(ORIENTATIONS)}")
         if action == "open" and not (isinstance(step.get("url"), str) and step["url"].startswith("https://")):
             raise CannotAnswer(f"step {i} (open) needs an https url: it opens Safari, never another app's own scheme")
+        if action == "tapThen" and not (
+                isinstance(step.get("after"), (int, float)) and 0 <= step["after"] <= 2
+                and isinstance(step.get("at"), list) and len(step["at"]) == 2
+                and all(isinstance(v, (int, float)) and 0 <= v <= 2000 for v in step["at"])):
+            raise CannotAnswer(f"step {i} (tapThen) needs after (0 to 2 s) and at [x, y] in screen points")
         if "in" in step and step["in"] not in PLACES:
             raise CannotAnswer(f"step {i}: 'in' may only be one of {', '.join(PLACES)}")
         if action in ("launch", "terminate") and step.get("in") == "springboard":
@@ -337,7 +346,9 @@ def pair_steps(config_path, v2_hold=None):
 # a kind not listed here (mark, waitState, ...) measured ~0 and counts as 0.
 STEP_MEDIAN_S = {"tap": 2.0, "wait": 1.2, "type": 2.9, "press": 2.64, "swipe": 2.69, "launch": 2.64,
                  "value": 1.48, "appearance": 1.17, "terminate": 1.08, "home": 0.46, "activate": 0.4,
-                 "tree": 0.52, "shot": 0.15, "exists": 0.13}
+                 "tree": 0.52, "shot": 0.15, "exists": 0.13,
+                 # Not yet measured on the phone: a tap's median, plus its `after` (at most 2 s).
+                 "tapThen": 4.0}
 # XCUITest stops a test at its execution-time allowance: the steps after it never run and the
 # shots and trees they took are never exported (lost: a 158-step list measured 245 s against the
 # default 240 s, 2026-10-01). Ask for this much headroom over the measured-median estimate.
