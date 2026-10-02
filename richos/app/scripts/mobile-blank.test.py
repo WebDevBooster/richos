@@ -147,6 +147,17 @@ def _():
 # what else the rule says
 # ------------------------------------------------------------------------------------------------
 
+@case("an empty white window framed by a sliver of home screen is blank (the iPhone's opening animation)")
+def _():
+    framed = paint(WALLPAPER, [(2, 6, 34, 74, WHITE)])                   # 11% of the screen is still home screen
+    r = launch([(0.05, framed), (0.65, FINAL)])
+    assert r["verdict"] == "FAIL" and r["longestBlankMs"] == 600.0, r
+    # a logo window framed the same way is not
+    logo_framed = paint(WALLPAPER, [(2, 6, 34, 74, LIGHT_GROUND), (13, 35, 23, 45, (200, 160, 60))])
+    r = launch([(0.05, logo_framed), (0.65, lines(LIGHT_GROUND, 40, 72))])
+    assert r["verdict"] == "PASS" and not r["blankStretches"], r
+
+
 @case("a spinner on an empty screen is blank")
 def _():
     r = launch([(0.05, spinner(LIGHT_GROUND)), (0.65, FINAL)])

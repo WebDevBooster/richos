@@ -25,7 +25,9 @@ What it judges, measured from the tap:
     bars excluded) differs by more than `TOLERANCE` from the frame's dominant color. White, one flat
     color and a near-uniform fill are all blank; so is a spinner on an empty screen (a spinner is
     far under 1% of a phone screen). A designed element (an icon, a logo, a picture) or any content
-    makes it not blank.
+    makes it not blank. So is an EMPTY WINDOW covering `WINDOW_MIN_COVER` of the screen or more
+    with a sliver of home screen still around it (the iPhone's launch screen while the system's
+    opening animation finishes).
   * A BLANK STRETCH is a run of blank frames. It begins earlier when the system's opening animation
     was already growing that same blank window: the frames just before it in which the blank color
     covers at least `OPENING_RISE` more of the screen than it did before the tap, AND the area it
@@ -87,6 +89,8 @@ TOLERANCE = 16                  # largest channel difference (0-255) still count
 MIN_CONTENT_SHARE = 0.01        # under 1% of the screen differing from the background is a blank frame
 OPENING_RISE = 0.10             # the opening animation: the blank color covers this much more than before the tap
 OPENING_INSET = 0.10            # ...and the area it covers, inset by this much on each side, is itself empty
+WINDOW_MIN_COVER = 0.5          # an empty window covering half the screen or more is a blank frame, whatever
+                                # sliver of home screen still frames it (the iPhone's opening animation)
 CHANGE_SHARE = 0.005            # share of pixels that must change for "the screen reacted" (the tap)
 STILL_BEFORE_TAP_MS = 300       # the recording must open on a still screen at least this long
 SETTLE_MS = 500                 # the screen must be still this long before the recording ends
@@ -297,13 +301,20 @@ def hexcolor(c):
 # ------------------------------------------------------------------------------------------------
 
 def describe(frames):
-    """Per frame: time, background, content share, blank or not."""
-    out = []
+    """Per frame: time, background, content share, blank or not. Blank is nothing but background
+    (under MIN_CONTENT_SHARE), or an EMPTY WINDOW: the background covers at least WINDOW_MIN_COVER of
+    the screen and the area it covers holds nothing (the launch screen during the opening animation,
+    framed by a sliver of home screen, is what the eye lands on)."""
+    out, seen = [], {}
     for f in frames:
-        c = dominant(f)
-        p = content_profile(f, c)
-        share = sum(p) / len(p)
-        out.append({"t": f.t, "color": c, "profile": p, "content": share, "blank": share < MIN_CONTENT_SHARE})
+        if f.rgb not in seen:
+            c = dominant(f)
+            p = content_profile(f, c)
+            share = sum(p) / len(p)
+            window = share >= MIN_CONTENT_SHARE and 1.0 - share >= WINDOW_MIN_COVER and empty_window(f, c)
+            seen[f.rgb] = (c, p, share, share < MIN_CONTENT_SHARE or window)
+        c, p, share, is_blank = seen[f.rgb]
+        out.append({"t": f.t, "color": c, "profile": p, "content": share, "blank": is_blank})
     return out
 
 
@@ -511,7 +522,7 @@ def thresholds():
             "analysisWidth": ANALYSIS_WIDTH, "systemBars": SYSTEM_BARS,
             "tolerance": TOLERANCE, "minContentShare": MIN_CONTENT_SHARE, "openingRise": OPENING_RISE,
             "changeShare": CHANGE_SHARE, "stillBeforeTapMs": STILL_BEFORE_TAP_MS, "settleMs": SETTLE_MS,
-            "jumpMinShift": JUMP_MIN_SHIFT, "jumpMinGain": JUMP_MIN_GAIN, "jumpMinMatch": JUMP_MIN_MATCH,
+            "openingInset": OPENING_INSET, "windowMinCover": WINDOW_MIN_COVER, "jumpMinShift": JUMP_MIN_SHIFT, "jumpMinGain": JUMP_MIN_GAIN, "jumpMinMatch": JUMP_MIN_MATCH,
             "source": "CEO 2026-10-02: no blank screen for any noticeable time; 400 ms is above the Android release "
                       "cold start he calls fine and below the half second he named as painful"}
 
