@@ -442,6 +442,20 @@ class Device:
             raise Unmeasurable(f"adb {' '.join(args)[:120]} exited {p.returncode}: {(p.stderr or p.stdout).strip()[:200]}")
         return p.stdout
 
+    def run_bytes(self, *args, timeout=600):
+        """adb's stdout as raw bytes (a tar streamed back from run-as); always checked."""
+        if self.touch and (self.touched is None or self.clock() - self.touched > 30):
+            self.touch()
+            self.touched = self.clock()
+        try:
+            p = self.runner([self.adb, "-s", self.serial, *args], capture_output=True, text=False, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise Unmeasurable(f"adb {' '.join(args)[:120]} did not answer in {timeout} s")
+        if p.returncode != 0:
+            err = p.stderr.decode(errors="replace") if isinstance(p.stderr, bytes) else (p.stderr or "")
+            raise Unmeasurable(f"adb {' '.join(args)[:120]} exited {p.returncode}: {err.strip()[:200]}")
+        return p.stdout
+
     def sh(self, command, **kw):
         return self.run("shell", command, **kw)
 
@@ -503,7 +517,8 @@ def debuggable(dev):
 
 def write_core_files(dev, files, scratch):
     """Write `files` ({name: bytes}) into the installed DEBUGGABLE build's files/core with run-as,
-    the app stopped, and read each back by sha256. Returns {name: sha256}."""
+    the app stopped, and read each back by sha256. Returns {name: sha256}. This OVERWRITES the app's
+    files/core: the caller keeps a StateKeeper (below) saved first and restores it afterwards."""
     import hashlib
     import os
     if not debuggable(dev):
@@ -531,8 +546,9 @@ def write_core_files(dev, files, scratch):
 def seed_release(dev, files, twin_apk, release_apk, release_sha256, scratch, log=lambda s: None):
     """Andy's method (andy-opus-coldstart1, 2026-10-02): uninstall the app, install the release
     build's debuggable twin, write the fixture into its files/core with run-as (the twin is never
-    launched), then install the stamped release APK over it, data kept. The phone's previous saved
-    state for this app is gone afterwards. Refuses before touching the device when an APK is
+    launched), then install the stamped release APK over it, data kept. The uninstall DROPS the
+    app's saved state on the phone: the caller saves it first with a StateKeeper and puts it back
+    after the run (perf.run_android does both). Refuses before touching the device when an APK is
     missing or the release APK is not the stamped bytes."""
     import hashlib
     import os
@@ -553,6 +569,151 @@ def seed_release(dev, files, twin_apk, release_apk, release_sha256, scratch, log
     if debuggable(dev):
         raise Refused("after installing the release APK over the twin the app is still debuggable; not the release build")
     return {"files": written, "twinSha256": twin_sha}
+
+
+KEEP_ROOT = "/Volumes/E1TB/tmp/claude/perf-keep"  # private, outside every repository
+KEEP_TAR = "/data/local/tmp/richos-perf-keep.tar"
+MANIFEST = f"run-as {PACKAGE} sh -c 'find . -type f -exec sha256sum {{}} +'"
+
+
+class StateKeeper:
+    """Gives the phone back as it found it: the installed build and the app's private data.
+
+    save() copies the installed APK (adb pull) and, for a debuggable build, the whole private data
+    directory (a tar streamed back through run-as) to a private directory under KEEP_ROOT, and
+    records a sha256 manifest of both. restore() reinstalls the saved APK, puts the data back and
+    reads the hashes back; it returns the problems it found, [] when everything matches.
+
+    A release build has no run-as, so its data cannot be saved: save() REFUSES, before anything on
+    the device changes, unless `accept_loss` names who agreed to lose that saved state. Nothing
+    installed means nothing to lose and nothing to put back."""
+
+    def __init__(self, dev, root=None, log=lambda s: None, accept_loss=None, clock=time.time_ns):
+        self.dev, self.log, self.accept_loss = dev, log, accept_loss
+        self.root = root or KEEP_ROOT
+        self.clock = clock
+        self.saved = False
+        self.apk = self.apk_sha = self.tar = self.manifest = None
+        self.dir = None
+        self.lost = None  # who agreed to lose the data (a release build), once saved
+
+    # -- reading the device -------------------------------------------------------------------
+    def installed(self):
+        """(path of the base APK on the phone, its sha256) or (None, None) when not installed."""
+        paths = [l.split(":", 1)[1] for l in self.dev.sh(f"pm path {PACKAGE}", check=False).split() if l.startswith("package:")]
+        if not paths:
+            return None, None
+        if len(paths) > 1:
+            raise Unmeasurable(f"{PACKAGE} is installed as {len(paths)} split APKs; the saved state cannot be put back "
+                               "by this tool (it restores a single APK)")
+        sha = (self.dev.sh(f"sha256sum {paths[0]}", check=False).split() or [""])[0]
+        return paths[0], sha
+
+    def read_manifest(self):
+        out = self.dev.sh(MANIFEST, check=False)
+        rows = {}
+        for line in out.splitlines():
+            parts = line.split(None, 1)
+            if len(parts) == 2 and re.fullmatch(r"[0-9a-f]{64}", parts[0]):
+                rows[parts[1].strip()] = parts[0]
+        return rows
+
+    # -- save ---------------------------------------------------------------------------------
+    def save(self):
+        import hashlib
+        import os
+        import tarfile
+        if self.saved:
+            return
+        path, sha = self.installed()
+        if path is None:
+            self.log("keep: the app is not installed on the phone; there is no saved state to keep")
+            self.saved = True
+            return
+        is_debug = debuggable(self.dev)
+        if not is_debug and not self.accept_loss:
+            raise Refused(f"the installed {PACKAGE} is a release build: it has no run-as, so its saved state (pairing and "
+                          "conversation) cannot be copied off the phone, and this seeding would lose it. Nothing was "
+                          "touched. Pass --accept-state-loss <who agreed> only when its saved state is already empty or "
+                          "that person agreed to lose it")
+        base = os.path.join(self.root, f"{self.dev.serial}-{self.clock()}")
+        os.makedirs(base, mode=0o700, exist_ok=False)
+        os.chmod(base, 0o700)
+        self.dir = base
+        self.dev.sh(f"am force-stop {PACKAGE}")
+        local = os.path.join(base, "base.apk")
+        self.dev.run("pull", path, local)
+        with open(local, "rb") as f:
+            pulled = hashlib.sha256(f.read()).hexdigest()
+        if pulled != sha:
+            raise Unmeasurable(f"saving the installed APK: the copy reads {pulled[:12]}…, the phone's reads {sha[:12]}…; "
+                               f"nothing changed on the phone (copy kept at {base})")
+        self.apk, self.apk_sha = local, sha
+        if is_debug:
+            data = self.dev.run_bytes("exec-out", "run-as", PACKAGE, "tar", "-cf", "-", ".")
+            self.tar = os.path.join(base, "data.tar")
+            with open(self.tar, "wb") as f:
+                f.write(data)
+            os.chmod(self.tar, 0o600)
+            try:
+                with tarfile.open(self.tar) as t:
+                    t.getmembers()
+            except tarfile.TarError as e:
+                raise Unmeasurable(f"the app's saved data did not stream back as a readable tar ({e}); nothing changed "
+                                   f"on the phone (copy kept at {base})")
+            self.manifest = self.read_manifest()
+            self.log(f"keep: saved the installed APK ({sha[:12]}…) and {len(self.manifest)} data files to {base}")
+        else:
+            self.lost = self.accept_loss
+            self.log(f"keep: saved the installed APK ({sha[:12]}…); its data cannot be saved, {self.accept_loss} agreed to lose it")
+        self.saved = True
+
+    # -- restore ------------------------------------------------------------------------------
+    def check(self):
+        """Problems found comparing the phone with what was saved ([] when it matches)."""
+        problems = []
+        _, sha = self.installed()
+        if sha != self.apk_sha:
+            problems.append(f"the installed APK reads {str(sha)[:12]}…, it was {self.apk_sha[:12]}…")
+        if self.tar is not None:
+            now = self.read_manifest()
+            if now != self.manifest:
+                gone = sorted(set(self.manifest) - set(now))
+                changed = sorted(k for k in set(self.manifest) & set(now) if self.manifest[k] != now[k])
+                extra = sorted(set(now) - set(self.manifest))
+                problems.append(f"the app's data differs: {len(gone)} missing {gone[:3]}, {len(changed)} changed {changed[:3]}, "
+                                f"{len(extra)} extra {extra[:3]}")
+        return problems
+
+    def restore(self):
+        """Put the saved build and data back and read the hashes back. Returns the problems; [] means
+        restored and verified, and the private copy is deleted. A problem keeps the copy and names it."""
+        import shutil
+        if not self.saved or self.apk is None:
+            return []
+        try:
+            self.dev.sh(f"am force-stop {PACKAGE}", check=False)
+            if not self.check():
+                problems = []  # the run never changed it, or already put it back
+            else:
+                self.dev.run("uninstall", PACKAGE, check=False)
+                self.dev.run("install", self.apk)
+                if self.tar is not None:
+                    self.dev.run("push", self.tar, KEEP_TAR)
+                    try:
+                        self.dev.sh(f"run-as {PACKAGE} tar -xf {KEEP_TAR}")
+                    finally:
+                        self.dev.sh(f"rm -f {KEEP_TAR}", check=False)
+                problems = self.check()
+        except Exception as e:  # noqa: BLE001 — a restore that cannot run is a problem, said loudly
+            problems = [f"{type(e).__name__}: {e}"]
+        if problems:
+            problems.append(f"the saved copy is KEPT at {self.dir}")
+            return problems
+        self.log("keep: the installed build and the app's data are back as they were, hashes read back")
+        shutil.rmtree(self.dir, ignore_errors=True)
+        self.saved = False
+        return []
 
 
 # ---------------------------------------------------------------------------------------------

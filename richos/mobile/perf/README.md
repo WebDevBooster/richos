@@ -21,7 +21,8 @@ richos/mobile/native-android/bin/randroid emu perf --out <file.json> [--expect-c
 richos/mobile/native-android/bin/randroid emu delete
 
 # an Android phone (named explicitly; the tool checks it is not an emulator). A release build is seeded
-# with the made-up conversation through its debuggable twin, which REPLACES the app's saved state on the phone
+# with the made-up conversation through its debuggable twin; the app's build and saved state are saved first
+# and put back after the run (a release build, whose data cannot be saved, needs --accept-state-loss <who agreed>)
 python3 richos/mobile/perf/perf.py android --production --route managed --adb <adb> --serial <serial> --kind physical \
   --stamp <apk>.stamp.json --seed-twin <debug.apk> --out <file.json>
 
@@ -147,8 +148,22 @@ only worth keeping if two builds are measured the same way, so:
     construction. A debuggable build is written with `run-as`. A release build is seeded through its
     debuggable twin (`--seed-twin <debug.apk>`, same commit, same signing key). The tool
     uninstalls the app, installs the twin, writes the files, then installs the stamped release APK
-    over it with the data kept. **That replaces the app's saved state on the phone.** A release build
-    without `--seed-twin` is refused before anything on the device changes.
+    over it with the data kept. A release build without `--seed-twin` is refused before anything on
+    the device changes.
+  - **The phone is given back as it was found** (`android.StateKeeper`). Before either seeding path
+    touches the phone, the tool copies the installed APK (`adb pull`) and, for a debuggable build,
+    the app's whole private data directory (a tar streamed back through `run-as`) to a private
+    directory under `/Volumes/E1TB/tmp/claude/perf-keep/` (mode 0700, never in a repository;
+    `RICHOS_PERF_KEEP_DIR` moves it), with a SHA-256 manifest of both. However the run ends (success,
+    failure or interrupt) it reinstalls that APK, extracts that data and reads the hashes back
+    (`savedState.restored`). The private copy is deleted only after the hashes match. When it
+    cannot put them back, its last stderr line is `SAVED STATE NOT RESTORED ...`, it exits 6 and
+    the copy stays, its path in the message.
+  - **A release build has no `run-as`, so its data cannot be saved and the uninstall would lose it**
+    (this lost the CEO's pairing on 2026-10-02). The tool REFUSES before touching the phone unless
+    `--accept-state-loss <who>` names who agreed to lose that saved state (recorded as
+    `savedState.dataLostBy`). The build itself is still put back. Nothing installed means nothing
+    to lose or restore.
 
   The default sizes are the ones the established benchmarks were taken with. `--rows N` is a
   different condition. After the cold series the tool checks the seeded conversation's marker row is

@@ -61,6 +61,20 @@ from perfcore import Refused, Unmeasurable  # noqa: E402
 AS_INSTALLED = condition.AS_INSTALLED
 
 EXIT_SLOWER = 4
+EXIT_NOT_RESTORED = 6
+
+
+class RestoreFailed(Exception):
+    """The run could not put the phone's build and saved app data back; the saved copy is kept."""
+
+    def __init__(self, problems):
+        super().__init__("; ".join(problems))
+        self.problems = problems
+
+
+def not_restored_line(problems):
+    return ("SAVED STATE NOT RESTORED: the phone is NOT as the run found it (" + "; ".join(problems) +
+            "). Do not trust the app's pairing or conversation on this phone until it is put back.")
 EXIT_NOT_COMPARED = 5
 
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
@@ -433,6 +447,28 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     log = log or (lambda s: print(s, file=sys.stderr, flush=True))
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
                          touch=touch or lease_toucher(args.lease))
+    keeper = android.StateKeeper(dev, root=getattr(args, "keep_dir", None) or os.environ.get("RICHOS_PERF_KEEP_DIR"),
+                                 log=log, accept_loss=getattr(args, "accept_state_loss", None))
+    try:
+        record, failures = measure_android(args, dev, stamp, keeper, host, log)
+    except BaseException as e:  # noqa: BLE001 — including an interrupt: the phone is given back whatever ended the run
+        problems = keeper.restore()
+        if problems:
+            raise RestoreFailed(problems) from e
+        raise
+    problems = keeper.restore()
+    if problems:
+        record["savedState"] = {"restored": False, "problems": problems}
+    elif keeper.apk is not None:
+        record["savedState"] = {"restored": True, "apkSha256": keeper.apk_sha,
+                                "dataFiles": None if keeper.tar is None else len(keeper.manifest),
+                                "dataLostBy": keeper.lost}
+    return record, failures
+
+
+def measure_android(args, dev, stamp, keeper, host, log):
+    import android
+    runner = dev.runner if dev.runner is not subprocess.run else None
     conversation = getattr(args, "conversation", "fixture")
     mac = getattr(args, "mac", "unreachable")
     twin = getattr(args, "seed_twin", None)
@@ -442,6 +478,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                           "by construction; --mac reachable needs the Debug build's bridge")
         check_kind(dev, args.kind)  # before anything on the device changes
         rows = args.rows or condition.FILE_DEFAULT_ROWS
+        keeper.save()  # the uninstall below drops the app's saved state; refuses first when it cannot be kept
         with tempfile.TemporaryDirectory() as scratch:
             twin_seed = android.seed_release(dev, condition.file_fixture(rows), twin, stamp.get("artifact"),
                                              stamp.get("sha256"), scratch, log)
@@ -452,8 +489,8 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
             plan = "twin"
         elif not build["debuggable"]:
             raise Refused("a release build is measured under the seeded condition only through its debuggable twin: "
-                          "--seed-twin <debug APK of the same commit, signed with the same key> (this replaces the app's "
-                          "saved state on the device), or --conversation as-installed, whose record is never compared")
+                          "--seed-twin <debug APK of the same commit, signed with the same key> (the app's saved state "
+                          "is saved first and put back after the run), or --conversation as-installed, whose record is never compared")
         elif not args.production:
             plan = "bridge"
         else:
@@ -546,6 +583,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                 how = (f"the debuggable twin (sha256 {twin_seed['twinSha256']}) was installed, the fixture written "
                        "into files/core with run-as and read back, then the stamped release APK installed over it")
             else:
+                keeper.save()  # files/core is overwritten below; refuses here, before the phone is touched
                 def run_as():
                     with tempfile.TemporaryDirectory() as scratch:
                         return android.write_core_files(dev, condition.file_fixture(rows), scratch)
@@ -803,8 +841,12 @@ def parse_args(argv):
                    help="the Mac's state while measured (default unreachable; reachable only through the Debug bridge)")
     a.add_argument("--seed-twin", metavar="DEBUG_APK",
                    help="seed a release build through its debuggable twin (same commit, same signing key): UNINSTALLS the "
-                        "app, so its saved state on the device is replaced by the made-up conversation; the stamped "
-                        "release APK (the stamp's artifact) is installed over it")
+                        "app; the app's build and saved state are saved first and put back after the run (a release build, "
+                        "whose data cannot be saved, is refused unless --accept-state-loss names who agreed to lose it); the "
+                        "stamped release APK (the stamp's artifact) is installed over the twin for the measurement")
+    a.add_argument("--accept-state-loss", metavar="WHO",
+                   help="the app's saved state cannot be copied off a release build (no run-as): the run is refused unless "
+                        "that state is already empty or WHO agreed to lose it; WHO is recorded")
     a.add_argument("--type-text", default="measuredtypingcost")
     a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")
@@ -915,10 +957,20 @@ def main(argv=None):
         if problems:
             record.setdefault("recordProblems", problems)
         emit(record, args.out)
+        kept = (record.get("savedState") or {})
+        if kept.get("restored") is False:
+            print(not_restored_line(kept["problems"]), file=sys.stderr, flush=True)  # the last line
+            return EXIT_NOT_RESTORED
         return EXIT_SLOWER if slower else 1 if failures or problems else 0
     except Refused as e:
         print(json.dumps({"ok": False, "refused": str(e)}), file=sys.stderr)
         return 3
+    except RestoreFailed as e:
+        cause = e.__cause__
+        if cause is not None:
+            print(json.dumps({"ok": False, "error": f"{type(cause).__name__}: {cause}"}), file=sys.stderr)
+        print(not_restored_line(e.problems), file=sys.stderr, flush=True)  # the last line
+        return EXIT_NOT_RESTORED
     except Unmeasurable as e:
         print(json.dumps({"ok": False, "error": str(e)}), file=sys.stderr)
         return 1
