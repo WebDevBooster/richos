@@ -362,7 +362,9 @@ def is_generic_nonsecret(value):
     if any(c in value for c in '()[]<>?!{}'):
         return True
     segs = [s for s in re.split(r'[-_]', value) if s]
-    if segs and all(s.isalpha() or s.isdigit() for s in segs):
+    # P3-25: a DESCRIPTIVE literal has separators. A single unseparated run of
+    # letters or digits (a passphrase, a long numeric secret) is not descriptive.
+    if len(segs) >= 2 and all(s.isalpha() or s.isdigit() for s in segs):
         return True
     return False
 

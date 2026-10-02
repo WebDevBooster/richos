@@ -245,6 +245,9 @@ def write_targets(verb, toks):
     # is therefore allowed; a copy INTO a protected tree is still blocked.
     if verb not in ('cp', 'rsync'):
         return toks
+    # P3-33: rsync --remove-source-files / --remove-sent-files DELETES its sources.
+    if verb == 'rsync' and any(t in ('--remove-source-files', '--remove-sent-files') for t in toks):
+        return toks
     dest = []
     plain = []
     i = 0

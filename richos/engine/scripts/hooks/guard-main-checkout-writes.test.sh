@@ -109,6 +109,15 @@ run_case "Write protected source inside native worktree" 0 \
 run_case "Write protected source inside manual worktree" 0 \
     "$(json_write Write "$REPO_ROOT/.claude/worktrees/dev-1/$FIRST_PROTECTED/lib/file.txt")"
 
+# P3-32: a symlink under .claude/worktrees that points back into protected main
+# is not a worktree.
+mkdir -p "$REPO_ROOT/.claude/worktrees"
+ln -s "$REPO_ROOT/$FIRST_PROTECTED" "$REPO_ROOT/.claude/worktrees/p332-link"
+run_case "P3-32: worktrees symlink back into protected main -> block" 2 \
+    "$(json_write Write "$REPO_ROOT/.claude/worktrees/p332-link/module/file.txt")"
+rm -f "$REPO_ROOT/.claude/worktrees/p332-link"
+rmdir "$REPO_ROOT/.claude/worktrees" 2>/dev/null || true
+
 # --- ALLOWED: pass-through cases ---
 run_case "Non-write tool (Bash)"        0 '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
 run_case "Missing file_path"            0 '{"tool_name":"Write","tool_input":{}}'
