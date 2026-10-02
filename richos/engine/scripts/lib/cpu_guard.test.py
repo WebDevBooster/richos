@@ -91,8 +91,8 @@ class GuardTests(unittest.TestCase):
         env = {'RICHOS_VERIFICATION_MODE': 'fixture', 'RICHOS_VERIFICATION_FIXTURE_ROOT': str(fixture),
                'HOME': str(fixture / 'home'), 'CLAUDE_CONFIG_DIR': str(fixture / 'home/.claude')}
         with patch.object(G, 'CANONICAL_STATE', machine), patch.dict(os.environ, env):
-            self.assertEqual(G.governed_directory(fixture / 'pool', machine), fixture / 'pool')
-            self.assertEqual(G.governed_directory(machine, machine), machine)
+            self.assertEqual(G.governed_directory(fixture / 'pool', machine), (fixture / 'pool').resolve())
+            self.assertEqual(G.governed_directory(machine, machine), machine.resolve())
             for changes in ({'HOME': G.pwd.getpwuid(os.getuid()).pw_dir},
                             {'CLAUDE_CONFIG_DIR': str(G.STATE / 'outside')},
                             {'RICHOS_VERIFICATION_MODE': ''}):
