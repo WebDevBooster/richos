@@ -140,12 +140,28 @@ scratch_new() {
     local label="${1:-scratch}"
     shift 2>/dev/null || true
     local ttl="${SCRATCH_DEFAULT_TTL_MINUTES:-360}"
+    case "$ttl" in ''|*[!0-9]*) ttl=360 ;; esac
     while [ $# -gt 0 ]; do
         case "$1" in
-            --ttl) ttl="${2:-$ttl}"; shift 2 ;;
+            # A `shift 2` with one argument left fails and shifts NOTHING, so without
+            # this check a bare --ttl looped forever in any caller without errexit
+            # (hunt P5-27). A missing or non-numeric value is refused, never defaulted:
+            # the value is also written unquoted into the ledger's JSON.
+            --ttl)
+                if [ $# -lt 2 ]; then
+                    echo "scratch: --ttl needs a number of minutes" >&2
+                    return 2
+                fi
+                ttl="$2"; shift 2 ;;
+            --ttl=*) ttl="${1#--ttl=}"; shift ;;
             *)     shift ;;
         esac
     done
+    case "$ttl" in
+        ''|*[!0-9]*)
+            echo "scratch: --ttl needs a whole number of minutes, not '$ttl'" >&2
+            return 2 ;;
+    esac
 
     # Slugify: anything that is not a letter, a digit or a dash becomes a dash,
     # and runs collapse. Keeps the name a single path component whatever the
@@ -211,6 +227,15 @@ _scratch_record() {
 
     local sid="${CLAUDE_SESSION_ID:-}"
     sid="$(printf '%s' "$sid" | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]//g')"
+    # THE WORKING DIRECTORY THE ALLOCATION WAS MADE FROM, so a land can tell
+    # which agent made it (2026-10-01). The session id cannot: every in-process
+    # teammate of a session carries the lead's. An agent works inside its own
+    # workspaces, so `cwd` inside one of them attributes the allocation to that
+    # agent; anywhere else it is attributed to nobody and left to the scheduled
+    # sweep. $PWD, not `git rev-parse`: this is the allocation path of every
+    # harness and must not pay for a process.
+    local cwd="${PWD:-}"
+    cwd="$(printf '%s' "$cwd" | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]//g')"
     local now; now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     # A LEDGER WRITE THAT FAILS IS NEVER FATAL TO THE ALLOCATION. The caller
@@ -220,8 +245,8 @@ _scratch_record() {
     # read-only $HOME could stop a harness from running at all — turning a
     # cleanup mechanism into an availability risk, which is how cleanup
     # mechanisms get switched off.
-    printf '{"path":"%s","label":"%s","pid":%d,"ppid":%d,"session":"%s","created":"%s","ttl_minutes":%s,"event":"new"}\n' \
-        "$dir" "$label" "$$" "${PPID:-0}" "$sid" "$now" "$ttl" \
+    printf '{"path":"%s","label":"%s","pid":%d,"ppid":%d,"session":"%s","cwd":"%s","created":"%s","ttl_minutes":%s,"event":"new"}\n' \
+        "$dir" "$label" "$$" "${PPID:-0}" "$sid" "$cwd" "$now" "$ttl" \
         >>"$ledger" 2>/dev/null || true
 }
 

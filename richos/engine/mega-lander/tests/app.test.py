@@ -167,6 +167,64 @@ class DesktopWork(unittest.TestCase):
         done = self.call("complete", {"obligation_id":"fixture-task", "worker_ids":[args["worker_id"]]})
         self.assertTrue(done["obligation_closed"])
 
+    def test_v2_01_a_session_ending_never_turns_an_unused_preparation_into_a_final_worker(self):
+        """Hunt part 4 v2, V2-01: `refresh` marked an unknown, never-dispatched
+        preparation `interrupted` when its provider session ended; that status
+        survives a resume, skipped settlement, and completion then demanded the
+        receipt as a final worker with integration evidence for work it never
+        did. Only a dispatched worker is interrupted by a session ending."""
+        real = self.app.run
+        def created_then_uncertain(command, **kw):
+            real(command, **kw)
+            raise TimeoutError("fixture interruption after workspace creation")
+        with patch.object(self.app, "run", side_effect=created_then_uncertain):
+            with self.assertRaises(TimeoutError): self.call("prepare", self.args)
+        old = self.call("inspect")["records"][0]
+        self.assertEqual(old["status"], "unknown")
+        self.app.W.record_session_end(self.session, "fixture provider session ended")
+        old = self.call("inspect")["records"][0]
+        self.assertNotEqual(old["status"], "interrupted", "a receipt that never dispatched was interrupted")
+        self.assertFalse(old.get("tool_use_id") or old.get("agent_id"))
+        self.app.W.record_session_start(self.session, str(self.coord), source="resume")
+        pair = self.reviewed_pair("after-session-ending")
+        self.assertTrue(self.call("integrate", pair)["work_integrated"])
+        done = self.call("complete", {"obligation_id":"fixture-task", "worker_ids":[pair["worker_id"]]})
+        self.assertTrue(done["obligation_closed"])
+        settled = [r for r in self.call("inspect")["records"] if r["id"] == old["id"]][0]
+        self.assertEqual(settled["status"], "blocked")
+
+    def test_v2_01_a_receipt_an_older_build_marked_interrupted_is_settled_too(self):
+        """The same receipt as stored before this fix: `interrupted` with no
+        dispatch evidence. It is read back as `unknown`, so the replacement
+        settles it instead of refusing or counting it."""
+        real = self.app.run
+        def created_then_uncertain(command, **kw):
+            real(command, **kw)
+            raise TimeoutError("fixture interruption after workspace creation")
+        with patch.object(self.app, "run", side_effect=created_then_uncertain):
+            with self.assertRaises(TimeoutError): self.call("prepare", self.args)
+        old = self.call("inspect")["records"][0]
+        path = self.app.folder(self.scope) / (old["id"] + ".json")
+        stored = json.loads(path.read_text())
+        stored.update(status="interrupted", interruption="the owning provider process ended without an "
+                                                         "observed worker result")
+        path.write_text(json.dumps(stored))
+        pair = self.reviewed_pair("after-legacy-interruption")
+        self.assertTrue(self.call("integrate", pair)["work_integrated"])
+        done = self.call("complete", {"obligation_id":"fixture-task", "worker_ids":[pair["worker_id"]]})
+        self.assertTrue(done["obligation_closed"])
+
+    def test_v2_01_a_dispatched_worker_is_still_interrupted_by_its_session_ending(self):
+        """The twin: a receipt with dispatch evidence keeps the interruption."""
+        prepared = self.call("prepare", self.args)
+        key = self.app.W.named_key(self.session, prepared["name"])
+        with self.app.W.Lock():
+            canonical = self.app.W.load_agent(key); canonical["tool_use_id"] = "observed-spawn"
+            self.app.W.save_agent(canonical)
+        self.app.W.record_session_end(self.session, "fixture provider session ended")
+        rec = [r for r in self.call("inspect")["records"] if r["id"] == prepared["id"]][0]
+        self.assertEqual(rec["status"], "interrupted")
+
     def test_build_spawn_command_one_repository_is_byte_identical_to_todays_command(self):
         # POSITIVE CONTROL: the exact list `prepare()` built before this
         # function existed, for one repository. Any change to this function

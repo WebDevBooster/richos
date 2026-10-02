@@ -151,12 +151,30 @@ pub struct WorkerStatusView {
     /// are" are different statements, and only one of them may be injected into a prompt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattributed: Option<Unattributed>,
+    /// Why the `done` items may be incomplete: the completed-task history is there and could
+    /// not be read, or part of it could not (finding 41, v2 re-check). `None` when it was read
+    /// whole or is simply absent. Additive on the wire; the drill-down ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_history_unavailable: Option<&'static str>,
 }
 
 impl WorkerStatusView {
     /// Nothing read, and the reason it was not read. Never a guess, never a partial count.
     pub fn unattributed(reason: Unattributed) -> Self {
         WorkerStatusView { unattributed: Some(reason), ..Default::default() }
+    }
+
+    /// The lines the re-prime payload's LIVE WORKER STATE section lists: every item as
+    /// `[state] label`, and — when the completed-task history could not be read whole — a
+    /// line that says so, so the list's silence about finished work is never read as "none
+    /// finished" (finding 41, v2 re-check). Every payload builder takes its lines from here,
+    /// so none of them can drop the warning.
+    pub fn priming_lines(self) -> Vec<String> {
+        let mut lines: Vec<String> = self.items.into_iter().map(|i| format!("[{}] {}", i.state, i.label)).collect();
+        if let Some(why) = self.completion_history_unavailable {
+            lines.push(format!("[unknown] {why}"));
+        }
+        lines
     }
 
     /// Whether the counts above describe a directory this session is entitled to.
@@ -197,6 +215,10 @@ pub enum Unattributed {
     /// not describe this session, so nothing may be concluded from them (hunt 2026-09-29
     /// part 1, finding 41).
     WorkerLogUnreadable,
+    /// The worker log was read, and at least one of its lines is not a record (a torn or
+    /// damaged write, or a state outside the four). That line may have started a worker or
+    /// ended one, so no count is made (hunt 2026-09-29 part 1 v2, finding 41).
+    WorkerLogDamaged,
 }
 
 impl Unattributed {
@@ -211,6 +233,7 @@ impl Unattributed {
             Unattributed::NoTeamDirForSession => "this session has no team directory on disk",
             Unattributed::OverrideNotADirectory => "RICHOS_TEAM_DIR does not point at a directory",
             Unattributed::WorkerLogUnreadable => "this session's worker log is there but could not be read",
+            Unattributed::WorkerLogDamaged => "part of this session's worker log could not be read",
         }
     }
 }
@@ -238,8 +261,15 @@ pub fn read_from_dir_with_probe(team_dir: &Path, probe: HostProbe) -> WorkerStat
     // A missing log is a session that has started nobody, and its zero is true. A log that
     // is there and could not be read says nothing either way, so no count is made from it
     // (hunt 2026-09-29 part 1, finding 41): the view says why instead.
+    //
+    // **And a log with a line that could not be read is not a count either** (finding 41, v2
+    // re-check): a damaged `started` row used to vanish and leave `active: 0` with no reason,
+    // which the re-prime then rendered as silence — "no workers" — and a damaged `run_ended`
+    // left a finished worker counted as running. Which one a damaged line was is exactly what
+    // cannot be read, so neither direction is guessed.
     let rows = match worker_events::try_read_stream(&worker_events::worker_events_path(team_dir)) {
-        Ok(rows) => rows,
+        Ok(read) if read.damaged > 0 => return WorkerStatusView::unattributed(Unattributed::WorkerLogDamaged),
+        Ok(read) => read.rows,
         Err(_) => return WorkerStatusView::unattributed(Unattributed::WorkerLogUnreadable),
     };
     let open = worker_events::open_runs(&rows, &scope, probe);
@@ -290,19 +320,36 @@ pub fn read_from_dir_with_probe(team_dir: &Path, probe: HostProbe) -> WorkerStat
     // Still sourced from task-events.jsonl and NOT from the worker stream, because
     // `run_ended` is the honest superset of completed/interrupted/failed. TaskCompleted is
     // an authoritative completion signal; SubagentStop is not.
+    //
+    // **A history that is there and could not be read SAYS so** (finding 41, v2 re-check). A
+    // missing file is a session in which no task has completed, and listing none is true. A
+    // file that exists and cannot be read, or that holds a line that is not a record, used to
+    // list nothing just the same, and silence there reads as "nothing finished".
     let task_events_path = team_dir.join("task-events.jsonl");
     let mut completed: Vec<TaskEventLine> = Vec::new();
-    if let Ok(contents) = fs::read_to_string(&task_events_path) {
-        for line in contents.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
+    let mut completion_history_unavailable = None;
+    match fs::read(&task_events_path) {
+        Ok(bytes) => {
+            let mut damaged = 0usize;
+            for line in String::from_utf8_lossy(&bytes).lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let Ok(parsed) = serde_json::from_str::<TaskEventLine>(line) else {
+                    damaged += 1;
+                    continue;
+                };
+                if parsed.event == "TaskCompleted" {
+                    completed.push(parsed);
+                }
             }
-            let Ok(parsed) = serde_json::from_str::<TaskEventLine>(line) else { continue };
-            if parsed.event == "TaskCompleted" {
-                completed.push(parsed);
+            if damaged > 0 {
+                completion_history_unavailable = Some(COMPLETION_HISTORY_DAMAGED);
             }
         }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => completion_history_unavailable = Some(COMPLETION_HISTORY_UNREADABLE),
     }
 
     // Most-recent-first, bounded — a drill-down courtesy, not a full audit log (that
@@ -320,8 +367,14 @@ pub fn read_from_dir_with_probe(team_dir: &Path, probe: HostProbe) -> WorkerStat
     // needs_you: still structurally 0. No hook payload asks the CEO for anything, so there
     // is no honest non-zero value (§22, "worker waiting state" must not be faked).
     // `unattributed: None` — a directory was named and read, so the counts describe it.
-    WorkerStatusView { active, needs_you: 0, items, liveness_unknown, unattributed: None }
+    WorkerStatusView { active, needs_you: 0, items, liveness_unknown, unattributed: None, completion_history_unavailable }
 }
+
+/// Why the completed-task list may be incomplete, in words that slot into the re-prime list.
+pub const COMPLETION_HISTORY_UNREADABLE: &str =
+    "this session's completed-task history is there but could not be read, so finished tasks are not listed";
+pub const COMPLETION_HISTORY_DAMAGED: &str =
+    "part of this session's completed-task history could not be read, so finished tasks may be missing from this list";
 
 /// How many leading characters of a session id name its team directory. The engine's
 /// convention, not this module's: `~/.claude/teams/session-<first8>/config.json`.
@@ -459,10 +512,14 @@ mod tests {
     /// not be read says nothing about whether anyone is running, so the counts must not be
     /// presented as describing it. Here the log's path is a folder, which every read refuses.
     ///
-    /// And one line that is not valid UTF-8 blinds nothing but itself: before, it made the
-    /// whole file unreadable, and a running worker two lines above it vanished.
+    /// And one line that is not valid UTF-8 no longer makes the whole FILE unreadable (the
+    /// read succeeds, decoded lossily). **But it is not skipped as if it said nothing** (v2
+    /// re-check of finding 41): "half a row the emitter never finished" may have been a1's
+    /// `run_ended`, so counting a1 as running would be the stale-active half of the defect.
+    /// The view says the log is damaged and counts nothing, the same answer `app_workers.rs`
+    /// gives for a line it cannot read.
     #[test]
-    fn an_unreadable_worker_log_is_unknown_and_one_bad_line_hides_nothing_else() {
+    fn an_unreadable_or_damaged_worker_log_is_unknown_never_a_count() {
         let dir = session_dir("unreadable-log");
         let log = worker_events::worker_events_path(&dir);
         std::fs::create_dir_all(&log).unwrap();
@@ -481,8 +538,16 @@ mod tests {
         bytes.extend_from_slice(b"\n\xff\xfe half a row the emitter never finished\n");
         std::fs::write(&log, bytes).unwrap();
         let status = read_from_dir_with_probe(&dir, alive);
-        assert!(status.is_attributed(), "{status:?}");
-        assert_eq!(status.active, 1, "the running worker above the bad line vanished: {status:?}");
+        assert_eq!(status.unattributed, Some(Unattributed::WorkerLogDamaged),
+                   "a damaged line was skipped and the rest counted as authoritative: {status:?}");
+        assert_eq!((status.active, status.liveness_unknown), (0, 0), "nothing is counted from a damaged log");
+        // The witness's own case (richos-hq part-1-codex-v2/witness-v2.rs): a valid started
+        // row is one worker; the same row with its closing brace gone is not "no workers".
+        let good = wrow("started", "a1", r#","host_pid":10"#);
+        std::fs::write(&log, format!("{good}\n")).unwrap();
+        assert_eq!(read_from_dir_with_probe(&dir, alive).active, 1);
+        std::fs::write(&log, format!("{}\n", &good[..good.len() - 1])).unwrap();
+        assert_eq!(read_from_dir_with_probe(&dir, alive).unattributed, Some(Unattributed::WorkerLogDamaged));
         std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
     }
 

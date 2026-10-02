@@ -318,6 +318,23 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
         items = items.map { it.copy(state = if (it.state == OutboxState.BLOCKED) OutboxState.WAITING else it.state, notBefore = 0) }
     }
 
+    /**
+     * The stream to the Mac has just opened (a return to the screen always reopens it, since the
+     * stream is closed in the background; a drop and reconnect while on screen reopens it too): the
+     * link is new evidence, so every waiting message is owed a try NOW, the way "Try now" clears
+     * the clocks. Without this, a message that failed 10 s before the return sat out the rest of its
+     * back-off (up to 16 s) on a link that had just proved itself.
+     *
+     * Two differences from [retryEverythingNow], both deliberate: a BLOCKED message stays blocked (a
+     * final answer, a refusal or a conflict, waits for the person and is never resent by a return),
+     * and the attempt count is kept, so a message that fails again resumes its back-off where it
+     * was. While the stream stays open and the Mac keeps failing, nothing here runs and the back-off
+     * holds. In memory only, as "Try now" is: the next opening clears the clocks again.
+     */
+    fun dueNow() {
+        items = items.map { if (it.state == OutboxState.WAITING && (it.notBefore ?: 0L) > 0L) it.copy(notBefore = 0) else it }
+    }
+
     suspend fun clear() {
         for (item in items) {
             bump(item.clientId)

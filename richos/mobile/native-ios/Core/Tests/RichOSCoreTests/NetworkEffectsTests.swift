@@ -141,7 +141,7 @@ actor RoutedMac: HTTPTransport {
         var restored = AppState()
         restored.pairing = .paired
         restored.consentGiven = true
-        restored.mac = MacLink(origin: origin, route: .connect, deviceID: "dev_7", threadID: "thr_5c1e", name: "Alex’s Mac")
+        restored.mac = MacLink(origin: origin, route: .connect, deviceID: "dev_7", threadID: "thr_5c1e", name: "Sam’s Mac")
         var (state, effects) = Reducer.reduce(restored, .compose(text: "Still here after the restore"))
         (state, effects) = Reducer.reduce(state, .sendDraft(clientID: "c_restored", at: 900))
         let queued = try #require(state.outbox.first?.clientID)

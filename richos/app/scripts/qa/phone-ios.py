@@ -129,7 +129,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]  # the richos repository root
-RIOS = ROOT / "richos/mobile/native-ios/bin/rios"
+RIOS = Path(os.environ.get("RICHOS_IOS_RIOS") or ROOT / "richos/mobile/native-ios/bin/rios")
 OURS = ("dev.richos.connect", "dev.richos.native.ios", "dev.richos.mobile.integration")
 
 ACTIONS = {
@@ -392,6 +392,53 @@ def stamped_identity(stamp_path):
 
 SESSION_LOGS = "/Volumes/E1TB/caches/richos-native-ios/*/physical/*-test.log"
 APPROVAL_TIMEOUT = "Timed out while enabling automation mode"
+ASKS_AFTER_IDLE_S = 9.3 * 3600   # measured: a phone with a passcode always asked after this much idle
+LEDGER = "/Volumes/E1TB/caches/richos-native-ios/phone-sessions.jsonl"
+HARDWARE_UDID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$")
+
+
+def device_ids(device):
+    """Every spelling of one phone, lowercase. devicectl and `approval --device` use the CoreDevice
+    UUID (691DB4F7-...); xcodebuild logs and libimobiledevice use the hardware UDID (00008030-...).
+    Matching only the given spelling is why `approval` read 0 sessions on 2026-10-01 for a phone that
+    had run all day. RICHOS_IOS_DEVICE_ALIASES (comma-separated) adds spellings, for fixtures."""
+    ids = {device.lower()}
+    ids.update(a.strip().lower() for a in os.environ.get("RICHOS_IOS_DEVICE_ALIASES", "").split(",") if a.strip())
+    if not HARDWARE_UDID.match(device) and not os.environ.get("RICHOS_IOS_DEVICE_ALIASES"):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "d.json"
+            try:
+                subprocess.run(["xcrun", "devicectl", "list", "devices", "--json-output", str(out)],
+                               capture_output=True, timeout=30)
+                for d in json.loads(out.read_text())["result"]["devices"]:
+                    if d.get("identifier", "").lower() == device.lower():
+                        udid = d.get("hardwareProperties", {}).get("udid")
+                        if udid:
+                            ids.add(udid.lower())
+            except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):
+                pass
+    return ids
+
+
+def record_session(device, started, ended, log=None, session=None, error=None):
+    """Append this run to the ledger `approval` reads: when it started and ended, how long enabling
+    automation took, whether it needed approval (it did when the wait was 3 s or more, or timed out)."""
+    s = session or {}
+    wait = s.get("enableWaitSeconds")
+    timed_out = bool(s.get("timedOut"))
+    row = {"device": device, "started": started, "ended": ended, "log": str(log) if log else None,
+           "enableWaitSeconds": wait, "timedOut": timed_out, "passcodeConfigured": s.get("passcodeConfigured"),
+           "approvalNeeded": True if timed_out or (wait is not None and wait >= ASKED_WAIT_S) else (False if wait is not None else None),
+           "error": error}
+    path = Path(os.environ.get("RICHOS_IOS_SESSION_LEDGER", LEDGER))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError:
+        return None
+    return row
 QUIET_WINDOW_S = 600      # measured: no session within 12.5 min of the previous one ever asked
 COLD_GAP_S = 3600         # a session after this much idle is the one that would ask
 ASKED_WAIT_S = 3.0        # runner start to first suite: 0.5-1.2 s unasked, 9.9-24.7 s when he approved
@@ -431,6 +478,7 @@ def session_from_log(path):
 def sessions(device, pattern=None):
     import glob
     week = time.time() - 7 * 86400
+    ids = device_ids(device)
     found = []
     for path in glob.glob(pattern or os.environ.get("RICHOS_IOS_SESSION_LOGS", SESSION_LOGS)):
         try:
@@ -439,8 +487,25 @@ def sessions(device, pattern=None):
             s = session_from_log(path)
         except OSError:
             continue
-        if s and s["device"].lower() == device.lower():
+        if s and s["device"].lower() in ids:
             found.append(s)
+    seen = {s["log"] for s in found}
+    ledger = Path(os.environ.get("RICHOS_IOS_SESSION_LEDGER", LEDGER))
+    try:
+        rows = ledger.read_text().splitlines()
+    except OSError:
+        rows = []
+    for line in rows:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(r, dict) or str(r.get("device", "")).lower() not in ids or r.get("log") in seen \
+                or not isinstance(r.get("ended"), (int, float)) or r["ended"] < week:
+            continue
+        found.append({"log": r.get("log") or "(run ledger)", "device": r["device"], "started": r.get("started", r["ended"]),
+                      "ended": r["ended"], "enableWaitSeconds": r.get("enableWaitSeconds"),
+                      "timedOut": bool(r.get("timedOut")), "passcodeConfigured": r.get("passcodeConfigured")})
     return sorted(found, key=lambda s: s["started"])
 
 
@@ -451,7 +516,8 @@ def passcode_state(device):
     Measured on iOS 26.3.1 (2026-10-01): MobileGestalt answers "MobileGestaltDeprecated", so this
     is None there and the forecast uses the phone's own PHONE_PASSCODE line from its last session."""
     try:
-        p = subprocess.run(["idevicediagnostics", "-u", device, "mobilegestalt", "PasswordConfigured"],
+        udid = next((i for i in device_ids(device) if HARDWARE_UDID.match(i)), device)
+        p = subprocess.run(["idevicediagnostics", "-u", udid.upper(), "mobilegestalt", "PasswordConfigured"],
                            capture_output=True, timeout=20)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
@@ -493,6 +559,11 @@ def forecast(device, now=None, passcode=None, pattern=None):
     if last and now - last["ended"] <= QUIET_WINDOW_S:
         return {**out, "approvalExpected": False,
                 "why": f"the last session ended {round(now - last['ended'])} s ago; within {QUIET_WINDOW_S} s none has ever asked"}
+    if passcode is None and not history:
+        return {**out, "approvalExpected": "unknown",
+                "why": "the passcode could not be read and this phone has no session on record: nobody knows yet whether it will ask",
+                "settledBy": "one run (phone-ios.py run records its session; a wait under 3 s means no prompt and no passcode), "
+                             "or Settings > Face ID/Touch ID & Passcode on the phone"}
     if passcode is None:
         cold = [s for prev, s in zip(history, history[1:]) if s["started"] - prev["ended"] >= COLD_GAP_S]
         if cold and not cold[-1]["timedOut"] and cold[-1]["enableWaitSeconds"] is not None \
@@ -500,6 +571,16 @@ def forecast(device, now=None, passcode=None, pattern=None):
             return {**out, "approvalExpected": False, "coldSession": cold[-1]["log"],
                     "why": f"the passcode could not be read, and the last session after an idle hour "
                            f"started in {cold[-1]['enableWaitSeconds']} s without asking (no passcode since then)"}
+    if passcode is None and last and not last["timedOut"] and last["enableWaitSeconds"] is not None \
+            and last["enableWaitSeconds"] < ASKED_WAIT_S and now - last["ended"] < ASKS_AFTER_IDLE_S:
+        # A prompt-free session that began after the phone had idled past the quiet window proves no passcode
+        # at that moment; a phone with one always asked after 9.3 h of idle.
+        prev = history[-2] if len(history) > 1 else None
+        if prev and last["started"] - prev["ended"] > QUIET_WINDOW_S:
+            return {**out, "approvalExpected": False, "promptFreeSession": last["log"],
+                    "why": f"the passcode could not be read, but the last session started in {last['enableWaitSeconds']} s "
+                           f"without asking after {round((last['started'] - prev['ended']) / 60)} min idle; "
+                           f"none is expected until {round(ASKS_AFTER_IDLE_S / 3600, 1)} h after it"}
     idle = "no session on record for this phone" if not last else f"the last session ended {round((now - last['ended']) / 60)} min ago"
     held = "the phone has a passcode" if passcode else "the passcode could not be read"
     return {**out, "approvalExpected": True,
@@ -688,11 +769,11 @@ def run(args):
     device = os.environ["RICHOS_IOS_DEVICE"]
     ahead = forecast(device, passcode=passcode_state(device))
     pairing = pairs_by_link(steps)
-    if ahead["approvalExpected"] and not args.approval_announced:
+    if ahead["approvalExpected"] is True and not args.approval_announced:
         raised, new, problem = raise_approval_escalation(device, ahead)
         raise Refusal(approval_refusal(ahead, raised, new, problem, pairing),
                       escalation=raised, escalationRaisedNow=new, escalationProblem=problem or None)
-    if ahead["approvalExpected"] and pairing:
+    if ahead["approvalExpected"] is True and pairing:
         raise Refusal("the CEO was told, but " + PAIRING_ORDER, approvalForecast=ahead)
     out.mkdir(parents=True, exist_ok=True)
     config = out / "script-config.json"
@@ -705,12 +786,14 @@ def run(args):
         env["RICHOS_PHYSICAL_PREBUILT"] = "1"
         (out / "identity.json").write_text(json.dumps(identity, indent=1))
     p = subprocess.run([str(RIOS), "device", "verify", "script"], capture_output=True, text=True, env=env)
+    ran_to = time.time()
     config.unlink(missing_ok=True)
     (out / "rios.stdout").write_text(p.stdout)
     (out / "rios.stderr").write_text(p.stderr)
     text = p.stdout + p.stderr
     found = re.search(r"(/Volumes/E1TB/\S+?/physical/script-(\d+)\.xcresult)", text)
     if not found:
+        record_session(device, started, ran_to, error=f"no result bundle (exit {p.returncode})")
         raise CannotAnswer(f"the check produced no result bundle (exit {p.returncode}); see {out}/rios.stderr")
     result, stamp = found.group(1), found.group(2)
     log = Path(result).parent / f"verify-script-{stamp}-test.log"
@@ -723,6 +806,7 @@ def run(args):
                                "--output-path", str(attachments)], capture_output=True, text=True)
     failed = [r for r in rows if not r.get("ok") and not steps[r["i"]].get("optional")]
     session = session_from_log(log) if log.exists() else None
+    record_session(device, started, ran_to, log if log.exists() else None, session)
     build = None
     for line in reversed(p.stdout.splitlines()):
         try:

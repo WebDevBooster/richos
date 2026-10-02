@@ -82,9 +82,11 @@ usage() {
 REPO_ARG=""; NAME=""; DIR=""; BASE=""; SESSION=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --dir)     DIR="${2:-}"; shift 2 ;;
-        --base)    BASE="${2:-}"; shift 2 ;;
-        --session) SESSION="${2:-}"; shift 2 ;;
+        # No errexit here (set -uo only): a `shift 2` short of a value shifts nothing
+        # and the loop never ends, so a missing value is refused (hunt P5-27 pattern).
+        --dir)     DIR="${2:-}"; shift 2 || { echo "create-teammate-worktree.sh: $1 needs a value" >&2; exit 2; } ;;
+        --base)    BASE="${2:-}"; shift 2 || { echo "create-teammate-worktree.sh: $1 needs a value" >&2; exit 2; } ;;
+        --session) SESSION="${2:-}"; shift 2 || { echo "create-teammate-worktree.sh: $1 needs a value" >&2; exit 2; } ;;
         -h|--help) usage; exit 2 ;;
         -*)        echo "create-teammate-worktree.sh: unknown option '$1'" >&2; usage; exit 2 ;;
         *)

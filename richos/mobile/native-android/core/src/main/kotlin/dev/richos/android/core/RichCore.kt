@@ -45,6 +45,15 @@ import java.net.URI
  * [Outbox] (`send`, `sync`, `retry`, `discard`, the `queue.js` rules). `send-voice` is refused
  * with a sentence until the voice recording lifecycle lands.
  */
+/**
+ * The connection owner's view of a send ([ConnectionOwner]'s dead-stream check). [started] is
+ * called as a text's request goes to the Mac and returns what to call if the Mac accepts it, or
+ * null when there is nothing to watch (no stream open).
+ */
+fun interface SendWatch {
+    fun started(): (() -> Unit)?
+}
+
 class RichCore private constructor(
     private val ports: Ports,
     private var session: Session,
@@ -77,6 +86,13 @@ class RichCore private constructor(
      */
     fun onTryNowWhileAway(listener: (() -> Unit)?) {
         tryNow = listener
+    }
+
+    @Volatile private var sendWatch: SendWatch? = null
+
+    /** The connection owner's [SendWatch]: told when a text goes to the Mac and when it is accepted. */
+    fun watchSends(watch: SendWatch?) {
+        sendWatch = watch
     }
 
     val state: AppState get() = flow.value
@@ -247,6 +263,21 @@ class RichCore private constructor(
         return if (outbox.all().any { it.kind == "question_seen" }) flush() else flow.value
     }
 
+    /** When this process learned the challenge it holds, on the phone's clock; null for one read from disk. */
+    @Volatile private var challengeLearnedAt: Long? = null
+
+    /**
+     * How long ago this process learned the challenge it holds, or null when it does not know (the
+     * challenge came from disk, or the clock went backwards). The Mac honors a challenge for 10
+     * minutes from issuing it (`device.rs` `CHALLENGE_LIFETIME_MS`); the connection owner presents a
+     * young one as it is rather than asking for a fresh one first ([ConnectionOwner.CHALLENGE_REUSE_MS]).
+     */
+    fun challengeAgeMs(): Long? {
+        if (session.pairing.challenge == null) return null
+        val age = ports.clock.now() - (challengeLearnedAt ?: return null)
+        return age.takeIf { it >= 0 }
+    }
+
     /** A challenge learned outside a request the core made (the owner's refresh or probe). */
     suspend fun adoptChallenge(challenge: String): AppState = mutex.withLock {
         if (challenge == session.pairing.challenge) emit() else commit(session.copy(pairing = session.pairing.copy(challenge = challenge)))
@@ -320,7 +351,16 @@ class RichCore private constructor(
                 is SseItem.Frame -> {
                     if (item.frame.event == "delta") ports.performance.mark("text-received")
                     next = apply(next, item.frame)
-                    item.frame.id?.toLongOrNull()?.let { next = next.copy(streamCursor = it) }
+                    // A `hello` is never a place to resume from: its id is the hub's cursor, which
+                    // the Mac may have seeded from the conversation's row count above every frame it
+                    // holds, and a resume from there (`since` = id - 1) is answered with an EMPTY
+                    // opening that the Mac's listener sends nothing for until its keep-alive, 15 s
+                    // later (`app/src-tauri/src/phone/stream.rs` `replay_after_marked`, `listen.rs`
+                    // `KEEPALIVE_MS`; the iPhone's 15.3 s return, Isaac 980c49473). So after a
+                    // `hello` the next stream asks for a `hello` (no cursor, see
+                    // [ConnectionOwner.eventsPath]), which is never empty; a live frame sets it again.
+                    if (item.frame.event == "hello") next = next.copy(streamCursor = null)
+                    else item.frame.id?.toLongOrNull()?.let { next = next.copy(streamCursor = it) }
                 }
                 SseItem.KeepAlive -> Unit
                 is SseItem.Resnapshot -> resnapshotRequested = true
@@ -521,11 +561,15 @@ class RichCore private constructor(
         val before = outbox.all()
         val report = outbox.flush(lease = { reserveCompletion() }) { item ->
             if (item.kind in listOf("answer", "question_seen") && !visible) throw TransportFailure("background", retryable = true)
+            // A typed text is the one send whose echo the Mac puts on the stream at once (its spine
+            // permitting): the owner uses its acceptance as a check that the stream is alive.
+            val accepted = if (item.kind == "text") sendWatch?.started() else null
             val receipt = when (item.kind) {
                 "voice" -> transport.sendVoice(item)
                 "attachments" -> transport.sendAttachments(item)
                 else -> transport.sendText(item)
             }
+            accepted?.invoke()
             accepted(item, receipt)
             receipt
         }
@@ -1067,6 +1111,9 @@ class RichCore private constructor(
 
     private suspend fun commit(next: Session): AppState {
         ports.session.write(next)
+        // Every challenge the phone holds came from the Mac, which minted it moments before (a
+        // response header, a `hello`, a pairing answer): its age is counted from here.
+        if (next.pairing.challenge != session.pairing.challenge) challengeLearnedAt = next.pairing.challenge?.let { ports.clock.now() }
         session = next
         flow.value = snapshot()
         return flow.value
@@ -1330,6 +1377,9 @@ class RichCore private constructor(
         mutex.withLock {
             val now = ports.clock.now()
             connection = if (status == LinkStatus.OPEN) {
+                // A link that just opened owes every waiting message a try now ([Outbox.dueNow]):
+                // the drain that follows this opening sends them in the same tick.
+                outbox.dueNow()
                 connection.copy(reason = ConnectionReason.CONNECTED, hasConnected = true, troubleSince = null)
             } else {
                 val keep = connection.reason == ConnectionReason.PHONE_OFFLINE || connection.reason == ConnectionReason.SERVICE_UNAVAILABLE

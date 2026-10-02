@@ -322,7 +322,7 @@ not. `phone.js:819-825` uses `textContent`; the two screens below it use `innerH
   recovery, does not say sorry. Frame 07. Only the lines around it are wrong (G7).
 - **Naming the account instead of saying "the same one".** The whole §61.1 fix rests on this and
   it is right. It just needs the weight fixed on the first screen that does it (G14).
-- **The peer line as evidence rather than advice** — *"Your phone (HONOR X6b) is on this
+- **The peer line as evidence rather than advice** — *"Your phone (Android phone) is on this
   network."* (frame 02). That is the instrument voice this product is supposed to have.
 - **Escape.** Works on every screen I reached, both themes, without clicking into the sheet first.
   **Correction to my own process:** my first three Escape attempts appeared to fail. That was my

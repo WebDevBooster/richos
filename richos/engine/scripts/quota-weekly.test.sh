@@ -96,9 +96,10 @@ class Weekly(unittest.TestCase):
                 self.assertNotIn('RESUME:',text)
                 message=text.split('WAIT until the orchestrator',1)[1].split('\n  Summary:',1)[0]
                 pause_protocol.validate_text('WAIT until the orchestrator'+message)
-    def drive(self,readings,worker_rows,polls,args=None):
+    def drive(self,readings,worker_rows,polls,args=None,out_cls=None):
         """Run the real poll loop for `polls` polls. The clock advances one poll per sleep; a reading
         that is an Exception is raised from read_source. Returns everything woken to the lead."""
+        out_cls=out_cls or watcher.Out
         args=args or types.SimpleNamespace(threshold=93,threshold_problem='',config='',until_reset=False,
             engine_root='fixture',poll=300,stale=300,command='watch')
         lines,events=io.StringIO(),io.StringIO()
@@ -117,7 +118,7 @@ class Weekly(unittest.TestCase):
             patch.object(watcher.time,'time',side_effect=lambda:NOW+300*naps[0]),patch.object(watcher.time,'sleep',side_effect=nap), \
             patch.object(weekly,'reset_tick',return_value={'error':'no offer'}):
             with self.assertRaises(Done):
-                watcher.poll_loop(args,watcher.Out(lines=lines,events=events))
+                watcher.poll_loop(args,out_cls(lines=lines,events=events))
         return events.getvalue()
     def second_window(self,used):
         r=reading(used);r['windows'][0]['resets_at']=NOW+86400+604800
@@ -138,6 +139,17 @@ class Weekly(unittest.TestCase):
         events=self.drive([RuntimeError('boom')],[workers(['worker'])],5)
         self.assertEqual(events.count('QUOTA-UNKNOWN'),1,events)
         self.assertIn('RuntimeError',events)
+    def test_a_threshold_notice_that_fails_at_every_poll_still_reaches_the_blind_alarm(self):
+        # Hunt part 5, P5-15 (v2 re-check): the quota is READ fine but delivering the threshold notice
+        # raises at every poll. The failure count was reset right after the read, so these polls never
+        # completed yet never added up to the QUOTA-UNKNOWN alarm. A poll ends an episode only when done.
+        class FailingThreshold(watcher.Out):
+            def wake(self,kind,*rest,**kw):
+                if kind=='THRESHOLD': raise OSError('fixture: the threshold notice could not be written')
+                return super().wake(kind,*rest,**kw)
+        events=self.drive([reading(5,95)],[workers(['worker'])],5,out_cls=FailingThreshold)
+        self.assertEqual(events.count('QUOTA-UNKNOWN'),1,events)
+        self.assertIn('OSError',events)
     def test_one_failed_poll_between_good_ones_does_not_wake_the_lead(self):
         events=self.drive([reading(10),RuntimeError('boom'),reading(10),reading(10)],[workers(['worker'])],4)
         self.assertNotIn('QUOTA-UNKNOWN',events)

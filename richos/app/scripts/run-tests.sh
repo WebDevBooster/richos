@@ -398,7 +398,13 @@ elif [ -z "$ONLY" ] && [ -z "$FOR_BUILD" ] && [ -f "$SCOPE_TOOL" ] && [ -f "$DIR
   scope=""; why=""; branch=""; base=""; root=""
   eval "$_decided"
   if [ "$scope" = narrow ]; then
-    _paths="$(python3 "$SCOPE_TOOL" changed "$root" "$base" | tr '\n' ',' | sed 's/,$//')"
+    # Read into a variable first: in a pipeline a failed read (workspace_scope.py exits
+    # 64) was swallowed and the empty list refused the run as "maps to nothing" (P5-79).
+    if ! _changed="$(python3 "$SCOPE_TOOL" changed "$root" "$base")"; then
+      echo "run-tests.sh: could not read the branch's changed paths; nothing ran. Everything: scripts/run-tests.sh --full" >&2
+      exit 2
+    fi
+    _paths="$(printf '%s\n' "$_changed" | tr '\n' ',' | sed 's/,$//')"
     _where="workspace run on ${branch:-this checkout}, compared with main at ${base:0:12}"
     _picked=""
     if [ -n "$_paths" ]; then

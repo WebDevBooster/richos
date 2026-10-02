@@ -400,6 +400,51 @@ fn an_unreadable_worker_log_makes_the_priming_prompt_say_so_instead_of_falling_s
     std::fs::remove_dir_all(&home).unwrap();
 }
 
+/// Hunt 2026-09-29 part 1 v2, finding 41 (the witness is `part-1-codex-v2/witness-v2.rs` in
+/// richos-hq, ported here): a log that IS readable and holds a damaged `started` row — the
+/// valid row with its closing brace gone — used to parse to an empty stream, count
+/// `active: 0` with no reason, and leave the prompt silent: the authoritative zero. It now
+/// says it does not know. A damaged completed-task history says so too, rather than listing
+/// nothing as if nothing had finished.
+///
+/// **RED at `c6cde6cc9`**: `worker_state_unknown` was `None` and the prompt had no worker
+/// section; the unreadable task history added no line.
+#[test]
+fn a_damaged_worker_log_or_task_history_makes_the_priming_prompt_say_so_instead_of_counting_zero() {
+    let _guard = env_guard();
+    let home = four_dir_machine("payload-damaged");
+    let team = home.join(".claude").join("teams").join(MINE_DIR);
+    let log = team.join("worker-events.jsonl");
+    let good = row(MINE_FULL, "started", "a-mine", "sage-opus-r3");
+    let good = good.trim_end();
+    std::fs::write(&log, format!("{}\n", &good[..good.len() - 1])).unwrap();
+    let (path, ledger, thread) = ledger_with_a_thread("damaged");
+    let binding = ledger.thread_binding(&thread).unwrap();
+
+    let payload = with_home(&home, || RePrimePayload::assemble(&ledger, &binding, 8, Some(MINE_FULL)).unwrap());
+    let priming = payload.to_priming_prompt();
+    assert!(payload.worker_state_unknown.is_some(), "a damaged started row was counted as no worker at all");
+    assert!(priming.contains("LIVE WORKER STATE: NOT AVAILABLE"), "{priming}");
+    assert!(priming.contains("part of this session's worker log could not be read"), "it says WHY: {priming}");
+    assert!(priming.contains("NOT A STATEMENT THAT NO WORKERS ARE RUNNING"), "{priming}");
+    assert!(!priming.contains("could not be identified"), "the directory WAS identified: {priming}");
+
+    // The worker log whole again, and the completed-task history unreadable (a folder where
+    // the file goes): the workers are counted, and the list says its finished half is missing.
+    std::fs::write(&log, format!("{good}\n")).unwrap();
+    std::fs::create_dir_all(team.join("task-events.jsonl")).unwrap();
+    let payload = with_home(&home, || RePrimePayload::assemble(&ledger, &binding, 8, Some(MINE_FULL)).unwrap());
+    assert_eq!(payload.worker_state_unknown, None, "{:?}", payload.worker_state_unknown);
+    assert!(
+        payload.worker_state.iter().any(|line| line.contains("completed-task history is there but could not be read")),
+        "an unreadable task history listed nothing as if nothing had finished: {:?}",
+        payload.worker_state
+    );
+
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_dir_all(&home).unwrap();
+}
+
 #[test]
 fn no_lease_never_puts_another_sessions_workers_in_the_prompt() {
     // THE ORIGINAL DEFECT, at the surface where it did damage. Before this commit

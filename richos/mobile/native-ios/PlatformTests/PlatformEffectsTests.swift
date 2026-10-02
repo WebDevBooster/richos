@@ -150,7 +150,7 @@ final class PlatformEffectsTests: XCTestCase {
         XCTAssertEqual(try store.configure(origin: origin).key?.count, 32)
         var state = AppState()
         state.pairing = .paired
-        state.mac = MacLink(origin: origin, route: .connect, deviceID: "dev_1", threadID: "thr_5c1e", name: "Alex’s Mac")
+        state.mac = MacLink(origin: origin, route: .connect, deviceID: "dev_1", threadID: "thr_5c1e", name: "Sam’s Mac")
         state.notifications.status = .on
         state.sheet = .forget
         let (forgotten, effects) = Reducer.reduce(state, .confirmForget)

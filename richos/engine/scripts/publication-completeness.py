@@ -761,10 +761,141 @@ def _is_mechanism(path):
         return False
 
 
+def _judge_private(key, path, body, decl_names):
+    """The MISPLACED / STALE-EXEMPTION verdict on one private file's text."""
+    if not (path.endswith(EXEC_SUFFIXES) or body[:2] == "#!"):
+        return
+    coupled = sorted(d for d in decl_names if d in body)
+    marked = bool(INSTANCE_MARKER_RE.search(body))
+    if not coupled:
+        # A marker on a mechanism that couples to nothing public
+        # excuses a finding that is not there. Same rule as a stale
+        # declaration entry, evaluated here — beside the file —
+        # because beside the file is the only place it can mean
+        # anything.
+        if marked:
+            finding("STALE-EXEMPTION", key,
+                    "carries an `instance-mechanism:` marker and couples to no "
+                    "public contract, so the marker suppresses nothing. Either "
+                    "the declaration this file used to read has been renamed — "
+                    "in which case this file is broken and the marker is hiding "
+                    "it — or the coupling is gone and THE MARKER SHOULD BE "
+                    "DELETED. An exemption cannot outlive its own reason.")
+        return
+    if marked:
+        return
+    bare = "" if not INSTANCE_MARKER_BARE_RE.search(body) else (
+        " This file already carries a BARE `instance-mechanism:` with no reason "
+        "after it, which exempts nothing — write the reason and it will.")
+    finding("MISPLACED", key,
+            "is an executable mechanism in the PRIVATE tree that reads the "
+            "public contract %s. The public tree ships the enforcement and "
+            "withholds this. Move it into the published tree, or — if it is one "
+            "operator's artifact rather than a capability a customer could use "
+            "— write `instance-mechanism: <reason>` in the file itself. The "
+            "excuse lives with the file because the published tree's verdict "
+            "must not depend on which private trees this machine happens to "
+            "have.%s"
+            % (", ".join("`%s`" % c for c in coupled), bare))
+
+
+# ---------------------------------------------------------------------------
+# A PRIVATE TREE THAT IS A REPOSITORY IS JUDGED BY WHAT IT COMMITTED
+# ---------------------------------------------------------------------------
+# 2026-10-01: a teammate's commit in its own richos workspace was refused over
+# richos-hq/docs/audits/2026-09-29-hunt/part-3-codex-evidence-v2/probes-v2.py, a
+# Codex audit probe staged, not committed, in richos-hq's main checkout while
+# five Codex windows worked there. The walk read whatever bytes sat in that
+# working tree at that instant: another repository's work in progress, which
+# nobody committing to the public tree changed or could fix. (2026-09-28 was the
+# same class; richos-hq 46e9abc6 excused that one file and the class stayed.)
+#
+# So when the private root is the top of its own Git repository, Check 4 reads
+# that repository's HEAD: its committed files, through `git grep` for the
+# declaration names and the marker (fast on ten thousand files) and `git
+# cat-file` for the bodies of the few that match. A misplaced mechanism is
+# found once it is COMMITTED to the private tree, by every run that runs this
+# check (the land's run on the branch, the push arm, CI with the private tree
+# present). Uncommitted work in that checkout is nobody's finding here. A
+# private root that is not a repository's top (a plain directory, or an ignored
+# directory inside another repository) has no commits to read, and is walked on
+# disk as before. The caller's GIT_* environment (the commit guard's scratch
+# index) never reaches the private repository.
+
+def _private_git(root, *args):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    p = subprocess.run(["git", "-C", root] + list(args), capture_output=True, env=env)
+    return p.returncode, p.stdout, p.stderr.decode("utf-8", "replace")
+
+
+def _committed_repository(root):
+    rc, out, _ = _private_git(root, "rev-parse", "--show-toplevel")
+    return rc == 0 and os.path.realpath(out.decode("utf-8", "replace").strip()) == os.path.realpath(root)
+
+
+def _committed_private_files(root, decl_names):
+    """(tracked count, [(path, text)]) for HEAD's files that mention a
+    declaration name or the instance-mechanism marker, under MAX_FILE_BYTES."""
+    rc, _, _ = _private_git(root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+    if rc != 0:
+        return 0, []          # nothing committed yet: nothing to judge
+    rc, out, err = _private_git(root, "ls-tree", "-r", "-z", "--long", "--full-tree", "HEAD")
+    if rc != 0:
+        raise Broken("`git ls-tree HEAD` failed in the private tree %s: %s" % (root, err.strip()))
+    blobs, n = {}, 0
+    for item in out.decode("utf-8", "surrogateescape").split("\0"):
+        meta, _, path = item.partition("\t")
+        parts = meta.split()
+        if not path or len(parts) < 4 or parts[1] != "blob":
+            continue
+        if any(seg in SKIP_DIRS for seg in path.split("/")[:-1]):
+            continue
+        n += 1
+        if n > MAX_PRIVATE_FILES:
+            raise Broken("the declared private tree %s tracks more than the %d-file bound at HEAD. "
+                         "Refusing to report a clean misplacement check over a truncated read."
+                         % (root, MAX_PRIVATE_FILES))
+        if parts[0] != "120000" and parts[3].isdigit() and int(parts[3]) <= MAX_FILE_BYTES:
+            blobs[path] = parts[2]
+    patterns = []
+    for name in ["instance-mechanism:"] + sorted(decl_names):
+        patterns += ["-e", name]
+    rc, out, err = _private_git(root, "grep", "-l", "-z", "-F", "--no-color", *patterns, "HEAD", "--")
+    if rc not in (0, 1):
+        raise Broken("`git grep` over HEAD failed in the private tree %s: %s" % (root, err.strip()))
+    hits = []
+    for item in out.decode("utf-8", "surrogateescape").split("\0"):
+        path = item[len("HEAD:"):] if item.startswith("HEAD:") else ""
+        if path in blobs:
+            hits.append(path)
+    if not hits:
+        return n, []
+    batch = subprocess.run(["git", "-C", root, "cat-file", "--batch"], capture_output=True,
+                           input="".join(blobs[p] + "\n" for p in hits).encode(),
+                           env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+    if batch.returncode != 0:
+        raise Broken("`git cat-file --batch` failed in the private tree %s" % root)
+    data, at, files = batch.stdout, 0, []
+    for path in hits:
+        nl = data.index(b"\n", at)
+        size = int(data[at:nl].split()[2])
+        files.append((path, data[nl + 1:nl + 1 + size].decode("utf-8", "replace")))
+        at = nl + 1 + size + 1
+    return n, files
+
+
 def check_misplacement(tree, private_roots, decl_names, explain):
     if not private_roots:
         return
     for label, root in private_roots:
+        if _committed_repository(root):
+            n, files = _committed_private_files(root, decl_names)
+            for rel, body in files:
+                _judge_private("%s/%s" % (label, rel), rel, body, decl_names)
+            if explain:
+                sys.stderr.write("private tree %s (%s): its committed HEAD, %d tracked files, %d read "
+                                 "(uncommitted work there is not judged)\n" % (label, root, n, len(files)))
+            continue
         n = 0
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
@@ -786,39 +917,7 @@ def check_misplacement(tree, private_roots, decl_names, explain):
                         body = fh.read()
                 except OSError:
                     continue
-                coupled = sorted(d for d in decl_names if d in body)
-                marked = bool(INSTANCE_MARKER_RE.search(body))
-                key = "%s/%s" % (label, rel)
-                if not coupled:
-                    # A marker on a mechanism that couples to nothing public
-                    # excuses a finding that is not there. Same rule as a stale
-                    # declaration entry, evaluated here — beside the file —
-                    # because beside the file is the only place it can mean
-                    # anything.
-                    if marked:
-                        finding("STALE-EXEMPTION", key,
-                                "carries an `instance-mechanism:` marker and couples to no "
-                                "public contract, so the marker suppresses nothing. Either "
-                                "the declaration this file used to read has been renamed — "
-                                "in which case this file is broken and the marker is hiding "
-                                "it — or the coupling is gone and THE MARKER SHOULD BE "
-                                "DELETED. An exemption cannot outlive its own reason.")
-                    continue
-                if marked:
-                    continue
-                bare = "" if not INSTANCE_MARKER_BARE_RE.search(body) else (
-                    " This file already carries a BARE `instance-mechanism:` with no reason "
-                    "after it, which exempts nothing — write the reason and it will.")
-                finding("MISPLACED", key,
-                        "is an executable mechanism in the PRIVATE tree that reads the "
-                        "public contract %s. The public tree ships the enforcement and "
-                        "withholds this. Move it into the published tree, or — if it is one "
-                        "operator's artifact rather than a capability a customer could use "
-                        "— write `instance-mechanism: <reason>` in the file itself. The "
-                        "excuse lives with the file because the published tree's verdict "
-                        "must not depend on which private trees this machine happens to "
-                        "have.%s"
-                        % (", ".join("`%s`" % c for c in coupled), bare))
+                _judge_private("%s/%s" % (label, rel), rel, body, decl_names)
         if explain:
             sys.stderr.write("private tree %s (%s): %d files walked\n" % (label, root, n))
 

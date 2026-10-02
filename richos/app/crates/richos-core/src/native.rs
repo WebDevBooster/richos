@@ -942,7 +942,10 @@ enum TurnPhase {
 ///
 /// A child that emits no `command_lifecycle` for our uuid leaves the phase `Unconfirmed`, and
 /// then `queued_turn_count` alone decides — weaker (a count, not an identity) and still
-/// strictly better than "the next result wins". A child that offers NEITHER field does what
+/// strictly better than "the next result wins". **The count is that child's fallback only:**
+/// once a child has named one of our turns, a later prompt it has not named yet is waiting
+/// for admission, and no count decides for it (finding 47). The one turn still on the count
+/// is a lease's first, before the child has shown either way. A child that offers NEITHER field does what
 /// this file did before 2026-09-18: the next `result` is delivered. That is the honest floor,
 /// and it is named here rather than hidden.
 struct PendingTurn {
@@ -953,9 +956,30 @@ struct PendingTurn {
     /// previous turn's message.
     command_uuid: String,
     phase: TurnPhase,
+    /// **Had this child already named a turn THIS client sent, when this one was parked?**
+    /// (`ReaderState::turns_named_by_the_child`, copied at the send.) Hunt 2026-09-29 part 1
+    /// v2, finding 47: on such a child `Unconfirmed` is not "the child says nothing about
+    /// turns", it is "the child has not admitted OUR message yet" — the schema says a command
+    /// sent with a uuid is named (`queued`/`started`, or `completed` before the result on the
+    /// fold path) before any `result` can be its own. So a `result` that arrives first ends a
+    /// turn that was already running, and the count on it is not consulted.
+    child_names_turns: bool,
 }
 
 impl PendingTurn {
+    /// **Is the turn in flight positively NOT ours yet?** True when the child said our
+    /// message is still queued, or when a child that names its turns has not named this one
+    /// yet (finding 47). Every place that decides whether a frame belongs to this prompt asks
+    /// this one question, so the result, the streamed frames, the permission records and the
+    /// background-command reading cannot disagree about whose turn is running.
+    fn not_yet_ours(&self) -> bool {
+        match self.phase {
+            TurnPhase::Queued => true,
+            TurnPhase::Unconfirmed => self.child_names_turns,
+            TurnPhase::Running => false,
+        }
+    }
+
     /// **Does this `result` belong to a turn that is not ours?** The whole decision, in one
     /// place, from the child's own words and nothing else.
     fn result_is_another_turns(&self, result: &Value) -> bool {
@@ -974,7 +998,14 @@ impl PendingTurn {
         // platform's result to this prompt. On the fold path the child says `completed`
         // BEFORE the result (schema, quoted on [`PendingTurn`]), so `Queued` here never means
         // our message was folded into this turn.
-        if self.phase == TurnPhase::Queued {
+        //
+        // **And a child that has named our turns before has not named this one yet** (hunt
+        // 2026-09-29 part 1 v2, finding 47): the closing `result` of an earlier platform or
+        // background turn, still unread when this prompt was parked, carries
+        // `queued_turn_count: 0` because our message had not even been enqueued when it was
+        // produced. Read by the count it ended this prompt empty, and the real answer then
+        // streamed onto the between-turn lane.
+        if self.not_yet_ours() {
             return true;
         }
         match result.get("queued_turn_count").and_then(Value::as_u64) {
@@ -1395,9 +1426,10 @@ struct ReaderState {
     /// says the write failed clears this id and leaves everything after it visible.
     /// Host-owned, reset with the send.
     checkpoint_call_id: Option<String>,
-    /// The context-only text this session was last given by [`NativeCognition::supply_context_brief`]
-    /// and took to `end_turn`. A fact about the SESSION, not the turn, so unlike its neighbors
-    /// it is never reset with the send — a new session starts with a new reader state, `None`.
+    /// The [`brief_cache_identity`] of the context-only text this session was last given by
+    /// [`NativeCognition::supply_context_brief`] and took to `end_turn`. A fact about the
+    /// SESSION, not the turn, so unlike its neighbors it is never reset with the send — a new
+    /// session starts with a new reader state, `None`.
     context_brief_held: Option<String>,
     /// **The front desk's bookkeeping grant, held here because this is where his first words
     /// are seen** — [`ActionGrant::ContinuityTools`]. `None` on a lease with no continuity
@@ -2422,7 +2454,7 @@ impl NativeClient {
                     .lock()
                     .unwrap()
                     .as_ref()
-                    .is_some_and(|pending| pending.phase != TurnPhase::Queued);
+                    .is_some_and(|pending| !pending.not_yet_ours());
                 state.lock().unwrap().note_background(&msg, ours_running);
             }
         }
@@ -2781,7 +2813,9 @@ impl NativeClient {
             // one the platform injected — and streaming it here would attribute another
             // turn's words to this one (§1.4 G4). Retained on the between-turn lane, where
             // it attaches to the THREAD and to no turn at all, which is what it is.
-            Some(pending) if pending.phase == TurnPhase::Queued => false,
+            // The same holds for a child that names its turns and has not named this one yet
+            // (finding 47): what it streams is still the earlier turn's.
+            Some(pending) if pending.not_yet_ours() => false,
             Some(pending) => pending.sink.send(chunk).is_ok(),
             None => false,
         };
@@ -2857,7 +2891,7 @@ impl NativeClient {
             let routed = match current.lock().unwrap().as_ref() {
                 // Same rule as `route`: a turn whose message is still in the child's queue
                 // has not started, so this record is the running turn's and not its.
-                Some(pending) if pending.phase == TurnPhase::Queued => false,
+                Some(pending) if pending.not_yet_ours() => false,
                 Some(pending) => pending.sink.send(m.to_chunk()).is_ok(),
                 None => false,
             };
@@ -2959,6 +2993,9 @@ impl NativeClient {
             process_fence: self.child.fence(),
             settle_workers_on_stop: self.settle_workers_on_stop,
             next_id: Arc::new(AtomicI64::new(self.next_id.load(Ordering::SeqCst) + 1_000_000)),
+            pending: Arc::clone(&self.pending),
+            reader_state: Arc::clone(&self.reader_state),
+            reader_closed: Arc::clone(&self.reader_closed),
         })
     }
 
@@ -2997,11 +3034,15 @@ impl NativeClient {
                 let mut current = self.current_prompt.lock().unwrap();
                 if self.reader_closed.load(Ordering::SeqCst) { return Err(NativeError::Closed); }
                 // Parked with the id it was sent under, and `Unconfirmed` until the child
-                // says otherwise — never assuming the next `result` is this turn's.
+                // says otherwise — never assuming the next `result` is this turn's. Whether
+                // the child has named our turns before is read here, with the park (finding
+                // 47; see `PendingTurn::child_names_turns`).
+                let child_names_turns = self.reader_state.lock().unwrap().turns_named_by_the_child;
                 *current = Some(PendingTurn {
                     sink: tx,
                     command_uuid: command_uuid.clone(),
                     phase: TurnPhase::Unconfirmed,
+                    child_names_turns,
                 });
                 // **Every turn starts with him having heard nothing**, and the reset belongs
                 // here — with the send, under the same lock that decides a turn is in flight —
@@ -3242,7 +3283,22 @@ pub struct NativeCancelHandle {
     process_fence: crate::owned_process::ProcessFence,
     settle_workers_on_stop: bool,
     next_id: Arc<AtomicI64>,
+    /// The client's control-reply table, so a `stop_task` is answered the way every other
+    /// control request this file sends is (finding 11 v2).
+    pending: Arc<Mutex<std::collections::HashMap<String, Sender<Value>>>>,
+    /// The reader's state, where the provider's `task_notification` for a command is read.
+    reader_state: Arc<Mutex<ReaderState>>,
+    /// Set when the child's output closed: nothing more will be answered.
+    reader_closed: Arc<AtomicBool>,
 }
+
+/// How long a `stop_task` waits for the provider's reply. The operator client measured this
+/// request answered on the same wire (probe P12); the bound only turns a silent child into
+/// [`CommandStop::Unconfirmed`] rather than a hang, and decides no verdict on its own.
+const STOP_TASK_REPLY_WAIT: Duration = Duration::from_secs(5);
+/// How long an accepted `stop_task` waits for the command's own `task_notification`. Past it
+/// the answer is [`CommandStop::Unconfirmed`] — a stated unknown, never "stopped".
+const STOP_TASK_ENDING_WAIT: Duration = Duration::from_secs(5);
 
 impl TurnCancel for NativeCancelHandle {
     fn shutdown(&self) {
@@ -3295,14 +3351,68 @@ impl TurnCancel for NativeCancelHandle {
 
     /// `control_request{stop_task}` for one of the provider's own background tasks, the same
     /// frame the operator client writes for a named agent (`operator_lead::stop_task_request`,
-    /// measured on this wire in operator probe P12). Written without waiting for its reply: a
-    /// reply that arrives is retained as between-turn traffic like any unmatched one, and the
-    /// task's own `task_notification` is what says it ended. No turn is interrupted and no
-    /// other command is touched (hunt 2026-09-29 part 1, finding 11).
-    fn stop_background_command(&self, task_id: &str) -> bool {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let request = crate::operator_lead::stop_task_request(&format!("richos_stop_task_{id}"), task_id);
-        NativeClient::write_line(&self.stdin, &request).is_ok()
+    /// measured on this wire in operator probe P12). No turn is interrupted and no other
+    /// command is touched (hunt 2026-09-29 part 1, finding 11).
+    ///
+    /// **Its answer is the provider's, not the pipe's** (finding 11, v2 re-check). This used
+    /// to return `true` the moment the line was written, and the work host then told him the
+    /// job's command had stopped; a provider that refused the stop left it running while his
+    /// assignment said otherwise, and the refusal sat unread on the between-turn lane. Now
+    /// the reply is awaited the way `operator_lead::control` awaits it (an `error` reply is
+    /// [`CommandStop::Refused`]), and only the task's own `task_notification` — the authority
+    /// for an ending everywhere else in this file — makes it [`CommandStop::Ended`].
+    fn stop_background_command(&self, task_id: &str) -> crate::steering::CommandStop {
+        use crate::steering::CommandStop;
+        let ended = |state: &Arc<Mutex<ReaderState>>| {
+            state.lock().unwrap().background.iter().any(|c| c.task_id == task_id && c.ended.is_some())
+        };
+        // A command that already ended needs no stop, and saying so is the true sentence.
+        if ended(&self.reader_state) {
+            return CommandStop::Ended;
+        }
+        let id = format!("richos_stop_task_{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+        let request = crate::operator_lead::stop_task_request(&id, task_id);
+        let (tx, rx) = channel();
+        self.pending.lock().unwrap().insert(id.clone(), tx);
+        if NativeClient::write_line(&self.stdin, &request).is_err() {
+            self.pending.lock().unwrap().remove(&id);
+            return CommandStop::NotDelivered;
+        }
+        // A child that is gone answers nothing; waiting out the bounds for it would only hold
+        // his Stop. What it left running is not known, so that is Unconfirmed, not Ended.
+        let gone = || self.reader_closed.load(Ordering::SeqCst);
+        // load-bound: hang guard only; the verdict is the provider's reply, and no reply is a stated unknown.
+        let deadline = std::time::Instant::now() + STOP_TASK_REPLY_WAIT;
+        loop {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(reply) => {
+                    let response = reply.get("response").cloned().unwrap_or(Value::Null);
+                    if response.get("subtype").and_then(Value::as_str) != Some("success") {
+                        let why = response.get("error").and_then(Value::as_str).unwrap_or("no reason given");
+                        return CommandStop::Refused(why.to_string());
+                    }
+                    break;
+                }
+                // No reply in the bound: the table entry goes, so a late reply is retained as
+                // unmatched traffic. The ending below can still be witnessed.
+                Err(_) if gone() || std::time::Instant::now() >= deadline => {
+                    self.pending.lock().unwrap().remove(&id);
+                    break;
+                }
+                Err(_) => {}
+            }
+        }
+        // load-bound: hang guard only; the loop waits for the provider's own ending, and the deadline yields Unconfirmed, never Ended.
+        let deadline = std::time::Instant::now() + STOP_TASK_ENDING_WAIT;
+        loop {
+            if ended(&self.reader_state) {
+                return CommandStop::Ended;
+            }
+            if gone() || std::time::Instant::now() >= deadline {
+                return CommandStop::Unconfirmed;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -3468,6 +3578,47 @@ pub fn resolve_claude_bin() -> std::path::PathBuf {
 pub fn resolve_claude_bin_checked() -> Result<std::path::PathBuf, NativeError> {
     search_claude_bin(&ClaudeBinEnv::from_process())
         .map_err(|looked| NativeError::ClaudeNotFound { looked: looked.join("; ") })
+}
+
+/// **What a context brief SAYS, with the three values the engine derives at compile time
+/// masked** — the cache key for [`NativeCognition::supply_context_brief`] (hunt 2026-09-29
+/// part 1 v2, finding 29).
+///
+/// The engine renders (`engine/ecs/core/ecs_core.py`, `render_checkpoint`):
+/// - `compiled_at=<the newest event's time>` in the header,
+/// - `authority=ECS source=ecs:scope-sequence:<entity>:<thread>:<event count>` in Active
+///   context,
+/// - `evidence_age=<compiled_at minus the evidence time>` on each delegated-work row.
+///
+/// All three move whenever ANY event is appended, and the app's own bind appends four per new
+/// turn (`engine/ecs/adapters/app.py`, `bind`), so without masking no two turns' briefs were
+/// ever equal. Nothing else is masked: a record's id, status, title, revision, source or
+/// `evidence_observed_at` still makes the identity differ, so a real change is still supplied.
+fn brief_cache_identity(text: &str) -> String {
+    const SEQUENCE: &str = "authority=ECS source=ecs:scope-sequence:";
+    const AGE: &str = "evidence_age=";
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let (body, end) = match line.strip_suffix('\n') {
+            Some(body) => (body, "\n"),
+            None => (line, ""),
+        };
+        let masked = if body.starts_with("compiled_at=") {
+            "compiled_at=*".to_string()
+        } else if body.contains(SEQUENCE) {
+            format!("{}*", body.trim_end_matches(|c: char| c.is_ascii_digit()))
+        } else if body.contains(AGE) {
+            body.split(" | ")
+                .map(|field| if field.starts_with(AGE) { "evidence_age=*" } else { field })
+                .collect::<Vec<_>>()
+                .join(" | ")
+        } else {
+            body.to_string()
+        };
+        out.push_str(&masked);
+        out.push_str(end);
+    }
+    out
 }
 
 /// The real Cognition: a live native session behind the durable spine.
@@ -3647,14 +3798,24 @@ impl NativeCognition {
     /// the question goes straight through. Any change (a new obligation, a receipt, a question)
     /// makes the text differ and the turn is paid as before; a fresh session has a fresh reader
     /// state, so a rotation or a new lease always gets its full brief.
+    ///
+    /// **"Identical" is judged on the brief's CONTENT, not its bookkeeping** (finding 29, v2
+    /// re-check). Every new turn binds, and the engine's bind appends its own events, so the
+    /// rendered brief's `compiled_at`, its `scope-sequence` number and each work row's
+    /// `evidence_age` (computed against `compiled_at`) change on every turn even when no
+    /// record did — measured against the real engine: scope sequence 4 became 8 on a turn
+    /// change alone. Compared byte for byte, the cache never hit on the path it exists for.
+    /// [`brief_cache_identity`] masks exactly those three derived values; any record that
+    /// changed still changes the identity, and the hidden turn is paid as before.
     fn supply_context_brief(&mut self, brief: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         let priming = crate::reprime::context_only_priming(brief);
-        if self.client.reader_state.lock().unwrap().context_brief_held.as_deref() == Some(priming.as_str()) {
+        let identity = brief_cache_identity(&priming);
+        if self.client.reader_state.lock().unwrap().context_brief_held.as_deref() == Some(identity.as_str()) {
             return Ok(());
         }
         let reason = self.client.prompt_context_only(&priming, on_item)?;
         if reason != "end_turn" { return Err(CognitionError::PrimingStopped(reason)); }
-        self.client.reader_state.lock().unwrap().context_brief_held = Some(priming);
+        self.client.reader_state.lock().unwrap().context_brief_held = Some(identity);
         Ok(())
     }
 
@@ -4467,6 +4628,71 @@ done
         assert_eq!(hidden(),2,"a changed brief must still be supplied");
     }
 
+    /// **PART 1 HUNT FINDING 29, v2 re-check: the cache against the REAL engine's briefs.** The
+    /// test above uses artificial identical text; the production brief embeds a sequence and a
+    /// compile time that the app's own per-turn bind moves. The witness
+    /// (`part-1-codex-v2/remaining-witness-v2.rs` in richos-hq) measured scope sequence 4
+    /// becoming 8 on a turn change alone; this binds the real engine twice, exactly as
+    /// `prepare_before_turn` does for two questions, and supplies both briefs.
+    ///
+    /// **RED at `c6cde6cc9`**: the second brief differed only in `compiled_at` and the scope
+    /// sequence, and paid a second hidden provider turn. A checkpoint that adds a record must
+    /// still be supplied.
+    #[test]
+    fn a_new_turn_alone_does_not_pay_a_second_hidden_turn_but_a_new_record_does() {
+        let script=write_script("unchanged-engine-brief",
+            r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+while read -r line; do
+  printf 'x\n' >> "$(dirname "$0")/hidden-turns"
+  printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+done
+"#);
+        let root=script.parent().unwrap();
+        let out=std::process::Command::new("python3").args(["-c","import sys; print(sys.executable)"]).output().unwrap();
+        assert!(out.status.success());
+        let python=std::path::PathBuf::from(String::from_utf8(out.stdout).unwrap().trim());
+        let engine=Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().join("engine");
+        let bridge=crate::ecs::EcsBridge::new(&python,&engine,&root.join("ecs-state")).unwrap();
+        let mut cognition=NativeCognition::start(&script,root,&doctrine_fixture(),&skills_fixture()).unwrap();
+        let hidden=|| std::fs::read_to_string(root.join("hidden-turns")).map(|s| s.lines().count()).unwrap_or(0);
+
+        let first=bridge.bind("depot","thread-a","session-a","turn-a",None,"ceo").unwrap();
+        let brief_a=bridge.brief(&first,None).unwrap();
+        cognition.supply_context_brief(&brief_a,&mut |_|{}).unwrap();
+        assert_eq!(hidden(),1,"the first brief must reach the provider");
+
+        let next=bridge.bind("depot","thread-a","session-a","turn-b",None,"ceo").unwrap();
+        let brief_b=bridge.brief(&next,None).unwrap();
+        assert_ne!(brief_a,brief_b,"premise: the engine's bind moves the brief's bookkeeping");
+        cognition.supply_context_brief(&brief_b,&mut |_|{}).unwrap();
+        assert_eq!(hidden(),1,"a brief that changed only by the turn's own bind paid a second hidden turn");
+
+        let checkpoint=json!({"binding":next,"request_id":"manual",
+            "checkpoint":{"statements":[{"verb":"commitment","fields":{"id":"manual","title":"Review the depot manual"}}]}});
+        assert_eq!(bridge.request("checkpoint",checkpoint).unwrap()["accepted"],true);
+        let brief_c=bridge.brief(&next,None).unwrap();
+        assert!(brief_c.contains("Review the depot manual"));
+        cognition.supply_context_brief(&brief_c,&mut |_|{}).unwrap();
+        assert_eq!(hidden(),2,"a brief with a new record was not supplied");
+    }
+
+    /// The identity masks the three compile-time values and nothing else.
+    #[test]
+    fn the_brief_identity_masks_only_the_compile_time_values() {
+        let brief = "compiled_at=2026-10-01T20:39:23Z\n- authority=ECS source=ecs:scope-sequence:depot:thread-a:4\n\
+                     - id=w1 | status=running | evidence_observed_at=2026-10-01T20:00:00Z | evidence_age=2363s | source=x\n";
+        let later = "compiled_at=2026-10-01T20:40:00Z\n- authority=ECS source=ecs:scope-sequence:depot:thread-a:12\n\
+                     - id=w1 | status=running | evidence_observed_at=2026-10-01T20:00:00Z | evidence_age=2400s | source=x\n";
+        assert_eq!(brief_cache_identity(brief), brief_cache_identity(later));
+        for changed in [later.replace("status=running", "status=done"),
+                        later.replace("observed_at=2026-10-01T20:00:00Z", "observed_at=2026-10-01T20:30:00Z"),
+                        later.replace("thread-a:12", "thread-b:12")] {
+            assert_ne!(brief_cache_identity(brief), brief_cache_identity(&changed), "{changed}");
+        }
+    }
+
     // ---- the background-work spec's §5.8a-ii seams ------------------------------------
 
     fn fixture_bridge(root: &Path) -> crate::ecs::EcsBridge {
@@ -5091,7 +5317,10 @@ done
         );
         let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
             .expect("the handshake should succeed");
-        assert!(client.cancel_handle().stop_background_command("bk1c0clka"), "the stop was not written");
+        // The stand-in never answers, so the stop waits on its own thread and says so:
+        // delivered, nothing confirmed (finding 11 v2).
+        let handle = client.cancel_handle();
+        let stopping = std::thread::spawn(move || handle.stop_background_command("bk1c0clka"));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let frames: Vec<Value> = loop {
             let text = std::fs::read_to_string(&heard).unwrap_or_default();
@@ -5106,8 +5335,51 @@ done
         assert_eq!(stops.len(), 1, "exactly one control request: {frames:?}");
         assert_eq!(stops[0]["request"], json!({"subtype": "stop_task", "task_id": "bk1c0clka"}));
         assert!(stops[0]["request_id"].as_str().is_some_and(|id| id.starts_with("richos_stop_task_")), "{frames:?}");
+        // The child going away ends the wait at once, and still claims nothing.
         drop(client);
+        assert_eq!(stopping.join().unwrap(), crate::steering::CommandStop::Unconfirmed,
+                   "a stop nobody answered was reported as something other than unknown");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// **A stop is what the provider said about it, never that the line was written** (hunt
+    /// 2026-09-29 part 1 v2, finding 11; the witness is `part-1-codex-v2/remaining-witness-v2.rs`
+    /// in richos-hq, ported here). One provider refuses the stop and the command keeps running;
+    /// another accepts it and reports the command's ending.
+    ///
+    /// **RED at `c6cde6cc9`**: `stop_background_command` returned `true` for the refused stop
+    /// (the write succeeded), the refusal sat unread on the between-turn lane, and the work
+    /// host told him the command had stopped.
+    #[test]
+    fn a_refused_stop_is_refused_and_only_a_reported_ending_is_a_stopped_command() {
+        use crate::steering::CommandStop;
+        let provider = |name: &str, answer: &str| write_script(name, &format!(r#"
+read -r init
+printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+read -r prompt
+printf '%s\n' '{{"type":"system","subtype":"task_started","task_id":"remaining-command","description":"fixture command","is_backgrounded":true,"task_type":"local_bash"}}'
+printf '%s\n' '{{"type":"result","subtype":"success","stop_reason":"end_turn"}}'
+read -r stop
+id=$(printf '%s' "$stop" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+case "$stop" in *stop_task*) ;; *) exit 9;; esac
+{answer}
+read -r keep_alive
+"#));
+        let refusing = provider("refusing-stop", r#"printf '%s\n' "{\"type\":\"control_response\",\"response\":{\"subtype\":\"error\",\"request_id\":\"$id\",\"error\":\"fixture refuses task stop\"}}""#);
+        let client = NativeClient::spawn(&refusing, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("start fixture", &mut |_| {}).unwrap();
+        assert_eq!(client.background_commands().len(), 1);
+        assert_eq!(client.cancel_handle().stop_background_command("remaining-command"),
+                   CommandStop::Refused("fixture refuses task stop".into()),
+                   "a stop the provider refused was reported as reaching the command");
+        assert!(client.background_commands()[0].ended.is_none());
+        drop(client);
+
+        let accepting = provider("accepting-stop", r#"printf '%s\n' "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$id\",\"response\":{}}}"
+printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"remaining-command","status":"stopped","summary":"fixture command stopped"}'"#);
+        let client = NativeClient::spawn(&accepting, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("start fixture", &mut |_| {}).unwrap();
+        assert_eq!(client.cancel_handle().stop_background_command("remaining-command"), CommandStop::Ended);
     }
 
     /// **THE DEFECT CANDIDATE .7 FOUND, AS A TEST — and it is a false NEGATIVE, not a
@@ -6933,6 +7205,58 @@ read -r keep_alive
             })
             .unwrap();
         assert_eq!(said, "It printed bg-marker-done.", "the platform's own turn answered this prompt");
+    }
+
+    /// **An earlier turn's closing `result`, still unread when the next prompt is parked,
+    /// never ends that prompt on a child that names its turns** (hunt 2026-09-29 part 1 v2,
+    /// finding 47; the witness is `part-1-codex-v2/witness-v2.rs` in richos-hq, ported here).
+    ///
+    /// The first turn establishes that this child names our turns. For the second, a platform
+    /// or background turn's `result` with `queued_turn_count: 0` reaches the reader BEFORE any
+    /// lifecycle for our message — the count is 0 because our message had not been enqueued
+    /// when that result was produced.
+    ///
+    /// **RED at `c6cde6cc9`**: the parked prompt was `Unconfirmed`, so the count decided and the
+    /// old result returned `end_turn` with no answer; "actual answer" streamed afterwards onto
+    /// the between-turn lane.
+    #[test]
+    fn an_earlier_turns_result_never_ends_a_prompt_the_naming_child_has_not_named_yet() {
+        let script = write_script("earlier-result-before-our-lifecycle", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+test -n "$ours" || exit 9
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"started\"}"
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+test -n "$ours" || exit 9
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0,"result":"old platform result"}'
+sleep 0.2
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"started\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"actual answer"}}}'
+printf '%s\n' '{"type":"result","subtype":"success","stop_reason":"end_turn","queued_turn_count":0}'
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("first", &mut |_| {}).unwrap();
+        let mut said = String::new();
+        let reason = client
+            .prompt("second", &mut |item| {
+                if let TurnItem::Text { text, .. } = item {
+                    said.push_str(text);
+                }
+            })
+            .unwrap();
+        assert_eq!(reason, "end_turn");
+        assert_eq!(said, "actual answer", "an earlier turn's result ended this prompt before its own answer");
+        // The earlier result is retained on the between-turn lane rather than dropped (§1.4 G5).
+        assert!(
+            client.between.lock().unwrap().queue.iter().any(|i| matches!(i,
+                BetweenItem::Frame(f) if f.get("result").and_then(Value::as_str) == Some("old platform result"))),
+            "the earlier turn's result reached neither this turn nor the between-turn lane",
+        );
     }
 
     /// **A background command is read off the provider's own frames, whichever turn they

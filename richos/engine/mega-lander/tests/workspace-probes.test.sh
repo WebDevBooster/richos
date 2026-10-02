@@ -97,6 +97,9 @@
 #   W29 WITH NO INTEGRATION BRANCH RECORDED, every retirement is refused and the
 #       refusal names the recording command; the runner never assumes main.
 #
+#   W32 AN OBSERVATION IS NOT A CERTIFICATION (hunt part 4 v2, V2-06): a probe
+#       that asserts nothing never earns the all-green ending or exit 0.
+#
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
 set -uo pipefail
@@ -917,6 +920,45 @@ else
     bad "W29 rc=$RC — with nothing recorded the runner accepted a retirement (it assumed a branch): <$OUT>"
 fi
 export RICHOS_WORKSPACES_DIR="$SAVED_WS"
+
+# --- W32: AN OBSERVATION IS NOT A CERTIFICATION (hunt part 4 v2, V2-06) -----
+# A scenario-shaped probe asserts nothing: it prints what the library did. One
+# that prints the WRONG behavior and exits 0 used to end the run "every one of
+# them is green" with exit 0. The ending is now built from GREEN verdicts only.
+cat > "$R/docs/verification/certification-hal-observe.probe.py" <<'PROBE'
+#!/usr/bin/env python3
+"""Hal's scenario probe of workspaces.py: it prints, it never asserts."""
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ws", sys.argv[1])
+ws = importlib.util.module_from_spec(spec); spec.loader.exec_module(ws)
+SCENARIO = sys.argv[2]
+if SCENARIO == "broken":
+    print("Observed: expected workspace retained; actual workspace deleted")
+PROBE
+commit_listed certification-hal-observe.probe.py "hal's observation-only probe"
+run --tree-only --only hal
+if [ "$RC" -eq 3 ] && grep -q "^OBSERVED" <<<"$OUT" \
+   && grep -q "NOT CERTIFIED" <<<"$OUT" \
+   && grep -q "certification-hal-observe.probe.py   author: hal" <<<"$OUT" \
+   && ! grep -q "every one of them is green" <<<"$OUT"; then
+    ok "W32 a probe that asserts nothing never earns the all-green ending or exit 0: the run says NOT CERTIFIED, names it, and exits 3"
+else
+    bad "W32 rc=$RC — an observation-only probe was reported as verified: <$OUT>"
+fi
+run --tree-only --only hal --only alice
+if [ "$RC" -eq 3 ] && grep -q "^GREEN      docs/verification/certification-alice-green.probe.py" <<<"$OUT" \
+   && grep -q "only 1 probe(s) ran green; 1 checked no expectation" <<<"$OUT" \
+   && ! grep -q "every one of them is green" <<<"$OUT"; then
+    ok "W32b beside a green asserting probe, the observation still holds the ending back and is counted apart"
+else
+    bad "W32b rc=$RC — a green neighbor let the observation through: <$OUT>"
+fi
+run --tree-only --only alice
+if [ "$RC" -eq 0 ] && grep -q "every discovered probe ran, and every one of them is green." <<<"$OUT"; then
+    ok "W32c PAIRED TWIN: the asserting probe on its own still ends green with exit 0"
+else
+    bad "W32c rc=$RC — the green ending was lost for a run that earned it: <$OUT>"
+fi
 
 # --- THE MUTATION HARNESS -------------------------------------------------
 # Most of what this suite asserts is that something was REFUSED, and a runner

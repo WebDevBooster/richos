@@ -10,8 +10,8 @@ public protocol EventStreamTransport: Sendable {
 /// §2.8 C1, written for RichOS's signed HTTP + SSE). One stream at a time; a superseded attempt never
 /// publishes; retries wait 1 s doubling to 30 s (the reference `web/web-app/lib/link.js`) and the wait
 /// resets when a stream opens, which is also when the phone is connected; a stream silent past
-/// `silenceLimitMs` is lost like a dropped one; before a retry the challenge is refreshed; after a
-/// failure a revocation probe tells "removed from the Mac" from "unreachable"; `: re-snapshot` ends
+/// `silenceLimitMs` is lost like a dropped one; a challenge is asked for only when none is held; after
+/// an open the Mac refused, a revocation probe tells "removed from the Mac" from other refusals; `: re-snapshot` ends
 /// the stream and the next one starts without `since`. Everything the stream learns reaches the
 /// store as actions, so the reducer stays the only place state changes.
 public actor LiveConnection {
@@ -33,6 +33,17 @@ public actor LiveConnection {
     /// history cursor or `latest_cursor`, which drift apart (Echo's measurement: three live cursors
     /// per phone message, two history positions).
     private var lastFrameID: Int?
+    /// **WHETHER `lastFrameID` IS A `hello`'S AND NO LIVE FRAME HAS COME SINCE.** A `hello`'s id is the
+    /// Mac's cursor when it was built, and the Mac may hold no frame at or after it: right after pairing
+    /// (nothing published yet), or after its cursor was seeded from the conversation's row count. A
+    /// resume from there (`since` = id - 1) is answered with an EMPTY opening, and the Mac's listener
+    /// sends no response head until the stream's first bytes, which are its keep-alive 15 s later
+    /// (`app/src-tauri/src/phone/listen.rs` `open_stream`, `KEEPALIVE_MS`). For those 15 s the phone is
+    /// not connected: a waiting message is not sent and a reply that arrived while it was away is not
+    /// shown (the headless lab with this core: 15.3 s after the return, `Tools/LabPhone --away-before`).
+    /// So after a `hello` the stream is opened without `since`: the Mac answers with a `hello`, which is
+    /// never empty, and the thread model merges it by row id, so nothing is shown twice.
+    private var lastFrameIsHello = false
     private var task: Task<Void, Never>?
     private var generation = 0
     /// Once stopped, never started again: a new connection is a new owner. A `stop` that reaches
@@ -47,6 +58,9 @@ public actor LiveConnection {
     /// `wakeups` channel). Never set while the stream is open, so a healthy stream keeps nothing owed.
     private var wakeOwed = false
     private var isOpen = false
+    /// The next back-off wait: 1 s, doubling to 30 s, back to 1 s when a stream opens. Kept on the
+    /// owner, not on one run, so a `reconnect` (which replaces the run) never resets it.
+    private var retryDelay = LiveConnection.firstRetryMs
 
     public static let firstRetryMs: Int64 = 1000
     public static let maxRetryMs: Int64 = 30000
@@ -80,17 +94,27 @@ public actor LiveConnection {
         var told: [String: StreamRow]
         var lastFrameID: Int?
         var threadID: String?
+        var lastFrameIsHello = false
     }
 
     func restore(_ replay: Replay) {
         guard task == nil, !stopped else { return }
         model = replay.model; told = replay.told
         lastFrameID = replay.lastFrameID; threadID = replay.threadID
+        lastFrameIsHello = replay.lastFrameIsHello
     }
 
     func stopAndCheckpoint() -> Replay {
         stop()
-        return Replay(model: model, told: told, lastFrameID: lastFrameID, threadID: threadID)
+        return Replay(model: model, told: told, lastFrameID: lastFrameID, threadID: threadID, lastFrameIsHello: lastFrameIsHello)
+    }
+
+    /// Where a stream resumes: one frame before the last one seen, so the Mac's opening repeats that
+    /// row and is never empty; `nil` (a `hello`) when nothing was seen, or when the last thing seen was
+    /// a `hello` (see `lastFrameIsHello`).
+    private func resumePoint() -> Int? {
+        guard !lastFrameIsHello else { return nil }
+        return lastFrameID.map { max(0, $0 - 1) }
     }
 
     public func start() {
@@ -115,6 +139,39 @@ public actor LiveConnection {
         if let napping { napping.cancel() } else { wakeOwed = true }
     }
 
+    /// **THE ROUTE CHANGED UNDER THE APP: REPLACE WHATEVER IS IN PROGRESS, NOW** (andy-opus-resume1's
+    /// third Android wait, the same gap here). The phone's network path changed with no loss reported
+    /// (Wi-Fi to cellular, a network joined, Tailscale coming or going). A stream on the old route may
+    /// be dead without a word, noticed only by the 20 s silence limit; an open in flight on it hangs
+    /// for its own 20 s; a back-off nap runs to its end. So the current run is ended, whatever it is
+    /// doing, and a new one opens at once from the same resume point, with the challenge held: no
+    /// request in front of it and no nap. An open stream is reported lost first, so the outbox waits
+    /// for the new one and a delivery in flight on the old route is given up and sent again under its
+    /// id (`AppStore`, `connectionLost`). The back-off is not reset (`retryDelay`), so a Mac still out
+    /// of reach is asked no more often than a route changes. Only while on screen: the path is watched
+    /// only then (`NetworkMonitor`), and an owner exists only then.
+    public func reconnect() async {
+        guard task != nil, !stopped else { return }
+        generation += 1
+        let mine = generation
+        task?.cancel()
+        task = nil
+        // A back-off wait cut short counts as one waited, as `wake` counts it: the next wait is the
+        // next one in the sequence, never 1 s again.
+        if let napping {
+            napping.cancel()
+            retryDelay = min(retryDelay * 2, Self.maxRetryMs)
+        }
+        napping = nil
+        wakeOwed = false
+        let wasOpen = isOpen
+        isOpen = false
+        if wasOpen { await sink(.connectionLost(at: clock.nowMs())) }
+        // Stopped, started, or replaced again while the loss was told: that one wins.
+        guard mine == generation, task == nil, !stopped else { return }
+        task = Task { await self.run(mine) }
+    }
+
     /// The oldest cursor held, for `before=` when older history is asked for.
     public func oldestCursor() -> Int? { model.view.first?.cursor }
 
@@ -128,15 +185,16 @@ public actor LiveConnection {
     public func finished() async { await task?.value }
 
     private func run(_ mine: Int) async {
-        var delay = Self.firstRetryMs
-        var since = lastFrameID.map { max(0, $0 - 1) }
-        var first = true
+        var since = resumePoint()
         while mine == generation, !Task.isCancelled {
-            // A retry asks for a live challenge first (link.js rule 2). So does a first attempt with
-            // none held: after a relaunch none is stored, and signing needs one.
-            let held = await api.challenge
-            if !first || held == nil { _ = try? await api.probeChallenge() }
-            first = false
+            // **NOTHING STANDS BETWEEN A FAILED STREAM AND THE NEXT OPEN** (andy-opus-resume1's
+            // second Android wait, the same code here). Only with no challenge held is one asked for
+            // first: after a relaunch none is stored, and signing needs one. With one held, a retry
+            // opens at once like a first attempt: a stale challenge is answered with a 404 offering
+            // the new one, which `openSigned` re-signs with at once, at the cost the probe had. Before,
+            // every retry asked for a challenge first (link.js's `refresh`), a request with the 30 s
+            // timeout that `wake` could not cut short, on the stalled network where retries happen.
+            if await api.challenge == nil { _ = try? await api.probeChallenge() }
             attempts += 1
             var path = "/api/events"
             var query: [String] = []
@@ -144,6 +202,8 @@ public actor LiveConnection {
             if let since { query.append("since=\(since)") }
             if !query.isEmpty { path += "?" + query.joined(separator: "&") }
             var resnapshot = false
+            /// The Mac answered the open, and not with a stream.
+            var refused = false
             do {
                 let (response, bytes) = try await openSigned(path)
                 if response.status != 200 {
@@ -151,6 +211,7 @@ public actor LiveConnection {
                         await sink(.pairingRevoked)
                         return
                     }
+                    refused = true
                     throw APIClient.classify(response)
                 }
                 guard mine == generation else { return }
@@ -159,7 +220,7 @@ public actor LiveConnection {
                 // `Replay::Tail`, often empty), so waiting for a `hello` left "Reconnecting…" on a
                 // healthy stream (Sage's review T9). The reference's `accepted()`
                 // (`web/web-app/lib/link.js`) and Android's `Link(OPEN)`; it resets the back-off too.
-                delay = Self.firstRetryMs
+                retryDelay = Self.firstRetryMs
                 isOpen = true
                 wakeOwed = false
                 await sink(.connected(at: clock.nowMs()))
@@ -170,7 +231,7 @@ public actor LiveConnection {
                     let (events, comments) = parser.feed(chunk)
                     for event in events {
                         try await apply(event)
-                        delay = Self.firstRetryMs   // a frame proves the stream usable
+                        retryDelay = Self.firstRetryMs   // a frame proves the stream usable
                     }
                     if comments.contains(where: { $0.hasPrefix("re-snapshot") }) { resnapshot = true; break }
                 }
@@ -179,24 +240,33 @@ public actor LiveConnection {
             } catch {
                 // fall through to the retry below
             }
-            isOpen = false
+            // A run that was superseded (`reconnect`, `stop`) leaves the state alone: the owner that
+            // replaced it may already be open.
             guard mine == generation, !Task.isCancelled else { return }
+            isOpen = false
             if resnapshot {
                 since = nil
                 lastFrameID = nil
+                lastFrameIsHello = false
                 told = [:]
                 model = ThreadModel(selectedThread: threadID)
             } else {
-                since = lastFrameID.map { max(0, $0 - 1) }
+                since = resumePoint()
                 await sink(.connectionLost(at: clock.nowMs()))
-                if await probeRevoked() {
+                // Asked only when the Mac answered the open with a refusal. A removed phone's open is
+                // answered 403 `{"revoked":true}` by the Mac itself, before any other check
+                // (`app/src-tauri/src/phone/device.rs` `Refusal::Revoked`), which the open above
+                // reads; after an open nobody answered, or a stream that dropped, the next open is
+                // the question, and a probe there was a request with the 30 s timeout in front of it
+                // that nothing could cut short (andy-opus-resume1's second Android wait).
+                if refused, await probeRevoked() {
                     await sink(.pairingRevoked)
                     return
                 }
             }
             if !resnapshot {
-                guard await nap(delay, mine) else { return }
-                delay = min(delay * 2, Self.maxRetryMs)
+                guard await nap(retryDelay, mine) else { return }
+                retryDelay = min(retryDelay * 2, Self.maxRetryMs)
             }
         }
     }
@@ -256,7 +326,10 @@ public actor LiveConnection {
     }
 
     private func apply(_ event: SSEParser.Event) async throws {
-        if let id = event.id { lastFrameID = id }
+        if let id = event.id {
+            lastFrameID = id
+            lastFrameIsHello = event.event == "hello"
+        }
         if event.event == "hello" {
             let hello = try CoreJSON.decode(StreamHello.self, from: Data(event.data.utf8))
             if let version = hello.protocolVersion, version != 1 {

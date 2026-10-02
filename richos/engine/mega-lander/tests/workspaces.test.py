@@ -1337,7 +1337,7 @@ while True: time.sleep(.1)
         else:
             self.merge(self.entity, 'worktree-agent-' + aid)
         self.finish(aid)
-        def partial_remove(w):
+        def partial_remove(w, deadline=None):
             pointer = os.path.join(w['path'], '.git')
             with open(pointer) as f:
                 admin = f.read().removeprefix('gitdir:').strip()
@@ -2678,10 +2678,11 @@ class QAToolkitAtTheLand(Base):
         """The wiring, not just the function: `workspaces.sh land <agent>` is
         what Rich runs, and a count no command prints is a count nobody reads.
 
-        sweep_scratch_after_land is patched out because it sweeps the MACHINE's
-        declared scratch roots through scripts/scratch-sweep.sh — live peers'
-        included — and no unit test has any business reaching outside its
-        sandbox to do that."""
+        sweep_scratch_after_land is patched out because it deletes through
+        scripts/scratch-sweep.sh against the machine's declared scratch roots,
+        and no unit test has any business reaching outside its sandbox to do
+        that. (Since 2026-10-01 it takes the landed agent's scopes; the scoped
+        sweep has its own suite, scripts/scratch-land-scope.test.sh.)"""
         import contextlib
         import io
         aid, npath = self.spawn("ray-opus-q7", agent_id="aray000000070000",
@@ -2691,7 +2692,7 @@ class QAToolkitAtTheLand(Base):
         self.finish(aid)
         self.merge(self.entity, "worktree-agent-" + aid)
         buf = io.StringIO()
-        with patch.object(ws, "sweep_scratch_after_land", lambda: None):
+        with patch.object(ws, "sweep_scratch_after_land", lambda *a, **k: None):
             with contextlib.redirect_stdout(buf):
                 rc = ws.main(["--session", self.sid, "land", "ray-opus-q7"])
         out = buf.getvalue()
@@ -3214,6 +3215,256 @@ class Finding15_TheBudgetReachesTheWork(Base):
         self.assertTrue(ws._same_file(a, b))
         with self.assertRaises(ws.Deadline):
             ws._same_file(a, b, deadline=ws.now() - 1)
+
+
+class HuntV2_02_DeclaredBuildOutputNeedsNoWaiver(Base):
+    """Hunt part 4 v2, V2-02: finding 14 exempted what the engine made at
+    creation; build output written LATER (an ordinary test or build leaving
+    build/) still held the land until somebody typed --ignored-not-needed.
+    The repository now declares what is regenerable, in its own committed root
+    .gitignore, and only that is waived."""
+
+    def _declare(self, repo, line, commit=True):
+        with open(os.path.join(repo, ".gitignore"), "a") as f:
+            f.write(line + "\n")
+        if commit:
+            run("git", "-C", repo, "commit", "-qam", "declare regenerable output")
+
+    def _built_after_setup(self, name):
+        path = self.make_cc(name)
+        aid, _n = self.spawn(name, path, native=False)
+        os.makedirs(os.path.join(path, "build"))
+        with open(os.path.join(path, "build", "output.bin"), "wb") as f:
+            f.write(b"generated fixture output")
+        self.finish(aid)
+        return path
+
+    def test_v2_02_declared_build_output_written_after_setup_lands_without_a_waiver(self):
+        self._declare(self.other, "#regenerable: build/")
+        path = self._built_after_setup("zach-opus-bldv2")
+        res = ws.land("zach-opus-bldv2", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertFalse(os.path.exists(path))
+
+    def test_v2_02_an_undeclared_directory_still_needs_the_waiver(self):
+        self._declare(self.other, "#regenerable: dist/")
+        path = self._built_after_setup("zach-opus-bldv3")
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-bldv3", self.sid)
+        self.assertIn("build/", str(e.exception))
+        self.assertTrue(os.path.isfile(os.path.join(path, "build", "output.bin")))
+
+    def test_v2_02_a_declaration_that_is_not_committed_waives_nothing(self):
+        self._declare(self.other, "#regenerable: build/", commit=False)
+        path = self._built_after_setup("zach-opus-bldv4")
+        with self.assertRaises(ws.SpecError):
+            ws.land("zach-opus-bldv4", self.sid)
+        self.assertTrue(os.path.isdir(path))
+
+    def test_v2_02_the_pattern_language(self):
+        pats = ["build/", "**/__pycache__/", "dist/*.map", "/out"]
+        yes = ["build/", "build/x.bin", "a/b/__pycache__/", "__pycache__/m.pyc", "dist/app.js.map",
+               "out", "out/", "out/deep/file"]
+        no = ["builds/", "src/build.py", "dist/app.js", "x/out", "build/ (unreadable: Permission denied)",
+              "a/__pycache__"]
+        for rel in yes:
+            self.assertTrue(ws._is_regenerable(rel, pats), rel)
+        for rel in no:
+            self.assertFalse(ws._is_regenerable(rel, pats), rel)
+
+
+class HuntV2_03_TheBudgetBoundsEveryCleanupStage(Base):
+    """Hunt part 4 v2, V2-03: the shared deadline reached the retries and the
+    proof, but process shutdown, container and test-instance cleanup, the
+    300 s `git worktree remove` and branch deletion still ran on their own
+    clocks, so a cleanup kept starting work after its caller's budget ended."""
+
+    def _discarded(self, name):
+        aid, path = self.spawn(name)
+        self.finish(aid)
+        rec = self.rec(name)
+        rec["disposition"] = {"kind": "discarded", "at": ws.now(), "reason": "fixture only"}
+        ws.save_agent(rec)
+        return rec, path
+
+    def test_v2_03_no_cleanup_stage_starts_after_the_deadline(self):
+        rec, path = self._discarded("zach-opus-timev2")
+        clock = [100.0]
+        calls = []
+
+        def slow_containers(paths):
+            calls.append("containers")
+            clock[0] += 10.0                                   # past the 105 deadline
+            return {}
+
+        def instances(paths, **kw):
+            calls.append("test-instances")
+            return {}
+        with patch.object(ws, "now", side_effect=lambda: clock[0]), \
+                patch.object(ws, "stop_containers", side_effect=slow_containers), \
+                patch.object(ws, "stop_test_instances", side_effect=instances), \
+                patch.object(ws, "remove_workspace", side_effect=AssertionError("removal started late")):
+            ok = ws._delete(rec, ws.live_workspaces(rec), branches=True, why="v2-03",
+                            processes={"stopped": [], "survivors": []}, deadline=105.0)
+        self.assertFalse(ok)
+        self.assertEqual(calls, ["containers"], "a stage started after the deadline")
+        self.assertTrue(os.path.isdir(path))
+        d = self.rec("zach-opus-timev2")["deletion"]
+        self.assertIn("budget ran out", d["deferred"])
+        self.assertEqual(d.get("attempts", 0), 0, "running out of time was counted as a failure")
+        self.assertEqual([ok for _k, ok in ws.retry_due()], [True])   # with time, it finishes
+        self.assertFalse(os.path.exists(path))
+
+    def test_v2_03_no_branch_is_deleted_after_the_deadline(self):
+        rec, path = self._discarded("zach-opus-timev3")
+        clock = [100.0]
+        real_remove = ws.remove_workspace
+
+        def slow_remove(w, deadline=None):
+            clock[0] += 10.0
+            return real_remove(w)
+        with patch.object(ws, "now", side_effect=lambda: clock[0]), \
+                patch.object(ws, "stop_containers", return_value={}), \
+                patch.object(ws, "stop_test_instances", return_value={}), \
+                patch.object(ws, "remove_workspace", side_effect=slow_remove), \
+                patch.object(ws, "delete_branch", side_effect=AssertionError("branch deleted late")):
+            ok = ws._delete(rec, ws.live_workspaces(rec), branches=True, why="v2-03",
+                            processes={"stopped": [], "survivors": []}, deadline=105.0)
+        self.assertFalse(ok)
+        self.assertFalse(os.path.exists(path))
+        self.assertIn("worktree-agent-" + rec["agent_id"], branches(self.entity))
+        self.assertEqual(self.rec("zach-opus-timev3")["deletion"].get("attempts", 0), 0)
+
+    def test_v2_03_the_git_removal_gets_what_is_left_not_its_own_300_seconds(self):
+        rec, path = self._discarded("zach-opus-timev4")
+        seen = []
+        real_git = ws.git
+
+        def spy(repo, *args, **kw):
+            if args[:2] == ("worktree", "remove"):
+                seen.append(kw.get("timeout"))
+            return real_git(repo, *args, **kw)
+        with patch.object(ws, "git", side_effect=spy):
+            self.assertTrue(ws.remove_workspace(ws.live_workspaces(rec)[0], deadline=ws.now() + 5)[0])
+        self.assertEqual(len(seen), 1)
+        self.assertLessEqual(seen[0], 5.0)
+
+    def test_v2_03_a_land_past_its_deadline_stops_nothing(self):
+        aid, npath = self.spawn("zach-opus-timev5")
+        self.commit(npath)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        with patch.object(ws, "stop_processes", side_effect=AssertionError("stopped past the deadline")):
+            with self.assertRaises(ws.Deadline):
+                ws.land("zach-opus-timev5", self.sid, auto=True, deadline=ws.now() - 1)
+        self.assertTrue(os.path.isdir(npath))
+
+    def test_v2_03_a_process_listing_that_did_not_finish_is_unknown_not_none(self):
+        aid, npath = self.spawn("zach-opus-timev6")
+        with patch.object(ws, "_process_cwds", return_value=None):
+            res = ws.stop_processes([npath], deadline=ws.now() + 5)
+        self.assertTrue(res.get("unknown"))
+        self.assertEqual(res["stopped"], [])
+
+
+class HuntV2_04_ADamagedRecordIsNotAMissingOne(Base):
+    """Hunt part 4 v2, V2-04: read_json answered None for a malformed record
+    exactly as for an absent one, so the sweep registered a LIVE worker's
+    workspace as an orphan ("finished work of an ended session"), stopped its
+    process and deleted it."""
+
+    def _live_worker_with_a_damaged_record(self, name):
+        aid, path = self.spawn(name)
+        rec = self.rec(name)
+        self.assertFalse(ws.finished_state(rec)[0])
+        sleeper = subprocess.Popen(["sleep", "300"], cwd=path)
+        self.env.procs.append(sleeper)
+        with open(ws.agent_path(rec["key"]), "w") as f:
+            f.write("{")
+        self.assertIsNone(ws.load_agent(rec["key"]))
+        return aid, path, sleeper
+
+    def test_v2_04_a_sweep_never_cleans_up_a_workspace_whose_record_is_damaged(self):
+        _aid, path, sleeper = self._live_worker_with_a_damaged_record("zach-opus-jsonv2")
+        items = ws.pending(self.sid, self.entity, scan=True)
+        time.sleep(0.3)
+        self.assertIsNone(sleeper.poll(), "the sweep stopped a live worker's process")
+        self.assertTrue(os.path.isdir(path), "the sweep deleted a live worker's workspace")
+        self.assertFalse([r for r in ws.all_agents() if r.get("orphan")],
+                         "the damaged record's workspace was registered as an orphan")
+        damaged = [i for i in items if i.get("damaged")]
+        self.assertEqual(len(damaged), 1, items)
+        self.assertIn(ws.agent_path(ws.named_key(self.sid, "zach-opus-jsonv2")), damaged[0]["why"])
+        self.assertFalse(damaged[0]["blocks_turn_end"])
+
+    def test_v2_04_status_names_the_damaged_record(self):
+        import io
+        from contextlib import redirect_stdout
+        _aid, path, sleeper = self._live_worker_with_a_damaged_record("zach-opus-jsonv3")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ws._print_status(self.sid, self.entity)
+        self.assertIn("DAMAGED  damaged-record-", buf.getvalue())
+        self.assertNotIn("UNREGISTERED", buf.getvalue())
+        self.assertIsNone(sleeper.poll())
+
+    def test_v2_04_once_repaired_an_unregistered_workspace_is_still_found(self):
+        """The twin: the rule that cleans up truly unregistered work still runs
+        when every record reads, so the guard is not "never sweep"."""
+        _aid, path, sleeper = self._live_worker_with_a_damaged_record("zach-opus-jsonv4")
+        sleeper.kill()
+        sleeper.wait()
+        os.unlink(ws.agent_path(ws.named_key(self.sid, "zach-opus-jsonv4")))   # gone, not damaged
+        self.assertEqual(ws.damaged_records(), [])
+        ws.pending(self.sid, self.entity, scan=True, auto=False)
+        self.assertTrue([r for r in ws.all_agents() if r.get("orphan")])
+
+
+class HuntV2_05_StatusReadsTheRecordedStop(Base):
+    """Hunt part 4 v2, V2-05: the dry status (finding 29) stopped adopting the
+    platform's own record of a stop and then asked the stale registry record,
+    so a worker the user had stopped printed WORKING beside "pending: none"."""
+
+    def _stopped_by_user(self, name):
+        aid, npath = self.spawn(name)
+        self.commit(npath, "unfinished.txt")                  # unmerged: it cannot land
+        meta = os.path.join(ws._platform_projects_dir(), "fixture", self.sid, "subagents",
+                            "agent-%s.meta.json" % aid)
+        os.makedirs(os.path.dirname(meta), exist_ok=True)
+        with open(meta, "w") as f:
+            json.dump({"stoppedByUser": True, "name": name, "toolUseId": "tu-" + name}, f)
+        return aid, npath
+
+    def test_v2_05_status_shows_a_stopped_worker_as_pending_and_writes_nothing(self):
+        import io
+        from contextlib import redirect_stdout
+        self._stopped_by_user("zach-opus-stv2")
+        before = json.dumps(self.rec("zach-opus-stv2"), sort_keys=True)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ws._print_status(self.sid, self.entity)
+        out = buf.getvalue()
+        self.assertNotIn("pending: none", out)
+        self.assertIn("PENDING  zach-opus-stv2", out)
+        self.assertNotIn("WORKING  zach-opus-stv2", out)
+        # A question: the stop is read, not adopted.
+        self.assertEqual(json.dumps(self.rec("zach-opus-stv2"), sort_keys=True), before)
+        self.assertIsNone(self.rec("zach-opus-stv2")["end"])
+        # The live reconciliation still adopts the same fact and lists the same work.
+        self.assertEqual([i["name"] for i in ws.pending(self.sid, self.entity, auto=False)],
+                         ["zach-opus-stv2"])
+        self.assertEqual(self.rec("zach-opus-stv2")["end"]["signal"], "stopped")
+
+    def test_v2_05_a_running_worker_is_still_working(self):
+        import io
+        from contextlib import redirect_stdout
+        aid, npath = self.spawn("zach-opus-run2")
+        self.commit(npath, "unfinished.txt")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ws._print_status(self.sid, self.entity)
+        self.assertIn("pending: none", buf.getvalue())
+        self.assertIn("WORKING  zach-opus-run2", buf.getvalue())
 
 
 class _Result(unittest.TextTestResult):

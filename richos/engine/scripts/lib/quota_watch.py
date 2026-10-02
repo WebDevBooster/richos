@@ -1205,11 +1205,9 @@ def _poll_loop(a, out, alive, health=None):
                 weekly_seen = {k for k in weekly_seen if k[0] == kind}
                 weekly_seen.add(key)
                 out.wake("WEEKLY-THRESHOLD" if weekly_blocked else "WEEKLY-RELEASE", text, now)
-        if health is not None:
-            # The poll read and judged the quota without raising: a failure episode is over.
-            health["first"], health["woken"], health["count"] = None, False, 0
         if weekly_blocked:
             print(quota_weekly.describe(r, now), flush=True)
+            _poll_completed(health)
             _nap(a.poll, alive)
             continue
         if first and r["state"] == "ok" and r["ended"]:
@@ -1332,9 +1330,19 @@ def _poll_loop(a, out, alive, health=None):
             # render and not a whole poll after it (until 2026-09-28 the lead
             # restarted the watcher, which re-read at once).
             sleep_for = max(1, min(sleep_for, REFRESH_AHEAD_SECONDS, a.stale // 10))
+        _poll_completed(health)
         # Counted from the START of this poll, so the polls are 300 s apart
         # and not 300 s plus however long get_usage took (20 s on a timeout).
         _nap(max(1, sleep_for - int(time.time() - now)), alive)
+
+
+def _poll_completed(health):
+    """A failure episode ends only when a poll has done ALL of its job: read the quota,
+    judged it AND delivered whatever it had to tell the lead. Reset any earlier (it
+    used to be reset right after the read, hunt part 5, P5-15 v2) and a threshold
+    notice that fails to deliver at every poll never reaches the blind alarm."""
+    if health is not None:
+        health["first"], health["woken"], health["count"] = None, False, 0
 
 
 # ---------------------------------------------------------------------------

@@ -35,6 +35,13 @@
 #   scripts/scratch-sweep.sh                sweep now. One line of JSON.
 #   scripts/scratch-sweep.sh --dry-run      decide, delete nothing. Same JSON.
 #   scripts/scratch-sweep.sh --quiet        sweep, print nothing, exit code only.
+#   scripts/scratch-sweep.sh --agent <name> [--session <id>] [--workspace <path>]...
+#                                           [--hold-named]
+#                                           A LAND'S SWEEP: only that landed
+#                                           agent's scratch (its allocations and
+#                                           directories named for it); everything
+#                                           else it looks at is counted in
+#                                           "unattributed" and left alone.
 #
 # STDOUT IS EXACTLY ONE LINE OF JSON, always, on every exit path including
 # every failure. An app parsing this never has to handle "sometimes prose":
@@ -82,12 +89,22 @@ REAPER="$SCRIPT_DIR/scratch-reaper.sh"
 
 APPLY="--apply"
 QUIET=0
+# A LAND'S SCOPED SWEEP (2026-10-01). With --agent, the reaper plans ONLY what
+# provably belongs to that landed agent (scratch-reaper.py scan_agent) and
+# counts everything else it looked at as unattributed. Without it, this is the
+# whole machine's sweep exactly as before.
+SCOPE=()
+AGENT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) APPLY="" ;;
         --apply)   APPLY="--apply" ;;
         --quiet)   QUIET=1 ;;
+        --agent)     AGENT="${2:-}"; SCOPE+=(--agent "${2:-}"); shift ;;
+        --session)   SCOPE+=(--session "${2:-}"); shift ;;
+        --workspace) SCOPE+=(--workspace "${2:-}"); shift ;;
+        --hold-named) SCOPE+=(--hold-named) ;;
         --json)    : ;;   # the only output format there is; accepted so a
                           # caller can say it out loud
         --help|-h) sed -n '2,78p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -107,10 +124,12 @@ done
 # always one line of JSON" true rather than aspirational.
 emit() { # <exit-code> <ok> <swept> <freed> <freed_human> <undecidable> <failures> <skipped> <reason>
     if [ "$QUIET" = "0" ]; then
-        printf '{"ok":%s,"swept":%s,"freed_bytes":%s,"freed_human":"%s","undecidable":%s,"failures":%s,"skipped":%s,"reason":"%s","engine":"%s","log":"%s"}\n' \
+        printf '{"ok":%s,"swept":%s,"freed_bytes":%s,"freed_human":"%s","undecidable":%s,"failures":%s,"skipped":%s,"reason":"%s","engine":"%s","log":"%s","agent":"%s","unattributed":%s}\n' \
             "$2" "$3" "$4" "$5" "$6" "$7" "$8" \
             "$(printf '%s' "$9" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]/ /g')" \
-            "$ENGINE_ROOT" "${LOGPATH:-}"
+            "$ENGINE_ROOT" "${LOGPATH:-}" \
+            "$(printf '%s' "$AGENT" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]/ /g')" \
+            "${UNATTR:-0}"
     fi
     exit "$1"
 }
@@ -146,15 +165,27 @@ fi
 # A LOCK THIS CANNOT TAKE IS NOT AN ERROR. Somebody else is doing the work.
 LOCKFILE="${TMPDIR:-/tmp}/richos-scratch-sweep.lock"
 LOCKED=0
+# A LAND'S SCOPED SWEEP WAITS FOR THE LOCK, BOUNDED. Skipping is right for the
+# whole-machine sweep (whoever holds the lock is doing that same work), and
+# wrong for a land: the sweep holding the lock is the scheduled one, and it
+# never takes an agent's named directory in a live session's scratchpad or in
+# an agent root. So a land waits up to 120 s, polling once a second, and only
+# then reports that it skipped.
+LOCK_WAIT=0
+[ -n "$AGENT" ] && LOCK_WAIT=120
 if command -v python3 >/dev/null 2>&1; then
-    python3 - "$LOCKFILE" <<'PY' >/dev/null 2>&1
-import fcntl, os, sys
+    python3 - "$LOCKFILE" "$LOCK_WAIT" <<'PY' >/dev/null 2>&1
+import fcntl, os, sys, time
 fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)
-try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except OSError:
-    sys.exit(9)                     # held by another sweep
-sys.exit(0)
+until = time.time() + float(sys.argv[2])
+while True:
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        sys.exit(0)
+    except OSError:
+        if time.time() >= until:
+            sys.exit(9)             # held by another sweep
+        time.sleep(1)
 PY
     [ $? -eq 9 ] && LOCKED=1
 fi
@@ -169,7 +200,7 @@ fi
 OUT=""
 RC=0
 if command -v python3 >/dev/null 2>&1; then
-    OUT="$(python3 - "$LOCKFILE" "$REAPER" $APPLY <<'PY'
+    OUT="$(python3 - "$LOCKFILE" "$REAPER" $APPLY ${SCOPE[@]+"${SCOPE[@]}"} <<'PY'
 import fcntl, os, subprocess, sys
 lock, reaper = sys.argv[1], sys.argv[2]
 args = sys.argv[3:]
@@ -185,7 +216,7 @@ sys.exit(r.returncode)
 PY
     )"; RC=$?
 else
-    OUT="$(bash "$REAPER" $APPLY 2>&1)"; RC=$?
+    OUT="$(bash "$REAPER" $APPLY ${SCOPE[@]+"${SCOPE[@]}"} 2>&1)"; RC=$?
 fi
 
 if [ "$RC" = "9" ]; then
@@ -203,6 +234,8 @@ fi
 SWEPT="$(printf '%s' "$OUT" | sed -n 's/.*applied: deleted=\([0-9]*\).*/\1/p' | tail -1)"
 FREED_H="$(printf '%s' "$OUT" | sed -n 's/.*applied: deleted=[0-9]* freed=\([^ ]* [A-Za-z]*\) .*/\1/p' | tail -1)"
 UNDEC="$(printf '%s' "$OUT" | sed -n 's/.*verdict:.* undecidable=\([0-9]*\).*/\1/p' | tail -1)"
+UNATTR="$(printf '%s' "$OUT" | sed -n 's/.*verdict:.* unattributed=\([0-9]*\).*/\1/p' | tail -1)"
+[ -n "$UNATTR" ] || UNATTR=0
 [ -n "$SWEPT" ]  || SWEPT=0
 [ -n "$UNDEC" ]  || UNDEC=0
 [ -n "$FREED_H" ] || FREED_H="0 B"

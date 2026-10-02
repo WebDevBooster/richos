@@ -793,7 +793,7 @@ fn serving_plan(
     // port to be explained rather than a feature.
     //
     // MEASURED ON THIS MAC, 2026-09-19, rather than assumed: `tailscale status --json` reports
-    // `100.68.9.4` and `fd7a:115c:a1e0::6e31:905` for `mm1.tail770f6e.ts.net`; `ifconfig utun4`
+    // `100.68.9.4` and `fd7a:115c:a1e0::6e31:905` for `mm1.tail1a2b3c.ts.net`; `ifconfig utun4`
     // carries both as real interface addresses; and a socket binds each of them (`bind()`
     // returned the address and an ephemeral port for both families). So the addresses the daemon
     // names are bindable addresses on this machine, which is the thing this list depends on and
@@ -1991,7 +1991,7 @@ mod tests {
                 login_name: "someone@icloud.com".into(),
                 provider: Some("Apple"),
             }),
-            phone: Some(tailnet::PhonePeer { name: "alexs-iphone".into(), online: true }),
+            phone: Some(tailnet::PhonePeer { name: "test-iphone".into(), online: true }),
         });
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(json["state"], "ready");
@@ -2001,7 +2001,7 @@ mod tests {
         // THE PHRASE THE PHONE SCREEN REPEATS BACK, built once on this side so the Mac's screen
         // and the phone's screen cannot word it differently.
         assert_eq!(json["account"], "Apple as someone@icloud.com");
-        assert_eq!(json["phone"], "alexs-iphone");
+        assert_eq!(json["phone"], "test-iphone");
         assert_eq!(json["phoneOnline"], true);
         assert_eq!(json.as_object().unwrap().len(), 7, "the view grew a field the screens do not read");
     }

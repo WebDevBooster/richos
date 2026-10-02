@@ -2,7 +2,7 @@
 
 // THE INSTRUCTION NAMES THE CONTROL THE DEVICE ACTUALLY HAS. `npm test`.
 //
-// Ray's candidate .11 walk, §4.5, verified on the CEO's HONOR X6b:
+// Ray's candidate .11 walk, §4.5, verified on the CEO's Android phone:
 //
 //     "The Mac instructs: 'Add Rich to your phone's Home Screen and allow notifications when it
 //      asks.' Chrome's menu on this phone offers 'Install and create shortcut'. There is no 'Add
@@ -45,7 +45,7 @@ function on(navigator) {
 }
 
 const IPHONE_X = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
-const HONOR_X6B = 'Mozilla/5.0 (Linux; Android 14; HONOR X6b) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
+const ANDROID_PHONE_UA = 'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
 const IPADOS = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
 
 test('his iPhone is told Safari\'s own words', () => {
@@ -57,7 +57,7 @@ test('his iPhone is told Safari\'s own words', () => {
 });
 
 test('his Android is told Chrome\'s own words, which are not the Mac\'s', () => {
-	const { control, sentence } = on({ userAgent: HONOR_X6B });
+	const { control, sentence } = on({ userAgent: ANDROID_PHONE_UA });
 	assert.deepStrictEqual(control, { menu: "your browser's menu", item: 'Install and create shortcut' });
 	assert.match(sentence, /choose “Install and create shortcut”\./);
 	assert.doesNotMatch(sentence, /Add to Home Screen/, 'the phone repeats the name his phone does not have');

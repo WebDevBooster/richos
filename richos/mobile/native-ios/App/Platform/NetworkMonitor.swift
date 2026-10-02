@@ -8,25 +8,42 @@ import RichOSCore
 final class NetworkMonitor {
     private var monitor: NWPathMonitor?
     private var generation = 0
+    /// The last path report seen since the app came on screen; `nil` before the first.
+    private var last: NetworkPath.Report?
     func start(store: AppStore) {
         guard monitor == nil else { return }
         generation += 1
         let mine = generation
+        last = nil
         let path = NWPathMonitor()
         monitor = path
         path.pathUpdateHandler = { [weak self, weak store] update in
-            let online = update.status == .satisfied
+            let report = NetworkPath.Report(online: update.status == .satisfied, route: Self.route(update))
             // D05: whether this phone is on Tailscale, read once per path change (Tailscale coming up
             // or going down changes the path), never on a timer.
             let tailscale = TailscaleTunnel.isUp(Self.interfaces())
             Task { @MainActor in
                 guard let self, self.generation == mine, self.monitor != nil else { return }
-                store?.receive(.networkChanged(online: online, at: SystemClock().nowMs()))
+                // Only what changed reaches the core: online after online is a route change there,
+                // and the live connection is replaced (`NetworkPath.isNews`).
+                if let store, NetworkPath.isNews(report, after: self.last, offlineShown: store.state.connectionNotice == .phoneOffline) {
+                    store.receive(.networkChanged(online: report.online, at: SystemClock().nowMs()))
+                }
+                self.last = report
                 if let store, store.state.tunnelUp != tailscale { store.receive(.tunnelChanged(up: tailscale)) }
             }
         }
         path.start(queue: DispatchQueue(label: "dev.richos.network-path", qos: .utility))
     }
+
+    /// What traffic would leave by: the usable interfaces in the OS's order and the default routers.
+    /// Read from the update the OS delivered; no network traffic.
+    nonisolated static func route(_ path: NWPath) -> String {
+        let interfaces = path.availableInterfaces.map(\.name).joined(separator: ",")
+        let gateways = path.gateways.map { "\($0)" }.joined(separator: ",")
+        return interfaces + "|" + gateways
+    }
+
     /// The phone's interfaces with their numeric addresses (`getifaddrs`): one read, no network traffic.
     nonisolated static func interfaces() -> [TailscaleTunnel.Interface] {
         var head: UnsafeMutablePointer<ifaddrs>?
@@ -51,5 +68,6 @@ final class NetworkMonitor {
         generation += 1
         monitor?.cancel()
         monitor = nil
+        last = nil
     }
 }

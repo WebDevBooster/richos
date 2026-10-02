@@ -10,8 +10,21 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import dev.richos.android.core.Theme
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.IOException
+import java.nio.ByteBuffer
 import java.util.concurrent.Callable
 import java.util.concurrent.FutureTask
+import java.util.zip.DataFormatException
+import java.util.zip.Deflater
+import java.util.zip.Inflater
 import kotlin.math.roundToInt
 
 /**
@@ -60,9 +73,10 @@ import kotlin.math.roundToInt
  * splash surface here to ask for, by construction: [Surface] has one member.
  *
  * BATTERY (CEO ruling §81): one bounded computation per screen size and theme (about 2.6 million
- * pixels on a 1080 x 2400 phone), run once on a background thread at launch ([prewarm]) and kept;
- * then one bitmap drawn per frame the app already draws. No timer, no animation, no frame is ever
- * requested by it: an idle screen stays at 0 frames per second.
+ * pixels on a 1080 x 2400 phone), run once on a background thread ([prewarm]) and kept on the phone
+ * ([FieldStore]), so a later launch of the same build only reads it; then one bitmap drawn per frame
+ * the app already draws. No timer, no animation, no frame is ever requested by it: an idle screen
+ * stays at 0 frames per second.
  */
 object Speckle {
     /** The design system's surfaces are `desktop` and `mobile`; the phone has one. */
@@ -308,39 +322,172 @@ object Speckle {
         return Field(cw, ch, out)
     }
 
-    // ---- the bitmap, computed once per screen size and theme ----------------------------------
+    // ---- the bitmap, computed once per screen size and theme, then kept on the phone -----------
     private data class Key(val theme: Theme, val widthPx: Int, val heightPx: Int, val density: Float)
 
-    /** The last two fields (a theme switch and back costs nothing). */
-    private val cache = LinkedHashMap<Key, FutureTask<ImageBitmap>>()
+    /**
+     * The field for a screen [widthPx] x [heightPx] at [density]: the one [store] kept from an
+     * earlier launch of this build, else computed now and handed to [onComputed] (to be kept).
+     */
+    fun fieldFor(theme: Theme, widthPx: Int, heightPx: Int, density: Float, store: FieldStore?, onComputed: (Field) -> Unit = {}): Field {
+        store?.read(theme, widthPx, heightPx, density)?.let { return it }
+        return field(Surface.MOBILE, theme, widthPx / density.toDouble(), heightPx / density.toDouble(), density.toDouble())
+            .also(onComputed)
+    }
 
-    private fun task(key: Key): Pair<FutureTask<ImageBitmap>, Boolean> = synchronized(cache) {
-        cache[key]?.let { return it to false }
-        val t = FutureTask(Callable {
-            val f = field(Surface.MOBILE, key.theme, key.widthPx / key.density.toDouble(), key.heightPx / key.density.toDouble(), key.density.toDouble())
+    private class Entry(val key: Key, val store: FieldStore?) {
+        /** The field this process computed, until it is kept; null when it was read from [store]. */
+        @Volatile var computed: Field? = null
+        val task = FutureTask(Callable {
+            val f = fieldFor(key.theme, key.widthPx, key.heightPx, key.density, store) { computed = it }
             Bitmap.createBitmap(f.argb, f.width, f.height, Bitmap.Config.ARGB_8888).asImageBitmap()
         })
-        cache[key] = t
+
+        /** Keeps a field this process computed, after the bitmap is out, so no frame waits on it. */
+        fun keep() {
+            val f = computed ?: return
+            computed = null
+            store?.write(key.theme, key.widthPx, key.heightPx, key.density, f)
+        }
+    }
+
+    /** Where finished fields are kept between launches; set by [prewarm], none in a test. */
+    @Volatile private var store: FieldStore? = null
+
+    /** The last two fields (a theme switch and back costs nothing). */
+    private val cache = LinkedHashMap<Key, Entry>()
+
+    private fun entry(key: Key): Pair<Entry, Boolean> = synchronized(cache) {
+        cache[key]?.let { return it to false }
+        val e = Entry(key, store)
+        cache[key] = e
         while (cache.size > 2) cache.remove(cache.keys.first())
-        t to true
+        e to true
     }
 
     /**
      * Starts the field for a screen [widthPx] x [heightPx] on one background thread, once, so the
      * first frame finds it drawn. Called from `MainActivity.onCreate` with the window's size.
+     *
+     * COLD START (measured 2026-10-02 on the Android test phone, 100-row conversation): computing
+     * the field took half a second of wall time and 220 ms of CPU on every cold launch, and the
+     * first useful frame waited 94 ms for it in [image] (the launch's median rose from 755 to 839
+     * ms). So the finished field is kept in [store] and read back on every later launch of the same
+     * build: the computation runs once per install, theme and screen size.
      */
-    fun prewarm(theme: Theme, widthPx: Int, heightPx: Int, density: Float) {
+    fun prewarm(theme: Theme, widthPx: Int, heightPx: Int, density: Float, store: FieldStore? = null) {
+        if (store != null) this.store = store
         if (widthPx <= 0 || heightPx <= 0) return
-        val (t, fresh) = task(Key(theme, widthPx, heightPx, density))
-        if (fresh) Thread(t, "richos-speckle").apply { priority = Thread.NORM_PRIORITY - 1 }.start()
+        val (e, fresh) = entry(Key(theme, widthPx, heightPx, density))
+        if (fresh) Thread({ e.task.run(); e.keep() }, "richos-speckle").apply { priority = Thread.NORM_PRIORITY - 1 }.start()
     }
 
-    /** The field's bitmap for this screen: the prewarmed one, or computed here once if none was started. */
+    /** The field's bitmap for this screen: the prewarmed one, or made here once if none was started. */
     fun image(theme: Theme, widthPx: Int, heightPx: Int, density: Float): ImageBitmap? {
         if (widthPx <= 0 || heightPx <= 0) return null
-        val (t, fresh) = task(Key(theme, widthPx, heightPx, density))
-        if (fresh) t.run()
-        return t.get()
+        val (e, fresh) = entry(Key(theme, widthPx, heightPx, density))
+        if (fresh) {
+            e.task.run()
+            // A field made here (on the drawing thread) is written to the phone off it.
+            if (e.computed != null && e.store != null) Thread({ e.keep() }, "richos-speckle-keep").apply { priority = Thread.NORM_PRIORITY - 1 }.start()
+        }
+        return e.task.get()
+    }
+}
+
+/**
+ * Finished point fields, kept in the app's cache directory between launches, so a cold start reads
+ * its ground (a few hundred KB, inflated natively) instead of computing it again ([Speckle.prewarm]
+ * has the measurement). One file per theme and screen size, written for one [build] of the app: a
+ * new install or update starts afresh, so a changed engine is never drawn from an old file, and the
+ * old build's files are removed at the first write. A missing, damaged or foreign file reads as
+ * nothing and the field is computed again. Nothing here is user data; Android may clear it.
+ *
+ * BATTERY (CEO ruling §81): one write per install, theme and screen size, on the thread that already
+ * computed the field, after its bitmap is published; one read per cold launch. No timer, no retry.
+ */
+class FieldStore(private val dir: File, private val build: String) {
+    private val prefix = "field-" + Integer.toHexString(build.hashCode()) + "-"
+
+    private fun file(theme: Theme, widthPx: Int, heightPx: Int, density: Float) = File(dir,
+        prefix + theme.name.lowercase() + "-" + widthPx + "x" + heightPx + "-" + java.lang.Float.floatToIntBits(density) + ".bin")
+
+    /** The field kept for this screen by this build, or null. */
+    fun read(theme: Theme, widthPx: Int, heightPx: Int, density: Float): Speckle.Field? {
+        val f = file(theme, widthPx, heightPx, density)
+        if (!f.isFile) return null
+        return try {
+            DataInputStream(BufferedInputStream(FileInputStream(f), 64 * 1024)).use { input ->
+                if (input.readInt() != MAGIC || input.readUTF() != build) return null
+                val w = input.readInt()
+                val h = input.readInt()
+                val packedSize = input.readInt()
+                if (w <= 0 || h <= 0 || w.toLong() * h > MAX_PIXELS || packedSize <= 0 || packedSize > f.length()) return null
+                val packed = ByteArray(packedSize)
+                input.readFully(packed)
+                val bytes = ByteArray(w * h * 4)
+                val inflater = Inflater()
+                try {
+                    inflater.setInput(packed)
+                    var n = 0
+                    while (n < bytes.size) {
+                        val got = inflater.inflate(bytes, n, bytes.size - n)
+                        if (got == 0 && (inflater.finished() || inflater.needsInput() || inflater.needsDictionary())) break
+                        n += got
+                    }
+                    if (n != bytes.size) return null
+                    if (!inflater.finished() && (inflater.inflate(ByteArray(1)) != 0 || !inflater.finished())) return null
+                } finally {
+                    inflater.end()
+                }
+                val argb = IntArray(w * h)
+                ByteBuffer.wrap(bytes).asIntBuffer().get(argb)
+                Speckle.Field(w, h, argb)
+            }
+        } catch (_: IOException) {
+            null
+        } catch (_: DataFormatException) {
+            null
+        }
+    }
+
+    /** Keeps [field] for this screen; another build's files go. A failure keeps nothing. */
+    fun write(theme: Theme, widthPx: Int, heightPx: Int, density: Float, field: Speckle.Field) {
+        try {
+            if (!dir.isDirectory && !dir.mkdirs()) return
+            dir.listFiles()?.forEach { if (!it.name.startsWith(prefix)) it.delete() }
+            val bytes = ByteArray(field.argb.size * 4)
+            ByteBuffer.wrap(bytes).asIntBuffer().put(field.argb)
+            val packed = ByteArrayOutputStream()
+            val deflater = Deflater(Deflater.BEST_SPEED)
+            try {
+                deflater.setInput(bytes)
+                deflater.finish()
+                val chunk = ByteArray(64 * 1024)
+                while (!deflater.finished()) packed.write(chunk, 0, deflater.deflate(chunk))
+            } finally {
+                deflater.end()
+            }
+            val target = file(theme, widthPx, heightPx, density)
+            val partial = File(dir, target.name + ".partial")
+            DataOutputStream(BufferedOutputStream(FileOutputStream(partial), 64 * 1024)).use { out ->
+                out.writeInt(MAGIC)
+                out.writeUTF(build)
+                out.writeInt(field.width)
+                out.writeInt(field.height)
+                out.writeInt(packed.size())
+                packed.writeTo(out)
+            }
+            if (!partial.renameTo(target)) partial.delete()
+        } catch (_: IOException) {
+            // Kept or not, the ground is drawn: the next launch computes it again.
+        }
+    }
+
+    companion object {
+        /** "RSF1": a RichOS speckle field, format 1. */
+        private const val MAGIC = 0x52534631
+        private const val MAX_PIXELS = 64L * 1024 * 1024
     }
 }
 

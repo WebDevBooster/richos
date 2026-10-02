@@ -1,5 +1,6 @@
 package dev.richos.android.platform
 
+import dev.richos.android.core.ConnectionOwner
 import dev.richos.android.core.EventStream
 import dev.richos.android.core.protocol.Http
 import dev.richos.android.core.protocol.HttpRequest
@@ -75,7 +76,8 @@ class HttpsMac(
 
     override suspend fun open(request: HttpRequest, onOpen: suspend (Int) -> Unit, onBytes: suspend (ByteArray) -> Unit) {
         withContext(Dispatchers.IO) { coroutineScope {
-            // The Mac sends a keep-alive comment every 15 s; three missed means the socket is dead.
+            // The Mac sends a keep-alive comment after 15 s without a frame; 20 s of silence means
+            // the socket is dead (ConnectionOwner.STREAM_SILENCE_MS).
             val c = connect(request, STREAM_READ_TIMEOUT_MS)
             // A blocked read does not notice cancellation; closing the socket does.
             val closer = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -107,7 +109,7 @@ class HttpsMac(
     companion object {
         const val CONNECT_TIMEOUT_MS = 10_000
         const val REQUEST_READ_TIMEOUT_MS = 30_000
-        const val STREAM_READ_TIMEOUT_MS = 45_000
+        const val STREAM_READ_TIMEOUT_MS = ConnectionOwner.STREAM_SILENCE_MS.toInt()
 
         /** IPv4 dotted quads and bracketed or bare IPv6 literals. */
         fun isAddressLiteral(host: String): Boolean =

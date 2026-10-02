@@ -348,7 +348,7 @@ struct ShareContext: Codable, Equatable, Sendable {
     static let fileName = "share-context.json"
 
     var paired: Bool
-    /// "Alex’s Mac", for "Goes to Rich on Alex’s Mac"; `nil` until the Mac says.
+    /// "Sam’s Mac", for "Goes to Rich on Sam’s Mac"; `nil` until the Mac says.
     var macName: String?
     /// The conversation a share lands in (the Mac refuses an unknown one).
     var threadID: String?

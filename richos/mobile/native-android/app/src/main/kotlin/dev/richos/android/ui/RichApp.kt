@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -43,6 +44,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.dp
 import dev.richos.android.core.AppState
+import dev.richos.android.design.EdgeCuedRegion
 import dev.richos.android.design.Rich
 import dev.richos.android.design.RichTheme
 import dev.richos.android.design.lamp
@@ -328,7 +330,8 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
         // first measurement (headerPx/composerRowPx/keyboardPx still 0) this is the old flat 40%,
         // settling to the header-aware bound the next frame, same lag already tolerated for headerPx
         // and zonePx below.
-        val maxAbove = (maxHeight - headerDp - composerRowDp - keyboardDp - 16.dp).coerceIn(0.dp, maxHeight * 0.4f)
+        // The conversation keeps CardsRoom.ConversationMinimum above the cards whatever their number.
+        val maxAbove = CardsRoom.maxHeight(maxHeight, headerDp, composerRowDp, keyboardDp)
         if (thread.isEmpty() && model.historyEdge != HistoryEdge.LOADING_OLDER) {
             // Bottom-padded by the composer zone's own measured height (as Thread's scroll is,
             // line below): at the smallest phone and the largest text the added voice-message
@@ -432,8 +435,9 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
                     val opened = remember { BooleanArray(1) }
                     SideEffect { opened[0] = true }
                     val up = opened[0]
-                    Column(
-                        Modifier.fillMaxWidth().heightIn(max = maxAbove).verticalScroll(rememberScrollState()).padding(start = 2.dp, end = 2.dp, bottom = 8.dp),
+                    EdgeCuedRegion(
+                        maxHeight = maxAbove,
+                        contentPadding = PaddingValues(start = 2.dp, end = 2.dp, bottom = 8.dp),
                         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
                     ) {
                         model.inlineNotice?.let { n -> Note("inline:${n::class.simpleName}", up) { InlineNoticeView(n) } }

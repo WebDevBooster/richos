@@ -14,6 +14,7 @@
 import Foundation
 import RichOSCore
 import RichOSFixtures
+import RichOSPerfSeed
 
 struct SimReport: Encodable {
     var state: AppState?
@@ -30,6 +31,7 @@ struct SimReport: Encodable {
     var releaseApp: String?
     var markersAbsentFromRelease: [String]?
     var markersPresentInDebug: [String]?
+    var seedingMarkersAbsentFromDebug: [String]?
     var tools: [String: String]?
     var deleted: String?
     var retained: String?
@@ -60,6 +62,9 @@ final class Simulator {
     /// Strings that exist only in development code. The Release binary must contain none of them,
     /// and the Debug binary must contain all of them (a negative check needs its positive probe).
     static let developmentMarkers = ["rios-commands", "rios-fixture", "rios-interactive-fixture", "rios-appearance", "rios-notifications", "rios-cards", "compose-draft", "Henderson proposal"]
+    /// The start-time measurement's seeder (`RichOSPerfSeed`) writes the app's saved state from the
+    /// Mac; no app build may contain it, Debug included. Its positive probe is this CLI's own binary.
+    static let seedingMarkers = [PerfSeed.marker]
 
     let cache: URL
     let root: URL
@@ -358,8 +363,20 @@ final class Simulator {
             throw CoreError("the Debug binary lacks \(missing); the Release search would prove nothing")
         }
         guard leaked.isEmpty else { throw CoreError("development code reached the Release binary: \(leaked)") }
+        // The seeder: present in rios-cli (this process), absent from BOTH app bundles.
+        let cli = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath())
+        for marker in Self.seedingMarkers {
+            let bytes = Data(marker.utf8)
+            guard cli.range(of: bytes) != nil else {
+                throw CoreError("rios-cli lacks '\(marker)'; the search of the app bundles would prove nothing")
+            }
+            if (debugFiles + releaseFiles).contains(where: { $0.range(of: bytes) != nil }) {
+                throw CoreError("the start-time seeder ('\(marker)') reached an app bundle")
+            }
+        }
         return SimReport(app: debug.path, releaseApp: release.path,
-                         markersAbsentFromRelease: Self.developmentMarkers, markersPresentInDebug: present)
+                         markersAbsentFromRelease: Self.developmentMarkers + Self.seedingMarkers,
+                         markersPresentInDebug: present, seedingMarkersAbsentFromDebug: Self.seedingMarkers)
     }
 
     /// Ends the lease and shuts down the device, retaining its prepared OS.

@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import dev.richos.android.design.FieldStore
 import dev.richos.android.design.Speckle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.ReportDrawnWhen
@@ -189,7 +190,11 @@ private fun ComponentActivity.prewarmSpeckle() {
         size.x to size.y
     }
     val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-    Speckle.prewarm(if (night) Theme.DARK else Theme.LIGHT, w, h, resources.displayMetrics.density)
+    // Kept between launches for this build of the app: its APK's path, size and time change with
+    // every install and update (design/Speckle.kt FieldStore), so an old field is never drawn.
+    val apk = java.io.File(applicationInfo.sourceDir)
+    val store = FieldStore(java.io.File(cacheDir, "speckle"), "${apk.path}:${apk.length()}:${apk.lastModified()}")
+    Speckle.prewarm(if (night) Theme.DARK else Theme.LIGHT, w, h, resources.displayMetrics.density, store)
 }
 
 private fun ComponentActivity.cameraGranted(): Boolean =

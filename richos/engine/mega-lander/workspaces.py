@@ -983,6 +983,43 @@ def all_agents(include_done=False):
     return out
 
 
+def damaged_records(include_done=True):
+    """[(path, why)] for every registry record that EXISTS and cannot be read.
+
+    A DAMAGED RECORD IS NOT A MISSING ONE (hunt part 4 v2, V2-04). read_json
+    answers None for both, so all_agents() silently drops a record whose file
+    is malformed, unreadable or not a record, and the sweep then saw that
+    record's live workspace as one nobody registered: an orphan, "finished
+    work of an ended session", whose processes the automatic land stopped and
+    whose workspace it deleted. A record that cannot be read says nothing
+    about whether its worker ended. A registry directory that cannot be
+    listed is damaged too; one that does not exist yet is simply empty."""
+    out = []
+    for sub in ["agents"] + (["done"] if include_done else []):
+        try:
+            names = sorted(os.listdir(_p(sub)))
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            out.append((_p(sub), "the directory cannot be listed: %s" % e))
+            continue
+        for n in names:
+            if not n.endswith(".json"):
+                continue
+            path = _p(sub, n)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    v = json.load(f)
+            except FileNotFoundError:
+                continue                      # removed between the listing and the read
+            except (OSError, ValueError) as e:
+                out.append((path, "%s: %s" % (e.__class__.__name__, e)))
+                continue
+            if not isinstance(v, dict) or not v.get("key"):
+                out.append((path, "it is not a registry record (no key)"))
+    return out
+
+
 def named_key(session_id, name):
     return "%s--%s" % (_key_segment(session_id), _key_segment(name))
 
@@ -2175,18 +2212,27 @@ PLATFORM_ENDINGS = (
 )
 
 
+def _platform_ending(rec):
+    """The ending the platform recorded for this agent and the registry has not
+    yet adopted, as (field, signal, why), or None. Reads only."""
+    if not rec or rec.get("end") or rec.get("disposition") or rec.get("orphan"):
+        return None
+    d = platform_agent_record(rec)
+    if not d:
+        return None
+    for field, signal_name, why in PLATFORM_ENDINGS:
+        if d.get(field):
+            return field, signal_name, why
+    return None
+
+
 def observe_platform_end(rec):
     """Point 11: an ending the platform recorded in its own per-agent record,
     for which it delivers no hook, makes the agent finished — automatically,
     at the next moment anything asks."""
-    if not rec or rec.get("end") or rec.get("disposition") or rec.get("orphan"):
-        return rec
-    d = platform_agent_record(rec)
-    if not d:
-        return rec
-    for field, signal_name, why in PLATFORM_ENDINGS:
-        if not d.get(field):
-            continue
+    found = _platform_ending(rec)
+    if found:
+        field, signal_name, why = found
         with Lock():
             fresh = load_agent(rec["key"]) or rec
             if fresh.get("end") or fresh.get("disposition"):
@@ -2226,17 +2272,17 @@ def observe_platform_end(rec):
 # sees that this registration was repaired rather than made. It never invents an
 # ending either — a registration with no provisional twin adopts an id and stays
 # unfinished, because nothing has recorded that its run ended.
-def observe_platform_binding(rec):
-    """Point 3 + point 11: the agent a registration became, taken from the
-    platform's own record of the spawn when nothing bound it at the time."""
+def _platform_binding(rec):
+    """The agent the platform recorded for this unbound registration, as
+    (agent_id, platform record, provisional key), or None. Reads only."""
     if not rec or rec.get("agent_id") or rec.get("provisional") or rec.get("orphan"):
-        return rec
+        return None
     if rec.get("disposition"):
-        return rec
+        return None
     sid = str(rec.get("session_id") or "")
     name = str(rec.get("name") or "")
     if not sid or not NAME_RE.match(name):
-        return rec
+        return None
     tuid = str(rec.get("tool_use_id") or "")
     hits = [(aid, d) for aid, d in platform_agent_records(sid)
             if (str(d.get("toolUseId") or "") == tuid if tuid
@@ -2244,14 +2290,67 @@ def observe_platform_binding(rec):
     # Nothing recorded, or more than one record answering to it: a reconciliation
     # is an adoption of a recorded fact, never a choice between candidates.
     if len(hits) != 1:
-        return rec
+        return None
     aid, meta = hits[0]
     if not tuid and str(meta.get("name") or "") != name:
-        return rec
+        return None
     prov_key = _provisional_key(sid, aid)
     bound_to = key_for_id(aid)
     if bound_to and bound_to not in (rec["key"], prov_key):
-        return rec              # that id already belongs to another registration
+        return None             # that id already belongs to another registration
+    return aid, meta, prov_key
+
+
+def platform_view(rec):
+    """WHAT THE PLATFORM HAS RECORDED, SEEN WITHOUT ADOPTING IT (hunt part 4 v2,
+    V2-05). A COPY of `rec` with the binding and the ending the platform wrote
+    in its own per-agent records and the registry has not taken yet, exactly as
+    observe_platform_binding and observe_platform_end would take them, and
+    nothing written: no save, no event, no released hold, no ref observation.
+
+    The dry status (finding 29) rightly stopped adopting these facts, and then
+    asked finished_state of the stale record instead, so a worker the user had
+    stopped printed WORKING with "pending: none" until some live call adopted
+    the stop. A question may READ what the platform recorded; only acting on
+    it writes."""
+    if not rec:
+        return rec
+    view = json.loads(json.dumps(rec))
+    bound = _platform_binding(view)
+    if bound:
+        aid, meta, prov_key = bound
+        view["agent_id"] = aid
+        view["tool_use_id"] = view.get("tool_use_id") or str(meta.get("toolUseId") or "")
+        view["subagent_type"] = view.get("subagent_type") or str(meta.get("agentType") or "")
+        prov = load_agent(prov_key)
+        if prov and prov.get("key") != view.get("key"):
+            # _add_workspace remembers the repository and binds a body of
+            # work, both writes, so the provisional's workspaces join the COPY
+            # by hand.
+            have = set(w.get("path") for w in view.get("workspaces") or [] if w.get("path"))
+            for w in live_workspaces(prov):
+                if not w.get("path") or w["path"] not in have:
+                    view.setdefault("workspaces", []).append(dict(w))
+            for f in ("started_at", "end", "handed_in"):
+                if prov.get(f) and not view.get(f):
+                    view[f] = prov[f]
+    ending = _platform_ending(view)
+    if ending:
+        field, signal_name, why = ending
+        view["end"] = {"at": now(), "signal": signal_name, "detail": why, "source": field}
+        view["pause"] = None
+    return view
+
+
+def observe_platform_binding(rec):
+    """Point 3 + point 11: the agent a registration became, taken from the
+    platform's own record of the spawn when nothing bound it at the time."""
+    bound = _platform_binding(rec)
+    if not bound:
+        return rec
+    aid, meta, prov_key = bound
+    sid = str(rec.get("session_id") or "")
+    name = str(rec.get("name") or "")
     with Lock():
         fresh = load_agent(rec["key"]) or rec
         if fresh.get("agent_id") or fresh.get("disposition"):
@@ -2370,7 +2469,10 @@ def release_held_ids(session_id, agent_id, name="", key=None, notes=None):
         ah = _agent_hold()
         res = ah.release(str(session_id or ""), str(agent_id or ""))
         line = ah.describe_release(res)
-        if line:
+        if line and res.get("ok") is False:
+            event("release-failed", key=key, agent_id=agent_id, why=str(res.get("why"))[:200],
+                  continued=len(res.get("continued") or []))
+        elif line:
             event("release", key=key, agent_id=agent_id, continued=len(res.get("continued") or []),
                   waited=len(res.get("waited") or []), gone=len(res.get("gone") or []))
     except Exception as e:
@@ -2393,8 +2495,10 @@ def release_session_holds(session_id, notes=None):
         for res in results:
             line = ah.describe_release(res)
             if line:
-                event("release", continued=len(res.get("continued") or []), gone=len(res.get("gone") or []),
-                      why="session ended" if session_id else "session process gone")
+                event("release-failed" if res.get("ok") is False else "release",
+                      continued=len(res.get("continued") or []), gone=len(res.get("gone") or []),
+                      why=("session ended" if session_id else "session process gone")
+                      + ("; " + str(res.get("why"))[:200] if res.get("ok") is False else ""))
                 if notes is not None:
                     notes.append(line + " (its session ended)")
     except Exception as e:
@@ -2484,7 +2588,18 @@ def scan_unregistered(repos, record=True):
     name is not the system's concern (points 1, 2) and is never listed.
 
     `record=False` only looks (finding 29): nothing is bound and no record is
-    made, and what was found is returned as (repo, path, branch, kind)."""
+    made, and what was found is returned as (repo, path, branch, kind).
+
+    WHILE ANY RECORD IS DAMAGED, NOTHING IS UNREGISTERED (V2-04). "No
+    registration" is proved by reading every registration; a record that
+    cannot be read may be the one that holds this workspace, so the sweep
+    finds nothing and records nothing until it is repaired. pending() names
+    the damaged files instead."""
+    damaged = damaged_records()
+    if damaged:
+        if record:
+            event("registry-damaged", files=[p for p, _w in damaged])
+        return []
     paths, branches = set(), set()
     # Point 14: a record that was never spawned through the guard — an orphan
     # this sweep made, or a provisional native start no spawn registered — had
@@ -2633,6 +2748,17 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
         if entity:
             repos.add(main_checkout(entity) or realpath(entity))
         found = scan_unregistered(sorted(r for r in repos if r), record=not dry)
+        # A DAMAGED RECORD IS NAMED, NEVER SWEPT (V2-04). The scan above found
+        # nothing while one exists; this says why, at every gate and status,
+        # without holding the turn: the repair is a person's, outside the run.
+        for path, why_bad in damaged_records():
+            items.append({"key": "", "name": "damaged-record-" + os.path.basename(path),
+                          "why": "its registry record cannot be read (%s: %s), and an unreadable "
+                                 "record says nothing about whether its worker ended; no workspace "
+                                 "is treated as unregistered until it is repaired" % (path, why_bad),
+                          "waiting": "outside", "waiting_on": "repair of %s" % path,
+                          "blocks_new_work": False, "blocks_turn_end": False, "damaged": True,
+                          "workspaces": []})
         if dry:
             for repo, path, branch, kind in found:
                 items.append({"key": "", "name": "orphan-" + os.path.basename(path or branch.replace("/", "-")),
@@ -2644,6 +2770,10 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
         if rec.get("disposition"):
             continue
         if dry:
+            # The platform's recorded binding and ending are READ here, never
+            # adopted (V2-05): the live branch below adopts them; a question
+            # must still see them.
+            rec = platform_view(rec)
             fin, paused_, why = finished_state(rec, cache)
             if not fin:
                 if paused_ and not (rec.get("pause") or {}).get("until") and rec.get("session_id") == me:
@@ -2711,7 +2841,9 @@ def _item(rec, why, cache, me):
     waiting = rec.get("waiting") or {}
     helpers = [a for a in all_agents() if rec["name"] in (a.get("lands_pending") or [])
                or rec["key"] in (a.get("continues") or [])]
-    started = [a for a in helpers if not finished_state(a, cache)[0]]
+    # A helper the user stopped is not "working to land it" (V2-05): its
+    # platform-recorded ending is read, without adopting it, before asking.
+    started = [a for a in helpers if not finished_state(platform_view(a), cache)[0]]
     kind = waiting.get("kind", "")
     if not kind and started:
         kind, waiting = "started", {"on": "agent %s is working to land it" % started[0].get("name")}
@@ -2817,6 +2949,16 @@ def gate_message(items, what):
 
 def _past(deadline):
     return deadline is not None and now() >= deadline
+
+
+def _bounded(deadline, cap):
+    """A subprocess timeout that does not outlive the caller's deadline (hunt
+    part 4 v2, V2-03): the smaller of `cap` and what is left, and at least one
+    second, so a call already admitted is never handed zero. A caller that
+    must not START a step past its deadline checks _past first."""
+    if deadline is None:
+        return cap
+    return max(1.0, min(float(cap), deadline - now()))
 
 
 def _gate_deadline(default_seconds):
@@ -3111,6 +3253,80 @@ def _minus_generated(w, ignored, deadline=None):
     return out
 
 
+# OUTPUT THE REPOSITORY DECLARES REGENERABLE (hunt part 4 v2, V2-02). Finding
+# 14 exempted what the ENGINE made at creation, fingerprinted then; build output
+# a test or a build writes LATER still held the land until somebody typed
+# --ignored-not-needed, every time. Nothing in an ignored file says whether it
+# is the only copy of something, so the engine still never decides that on its
+# own: the REPOSITORY says it, in its own committed root .gitignore, one line
+# per path, as a comment git itself ignores:
+#
+#     #regenerable: build/              a directory and everything under it
+#     #regenerable: **/__pycache__/     the same name at any depth
+#     #regenerable: dist/*.map          a glob over the path
+#
+# The declaration is read from the integration branch's tip (point 14), never
+# from the workspace: a line the agent adds in its own work is not landed and
+# widens nothing. An entry the walk could not read is never waived.
+_REGENERABLE_RE = re.compile(r"^#\s*regenerable:\s*(\S+)\s*$")
+
+
+def _regenerable_patterns(rec, repo):
+    """The `#regenerable:` lines of the root .gitignore at the tip of the
+    branch this work integrates on; [] when nothing is recorded or readable."""
+    try:
+        _branch, tip, why = integration_target([rec], repo)
+    except Exception:
+        return []
+    if why or not tip:
+        return []
+    main = main_checkout(repo) or repo
+    rc, out, _err = git(main, "show", "%s:.gitignore" % tip)
+    if rc != 0:
+        return []
+    return [m.group(1) for m in (_REGENERABLE_RE.match(l.strip()) for l in out.splitlines()) if m]
+
+
+def _is_regenerable(rel, patterns):
+    """Does the ignored entry `rel` (relative; a trailing "/" marks a
+    directory) fall under one of `patterns`?"""
+    import fnmatch
+    if " (unreadable" in rel:
+        return False
+    is_dir = rel.endswith("/")
+    parts = [p for p in rel.rstrip("/").split("/") if p]
+    for pat in patterns:
+        anywhere = pat.startswith("**/")
+        body = pat[3:] if anywhere else pat.lstrip("/")
+        dir_only = body.endswith("/")
+        want = [p for p in body.rstrip("/").split("/") if p]
+        if not want:
+            continue
+        starts = range(len(parts)) if anywhere else [0]
+        for s in starts:
+            seg = parts[s:s + len(want)]
+            if len(seg) < len(want) or not all(fnmatch.fnmatchcase(a, b) for a, b in zip(seg, want)):
+                continue
+            under = s + len(want) < len(parts)          # rel is INSIDE the matched path
+            if not dir_only or under or is_dir:
+                return True
+    return False
+
+
+def _minus_regenerable(rec, w, ignored):
+    """`ignored` without what the repository declares regenerable (V2-02)."""
+    if not ignored:
+        return ignored
+    pats = _regenerable_patterns(rec, w.get("repo") or "")
+    if not pats:
+        return ignored
+    kept = [rel for rel in ignored if not _is_regenerable(rel, pats)]
+    if len(kept) != len(ignored):
+        event("regenerable-not-preserved", key=rec.get("key"), path=w.get("path"),
+              entries=[rel for rel in ignored if rel not in kept][:50])
+    return kept
+
+
 def _require_clean(rec, doing, ignored_ok="", deadline=None):
     """Refuses uncommitted work. Returns the paths it proved to be partial-
     cleanup residue whose every file is preserved (`_landed_residue`): the one
@@ -3129,6 +3345,7 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
                     preserved.append(w["path"])
             dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
             ignored = _minus_generated(w, ignored, deadline)
+            ignored = _minus_regenerable(rec, w, ignored)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
                     w["path"], len(dirty), "y" if len(dirty) == 1 else "ies", ", ".join(dirty[:5])))
@@ -3138,7 +3355,9 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
     if problems:
         raise SpecError("cannot %s — nothing uncommitted is ever landed (point 8):\n    %s\n  Commit what it "
                         "left to its branch, or discard it. If the ignored files are not needed, say so: "
-                        "--ignored-not-needed '<why>'." % (doing, "\n    ".join(problems)))
+                        "--ignored-not-needed '<why>'. Output the repository always regenerates is "
+                        "declared once in its committed root .gitignore (`#regenerable: <path>`) and then "
+                        "needs no waiver." % (doing, "\n    ".join(problems)))
     return preserved
 
 
@@ -4433,11 +4652,21 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     if early:
         raise SpecError(_not_landed_message(rec, early))
     # Shutdown can flush files or create commits. Prove landing only after it.
+    # No stage starts past the caller's deadline (V2-03): out of time is a
+    # Deadline, which leaves the work pending, never a stage begun late.
     paths = [w["path"] for r in chain for w in live_workspaces(r) if w.get("path")]
-    stopped = stop_processes(paths)
+    if _past(deadline):
+        raise Deadline("the budget ran out before %s's processes were stopped" % rec["name"])
+    stopped = stop_processes(paths, deadline=deadline)
     if stopped.get("survivors"):
         raise SpecError("cannot land %s: workspace processes are still running: %s" %
                         (rec["name"], stopped["survivors"]))
+    if stopped.get("unknown"):
+        if _past(deadline):
+            raise Deadline("the budget ran out before %s's processes could be listed" % rec["name"])
+        raise SpecError("cannot land %s: %s" % (rec["name"], stopped["unknown"]))
+    if _past(deadline):
+        raise Deadline("the budget ran out before %s's containers were stopped" % rec["name"])
     containers = stop_containers(paths)
     if containers.get("failed"):
         raise SpecError("cannot land %s: workspace containers could not be stopped" % rec["name"])
@@ -4498,7 +4727,12 @@ def _not_in_integration(rec, chain, preserved=(), deadline=None, definite_only=F
                 missing.append("%s: %s" % (w.get("path") or w.get("branch"), why_not))
                 continue
             if not w.get("deleted_at") and w.get("path") and os.path.isdir(w["path"]):
-                rc, out, err = git(w["path"], "rev-parse", "HEAD")
+                # Every git read, not only the branch loop, looks at the
+                # clock (V2-03).
+                if _past(deadline):
+                    raise Deadline("the budget ran out before %s's workspaces could be proved to be in "
+                                   "the branch this work integrates on" % rec["name"])
+                rc, out, err = git(w["path"], "rev-parse", "HEAD", timeout=_bounded(deadline, 60))
                 # A HEAD that could not be READ is not a HEAD that is in the
                 # integration branch: nothing was proved, so the land waits
                 # (hunt part 4, finding 4). The one directory that has no HEAD
@@ -4574,7 +4808,10 @@ def discard(ref, reason, ceo_word="", not_ceo_ordered="", me=""):
 
 def _delete_chain(chain, why, processes=None, deadline=None):
     allw = [(r, w) for r in chain for w in live_workspaces(r) if w.get("path")]
-    stopped = processes if processes is not None else stop_processes([w["path"] for _r, w in allw])
+    # Past the deadline nothing is stopped here (V2-03): each _delete below is
+    # handed no shutdown result, sees the deadline and records a deferral.
+    stopped = processes if processes is not None else (
+        None if _past(deadline) else stop_processes([w["path"] for _r, w in allw], deadline=deadline))
     complete = True
     for r in chain:
         if not _delete(r, [w for w in live_workspaces(r) if w.get("path")], branches=True, why=why,
@@ -4593,25 +4830,53 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
     landing proof below used to run without it, so a gate or a retry with a
     stated budget could spend any amount of time comparing files. Running out
     is not a failure and not a change of eligibility: the deletion is simply
-    deferred to the next retry, with nothing deleted and no attempt counted."""
-    if processes is None:
-        processes = stop_processes([w["path"] for w in workspaces])
+    deferred to the next retry, with nothing deleted and no attempt counted.
+
+    THE BUDGET BOUNDS EVERY STAGE, NOT ONLY THE PROOF (hunt part 4 v2, V2-03).
+    Process shutdown, container cleanup, test-instance collection, each
+    workspace removal and each branch deletion used to run on their own
+    clocks once the proof had passed, so a gate with a 20 s budget could
+    start a 300 s `git worktree remove` after its budget was gone. Now no
+    stage STARTS past the deadline (the rest is deferred, exactly as a proof
+    that ran out is), and the subprocesses a stage runs are bounded by what
+    is left of it."""
+    paths = [w["path"] for w in workspaces]
     failures = []
     deferred = ""
     held = False
-    if processes.get("survivors"):
+
+    def out_of_time(before):
+        nonlocal deferred, held
+        if _past(deadline):
+            deferred = "the budget ran out before %s" % before
+            held = True
+        return held
+
+    if processes is None and not out_of_time("its workspaces' processes were stopped"):
+        processes = stop_processes(paths, deadline=deadline)
+    processes = processes or {}
+    if held:
+        pass
+    elif processes.get("survivors"):
         failures.append("processes still running in its workspaces: %s" % processes["survivors"])
         held = True
-    else:
+    elif processes.get("unknown"):
+        # Not listed is not "none running" (V2-03): out of time, it is a
+        # deferral like any other; otherwise a failure, retried.
+        if not out_of_time("its workspaces' processes could be listed"):
+            failures.append(processes["unknown"])
+            held = True
+    elif not out_of_time("its containers were stopped"):
         # Containers first, directories second: a workspace's containers are
         # part of it, and stop_containers never raises. See stop_containers.
-        containers = stop_containers([w["path"] for w in workspaces])
+        containers = stop_containers(paths)
         # §54 addendum 4, and it sits here rather than beside stop_processes
         # for the same reason containers do: it never raises and it never
         # blocks the deletion, so it cannot cost a land that would otherwise
         # have worked. A window that will not close is recorded for the alert,
         # not made into a reason to keep a landed worktree on disk.
-        stop_test_instances([w["path"] for w in workspaces])
+        if not out_of_time("its test instances were collected"):
+            stop_test_instances(paths, deadline=deadline)
         # A CONTAINER THAT COULD NOT BE STOPPED IS A SURVIVOR (hunt part 4,
         # finding 11). It used to be checked for a LANDED disposition only, so
         # a discard deleted the workspace, filed the record as done and left
@@ -4666,17 +4931,17 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
                 deferred = "the budget ran out before %s was deleted" % w.get("path")
                 held = True
                 break
-            ok, err = remove_workspace(w)
+            ok, err = remove_workspace(w, deadline=deadline)
             if ok:
                 w["deleted_at"] = iso()
             else:
                 failures.append(err)
-    if deferred:
-        failures.append(deferred)
     untouched = []
     if branches and not held:
         for repo, b in _branch_targets([rec]):
-            ok, err = delete_branch(repo, b)
+            if out_of_time("branch %s was deleted" % b):
+                break
+            ok, err = delete_branch(repo, b, deadline=deadline)
             if ok is None:
                 # POINT 2, AT THE DELETER: a codex/ ref on this agent's record —
                 # it can only get there by hand or by a defect, since
@@ -4703,6 +4968,8 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
                                            if (p[0], p[1]) != (repo, b)]
             else:
                 failures.append(err)
+    if deferred:
+        failures.append(deferred)
     with Lock():
         fresh = load_agent(rec["key"]) or rec
         fresh["workspaces"] = rec["workspaces"]
@@ -4767,7 +5034,10 @@ def keeps_failing():
     return [r for r in all_agents() if (r.get("deletion") or {}).get("attempts", 0) >= RETRY_TELL_CEO_AFTER]
 
 
-def remove_workspace(w):
+def remove_workspace(w, deadline=None):
+    """Deletes one workspace. With a `deadline` (V2-03) its `git worktree
+    remove` is bounded by what is left of it rather than by its own 300 s; a
+    removal cut short leaves the directory, which is reported and retried."""
     path, repo = w.get("path"), w.get("repo")
     main = main_checkout(repo) if repo and os.path.isdir(repo) else ""
     if not main:
@@ -4799,7 +5069,7 @@ def remove_workspace(w):
                     return False, "%s is not a workspace of %s; not deleted" % (path, main)
             shutil.rmtree(path, ignore_errors=True)
         else:
-            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=300)
+            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=_bounded(deadline, 300))
             if rc != 0 and os.path.lexists(path):
                 return False, "git worktree remove %s failed: %s" % (path, err.strip()[:300])
     # A registration whose directory is gone: remove exactly its own admin entry.
@@ -4837,10 +5107,11 @@ def _admin_dir_for(main, path):
     return ""
 
 
-def delete_branch(repo, b):
+def delete_branch(repo, b, deadline=None):
     """(True, "") deleted or already gone; (False, why) failed, retried later
     (point 13); (None, why) REFUSED BY THE PAGE — a codex/ branch is never
-    touched (point 2), and that is an answer, not a failure to retry."""
+    touched (point 2), and that is an answer, not a failure to retry. With a
+    `deadline` (V2-03) the deleting git call is bounded by what is left."""
     if b.startswith(CODEX_PREFIX):
         return None, "branch %s is codex/; never touched (point 2)" % b
     main = main_checkout(repo)
@@ -4860,7 +5131,7 @@ def delete_branch(repo, b):
     holders = [e["path"] for e in wl if e["branch"] == b]
     if holders:
         return False, "branch %s is still checked out at %s" % (b, holders[0])
-    rc, _o, err = git(main, "branch", "-D", b)
+    rc, _o, err = git(main, "branch", "-D", b, timeout=_bounded(deadline, 60))
     if rc != 0 or branch_tip(main, b):
         return False, "git branch -D %s failed: %s" % (b, err.strip()[:300])
     return True, ""
@@ -4870,8 +5141,14 @@ def delete_branch(repo, b):
 # point 9 — every process it started is stopped before deletion
 # ---------------------------------------------------------------------------
 
-def _process_cwds():
-    """{pid: cwd} for every process the OS will show us."""
+def _process_cwds(timeout=60, strict=False):
+    """{pid: cwd} for every process the OS will show us.
+
+    `strict=True` answers None when the listing could not be made (lsof did not
+    finish in `timeout`, or could not run) instead of {}: an empty answer from
+    a listing that never happened would read as "nothing works there" and let
+    a deletion go ahead over running writers (V2-03 bounds this call by the
+    caller's deadline, which makes "did not finish" a real answer)."""
     out = {}
     if os.path.isdir("/proc/self"):
         for n in os.listdir("/proc"):
@@ -4884,9 +5161,9 @@ def _process_cwds():
     if shutil.which("lsof"):
         try:
             r = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "pn", "-w"], capture_output=True, text=True,
-                               timeout=60, env=_ps_env())
+                               timeout=timeout, env=_ps_env())
         except (OSError, subprocess.TimeoutExpired):
-            return out
+            return None if strict else out
         pid = None
         for line in r.stdout.splitlines():
             if line.startswith("p"):
@@ -4899,14 +5176,15 @@ def _process_cwds():
     return out
 
 
-def process_table():
+def process_table(timeout=30, strict=False):
     """{pid: {"ppid": int, "args": str}} for every process the OS shows, in one
-    `ps` call."""
+    `ps` call. `strict=True` answers None, not {}, when `ps` did not finish or
+    could not run (see _process_cwds)."""
     try:
         r = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,args="], capture_output=True, text=True,
-                           timeout=30, env=_ps_env())
+                           timeout=timeout, env=_ps_env())
     except (OSError, subprocess.TimeoutExpired):
-        return {}
+        return None if strict else {}
     out = {}
     for line in r.stdout.splitlines():
         parts = line.strip().split(None, 2)
@@ -4939,7 +5217,7 @@ def _protected_pids():
     return keep
 
 
-def processes_in(paths):
+def processes_in(paths, deadline=None):
     """The processes that are the workspace's own: every process WORKING in one
     of `paths` (its directory is inside), and every descendant of one, wherever
     that descendant works. Never this process, its ancestors or claude.
@@ -4953,18 +5231,32 @@ def processes_in(paths):
     workspace from elsewhere (`cd / && cargo --manifest-path ...`), and that
     one is owned by its ANCESTRY, which is a fact the OS reports. A process
     whose only tie is its arguments is left running and named in the record
-    (`_named_only`), never signaled."""
+    (`_named_only`), never signaled.
+
+    With a `deadline` (V2-03) the two listings are bounded by it, and a listing
+    that did not finish makes the answer None -- unknown, never "none".
+
+    A GRADLE DAEMON A NATIVE BUILD KEPT WARM FOR THE WORKSPACE IS THE WORKSPACE'S OWN too
+    (2026-10-02, scripts/lib/gradle_daemons.py). It works from Gradle's registry, not from
+    the workspace, and the build that started it has ended, so neither test above sees it;
+    its record (PID and birth generation, re-read here) does, and its children follow it by
+    ancestry like any other descendant."""
     paths = [realpath(p) for p in paths if p]
     if not paths:
         return []
     keep = _protected_pids()
-    hits = set()
-    for pid, cwd in _process_cwds().items():
+    hits = set(_gradle_daemons(paths))
+    cwds = _process_cwds(timeout=_bounded(deadline, 60), strict=deadline is not None)
+    if cwds is None:
+        return None
+    for pid, cwd in cwds.items():
         c = realpath(cwd)
         if any(c == p or c.startswith(p + os.sep) for p in paths):
             hits.add(pid)
     hits -= keep
-    table = process_table()
+    table = process_table(timeout=_bounded(deadline, 30), strict=deadline is not None)
+    if table is None:
+        return None
     grew = bool(hits)
     while grew:
         grew = False
@@ -4989,23 +5281,54 @@ def _named_only(paths, owned):
     return sorted(out)
 
 
-def stop_processes(paths):
-    pids = processes_in(paths)
+def _gradle_daemons(paths):
+    """Live Gradle daemons native builds kept warm for workspaces at or inside `paths`
+    (scripts/lib/gradle_daemons.py). Never raises: tidying up cannot break the deleter."""
+    try:
+        here = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "lib")
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import gradle_daemons
+        return gradle_daemons.owned_pids(paths)
+    except Exception as e:
+        event("gradle-daemons-unread", why=str(e)[:200], paths=paths or None)
+        return []
+
+
+def _forget_gradle_daemons(paths):
+    try:
+        import gradle_daemons
+        gradle_daemons.forget(paths)
+    except Exception as e:
+        event("gradle-daemons-unforgotten", why=str(e)[:200], paths=paths or None)
+
+
+def stop_processes(paths, deadline=None):
+    """Point 9. With a `deadline` (V2-03) the process listings are bounded by
+    it, and a listing that could not be made is answered as UNKNOWN (never as
+    "nothing works there"): {"stopped": [], "survivors": [], "unknown": why},
+    which the deleter holds on exactly as it holds on a survivor."""
+    pids = processes_in(paths, deadline)
+    if pids is None:
+        why = "the processes working in its workspaces could not be listed in the time the caller had"
+        event("processes-unknown", paths=paths or None, why=why)
+        return {"stopped": [], "survivors": [], "unknown": why}
     spared = _named_only(paths, set(pids))
     if spared:
         event("processes-named-only", pids=[p for p, _a in spared], args=[a for _p, a in spared],
               why="their command line names the workspace, but nothing shows the workspace started them; "
                   "left running (hunt part 4, finding 12)")
     if not pids:
+        _forget_gradle_daemons(paths)
         return {"stopped": [], "survivors": []}
     for p in pids:
         try:
             os.kill(p, signal.SIGTERM)
         except OSError:
             pass
-    deadline = now() + PROCESS_STOP_GRACE
+    grace_until = now() + PROCESS_STOP_GRACE
     alive = list(pids)
-    while alive and now() < deadline:
+    while alive and now() < grace_until:
         time.sleep(0.1)
         alive = [p for p in alive if _alive(p)]
     for p in alive:
@@ -5022,15 +5345,20 @@ def stop_processes(paths):
     # finish (an uninterruptible wait): that one IS a survivor, and it is
     # reported as one instead of hanging the land.
     survivors = [p for p in alive if _alive(p)]
-    kill_deadline = time.monotonic() + PROCESS_KILL_WAIT
+    # Inside the caller's budget too (V2-03): a process still dying when it
+    # runs out is a survivor, which holds the deletion for a retry.
+    kill_deadline = time.monotonic() + (PROCESS_KILL_WAIT if deadline is None
+                                        else min(PROCESS_KILL_WAIT, max(0.5, deadline - now())))
     while survivors and time.monotonic() < kill_deadline:
         time.sleep(0.05)
         survivors = [p for p in survivors if _alive(p)]
     event("processes-stopped", pids=pids, survivors=survivors or None)
+    if not survivors:
+        _forget_gradle_daemons(paths)
     return {"stopped": pids, "survivors": survivors}
 
 
-def stop_test_instances(paths):
+def stop_test_instances(paths, deadline=None):
     """§54 ADDENDUM 4: a test instance of the app still running after its agent
     has finished is uncollected garbage, and the land step collects it.
 
@@ -5086,7 +5414,11 @@ def stop_test_instances(paths):
               collected=[d["pid"] for d in res.get("collected") or []] or None,
               survivors=[d["pid"] for d in res.get("survivors") or []] or None,
               undecided=[d["pid"] for d in res.get("undecided") or []] or None)
-    collect_test_devices(departing=paths)
+    # The device collector takes a budget; with the caller's deadline (V2-03)
+    # it is given what is left of it, and nothing is started once it is gone.
+    if not _past(deadline):
+        collect_test_devices(departing=paths,
+                             budget=None if deadline is None else max(0.5, deadline - now()))
     return res
 
 
@@ -5806,7 +6138,8 @@ def _print_status(me, entity):
     if not items:
         print("pending: none")
     for i in items:
-        label = "LANDABLE" if i.get("would_land") else ("UNREGISTERED" if i.get("unregistered") else "PENDING ")
+        label = "LANDABLE" if i.get("would_land") else ("UNREGISTERED" if i.get("unregistered") else
+                                                       ("DAMAGED " if i.get("damaged") else "PENDING "))
         note = ("  [lands at the next gate, or: workspaces.sh land %s]" % i["name"]) if i.get("would_land") else ""
         print("%s %s  %s%s%s%s" % (label, i["name"], i["why"],
                                     ("  [waiting %s: %s]" % (i["waiting"], i["waiting_on"])) if i["waiting"] else "",
@@ -5820,13 +6153,66 @@ def _print_status(me, entity):
                 print("RETRYING %s  deletion attempt %d failed: %s" % (r.get("name"), d.get("attempts"),
                                                                      d.get("last_error")))
             continue
-        fin, paused_, why = finished_state(r)
+        # The same read-only view the dry pending used (V2-05): a stopped
+        # worker of another session prints FINISHED, not WORKING.
+        fin, paused_, why = finished_state(platform_view(r))
         print("%-8s %s  %s" % ("PAUSED" if paused_ else ("FINISHED" if fin else "WORKING"), r.get("name"), why))
     return 0
 
 
-def sweep_scratch_after_land():
+def land_sweep_scopes(ref, me=""):
+    """What a land may sweep: for the agent and every agent its work continues,
+    its name, its session and every workspace it ever had. Read BEFORE the land,
+    because the land deletes the workspaces. [] when the record cannot be read,
+    and then the land sweeps nothing (never the whole machine instead).
+
+    `hold_named` is set when another agent with the same name is not finished:
+    a directory named for this agent could then be that one's, so it is kept."""
+    try:
+        rec = _resolve_record(ref, me)
+    except Exception:
+        return []
+    if not rec:
+        return []
+    others = []
+    try:
+        others = all_agents()
+    except Exception:
+        others = []
+    scopes = []
+    for r in _chain(rec):
+        name = r.get("name") or ""
+        if not name:
+            continue
+        hold = False
+        for o in others:
+            if o.get("key") == r.get("key") or o.get("name") != name:
+                continue
+            try:
+                fin, _paused, _why = finished_state(o)
+            except Exception:
+                fin = False
+            if not fin:
+                hold = True
+                break
+        scopes.append({"name": name, "session": r.get("session_id") or "",
+                       "workspaces": [w["path"] for w in r.get("workspaces") or [] if w.get("path")],
+                       "hold_named": hold})
+    return scopes
+
+
+def sweep_scratch_after_land(scopes=None):
     """Reclaim the landed agent's scratch, right here, while somebody is looking.
+
+    ONLY THE LANDED AGENT'S (2026-10-01). This used to run the whole machine's
+    sweep, so landing one agent took every other agent's and session's eligible
+    scratch with it: two lands that night deleted 141 entries, none of them the
+    landed agent's. Now it passes the agent's name, session and workspaces
+    (land_sweep_scopes) and the reaper plans only what provably belongs to it:
+    allocations made from its workspaces and directories named for it
+    (scratch-reaper.py scan_agent). Everything else it looks at is counted as
+    unattributed and left to the scheduled sweep, and the printed line says how
+    many. No scope, no sweep.
 
     A LAND IS THE MOMENT THE GARBAGE BECOMES GARBAGE. The agent has finished, its
     workspace is gone, and every temporary directory its harnesses made is now
@@ -5848,35 +6234,58 @@ def sweep_scratch_after_land():
     """
     sweep = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "scripts", "scratch-sweep.sh")
-    if not os.access(sweep, os.X_OK):
+    if not scopes or not os.access(sweep, os.X_OK):
         return
-    try:
-        r = subprocess.run(["bash", sweep], capture_output=True, text=True,
-                           timeout=600)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print("scratch sweep after land could not run: %s" % exc, file=sys.stderr)
-        return
-    line = (r.stdout or "").strip().splitlines()
-    if not line:
-        return
-    try:
-        rep = json.loads(line[-1])
-    except ValueError:
-        return
-    # SPEAK ONLY WHEN THERE IS SOMETHING TO SAY. A land already prints a lot, and
-    # a line about zero bytes on every land is the kind of noise that gets the
-    # informative lines skipped too.
+    for scope in scopes:
+        args = ["bash", sweep, "--agent", scope["name"]]
+        if scope.get("session"):
+            args += ["--session", scope["session"]]
+        for w in scope.get("workspaces") or []:
+            args += ["--workspace", w]
+        if scope.get("hold_named"):
+            args.append("--hold-named")
+        try:
+            r = subprocess.run(args, capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print("scratch sweep after land could not run: %s" % exc, file=sys.stderr)
+            continue
+        line = (r.stdout or "").strip().splitlines()
+        if not line:
+            continue
+        try:
+            rep = json.loads(line[-1])
+        except ValueError:
+            continue
+        for out in _land_sweep_lines(scope["name"], rep):
+            print(out[1], file=sys.stderr if out[0] else sys.stdout)
+
+
+def _land_sweep_lines(name, rep):
+    """[(to_stderr, text)] for one scoped sweep's JSON. SPEAK ONLY WHEN THERE IS
+    SOMETHING TO SAY: a land already prints a lot. Something is: a failure, a
+    skip, bytes reclaimed, or entries left alone because they are not provably
+    this agent's (the count the land owes, whatever was reclaimed)."""
+    def entries(n):
+        return "%d entr%s" % (n, "y" if n == 1 else "ies")
     if rep.get("failures"):
-        print("SCRATCH SWEEP: %d deletion(s) FAILED after this land — %s"
-              % (rep["failures"], rep.get("reason") or ""), file=sys.stderr)
-        print("  The CEO's rule (ceo-decisions §54): if the clean-up fails, it is"
-              " deleted BY HAND. scripts/disk-watchdog.sh --status names the paths.",
-              file=sys.stderr)
-    elif rep.get("freed_bytes"):
-        print("scratch swept: %s reclaimed (%s entr%s)"
-              % (rep.get("freed_human") or rep["freed_bytes"],
-                 rep.get("swept") or 0,
-                 "y" if rep.get("swept") == 1 else "ies"))
+        return [(True, "SCRATCH SWEEP: %d deletion(s) FAILED after this land — %s"
+                 % (rep["failures"], rep.get("reason") or "")),
+                (True, "  The CEO's rule (ceo-decisions §54): if the clean-up fails, it is"
+                 " deleted BY HAND. scripts/disk-watchdog.sh --status names the paths.")]
+    if rep.get("skipped"):
+        return [(False, "scratch of %s NOT swept: %s; the scheduled sweep will not take its "
+                 "named directories" % (name, rep.get("reason") or "skipped"))]
+    swept = int(rep.get("swept") or 0)
+    unattr = int(rep.get("unattributed") or 0)
+    undec = int(rep.get("undecidable") or 0)
+    if not swept and not unattr and not undec:
+        return []
+    text = "scratch swept for %s: %s reclaimed (%s of its own)" % (
+        name, rep.get("freed_human") or "0 B", entries(swept))
+    if undec:
+        text += "; %s of its own kept undecided (scratch-reaper.log says why)" % entries(undec)
+    text += "; %s not provably its own, left alone" % entries(unattr)
+    return [(False, text)]
 
 
 def main(argv):
@@ -6030,11 +6439,14 @@ def main(argv):
             # cost the count. The transcript itself lives in the platform's
             # projects directory and no workspace deletion touches it.
             qa_lines = qa_throwaway_lines(a.agent, me)
+            # Read BEFORE the land, which deletes the workspaces the sweep
+            # attributes this agent's scratch by.
+            sweep_scopes = land_sweep_scopes(a.agent, me)
             land(a.agent, me, ignored_ok=a.ignored_not_needed)
             print("landed: %s — every workspace and branch deleted (or retrying)" % a.agent)
             for _l in qa_lines:
                 print(_l)
-            sweep_scratch_after_land()
+            sweep_scratch_after_land(sweep_scopes)
         elif a.cmd == "discard":
             r = discard(a.agent, a.reason, a.ceo_word, a.not_ceo_ordered, me)
             print("discarded: %s — tips recorded: %s" % (a.agent, json.dumps(r["tips"])))

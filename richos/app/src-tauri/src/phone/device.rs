@@ -422,7 +422,7 @@ impl Platform {
 /// this Mac changing. That belongs to `web/web-app/`, which this worktree does not touch.
 ///
 /// **It is matched case-insensitively and by substring**, because the value is a human-facing
-/// label: "iPhone" today, "Alex's iPhone" the moment anybody adds a rename box.
+/// label: "iPhone" today, "Sam's iPhone" the moment anybody adds a rename box.
 pub fn platform_of_name(name: &str) -> &'static str {
     let lower = name.to_lowercase();
     if lower.contains("iphone") || lower.contains("ipad") || lower.contains("ipod") {
@@ -2334,9 +2334,9 @@ pub(crate) mod tests {
         assert_eq!(platform_of_name("Android phone"), Platform::ANDROID);
         assert_eq!(platform_of_name("Phone"), Platform::OTHER);
         // Case and surrounding words do not decide it: the value is a human-facing label, and
-        // the first rename box anybody adds turns "iPhone" into "Alex's iPhone".
+        // the first rename box anybody adds turns "iPhone" into "Sam's iPhone".
         assert_eq!(platform_of_name("alex's IPHONE"), Platform::IOS);
-        assert_eq!(platform_of_name("HONOR X6b (android)"), Platform::ANDROID);
+        assert_eq!(platform_of_name("Android phone (android)"), Platform::ANDROID);
     }
 
     #[test]

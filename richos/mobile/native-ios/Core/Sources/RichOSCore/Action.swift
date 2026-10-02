@@ -260,6 +260,9 @@ public enum Effect: Equatable, Sendable {
     case stopAudio
     /// Open (or keep) the live connection to the paired Mac.
     case connect
+    /// The phone's network path changed with no loss reported: the live connection's owner replaces
+    /// whatever it is doing (an open stream, an open in flight, a back-off wait) with a new open, now.
+    case reconnect
     /// Close it (backgrounded, revoked, forgotten).
     case disconnect
     /// Ask the OS for the microphone (once, on the first deliberate press).
@@ -309,10 +312,12 @@ public enum Reducer {
              .macAttachmentLimits, .pushRegistered:
             ConnectionReducer.reduce(&next, action, &effects)
         case .foregrounded, .backgrounded:
+            // The conversation first: a return clears the outbox's back-off before the connection's
+            // pump looks at it (a stream that stayed open through an inactive spell pumps at once).
+            ConversationReducer.reduce(&next, action, &effects)
             PairingReducer.reduce(&next, action, &effects)
             ConnectionReducer.reduce(&next, action, &effects)
             VoiceReducer.reduce(&next, action, &effects)
-            ConversationReducer.reduce(&next, action, &effects)
         case .tick:
             PairingReducer.reduce(&next, action, &effects)
             ConnectionReducer.reduce(&next, action, &effects)

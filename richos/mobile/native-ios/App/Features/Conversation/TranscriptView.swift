@@ -318,7 +318,12 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
         let safe = safeAreaInsets
         let raw = UIEdgeInsets(top: desired.top - safe.top, left: desired.left - safe.left,
                                bottom: desired.bottom - safe.bottom, right: desired.right - safe.right)
-        if contentInset != raw { contentInset = raw }
+        guard contentInset != raw else { return }
+        contentInset = raw
+        // RichOS: the list ignores the keyboard's area, so the keyboard and the cards above the composer
+        // reach it only as this inset, and a new inset alone lays nothing out: lay out, so the bottom
+        // anchor (`restoredBottomOffset`) keeps the newest message in view while following (R3).
+        setNeedsLayout()
     }
 
     private var lastLaidOutGeometry: TranscriptViewportGeometry?

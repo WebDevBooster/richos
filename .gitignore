@@ -36,9 +36,12 @@
 /docs/reference/local/
 
 # Python bytecode from the app-icon pipeline (richos/app/scripts/lib/). Generated on every
-# run; never an artefact.
+# run; never an artifact.
 __pycache__/
 *.pyc
+# The workspace lander deletes this with a landed workspace, no waiver asked:
+# the line below DECLARES it regenerable (mega-lander/workspaces.py, V2-02).
+#regenerable: **/__pycache__/
 .worktrees/
 
 # Agent coordination scratch. These are per-run ack files written into a

@@ -490,6 +490,72 @@ class Bridge:
 
 
 # ---------------------------------------------------------------------------------------------
+# Seeding the app's saved state (the measured condition, condition.py)
+# ---------------------------------------------------------------------------------------------
+
+CORE_DIR = "files/core"  # LocalSessionStore: session.json and history.json
+
+
+def debuggable(dev):
+    flags = re.search(r"pkgFlags=\[([^\]]*)\]", dev.sh(f"dumpsys package {PACKAGE}", check=False))
+    return bool(flags and "DEBUGGABLE" in flags.group(1))
+
+
+def write_core_files(dev, files, scratch):
+    """Write `files` ({name: bytes}) into the installed DEBUGGABLE build's files/core with run-as,
+    the app stopped, and read each back by sha256. Returns {name: sha256}."""
+    import hashlib
+    import os
+    if not debuggable(dev):
+        raise Refused("run-as needs a debuggable build installed; this one is not (a release build is seeded "
+                      "through its debuggable twin, --seed-twin)")
+    dev.sh(f"am force-stop {PACKAGE}")
+    dev.sh(f"run-as {PACKAGE} mkdir -p {CORE_DIR}")
+    written = {}
+    for name, data in sorted(files.items()):
+        local = os.path.join(scratch, name)
+        with open(local, "wb") as f:
+            f.write(data)
+        remote = f"/data/local/tmp/richos-perf-{name}"
+        dev.run("push", local, remote)
+        dev.sh(f"run-as {PACKAGE} cp {remote} {CORE_DIR}/{name}")
+        dev.sh(f"rm -f {remote}", check=False)
+        want = hashlib.sha256(data).hexdigest()
+        got = (dev.sh(f"run-as {PACKAGE} sha256sum {CORE_DIR}/{name}", check=False).split() or [""])[0]
+        if got != want:
+            raise Unmeasurable(f"seeding {name}: the app's copy reads {got[:12] or 'nothing'}…, the fixture is {want[:12]}…")
+        written[name] = want
+    return written
+
+
+def seed_release(dev, files, twin_apk, release_apk, release_sha256, scratch, log=lambda s: None):
+    """Andy's method (andy-opus-coldstart1, 2026-10-02): uninstall the app, install the release
+    build's debuggable twin, write the fixture into its files/core with run-as (the twin is never
+    launched), then install the stamped release APK over it, data kept. The phone's previous saved
+    state for this app is gone afterwards. Refuses before touching the device when an APK is
+    missing or the release APK is not the stamped bytes."""
+    import hashlib
+    import os
+    for label, path in (("the debuggable twin", twin_apk), ("the stamped release APK", release_apk)):
+        if not path or not os.path.isfile(path):
+            raise Refused(f"{label} is not at {path!r}; seeding a release build needs both APKs")
+    with open(release_apk, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    if digest != release_sha256:
+        raise Refused(f"freshness mismatch: {release_apk} is {digest[:12]}…, the stamped build is {str(release_sha256)[:12]}…")
+    with open(twin_apk, "rb") as f:
+        twin_sha = hashlib.sha256(f.read()).hexdigest()
+    log("seed: uninstall, install the debuggable twin, write the fixture, install the release build over it")
+    dev.run("uninstall", PACKAGE, check=False)
+    dev.run("install", twin_apk)
+    written = write_core_files(dev, files, scratch)
+    dev.run("install", "-r", release_apk)
+    if debuggable(dev):
+        raise Refused("after installing the release APK over the twin the app is still debuggable; not the release build")
+    return {"files": written, "twinSha256": twin_sha}
+
+
+# ---------------------------------------------------------------------------------------------
 # The measurements
 # ---------------------------------------------------------------------------------------------
 

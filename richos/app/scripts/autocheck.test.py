@@ -613,7 +613,7 @@ class Commit(Fixture):
         self.assertIn("COMMIT REFUSED: a changed file is pinned by a reviewed check", out.stderr)
         self.assertIn(self.PIN_SOURCE, out.stderr)
         self.assertIn('unit "pinned-unit"', out.stderr)
-        self.assertIn("renew the pin", out.stderr)
+        self.assertIn("qualification-pins.py --renew", out.stderr)
         self.assertEqual(self.head(), before)
 
     def test_commit_a_reads_the_index_the_hook_was_given_for_a_pinned_file(self):

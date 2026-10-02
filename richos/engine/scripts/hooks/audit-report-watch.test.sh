@@ -84,5 +84,38 @@ stop >/dev/null
 ROWS="$(grep -c 'audit-report-watch' "$RICHOS_ESCALATION_LEDGER" 2>/dev/null || true)"
 if [ "$ROWS" = "1" ]; then ok "an edit that touches no finding raises nothing"; else bad "an edit that touches no finding raises nothing" "rows=$ROWS"; fi
 
+# P5-75: a column-zero "# comment" inside a fenced code quotation is quotation, not a
+# report heading. It used to close the finding, so edits below it (the consequence,
+# the evidence) left the digest unchanged and raised nothing.
+FENCE_OUT="$(python3 - "$ENGINE_ROOT/scripts/lib/audit-report-watch.py" <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("arw", sys.argv[1])
+arw = importlib.util.module_from_spec(spec); spec.loader.exec_module(arw)
+TICKS = chr(96) * 3  # no literal backticks: macOS bash 3.2 misparses them in $( <<heredoc )
+def report(consequence, fence=TICKS):
+    return "\n".join([
+        "# Part", "", "### P5-75: Quoted comment", "", "Intro.", "",
+        fence + "bash", "# a shell comment at column zero", "echo hi", fence, "",
+        "**Consequence.** " + consequence, "", "### P5-76: Next", "", "Other."])
+a = arw.parse_findings(report("A"))
+b = arw.parse_findings(report("B"))
+t = arw.parse_findings(report("A", "~~~"))
+bt = arw.parse_findings(report("B", "~~~"))
+if a["P5-75"][1] == b["P5-75"][1]:
+    print("a change below a fenced # comment left the digest unchanged")
+if t["P5-75"][1] == bt["P5-75"][1]:
+    print("same for a ~~~ fence")
+if a["P5-76"][1] != b["P5-76"][1]:
+    print("the next finding's digest moved with an unrelated change")
+if sorted(a) != ["P5-75", "P5-76"]:
+    print("finding ids wrong: %r" % sorted(a))
+PYEOF
+)"
+if [ -z "$FENCE_OUT" ]; then
+    ok "a # comment inside a fenced code quotation does not close the finding; the next real heading still does"
+else
+    bad "fenced comment closes the finding" "$FENCE_OUT"
+fi
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

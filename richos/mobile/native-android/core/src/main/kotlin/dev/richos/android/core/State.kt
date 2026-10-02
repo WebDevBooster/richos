@@ -117,7 +117,8 @@ data class Session(
     /**
      * The last live frame id the stream delivered: the Mac's HUB cursor, which a reconnect's
      * `since` counts in. Not a row's cursor: a phone message takes 3 live cursors but 2 history
-     * positions (Echo's measurement), so the two drift apart.
+     * positions (Echo's measurement), so the two drift apart. Null after a `hello`: a reconnect
+     * then asks for a fresh `hello` rather than resuming from the `hello`'s id (RichCore `apply`).
      */
     val streamCursor: Long? = null,
     /** Photos and files chosen for the next message, staged on the phone, not yet sent. */

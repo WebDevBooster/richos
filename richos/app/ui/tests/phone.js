@@ -60,7 +60,7 @@ const PROBE_QR = require(path.resolve(UI_DIR, "..", "..", "tools", "phone-probe"
 /// list is for is version boundaries and dropping a length would drop a boundary.
 const ENCODED = [
   "https://mm1.tail9a3b2.ts.net:8443/#pair=K7QF2M9X",
-  "https://mm1.tail770f6e.ts.net:8443/#pair=ZZZZZZZZ",
+  "https://mm1.tail1a2b3c.ts.net:8443/#pair=ZZZZZZZZ",
   "xxxxxxxxxxxxxxxxxxxxxxxx",
   "x",
 ];
@@ -983,7 +983,7 @@ async function openSheet(browser, theme, preset) {
     "9d  the install instruction names the phone's own control, and is not given where it is wrong",
     async () => {
       // RAY'S CANDIDATE .11 DEFECT 4.5. The card said "Add Rich to your phone's Home Screen and
-      // allow notifications when it asks." Chrome on his HONOR X6b offers "Install and create
+      // allow notifications when it asks." Chrome on his Android phone offers "Install and create
       // shortcut" and has no item by the other name at all — the Mac named a control the device
       // does not have.
       //
@@ -1437,7 +1437,7 @@ async function openSheet(browser, theme, preset) {
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",
       account: "Google as someone@gmail.com",
-      phone: "HONOR X6b",
+      phone: "Android phone",
       phoneOnline: false,
     });
     const offLine = (await off.textContent("#phone-ts-peer-ready")).replace(/\s+/g, " ").trim();
@@ -1456,7 +1456,7 @@ async function openSheet(browser, theme, preset) {
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",
       account: "Google as someone@gmail.com",
-      phone: "HONOR X6b",
+      phone: "Android phone",
       phoneOnline: true,
     });
     const onLine = (await on.textContent("#phone-ts-peer-ready")).replace(/\s+/g, " ").trim();
@@ -1563,8 +1563,8 @@ async function openSheet(browser, theme, preset) {
           // Tailscale-only node was hidden and every home-only node shown.
           const page = await openSheet(browser, theme, Object.assign({ phoneTailnet: {
           state: "ready",
-          name: "mm1.tail770f6e.ts.net",
-          origin: "https://mm1.tail770f6e.ts.net:8443",
+          name: "mm1.tail1a2b3c.ts.net",
+          origin: "https://mm1.tail1a2b3c.ts.net:8443",
           account: "Google as someone@gmail.com",
         } }, preset));
           await page.waitForSelector("#phone-pairing:not([hidden])");

@@ -184,7 +184,7 @@ extension Courier {
                 do {
                     let answer = try await api.signed("POST", target, body: bytes, contentType: file.mediaType)
                     guard (200..<300).contains(answer.status) else {
-                        return result(ClientAction.classify(answer, attempt: attempt), APIClient.classify(answer).reason.rawValue)
+                        return result(ClientAction.classify(answer, attempt: attempt), Courier.reason(for: answer))
                     }
                 } catch {
                     return result(ClientAction.transportFailed(attempt: attempt), (error as? APIError)?.reason.rawValue ?? APIError.Reason.unreachable.rawValue)
