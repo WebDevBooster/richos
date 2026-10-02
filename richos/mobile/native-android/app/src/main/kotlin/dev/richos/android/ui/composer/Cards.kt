@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.richos.android.design.ButtonKind
+import dev.richos.android.design.GuardedText
+import dev.richos.android.design.edgeGuardBlock
 import dev.richos.android.design.Rich
 import dev.richos.android.design.RichButton
 import dev.richos.android.design.RichIcons
@@ -76,9 +78,9 @@ fun ComposerCardFrame(
     ) {
         Row(verticalAlignment = Alignment.Top) {
             leading?.invoke()
-            BasicText(title, style = t.bodyStrong.copy(color = c.ink), modifier = Modifier.semantics { heading() })
+            GuardedText(title, style = t.bodyStrong.copy(color = c.ink), modifier = Modifier.semantics { heading() })
         }
-        if (body != null) BasicText(body, style = t.read.copy(color = c.inkSoft), modifier = Modifier.padding(top = 3.dp))
+        if (body != null) GuardedText(body, style = t.read.copy(color = c.inkSoft), modifier = Modifier.padding(top = 3.dp))
         extra()
         FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { actions() }
     }
@@ -135,7 +137,7 @@ fun RecoveryCard(kept: KeptRecording, onEvent: (UiEvent) -> Unit) {
     ComposerCardFrame(
         title, body,
         extra = {
-            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.padding(top = 4.dp).edgeGuardBlock(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PlayButton(kept.playing, if (kept.playing) "Stop the unsent voice message" else "Play the unsent voice message, ${TimeLabels.duration(kept.durationMs)}", { onEvent(UiEvent.RecordingPlay) }, size = 40.dp)
                 Waveform(Waves.forSeed(11, 30), 0f, Modifier.weight(1f).height(28.dp), barMax = 20f, barMin = 3f)
                 BasicText(TimeLabels.duration(kept.durationMs), style = t.read.copy(color = c.ink, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"))
@@ -159,7 +161,7 @@ fun InlineNoticeView(notice: InlineNotice) {
         is InlineNotice.AttachLimit -> "Up to ${notice.max} at a time. Send these, then add more."
     }
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        BasicText(
+        GuardedText(
             text,
             style = t.read.copy(color = c.ink, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
             modifier = Modifier.cardIn()
