@@ -71,7 +71,8 @@ const haveWhisper = have('whisper-cli', ['--help']) || fs.existsSync(path.join(H
 function resolveModel() {
   const cands = [
     process.env.RICHOS_WHISPER_MODEL,
-    path.join(os.homedir(), 'Models', 'Whisper', 'ggml-large-v3-turbo.bin'),
+    // The host pins the default tier's weights (large-v3-turbo-q5_0) and refuses any other file.
+    path.join(os.homedir(), 'Models', 'Whisper', 'ggml-large-v3-turbo-q5_0.bin'),
   ].filter(Boolean);
   return cands.find((p) => fs.existsSync(p));
 }
