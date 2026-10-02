@@ -62,7 +62,8 @@
 #           a reused build trusted only against its stamp, no lock without a
 #           person to open it, a bounded log capture kept on the SSD; I35-I36 a
 #           list the XCUITest allowance cannot hold is refused before the phone
-#           is touched (later shots would be lost); I17-I18
+#           is touched (later shots would be lost); I37 a reused build is the
+#           products its stamp names (a shared-store entry included); I17-I18
 #           pair-steps for pairing v2 waits for each word and holds before the press;
 #           I19-I23 appearance and orientation steps, summary of a finished run;
 #           I24-I26 the phone runner's step dispatcher (PhysicalDeviceTests.perform)
@@ -996,6 +997,20 @@ mkdir -p "$TMP/Fake.app" && printf 'bytes' > "$TMP/Fake.app/RichOSNative"
 printf '{"artifact":"%s","sha256":"0000000000000000","commit":"abc","dirty":false}' "$TMP/Fake.app" > "$TMP/fake-stamp.json"
 run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt --stamp "$TMP/fake-stamp.json"
 expect "I11 a reused app whose bytes differ from its stamp is refused: identity or refuse" 2 "freshness mismatch"
+
+mkdir -p "$TMP/Store/Products/Release-iphoneos/RichOSNative.app" && printf 'bytes' > "$TMP/Store/Products/Release-iphoneos/RichOSNative.app/RichOSNative"
+run python3 - "$QA/phone-ios.py" "$TMP/Store/Products/Release-iphoneos/RichOSNative.app" "$TMP/store-stamp.json" <<'PY'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("phone_ios", sys.argv[1])
+tool = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tool)
+sys.path.insert(0, str(tool.ROOT / "richos/mobile/perf"))
+import perfcore
+with open(sys.argv[3], "w") as f:
+    json.dump({"artifact": sys.argv[2], "sha256": perfcore.tree_sha256(sys.argv[2]), "commit": "abc", "dirty": False}, f)
+print(json.dumps(tool.stamped_identity(sys.argv[3])))
+PY
+expect "I37 a reused build hands the phone the products its stamp names (a store entry's stamp names the store)" 0 "\"products\": \"$(cd "$TMP/Store/Products" && pwd -P)\""
 
 printf '%s' '[{"do":"launch"},{"do":"lock"}]' > "$TMP/ios-lock.json"
 run python3 "$QA/phone-ios.py" check "$TMP/ios-lock.json"

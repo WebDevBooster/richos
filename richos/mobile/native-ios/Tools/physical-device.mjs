@@ -155,14 +155,28 @@ export function prune(store, keep, now = Date.now()) {
   return removed;
 }
 
+// The products a prebuilt run hands the phone. `phone-ios.py run --prebuilt --stamp` names the
+// Build/Products directory of the app it checked against its stamp (RICHOS_PHYSICAL_PRODUCTS), so the
+// phone gets exactly those bytes: this checkout's own earlier build, or a shared-store entry such as
+// the one a measured Release build came from. Without the name, this checkout's own build.
+export function prebuiltProducts(env, own) {
+  const named = env.RICHOS_PHYSICAL_PRODUCTS;
+  if (!named) return own;
+  for (const rel of [APP, RUNNER]) {
+    if (!existsSync(join(named, rel))) throw Error(`RICHOS_PHYSICAL_PRODUCTS ${named} has no ${rel}`);
+  }
+  return named;
+}
+
 // Products for this run, and how they were obtained. `deps` are the side effects (git, Xcode, the
 // build itself, hashing, copying), injected so the decision is provable without a phone.
 export async function resolveProducts({ command, env, team, derived, store }, deps) {
   const source = deps.source();
   const own = join(derived, 'Build/Products');
   if (prebuilt(env, command)) {
-    if (!existsSync(join(own, APP))) throw Error('RICHOS_PHYSICAL_PREBUILT=1 but there is no earlier build to reuse; run once without it');
-    return { mode: 'checkout', products: own };
+    const products = prebuiltProducts(env, own);
+    if (!existsSync(join(products, APP))) throw Error('RICHOS_PHYSICAL_PREBUILT=1 but there is no earlier build to reuse; run once without it');
+    return { mode: 'checkout', products };
   }
   const key = source.dirty ? null : storeKey({ tree: source.tree, team, xcode: deps.xcode() });
   const entry = key ? stored(store, key, deps.hash) : null;
@@ -197,6 +211,9 @@ export async function main(args, env = process.env) {
   if (!realpathSync(cache).startsWith('/Volumes/E1TB/')) throw Error('Physical cache must remain on the external SSD');
   const store = env.RICHOS_PHYSICAL_STORE || DEFAULT_STORE;
   if (!resolve(store).startsWith('/Volumes/E1TB/')) throw Error('RICHOS_PHYSICAL_STORE must be on /Volumes/E1TB');
+  if (env.RICHOS_PHYSICAL_PRODUCTS && !resolve(env.RICHOS_PHYSICAL_PRODUCTS).startsWith('/Volumes/E1TB/')) {
+    throw Error('RICHOS_PHYSICAL_PRODUCTS must be on /Volumes/E1TB');
+  }
   let config;
   if (command === 'verify') {
     const file = env.RICHOS_MOBILE_TEST_CONFIG;

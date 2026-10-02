@@ -12,6 +12,7 @@ import Glibc
 #endif
 import RichOSCore
 import RichOSFixtures
+import RichOSPerfSeed
 
 let usage = """
 RichOS native iPhone development loop (JSON output; nonzero exit on failure)
@@ -37,6 +38,10 @@ RichOS native iPhone development loop (JSON output; nonzero exit on failure)
   bin/rios sim doctor                 tool versions and the cache path
   bin/rios sim state|reset|fixture|action|scenario   the headless commands, inside the Debug app
   bin/rios test [swift test arguments]      the core's unit tests on this Mac, no simulator
+  bin/rios perf-seed FIXTURE_DIR SHA256 OUT_DIR   Android's start-time fixture (perf/condition.py) as
+                                      this app's saved state, written through the core and read back;
+                                      `perf.py ios` copies OUT_DIR into the installed app (perf/README.md)
+  bin/rios screen-text PNG            the text on a screenshot (Vision), one line per entry
 Headless commands share one session under the external cache. `sim` uses only the simulator this
 command created (recorded in the cache); it never addresses "booted".
 RICHOS_NATIVE_IOS_CACHE overrides the per-checkout cache, on /Volumes/E1TB only.
@@ -147,6 +152,19 @@ func run() async -> Int32 {
                 return try await CommandRunner.execute(try payload(command, args.count > 2 ? args[2] : nil), on: host)
             }
             emit(Output(mode: mode, command: command, elapsedMs: elapsedMs(), result: result), to: .standardOutput)
+        case "perf-seed":
+            guard args.count == 4 else { throw CoreError("perf-seed FIXTURE_DIR SHA256 OUT_DIR") }
+            let report = try await PerfSeed.write(fixtureDirectory: URL(fileURLWithPath: args[1]), expectedSHA256: args[2],
+                                                  into: URL(fileURLWithPath: args[3]))
+            emit(Output(mode: mode, command: mode, elapsedMs: elapsedMs(), result: report), to: .standardOutput)
+        case "screen-text":
+            #if os(macOS)
+            guard args.count == 2 else { throw CoreError("screen-text PNG") }
+            let lines = try ScreenText.read(URL(fileURLWithPath: args[1]))
+            emit(Output(mode: mode, command: mode, elapsedMs: elapsedMs(), result: ["lines": lines]), to: .standardOutput)
+            #else
+            throw CoreError("screen-text runs on macOS only")
+            #endif
         case "sim":
             #if os(macOS)
             let cache = try cacheDirectory()
