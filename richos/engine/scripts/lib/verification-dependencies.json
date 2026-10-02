@@ -11769,14 +11769,14 @@
     },
     "scripts/ledger-prune-sandbox.py": {
       "source": "scripts/ledger-prune-sandbox.py",
-      "sha256": "6eae706be128d9c1f12f1af5de9f1fdbdaeae86507e862727ef4efd2310e0860",
+      "sha256": "2884e394ff455b4616ff15f26441527c5ee3e24b4f3d37bd8d2642687133e01b",
       "evidence": "Reviewed all CLI/predicate/apply paths: reads the supplied ledger as JSON, stats named paths, preserves bytes and writes backups/replacement. Standard library only, no subprocess or configuration reader. Data paths are never executed.",
       "keys": [],
       "edges": []
     },
     "scripts/ledger-prune-sandbox.test.sh": {
       "source": "scripts/ledger-prune-sandbox.test.sh",
-      "sha256": "ad564cbb9337b10c594e822f768e6d7ac3ffd5ff9dbaf69c5cbec4f5c07cdee3",
+      "sha256": "6aabeb747dbcdb0f8d39083d4770a0e672f64941830f7efebb74bdecabe3603b",
       "evidence": "Uses explicit private ledger and backup paths. Invokes only the pruner; fixed inline Python creates a unique absent-path string. Runtime path-existence and clock inputs are distinct from orchestration config values.",
       "keys": [],
       "edges": [
