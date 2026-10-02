@@ -18,6 +18,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -308,8 +310,9 @@ private fun DeliveryGlyph(delivery: Delivery, tint: androidx.compose.ui.graphics
 private fun AttentionLine(message: Message, onEvent: (UiEvent) -> Unit) {
     val c = Rich.colors
     val t = Rich.type
+    Column(Modifier.padding(top = 6.dp), horizontalAlignment = Alignment.End) {
     FlowRow(
-        Modifier.padding(top = 6.dp),
+        Modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
         verticalArrangement = Arrangement.Center,
     ) {
@@ -343,6 +346,15 @@ private fun AttentionLine(message: Message, onEvent: (UiEvent) -> Unit) {
                 .semantics { contentDescription = "Discard this unsent message" }
                 .signalUnderline(),
         )
+    }
+    // Why the Mac refused it, in its own words (iPhone parity `7faec1fda`); nothing for a bare code.
+    message.refusal?.let { reason ->
+        BasicText(
+            reason,
+            style = t.read.copy(color = c.ink, textAlign = TextAlign.End),
+            modifier = Modifier.padding(top = 4.dp).testTag("reason:${message.id}"),
+        )
+    }
     }
 }
 
