@@ -71,6 +71,7 @@ Exit: 0 nothing written from scratch; 1 at least one, listed; 2 it cannot
 answer (no such transcript, unreadable, not a transcript) — never a silent 0.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -148,7 +149,10 @@ def scan(path):
                 continue
             if not isinstance(row, dict):
                 continue
-            parsed += 1
+            # Hunt P5-29: only a row with a transcript "type" counts as recognized, so a
+            # file of `{}` and noise is "not a transcript", never a confident zero.
+            if "type" in row:
+                parsed += 1
             if row.get("type") != "assistant":
                 continue
             for b in _blocks(row):
@@ -159,7 +163,10 @@ def scan(path):
                 if name == "Write":
                     p = str(ti.get("file_path") or "")
                     if p.endswith(SCRIPT_SUFFIXES):
-                        events.append({"path": p, "how": "Write", "row": rows})
+                        body = ti.get("content")
+                        sig = hashlib.sha1(body.encode("utf-8", "replace")).hexdigest() \
+                            if isinstance(body, str) else None
+                        events.append({"path": p, "how": "Write", "row": rows, "sig": sig})
                 elif name == "Bash":
                     for p in _bash_targets(str(ti.get("command") or "")):
                         events.append({"path": p, "how": "Bash", "row": rows})
@@ -177,7 +184,6 @@ def classify(events):
     copy rather than counted again."""
     tail = _toolkit_tail()
     scripts = []
-    by_base = {}
     toolkit = []
     for ev in events:
         p = ev["path"]
@@ -189,11 +195,17 @@ def classify(events):
             else:
                 toolkit.append({"path": p, "basename": base, "events": 1, "row": ev["row"]})
             continue
-        rec = by_base.get(base)
+        # Hunt P5-30: a same-named script is a copy only when its content is not known to
+        # differ; two Writes of different content are two scripts.
+        sig = ev.get("sig")
+        rec = next((r for r in scripts if r["basename"] == base
+                    and (sig is None or r["sig"] is None or sig == r["sig"])), None)
         if rec is None:
-            rec = {"basename": base, "path": p, "events": 0, "rows": [], "copies": []}
-            by_base[base] = rec
+            rec = {"basename": base, "path": p, "events": 0, "rows": [], "copies": [],
+                   "sig": sig}
             scripts.append(rec)
+        elif rec["sig"] is None:
+            rec["sig"] = sig
         rec["events"] += 1
         rec["rows"].append(ev["row"])
         if p != rec["path"] and p not in rec["copies"]:

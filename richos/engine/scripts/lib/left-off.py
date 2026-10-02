@@ -641,6 +641,17 @@ def reflog_entries(repo, branch, limit=400):
     return rows
 
 
+def names_ref(name, text):
+    """True when `name` appears in `text` as a whole branch name.
+
+    Hunt P5-58: substring containment credited cc/mark-opus-f10's landing to
+    cc/mark-opus-f1. A match must not be flanked by a character that continues
+    a branch name."""
+    if not name:
+        return False
+    return re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(name), text) is not None
+
+
 def landing_verdict(repos_info, name, as_of=None, workspaces=None):
     """Where a teammate's work ended up, from git and nothing else.
 
@@ -664,7 +675,7 @@ def landing_verdict(repos_info, name, as_of=None, workspaces=None):
             continue
         claim = (" [registry claims %s]" % work["claimed"]) if work.get("claimed") else ""
         for sha, when, message in info["reflog"]:
-            if branch not in message:
+            if not names_ref(branch, message):
                 continue
             if as_of is not None and when is not None and when > as_of:
                 continue
@@ -695,7 +706,7 @@ def landing_verdict(repos_info, name, as_of=None, workspaces=None):
 
     for repo, info in repos_info.items():
         for sha, when, message in info["reflog"]:
-            if name not in message:
+            if not names_ref(name, message):
                 continue
             if as_of is not None and when is not None and when > as_of:
                 continue
@@ -714,7 +725,7 @@ def landing_verdict(repos_info, name, as_of=None, workspaces=None):
     # No reflog trace. Is the branch still sitting there?
     for repo, info in repos_info.items():
         for branch in info["branches"]:
-            if name not in branch:
+            if not names_ref(name, branch):
                 continue
             tip = info["branch"]
             anc = git_ok(repo, ["merge-base", "--is-ancestor", branch, tip])
@@ -990,10 +1001,10 @@ def _render(result, sitting_n, commits_n, reply_n):
         add("records the last observed event, not the outcome — failure type 61.")
         add("")
         add("    %9s  %-22s  %-10s  %s" % ("tokens", "teammate", "outcome", "job"))
-        total = 0
+        # Hunt P5-59: the total covers every job, not just the displayed rows.
+        total = sum(j.get("tokens") or 0 for j in jobs)
         for job in jobs[:MAX_JOBS]:
             tokens = job.get("tokens")
-            total += tokens or 0
             add("    %9s  %-22s  %-10s  %s" % (
                 "{:,}".format(tokens) if tokens else
                 ("no notice" if job["no_completion_notice"] else "-"),

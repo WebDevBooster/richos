@@ -4632,7 +4632,7 @@
     },
     "scripts/lib/left-off.py#human-classifier": {
       "source": "scripts/lib/left-off.py",
-      "sha256": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
+      "sha256": "d68bc6626419957868a39f4967476af07eb31ba869e5fe87a91c8d3a2a7762b4",
       "evidence": "Import only installs constants/functions. Failure-type calls is_human and text_of plus reads MACHINE_ENVELOPES. Both functions classify supplied record values without files, commands or config. Other report/CLI helpers are not invoked.",
       "keys": [],
       "edges": []
@@ -7998,7 +7998,7 @@
     },
     "scripts/lib/left-off.py": {
       "source": "scripts/lib/left-off.py",
-      "sha256": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
+      "sha256": "d68bc6626419957868a39f4967476af07eb31ba869e5fe87a91c8d3a2a7762b4",
       "evidence": "Reviewed CLI/build, all file reads, subprocess sites and dynamic sibling calls. Transcript/prompt/state fields are data; Git calls are fixed read-only queries. Finite sibling imports read workspace mapping/integration, unlanded repository discovery and escalation rows. Wall clock, Git refs/reflogs and external ledger content remain execution inputs, not config readers.",
       "keys": [],
       "edges": [
@@ -8403,7 +8403,7 @@
     },
     "scripts/lib/qa-throwaways.py#scan-classify": {
       "source": "scripts/lib/qa-throwaways.py",
-      "sha256": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+      "sha256": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
       "evidence": "Reviewed module import and scan/classify closure. Transcript records and embedded shell commands are parsed as data; only the supplied transcript is opened. Toolkit suffix comes from QA_TOOLKIT_DIR environment or literal default, not a config file.",
       "keys": [
         "QA_TOOLKIT_DIR"
@@ -11805,7 +11805,7 @@
     },
     "scripts/lib/qa-throwaways.py": {
       "source": "scripts/lib/qa-throwaways.py",
-      "sha256": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+      "sha256": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
       "evidence": "Reviewed full CLI, transcript scan, classification and reporting. Embedded shell commands remain JSON string data. QA_TOOLKIT_DIR is the only config-named environment input and remains declared.",
       "keys": [
         "QA_TOOLKIT_DIR"
@@ -13044,7 +13044,7 @@
     },
     "scripts/handoff-facts.py": {
       "source": "scripts/handoff-facts.py",
-      "sha256": "0f7c56cccef2adbe94b52adefcc90b82c9c4c263acc494f4417c54f5876b51df",
+      "sha256": "dd88341da8695bdae8d8d15f7fa47d55cd351a19a1defd11fb059b2e41389d8b",
       "evidence": "Measures note claims with native Git/docker, the escalation parser and optional real agent-liveness. Notes and command renderings are data, never evaluated. No orchestration value reads; liveness retains adoption-presence checks.",
       "keys": [],
       "edges": [
@@ -16179,7 +16179,7 @@
         "scripts/lib/operator_fences_admin.py": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+        "scripts/lib/qa-throwaways.py": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
@@ -16224,7 +16224,7 @@
         "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
         "scripts/lib/failure-type.py": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
-        "scripts/lib/left-off.py": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
+        "scripts/lib/left-off.py": "d68bc6626419957868a39f4967476af07eb31ba869e5fe87a91c8d3a2a7762b4",
         "scripts/hooks/failure-type.test.sh": "59a268fcbfbe1b56b60e69d59753352931ab690010a7a97041345639881d6459",
         "scripts/hooks/failure-type.mutation.sh": "b9bc6705e29fd7b055c3c94e90aaceb978c404693e22ed4888bf3bc20134122f",
         "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
@@ -16877,7 +16877,7 @@
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
         "scripts/lib/failure-type.py": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
-        "scripts/lib/left-off.py": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
+        "scripts/lib/left-off.py": "d68bc6626419957868a39f4967476af07eb31ba869e5fe87a91c8d3a2a7762b4",
         "scripts/hooks/failure-type.test.sh": "59a268fcbfbe1b56b60e69d59753352931ab690010a7a97041345639881d6459",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
         "scripts/hooks/failure-type.mutation.sh": "b9bc6705e29fd7b055c3c94e90aaceb978c404693e22ed4888bf3bc20134122f",
@@ -17133,7 +17133,7 @@
         "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+        "scripts/lib/qa-throwaways.py": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
@@ -17172,7 +17172,7 @@
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
-        "scripts/lib/qa-throwaways.py": "1c355bbfaa5bb464c020d4743bf842b8fbbe5a7265caa6ffb2200523064ef9b6",
+        "scripts/lib/qa-throwaways.py": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
