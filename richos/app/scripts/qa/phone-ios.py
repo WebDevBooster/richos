@@ -16,9 +16,10 @@
                                                    the one signed build of that source tree is reused
                                                    from the shared store automatically (see
                                                    physical-device.mjs), so a walk starts in seconds;
-                                                   --prebuilt reuses THIS checkout's earlier products
-                                                   and refuses unless the app still hashes to
-                                                   STAMP.json (perf.py stamp)
+                                                   --prebuilt reuses the products the stamp names
+                                                   (this checkout's earlier build, or a shared-store
+                                                   entry's stamp.json) and refuses unless the app
+                                                   still hashes to STAMP.json (perf.py stamp)
     phone-ios.py approval --device UDID            will the next run ask the phone's owner to approve
                                                    UI automation? Asks nothing of the phone's screen.
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
@@ -387,7 +388,11 @@ def stamped_identity(stamp_path):
     if actual != stamp.get("sha256") or stamp.get("dirty"):
         raise CannotAnswer(f"freshness mismatch: {artifact} hashes {actual[:12]}…, the stamp says "
                            f"{str(stamp.get('sha256'))[:12]}… (dirty={stamp.get('dirty')})")
-    return {"artifact": artifact, "sha256": actual, "commit": stamp.get("commit")}
+    # The Build/Products directory holding the stamped app (.../Products/Release-iphoneos/RichOSNative.app):
+    # the run hands the phone these products and no others (physical-device.mjs prebuiltProducts),
+    # whether they are this checkout's earlier build or a shared-store entry a measured build came from.
+    products = os.path.dirname(os.path.dirname(os.path.realpath(artifact)))
+    return {"artifact": artifact, "sha256": actual, "commit": stamp.get("commit"), "products": products}
 
 
 SESSION_LOGS = "/Volumes/E1TB/caches/richos-native-ios/*/physical/*-test.log"
@@ -703,6 +708,7 @@ def run(args):
     env = {**os.environ, "RICHOS_MOBILE_TEST_CONFIG": str(config)}
     if args.prebuilt:
         env["RICHOS_PHYSICAL_PREBUILT"] = "1"
+        env["RICHOS_PHYSICAL_PRODUCTS"] = identity["products"]
         (out / "identity.json").write_text(json.dumps(identity, indent=1))
     p = subprocess.run([str(RIOS), "device", "verify", "script"], capture_output=True, text=True, env=env)
     config.unlink(missing_ok=True)
