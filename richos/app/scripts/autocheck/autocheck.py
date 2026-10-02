@@ -1348,7 +1348,7 @@ def pre_push(repo, stdin_text):
 # After the fact: what --no-verify skipped is recorded where the lead sees it
 # ---------------------------------------------------------------------------------------
 
-def record_skip(repo, title, question):
+def record_skip(repo, title, question, tried=None, meanwhile=None):
     repo.state.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     with open(repo.state / "bypass.log", "a") as log:
@@ -1356,8 +1356,8 @@ def record_skip(repo, title, question):
     local = repo.top / ENGINE_ESCALATE
     tool = local if local.is_file() else Path.home() / ".claude/richos-engine/scripts/escalate.sh"
     fields = dict(title=title, state="work-complete", question=question,
-                  tried="The automatic commit and land checks (richos/app/scripts/autocheck) did not run for this change.",
-                  meanwhile="The commit exists; the land check will still run if it is merged into main.")
+                  tried=tried or "The automatic commit and land checks (richos/app/scripts/autocheck) did not run for this change.",
+                  meanwhile=meanwhile or "The commit exists; the land check will still run if it is merged into main.")
     with tempfile.NamedTemporaryFile("w", prefix="autocheck-skip-", suffix=".json", delete=False) as f:
         json.dump(fields, f)
         path = f.name
@@ -1386,6 +1386,38 @@ def existed_before(repo, revs):
     return any(git("cat-file", "-e", f"{rev}:{SELF}", check=False, cwd=repo.top).returncode == 0 for rev in revs)
 
 
+PHONE_WATCH = "richos/mobile/perf/watch.py"
+
+
+def phone_watch(repo, old, new):
+    """Main moved from `old` to `new`: hand it to the phone speed watch (CEO 2026-10-01: the mobile
+    apps' start times are checked by the system after every mobile change, never by him). watch.py
+    decides everything: it acts only in the operator's main checkout, reports missed runs, and starts
+    a detached run on the phones only when old..new touches richos/mobile/. It returns at once; the
+    land never waits for a phone. A trigger that cannot run is recorded for the lead."""
+    script = repo.top / PHONE_WATCH
+    if not old or not script.is_file():
+        return
+    env = {k: v for k, v in repo.env.items() if not k.startswith("GIT_")}
+    env.pop(ACTIVE, None)
+    try:
+        result = subprocess.run([sys.executable, str(script), "trigger", "--repo", str(repo.top), "--from", old,
+                                 "--to", new], cwd=repo.top, env=env, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result = None
+        detail = str(exc)
+    else:
+        detail = (result.stdout + result.stderr).strip()
+        for line in detail.splitlines()[-4:]:
+            say(line)
+    if result is None or result.returncode:
+        record_skip(repo, f"the phone speed watch did not run for main {new[:12]}",
+                    f"{PHONE_WATCH} trigger failed ({detail[-300:]}). Was the phone speed check of this land run?",
+                    tried=f"autocheck's hook on main ran {PHONE_WATCH} trigger.",
+                    meanwhile="The land is complete; its phone speed check did not start.")
+
+
 def post_commit(repo):
     head = git("rev-parse", "HEAD", cwd=repo.top)
     tree = repo.head_tree()
@@ -1393,6 +1425,8 @@ def post_commit(repo):
     if not existed_before(repo, ["HEAD^1"]):
         return 0
     if repo.branch == LAND_BRANCH:
+        parent = git("rev-parse", "-q", "--verify", "HEAD^1", check=False, cwd=repo.top).stdout.strip()
+        phone_watch(repo, parent, head)
         if not repo.land_receipt(tree).exists():
             how = action or "git commit --no-verify"
             record_skip(repo, f"main moved to {head[:12]} without the land checks ({how})",
@@ -1441,6 +1475,8 @@ def post_merge(repo, squash):
         return 0
     merged = made_a_merge_commit(repo, parents)
     if repo.branch == LAND_BRANCH:
+        orig = git("rev-parse", "-q", "--verify", "ORIG_HEAD", check=False, cwd=repo.top).stdout.strip()
+        phone_watch(repo, orig, head)
         if not repo.land_receipt(tree).exists():
             how = "git merge --no-verify" if merged else "a fast-forward"
             record_skip(repo, f"main moved to {head[:12]} without the land checks ({how})",
