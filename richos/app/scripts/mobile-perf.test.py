@@ -28,6 +28,8 @@ import perf  # noqa: E402
 import perfcore  # noqa: E402
 
 failures = []
+# Library/Application Support: the state directory's parent, through which the state is written.
+STATE_PARENT = os.path.dirname(ios.STATE_DIR)
 
 
 def case(name):
@@ -2012,9 +2014,21 @@ class FakePhone:
     --remove-existing-content true becomes exactly the source); the app runs or not, and a write to its
     state while it runs is refused, as a running app would write over it."""
 
-    def __init__(self, tmp, screen_ok=True, corrupt_seed=False, fail_restore=False, approval=False, no_state=False):
+    def __init__(self, tmp, screen_ok=True, corrupt_seed=False, fail_restore=False, approval=False, no_state=False,
+                 root_owned_state=False, all_root=False, parent_extra=False):
         self.container = os.path.join(tmp, "phone-container")
         self.state = os.path.join(self.container, ios.STATE_DIR)
+        # Ownership as measured on the test iPhone (2026-10-02): the directory a `copy to` names as its
+        # destination is root's (uid 0, 0755); everything created inside the copied tree is the app's
+        # (uid 501). `root_owned_state`: the phone as the old seeding left it; `all_root`: a devicectl
+        # that leaves everything root's, which the owner check must refuse.
+        self.root_owned = {STATE_PARENT}
+        if root_owned_state:
+            self.root_owned.add(ios.STATE_DIR)
+        self.all_root = all_root
+        os.makedirs(os.path.join(self.container, "Library"), exist_ok=True)
+        if parent_extra:
+            os.makedirs(os.path.join(self.container, STATE_PARENT, "SomethingElse"))
         if not no_state:
             os.makedirs(os.path.join(self.state, "Attachments"))  # empty: it must come back too
             os.makedirs(os.path.join(self.state, "Recordings"))
@@ -2050,6 +2064,18 @@ class FakePhone:
         if cmd[:5] == ["xcrun", "devicectl", "device", "process", "terminate"]:
             self.running = False
             return ok()
+        if cmd[:5] == ["xcrun", "devicectl", "device", "info", "files"]:
+            assert arg("--domain-type") == "appDataContainer" and arg("--domain-identifier") == ios.BUNDLE, cmd
+            files = []
+            for here, dirs, names in os.walk(self.container):
+                for name in dirs + names:
+                    rel = os.path.relpath(os.path.join(here, name), self.container)
+                    uid = 0 if (self.all_root and rel.startswith(STATE_PARENT)) or rel in self.root_owned else 501
+                    files.append({"relativePath": rel, "metadata": {"ownerUid": uid,
+                                                                    "permissions": 0o755 if name in dirs else 0o644}})
+            with open(arg("--json-output"), "w") as f:
+                json.dump({"result": {"files": files}}, f)
+            return ok()
         if cmd[:4] == ["xcrun", "devicectl", "device", "copy"]:
             assert arg("--domain-type") == "appDataContainer" and arg("--domain-identifier") == ios.BUNDLE, cmd
             if cmd[4] == "from":
@@ -2059,14 +2085,18 @@ class FakePhone:
                 import shutil
                 shutil.copytree(self.state, arg("--destination"))
                 return ok()
-            assert arg("--destination") == ios.STATE_DIR and arg("--remove-existing-content") == "true", cmd
+            dest = arg("--destination")
+            assert dest in (STATE_PARENT, ios.STATE_DIR) and arg("--remove-existing-content") == "true", cmd
             assert not self.running, "the app's state was written while the app was running"
             self.puts += 1
             if self.fail_restore and self.puts >= 2:
                 return subprocess.CompletedProcess(cmd, 1, "", "ERROR: the device went away")
             import shutil
-            shutil.rmtree(self.state, ignore_errors=True)
-            shutil.copytree(arg("--source"), self.state)
+            target = os.path.join(self.container, dest)
+            shutil.rmtree(target, ignore_errors=True)
+            shutil.copytree(arg("--source"), target)
+            # the destination is root's, everything inside the copied tree the app's
+            self.root_owned = {p for p in self.root_owned if not p.startswith(dest + "/")} | {dest}
             if self.corrupt_seed and self.puts == 1:
                 with open(os.path.join(self.state, "history.json"), "ab") as f:
                     f.write(b" ")
@@ -2175,6 +2205,9 @@ def _():
         assert set(record["metrics"]) == {"coldLaunch", "warmResume"}
         assert phone.now() == before, phone.now()  # the phone's own state, empty directory and recording included
         assert len(phone.copies_to()) == 2  # the seed, then the restore: nothing else was written
+        # both written through the parent, so the state directory is the app's own and it can save
+        assert all(c[c.index("--destination") + 1] == STATE_PARENT for c in phone.copies_to()), phone.copies_to()
+        assert ios.STATE_DIR not in phone.root_owned, phone.root_owned
         # the phone's own conversation does not stay on the Mac once it is back; its manifest does
         (seed_dir,) = [d for d in os.listdir(os.path.join(tmp, "evidence")) if d.startswith("ios-seed-")]
         backup = os.path.join(tmp, "evidence", seed_dir, "backup")
@@ -2256,6 +2289,41 @@ def _():
             assert not phone.copies_to() and phone.now() == before, (name, phone.calls)
             leftovers = [d for d in os.listdir(os.path.join(tmp, name, "evidence"))] if os.path.isdir(os.path.join(tmp, name, "evidence")) else []
             assert leftovers == [], (name, leftovers)  # no partial copy of anything stays on the Mac
+
+
+@case("C17 iPhone ownership: the seed and the restore leave the state directory the app's own, and give it back to "
+      "a phone the old seeding left root-owned; a write that leaves it root's is refused even though its bytes read "
+      "back right (the 2026-10-02 benchmark's save-failure banner); a parent holding anything else is never written")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        phone = FakePhone(tmp + "/broken", root_owned_state=True)  # as the 2026-10-02 runs left the test iPhone
+        before = phone.now()
+        record, failed, _ = run_phone(phone, tmp + "/broken")
+        assert not failed and record["conditions"]["savedStateRestored"] is True, record["notMeasured"]
+        assert phone.now() == before and ios.STATE_DIR not in phone.root_owned, phone.root_owned
+    with tempfile.TemporaryDirectory() as tmp:
+        phone = FakePhone(tmp, all_root=True)  # bytes right, owner wrong
+        before = phone.now()
+        record, failed, seen = run_phone(phone, tmp)
+        assert failed and "could not save into its state directory" in record["phases"]["seed"], record["phases"]
+        assert not seen and "coldLaunch" not in record["metrics"]  # nothing measured on a state the app cannot save
+        assert record["conditions"]["savedStateRestored"] is False and phone.now() == before
+        assert any("ios-restore" in n["why"] for n in record["notMeasured"]), record["notMeasured"]
+    with tempfile.TemporaryDirectory() as tmp:
+        phone = FakePhone(tmp, parent_extra=True)
+        before = phone.now()
+        record, failed, seen = run_phone(phone, tmp)
+        assert failed and "holds more than RichOS" in record["phases"]["seed"] and not phone.copies_to(), record["phases"]
+        assert phone.now() == before and not seen
+    state = ios.DeviceState(types.SimpleNamespace(target="x", pid=lambda: None))
+    listing = {"Library": (501, 0o755), STATE_PARENT: (0, 0o755), ios.STATE_DIR: (0, 0o755),
+               ios.STATE_DIR + "/state.json": (501, 0o644)}
+    said = raises(perfcore.Unmeasurable, state.check_owner, listing)
+    assert "uid 501" in said and ios.STATE_DIR + " (uid 0" in said, said
+    listing[ios.STATE_DIR] = (501, 0o555)  # the app's, but not writable by it
+    assert "mode 0o555" in raises(perfcore.Unmeasurable, state.check_owner, listing)
+    listing[ios.STATE_DIR] = (501, 0o755)
+    assert state.check_owner(listing) == 501
 
 
 def timing_line(e, pid, wall_s, **extra):

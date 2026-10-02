@@ -791,6 +791,7 @@ def _reparsed(args, record, runner):
 RIOS = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "native-ios", "bin", "rios"))
 # LocalOnlyStorage.appRoot (native-ios/App/Platform/Shared/PlatformIdentity.swift) inside the data container.
 STATE_DIR = os.path.join("Library", "Application Support", "RichOS")
+STATE_PARENT = os.path.dirname(STATE_DIR)
 # EffectRunner.stateKey and historyKey: the files the seeding replaces, and restores afterwards.
 STATE_FILES = ("history.json", "state.json")
 SCREEN_SETTLE_S = 3.0
@@ -982,7 +983,16 @@ class DeviceState:
     domain (2026-10-02): `copy to` a directory with --remove-existing-content true leaves exactly the
     source there, empty directories and modification times included; `copy from` a directory gives
     it back the same way; an absent source fails with NO_FILE_NODE. The app is terminated before every
-    read and every change, so it never writes over what is put there."""
+    read and every change, so it never writes over what is put there.
+
+    Ownership (measured on the test iPhone, 2026-10-02): the directory a `copy to` names as its
+    destination is left owned by root, mode 0755, while every file and directory created INSIDE the
+    copied tree belongs to the app's user. Written as the destination, RichOS became root's: the app
+    (uid 501) could not create a file in its own state directory, every save failed, and the app showed
+    "This iPhone could not save your latest changes" through the whole 2026-10-02 benchmark and on the
+    phone afterwards, while the byte-for-byte read-back passed. So the state is written into its parent
+    (`Library/Application Support`, which must hold nothing else), RichOS is created inside the copied
+    tree, and every write is checked for owner and permissions as well as bytes."""
 
     def __init__(self, driver, runner=subprocess.run, sleep=time.sleep):
         self.driver, self.target, self.runner, self.sleep = driver, driver.target, runner, sleep
@@ -990,6 +1000,38 @@ class DeviceState:
     def _devicectl(self, *args, timeout=300):
         return self.runner(["xcrun", "devicectl", "device", *args, "--device", self.target, "-q"],
                            capture_output=True, text=True, timeout=timeout)
+
+    def owners(self):
+        """{relative path: (owner uid, mode)} of the app's data container, read with devicectl."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "files.json")
+            p = self._devicectl("info", "files", "--domain-type", "appDataContainer", "--domain-identifier", BUNDLE,
+                                "--json-output", out)
+            try:
+                with open(out) as f:
+                    files = (json.load(f).get("result") or {}).get("files") or []
+            except (OSError, ValueError):
+                raise Unmeasurable(f"devicectl could not list the app's files: {(p.stderr or p.stdout or '').strip()[-300:]}")
+        return {f.get("relativePath"): ((f.get("metadata") or {}).get("ownerUid"), (f.get("metadata") or {}).get("permissions"))
+                for f in files if f.get("relativePath")}
+
+    def check_owner(self, listing=None):
+        """Every entry of the state directory belongs to the app's user (the owner of the container's
+        own Library) and its owner can write it, so the app can save. Returns the app's uid."""
+        listing = self.owners() if listing is None else listing
+        app_uid = (listing.get("Library") or (None, None))[0]
+        if app_uid in (None, 0):
+            raise Unmeasurable(f"the app's container Library has no app owner ({listing.get('Library')}), so the "
+                               "state directory's owner cannot be checked")
+        wrong = sorted(f"{path} (uid {uid}, mode {oct(mode or 0)})" for path, (uid, mode) in listing.items()
+                       if (path == STATE_DIR or path.startswith(STATE_DIR + "/"))
+                       and (uid != app_uid or not (mode or 0) & 0o200))
+        if STATE_DIR not in listing:
+            wrong.insert(0, f"{STATE_DIR} is absent")
+        if wrong:
+            raise Unmeasurable(f"the app (uid {app_uid}) could not save into its state directory: "
+                               + "; ".join(wrong[:5]) + (f"; and {len(wrong) - 5} more" if len(wrong) > 5 else ""))
+        return app_uid
 
     def stop(self):
         """Terminate the app and confirm it is gone."""
@@ -1018,11 +1060,23 @@ class DeviceState:
         return tree_manifest(dest)
 
     def put(self, source, scratch):
-        """Make the state directory exactly `source`, then read it back and compare every file and
-        directory byte for byte. Returns the manifest read back."""
+        """Make the state directory exactly `source`, owned by the app, then read it back and compare
+        every file and directory byte for byte, and check every entry's owner and mode. Returns the
+        manifest read back."""
         self.stop()
-        p = self._devicectl("copy", "to", "--domain-type", "appDataContainer", "--domain-identifier", BUNDLE,
-                            "--source", source, "--destination", STATE_DIR, "--remove-existing-content", "true")
+        others = sorted(path for path in self.owners() if path.startswith(STATE_PARENT + "/")
+                        and path != STATE_DIR and not path.startswith(STATE_DIR + "/"))
+        if others:
+            raise Unmeasurable(f"{STATE_PARENT} holds more than RichOS ({', '.join(others[:3])}); writing the state "
+                               "through it would remove that, so nothing was written")
+        wrapper = tempfile.mkdtemp(prefix="put-", dir=scratch)
+        tree = os.path.join(wrapper, os.path.basename(STATE_PARENT))
+        try:
+            shutil.copytree(source, os.path.join(tree, os.path.basename(STATE_DIR)))
+            p = self._devicectl("copy", "to", "--domain-type", "appDataContainer", "--domain-identifier", BUNDLE,
+                                "--source", tree, "--destination", STATE_PARENT, "--remove-existing-content", "true")
+        finally:
+            shutil.rmtree(wrapper, ignore_errors=True)
         if p.returncode:
             raise Unmeasurable(f"devicectl could not write the app's saved state: {(p.stderr or p.stdout).strip()[-300:]}")
         back = tempfile.mkdtemp(prefix="readback-", dir=scratch)
@@ -1033,6 +1087,7 @@ class DeviceState:
             if not same_bytes(source, os.path.join(back, "RichOS")):
                 raise Unmeasurable("the app's saved state does not read back as written: "
                                    + "; ".join(tree_differences(tree_manifest(source), got) or ["a file differs"]))
+            self.check_owner()
             return got
         finally:
             shutil.rmtree(back, ignore_errors=True)

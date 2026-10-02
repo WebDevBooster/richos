@@ -190,6 +190,15 @@ only worth keeping if two builds are measured the same way, so:
     byte for byte (`devicectl device copy to --remove-existing-content true`, then `copy from`). The
     cold and warm series then run on it. Measured on the phone: such a copy leaves exactly the source,
     empty directories and modification times included.
+  - **Ownership.** The directory a `copy to` names as its destination is left owned by root (mode
+    0755); everything created inside the copied tree belongs to the app's user. Until 2026-10-02 the
+    state was written with RichOS as the destination, so the app could not create a file in its own
+    state directory: every save failed and the app showed "This iPhone could not save your latest
+    changes" on every launch of the 2026-10-02 benchmark, and on the phone afterwards, while the
+    byte-for-byte check passed. The seed and the restore now write into the parent
+    (`Library/Application Support`, refused if it holds anything but RichOS), so RichOS is created
+    inside the copied tree, and every write is checked with `devicectl device info files`: every
+    entry of RichOS must belong to the owner of the container's `Library` and be writable by it.
   - After the launches, `phone-ios.py run --prebuilt --stamp` runs the stamped build's own runner, so
     nothing new is installed: it brings the app to the front and waits for an element whose
     accessibility label holds the newest seeded CEO row. Its app-only screenshot is kept with the
@@ -424,7 +433,10 @@ reads back wrong and a real SIGTERM mid-series each restore first; a failed rest
 tap steps pass `phone-ios.py`'s own validation and its runner has every step; the runner's tap
 times and the app's own lines join into launch and return samples, with a launch that never became
 ready, two processes after one tap and a relaunch during a return rejected; taps are refused off a
-seeded iPhone. No emulator, simulator, phone, build or window.
+seeded iPhone. C17: on a scripted iPhone with the ownership measured on the test phone, the seed and
+the restore leave RichOS the app's own and give it back to a phone the old seeding left root-owned; a
+write whose bytes read back right but whose owner is wrong is refused, and a parent holding anything
+else is never written. No emulator, simulator, phone, build or window.
 
 `bin/rios test --filter PerfSeedTests` (the core's tests, on this Mac): the seeder takes condition.py's
 own output, writes all 100 rows as the app's saved state and loads them back through the core;
