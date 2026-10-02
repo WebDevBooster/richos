@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- RichConnect's launch screen, ported from Android's: the app icon centered on the launch ground
      (native-android themes.xml: windowBackground @color/launch_ground, #EAE6DD light and #0C1322 dark;
-     Android 12+ draws @mipmap/ic_launcher centered on it). The icon is 0.3583 of the screen's width, the
-     share Android's icon takes on the test phone (release recording, 2026-10-02), centered on the whole
-     screen as Android centers it. LaunchShell.swift draws the same picture as the app's first frame,
+     Android 12+ draws @mipmap/ic_launcher centered on it, at a fixed size). The icon is drawn at its own
+     size, LaunchShell.iconPoints (134 pt: the share of the screen's width Android's icon takes, 0.3583,
+     on the test iPhone), centered on the whole screen as Android centers it. Sized by the image itself
+     and positioned by constraints, as the launch art this iPhone rendered before: sized by a multiplier
+     on the screen's width, the test iPhone's launch picture came out without it (2026-10-02, recorded),
+     though the simulator drew it. LaunchShell.swift draws the same picture as the app's first frame,
      so nothing changes on screen until the conversation itself appears. LaunchIcon is the app icon in
      iOS's icon shape (Tools/launch-icon.py), so the picture continues the icon iOS grows from the Home
      Screen. No text: a launch screen cannot follow the person's text size or language (HIG,
@@ -24,8 +27,8 @@
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="1" verticalHuggingPriority="1" horizontalCompressionResistancePriority="1" verticalCompressionResistancePriority="1" image="LaunchIcon" translatesAutoresizingMaskIntoConstraints="NO" id="LSi-cn-ivw">
-                                <rect key="frame" x="126" y="356" width="141" height="141"/>
+                            <imageView userInteractionEnabled="NO" contentMode="center" image="LaunchIcon" translatesAutoresizingMaskIntoConstraints="NO" id="LSi-cn-ivw">
+                                <rect key="frame" x="129.66666666666666" y="359" width="134" height="134"/>
                             </imageView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="LSg-sa-fe0"/>
@@ -33,8 +36,6 @@
                         <constraints>
                             <constraint firstItem="LSi-cn-ivw" firstAttribute="centerX" secondItem="LSr-oo-tvw" secondAttribute="centerX" id="LSk-01-cst"/>
                             <constraint firstItem="LSi-cn-ivw" firstAttribute="centerY" secondItem="LSr-oo-tvw" secondAttribute="centerY" id="LSk-02-cst"/>
-                            <constraint firstItem="LSi-cn-ivw" firstAttribute="width" secondItem="LSr-oo-tvw" secondAttribute="width" multiplier="0.3583" id="LSk-03-cst"/>
-                            <constraint firstItem="LSi-cn-ivw" firstAttribute="height" secondItem="LSi-cn-ivw" secondAttribute="width" id="LSk-04-cst"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -44,7 +45,7 @@
         </scene>
     </scenes>
     <resources>
-        <image name="LaunchIcon" width="160" height="160"/>
+        <image name="LaunchIcon" width="134" height="134"/>
         <namedColor name="LaunchGround">
             <color red="0.91764705882352937" green="0.90196078431372551" blue="0.8666666666666667" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
         </namedColor>

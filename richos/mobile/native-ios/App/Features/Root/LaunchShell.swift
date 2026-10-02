@@ -9,31 +9,28 @@ import SwiftUI
 /// the window's white until the saved state was read: on the test iPhone with a saved conversation, a
 /// white screen for about 0.9 s.
 ///
-/// Now both are Android's launch picture: the app icon centered on the launch ground
+/// Now both are Android's launch picture: the app icon centered on the launch ground, at a fixed size
 /// (native-android themes.xml: windowBackground @color/launch_ground; Android 12+ draws
 /// @mipmap/ic_launcher centered on it). `LaunchScreen.storyboard` draws it before the app runs;
 /// `LaunchShellView` draws the same picture, from the same two assets, as the app's frame while the
 /// saved state is read, so nothing changes on screen until the conversation itself appears.
 enum LaunchShell {
-    /// The icon's width as a share of the screen's: what Android's launcher icon takes on the test
-    /// phone (andy-sonnet-seen1's release recording light_5, 2026-10-02: 258 of 720 pixels once settled).
-    static let iconWidthShare: CGFloat = 0.3583
+    /// The icon's size, fixed as Android's splash icon is: 0.3583 (the share of the screen's width
+    /// Android's launcher icon takes on the test phone; andy-sonnet-seen1's release recording light_5,
+    /// 2026-10-02: 258 of 720 pixels once settled) of the test iPhone's 375 pt. LaunchIcon's art is
+    /// rendered at this size (Tools/launch-icon.py) and both pictures draw it at its own size.
+    static let iconPoints: CGFloat = 134
 }
 
 /// The app's frame until the saved state is read: the launch screen, drawn live, over the whole screen
-/// as the launch screen is. The ground and the icon are the launch screen's own assets (LaunchGround
-/// follows the phone's light or dark setting by itself; the app sets no scheme of its own).
+/// as the launch screen is. The ground and the icon are the launch screen's own assets, the icon at its
+/// own size (LaunchGround and LaunchIcon follow the phone's light or dark setting by themselves; the app
+/// sets no scheme of its own).
 struct LaunchShellView: View {
     var body: some View {
-        GeometryReader { root in
-            ZStack {
-                Color("LaunchGround")
-                Image("LaunchIcon")
-                    .resizable()
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(width: root.size.width * LaunchShell.iconWidthShare)
-            }
-            .frame(width: root.size.width, height: root.size.height)
+        ZStack {
+            Color("LaunchGround")
+            Image("LaunchIcon")
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)

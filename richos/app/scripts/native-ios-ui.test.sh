@@ -610,18 +610,28 @@ do {
     let images = drawn.components(separatedBy: "image=\"").dropFirst().compactMap { $0.split(separator: "\"").first.map(String.init) }
     check(images == ["LaunchIcon"], "launch screen: draws one image, the app icon LaunchIcon (drew \(images))")
     let iconSet = "App/Platform/Assets.xcassets/LaunchIcon.imageset/"
-    let iconFiles = ["LaunchIcon@2x.png", "LaunchIcon@3x.png"]
+    let iconFiles = ["LaunchIcon-light@2x.png", "LaunchIcon-dark@2x.png", "LaunchIcon-light@3x.png", "LaunchIcon-dark@3x.png"]
     check(iconFiles.allSatisfy { read(iconSet + "Contents.json").contains("\"\($0)\"") && FileManager.default.fileExists(atPath: root + "/" + iconSet + $0) },
-          "launch screen: LaunchIcon has its 2x and 3x art (\(iconFiles.joined(separator: ", ")); Tools/launch-icon.py renders it from AppIcon-1024.png)")
-    // Centered on the whole screen, square, as wide a share of the screen as the app's first frame draws it.
+          "launch screen: LaunchIcon has its light and dark art at 2x and 3x (\(iconFiles.joined(separator: ", ")); Tools/launch-icon.py renders it from AppIcon-1024.png)")
+    // The icon is drawn at its own size, fixed as Android's is: LaunchShell.iconPoints, the size the
+    // storyboard declares, and every rendering's pixels over its scale. Sized by a multiplier on the
+    // screen's width, the test iPhone's launch picture came out without it (2026-10-02).
     func number(_ text: String, _ pattern: String) -> String? {
         guard let r = text.range(of: pattern, options: .regularExpression) else { return nil }
-        return text[r].components(separatedBy: CharacterSet(charactersIn: "0123456789.").inverted).filter { $0.contains(".") }.first
+        return text[r].components(separatedBy: CharacterSet(charactersIn: "0123456789.").inverted).filter { !$0.isEmpty }.last
     }
-    let share = number(read("App/Features/Root/LaunchShell.swift"), "iconWidthShare: CGFloat = [0-9.]+")
-    let multiplier = number(drawn, "secondAttribute=\"width\" multiplier=\"[0-9.]+\"")
-    check(share != nil && share == multiplier,
-          "launch screen: the icon is LaunchShell.iconWidthShare (\(share ?? "none")) of the screen's width, as the storyboard draws it (\(multiplier ?? "none"))")
+    func pngWidth(_ path: String) -> Int? {
+        guard let d = FileManager.default.contents(atPath: root + "/" + path), d.count > 24 else { return nil }
+        return d[16..<20].reduce(0) { $0 << 8 | Int($1) }
+    }
+    let points = number(read("App/Features/Root/LaunchShell.swift"), "iconPoints: CGFloat = [0-9]+").flatMap { Int($0) }
+    let declared = number(drawn, "<image name=\"LaunchIcon\" width=\"[0-9]+").flatMap { Int($0) }
+    let rendered = iconFiles.map { f in pngWidth(iconSet + f).map { $0 / (f.contains("@3x") ? 3 : 2) } }
+    check(points != nil && declared == points && rendered.allSatisfy { $0 == points },
+          "launch screen: the icon is LaunchShell.iconPoints (\(points.map(String.init) ?? "none") pt) as the storyboard declares it (\(declared.map(String.init) ?? "none")) and as its art is rendered (\(rendered.map { $0.map(String.init) ?? "none" }))")
+    check(!drawn.contains("firstItem=\"LSi-cn-ivw\" firstAttribute=\"width\"") && !drawn.contains("firstItem=\"LSi-cn-ivw\" firstAttribute=\"height\"")
+          && !drawn.contains("multiplier="),
+          "launch screen: the icon has no size constraint and nothing is sized by a multiplier (the image's own size)")
     check(drawn.contains("firstAttribute=\"centerX\" secondItem=\"LSr-oo-tvw\" secondAttribute=\"centerX\"")
           && drawn.contains("firstAttribute=\"centerY\" secondItem=\"LSr-oo-tvw\" secondAttribute=\"centerY\""),
           "launch screen: the icon is centered on the whole screen, as Android centers it")

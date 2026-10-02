@@ -2,10 +2,12 @@
 """The launch screen's icon, made from the app icon itself (App/Platform/Assets.xcassets/AppIcon.appiconset/
 AppIcon-1024.png): the same artwork in the shape iOS gives an app icon on the Home Screen (a continuous-
 corner square, drawn here as a superellipse with exponent 5), with clear corners, at 2x and 3x of
-LaunchShell's base size. Android's launch shows its launcher icon the same way (themes.xml: the window is
-launch_ground, and Android 12+ draws @mipmap/ic_launcher centered on it).
+LaunchShell.iconPoints, once for each look (the same art: the launch screen's images on this iPhone
+render only from sets with light and dark entries, as the earlier launch art had). Android's launch
+shows its launcher icon the same way (themes.xml: the window is launch_ground, and Android 12+ draws
+@mipmap/ic_launcher centered on it).
 
-    python3 Tools/launch-icon.py            write LaunchIcon.imageset/LaunchIcon@2x.png and @3x.png
+    python3 Tools/launch-icon.py            write LaunchIcon.imageset/LaunchIcon-{light,dark}@{2,3}x.png
     python3 Tools/launch-icon.py --check    exit 1 when the committed images differ from a fresh render
 
 Needs Pillow. Deterministic: the same source and Pillow give the same bytes.
@@ -17,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = os.path.join(ROOT, "App/Platform/Assets.xcassets")
 SOURCE = os.path.join(ASSETS, "AppIcon.appiconset/AppIcon-1024.png")
 OUT = os.path.join(ASSETS, "LaunchIcon.imageset")
-BASE_POINTS = 160      # LaunchShell.iconBasePoints: the largest the icon is drawn (0.3583 of a 430 pt screen is 154 pt)
+BASE_POINTS = 134      # LaunchShell.iconPoints: 0.3583 (the share Android's icon takes) of the test iPhone's 375 pt
 EXPONENT = 5.0         # the superellipse that approximates iOS's continuous-corner icon shape
 SUPERSAMPLE = 4
 
@@ -48,8 +50,8 @@ def render(scale):
 def main():
     check = "--check" in sys.argv
     bad = []
-    for scale in (2, 3):
-        path = os.path.join(OUT, f"LaunchIcon@{scale}x.png")
+    for scale, look in [(s, l) for s in (2, 3) for l in ("light", "dark")]:
+        path = os.path.join(OUT, f"LaunchIcon-{look}@{scale}x.png")
         data = render(scale)
         if check:
             if not os.path.exists(path) or open(path, "rb").read() != data:
