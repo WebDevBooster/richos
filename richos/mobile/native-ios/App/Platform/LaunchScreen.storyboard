@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- RichConnect's launch screen: the conversation's own frame without its words (LaunchShell.swift).
-     The ground and its lamp, the nameplate with the mark, Settings, and the composer capsule with its +
-     and gold microphone, each placed where the conversation draws it, relative to the safe area. The
-     images are the app's own drawing (LaunchArtTests renders them from LaunchShell's views and fails
-     when a committed one no longer matches). No text: a launch screen cannot follow the person's text
-     size or language (HIG, "Launching"). Never the speckle (the CEO, 2026-09-29). Each image piece
-     carries LaunchShell.margin (56 pt) of room for its shadow, which the constants below subtract:
-     header pieces at 14 pt from the sides and 8 pt below the safe area's top, the composer 8 pt from the
-     sides and 8 pt above the safe area's bottom. -->
+<!-- RichConnect's launch screen, ported from Android's: the app icon centered on the launch ground
+     (native-android themes.xml: windowBackground @color/launch_ground, #EAE6DD light and #0C1322 dark;
+     Android 12+ draws @mipmap/ic_launcher centered on it). The icon is 0.3583 of the screen's width, the
+     share Android's icon takes on the test phone (release recording, 2026-10-02), centered on the whole
+     screen as Android centers it. LaunchShell.swift draws the same picture as the app's first frame,
+     so nothing changes on screen until the conversation itself appears. LaunchIcon is the app icon in
+     iOS's icon shape (Tools/launch-icon.py), so the picture continues the icon iOS grows from the Home
+     Screen. No text: a launch screen cannot follow the person's text size or language (HIG,
+     "Launching"). Never the speckle (the CEO, 2026-09-29). -->
 <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="LSv-c0-ntl">
     <device id="retina6_12" orientation="portrait" appearance="light"/>
     <dependencies>
@@ -24,44 +24,17 @@
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleToFill" horizontalHuggingPriority="1" verticalHuggingPriority="1" horizontalCompressionResistancePriority="1" verticalCompressionResistancePriority="1" image="LaunchLamp" translatesAutoresizingMaskIntoConstraints="NO" id="LSl-am-pvw">
-                                <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
-                            </imageView>
-                            <imageView userInteractionEnabled="NO" contentMode="topLeft" image="LaunchNameplate" translatesAutoresizingMaskIntoConstraints="NO" id="LSn-pl-ivw">
-                                <rect key="frame" x="-42" y="11" width="226" height="164"/>
-                            </imageView>
-                            <imageView userInteractionEnabled="NO" contentMode="topLeft" image="LaunchSettings" translatesAutoresizingMaskIntoConstraints="NO" id="LSs-tg-ivw">
-                                <rect key="frame" x="271" y="11" width="164" height="164"/>
-                            </imageView>
-                            <imageView userInteractionEnabled="NO" contentMode="topLeft" image="LaunchComposerLeft" translatesAutoresizingMaskIntoConstraints="NO" id="LSc-lf-ivw">
-                                <rect key="frame" x="-48" y="702" width="116" height="164"/>
-                            </imageView>
-                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" horizontalHuggingPriority="1" horizontalCompressionResistancePriority="1" image="LaunchComposerMiddle" translatesAutoresizingMaskIntoConstraints="NO" id="LSc-md-ivw">
-                                <rect key="frame" x="68" y="702" width="169" height="164"/>
-                            </imageView>
-                            <imageView userInteractionEnabled="NO" contentMode="topLeft" image="LaunchComposerRight" translatesAutoresizingMaskIntoConstraints="NO" id="LSc-rt-ivw">
-                                <rect key="frame" x="237" y="702" width="156" height="164"/>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="1" verticalHuggingPriority="1" horizontalCompressionResistancePriority="1" verticalCompressionResistancePriority="1" image="LaunchIcon" translatesAutoresizingMaskIntoConstraints="NO" id="LSi-cn-ivw">
+                                <rect key="frame" x="126" y="356" width="141" height="141"/>
                             </imageView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="LSg-sa-fe0"/>
                         <color key="backgroundColor" name="LaunchGround"/>
                         <constraints>
-                            <constraint firstItem="LSl-am-pvw" firstAttribute="top" secondItem="LSr-oo-tvw" secondAttribute="top" id="LSk-01-cst"/>
-                            <constraint firstItem="LSl-am-pvw" firstAttribute="bottom" secondItem="LSr-oo-tvw" secondAttribute="bottom" id="LSk-02-cst"/>
-                            <constraint firstItem="LSl-am-pvw" firstAttribute="leading" secondItem="LSr-oo-tvw" secondAttribute="leading" id="LSk-03-cst"/>
-                            <constraint firstItem="LSl-am-pvw" firstAttribute="trailing" secondItem="LSr-oo-tvw" secondAttribute="trailing" id="LSk-04-cst"/>
-                            <constraint firstItem="LSn-pl-ivw" firstAttribute="leading" secondItem="LSg-sa-fe0" secondAttribute="leading" constant="-42" id="LSk-05-cst"/>
-                            <constraint firstItem="LSn-pl-ivw" firstAttribute="top" secondItem="LSg-sa-fe0" secondAttribute="top" constant="-48" id="LSk-06-cst"/>
-                            <constraint firstItem="LSg-sa-fe0" firstAttribute="trailing" secondItem="LSs-tg-ivw" secondAttribute="trailing" constant="-42" id="LSk-07-cst"/>
-                            <constraint firstItem="LSs-tg-ivw" firstAttribute="top" secondItem="LSg-sa-fe0" secondAttribute="top" constant="-48" id="LSk-08-cst"/>
-                            <constraint firstItem="LSc-lf-ivw" firstAttribute="leading" secondItem="LSg-sa-fe0" secondAttribute="leading" constant="-48" id="LSk-09-cst"/>
-                            <constraint firstItem="LSc-lf-ivw" firstAttribute="bottom" secondItem="LSg-sa-fe0" secondAttribute="bottom" constant="48" id="LSk-10-cst"/>
-                            <constraint firstItem="LSg-sa-fe0" firstAttribute="trailing" secondItem="LSc-rt-ivw" secondAttribute="trailing" constant="-48" id="LSk-11-cst"/>
-                            <constraint firstItem="LSc-rt-ivw" firstAttribute="bottom" secondItem="LSc-lf-ivw" secondAttribute="bottom" id="LSk-12-cst"/>
-                            <constraint firstItem="LSc-md-ivw" firstAttribute="leading" secondItem="LSc-lf-ivw" secondAttribute="trailing" id="LSk-13-cst"/>
-                            <constraint firstItem="LSc-rt-ivw" firstAttribute="leading" secondItem="LSc-md-ivw" secondAttribute="trailing" id="LSk-14-cst"/>
-                            <constraint firstItem="LSc-md-ivw" firstAttribute="top" secondItem="LSc-lf-ivw" secondAttribute="top" id="LSk-15-cst"/>
-                            <constraint firstItem="LSc-md-ivw" firstAttribute="bottom" secondItem="LSc-lf-ivw" secondAttribute="bottom" id="LSk-16-cst"/>
+                            <constraint firstItem="LSi-cn-ivw" firstAttribute="centerX" secondItem="LSr-oo-tvw" secondAttribute="centerX" id="LSk-01-cst"/>
+                            <constraint firstItem="LSi-cn-ivw" firstAttribute="centerY" secondItem="LSr-oo-tvw" secondAttribute="centerY" id="LSk-02-cst"/>
+                            <constraint firstItem="LSi-cn-ivw" firstAttribute="width" secondItem="LSr-oo-tvw" secondAttribute="width" multiplier="0.3583" id="LSk-03-cst"/>
+                            <constraint firstItem="LSi-cn-ivw" firstAttribute="height" secondItem="LSi-cn-ivw" secondAttribute="width" id="LSk-04-cst"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -71,12 +44,7 @@
         </scene>
     </scenes>
     <resources>
-        <image name="LaunchComposerLeft" width="116" height="164"/>
-        <image name="LaunchComposerMiddle" width="1" height="164"/>
-        <image name="LaunchComposerRight" width="156" height="164"/>
-        <image name="LaunchLamp" width="390" height="844"/>
-        <image name="LaunchNameplate" width="226" height="164"/>
-        <image name="LaunchSettings" width="164" height="164"/>
+        <image name="LaunchIcon" width="160" height="160"/>
         <namedColor name="LaunchGround">
             <color red="0.91764705882352937" green="0.90196078431372551" blue="0.8666666666666667" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
         </namedColor>
