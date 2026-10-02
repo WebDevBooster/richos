@@ -3582,6 +3582,58 @@ class Hunt4_MutationHarnessesDeclareTheirFocus(unittest.TestCase):
         self.assertIn("1 run, 0 failed", r.stdout)
 
 
+class SeverityThreeGroupJ(Point09_NeverWritesAgain):
+    """Hunt V2-08 to V2-11."""
+
+    def test_v2_08_top_level_ignored_link_is_compared_by_target(self):
+        with open(os.path.join(self.other, ".gitignore"), "a") as f:
+            f.write("my-link\n")
+        run("git", "-C", self.other, "commit", "-qam", "ignore my-link")
+        for n in ("a.txt", "b.txt"):
+            with open(os.path.join(self.env.root, n), "w") as f:
+                f.write("same bytes\n")
+        os.symlink(os.path.join(self.env.root, "a.txt"), os.path.join(self.other, "my-link"))
+        path = self.make_cc("zach-opus-v208")
+        os.symlink(os.path.join(self.env.root, "b.txt"), os.path.join(path, "my-link"))
+        aid, _n = self.spawn("zach-opus-v208", path, native=False)
+        self.finish(aid)
+        with self.assertRaises(ws.SpecError) as e:
+            ws.land("zach-opus-v208", self.sid)
+        self.assertIn("my-link", str(e.exception))
+
+    def test_v2_09_late_ending_does_not_recreate_a_live_record(self):
+        aid, npath = self.spawn("zach-opus-v209")
+        self.finish(aid)
+        ws.land("zach-opus-v209", self.sid)
+        key = ws.named_key(self.sid, "zach-opus-v209")
+        self.assertFalse(os.path.exists(ws.agent_path(key)))
+        ws.record_end(self.sid, aid, "SubagentStop")
+        self.assertFalse(os.path.exists(ws.agent_path(key)), "a late ending wrote into agents/")
+        self.assertTrue(os.path.exists(ws.done_path(key)))
+
+    def test_v2_10_land_command_says_when_cleanup_is_unfinished(self):
+        import contextlib
+        import io
+        aid, npath = self.spawn("zach-opus-v210")
+        self.finish(aid)
+        buf = io.StringIO()
+        with patch.object(ws, "land", lambda *a, **k: {"landed": True, "cleanup_pending": True}), \
+                patch.object(ws, "sweep_scratch_after_land", lambda *a, **k: None):
+            with contextlib.redirect_stdout(buf):
+                ws.main(["--session", self.sid, "land", "zach-opus-v210"])
+        self.assertIn("NOT finished", buf.getvalue())
+        self.assertNotIn("or retrying", buf.getvalue())
+
+    def test_v2_11_process_stop_history_records_start_times(self):
+        d, pr = self.term_ignoring_holder()
+        res = ws.stop_processes([d])
+        self.assertEqual(res["stopped"], [pr.pid])
+        pr.wait(timeout=30)
+        with open(ws._p("events.jsonl")) as f:
+            evs = [json.loads(l) for l in f if '"processes-stopped"' in l]
+        self.assertTrue(evs[-1].get("starts", {}).get(str(pr.pid)), evs[-1])
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a

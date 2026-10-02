@@ -2028,7 +2028,12 @@ def record_end(session_id, agent_id, signal_name, detail=""):
             return None
         if rec.get("disposition"):
             rec.setdefault("history", []).append({"at": iso(), "fact": "end after disposition", "signal": signal_name})
-            save_agent(rec)
+            if os.path.exists(agent_path(rec["key"])) or not os.path.exists(done_path(rec["key"])):
+                save_agent(rec)
+            else:
+                # Already filed as done: the late fact goes where the record is,
+                # never back into live storage (V2-09).
+                write_json(done_path(rec["key"]), rec)
             return rec
         prev = rec.get("end")
         if prev and prev.get("signal") == "stopped" and signal_name != "stopped":
@@ -3033,7 +3038,16 @@ def uncommitted(path, deadline=None):
                 for sub in _ignored_dir_diff(mine, other, rel.rstrip("/"), deadline):
                     ignored.append(sub)
                 continue
-            if other and os.path.isfile(mine) and os.path.isfile(other) and _same_file(mine, other, deadline):
+            if other and os.path.islink(mine):
+                # A link is compared by where it points, never by what it
+                # points at (V2-08), exactly as nested links are.
+                try:
+                    if os.path.islink(other) and os.readlink(mine) == os.readlink(other):
+                        continue
+                except OSError:
+                    pass
+            elif (other and os.path.isfile(mine) and os.path.isfile(other)
+                    and not os.path.islink(other) and _same_file(mine, other, deadline)):
                 continue
             ignored.append(rel)
         else:
@@ -5321,6 +5335,12 @@ def stop_processes(paths, deadline=None):
     if not pids:
         _forget_gradle_daemons(paths)
         return {"stopped": [], "survivors": []}
+    # PIDs are reused, so the history keeps each one's start time (V2-11).
+    process_start_before = {}
+    for p in pids:
+        st, when = process_start(p)
+        if st == "ok":
+            process_start_before[p] = when
     for p in pids:
         try:
             os.kill(p, signal.SIGTERM)
@@ -5352,7 +5372,8 @@ def stop_processes(paths, deadline=None):
     while survivors and time.monotonic() < kill_deadline:
         time.sleep(0.05)
         survivors = [p for p in survivors if _alive(p)]
-    event("processes-stopped", pids=pids, survivors=survivors or None)
+    event("processes-stopped", pids=pids, survivors=survivors or None,
+          starts={str(p): s for p, s in ((p, process_start_before.get(p)) for p in pids) if s})
     if not survivors:
         _forget_gradle_daemons(paths)
     return {"stopped": pids, "survivors": survivors}
@@ -6442,8 +6463,11 @@ def main(argv):
             # Read BEFORE the land, which deletes the workspaces the sweep
             # attributes this agent's scratch by.
             sweep_scopes = land_sweep_scopes(a.agent, me)
-            land(a.agent, me, ignored_ok=a.ignored_not_needed)
-            print("landed: %s — every workspace and branch deleted (or retrying)" % a.agent)
+            res = land(a.agent, me, ignored_ok=a.ignored_not_needed) or {}
+            if res.get("cleanup_pending"):
+                print("landed: %s — deletion of its workspaces and branches is NOT finished; it is retried" % a.agent)
+            else:
+                print("landed: %s — every workspace and branch deleted" % a.agent)
             for _l in qa_lines:
                 print(_l)
             sweep_scratch_after_land(sweep_scopes)
