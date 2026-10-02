@@ -19,7 +19,9 @@
  */
 
 import { DB } from '../../core/constants.js';
-import { put, putAll, getAll, deleteBySession } from '../../core/idb.js';
+import { put, putAll, get, getAll, deleteBySession } from '../../core/idb.js';
+import { sessionZip } from '../../core/zip.js';
+import { FILES } from './constants.js';
 import { THRESHOLDS } from './constants.js';
 
 /** @type {null | {
@@ -666,6 +668,35 @@ export async function testInjectAudio(msg) {
   }
 }
 
+/** Assemble an explicit export from durable rows. No downloads occur inside recording. */
+export async function archive(msg) {
+  if (session) return { ok: false, error: 'stop the call before exporting' };
+  const record = await get(DB.stores.sessions, msg.sessionId);
+  if (!record || record.status === 'open') return { ok: false, error: 'session is not closed' };
+  const chunks = await getAll(DB.stores.chunks, 'bySession', IDBKeyRange.only(msg.sessionId));
+  chunks.sort((a, b) => a.seq - b.seq);
+  const parts = new Map();
+  for (const chunk of chunks) {
+    if (!parts.has(chunk.part)) parts.set(chunk.part, []);
+    parts.get(chunk.part).push(new Uint8Array(chunk.data));
+  }
+  const entries = [];
+  for (const [part, data] of parts) {
+    const bytes = new Uint8Array(data.reduce((sum, chunk) => sum + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of data) { bytes.set(chunk, offset); offset += chunk.length; }
+    entries.push({ name: `${record.dir}/${FILES.audioPart(part)}`, data: bytes });
+  }
+  for (const [store, file, sort] of [[DB.stores.health, FILES.health, 't'], [DB.stores.captions, FILES.captions, 'seq']]) {
+    const rows = await getAll(store, 'bySession', IDBKeyRange.only(msg.sessionId));
+    rows.sort((a, b) => a[sort] - b[sort]);
+    if (rows.length) entries.push({ name: `${record.dir}/${file}`, data: rows.map(({ sessionId, seq, ...row }) => JSON.stringify(row)).join('\n') });
+  }
+  entries.push({ name: `${record.dir}/${FILES.session}`, data: JSON.stringify({ ...record, exportPending: false, transport: 'downloads-archive' }, null, 2) });
+  const blob = sessionZip(entries);
+  return { ok: true, url: URL.createObjectURL(blob), bytes: blob.size };
+}
+
 /** Route a `cc:` message inside the offscreen document. */
 export async function handleMessage(msg) {
   switch (msg.type) {
@@ -683,6 +714,8 @@ export async function handleMessage(msg) {
       return reacquireMic();
     case 'cc:status':
       return status();
+    case 'cc:archive':
+      return archive(msg);
     case 'cc:assemble':
       return assemble(msg);
     case 'cc:health-jsonl':

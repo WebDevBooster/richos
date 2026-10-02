@@ -8,6 +8,8 @@ const store = {};
 const calls = [];
 const rows = new Map();
 let invoked = true;
+let downloads = 0;
+let cancelExport = true;
 const settings = { ...CAPTURE_DEFAULTS, armMode: 'manual', captureCaptions: false };
 globalThis.chrome = {
   runtime: { getManifest: () => ({ version: '0.3.0' }) },
@@ -22,11 +24,15 @@ globalThis.__controllerDependencies = {
     calls.push(message);
     if (message.type === 'cc:start') return { ok: true, hasMic: true, hasTab: true };
     if (message.type === 'cc:stop') return { ok: true };
+    if (message.type === 'cc:archive') return { ok: true, url: 'blob:archive' };
     if (message.type === 'cc:assemble') return { ok: true, parts: [] };
     if (message.type === 'cc:health-jsonl') return { ok: true, text: '', count: 0 };
     return { ok: true };
   },
-  writeText: async () => ({ ok: true }), writeUrl: async () => ({ ok: true }), setDownloadUi: async () => {},
+  writeText: async () => { downloads++; return { ok: true }; }, writeUrl: async (file, url, options) => {
+    downloads++; assert.ok(file.endsWith('.zip')); assert.equal(options.userInitiated, true);
+    return cancelExport ? { ok: false, error: 'USER_CANCELED' } : { ok: true };
+  }, setDownloadUi: async () => {},
   raiseAlert: async () => true, setHealth: async () => {}, resetAlertThrottle: async () => {}, notifyRoutine: async () => {}, resolveAlerts: async () => {},
   async put(storeName, record) { rows.set(`${storeName}:${record.sessionId}`, structuredClone(record)); },
   async get(storeName, id) { return rows.get(`${storeName}:${id}`); }, async getAll() { return []; }, async deleteBySession() {},
@@ -44,6 +50,8 @@ for (const match of source.matchAll(/from '([^']+)'/g)) {
 const controller = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 try {
   assert.equal((await controller.armTab(8, 'shortcut')).ok, true);
+  assert.equal(downloads, 0, 'startup checkpoint must not create a download');
+  assert.equal([...rows.values()][0].status, 'open', 'call existence must be durable before audio starts');
   invoked = false;
   now += 40000;
   await controller.callCaptureModule.onMessage({ type: 'cc:heartbeat', sessionId: store[KEYS.activeSession].record.sessionId,
@@ -61,5 +69,18 @@ try {
   assert.equal(status.micOnlyFailover, false);
   assert.equal(status.mode, 'full');
   assert.equal(calls.filter(c => c.type === 'cc:reattach-tab').length, 1);
-  console.log('PASS production controller truthful failover and invocation recovery');
+  assert.equal(downloads, 0, 'watchdog failure checkpoints must not create downloads');
+  const closed = await controller.finalize('test-complete');
+  assert.equal(closed.exportPending, true);
+  assert.equal(downloads, 0, 'automatic close must not create downloads');
+  assert.equal((await controller.callCaptureModule.getStatus()).pendingExports.length, 1);
+  const sessionId = closed.sessionId;
+  const firstExport = await controller.callCaptureModule.onMessage({ type: 'cc:export-session', sessionId });
+  assert.equal(firstExport.ok, false);
+  assert.equal((await controller.callCaptureModule.getStatus()).pendingExports.length, 1, 'cancelled export must remain recoverable');
+  cancelExport = false;
+  assert.equal((await controller.callCaptureModule.onMessage({ type: 'cc:export-session', sessionId })).ok, true);
+  assert.equal((await controller.callCaptureModule.getStatus()).pendingExports.length, 0);
+  assert.equal(downloads, 2, 'each explicit export produces exactly one download');
+  console.log('PASS production controller invocation recovery, durable fallback and cancelled export retry');
 } finally { await controller.finalize('test-cleanup'); }

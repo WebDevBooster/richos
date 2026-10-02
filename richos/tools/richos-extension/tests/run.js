@@ -775,9 +775,9 @@ test('message builders produce the exact shapes the service host-handlers consum
   assert.equal(close.record.endedAt, 123);
 });
 
-test('chooseSink falls back to Downloads when the service is unavailable (graceful degrade)', () => {
-  assert.equal(chooseSink({ available: false }), 'downloads');
-  assert.equal(chooseSink(null), 'downloads');
+test('chooseSink falls back to durable browser storage when the service is unavailable (graceful degrade)', () => {
+  assert.equal(chooseSink({ available: false }), 'browser');
+  assert.equal(chooseSink(null), 'browser');
   assert.equal(chooseSink({ available: true }), 'native');
 });
 

@@ -87,10 +87,10 @@ export function buildCloseMessage(sessionId, record) {
 /**
  * Which sink should the writer use? Pure decision so it is testable without chrome.
  * @param {{available: boolean}} hostState
- * @returns {'native'|'downloads'}
+ * @returns {'native'|'browser'}
  */
 export function chooseSink(hostState) {
-  return hostState && hostState.available ? 'native' : 'downloads';
+  return hostState && hostState.available ? 'native' : 'browser';
 }
 
 /**
@@ -119,6 +119,8 @@ export class NativeHostClient {
       this._port.onDisconnect.addListener(() => {
         this.available = false;
         this._port = null;
+        for (const waiter of this._waiters.values()) waiter(null);
+        this._waiters.clear();
       });
     } catch {
       this.available = false;
@@ -126,10 +128,17 @@ export class NativeHostClient {
     }
     const ready = await this._request({ type: 'hello' }, 'ready', timeoutMs);
     this.available = ready != null;
+    if (!this.available) this._port?.disconnect();
     return this.available;
   }
 
   _onMessage(msg) {
+    if (msg?.type === 'error') {
+      this.available = false;
+      for (const waiter of this._waiters.values()) waiter(null);
+      this._waiters.clear();
+      return;
+    }
     const waiter = msg && msg.type ? this._waiters.get(msg.type) : null;
     if (waiter) {
       this._waiters.delete(msg.type);
@@ -177,8 +186,9 @@ export class NativeHostClient {
     return this._request(buildStartMessage(record), 'started');
   }
 
-  sendChunk(sessionId, part, dataB64) {
-    return this.post(buildChunkMessage(sessionId, part, dataB64));
+  async sendChunk(sessionId, part, dataB64) {
+    const ack = await this._request(buildChunkMessage(sessionId, part, dataB64), 'chunk-ack');
+    return ack?.sessionId === sessionId && ack.part === part;
   }
 
   closeSession(sessionId, record) {

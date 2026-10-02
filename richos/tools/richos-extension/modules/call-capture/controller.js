@@ -10,7 +10,7 @@
 import { KEYS, PRODUCT, DB } from '../../core/constants.js';
 import { getModuleSettings } from '../../core/settings.js';
 import { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists } from '../../core/offscreen-host.js';
-import { writeText, writeUrl, dropPath, setDownloadUi } from '../../core/output.js';
+import { writeUrl, dropPath, setDownloadUi } from '../../core/output.js';
 import { raiseAlert, setHealth, resetAlertThrottle, notifyRoutine, resolveAlerts } from '../../core/alerts.js';
 import { put, get, getAll, deleteBySession } from '../../core/idb.js';
 import {
@@ -145,6 +145,7 @@ async function armTabImpl(tabId, trigger = 'auto') {
   if (active && active.tabId === tabId && (active.awaitingTabAudio || active.state.micOnlyFailover)) {
     return upgradeToFullAudio(tabId, trigger);
   }
+  if (exportTask) return { ok: false, error: 'finish or cancel the current export first' };
   if (active) {
     if (active.tabId === tabId) return { ok: true, sessionId: active.record.sessionId };
     await raiseAlert({
@@ -227,20 +228,18 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
     awaitingTabAudio: mode !== 'full',
     audioActive: false,
     captions: { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, lastCaptionAt: null, degraded: false },
-    // Transport sink: native-messaging streaming is the DEFAULT; Downloads is the runtime fallback.
-    sink: 'downloads',
+    // Transport sink: native-messaging streaming is the DEFAULT; browser storage is the runtime fallback.
+    sink: 'browser',
     native: null,
     nativeChain: Promise.resolve(),
     streamedBytes: 0,
     streamedChunks: 0,
   };
 
-  // 1) The record of the call's existence reaches disk BEFORE any audio does. Choose the transport
-  //    first: if the local service answers, stream the whole contract dir straight to it (session
-  //    START lands over the wire, host writes session.json immediately); otherwise fall back to the
-  //    Downloads path unchanged. Either way the "session on disk before audio" anomaly guarantee holds.
+  // Preserve call existence in IndexedDB before audio. The optional host also writes it to disk.
+  // Never use a Chrome download as a startup or watchdog durability boundary.
+  await writeSessionFile(record);
   await setupSink(record);
-  if (active.sink === 'downloads') await writeSessionFile(record);
   await persistActive();
 
   // 2) Start the recorder. `expectTab: false` in hybrid mode means "no tab yet, by design".
@@ -309,7 +308,7 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
   await maybeShowDisclosure(tabId, settings);
   startWatchdog();
 
-  if (mode === 'full') {
+  if (record.mode === 'full') {
     await setHealth({ level: 'green', text: badgeTextFor('green'), title: `RichOS: recording ${platform.label}` });
     await notifyRoutine({
       title: 'RichOS: capture started',
@@ -490,21 +489,21 @@ async function maybeShowDisclosure(tabId, settings) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Transport sink — native-messaging streaming (default) with a Downloads runtime fallback
+// Transport sink — native-messaging streaming (default) with a durable browser fallback
 // ---------------------------------------------------------------------------------------
 
 /**
  * Decide + open the transport for this session. Native-messaging streaming to the local RichOS
  * service is the DEFAULT: it removes the Downloads hop entirely (the host writes the contract dir
  * straight into loro and runs the pipeline). If the service is not installed/reachable, `active.sink`
- * stays `downloads` and everything works exactly as before — the service is NEVER a dependency for
+ * stays `browser` and everything works exactly as before — the service is NEVER a dependency for
  * capture to keep working (architecture §5.1). On success the session record is stamped with the browser
  * ownership block and streamed as `session-start` before any audio flows.
  * @param {Record<string, any>} record
  */
 async function setupSink(record) {
   if (!active) return;
-  active.sink = 'downloads';
+  active.sink = 'browser';
   active.native = null;
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connectNative) return;
   const client = new NativeHostClient();
@@ -515,7 +514,7 @@ async function setupSink(record) {
     connected = false;
   }
   if (!connected) {
-    record.notes.push('native host not reachable at start — using the Downloads capture path');
+    record.notes.push('native host not reachable at start — keeping durable audio in the browser until explicit export');
     return;
   }
   try {
@@ -530,7 +529,7 @@ async function setupSink(record) {
   Object.assign(record, withBrowserOwnership(record, { processHint: 'the browser' }));
   const started = await client.startSession(record);
   if (!started) {
-    record.notes.push('native host did not ack session-start — using the Downloads capture path');
+    record.notes.push('native host did not ack session-start — keeping durable audio in the browser until explicit export');
     try {
       client._port?.disconnect();
     } catch {
@@ -540,7 +539,7 @@ async function setupSink(record) {
   }
   active.native = client;
   active.sink = 'native';
-  record.notes.push('native-messaging transport ACTIVE: audio streams to the local service (Downloads fallback armed)');
+  record.notes.push('native-messaging transport ACTIVE: audio streams to the local service (durable browser fallback armed)');
 }
 
 /** Base64-encode an ArrayBuffer in the service worker (no Buffer; chunked to bound the call stack). */
@@ -557,7 +556,7 @@ function arrayBufferToBase64(buffer) {
 /**
  * Stream one just-committed chunk to the host, in `seq` order. The chunk read here is the EXACT
  * durable record the Downloads path would assemble, so the bytes that cross native messaging are
- * byte-identical to the fallback (collector-path parity). Any failure demotes to Downloads — the
+ * byte-identical to the fallback (collector-path parity). Any failure demotes to browser storage — the
  * chunk is still safe in IndexedDB, so nothing is ever lost.
  * @param {string} sessionId @param {number} seq @param {number} part
  */
@@ -570,14 +569,17 @@ function streamChunkToHost(sessionId, seq, part) {
       try {
         chunk = await get(DB.stores.chunks, [sessionId, seq]);
       } catch (err) {
-        await demoteToDownloads(`chunk read failed: ${String((err && err.message) || err)}`);
+        await demoteToBrowser(`chunk read failed: ${String((err && err.message) || err)}`);
         return;
       }
       if (!chunk || !chunk.data) return;
-      const ok = active.native.sendChunk(sessionId, part, arrayBufferToBase64(chunk.data));
-      if (!ok || active.native.available === false) {
-        await demoteToDownloads('native port closed mid-stream');
-        return;
+      const bytes = new Uint8Array(chunk.data);
+      for (let offset = 0; offset < bytes.length; offset += 512 * 1024) {
+        const ok = await active.native.sendChunk(sessionId, part, arrayBufferToBase64(bytes.slice(offset, offset + 512 * 1024).buffer));
+        if (!ok || active.native?.available === false) {
+          await demoteToBrowser('native host did not acknowledge durable audio');
+          return;
+        }
       }
       active.streamedChunks += 1;
       active.streamedBytes += chunk.bytes || 0;
@@ -588,15 +590,15 @@ function streamChunkToHost(sessionId, seq, part) {
 /**
  * The local service became unreachable mid-call. Flip to the Downloads path so capture continues
  * with NO lost audio (every chunk is already durable in IndexedDB; the full session is exported to
- * Downloads at finalize). Write session.json to Downloads now, since native mode had not.
+ * a single archive on explicit export). Write session.json to Downloads now, since native mode had not.
  * @param {string} reason
  */
-async function demoteToDownloads(reason) {
+async function demoteToBrowser(reason) {
   if (!active || active.sink !== 'native') return;
-  active.sink = 'downloads';
+  active.sink = 'browser';
   const client = active.native;
   active.native = null;
-  active.record.notes.push(`native transport degraded (${reason}) — switched to Downloads fallback; audio is safe in the browser`);
+  active.record.notes.push(`native transport degraded (${reason}) — switched to durable browser storage; audio is safe in the browser`);
   try {
     client?._port?.disconnect();
   } catch {
@@ -606,8 +608,8 @@ async function demoteToDownloads(reason) {
   await raiseAlert({
     code: 'native-transport-degraded',
     level: 'amber',
-    title: 'RichOS: switched to the Downloads capture path',
-    message: `The local service became unreachable (${reason}). Capture continues to Downloads — no audio is lost.`,
+    title: 'RichOS: keeping this recording in the browser',
+    message: `The local service became unreachable (${reason}). Capture continues in durable browser storage. Export from RichOS after the call.`,
     sessionId: active.record.sessionId,
   });
 }
@@ -989,15 +991,15 @@ export async function finalize(reason) {
 
 /**
  * Dispatch finalization to the transport that captured this session. Native-messaging sessions are
- * closed over the wire (the host finalizes the contract dir + runs the pipeline); Downloads sessions
+ * closed over the wire (the host finalizes the contract dir + runs the pipeline); Browser-buffered sessions
  * assemble from IndexedDB as before. A native session that degraded mid-call already flipped
- * `active.sink` to `downloads`, so it finalizes the Downloads way from the same durable chunks.
+ * `active.sink` to `browser`, so it finalizes the browser-storage way from the same durable chunks.
  * @param {any} record
  * @param {string} reason
  */
 async function runFinalize(record, reason) {
   if (active && active.sink === 'native' && active.native) return runFinalizeNative(record, reason);
-  return runFinalizeDownloads(record, reason);
+  return runFinalizeBrowser(record, reason);
 }
 
 /**
@@ -1019,11 +1021,16 @@ async function runFinalizeNative(record, reason) {
   record.notes.push(`closed: ${reason} (native-messaging transport)`);
   if (stopped?.lastError) record.notes.push(`recorder last error: ${stopped.lastError}`);
 
-  // The flush may have demoted us (host died) — if so, finish the Downloads way (audio all in IDB).
-  if (active.sink !== 'native' || !active.native) return runFinalizeDownloads(record, reason);
+  // The flush may have demoted us (host died) — if so, finish the browser-storage way (audio all in IDB).
+  if (active.sink !== 'native' || !active.native) return runFinalizeBrowser(record, reason);
 
   const audio = await buildStreamedParts(record.sessionId);
   record.audio = audio;
+  record.transport = 'native';
+  record.exportPending = false;
+  const verdict = verifySession(record);
+  if (stopped?.ok === false) { verdict.ok = false; verdict.problems.push(stopped.lastError || 'recorder flush failed'); }
+  record.verification = verdict;
 
   const closed = await native.closeSession(record.sessionId, {
     endedAt: record.endedAt,
@@ -1032,17 +1039,19 @@ async function runFinalizeNative(record, reason) {
     captions: record.captions,
     health: record.health,
     notes: record.notes,
+    verification: verdict,
+    transport: record.transport,
   });
   if (!closed) {
-    record.notes.push('native session-close was not acked — exporting to Downloads as a safety net');
-    active.sink = 'downloads';
+    record.notes.push('native session-close was not acked — retaining browser storage for explicit export');
+    active.sink = 'browser';
     active.native = null;
     try {
       native._port?.disconnect();
     } catch {
       /* ignore */
     }
-    return runFinalizeDownloads(record, reason);
+    return runFinalizeBrowser(record, reason);
   }
   try {
     native._port?.disconnect();
@@ -1051,7 +1060,8 @@ async function runFinalizeNative(record, reason) {
   }
 
   // Chunks are now safe in the loro drop zone via the host; drop the local copies unless asked to keep.
-  if (!settings.keepChunksAfterExport) {
+  await writeSessionFile(record);
+  if (verdict.ok && !settings.keepChunksAfterExport) {
     await callOffscreen({ type: 'cc:purge', sessionId: record.sessionId });
     try {
       await deleteBySession(DB.stores.captions, record.sessionId);
@@ -1060,122 +1070,79 @@ async function runFinalizeNative(record, reason) {
     }
   }
 
-  await indexSession(record, { ok: true, problems: [] });
+  await indexSession(record, verdict);
+  if (!verdict.ok) await raiseAlert({ code: 'session-suspect', level: 'red', title: 'RichOS: this call needs attention', message: verdict.problems.join('; '), sessionId: record.sessionId });
   await notifyRoutine({
     title: 'RichOS: capture streamed to the local service',
     message: `${(audio.bytesTotal / 1048576).toFixed(1)} MB · ${audio.chunkCount} chunks · native-messaging → loro`,
   });
   await chrome.storage.local.remove(KEYS.activeSession);
   active = null;
-  await setHealth({ level: 'idle', text: '', title: 'RichOS: idle' });
+  await setHealth({ level: verdict.ok ? 'idle' : 'red', text: verdict.ok ? '' : '!', title: verdict.ok ? 'RichOS: idle' : 'RichOS: last session needs attention' });
   if (!(await anyActiveWork())) await closeOffscreen();
-  return { ok: true, sessionId: record.sessionId, transport: 'native', verdict: { ok: true, problems: [] } };
+  return { ok: true, sessionId: record.sessionId, transport: 'native', verdict };
 }
 
 /**
  * @param {any} record
  * @param {string} reason
  */
-async function runFinalizeDownloads(record, reason) {
-  const settings = await getModuleSettings(MODULE_ID);
-
+async function runFinalizeBrowser(record, reason) {
   const stopped = await callOffscreen({ type: 'cc:stop', reason });
-  record.endedAt = Date.now();
+  record.endedAt = record.endedAt || Date.now();
   record.status = reason === 'recovered' ? SESSION_STATUS.recovered : SESSION_STATUS.closed;
-  record.notes.push(`closed: ${reason}`);
+  record.notes.push(`closed: ${reason}; retained in browser storage until explicit export`);
   if (stopped?.lastError) record.notes.push(`recorder last error: ${stopped.lastError}`);
-  if (stopped?.micOnlyFailover) record.notes.push('finished in microphone-only failover');
-
-  // exportSession returns the audio accounting itself — reading `.audio` off it threw
-  // mid-finalize and left the session `open` on disk (caught by the live harness).
-  record.audio = await exportSession(record);
-  // The secondary caption channel is written on its own durable file, and its count comes from
-  // the same records — captions never inflate or vanish relative to what is on disk.
+  record.audio = await buildStreamedParts(record.sessionId);
+  for (const part of record.audio.parts) { delete part.written; part.persisted = true; }
   await exportCaptions(record);
-
+  record.transport = 'browser';
+  record.exportPending = true;
   const verdict = verifySession(record);
+  if (stopped?.ok === false) { verdict.ok = false; verdict.problems.push(stopped.lastError || 'recorder flush failed'); }
   record.verification = verdict;
-  await writeSessionFile(record, { overwrite: true });
-
-  if (!verdict.ok) {
-    await raiseAlert({
-      code: 'session-suspect',
-      level: 'red',
-      title: 'RichOS: this call may not have been captured properly',
-      message: `${record.sessionId}: ${verdict.problems.join('; ')}`,
-      sessionId: record.sessionId,
-      force: true,
-    });
-  }
-  if (verdict.ok && !settings.keepChunksAfterExport) {
-    await callOffscreen({ type: 'cc:purge', sessionId: record.sessionId });
-    // Captions are persisted by the service worker (not the offscreen recorder), so purge them here.
-    try {
-      await deleteBySession(DB.stores.captions, record.sessionId);
-    } catch {
-      /* leaving caption rows behind is harmless; never let cleanup break finalization */
-    }
-  }
-
+  await writeSessionFile(record);
   await indexSession(record, verdict);
-  await notifyRoutine({
-    title: verdict.ok ? 'RichOS: capture saved' : 'RichOS: capture finished with problems',
-    message: `${(record.audio.bytesTotal / 1048576).toFixed(1)} MB · ${verdict.durationSeconds}s · ${await dropRoot()}/${record.dir}`,
-  });
+  if (!verdict.ok) await raiseAlert({ code: 'session-suspect', level: 'red', title: 'RichOS: this call needs attention',
+    message: verdict.problems.join('; '), sessionId: record.sessionId });
   await chrome.storage.local.remove(KEYS.activeSession);
   active = null;
-  await setHealth({
-    level: verdict.ok ? 'idle' : 'red',
-    text: verdict.ok ? '' : '!',
-    title: verdict.ok ? 'RichOS: idle' : 'RichOS: last session needs attention',
-  });
-  if (!(await anyActiveWork())) await closeOffscreen();
-  return { ok: true, sessionId: record.sessionId, verdict };
+  await setHealth({ level: verdict.ok ? 'idle' : 'red', text: verdict.ok ? '' : '!',
+    title: verdict.ok ? 'RichOS: recording retained; export from the popup' : 'RichOS: last session needs attention' });
+  await closeOffscreen();
+  return { ok: true, sessionId: record.sessionId, transport: 'browser', exportPending: true, verdict };
+}
+
+let exportTask = null;
+async function exportBufferedSession(sessionId) {
+  if (active || exportTask) return { ok: false, error: 'finish the call and current export first' };
+  const record = await get(DB.stores.sessions, sessionId);
+  if (!record || record.status === SESSION_STATUS.open) return { ok: false, error: 'no closed session to export' };
+  exportTask = (async () => {
+    await ensureOffscreen();
+    const archive = await callOffscreen({ type: 'cc:archive', sessionId });
+    if (!archive?.ok) return { ok: false, error: archive?.error || 'archive assembly failed' };
+    const written = await writeUrl(dropPath(await dropRoot(), `${record.dir}.zip`), archive.url, { userInitiated: true });
+    // Cancellation or failure retains every row and the pending export action for retry.
+    if (!written.ok) return written;
+    record.exportPending = false;
+    record.exportedAt = Date.now();
+    await writeSessionFile(record);
+    await indexSession(record, record.verification || verifySession(record));
+    const settings = await getModuleSettings(MODULE_ID);
+    if (!settings.keepChunksAfterExport) {
+      await callOffscreen({ type: 'cc:purge', sessionId });
+      await deleteBySession(DB.stores.captions, sessionId);
+    }
+    return { ok: true, sessionId, downloadId: written.downloadId };
+  })();
+  try { return await exportTask; }
+  finally { exportTask = null; if (!active) await closeOffscreen(); }
 }
 
 /** @returns {Promise<boolean>} */
 async function anyActiveWork() {
   return Boolean(active);
-}
-
-/**
- * Move audio + health out of IndexedDB into the drop zone.
- * @param {any} record
- */
-async function exportSession(record) {
-  const audio = { parts: [], bytesTotal: 0, chunkCount: 0 };
-  await ensureOffscreen();
-  const assembled = await callOffscreen({ type: 'cc:assemble', sessionId: record.sessionId });
-  if (assembled?.ok) {
-    for (const part of assembled.parts || []) {
-      const filename = dropPath(await dropRoot(), audioFileName(record, part.part));
-      const written = await writeUrl(filename, part.url);
-      audio.parts.push({
-        part: part.part,
-        file: FILES.audioPart(part.part),
-        bytes: part.bytes,
-        chunks: part.chunks,
-        firstChunkAt: part.firstChunkAt,
-        lastChunkAt: part.lastChunkAt,
-        written: Boolean(written.ok),
-        error: written.ok ? undefined : written.error,
-      });
-      audio.bytesTotal += part.bytes;
-      audio.chunkCount += part.chunks;
-    }
-  } else {
-    record.notes.push(`audio assembly failed: ${assembled?.error || 'unknown'}`);
-  }
-
-  const health = await callOffscreen({ type: 'cc:health-jsonl', sessionId: record.sessionId });
-  if (health?.ok && health.text) {
-    await writeText(dropPath(await dropRoot(), record.dir, FILES.health), health.text, {
-      mime: 'application/x-ndjson',
-      overwrite: true,
-    });
-    record.health.recordsWritten = health.count;
-  }
-  return audio;
 }
 
 /**
@@ -1193,27 +1160,7 @@ async function exportCaptions(record) {
     return 0;
   }
   rows.sort((a, b) => a.seq - b.seq);
-  if (rows.length) {
-    const text = rows
-      .map((r) =>
-        JSON.stringify({
-          speaker: r.speaker,
-          text: r.text,
-          t: r.t,
-          firstT: r.firstT,
-          revision: r.revision,
-          id: r.id,
-          language: r.language,
-          adapter: r.adapter,
-        }),
-      )
-      .join('\n');
-    const written = await writeText(dropPath(await dropRoot(), record.dir, FILES.captions), text, {
-      mime: 'application/x-ndjson',
-      overwrite: true,
-    });
-    if (!written.ok) record.notes.push(`captions.ndjson write failed: ${written.error || 'unknown'}`);
-  }
+  // Caption revisions remain durable in IndexedDB and enter the single session archive.
   // Authoritative: the count is the number of records actually written.
   record.captions.count = rows.length;
   record.captions.available = record.captions.available || rows.length > 0;
@@ -1234,27 +1181,22 @@ async function dropRoot() {
  * @param {any} record
  * @param {{overwrite?: boolean}} [opts]
  */
-async function writeSessionFile(record, opts = {}) {
-  const filename = dropPath(await dropRoot(), record.dir, FILES.session);
-  const result = await writeText(filename, JSON.stringify(record, null, 2), {
-    mime: 'application/json',
-    overwrite: opts.overwrite !== false,
-  });
-  if (!result.ok) {
-    await raiseAlert({
-      code: 'drop-zone-write-failed',
-      level: 'red',
-      title: 'RichOS: cannot write to the drop zone',
-      message: `${result.error || 'unknown error'} — capture continues in the browser, but nothing is reaching disk.`,
-      sessionId: record.sessionId,
-    });
+async function writeSessionFile(record) {
+  try {
+    await put(DB.stores.sessions, structuredClone(record));
+    return { ok: true };
+  } catch (err) {
+    await raiseAlert({ code: 'session-checkpoint-failed', level: 'red', title: 'RichOS: cannot preserve this session',
+      message: String(err?.message || err), sessionId: record.sessionId });
+    throw err;
   }
-  return result;
 }
 
 /** Append to the local session index (used by the popup and by recovery). */
 async function indexSession(record, verdict) {
   const stored = (await chrome.storage.local.get(KEYS.sessionIndex))[KEYS.sessionIndex] || [];
+  const previous = stored.findIndex(row => row.sessionId === record.sessionId);
+  if (previous >= 0) stored.splice(previous, 1);
   stored.push({
     sessionId: record.sessionId,
     startedAt: record.startedAt,
@@ -1264,6 +1206,8 @@ async function indexSession(record, verdict) {
     status: record.status,
     ok: verdict.ok,
     problems: verdict.problems,
+    exportPending: Boolean(record.exportPending),
+    transport: record.transport || active?.sink || 'browser',
   });
   await chrome.storage.local.set({ [KEYS.sessionIndex]: stored.slice(-100) });
 }
@@ -1279,7 +1223,7 @@ async function persistActive() {
       audioActive: active.audioActive,
       captions: active.captions,
       // Informational only: a restarted worker cannot restore a native port, so recovery always
-      // finalizes via the Downloads fallback from the durable IndexedDB chunks.
+      // finalizes via the browser-storage fallback from the durable IndexedDB chunks.
       sink: active.sink,
       savedAt: Date.now(),
     },
@@ -1363,7 +1307,9 @@ async function recoverOrphans() {
     (id) => id !== busySessionId && (!active || id !== active.record.sessionId),
   );
   for (const sessionId of ids) {
-    const record = {
+    const checkpoint = await get(DB.stores.sessions, sessionId);
+    if (checkpoint?.status !== 'open' && checkpoint?.exportPending) continue;
+    const record = checkpoint || {
       schemaVersion: 1,
       sessionId,
       dir: sessionId,
@@ -1381,20 +1327,21 @@ async function recoverOrphans() {
       captions: { available: false, adapter: null, adapterVersion: null, count: 0, speakers: [], degraded: false },
       notes: ['recovered from orphaned chunks with no live session record'],
     };
-    record.audio = await exportSession(record);
+    record.status = SESSION_STATUS.recovered;
+    record.endedAt = record.endedAt || Date.now();
+    record.audio = await buildStreamedParts(sessionId);
+    for (const part of record.audio.parts) { delete part.written; part.persisted = true; }
+    record.exportPending = true;
+    record.transport = 'browser';
+    record.verification = verifySession(record);
     await exportCaptions(record);
     await writeSessionFile(record, { overwrite: true });
-    await callOffscreen({ type: 'cc:purge', sessionId });
-    try {
-      await deleteBySession(DB.stores.captions, sessionId);
-    } catch {
-      /* harmless */
-    }
+    await indexSession(record, record.verification);
     await raiseAlert({
       code: 'orphan-recovered',
       level: 'amber',
       title: 'RichOS: recovered orphaned audio',
-      message: `${sessionId}: ${(record.audio.bytesTotal / 1048576).toFixed(1)} MB written to the drop zone.`,
+      message: `${sessionId}: ${(record.audio.bytesTotal / 1048576).toFixed(1)} MB retained in the browser; export from the RichOS popup.`,
       sessionId,
       force: true,
     });
@@ -1420,7 +1367,9 @@ async function recoverCaptionOnlyOrphans(handled) {
   }
   const ids = [...new Set(captionRows.map((r) => r.sessionId))].filter((id) => id && !handled.has(id));
   for (const sessionId of ids) {
-    const record = {
+    const checkpoint = await get(DB.stores.sessions, sessionId);
+    if (checkpoint?.status !== 'open' && checkpoint?.exportPending) continue;
+    const record = checkpoint || {
       schemaVersion: 1,
       sessionId,
       dir: sessionId,
@@ -1439,14 +1388,12 @@ async function recoverCaptionOnlyOrphans(handled) {
       captions: { available: true, adapter: null, adapterVersion: null, count: 0, speakers: [], degraded: false },
       notes: ['recovered captions with NO audio — the call was not fully captured'],
     };
+    record.exportPending = true;
+    record.transport = 'browser';
     const count = await exportCaptions(record);
     record.verification = verifySession(record);
     await writeSessionFile(record, { overwrite: true });
-    try {
-      await deleteBySession(DB.stores.captions, sessionId);
-    } catch {
-      /* harmless */
-    }
+    await indexSession(record, record.verification);
     await raiseAlert({
       code: 'captions-only-recovered',
       level: 'red',
@@ -1527,6 +1474,8 @@ async function onMessage(msg, sender) {
       return finalize(msg.reason || 'manual');
     case 'cc:status':
       return { ok: true, status: await getStatus() };
+    case 'cc:export-session':
+      return exportBufferedSession(msg.sessionId);
     case 'cc:scan':
       await scanTabs();
       return { ok: true };
@@ -1654,6 +1603,7 @@ async function getStatus() {
   const index = (await chrome.storage.local.get(KEYS.sessionIndex))[KEYS.sessionIndex] || [];
   const tabs = await chrome.tabs.query({});
   const root = await dropRoot();
+  const pendingExports = index.filter(row => row.exportPending);
   const callTabs = tabs
     .filter((t) => isCallTab({ url: t.url, audible: t.audible }))
     .map((t) => ({ tabId: t.id, title: t.title, platform: detectPlatform(t.url || '')?.label || 'audible tab' }));
@@ -1661,10 +1611,11 @@ async function getStatus() {
   if (!active) {
     return {
       active: false,
+      pendingExports,
       enabled: settings.enabled,
       armMode: settings.armMode,
       dropFolder: root,
-      saveLocation: `Downloads/${root}/`,
+      saveLocation: 'Local service when available; otherwise browser storage until export',
       lastSession: index.length ? index[index.length - 1] : null,
       callTabsOpen: callTabs,
       unarmedSeconds: unarmedSince ? Math.round((Date.now() - unarmedSince) / 1000) : 0,
@@ -1674,6 +1625,7 @@ async function getStatus() {
   const evaluation = active.lastEval || evaluateHealth(active.state, Date.now());
   return {
     active: true,
+    pendingExports,
     enabled: settings.enabled,
     armMode: settings.armMode,
     sessionId: active.record.sessionId,
@@ -1682,13 +1634,13 @@ async function getStatus() {
     awaitingTabAudio: active.awaitingTabAudio,
     audioActive: active.audioActive,
     // Which transport this session is using: 'native' streams straight to the local service (loro),
-    // 'downloads' is the fallback path. Streamed accounting is what actually crossed the wire.
-    transport: active.sink || 'downloads',
+    // 'browser' is the fallback path. Streamed accounting is what actually crossed the wire.
+    transport: active.sink || 'browser',
     streamedChunks: active.streamedChunks || 0,
     streamedBytes: active.streamedBytes || 0,
     dropFolder: root,
     saveLocation:
-      active.sink === 'native' ? `local service → loro (${active.record.dir})` : `Downloads/${root}/${active.record.dir}/`,
+      active.sink === 'native' ? `local service → loro (${active.record.dir})` : `Browser storage (${active.record.dir}); export after the call`,
     lastSession: index.length ? index[index.length - 1] : null,
     startedAt: active.record.startedAt,
     bytesTotal: active.state.bytesTotal,

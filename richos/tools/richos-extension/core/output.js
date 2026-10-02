@@ -97,6 +97,10 @@ export async function writeText(filename, text, opts = {}) {
  * @returns {Promise<{ok: boolean, error?: string, downloadId?: number}>}
  */
 export async function writeUrl(filename, url, opts = {}) {
+  if (!opts.userInitiated) {
+    await callOffscreen({ type: 'core:revoke-blob-url', url });
+    return { ok: false, error: 'downloads require an explicit export action' };
+  }
   let downloadId;
   try {
     downloadId = await chrome.downloads.download({

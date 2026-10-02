@@ -6,7 +6,7 @@ import { DB } from '../core/constants.js';
 const rows = [];
 globalThis.__recorderStore = {
   async put(store, row) { await new Promise(r => setTimeout(r, 5)); if (store === DB.stores.chunks) rows.push(row); },
-  async putAll() {}, async getAll() { return rows; }, async deleteBySession() {},
+  async putAll() {}, async get() {}, async getAll() { return rows; }, async deleteBySession() {},
 };
 const stream = label => ({ getAudioTracks() { return this.getTracks(); }, getTracks() { return [this.track]; },
   track: { label, readyState: 'live', enabled: true, muted: false, stop() { this.readyState = 'ended'; }, addEventListener() {}, getSettings() { return {}; } } });
@@ -44,9 +44,9 @@ globalThis.MediaRecorder = class {
   stop() { this.state = 'inactive'; this.emit(`TAIL${this.id}`, this.id === 0); this.listeners.get('stop')?.(); }
 };
 let source = await readFile(new URL('../modules/call-capture/recorder.js', import.meta.url), 'utf8');
-source = source.replace("import { put, putAll, getAll, deleteBySession } from '../../core/idb.js';", 'const {put,putAll,getAll,deleteBySession} = globalThis.__recorderStore;');
-for (const relative of ['../../core/constants.js', './constants.js']) {
-  source = source.replace(relative, new URL(relative, new URL('../modules/call-capture/recorder.js', import.meta.url)).href);
+source = source.replace("import { put, putAll, get, getAll, deleteBySession } from '../../core/idb.js';", 'const {put,putAll,get,getAll,deleteBySession} = globalThis.__recorderStore;');
+for (const relative of ['../../core/constants.js', '../../core/zip.js', './constants.js']) {
+  source = source.replaceAll(relative, new URL(relative, new URL('../modules/call-capture/recorder.js', import.meta.url)).href);
 }
 const recorder = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const started = await recorder.start({ sessionId: 'race', streamId: 'valid', settings: {} });

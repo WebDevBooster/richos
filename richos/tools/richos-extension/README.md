@@ -1,3 +1,11 @@
+## Windows call reliability (0.3.1)
+
+Capture never starts automatic Chrome downloads. If the local native host is available, audio streams to it and it writes files continuously. If it is absent or fails, the extension keeps session metadata, audio and captions in IndexedDB and shows that location in the popup. After the call, use **Export** to download one ZIP containing the session directory. Chrome may ask where to save that explicit export once. Cancel keeps the recording for retry. Extract the ZIP before using the existing drop-zone sync helper.
+
+Browser storage is local to the Chrome profile. Do not remove the extension, clear its storage or delete the profile before exporting. An interrupted session is recovered into the same export list. Browser-only capture does not automatically ingest into loro. Install the native host for continuous file saving and processing. On Windows use `../richos-service/host/install-host.ps1` with the extension ID and a Node executable; see the service host README. The Chrome ask-where setting can stay enabled.
+
+Recorder lifecycle requests are serialized. A rotation waits for its final chunk transaction, assigns each event to an immutable part/sequence and preserves working streams if replacement acquisition fails. Failure notifications share one surface and notify once per unresolved condition, including across worker restarts. The badge and incident log remain active.
+
 # RichOS — the capture extension
 
 One Chrome extension, several modules. The first module is **call capture**: it records both
