@@ -319,6 +319,9 @@ async function runNativeLeg(workDir, speechB64) {
   check('LEG1: registered host answers the real Chrome handshake', hostProbe.available, JSON.stringify(hostProbe));
   if (!hostProbe.available) {
     fs.writeFileSync(path.join(workDir, 'native-chrome.log'), log.join(''));
+    const hostStderr = path.join(workDir, 'native-host-stderr.log');
+    console.error('Native launch diagnostics:', fs.existsSync(hostStderr) ? fs.readFileSync(hostStderr, 'utf8').slice(-6000) : 'host did not create stderr log');
+    console.error(log.join('').slice(-6000));
     cdp.close(); chrome.kill('SIGTERM'); server.close();
     throw new Error(`native host prerequisite: ${JSON.stringify(hostProbe)}`);
   }
@@ -539,7 +542,7 @@ async function main() {
   fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
   console.log(`\n${results.filter((r) => r.ok === true).length} checks passed, ${failures} failed`);
   console.log(`result file: ${summaryPath}`);
-  if (KEEP) console.log(`kept workdir: ${workDir}`); else fs.rmSync(workDir, { recursive: true, force: true });
+  if (KEEP || failures) console.log(`kept workdir: ${workDir}`); else fs.rmSync(workDir, { recursive: true, force: true });
   process.exit(failures ? 1 : 0);
 }
 main().catch((err) => { console.error(`\nharness error: ${err.stack}`); process.exit(2); });
