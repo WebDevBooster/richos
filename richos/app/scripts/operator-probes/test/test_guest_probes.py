@@ -686,5 +686,14 @@ class Selection(unittest.TestCase):
         self.assertEqual(gp.unknown_probe_ids(' %s ' % gp.PROBES[0][0]), [])
 
 
+class ExitStatus(unittest.TestCase):
+
+    def test_a_requested_probe_that_never_ran_is_not_exit_zero(self):
+        self.assertEqual(gp.worse_exit(0, 'NOT-RUN'), 1)
+        self.assertEqual(gp.worse_exit(0, 'PASS'), 0)
+        self.assertEqual(gp.worse_exit(1, 'PASS'), 1)
+        self.assertEqual(gp.worse_exit(1, 'ERROR'), 2)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

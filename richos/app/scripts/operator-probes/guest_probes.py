@@ -3905,6 +3905,16 @@ def regrade_w3(record):
     return verdict, why, facts
 
 
+def worse_exit(worst, verdict):
+    """Process status after one more verdict. NOT-RUN is not a passing verdict, so a requested
+    probe that never ran cannot end with exit 0 (hunt part 2, R52)."""
+    if verdict == 'ERROR':
+        return 2
+    if verdict in ('FAIL', 'PREMISE-FALSE', 'NOT-RUN'):
+        return max(worst, 1)
+    return worst
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--grade-w3':
         if len(sys.argv) != 3:
@@ -4005,10 +4015,7 @@ def main():
         (p.results / ('%s.json' % pid)).write_text(json.dumps(redact(record), indent=1, default=str) + '\n')
         summary['probes'][pid] = {'verdict': verdict, 'why': why if verdict != 'ERROR' else why.splitlines()[-1]}
         print('%s %s: %s' % (pid, verdict, summary['probes'][pid]['why']), flush=True)
-        if verdict in ('FAIL', 'PREMISE-FALSE'):
-            worst = max(worst, 1)
-        if verdict == 'ERROR':
-            worst = 2
+        worst = worse_exit(worst, verdict)
     (p.results / 'summary.json').write_text(json.dumps(summary, indent=1) + '\n')
     return worst
 
