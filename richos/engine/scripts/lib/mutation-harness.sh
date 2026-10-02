@@ -562,7 +562,8 @@ _mutant_body() { # <name> <want> <rel> <old> <new> <why>
         printf '          %s\n' "$why"
         return 1
     fi
-    if ! grep -q "FAIL  $want" "$dir/out.txt"; then
+    # -F: the label is a literal ("zp1." must not match the line of "zp10." -- hunt part 3, 27)
+    if ! grep -qF "FAIL  $want" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at "%s" (so the red is unrelated).  [%s]\n' "$name" "$want" "$el"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
         return 1
