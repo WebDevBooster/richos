@@ -451,12 +451,16 @@ def path_claims(text):
 # ground truth
 # --------------------------------------------------------------------------
 
-def name_history(teams_dir):
+def name_history(teams_dir, session_id=None):
     """Union of every present session team dir: ledger + roster + event logs.
 
     Deliberately unioned across ALL sessions rather than scoped to this one.
     A wider set can only make the gate quieter, and the orchestrator does refer
     to teammates from earlier sessions by their exact identifier.
+
+    With `session_id`, only THIS session's team dir is read: the bare-role
+    "never dispatched in this session" test must not be cleared by a role
+    spawned in another session (hunt part 3, finding 21).
     """
     hist = set()
     if not os.path.isdir(teams_dir):
@@ -466,6 +470,8 @@ def name_history(teams_dir):
     except OSError:
         return hist
     for d in entries:
+        if session_id and d != "session-" + session_id[:8]:
+            continue
         td = os.path.join(teams_dir, d)
         if not os.path.isdir(td):
             continue
@@ -591,7 +597,11 @@ def resolve_shas(shas, roots):
         # echoes the INPUT token; a resolved one echoes the FULL oid, so pair
         # by position rather than by the first column.
         for tok, line in zip(todo, p.stdout.splitlines()):
-            if "missing" not in line.split():
+            parts = line.split()
+            # A blob or tree is an object, not a commit: citing a file's
+            # SHA as a commit must not resolve (hunt part 3, finding 20).
+            if "missing" not in parts and not (
+                    len(parts) > 1 and parts[1] in ("blob", "tree")):
                 found.add(tok)
     return found
 
@@ -1192,8 +1202,9 @@ def main():
     stale_roles = []
     if names_evaluable and rclaims and not names and "Agent" not in turn_tools:
         live = live_roles(teams_dir, session_id)
+        here = name_history(teams_dir, session_id)
         for role, span in rclaims:
-            ever = any(n.startswith(role + "-") for n in hist) or (role + "-") in blob
+            ever = any(n.startswith(role + "-") for n in here) or (role + "-") in blob
             if not ever:
                 undispatched_roles.append((role, span))
             elif live is not None and role not in live:
