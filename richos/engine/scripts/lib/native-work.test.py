@@ -9,7 +9,9 @@ the worker first, the lane second, and releases in the reverse order.
 
 CORES (2026-10-02): every native build ran on one core whatever the Mac had free. A build
 now gets the cores free at admission below 60 percent total CPU, shared by the admitted
-machine workers, never fewer than one (native-work.py's docstring has the rule).
+machine workers, never fewer than one (native-work.py's docstring has the rule). The build
+is registered with the watchdog with that grant, and Gradle's daemon gets the grant less
+the JVM's own overhead (gradle_daemons.test.sh covers the daemon kept warm).
 """
 import importlib.util
 import os
@@ -130,15 +132,22 @@ class CoresReachTheBuild(unittest.TestCase):
         FakeBudget.events = Events()
         seen = {}
 
-        def fake_run(cmd, token, env):
-            seen.update(command=cmd, env=env)
+        def fake_run(cmd, token, env, release=None):
+            seen.update(command=cmd, env=env, release=release)
             return 0
+
+        def prepare(workspace, home, processors):
+            seen.update(workspace=workspace)
+            return {'registry': '/registry', 'processors': processors, 'reused': False, 'stopped': []}
         # A stub reserve module: the Darwin path imports it, and nothing here may sample.
         with patch.object(sys, 'platform', 'darwin'), \
                 patch.dict(sys.modules, {'reserve': object()}), \
                 patch.object(cpu_guard, 'require_managed_ancestor'), \
                 patch.object(cpu_guard, 'healthy', return_value=True), \
-                patch.object(cpu_guard, 'register'), \
+                patch.object(cpu_guard, 'register') as register, \
+                patch.object(N.gradle_daemons, 'prepare', side_effect=prepare), \
+                patch.object(N.gradle_daemons, 'adopt', return_value={}), \
+                patch.object(N.gradle_daemons, 'regrant'), \
                 patch.object(worker_tokens, 'Budget', FakeBudget), \
                 patch.object(worker_tokens, 'machine_directory', return_value='/nonexistent/machine-workers-v1'), \
                 patch.object(worker_tokens, 'init'), \
@@ -147,6 +156,8 @@ class CoresReachTheBuild(unittest.TestCase):
                 patch.object(N, 'sharers', return_value=held), \
                 patch.object(N.os, 'cpu_count', return_value=10):
             self.assertEqual(N.run(command), 0)
+        seen['register'] = register.call_args_list
+        self.seen = seen
         return seen['command'], seen['env']
 
     def test_a_quiet_mac_gives_five_cores_to_debug_swift_and_xcode_two_to_cargo_one_to_a_jvm(self):
@@ -163,14 +174,35 @@ class CoresReachTheBuild(unittest.TestCase):
         xcode, _ = self.admitted(['xcodebuild', '-configuration', 'Release', 'build'], 5.0, 1)
         self.assertEqual(xcode[xcode.index('-jobs') + 1], '1')
 
-    def test_a_jvm_keeps_one_processor_however_many_cores_are_free(self):
-        # 2026-10-02: a Gradle JVM given 4 ran at 6.08 cores and the watchdog stopped it.
-        gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 0.0, 1)
-        self.assertIn('--max-workers=1', gradle)
+    def test_gradle_gets_its_grant_less_the_jvm_overhead_and_other_jvms_keep_one(self):
+        # 2026-10-02: a Gradle JVM given 4 processors ran at 6.08 cores (JIT and GC above its
+        # count) and the per-process line stopped it. The build is now judged by its grant;
+        # the daemon gets the grant less JVM_OVERHEAD_CORES so the whole tree stays inside it.
+        gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 0.0, 1)       # 6 cores
+        self.assertIn('--max-workers=4', gradle)
         self.assertIn('--no-parallel', gradle)
-        self.assertIn('--no-daemon', gradle)              # the supervisor ends every daemon anyway
-        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=1 -Dfile.encoding=UTF-8', gradle)
+        self.assertIn('--daemon', gradle)
+        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=4 -Dfile.encoding=UTF-8', gradle)
+        self.assertIn('-Dorg.gradle.daemon.registry.base=/registry', gradle)
+        self.assertEqual(self.seen['release'], '/registry')
         self.assertTrue(env['JAVA_TOOL_OPTIONS'].endswith('-XX:ActiveProcessorCount=1'))
+        gradle, _ = self.admitted(['./gradlew', 'assembleRelease'], 40.0, 1)      # 2 cores
+        self.assertIn('--max-workers=1', gradle)
+
+    def test_every_admitted_build_is_registered_with_its_grant_and_workspace(self):
+        for command in (['./gradlew', 'assembleRelease'], ['swift', 'build'], ['cargo', 'build']):
+            self.admitted(command, 5.0, 1)
+            (pid, label, role), kwargs = self.seen['register'][-1]
+            self.assertEqual((pid, role), (os.getpid(), cpu_guard.NATIVE_ROLE), command)
+            self.assertEqual(kwargs['grant']['cores'], 5, command)
+            self.assertTrue(kwargs['grant']['group'], command)
+
+    def test_turned_off_gradle_is_cold_on_one_processor(self):
+        with patch.dict(os.environ, {'RICHOS_GRADLE_DAEMON': '0'}):
+            gradle, _ = self.admitted(['./gradlew', 'assembleRelease'], 0.0, 1)
+        self.assertIn('--no-daemon', gradle)
+        self.assertIn('--max-workers=1', gradle)
+        self.assertIsNone(self.seen['release'])
 
     def test_one_process_stays_under_the_watchdogs_per_process_line(self):
         self.assertLess(N.PROCESS_CORES, cpu_guard.JOB_CORES)
