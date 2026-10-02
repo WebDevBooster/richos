@@ -17,6 +17,7 @@
  * result file behind so a reviewer can check what was exercised rather than take a claim.
  */
 
+import { exportBufferedArchive } from './buffered-export.mjs';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { createServer } from 'node:https';
 import fs from 'node:fs';
@@ -282,7 +283,7 @@ async function main() {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const httpsPort = server.address().port;
-  const CALL_URL = 'https://meet.google.com/abc-defg-hij';
+  const CALL_URL = `https://meet.google.com:${httpsPort}/abc-defg-hij`;
 
   // 2. Microphone source for the run.
   //    Chrome's built-in fake device emits a periodic beep — real, loud, sufficient audio.
@@ -319,7 +320,8 @@ async function main() {
     ...(fakeAudioFile ? [`--use-file-for-fake-audio-capture=${fakeAudioFile}`] : []),
     '--autoplay-policy=no-user-gesture-required',
     '--ignore-certificate-errors',
-    `--host-resolver-rules=MAP meet.google.com 127.0.0.1:${httpsPort}`,
+    '--host-resolver-rules=MAP meet.google.com 127.0.0.1',
+    '--no-proxy-server',
     '--window-size=1000,700',
   ];
   if (!HEADED) args.push('--headless=new');
@@ -398,9 +400,13 @@ async function main() {
   const { targetId: tabTargetId } = await cdp.send('Target.createTarget', { url: CALL_URL });
   const { sessionId: tabSession } = await cdp.send('Target.attachToTarget', { targetId: tabTargetId, flatten: true });
   await cdp.send('Runtime.enable', {}, tabSession);
+  const navigation=await cdp.send('Page.navigate',{url:CALL_URL},tabSession);
+  if(navigation.errorText)throw new Error(`fixture navigation: ${navigation.errorText}`);
+  await waitFor('fixture page to load',()=>evaluate(cdp,tabSession,'document.getElementById("s")?.textContent'));
   await sleep(2500);
   const audioState = await evaluate(cdp, tabSession, 'document.getElementById("s")?.textContent');
   check('fixture call page is playing real audio', /running/.test(String(audioState)), String(audioState));
+  if(!/running/.test(String(audioState)))throw new Error('fixture prerequisite failed: '+JSON.stringify(await evaluate(cdp,tabSession,'({url:location.href,secure:isSecureContext,title:document.title,text:document.body?.innerText?.slice(0,500)})')));
 
   const tabId = await evaluate(
     cdp,
@@ -505,8 +511,8 @@ async function main() {
   await sleep(1500);
   walkEarly(downloadDir);
   check(
-    'session.json is written at call START (a call that captures nothing is a loud anomaly)',
-    earlyFiles.some((f) => f.endsWith('session.json')),
+    'call START checkpoint exists in browser storage without an automatic download',
+    (await evaluate(cdp,swSession,`(async()=>Boolean(await globalThis.__richos.core.idb.get('sessions',${JSON.stringify(status.sessionId)})))()`))===true && earlyFiles.length===0,
     earlyFiles.join(', ') || 'nothing on disk yet',
   );
 
@@ -758,7 +764,10 @@ async function main() {
   );
   check('closing the call tab finalizes the session', afterClose.active === false, JSON.stringify(afterClose.lastSession || {}));
 
-  // 11. Verify the drop zone on disk.
+  check('automatic close retains a pending export without downloading', afterClose.lastSession?.exportPending===true && fs.readdirSync(downloadDir).length===0);
+  const exported=await exportBufferedArchive(cdp,swSession,evaluate,downloadDir,afterClose.lastSession.sessionId);
+  check('explicit export produces one complete ZIP',exported.ok===true && Boolean(exported.archivePath));
+  // 11. Verify the explicitly exported archive contents on disk.
   const found = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -819,39 +828,17 @@ async function main() {
     );
   }
 
-  // 12. Is the exported audio actually decodable, and is it really 2-channel Opus?
-  if (audioFiles.length) {
-    const audioPath = path.join(downloadDir, audioFiles[0].file);
-    try {
-      const probe = execFileSync(
-        'ffprobe',
-        ['-v', 'error', '-show_entries', 'stream=codec_name,channels:format=duration', '-of', 'default=nw=1', audioPath],
-        { encoding: 'utf8' },
-      ).trim().replace(/\n/g, ' ');
-      check('exported audio decodes as Opus with the expected channel layout', /opus/.test(probe), probe);
-
-      // The decisive end-to-end assertion: the file must actually contain SOUND, not a
-      // perfectly-formed silent container.
-      // ffmpeg prints volumedetect results on stderr.
-      const run = spawnSync('ffmpeg', ['-v', 'info', '-i', audioPath, '-af', 'volumedetect', '-f', 'null', '-'], {
-        encoding: 'utf8',
-      });
-      const volume = `${run.stdout || ''}${run.stderr || ''}`;
-      const mean = /mean_volume:\s*(-?[\d.]+) dB/.exec(volume)?.[1];
-      const max = /max_volume:\s*(-?[\d.]+) dB/.exec(volume)?.[1];
-      check(
-        silentDevice
-          ? 'the exported audio is measurably silent, as the silent-device test intends'
-          : 'the exported audio contains real sound (not a silent container)',
-        mean != null && (silentDevice ? Number(mean) < -80 : Number(mean) > -80),
-        `mean_volume=${mean} dB max_volume=${max} dB`,
-      );
-    } catch (err) {
-      const message = String(err.stderr || err.message);
-      if (/not found|ENOENT/.test(message)) note('ffprobe not installed — audio not decoded here', message.slice(0, 120));
-      else check('exported audio decodes', false, message.slice(0, 200));
-    }
+  // Decode every exported part in Chrome, independently of recorder status or ffmpeg availability.
+  const {targetId:decodeTarget}=await cdp.send('Target.createTarget',{url:`chrome-extension://${extensionId}/options/options.html`});
+  const {sessionId:decodeSession}=await cdp.send('Target.attachToTarget',{targetId:decodeTarget,flatten:true});
+  await cdp.send('Runtime.enable',{},decodeSession);
+  for(const file of audioFiles){
+    const b64=fs.readFileSync(path.join(downloadDir,file.file)).toString('base64');
+    const decoded=await evalJson(cdp,decodeSession,`(async()=>{const ctx=new AudioContext();try{const data=Uint8Array.from(atob(${JSON.stringify(b64)}),c=>c.charCodeAt(0));const audio=await ctx.decodeAudioData(data.buffer);let sum=0,n=0;for(let ch=0;ch<audio.numberOfChannels;ch++){for(const v of audio.getChannelData(ch)){sum+=v*v;n++;}}return JSON.stringify({ok:true,channels:audio.numberOfChannels,duration:audio.duration,rms:Math.sqrt(sum/n)});}catch(e){return JSON.stringify({ok:false,error:String(e)});}finally{await ctx.close();}})()`);
+    check(`exported part decodes with stereo channels: ${file.file}`,decoded.ok && decoded.channels===2,JSON.stringify(decoded));
+    if(decoded.ok)check(silentDevice?'the exported audio is measurably silent':'the exported audio contains real sound',silentDevice?decoded.rms<.0001:decoded.rms>.0001,JSON.stringify(decoded));
   }
+  await cdp.send('Target.closeTarget',{targetId:decodeTarget});
 
   check(
     'the extension logged no errors and threw no uncaught exceptions',

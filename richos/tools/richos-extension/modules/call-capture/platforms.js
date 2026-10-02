@@ -25,7 +25,7 @@ export const PLATFORMS = [
   {
     id: 'zoom-web',
     label: 'Zoom (web client)',
-    match: (u) => /(^|\.)zoom\.us$/.test(u.hostname) && /^\/wc\//.test(u.pathname),
+    match: (u) => /(^|\.)zoom\.us$/.test(u.hostname) && /^\/wc\/(?:join\/)?\d{6,}(?:\/|$)/.test(u.pathname),
     slug: (u) => {
       const m = u.pathname.match(/\/wc\/(?:join\/)?(\d{6,})/);
       return m ? m[1] : 'zoom';

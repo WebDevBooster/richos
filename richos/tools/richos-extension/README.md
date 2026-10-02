@@ -1,3 +1,11 @@
+## Windows call reliability (0.3.1)
+
+Capture never starts automatic Chrome downloads. If the local native host is available, audio streams to it and it writes files continuously. If it is absent or fails, the extension keeps session metadata, audio and captions in IndexedDB and shows that location in the popup. After the call, use **Export** to download one ZIP containing the session directory. Chrome may ask where to save that explicit export once. Cancel keeps the recording for retry. Extract the ZIP before using the existing drop-zone sync helper.
+
+Browser storage is local to the Chrome profile. Do not remove the extension, clear its storage or delete the profile before exporting. An interrupted session is recovered into the same export list. Browser-only capture does not automatically ingest into loro. Install the native host for continuous file saving and processing. On Windows use `../richos-service/host/install-host-windows.mjs` using a Node executable, the extension ID and an optional drop-zone path; see the service host README. The Chrome ask-where setting can stay enabled.
+
+Recorder lifecycle requests are serialized. A rotation waits for its final chunk transaction, assigns each event to an immutable part/sequence and preserves working streams if replacement acquisition fails. Failure notifications share one surface and notify once per unresolved condition, including across worker restarts. The badge and incident log remain active.
+
 # RichOS — the capture extension
 
 One Chrome extension, several modules. The first module is **call capture**: it records both
@@ -169,14 +177,14 @@ session length · participant disclosure banner + text · keep raw chunks after 
 ## What lands on disk
 
 On the **native-messaging transport** the host writes this same session directory straight into the
-loro drop zone (`wiki/raw/meetings/<session>/`). On the **Downloads fallback** — a Chrome extension
-may only write inside the downloads folder — each call becomes a folder under
-`Downloads/richos-capture/` and the sync helper moves it into loro. The directory contract is
-identical either way:
+loro drop zone (`wiki/raw/meetings/<session>/`). On the **browser-storage fallback**, session metadata, audio and captions stay in IndexedDB.
+The popup offers one explicit ZIP export after the call. Extract that archive into
+`Downloads/richos-capture/` before using the sync helper. The extracted directory contract is
+identical to the native directory:
 
 ```
 Downloads/richos-capture/2026-08-23T14-05-02Z--meet--abc-defg-hij/
-  session.json          written at call START (status "open"), rewritten at close
+  session.json          checkpointed at call START (status "open"), finalized at close
   audio-part-00.webm    2-channel Opus: LEFT = your microphone, RIGHT = everyone else
   health.ndjson         one JSON record per second: levels, chunk counts, track states
   captions.ndjson       secondary channel: one JSON record per caption revision
@@ -194,10 +202,10 @@ trustworthy is stated in the file rather than smoothed over.
 
 Size: roughly **43 MB per hour** at the default 96 kbps.
 
-### Getting it into loro (Downloads fallback only)
+### Getting it into loro (explicit browser export only)
 
 On the native-messaging transport this is automatic — the host already wrote into loro. The sync
-helper is only needed for sessions captured on the Downloads fallback path:
+helper is only needed after exporting and extracting sessions captured in browser storage:
 
 ```
 node sync/richos-sync.mjs --to ~/richos/wiki/raw/meetings
@@ -225,15 +233,14 @@ There are now **two transports**, chosen automatically at call start:
   the extension opens a `chrome.runtime.connectNative` port and streams every captured chunk (plus
   health + captions) straight to the host, which writes the session directory **directly into loro**
   and runs the transcription pipeline on close — producing `transcript.md` with no Downloads hop and
-  no sync command. The audio the host receives is the *exact* durable chunk the Downloads path would
+  no sync command. The audio the host receives is the *exact* durable chunk the browser archive would
   assemble (collector-path parity), so the transport is a delivery change, not a format change.
-- **Downloads (automatic runtime fallback).** If the service is not installed/running — or if the
-  native port dies mid-call — the extension falls back to writing `audio-part-NN.webm` + `session.json`
-  into the drop zone exactly as before, and the sync helper moves finished sessions into loro's
-  `raw/meetings/`. Every chunk is committed to IndexedDB regardless of transport, so a service that
-  disappears at any point **never loses audio** — the full session is exported to Downloads at
-  finalize. This is a belt-and-suspenders cutover: the new path is the default, the old path is the
-  safety net.
+- **Browser storage (automatic runtime fallback).** If the service is absent or its port fails,
+  capture continues into IndexedDB. Every transport commits each chunk there before delivery.
+  Finalization retains the entire session and exposes **Export** in the popup. Only that explicit
+  action downloads one archive. Cancelling it keeps the data for retry. Nothing automatically
+  opens a Save As dialog during the call or recovery. Browser storage and available disk space
+  remain finite, so export recordings before clearing the profile or removing the extension.
 
 Post-call transcription is the *right* default either way: transcription is a pure function of the
 audio, the audio is already safe, and running ASR live would heat the machine during the call for no
@@ -259,7 +266,7 @@ anywhere in the framework.
 ```
 node tests/run.js                  # pure logic: no browser, fake clock
 node tests/sync-reconcile.mjs      # the real sync CLI vs synthetic sessions on disk
-node tests/live-capture.mjs        # real Chrome, real audio, real captions, real files on disk (Downloads path)
+node tests/live-capture.mjs        # real Chrome, real audio, real captions, durable browser storage, explicit ZIP export and independent audio decode
 node tests/native-transport-e2e.mjs  # real Chrome → real native host → real whisper (the streaming transport)
 ```
 
@@ -268,11 +275,19 @@ it launches real Chrome for Testing with the extension loaded, registers the rea
 a native-messaging host, and proves that the extension's own recorder streams captured audio over
 `chrome.runtime.connectNative` → the host → the transcription pipeline → `transcript.md` — asserting
 the transcript contains the spoken words and that **nothing** was written to Downloads. It also
-proves the runtime fallback (no host reachable → Downloads still captures, no audio lost) and
+proves the runtime fallback (no host reachable → browser capture continues and an explicit ZIP contains the audio) and
 documents the tab-arming trusted-gesture boundary. Chrome for Testing's fake-microphone *file*
 device delivers digital silence on this host (measured; see the harness header), so the harness
 injects a real spoken WAV into the recorder's own encode path via a test seam — the audio that
 crosses native messaging is genuine browser MediaRecorder Opus.
+
+On macOS with an external SSD, native helpers have their own privacy identity. Set
+`RICHOS_NATIVE_LAUNCHER_PYTHON` to the absolute path of a Python interpreter already permitted
+to access that SSD. The fixture uses it to execute the real Node host directly, preserving
+stdio and avoiding a broad disk-access grant to `/bin/sh`. The default launcher remains a shell.
+Use the service's pinned model and matching Whisper toolchain; a small-model override under
+the shipping tier is correctly refused by the pipeline. `--leg=native` or `--leg=fallback`
+retries one leg; the default invocation verifies both.
 
 The live harness launches a throwaway Chrome profile with the extension loaded, serves a page as
 `https://meet.google.com/...` that plays a real tone **and emits Meet-shaped captions** so both

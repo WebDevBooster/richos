@@ -94,11 +94,14 @@ export function audioFileName(record, part) {
  * @param {Record<string, any>} record
  * @param {{level: string}} evaluation
  */
-export function accrueHealth(record, evaluation) {
-  record.health.heartbeats += 1;
-  if (evaluation.level === 'green') record.health.greenSeconds += 1;
-  if (evaluation.level === 'amber') record.health.amberSeconds += 1;
-  if (evaluation.level === 'red') record.health.redSeconds += 1;
+export function accrueHealth(record, evaluation, now = Date.now()) {
+  const previous = record.health.lastEvaluationAt ?? record.startedAt;
+  const until = Math.max(previous, Math.min(now, record.endedAt ?? now));
+  const seconds = (until - previous) / 1000;
+  if (until > previous) record.health.heartbeats += 1;
+  const field = { green: 'greenSeconds', amber: 'amberSeconds', red: 'redSeconds' }[evaluation.level];
+  if (field) record.health[field] = Math.round((record.health[field] + seconds) * 1000) / 1000;
+  record.health.lastEvaluationAt = until;
   const rank = { green: 0, amber: 1, red: 2 };
   if (rank[evaluation.level] > rank[record.health.worstLevel]) record.health.worstLevel = evaluation.level;
 }
@@ -128,6 +131,9 @@ export function verifySession(record, minSeconds = 30) {
   }
   if (durationSeconds >= minSeconds && hasAudio && record.audio.bytesTotal < 5000) {
     problems.push('audio is implausibly small for the session length');
+  }
+  for (const part of record.audio.parts) {
+    if (part.written === false || part.error) problems.push(`audio part ${part.part} is not safely written: ${part.error || 'write failed'}`);
   }
   if (record.health.redSeconds > 0) problems.push(`${record.health.redSeconds}s spent in a red health state`);
   if (record.status === SESSION_STATUS.open) problems.push('session was never closed');
