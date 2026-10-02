@@ -579,9 +579,10 @@ def stale_pins(repo):
         "",
         f"A reviewed check reads these files, and {QUALIFICATIONS} pins each by SHA-256.",
         "The merge would refuse this branch with UnqualifiedReader (proof_evidence.qualify_recipe).",
-        "Fix: renew the pin in that file's \"sources\" for the unit (the new SHA-256 is",
-        "`shasum -a 256 <file>`), as commit a6bd0145 did for make-release.sh; re-check that the",
-        "unit's \"review\" text still describes what the changed file reads.",
+        "Fix: run  python3 richos/app/scripts/autocheck/qualification-pins.py --renew <file>..",
+        "(no <file>: every stale pin) instead of editing the JSON by hand; it sets each pin to the",
+        "file's SHA-256 and touches nothing else. Then re-check that the unit's \"review\" text",
+        "still describes what the changed file reads.",
     ]
     banner("COMMIT REFUSED: a changed file is pinned by a reviewed check", lines)
     return 1
