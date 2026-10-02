@@ -20,23 +20,34 @@ python3 <richos-hq>/scripts/with-android-firebase.py richos/mobile/native-androi
 richos/mobile/native-android/bin/randroid emu perf --out <file.json> [--expect-commit <sha>] [--theme dark] [--only cold,warm]
 richos/mobile/native-android/bin/randroid emu delete
 
-# an Android phone (named explicitly; the tool checks it is not an emulator)
-python3 richos/mobile/perf/perf.py android --adb <adb> --serial <serial> --kind physical --stamp <apk>.stamp.json --out <file.json>
+# an Android phone (named explicitly; the tool checks it is not an emulator). A release build is seeded
+# with the made-up conversation through its debuggable twin, which REPLACES the app's saved state on the phone
+python3 richos/mobile/perf/perf.py android --production --route managed --adb <adb> --serial <serial> --kind physical \
+  --stamp <apk>.stamp.json --seed-twin <debug.apk> --out <file.json>
 
-# iOS: a named simulator or physical iPhone; trace series retain every raw trace (see "iOS launch and return")
+# iOS: a named simulator or physical iPhone; trace series retain every raw trace (see "iOS launch and return").
+# A simulator is seeded with Android's made-up conversation by default and the app's own state is put back after
 richos/mobile/native-ios/bin/rios perf --simulator <UDID> --stamp <stamp.json> --out <file.json>
-richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --evidence-dir /Volumes/E1TB/reports/<run> --cold 100 --out <file.json>
-richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --evidence-dir /Volumes/E1TB/reports/<run> --cold 0 --warm 100 --out <file.json>
+# An iPhone has no seeding path yet, so the condition is named explicitly and the record is never compared
+richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 100 --out <file.json>
+richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 0 --warm 100 --out <file.json>
 richos/mobile/native-ios/bin/rios perf --reparse <series-dir> --out <file.json>   # re-read retained traces, capture nothing
 
 python3 richos/mobile/perf/perf.py check <record.json>...   # a record's structural promises
 python3 richos/mobile/perf/perf.py budgets                   # the PRD §7 targets it compares to
 python3 richos/mobile/perf/perf.py merge <part.json>... --out <file.json>   # one record from boots split with --only
 python3 richos/mobile/perf/perf.py stamp --artifact <apk|.app> --checkout <repo> --paths <p>...
+python3 richos/mobile/perf/perf.py compare <record.json> [<warm.json>]      # p95 against benchmarks taken under the same condition
+python3 richos/mobile/perf/perf.py benchmark-update <record.json>...      # the only way a benchmark changes; commit after
+# either of the last two, for records measured before records named their condition:
+#   --condition-declaration <declaration.json>   (see "Conditions"), written by:
+python3 richos/mobile/perf/perf.py declare-condition <record.json>... --fixture <name> --rows <n> --mac <state> \
+  --build <type> --seeded-by <how> --evidence <retained logs> --declared-by <name> --out <private declaration.json>
 ```
 
 Exit 0 a record was written; 1 a phase could not be measured (the record says which and why);
-3 REFUSED before measuring anything. **Identity or refuse:** `randroid emu prepare|refresh` stamps
+3 REFUSED before measuring anything; 4 the record was written and is SLOWER than the established
+benchmark (below). **Identity or refuse:** `randroid emu prepare|refresh` stamps
 the APK it installs (commit, uncommitted changes under `richos/mobile/native-android`, SHA-256).
 The measurement hashes the APK actually installed on the device and refuses unless it is the
 stamped one; with `--expect-commit` it also refuses a build from another commit or from
@@ -100,6 +111,120 @@ configuration and there are at least the PRD §8 protocol's 100 launch trials, a
 reads "EVIDENCE ONLY (a reviewer decides)". On an emulator the Mac's CPU is sampled per phase,
 because the emulator's timings depend on it.
 
+## Start times never get slower: the benchmark
+
+The apps must stay fast: the cold launch and warm resume times already achieved are kept, and
+faster is welcome. The benchmark file holds, per class (a device and a condition, below), the best
+p95 measured so far for `coldLaunch` and `warmResume`, the record, build commit and date it came from,
+and every repeated series of that class with its noise. The numbers were written by
+`benchmark-update` from the records themselves, never typed. A class taken out of use moves to
+`retired` with the reason and is never compared against.
+
+**The file is private.** It holds numbers measured on the CEO's own phones, so it lives in the private
+record repository, never in this one. `perf.py` finds it through `$RICHOS_MOBILE_PERF_BENCHMARKS`, else
+the default `~/ab/richos-hq/docs/mobile-perf/benchmarks.json` on the Mac that runs the phones, and
+`--benchmark FILE` overrides both. In a public clone the file is absent: every comparison is reported
+NOT COMPARED with the reason "no private benchmark file", and `perf.py compare` exits 5. It never
+passes silently. The tests here use only fixture benchmarks with made-up numbers.
+
+### Conditions: only like-for-like records are compared
+
+A launch time depends on what the app reads at launch as well as on its code. On 2026-10-02 phone
+records that had been compared as a slowdown turned out to have been measured with different
+conversations on the phone and a live Mac. Rebuilt and measured under one fixed condition, the
+"slower" build equalled the "fast" one. A benchmark is
+only worth keeping if two builds are measured the same way, so:
+
+- **Every record names its condition** (`condition` in the record, `condition.py`): the conversation
+  the app held (fixture name, row count and the SHA-256 of exactly what was seeded), whether the Mac
+  was reachable, and the build type. `KEYS` in `condition.py` are the fields that must be equal.
+- **`perf.py android` seeds a fixed, made-up conversation by default** (`--conversation fixture`):
+  - Debug build with its development bridge: `devbridge-hello/1`, 40 rows by default, the scripted
+    Mac unreachable (`--mac reachable` sets it accepting).
+  - Any other build: `synthetic-conversation/1`, 100 rows by default, written into the app's own
+    saved-state files (`files/core/session.json` and `history.json`) and read back by SHA-256.
+    Its pairing names a host under `.invalid`, which never resolves, so the Mac is unreachable by
+    construction. A debuggable build is written with `run-as`. A release build is seeded through its
+    debuggable twin (`--seed-twin <debug.apk>`, same commit, same signing key). The tool
+    uninstalls the app, installs the twin, writes the files, then installs the stamped release APK
+    over it with the data kept. **That replaces the app's saved state on the phone.** A release build
+    without `--seed-twin` is refused before anything on the device changes.
+
+  The default sizes are the ones the established benchmarks were taken with. `--rows N` is a
+  different condition. After the cold series the tool checks the seeded conversation's marker row is
+  on screen. If it is not, the condition is marked unverified and the record is never compared.
+- **`perf.py ios` seeds the same conversation on a simulator by default** (`--conversation fixture`):
+  - `condition.py` writes Android's fixture files (`synthetic-conversation/1`, 100 rows by default),
+    and `bin/rios perf-seed` turns them into the iPhone app's own saved state (`state.json` and
+    `history.json`) through the app's own core. It refuses unless the files' SHA-256 manifest is the
+    condition's, and unless the core loads every row back. So the iPhone is given the same
+    conversation as the Android phone, named by the same SHA-256. The record also names the files
+    the app was given (`conversation.files`).
+  - The tool terminates the app, keeps a copy of its saved state, copies the seeded files into the
+    simulator's data container (`Library/Application Support/RichOS`) and reads them back. After the
+    measurement it puts the app's own saved state back (`conditions.savedStateRestored`).
+  - The pairing names a host under `.invalid` and no device id. With a device id, the app would look
+    for this phone's own key for that Mac, which only a real pairing creates; finding none, it treats
+    the pairing as removed and leaves the conversation. Without one, it opens no connection at all, so
+    the Mac is unreachable. (Android's app tries the `.invalid` host and fails to resolve it.)
+  - **Nothing of this is in any app build.** The seeder is the core package's `RichOSPerfSeed`
+    target, which is not a product, so the app's project cannot link it. The Release app that is
+    measured is the stamped bundle with no launch argument. `rios sim check-release` proves the
+    seeder's marker is absent from the Debug and Release bundles and present in `rios-cli`.
+  - After the launches the tool brings the app to the front, takes a screenshot and reads its text
+    with the Mac's Vision framework (`bin/rios screen-text`). The newest seeded CEO row must be on
+    screen. If it is not, or the screen cannot be read, the record names that and is never compared.
+  - A Debug launch argument (`--app-arg`) or `--mac reachable` is refused before anything changes.
+  - **An iPhone is refused for now.** It needs `devicectl` copies into the app data container, with
+    a backup of the phone's own saved state, and an on-screen check through the phone's UI-test
+    runner. Neither has been run on a phone yet.
+- **`--conversation as-installed`** measures whatever the app holds. The record says so, and is never
+  compared with anything. On an iPhone it is the only choice until the iPhone path exists:
+  `--conversation as-installed --mac reachable|unreachable`.
+- **`perf.py compare` compares a record only with a class whose device matches and whose condition is
+  equal on every key.** A device match under another condition, a record that names no condition, an
+  as-installed record or an unverified one is NOT COMPARED with the reason "different conditions".
+  It never passes and never fails across conditions (exit 5). Records of one build (an iOS cold
+  series and its warm series), or parts joined by `merge`, must share one condition.
+- **Records measured before records named their condition** get one only from a *condition
+  declaration*: a private JSON file (`richos-mobile-perf-condition-declaration/1`) that states the
+  condition, the evidence, who declared it and when. It names the exact record files it applies to by
+  SHA-256. `--condition-declaration FILE` on `compare` and `benchmark-update` applies it. It never
+  replaces a record's own condition, and it is refused when the record itself says otherwise (build
+  type, Mac state, seeded rows). The benchmark entry names the declaration it relied on.
+
+**The noise allowance** comes from the repeated series, not from a guess. For each series,
+`benchmark.py` resamples its own samples 2,000 times (seeded), takes the p95 of each resample and
+uses the spread of those p95s as the series' standard error (SE). Two runs of one build differ by
+more than 1.96 x √2 x SE only about one time in forty in the slower direction. The class's allowance
+is the median of its series' bounds, so one series with a long tail cannot widen it. The spread
+*between* series of different builds is deliberately not used: it is the kind of change (a slowdown
+across builds) this check exists to catch, so it cannot also be the allowance.
+
+**Where it runs.** Every record `perf.py android`, `perf.py ios` (including `--reparse`) and
+`perf.py merge` write is compared before it is written. That covers `rios perf`, `randroid emu perf`
+and the physical Android command, which all run `perf.py`. The record gets a `benchmark` section
+with every metric (FASTER, WITHIN NOISE, SLOWER or NOT COMPARED, with the reason). A slower build's
+`acceptance` reads `REFUSED: slower than the established benchmark`, the command exits 4, and
+`perf.py check` refuses a slower record that claims anything else. `perf.py compare` judges a retained
+record, or an iOS cold series with its warm series from the same build: exit 0 nothing slower, 4 slower,
+5 nothing could be compared. A metric is compared only if it has a p95 (20 trials or more) and the class
+has a number for it; anything else is listed as NOT COMPARED with the reason, never as a pass.
+
+**What still needs a phone.** The comparison only judges a record that exists, and a phone record
+exists only when someone runs the series. On the Android phone that is
+`perf.py android --production ... --kind physical --seed-twin <debug.apk> --only cold,warm --cold 100 --warm 100`.
+No iPhone benchmark can exist until the iPhone seeding path does (see "Conditions"; a simulator
+is seeded, but simulator numbers are never a phone benchmark). No commit
+runs a phone. The fixture suite (`mobile-perf.test.sh`) runs on any change to this tool.
+
+**Raising a number.** A faster series is reported as FASTER and changes nothing by itself.
+`perf.py benchmark-update <record.json>...` raises a benchmark when the series is faster, adds every
+series to the noise list and recomputes the allowance; the person then commits the private benchmark file in richos-hq.
+A slower series replaces a benchmark only with `--allow-slower "<reason>"`, and the reason is written
+beside the number. The
+file holds no serial, UDID, sample or trace.
+
 ## §7 budgets this cannot measure yet, and what would settle each
 
 | Budget | Why not now | What settles it |
@@ -111,6 +236,7 @@ because the emulator's timings depend on it.
 | Release-configuration timing | A debuggable, unminified build is slower than release. | A profileable release-configuration build signed for local install, reaching the conversation through a real pairing. |
 | Production persistence cost | In a development world the core persists through the bridge's document, not `AppPorts`' `JsonFile`. `RichCore.commit` changes show here; `JsonFile` changes need a paired production core. | The same typing phase against a paired production core. |
 | iOS launch acceptance | The tool now measures the presented, input-ready endpoint (below), but no physical series has run. | The two 100-trial commands below on the phone, with a stamped Release build. |
+| Return to a waiting reply on screen | `warmResume` ends when retained content accepts input; it does not wait for the reply already waiting on the Mac. Re-walk 4 (2026-10-01) saw 1.12-2.11 s on six returns and 17.11 s on one. | A `returnToReply` class: lab Mac with the reply held, send, Home, the reply finishes on the Mac, return; from `AppResume` to the presented frame of the first `transcript-drawn` after `text-received`, with a trial longer than the slowest return (30 s); a trial without the reply is kept as at least 30 s, never dropped. |
 
 ## iOS launch and return (PRD §7)
 
@@ -187,15 +313,15 @@ xcrun devicectl device install app --device "$UDID" "$APP"
 SHA=$(git rev-parse HEAD)
 
 # one trial of each class first: proves the device, the tool and this phone's lists before a long series
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" \
+richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
   --evidence-dir "$RUN/traces" --cold 1 --out "$RUN/pilot-cold.json"
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" \
+richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
   --evidence-dir "$RUN/traces" --cold 0 --warm 1 --out "$RUN/pilot-warm.json"
 
 # the series: cold launches, then warm returns
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" \
+richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
   --evidence-dir "$RUN/traces" --cold 100 --out "$RUN/cold-100.json"
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" \
+richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
   --evidence-dir "$RUN/traces" --cold 0 --warm 100 --away 2 --out "$RUN/warm-100.json"
 ```
 
@@ -231,18 +357,34 @@ Profiler overhead is included in every number.
 emulator (`fixtures/android/`), the whole Android run against a scripted adb (including every
 refusal), and on iOS the parsers, the presentation join and every rejection, the export re-read, the
 warm-trial orchestration and `--reparse`, against synthetic exports shaped like Xcode 26.3's (the
-physical traces they were checked against stay private in `richos-hq`). No emulator, simulator, build or window.
+physical traces they were checked against stay private in `richos-hq`). The benchmark cases (G1-G9)
+use fixture records: slower is refused, equal or faster passes, a missing metric is not compared, and
+the committed emulator numbers recompute exactly from the committed baseline. The condition cases
+(C1-C7): the same condition and slower is refused; a different condition, none, as-installed or an
+unverified seed is not compared, slower or faster; the seeded files are the 2026-10-02 fixture byte
+for byte; twin and run-as seeding against a scripted adb (a release build without a twin is refused
+untouched); declarations; benchmark files without conditions; an iPhone refusing the default. C9-C12:
+on a scripted simulator, the app is given exactly what `rios perf-seed` wrote from Android's fixture,
+the record states the same condition and its on-screen check, the app's own state is put back; an
+unseen or unreadable screen is never compared; refusals leave the simulator untouched; no app target
+can link the seeder. No emulator, simulator, build or window.
+
+`bin/rios test --filter PerfSeedTests` (the core's tests, on this Mac): the seeder takes condition.py's
+own output, writes all 100 rows as the app's saved state and loads them back through the core;
+changed bytes and a conversation the app would not keep whole are refused.
 
 ## Production journeys and markers (24 September follow-up)
 
-`--production` never invokes the development bridge or seeds fixture state. Pair the installed,
-profileable Release build with an isolated test conversation first, then name its route and actual
-network condition. The operator must set and record that condition; the tool does not disable Wi-Fi
-or alter Tailscale. Use short runs on a daily phone and the PRD's separately scheduled overnight test.
+`--production` never invokes the development bridge. By default it seeds the made-up conversation
+into the app's files (see "Conditions"; a release build through `--seed-twin`). To measure a paired
+app with its real conversation instead, add `--conversation as-installed`, name the route and the
+actual network condition. Such a record is never compared with a benchmark. The operator must set
+and record that condition; the tool does not disable Wi-Fi or alter Tailscale. Use short runs on a
+daily phone and the PRD's separately scheduled overnight test.
 
 ```sh
-python3 richos/mobile/perf/perf.py android --production --route managed --network-condition mac-unreachable \
-  --adb /opt/homebrew/bin/adb --serial SERIAL --kind physical --stamp BUILD.stamp.json \
+python3 richos/mobile/perf/perf.py android --production --route managed \
+  --adb /opt/homebrew/bin/adb --serial SERIAL --kind physical --stamp BUILD.stamp.json --seed-twin DEBUG_TWIN.apk \
   --expect-commit COMMIT --only cold,warm,scroll --cold 100 --warm 100 --out PRIVATE_RECORD.json
 ```
 

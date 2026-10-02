@@ -154,6 +154,9 @@ def check_record(record):
         problems.append(f"device kind {device.get('kind')!r} is not emulator, simulator or physical")
     if (record.get("acceptance") or {}).get("verdict") == "PASS":
         problems.append("a record never says PASS (PRD §8: evidence, reviewed by people)")
+    if ((record.get("benchmark") or {}).get("verdict") == "SLOWER THAN THE ESTABLISHED BENCHMARK"
+            and not str((record.get("acceptance") or {}).get("verdict", "")).startswith("REFUSED")):
+        problems.append("the record is slower than the established benchmark but its acceptance is not REFUSED")
     for name, metric in (record.get("metrics") or {}).items():
         if not isinstance(metric, dict):
             problems.append(f"metric {name} is not an object")

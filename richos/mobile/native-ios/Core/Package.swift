@@ -15,6 +15,10 @@
 //                   of the app links an empty module (`rios sim check-release` proves it).
 //   RichOSCLI       the `rios-cli` executable behind `bin/rios`: headless mode over the real core,
 //                   and the simulator driver (macOS only).
+//   RichOSPerfSeed  the start-time measurement's fixed conversation, written as the app's saved
+//                   state on the Mac (`bin/rios perf-seed`). Deliberately NOT a product: the app's
+//                   project can link only products, so no app build can contain it (`rios sim
+//                   check-release` proves its marker absent from both app bundles).
 //
 // Language mode: Swift 5 with complete strict-concurrency checking as warnings (build plan §3.2).
 import PackageDescription
@@ -32,8 +36,9 @@ let package = Package(
     targets: [
         .target(name: "RichOSCore", swiftSettings: strict),
         .target(name: "RichOSFixtures", dependencies: ["RichOSCore"], swiftSettings: strict),
-        .executableTarget(name: "RichOSCLI", dependencies: ["RichOSCore", "RichOSFixtures"], swiftSettings: strict),
-        .testTarget(name: "RichOSCoreTests", dependencies: ["RichOSCore", "RichOSFixtures"], swiftSettings: strict),
+        .target(name: "RichOSPerfSeed", dependencies: ["RichOSCore"], swiftSettings: strict),
+        .executableTarget(name: "RichOSCLI", dependencies: ["RichOSCore", "RichOSFixtures", "RichOSPerfSeed"], swiftSettings: strict),
+        .testTarget(name: "RichOSCoreTests", dependencies: ["RichOSCore", "RichOSFixtures", "RichOSPerfSeed"], swiftSettings: strict),
     ],
     swiftLanguageModes: [.v5]
 )
