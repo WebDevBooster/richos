@@ -436,7 +436,7 @@ def android_identity(dev, stamp, kind):
     return build, device, int(uid.group(1)) if uid else None
 
 
-def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
+def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None, popen=None):
     """The Android run. `runner`, `sleep`, `host` and `touch` are replaceable for the suite."""
     import android
     if args.production and not args.route:
@@ -525,6 +525,8 @@ def measure_android(args, dev, stamp, keeper, host, log):
     only = set(args.only.split(",")) if args.only else None
     if only is not None and plan:
         only.add("seed")  # the condition is this run's own seeding, never an earlier run's
+    if only is not None and "cold" in only:
+        only.add("cold-blank")  # a cold run always records the screen from the tap (blankstart.py)
     failures = 0
 
     lost = []
@@ -644,6 +646,13 @@ def measure_android(args, dev, stamp, keeper, host, log):
                 "(MainActivity ReportDrawnWhen: first frame after the saved state is read); see conditions.networkCondition"),
                 cold["useful"], "coldLaunch", firstFrameMs=cold["first"], firstFrameStats=perfcore.stats(cold["first"]),
                 rejected=cold["rejected"], screenCheck=cold["screenCheck"], presentationSamples=cold.get("presentationSamples", []))
+        if args.blank_starts and (runner is None or popen is not None):  # a scripted adb scripts its recorder too
+            import blankstart  # the no-blank-screen check (CEO 2026-10-02): its own module, limit in blank.py
+            cb = phase("cold-blank", lambda: blankstart.android_cold_blank(
+                m, args.blank_starts, str(args.out) + ".evidence" if args.out else None, log, **({"popen": popen} if popen else {})))
+            if cb:
+                record["metrics"]["coldBlank"] = cb
+                failures += cb["verdict"] != "PASS"
         if bridge and args.live_spot_check:
             def live():
                 m.transport("accept")
@@ -834,9 +843,12 @@ def parse_args(argv):
     a.add_argument("--stamp", help="the build stamp (perf.py stamp) of the installed APK")
     a.add_argument("--expect-commit", help="refuse unless the installed build was made, clean, from this commit")
     a.add_argument("--out", help="write the record here (default stdout)")
-    a.add_argument("--only", help="comma-separated phases: seed,cold,cold-live,idle-conversation,idle-settings,"
+    a.add_argument("--only", help="comma-separated phases: seed,cold (with cold-blank),cold-blank,cold-live,idle-conversation,idle-settings,"
                                   "warm,scroll,tap,typing,streaming,background,idle-pairing")
     a.add_argument("--cold", type=int, default=20)
+    a.add_argument("--blank-starts", type=int, default=10,
+                   help="cold starts from a tap on the home-screen icon, screen-recorded and judged by blank.py "
+                        "(phase cold-blank, run with cold; 20 or more are judged by p95, fewer by the median; 0 skips)")
     a.add_argument("--live-spot-check", type=int, default=3)
     a.add_argument("--warm", type=int, default=20)
     a.add_argument("--away", type=float, default=2.0)
