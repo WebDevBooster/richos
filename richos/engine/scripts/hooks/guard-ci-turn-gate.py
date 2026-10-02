@@ -943,7 +943,13 @@ def evaluate(payload, budget):
 
     findings, running, unreadable = [], [], []
     facts_cache = {}
-    targets = sorted(pushes.items(), key=lambda kv: -float((kv[1] or {}).get("at") or 0))[:MAX_TARGETS]
+    # Never-checked targets first (newest first), then the longest-unchecked, so
+    # an older obligation is not starved by newer ones (P3-17).
+    targets = sorted(pushes.items(), key=lambda kv: (float((kv[1] or {}).get("checked_at") or 0),
+                                                     -float((kv[1] or {}).get("at") or 0)))[:MAX_TARGETS]
+    _now = time.time()
+    for _k, _p in targets:
+        _p["checked_at"] = _now
     judged = set()
 
     # AN ANSWER THAT CAN NEVER ARRIVE IS NOT A FINDING TO REPEAT.
