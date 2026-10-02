@@ -24,8 +24,9 @@ engineer in a worktree, Codex, Rich in the main checkout.
   pre-push of main as the backstop): the suites that own the changed files
   (`proof-for.sh --gate`), run by `proof-run.py`, plus `lint.sh --changed` when the land
   changes something under richos/app and the selection does not already include
-  `lint.test.sh` (the push backstop: `--all`). Every check is stopped at 600 s and the gate at
-  900 s (THE MERGE GATE'S LIMITS). Nobody chooses the suites. A failing check refuses the
+  `lint.test.sh` (the push backstop: `--all`). Every check is stopped at 600 s, and the gate
+  runs in rounds of at most 900 s that keep every pass, at most six (THE MERGE GATE'S LIMITS,
+  A LARGE LAND RUNS IN ROUNDS). Nobody chooses the suites. A failing check refuses the
   merge before it exists, so it cannot be pushed; that is all that refuses it (land_verdict).
   A check that did not reach a verdict is NOT RUN, which is never a pass: it is named in the
   verdict and in the receipt, and the nightly runs it (README.md, "NOT RUN").
@@ -780,6 +781,26 @@ def select(repo, argv, gate=False):
 CHECK_CAP_SECONDS = 600
 GATE_CAP_SECONDS = 900
 
+# A LARGE LAND RUNS IN ROUNDS (2026-10-02). The combined land of 13 finished fixes
+# (cc/zach-opus-e2fix1, 214 checks) was refused four times with no failing check: each attempt
+# ended at the 900 s cap and its one retry did too. Measured from those attempts, the checks
+# that reached a verdict took 6608 s between them (native-android-app 471 s, contract-integrity
+# section Q 261 s, proof-run 260 s, ...; 36 never reached one), and a run kept only about three
+# running at once: every start waits for total CPU under CEO ruling §77's 80% line, which the
+# gate's own checks hold the Mac above. So the plan needed about 2200 s however quiet the Mac
+# was when it started, and no single cap fits every selection: a cap scaled from planned weights
+# trusts dated data that is wrong in both directions (README.md, "A check planned past its cap").
+# Instead the gate runs ROUNDS of at most GATE_CAP_SECONDS each. A round keeps every pass (the
+# runner reuses a validated pass on the same tree and inputs) and the next round runs only the
+# checks that still have no verdict. It stops when every check has one, when a check times out
+# at its own 600 s cap a second time (a hang is a hang), when a round decides nothing new (the
+# next one would not either), or at GATE_MAX_ROUNDS: the total bound is
+# GATE_MAX_ROUNDS x GATE_CAP_SECONDS = 5400 s, about twice what this land needed. Every round
+# waits for admission and a proof-run slot at most GATE_CAP_SECONDS, the same number each time:
+# until today the first run passed what was left of the gate (893 s) and its retry 900 s, the
+# waits were part of every check's identity, and the retry reused nothing.
+GATE_MAX_ROUNDS = 6
+
 # WHAT THE MERGE NEVER RUNS: a suite that needs a device this Mac has one of. On 2026-09-30 the
 # iPhone suites fought over the one simulator in merge after merge and refused finished fixes
 # that never touched the phone. The nightly (nightly-local.py) runs these, as it runs
@@ -970,77 +991,47 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
     reason = os.environ.get("RICHOS_AUTOCHECK_RETRY_REASON")
     if reason:
         argv += ["--retry-reason", reason]
-    # The caps (THE MERGE GATE'S LIMITS). The run gets what is left of the gate's time, and
-    # waits for admission and for a proof-run slot no longer than that: a Mac too busy to start
-    # a check inside the gate leaves it NOT RUN, named, instead of holding the merge.
-    if knows(repo, PROOF_RUN, "--run-cap"):
-        left = max(60, int(GATE_CAP_SECONDS - (time.monotonic() - started)))
-        argv += ["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(left),
-                 "--admission-wait", str(left), "--slot-wait", str(left)]
+    # The caps (THE MERGE GATE'S LIMITS, A LARGE LAND RUNS IN ROUNDS). The first round gets
+    # what is left of the gate's time; every round waits for admission and for a proof-run slot
+    # at most GATE_CAP_SECONDS, the same in every round and every attempt, so nothing about the
+    # wait makes a pass look like a different check's.
+    capped = knows(repo, PROOF_RUN, "--run-cap")
+    def caps(run_cap):
+        return (["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(run_cap), "--admission-wait",
+                 str(GATE_CAP_SECONDS), "--slot-wait", str(GATE_CAP_SECONDS)] if capped else [])
+    rounds = 1
     try:
         say(f"autocheck: {what}: mutation passes are off in the merge ("
             + " ".join(f"{k}={v}" for k, v in MUTATION_SWITCH.items()) + "); the nightlies run them")
-        result = repo.run(["python3", PROOF_RUN, *argv, "--log-dir", str(directory), "--summary-out", summary_path],
+        result = repo.run(["python3", PROOF_RUN, *argv, *caps(max(60, int(GATE_CAP_SECONDS - (time.monotonic() - started)))),
+                           "--log-dir", str(directory), "--summary-out", summary_path],
                           env={**repo.env, **MUTATION_SWITCH})
         if (directory / "plan.json").is_file():
             pending = root / "last-attempt.pending"
             pending.write_text(json.dumps({"directory": str(directory), "identity": identity}))
             os.replace(pending, prior)
         blocking, not_run, why_not = land_verdict(result.returncode, summary_path, directory)
-        retry = [row["check"] for row in not_run if row.get("state") in RETRY_STATES]
-        if blocking == [] and retry and (directory / "plan.json").is_file():
-            # An owning check that timed out or was ended by the gate's cap has no verdict, and
-            # on a busy Mac that is the host's doing as often as the change's (merge 7af4c981e).
-            # Run those units once more, alone, keeping every pass (verification-retries.md);
-            # the retry gets a fresh gate allowance because the first one is spent.
-            say(f"autocheck: {what}: no verdict for {len(retry)} owning check(s) ({', '.join(retry)}); "
-                "running them once more, alone")
-            again = Path(tempfile.mkdtemp(prefix="attempt-", dir=root))
-            again_summary = str(root / (again.name + "-summary.json"))
-            argv = ["--resume", str(directory), "--retry-reason",
-                    "merge gate: an owning check ended with no verdict at a time cap; the one retry alone"]
-            # ALONE means only these checks (hunt v2 V02): a bare --resume put every unfinished
-            # check back in the same concurrent scheduler, and the contention came back. A
-            # runner without --only-check retries the whole saved plan, as before.
-            only = knows(repo, PROOF_RUN, "--only-check")
-            if only:
-                for name in retry:
-                    argv += ["--only-check", name]
-            first_others = [row for row in not_run if row["check"] not in retry]
-            if knows(repo, PROOF_RUN, "--run-cap"):
-                argv += ["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(GATE_CAP_SECONDS),
-                         "--admission-wait", str(GATE_CAP_SECONDS), "--slot-wait", str(GATE_CAP_SECONDS)]
-            result = repo.run(["python3", PROOF_RUN, *argv, "--log-dir", str(again), "--summary-out", again_summary],
-                              env={**repo.env, **MUTATION_SWITCH})
-            if (again / "plan.json").is_file():
-                pending = root / "last-attempt.pending"
-                pending.write_text(json.dumps({"directory": str(again), "identity": identity}))
-                os.replace(pending, prior)
-            blocking, not_run, why_not = land_verdict(result.returncode, again_summary, again)
-            if blocking is not None:
-                blocking += [{"check": row["check"], "result": row["state"], "retried": True}
-                             for row in not_run if row.get("state") in RETRY_STATES]
-                not_run = [row for row in not_run if row.get("state") not in RETRY_STATES]
-                if only:
-                    # The checks the retry left out keep the first attempt's own row and reason.
-                    not_run = first_others + [row for row in not_run if row["check"] in retry]
+        blocking, not_run, why_not, rounds = more_rounds(repo, what, root, prior, identity, directory, caps,
+                                                         blocking, not_run, why_not)
         not_run = nightly + not_run
     finally:
         os.unlink(plan)
     seconds = time.monotonic() - started
     if blocking is None or blocking:
-        banner(f"{what.upper()} REFUSED: a check it owns failed", [
+        failed = blocking is None or any(not row.get("message") for row in blocking)
+        banner(f"{what.upper()} REFUSED: a check it owns " + ("failed" if failed else "has no verdict"), [
             "proof-run.py's summary above names the check, its state and its log.",
             *([why_not] if why_not else []),
-            *(f"NO VERDICT AFTER ONE RETRY: {row['check']} ({row['result']}); re-run it alone."
-              if row.get("retried") else f"FAILED: {row['check']} ({row['result']})" for row in blocking or []),
-            "Nothing was committed: fix the branch and land it again.",
+            *(row.get("message") or f"FAILED: {row['check']} ({row['result']})" for row in blocking or []),
+            "Nothing was committed: fix the branch and land it again. What passed on this tree is kept:",
+            "the next attempt on the same tree runs only what has no verdict.",
             "git's --no-verify skips this, and every skip is recorded in the lead's escalation ledger.",
         ])
         return 1
     tree = repo.index_tree()
     if receipt:
-        repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1), not_run=not_run))
+        repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1), not_run=not_run,
+                                           rounds=rounds))
     else:
         tree = "(none: a measurement is not a land)"
     if not_run:
@@ -1048,7 +1039,7 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         banner(f"{what.upper()} ALLOWED WITH {len(not_run)} CHECK(S) NOT RUN, WHICH IS NOT A PASS", [
             f"NOT RUN: {names}.",
             "Nothing that ran failed. These need a device the merge never uses, are mutation passes,",
-            "or did not reach a verdict inside the gate's limits (600 s a check, 900 s the gate); the",
+            "or did not reach a verdict inside the gate's limits (600 s a check, rounds of 900 s); the",
             "receipt records them as NOT RUN, never as passed, and the nightlies run them",
             "(nightly-local.py for the app, nightly-engine.py for every engine unit).",
             "See autocheck/README.md.",
@@ -1071,10 +1062,89 @@ ENDED = "cancelled"  # dialect-exempt: proof-run.py's state value for a check it
 NOT_RUN_WHY[ENDED] = "ended at the gate's 900 s cap"
 # A pass invalidated only because what it read changed while the run went (proof_evidence.py,
 # Record.save and finalize): no verdict either way, which is not a failure of the change.
-# The two states that mean "the host ran out of time, not the change": run once more, alone,
-# before the gate decides (land_check). A second one refuses the merge.
+# The two states that mean "the host ran out of time, not the change": the next round runs them
+# (more_rounds). A check that times out at its own cap twice refuses the merge.
 RETRY_STATES = ("timed-out", ENDED)
 INPUTS_MOVED = ("inputs changed", "source changed during execution")
+# proof-run.py --only-check marks a check it left out of a round this way (leave_unselected).
+UNSELECTED = "retry-unselected"
+
+
+def left_out(row):
+    """Did the runner leave this check out of a round because the round did not name it?"""
+    return (row.get("state") == "not-run"
+            and (any(s.get("state") == UNSELECTED for s in row.get("suites") or [])
+                 or str(row.get("why", "")).startswith("not selected for this retry")))
+
+
+def more_rounds(repo, what, root, prior, identity, directory, caps, blocking, not_run, why_not):
+    """A LARGE LAND RUNS IN ROUNDS (see GATE_MAX_ROUNDS). After the first round: while nothing
+    failed and some check has no verdict (timed out at its cap, or ended at the round's cap), run
+    another round that resumes the last one (every validated pass kept, its receipt carried) and
+    names only those checks. Returns (blocking, not_run, why_not, rounds).
+
+    A check the runner left out of a round keeps the row it had: a NOT RUN keeps its reason. A
+    check that had PASSED and was left out was not carried over (its pass no longer validated),
+    so it has no verdict and the next round runs it. The gate refuses, naming each check with no
+    verdict, when one times out at its own cap a second time, when a round decides nothing that
+    the round before had not, or when GATE_MAX_ROUNDS rounds have run."""
+    rounds, current, timed_out, before = 1, directory, set(), None
+    only = knows(repo, PROOF_RUN, "--only-check")
+    while blocking == [] and (current / "plan.json").is_file():
+        retry = [row for row in not_run if row.get("state") in RETRY_STATES]
+        if not retry:
+            break
+        names = [row["check"] for row in retry]
+        twice = [row for row in retry if row["state"] == "timed-out" and row["check"] in timed_out]
+        timed_out |= {row["check"] for row in retry if row["state"] == "timed-out"}
+        stalled = before is not None and not (before - set(names))
+        if twice or stalled or rounds >= GATE_MAX_ROUNDS:
+            if twice:
+                blocking = [{"check": row["check"], "result": row["state"],
+                             "message": f"NO VERDICT AFTER ONE RETRY: {row['check']} ({row['state']}); re-run it alone."}
+                            for row in twice]
+                why_not = "A check that timed out at its own 600 s cap did it again on its retry: a hang is not a pass."
+            else:
+                blocking = [{"check": row["check"], "result": row["state"],
+                             "message": f"NO VERDICT AFTER {rounds} ROUNDS: {row['check']} ({row['state']}); re-run it alone."}
+                            for row in retry]
+                why_not = (f"Round {rounds} decided nothing that round {rounds - 1} had not; another would not either."
+                           if stalled else
+                           f"The gate's {GATE_MAX_ROUNDS} rounds of at most {GATE_CAP_SECONDS} s each "
+                           f"(its total bound, {GATE_MAX_ROUNDS * GATE_CAP_SECONDS} s) are spent.")
+            not_run = [row for row in not_run if row.get("state") not in RETRY_STATES]
+            break
+        rounds += 1
+        say(f"autocheck: {what}: round {rounds} of at most {GATE_MAX_ROUNDS}: no verdict yet for {len(names)} "
+            f"check(s) ({', '.join(names)}); every pass so far is kept and only these run")
+        again = Path(tempfile.mkdtemp(prefix="attempt-", dir=root))
+        again_summary = str(root / (again.name + "-summary.json"))
+        argv = ["--resume", str(current), "--retry-reason",
+                "merge gate: an owning check ended with no verdict at a time cap; the next round runs it"]
+        if only:
+            # Only these checks (hunt v2 V02): a bare --resume puts every unfinished check back
+            # in the same scheduler. A runner without --only-check resumes the whole saved plan.
+            for name in names:
+                argv += ["--only-check", name]
+        result = repo.run(["python3", PROOF_RUN, *argv, *caps(GATE_CAP_SECONDS), "--log-dir", str(again),
+                           "--summary-out", again_summary], env={**repo.env, **MUTATION_SWITCH})
+        if (again / "plan.json").is_file():
+            pending = root / "last-attempt.pending"
+            pending.write_text(json.dumps({"directory": str(again), "identity": identity}))
+            os.replace(pending, prior)
+        earlier = {row["check"]: row for row in not_run}
+        blocking, latest, why_not = land_verdict(result.returncode, again_summary, again)
+        not_run = []
+        for row in latest:
+            if not left_out(row):
+                not_run.append(row)
+            elif row["check"] in earlier:
+                not_run.append(earlier[row["check"]])  # a NOT RUN keeps its own reason
+            else:
+                # It passed earlier and its pass was not carried into this round: no verdict.
+                not_run.append(dict(row, state=ENDED, why="its earlier pass could not be carried over"))
+        before, current = set(names), again
+    return blocking, not_run, why_not, rounds
 
 
 def land_verdict(rc, summary_path, directory):
