@@ -231,6 +231,11 @@ DEMO_FILES+=(
     # EXITS 2 if either is absent. Their absence here is what broke this script.
     "hooks/hooks.json"
     "scripts/lib/registered-hooks.sh"
+    # The hook-command parser registered-hooks.sh imports (hunt P5-45, c943a0476):
+    # every python3 reader in it runs `from hook_command import ...` off its own
+    # directory, with stderr discarded. Without it each reader dies at the import,
+    # install.sh sees "registering nothing" and exits 2 during setup.
+    "scripts/lib/hook_command.py"
     # The root-resolution contract. Every hook's bootstrap looks for it relative
     # to its own location and REFUSES TO START without it — deliberately,
     # because a guard that cannot tell which repository it governs must not
