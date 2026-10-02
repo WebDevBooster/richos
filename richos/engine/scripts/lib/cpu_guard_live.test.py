@@ -92,6 +92,123 @@ class LiveRuleTests(unittest.TestCase):
                          (cpu_guard.BUILD_ROLE, cpu_guard.BUILD_WINDOW, cpu_guard.WINDOW, cpu_guard.JOB_CORES))
 
 
+class GrantRuleTests(unittest.TestCase):
+    """A registered native build is judged by the cores admission granted it (2026-10-02).
+
+    Run against BOTH controllers: cpu_guard_live.py (what launchd runs) and cpu_guard.py.
+    pid 3022 on 2026-10-02 00:21Z: an Android release build admitted with 4 cores ran its
+    Gradle JVM at 6.08 and the per-process line (3 cores, 10 s, host at 80 percent) stopped it.
+    """
+
+    def setUp(self):
+        import cpu_guard
+        self.tmp = tempfile.TemporaryDirectory(prefix='cpu-guard-grant-')
+        self.addCleanup(self.tmp.cleanup)
+        env = patch.dict(os.environ, {'RICHOS_TEST_DEVICES_DIR': str(Path(self.tmp.name) / 'devices')})
+        env.start()
+        self.addCleanup(env.stop)
+        self.controllers = (L, cpu_guard)
+
+    def row(self, parent=0, cpu=0.0, name='test'):
+        return dict(parent=parent, cpu=cpu, birth='birth', name=name)
+
+    def run_scenario(self, module, roots, rows_at, seconds=62, busy=100, stop=None):
+        """{pid: first time it was chosen} under `module`'s Watch, fixture state only. `stop`
+        is a pid to stop after the last sample; its alert record is returned as watch.alert."""
+        state = Path(self.tmp.name) / module.__name__
+        shutil.rmtree(state, ignore_errors=True)
+        with patch.object(module, 'STATE', state):
+            for pid, role, grant in roots:
+                # The record native-work writes, spelled out (not built with grant_fields) so the
+                # same scenario runs against a controller that predates the rule: red on main.
+                module.write_json(state / 'roots' / ('%s.json' % pid),
+                                  dict(pid=pid, birth='birth', role=role, label='fixture', **(grant or {})))
+            watch = module.Watch()
+            stopped = {}
+            for now in range(0, seconds, 2):
+                rows = rows_at(now)
+                chosen, rates, protected = watch.sample(rows, now, host_busy=busy)
+                for pid in chosen:
+                    stopped.setdefault(pid, now)
+            if stop is not None:
+                rows = {pid: {**row, 'generation': 'native:%s' % pid} for pid, row in rows.items()}
+                with patch.object(module, 'processes', return_value=rows), patch.object(os, 'kill'):
+                    watch.stop(stop, rows, protected, rates)
+                watch.alert = module.read_json(state / 'alert.json')
+            return stopped, watch
+
+    def build(self, jvm_cores, unregistered_cores=4.0):
+        # 10 native-work (the registered build), 20 its supervisor, 30 the Gradle JVM.
+        # 40 a session, 50 a process of its own at `unregistered_cores` (nothing registered it).
+        return lambda now: {10: self.row(1), 20: self.row(10, now * 0.1), 30: self.row(20, now * jvm_cores, 'java'),
+                            40: self.row(1), 50: self.row(40, now * unregistered_cores, 'java')}
+
+    GRANT = {'cores': 5, 'group': '/workspace/a'}
+
+    def test_a_build_using_its_grant_is_not_stopped_but_an_unregistered_process_at_four_cores_is(self):
+        for module in self.controllers:
+            with self.subTest(controller=module.__name__):
+                stopped, watch = self.run_scenario(
+                    module, [(10, 'native-build', self.GRANT), (40, 'session', None)], self.build(4.5))
+                self.assertNotIn(30, stopped)                # 4.5 + 0.1 cores, granted 5
+                self.assertEqual(stopped.get(50), 12)        # unregistered: today's rule, unchanged
+                self.assertEqual(watch.grants['/workspace/a']['cores'], 5.0)
+
+    def test_a_build_above_its_grant_is_judged_by_the_per_process_rule_again(self):
+        for module in self.controllers:
+            with self.subTest(controller=module.__name__):
+                stopped, watch = self.run_scenario(
+                    module, [(10, 'native-build', self.GRANT), (40, 'session', None)], self.build(6.0), stop=30)
+                self.assertEqual(stopped.get(30), 12)        # 6.1 cores against a grant of 5
+                self.assertEqual(watch.alert['grant'], {'group': '/workspace/a', 'cores': 5.0, 'used': 6.1})
+
+    def test_the_host_rule_still_applies_and_a_brief_excess_resets(self):
+        # Within the grant on a quiet host is untouched (nothing new); a single sample over the
+        # grant does not start a stop: the excess, like the line, has to last WINDOW seconds.
+        for module in self.controllers:
+            with self.subTest(controller=module.__name__):
+                spiky = lambda now: {**self.build(4.5)(now), 30: self.row(20, now * 4.5 + (6 if now >= 30 else 0), 'java')}
+                stopped, _ = self.run_scenario(module, [(10, 'native-build', self.GRANT)], spiky)
+                self.assertNotIn(30, stopped)
+
+    def test_a_warm_daemon_counts_with_its_build_against_one_grant(self):
+        # 60 is the workspace's Gradle daemon: reparented to launchd and registered in the build's
+        # group. The build tree (10/20/30) is light; the daemon does the compiling.
+        def rows(client, daemon):
+            return lambda now: {10: self.row(1), 20: self.row(10, now * 0.1), 30: self.row(20, now * client, 'java'),
+                                60: self.row(1, now * daemon, 'java'), 61: self.row(60, now * 0.2, 'aapt2')}
+        roots = [(10, None, self.GRANT), (60, None, self.GRANT)]
+        for module in self.controllers:
+            with self.subTest(controller=module.__name__):
+                native = [(pid, 'native-build', grant) for pid, _role, grant in roots]
+                stopped, watch = self.run_scenario(module, native, rows(0.2, 4.4))
+                self.assertEqual(stopped, {})                 # 0.1 + 0.2 + 4.4 + 0.2 = 4.9 of 5
+                self.assertEqual(sorted(watch.grants['/workspace/a']['members']), [10, 20, 30, 60, 61])
+                stopped, _ = self.run_scenario(module, native, rows(1.0, 4.4))
+                self.assertEqual(stopped.get(60), 12)         # 5.7 of 5: the daemon is over the line
+
+    def test_a_process_that_leaves_the_build_is_no_longer_in_its_grant(self):
+        for module in self.controllers:
+            with self.subTest(controller=module.__name__):
+                moved = lambda now: {10: self.row(1), 30: self.row(10 if now == 0 else 1, now * 4.5, 'java')}
+                stopped, _ = self.run_scenario(module, [(10, 'native-build', self.GRANT)], moved)
+                self.assertEqual(stopped.get(30), 12)
+
+    def test_a_grant_needs_the_native_role_positive_cores_and_a_group(self):
+        for module in self.controllers:
+            with self.subTest(controller=module.__name__):
+                self.assertEqual(module.grant_fields('session', None), {})
+                for role, grant in (('session', self.GRANT), (module.NATIVE_ROLE, None),
+                                    (module.NATIVE_ROLE, {'cores': 0, 'group': 'g'}),
+                                    (module.NATIVE_ROLE, {'cores': 4, 'group': ''})):
+                    with self.assertRaises(ValueError):
+                        module.grant_fields(role, grant)
+
+    def test_the_grant_rule_is_the_same_in_both_controllers(self):
+        import cpu_guard
+        self.assertEqual((L.NATIVE_ROLE, cpu_guard.NATIVE_ROLE), ('native-build', 'native-build'))
+
+
 class DeployTests(unittest.TestCase):
     """Replace the running controller only from a known one, prove the swap, undo a failure."""
 
