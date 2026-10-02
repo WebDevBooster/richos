@@ -130,6 +130,30 @@ test('changed source builds; uncommitted source is never published; a store entr
   } finally { rmSync(world, { recursive: true, force: true }); }
 });
 
+test('a prebuilt run hands the phone the products its stamp named: a store entry is used as it is, never rebuilt', async () => {
+  const world = mkdtempSync(join(tmpdir(), 'physical-store-'));
+  try {
+    const store = join(world, 'store');
+    const publisher = checkout(world, 'publisher');
+    const stored = await resolveProducts({ command: 'verify', env: {}, team: 'ABCDEFGHIJ', derived: publisher.derived, store }, publisher.deps);
+    // Another checkout whose own tree differs (a perf tool branch) walks the measured build's products.
+    const other = checkout(world, 'perf', { tree: 'b'.repeat(40), commit: 'd'.repeat(40), dirty: false });
+    const env = { RICHOS_PHYSICAL_PREBUILT: '1', RICHOS_PHYSICAL_PRODUCTS: stored.products };
+    const r = await resolveProducts({ command: 'verify', env, team: 'ABCDEFGHIJ', derived: other.derived, store }, other.deps);
+    assert.equal(r.mode, 'checkout');
+    assert.equal(r.products, stored.products);
+    assert.equal(runner(r.products), runner(stored.products));
+    assert.equal(other.deps.builds, 0, 'the named products are used as they are');
+    // Without the name, a prebuilt run is this checkout's own build, as before.
+    await assert.rejects(resolveProducts({ command: 'verify', env: { RICHOS_PHYSICAL_PREBUILT: '1' }, team: 'ABCDEFGHIJ',
+      derived: other.derived, store }, other.deps), /no earlier build/);
+    // A named directory without the runner is refused rather than half-installed.
+    rmSync(join(world, 'publisher', 'derived', 'Build/Products/Release-iphoneos/RichOSNativeUITests-Runner.app'), { recursive: true });
+    await assert.rejects(resolveProducts({ command: 'verify', env: { ...env, RICHOS_PHYSICAL_PRODUCTS: join(world, 'publisher', 'derived', 'Build/Products') },
+      team: 'ABCDEFGHIJ', derived: other.derived, store }, other.deps), /has no Release-iphoneos\/RichOSNativeUITests-Runner\.app/);
+  } finally { rmSync(world, { recursive: true, force: true }); }
+});
+
 test('the store key changes with the tree, the team or Xcode, and with nothing else', () => {
   const k = storeKey({ tree: TREE, team: 'ABCDEFGHIJ', xcode: 'Xcode 26.3' });
   assert.equal(k, storeKey({ tree: TREE, team: 'ABCDEFGHIJ', xcode: 'Xcode 26.3' }));

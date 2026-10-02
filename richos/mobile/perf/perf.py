@@ -883,6 +883,12 @@ def parse_args(argv):
     i.add_argument("--warm", type=int, default=0, help="warm returns in the retained process (0 skips the class)")
     i.add_argument("--away", type=float, default=2.0, help="seconds with Settings in front before each return")
     i.add_argument("--trace-seconds", type=int, default=10, help="Instruments recording length per trial")
+    i.add_argument("--tap-launches", type=int, default=0,
+                   help="iPhone, seeded: cold launches by a tap on the Home Screen icon with no profiler, timed by the "
+                        "app's own clocks from the kernel's process start (record `unprofiled`, never compared)")
+    i.add_argument("--tap-returns", type=int, default=0,
+                   help="iPhone, seeded: returns by a tap on the icon, each with a probe touch on the transcript at a "
+                        "set offset: is a touch delivered before iOS makes the scene active? (record `unprofiled`)")
     i.add_argument("--xctrace", action="store_true",
                    help="simulator only: run the physical trace path as a dry run (its frame data is refused)")
     i.add_argument("--app-arg", action="append",
@@ -890,16 +896,20 @@ def parse_args(argv):
     i.add_argument("--background-seconds", type=float, default=60.0)
     i.add_argument("--background-settle", type=float, default=5.0)
     i.add_argument("--conversation", choices=("fixture", AS_INSTALLED), default="fixture",
-                   help="fixture (default): Android's made-up conversation written as the app's saved state on a simulator "
-                        "(rios perf-seed), checked on screen after the launches, the app's own state put back after; an "
-                        "iPhone is refused until its path exists (README 'Conditions'). as-installed: whatever the app "
-                        "holds, recorded as uncontrolled and never compared")
+                   help="fixture (default): Android's made-up conversation written as the app's saved state (rios "
+                        "perf-seed), on a simulator into its data container, on an iPhone with devicectl after a copy of "
+                        "the phone's own state is taken; checked on screen after the launches; the app's own state put "
+                        "back and read back after. as-installed: whatever the app holds, recorded as uncontrolled and "
+                        "never compared")
     i.add_argument("--rows", type=int, default=None,
                    help=f"rows in the seeded conversation (default {condition.FILE_DEFAULT_ROWS}, Android's benchmark count)")
     i.add_argument("--mac", choices=condition.MAC_STATES,
                    help="the Mac's state while measured: unreachable by construction when seeded; with --conversation "
                         "as-installed, as the operator set it")
     i.add_argument("--benchmark", help="the benchmark file the record is judged against (default: the private benchmark file, see benchmark.py)")
+    ir = sub.add_parser("ios-restore", help="put an iPhone app's own saved state back from the copy a killed seeded run kept")
+    ir.add_argument("--device", required=True, help="the iPhone the copy was taken from")
+    ir.add_argument("--backup", required=True, help="<evidence>/ios-seed-*/backup (holds RichOS/ and manifest.json)")
     s = sub.add_parser("stamp", help="the identity of a build artifact")
     s.add_argument("--artifact", required=True)
     s.add_argument("--checkout", required=True)
@@ -965,6 +975,10 @@ def main(argv=None):
             return cmd_benchmark_update(args)
         if args.cmd == "declare-condition":
             return cmd_declare_condition(args)
+        if args.cmd == "ios-restore":
+            import ios
+            print(json.dumps({"ok": True, **ios.restore_device(args.device, args.backup)}))
+            return 0
         if args.cmd == "android":
             record, failures = run_android(args)
         else:
