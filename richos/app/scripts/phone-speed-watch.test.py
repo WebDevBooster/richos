@@ -76,8 +76,11 @@ if mode == "uninstall" and args[:2] == ["device", "install"]:
     subprocess.run(["adb", "install", "twin.apk"])  # device-cli-exempt: a fake phone or the guard under test; plants the command to prove the refusal
     sys.exit(1)
 if args[:2] == ["device", "perf"]:
+    # mode "VERDICT[:EXIT]": perf.py writes its record first, then exits 1 (a phase failed) or 4 (slower).
+    verdict, _, code = mode.partition(":")
     out = args[args.index("--out") + 1]
-    json.dump({"fake": mode}, open(out, "w"))
+    json.dump({"fake": verdict}, open(out, "w"))
+    sys.exit(int(code or 0))
 """
 FAKE_PERF = """#!/usr/bin/env python3
 import json, sys
@@ -310,6 +313,21 @@ class Run(Base):
         self.assertNotIn("real-adb install", calls, "the install after the refused uninstall was stopped too")
         titles = [e["title"] for e in self.escalated()]
         self.assertTrue(any("Android run REFUSED" in t for t in titles), titles)
+
+    def test_W14_a_perf_verb_exiting_slower_with_its_record_is_judged_not_lost(self):
+        # perf.py's measurement run (what `device perf` execs) writes the record, then exits 4 when it
+        # is slower than the benchmark and 1 when a phase failed: the record is a measurement. Any
+        # other exit (6: the phone's own state NOT restored) is a run that could not measure.
+        self.request()
+        outcomes = self.run_round(env=dict(self.env, FAKE_MODE_ANDROID="slower:4", FAKE_MODE_IOS="good:6"))
+        android = [o for o in outcomes if o["platform"] == "android"][0]
+        ios = [o for o in outcomes if o["platform"] == "ios"][0]
+        self.assertEqual(android["verdict"], "slower", android)
+        self.assertEqual(ios["verdict"], "unmeasured", ios)
+        self.assertIn("exited 6", ios["why"])
+        titles = [e["title"] for e in self.escalated()]
+        self.assertTrue(any("Android start SLOWER than the benchmark" in t for t in titles), titles)
+        self.assertTrue(any("iPhone run COULD NOT MEASURE" in t for t in titles), titles)
 
     def test_W9_a_busy_phone_waits_and_is_not_interrupted(self):
         user = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)", SERIAL])

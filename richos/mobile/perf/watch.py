@@ -38,8 +38,13 @@ its own clone of main's tip on the external SSD (never a worktree of the reposit
     uninstall), seed the fixed made-up conversation the benchmarks were taken with, measure TRIALS
     (100) cold starts and TRIALS returns from the background (the protocol of the benchmark series),
     put the app's own saved state back and write one perf.py record. The phone is left on that
-    release build. THE VERBS ARE BEING ADDED by zach-opus-releaseonly1; until they land, every run
-    reports COULD NOT MEASURE naming the missing verb.
+    release build. (The verbs came with zach-opus-releaseonly1 and andy-sonnet-twin1; a checkout
+    without them reports COULD NOT MEASURE naming the missing verb.) The perf verb is perf.py's
+    measurement run, which judges its own record and exits 1 when a phase failed (the blank-screen
+    check's FAIL among them) and 4 when it is slower than the benchmark: with a record written,
+    those exits are a measurement and go on to the comparison and the blank-screen check below;
+    without one, or with any other exit (3 refused, 6 the phone's own state NOT restored), the run
+    could not measure.
   - runs `perf.py compare` on the record (it reads files only, never a phone). Both metrics must be
     compared; a NOT COMPARED metric is a run that could not measure.
   - puts phone_guard.py in front of adb and xcrun for everything the verbs start (first on PATH):
@@ -98,15 +103,19 @@ SPAWN_GRACE_S = 120          # a request younger than this may still be starting
 # A change only under the OTHER app's directory cannot change this app's build.
 OTHER_APP = {"android": "richos/mobile/native-ios/", "ios": "richos/mobile/native-android/"}
 
-# The platform command lines' phone verbs (zach-opus-releaseonly1 is adding them). The only way a
-# run reaches a phone. Each takes the phone, installs or measures, and exits 0 on success; `perf`
-# writes one perf.py record to --out.
+# The platform command lines' phone verbs (zach-opus-releaseonly1, andy-sonnet-twin1). The only way
+# a run reaches a phone. Each takes the phone, installs or measures, and exits 0 on success; `perf`
+# writes one perf.py record to --out and may also exit MEASURED_EXITS with that record written.
 VERBS = {
     "android": {"cli": "richos/mobile/native-android/bin/randroid", "phone": "--serial",
                 "install": ["device", "install"], "perf": ["device", "perf"]},
     "ios": {"cli": "richos/mobile/native-ios/bin/rios", "phone": "--device",
             "install": ["device", "install"], "perf": ["device", "perf"]},
 }
+# perf.py's measurement run (what `device perf` execs) exits 1 when a phase failed and 4 when the
+# record is slower than the benchmark; it writes the record first. With the record on disk these
+# are measurements, judged below; 3 (refused) and 6 (the phone's state NOT restored) are not.
+MEASURED_EXITS = (1, 4)
 
 
 def setting(name, default):
@@ -645,15 +654,18 @@ def cli(platform, checkout):
     return shlex.split(named) if named else [str(Path(checkout) / VERBS[platform]["cli"])]
 
 
-def verb(platform, name, checkout, phone, extra, guard, log_path):
+def verb(platform, name, checkout, phone, extra, guard, log_path, record_out=None):
     """One platform verb against the phone, through the guard. Raises Refused when the guard stopped
-    it, Unmeasured when it failed or does not exist in this checkout yet."""
+    it, Unmeasured when it failed or does not exist in this checkout yet. With `record_out`, an exit
+    in MEASURED_EXITS that wrote the record there is a measurement, returned for judging."""
     spec = VERBS[platform]
     argv = [*cli(platform, checkout), *spec[name], spec["phone"], phone, *extra]
     p = run_logged(argv, log_path, env=guard.env(), cwd=str(checkout))
     stopped = guard.tripped()
     if stopped:
         raise Refused(f"the phone guard stopped `{' '.join(spec[name])}` before it changed the phone: {stopped}")
+    if p.returncode in MEASURED_EXITS and record_out and Path(record_out).exists():
+        return p
     if p.returncode:
         tail = log_tail(log_path)
         if any(s in tail.lower() for s in ("unknown mode", "unknown command", "unknown verb", "usage")):
@@ -742,7 +754,7 @@ def run_platform(repo, round_id, sha, platform, work, checkout):
         n = str(trials())
         verb(platform, "perf", checkout, phone, ["--expect-commit", sha, "--cold", n, "--warm", n,
                                                  "--evidence-dir", str(work / "evidence"), "--out", out],
-             guard, log_path)
+             guard, log_path, record_out=out)
         if not Path(out).exists():
             raise Unmeasured(f"the perf verb wrote no record at {out}: {log_tail(log_path)}")
         verdict, result = compare(checkout, out, log_path)
