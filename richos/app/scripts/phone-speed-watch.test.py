@@ -94,6 +94,12 @@ if args[:2] == ["device", "perf"]:
     json.dump(record, open(out, "w"))
     sys.exit(int(code or 0))
 """
+# with-android-signing.py stand-in: records that the command ran inside it, then runs the command.
+FAKE_SIGNING = """#!/usr/bin/env python3
+import os, sys
+open(os.environ["FAKE_LOG"], "a").write("signing-wrapper\\n")
+os.execvp(sys.argv[1], sys.argv[1:])
+"""
 FAKE_PERF = """#!/usr/bin/env python3
 import json, sys
 assert sys.argv[1:3] == ["compare", "--json"], sys.argv
@@ -123,7 +129,7 @@ class Base(unittest.TestCase):
         self.bin = self.base / "bin"
         self.bin.mkdir()
         for name, text in (("adb", FAKE_ADB), ("xcrun", FAKE_XCRUN), ("cli.py", FAKE_CLI), ("perf.py", FAKE_PERF),
-                           ("escalate.py", FAKE_ESCALATE), ("runner.py", FAKE_RUNNER)):
+                           ("escalate.py", FAKE_ESCALATE), ("signing.py", FAKE_SIGNING), ("runner.py", FAKE_RUNNER)):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
         (self.base / "gitconfig").write_text("[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n"
@@ -141,6 +147,7 @@ class Base(unittest.TestCase):
             RICHOS_PHONE_WATCH_ADB=str(self.bin / "adb"), RICHOS_PHONE_WATCH_XCRUN=str(self.bin / "xcrun"),
             RICHOS_PHONE_WATCH_ANDROID_CLI=f"{sys.executable} {self.bin / 'cli.py'} android",
             RICHOS_PHONE_WATCH_IOS_CLI=f"{sys.executable} {self.bin / 'cli.py'} ios",
+            RICHOS_PHONE_WATCH_SIGNING=f"{sys.executable} {self.bin / 'signing.py'}",
             RICHOS_PHONE_WATCH_PERF=str(self.bin / "perf.py"),
             RICHOS_PHONE_WATCH_QUIET_S="0", RICHOS_PHONE_WATCH_POLL_S="0", RICHOS_PHONE_WATCH_TRIALS="3",
             # Only processes naming the made-up phones count: the real phones on this Mac may be in use.
@@ -285,6 +292,23 @@ class Run(Base):
         self.assertEqual(watch.uncovered.__name__, "uncovered")
         p = self.watch("run", "--repo", str(self.repo))
         self.assertIn("nothing pending", p.stderr)
+
+    def test_W17_the_android_install_runs_inside_the_signing_wrapper_and_the_iphone_does_not(self):
+        # The 2026-10-02 run: randroid refused the unsigned Release APK, so the Android was never measured.
+        self.request()
+        self.run_round()
+        lines = self.tools().splitlines()
+        install = next(i for i, l in enumerate(lines) if l.startswith("cli-android device install"))
+        self.assertEqual(lines[install - 1], "signing-wrapper", lines)
+        self.assertEqual(lines.count("signing-wrapper"), 1, "only the Android install needs the key")
+
+    def test_W18_a_missing_signing_wrapper_is_a_run_that_could_not_measure(self):
+        self.request()
+        outcomes = self.run_round(env=dict(self.env, RICHOS_PHONE_WATCH_SIGNING=f"{sys.executable} {self.base}/nope.py"))
+        android = [o for o in outcomes if o["platform"] == "android"][0]
+        self.assertEqual(android["verdict"], "unmeasured")
+        self.assertIn("signing wrapper", android["why"])
+        self.assertNotIn("cli-android device install", self.tools())
 
     def test_W6_a_slower_run_escalates_with_the_range_since_the_last_good_run(self):
         good_sha = self.git("rev-parse", "HEAD")

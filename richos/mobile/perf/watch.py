@@ -47,6 +47,9 @@ its own clone of main's tip on the external SSD (never a worktree of the reposit
     could not measure.
   - runs `perf.py compare` on the record (it reads files only, never a phone). Both metrics must be
     compared; a NOT COMPARED metric is a run that could not measure.
+  - signs the Android build: `randroid device install` runs inside richos-hq's
+    scripts/with-android-signing.py (RICHOS_PHONE_WATCH_SIGNING names another), because randroid refuses
+    an unsigned Release APK. The iPhone has its own signing team (RICHOS_APPLE_TEAM).
   - puts phone_guard.py in front of adb and xcrun for everything the verbs start (first on PATH):
     an uninstall or a data clear is refused, the run stops there and is reported REFUSED (CEO rule
     2026-10-01: never uninstall the app or clear its data, on either phone).
@@ -105,6 +108,9 @@ MOBILE = "richos/mobile/"
 PLATFORMS = ("android", "ios")
 METRICS = ("coldLaunch", "warmResume")
 DEFAULT_HOME = "/Volumes/E1TB/state/richos/phone-speed-watch"
+# richos-hq's signing wrapper (scripts/with-android-signing.py): the one signing path, shared with a person's
+# `randroid device install`. It reads the upload key from protected storage outside every repository.
+DEFAULT_SIGNING = f"{sys.executable} /Users/alex/ab/richos-hq/scripts/with-android-signing.py"
 IOS_STORE = Path("/Volumes/E1TB/caches/richos-native-ios/physical-store")
 SPAWN_GRACE_S = 120          # a request younger than this may still be starting its runner
 # A change only under the OTHER app's directory cannot change this app's build.
@@ -667,6 +673,15 @@ def verb(platform, name, checkout, phone, extra, guard, log_path, record_out=Non
     in MEASURED_EXITS that wrote the record there is a measurement, returned for judging."""
     spec = VERBS[platform]
     argv = [*cli(platform, checkout), *spec[name], spec["phone"], phone, *extra]
+    if platform == "android" and name == "install":
+        # randroid refuses an unsigned APK, and a phone installs only a signed one: the Release build must
+        # carry the upload key, which richos-hq's wrapper puts in the child's environment (never in this
+        # public repository, never on a command line).
+        wrapper = shlex.split(setting("SIGNING", DEFAULT_SIGNING))
+        if not Path(wrapper[-1]).is_file():
+            raise Unmeasured(f"the Android signing wrapper {wrapper[-1]} is missing: the Release build would be "
+                             "unsigned and the phone refuses it")
+        argv = [*wrapper, *argv]
     p = run_logged(argv, log_path, env=guard.env(), cwd=str(checkout))
     stopped = guard.tripped()
     if stopped:
