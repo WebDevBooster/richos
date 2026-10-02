@@ -775,8 +775,11 @@ def main():
                 lines.append("  REPORT, not a disk warning.")
         lines.append("")
         lines.append("  WHAT TO DO:")
-        lines.append("    scripts/scratch-sweep.sh          reclaim what nothing owns")
-        lines.append("    scripts/disk-watchdog.sh --status a reading per volume")
+        engine_scripts = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        lines.append("    %s   reclaim what nothing owns"
+                     % os.path.join(engine_scripts, "scratch-sweep.sh"))
+        lines.append("    %s --status   a reading per volume"
+                     % os.path.join(engine_scripts, "disk-watchdog.sh"))
         if n_fail > 0:
             lines.append("    then delete the paths above BY HAND")
         lines.append("=" * 72)
