@@ -223,6 +223,82 @@ way round."*
 ## The cost of a fire, stated as the objection
 
 One turn, at most, per refusal. On the re-fire `stop_hook_active` is true and
-both arms stand down. The refusal names the clause or the finished agent, what
+ARMS 1 and 2 stand down. The refusal names the clause or the finished agent, what
 the turn actually called, and the exact line that would have let it through — so
 the correction is a dispatch or a sentence, not an investigation.
+
+## ARM 3 — RECORDED, NOT WRITTEN: **SHIPPED, BLOCKING** (2026-10-02)
+
+The CEO asked "recorded WHERE?", or the same question in other words, **13
+times** between 2026-09-08 and 2026-10-02, about **9 claims on 7 days**. The
+excerpts (his messages, the lead's claims, what each turn wrote) are in the
+private record, `richos-hq/docs/audits/2026-10-02-recorded-where/`, together
+with the per-turn replay output. Only counts and shapes are here.
+
+**Corpus:** all 72 lead transcripts of the governed project (2026-08-07 to
+2026-10-02), replayed at **every Stop point** (the last text before a sibling
+hook's refusal, before a `stop_hook_summary`, or at the end of the span) by
+[`tests/record-claims.replay.py`](../tests/record-claims.replay.py), through
+the shipped analyzer. The claim that started it sat at an inner Stop point
+refused by another hook, so a replay of span ends alone would have missed it.
+
+| | |
+|---|---|
+| Stop points replayed | 5,337 |
+| Turns whose final text claims a record | 382 |
+| Backed | 146 |
+| Refused | 236 |
+| … only a private note (memory or ECS), no "in my private notes" | 80 |
+| … nothing written at all | 10 |
+| … a durable write, and the reply never says where | 69 |
+| … a repository record named, no commit | 66 |
+| … a citation of an existing record that names no place | 11 |
+| **Turns refused by a detector misfire alone (read by hand)** | **10 (4.2% of refusals, 0.19% of Stop points)** |
+
+**Every claim of the record family he challenged is refused** (6 of 6). Three of
+his questions answered something this arm cannot see: an omission with no claim
+behind it, a correction claim ("corrected at <sha>"), and a mechanism claim
+with no record verb.
+
+**The misfire classes left**, each a sentence shape the arm reads as a claim and
+is not: past confessions ("I recorded it wrong."), version-control "saved"
+("saved their work"), descriptions of an existing document ("Documented, never
+fixed."), and a citation of an old rule without its place. Each costs one
+corrected sentence.
+
+**The commit term, priced:** 66 of the refusals are real repository records
+whose reply named the place and no commit. The brief requires the commit; the
+fix is one token. Without the term, refusals would be 170.
+
+**Eight classes were removed by measurement**, each listed in the private
+record with the case that exposed it, among them: list items had to be scanned;
+Bash targets resolve through `cd` and shell variables; `awk 'NR>=593'` is not a
+redirect; ECS checkpoints are private; engine record commands count when their
+entry is named; a claim pointing at "my notes" is private whatever else the
+turn wrote. Two bugs in the arm were found by the replay before it shipped: a
+quadratic path pattern on a long command, and a directory walk that never ended
+on a path starting with `//`.
+
+**The cost of a fire:** unlike ARMS 1 and 2, ARM 3 does not stand down on the
+re-fire. The re-fire carries the corrected reply; if it still claims a record
+nobody wrote, it is refused again. Removing a false sentence needs no tool, so
+this cannot strand a turn, and there is no declaration line that excuses it.
+
+### ARM 3 became an alert (CEO, 2026-10-02)
+
+The refusal described above is replaced. His spec: check whether a "recorded"
+claim was followed by the appropriate action and issue an alert if it was not;
+then, "I don't need to see it. YOU need to see it and do your job." So ARM 3 no
+longer refuses, blocks or re-fires, recites no SHA, and shows the CEO nothing:
+it puts one line in the lead's own context (a Stop `additionalContext`) when the
+turn wrote nothing durable behind the claim, or only a private note the reply
+did not call one. Any durable write silences it, whether or not the reply names
+a place.
+
+Replay of the same 72 lead sessions (5,357 Stop points) after the change: 374
+claim turns, 87 alerted (a private note only, or nothing written), 287 silent
+(143 backed, 144 with a durable write behind them or a citation of an existing
+record). Read by hand, 6 of the 87 are clear misreads (a citation of an existing
+rule, a description of a document, a confession, git "saved and pushed") and 7
+more cannot be settled from the sentence alone; the other 74 are true alerts.
+The three misread classes named above are now excluded by the detector.

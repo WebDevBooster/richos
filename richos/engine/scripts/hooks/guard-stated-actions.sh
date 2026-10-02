@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # guard-stated-actions.sh — BLOCKING Stop hook. Refuses to let a turn end when
-# its REPORT does not match its ACTIONS, in two arms:
+# its REPORT does not match its ACTIONS, in three arms:
 #
 #   ARM 1  STATED, NOT TAKEN    the final text states an action ("Frank breaks
 #                               it first", "I'm dispatching Zach") and the
@@ -9,6 +9,16 @@
 #   ARM 2  THE TURN THAT STOPS  a teammate's completion arrived in this turn,
 #                               and the turn ends having started nothing and
 #                               declared nothing.
+#   ARM 3  RECORDED, NOT        the final text claims something was recorded,
+#          WRITTEN              saved, written down or made a rule, and the
+#                               turn wrote it nowhere durable, or the reply
+#                               does not say where (path, or record and
+#                               section, and the commit for a repository).
+#                               The CEO, 2026-10-02: "Get a hook added that
+#                               HITS YOU WITH A HAMMER every time you claim to
+#                               have 'recorded' something without actually
+#                               doing it." ARM 3 runs on the re-fire as well,
+#                               and has no declaration line.
 #
 # THE FAILURE, PRECISELY
 #   2026-09-02. Seven times in one session the lead wrote a sentence describing
@@ -55,9 +65,9 @@
 #
 #   Six words and thirty characters of reason, minimum; a BARE MARKER EXEMPTS
 #   NOTHING; and this wrapper puts every declaration in front of the CEO
-#   through `systemMessage`, unverified and labeled as such. ARM 1 has no
-#   escape and needs none: the honest routes are to make the call, or to
-#   write what is true.
+#   through `systemMessage`, unverified and labeled as such. ARMS 1 and 3
+#   have no escape and need none: the honest routes are to make the call or
+#   write the record, or to write what is true.
 #
 # FAIL-OPEN, LIKE ITS SIBLINGS AND FOR THEIR REASON
 #   A PreToolUse guard that fails closed refuses one tool call; a Stop guard
@@ -74,7 +84,8 @@
 #   0  report matches the turn, declared, exempt, not evaluable, stood down,
 #      or anything went wrong
 #   2  BLOCKED — the report states an action the turn did not take, or a
-#      teammate finished and the turn ends undeclared having started nothing
+#      teammate finished and the turn ends undeclared having started nothing,
+#      or the report claims a record the turn did not write or does not locate
 #
 # Self-test:  scripts/hooks/guard-stated-actions.sh --self-test
 
@@ -291,6 +302,7 @@ fi
 
 # EXACTLY ONE NOTICE PER TURN — the ledger holds one state per (session, hook),
 # so the recovery line is an `else` of the declaration line, never before it.
+NOTICE_OUT=""
 DECLARED_LINE="$(printf '%s\n' "$ANALYZER_OUT" | grep -m1 "^RICHOS_STOP_DECLARED	" || true)"
 if [ -n "$DECLARED_LINE" ]; then
     # A DECLARED STOP IS SHOWN TO HIM, ALWAYS. Keyed on the case plus a hash of
@@ -299,11 +311,33 @@ if [ -n "$DECLARED_LINE" ]; then
     D_CASE="$(printf '%s' "$DECLARED_LINE" | cut -f2)"
     D_WHY="$(printf '%s' "$DECLARED_LINE" | cut -f3 | tr -d '\000-\010\013\014\016-\037')"
     D_TOP="$(printf '%s' "$DECLARED_LINE" | cut -f4)"
-    stop_notice_abnormal "declared:${D_CASE}:$(printf '%s' "$D_WHY" | cksum | tr -d ' ')" \
-        "STOP DECLARED — a teammate (\"${D_TOP}\") finished this turn, nothing was started, and the turn was let through on a declared exception (${D_CASE}), not on a check. The reason given, which is DECLARED AND NOT VERIFIED: \"${D_WHY}\". $HOOK_TAG"
+    NOTICE_OUT="$(stop_notice_abnormal "declared:${D_CASE}:$(printf '%s' "$D_WHY" | cksum | tr -d ' ')" \
+        "STOP DECLARED — a teammate (\"${D_TOP}\") finished this turn, nothing was started, and the turn was let through on a declared exception (${D_CASE}), not on a check. The reason given, which is DECLARED AND NOT VERIFIED: \"${D_WHY}\". $HOOK_TAG")"
 else
-    stop_notice_normal \
-        "STATED-ACTIONS GATE — RUNNING AGAIN. Reports are being checked against the turn's own tool calls once more. $HOOK_TAG"
+    NOTICE_OUT="$(stop_notice_normal \
+        "STATED-ACTIONS GATE — RUNNING AGAIN. Reports are being checked against the turn's own tool calls once more. $HOOK_TAG")"
+fi
+
+# THE RECORD ALERT (ARM 3). A reply that claims something was recorded, in a
+# turn that wrote nothing to a durable record, tells the LEAD, and only the
+# lead, to write it. Never a refusal, never a block, never shown to the CEO:
+# additionalContext named for Stop reaches the model (the envelope
+# notice-hook-staleness.sh uses), and systemMessage is deliberately absent.
+# Both outputs leave in ONE JSON line.
+ALERT_LINE="$(printf '%s\n' "$ANALYZER_OUT" | grep -m1 "^RICHOS_RECORD_ALERT	" | cut -f2- || true)"
+if [ -n "$ALERT_LINE" ]; then
+    ALERT_LINE="$ALERT_LINE" NOTICE_OUT="$NOTICE_OUT" python3 -c '
+import json, os
+out = {}
+try:
+    out = json.loads(os.environ.get("NOTICE_OUT", "").strip().splitlines()[-1])
+except Exception:
+    out = {}
+out["hookSpecificOutput"] = {"hookEventName": "Stop", "additionalContext": os.environ["ALERT_LINE"]}
+print(json.dumps(out))
+' || printf '%s\n' "$NOTICE_OUT"
+elif [ -n "$NOTICE_OUT" ]; then
+    printf '%s\n' "$NOTICE_OUT"
 fi
 
 # Only 2 is a block. Anything else — including a crash in the analyzer — lets

@@ -130,6 +130,10 @@ git -C "$NOROLES" commit -qm seed >/dev/null 2>&1
 #   {"send": "<to>"}             a SendMessage tool_use
 #   {"tool": "..."}              any other assistant tool_use, by name
 #   {"turn": "<prompt-id>"}      switch the promptId from here on
+#   {"write": "<path>"}          a Write tool_use (ARM 3)
+#   {"edit": "<path>"}           an Edit tool_use (ARM 3)
+#   {"bashout": [cmd, out]}      a Bash tool_use whose result is <out> (ARM 3:
+#                                the commit line a SHA is checked against)
 mk_tr() { # <outfile> <json-spec>
     python3 - "$1" "$2" "$PROMPT_ID" "$ENTITY" <<'PY'
 import json, sys
@@ -141,7 +145,7 @@ def user(text, machine):
     rows.append({"type": "user", "promptId": cur, "cwd": cwd,
                  "promptSource": "user" if not machine else "hook",
                  "message": {"content": text}})
-def call(name, inp):
+def call(name, inp, result="ok"):
     global n
     n += 1
     tid = "toolu_%03d" % n
@@ -149,7 +153,7 @@ def call(name, inp):
         {"type": "tool_use", "id": tid, "name": name, "input": inp}]}})
     rows.append({"type": "user", "promptId": cur, "cwd": cwd,
                  "message": {"content": [
-                     {"type": "tool_result", "tool_use_id": tid, "content": "ok"}]}})
+                     {"type": "tool_result", "tool_use_id": tid, "content": result}]}})
 for step in json.loads(spec):
     if "turn" in step:
         cur = step["turn"]; continue
@@ -168,6 +172,12 @@ for step in json.loads(spec):
         call("SendMessage", {"to": step["send"], "message": "hi"}); continue
     if "tool" in step:
         call(step["tool"], {}); continue
+    if "write" in step:
+        call("Write", {"file_path": step["write"], "content": "x"}); continue
+    if "edit" in step:
+        call("Edit", {"file_path": step["edit"], "old_string": "a", "new_string": "b"}); continue
+    if "bashout" in step:
+        call("Bash", {"command": step["bashout"][0]}, step["bashout"][1]); continue
 with open(out, "w", encoding="utf-8") as fh:
     for r in rows:
         fh.write(json.dumps(r) + "\n")
@@ -419,6 +429,204 @@ run_hook "$TR_SHELL" "The suite is green."
 
 run_hook "$TR_NOTDONE" "$FIN_REPORT"
 [ "$RC" -eq 0 ] && ok "n11. a notification without <status>completed</status> is not a delivery" || bad "n11. not completed" "rc=$RC"
+
+# ---------------------------------------------------------------------------
+# ARM 3 — RECORDED, NOT WRITTEN
+# The R cases are the real claims the CEO answered with "recorded WHERE?" (or
+# its equivalent), each with the shape of what its turn actually wrote. The
+# full excerpts, his questions and the replay that adjudicated every fire are
+# in the private record; only the lead's own claim sentences are carried here.
+# ---------------------------------------------------------------------------
+MEM="$SANDBOX/home/.claude/projects/-Users-x-proj/memory"
+mkdir -p "$MEM" "$ENTITY/wiki"
+printf '# decisions\n' > "$ENTITY/wiki/ceo-decisions.md"
+git -C "$ENTITY" add -A >/dev/null 2>&1; git -C "$ENTITY" commit -qm decisions >/dev/null 2>&1
+js() { python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1"; }
+
+TR_MEM_BASH="$SANDBOX/mem-bash.jsonl"
+mk_tr "$TR_MEM_BASH" "[{\"prompt\":\"go\"},{\"bash\":$(js "cd $MEM && cat > feedback_mobile_testing_through_the_cli.md <<'EOF'
+All mobile testing goes through the command line.
+EOF")}]"
+TR_MEM_WRITE="$SANDBOX/mem-write.jsonl"
+mk_tr "$TR_MEM_WRITE" "[{\"prompt\":\"go\"},{\"write\":$(js "$MEM/project_mobile_version_and_builds.md")}]"
+TR_REPO_COMMIT="$SANDBOX/repo-commit.jsonl"
+mk_tr "$TR_REPO_COMMIT" "[{\"prompt\":\"go\"},{\"bash\":$(js "cd $ENTITY && cat >> wiki/ceo-decisions.md <<'EOF'
+## 100. Phones
+EOF")},{\"bashout\":[$(js "cd $ENTITY && git add wiki/ceo-decisions.md && git commit -m 'decisions 100'"),\"[main cf7e16b7] decisions 100\"]}]"
+TR_REPO_EDIT="$SANDBOX/repo-edit.jsonl"
+mk_tr "$TR_REPO_EDIT" "[{\"prompt\":\"go\"},{\"edit\":$(js "$ENTITY/wiki/ceo-decisions.md")}]"
+TR_ESC="$SANDBOX/esc.jsonl"
+mk_tr "$TR_ESC" "[{\"prompt\":\"go\"},{\"bashout\":[\"/x/engine/scripts/escalate.sh ack esc-20261002T085838Z-029b1749 --disposition 'judged on the median'\",\"acknowledged esc-20261002T085838Z-029b1749\"]}]"
+
+# ARM 3 is an ALERT, never a refusal (CEO 2026-10-02: "check whether or not a
+# 'recorded' claim was followed by the appropriate action and then issue an
+# alert if it wasn't"). An alert is exit 0 and one JSON line whose
+# additionalContext, named for Stop, reaches the lead only; it carries no
+# systemMessage, so nothing is shown to the CEO.
+alerted() { # <needle in the alert>
+    [ "$RC" -eq 0 ] && python3 -c 'import json,sys
+d = json.loads(sys.stdin.readline() or "{}")
+h = d.get("hookSpecificOutput") or {}
+c = h.get("additionalContext", "")
+ok = h.get("hookEventName") == "Stop" and c.startswith("RECORD ALERT") and sys.argv[1] in c and "systemMessage" not in d
+sys.exit(0 if ok else 1)' "$1" <<<"$OUT"
+}
+silent() { # exit 0 and no alert (the alert has no stderr channel; stderr is not read)
+    if [ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q 'RECORD ALERT'; then return 0; fi
+    return 1
+}
+
+R1="Three changes are in.
+
+- **Recorded as a standing rule:** every phone-testing instruction names the command to use.
+- The old scripts become thin wrappers around that command."
+run_hook "$TR_MEM_BASH" "$R1"
+if alerted 'Recorded as a standing rule: every phone-testing instruction' && alerted 'only a private memory note'; then
+    ok "R1. 2026-10-02: a bulleted 'Recorded as a standing rule' whose turn wrote only memory is ALERTED: the claim is named, the turn is not blocked, nothing goes to the CEO"
+else bad "R1. recorded as a standing rule" "rc=$RC out=$(printf '%s' "$OUT" | head -c 500) err=$ERR"; fi
+
+run_hook "$TR_MEM_WRITE" "Understood. The first phone version is 1.0.0. I've also saved your ruling so it isn't lost."
+alerted 'saved your ruling' && ok "R2. 2026-09-26: 'I've also saved your ruling' with a memory-only Write is ALERTED" || bad "R2. saved your ruling" "rc=$RC out=$OUT"
+
+run_hook "$TR_MEM_WRITE" "The results are in. Recorded as the first job for the next session."
+alerted 'first job' && ok "R3. 2026-09-28: 'Recorded as the first job for the next session' with a memory-only Write is ALERTED" || bad "R3. first job" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "**First question:** it is written in the three places I read: the rules file, your decisions page, and my memory."
+silent && ok "R4. a citation of an existing record ('it is written in the three places I read') is not an act of this turn: SILENT" || bad "R4. written in three places" "rc=$RC out=$OUT err=$ERR"
+
+run_hook "$TR_MEM_WRITE" "I've saved this as a rule in my notes."
+alerted 'saved this as a rule in my notes' && ok "R5. 2026-09-26: 'saved this as a rule in my notes' (memory only, not 'private notes') is ALERTED" || bad "R5. in my notes" "rc=$RC out=$OUT"
+
+TR_MIXED="$SANDBOX/mixed.jsonl"
+mk_tr "$TR_MIXED" "[{\"prompt\":\"go\"},{\"write\":$(js "$MEM/feedback_interrupted_work_is_shelved_by_hand.md")},{\"bash\":$(js "cd $ENTITY && cat >> wiki/ceo-decisions.md <<'EOF'
+row closed
+EOF")},{\"bashout\":[$(js "cd $ENTITY && git commit -am 'close row'"),\"[main cf7e16b7] close row\"]}]"
+run_hook "$TR_MIXED" "The row is closed in \`wiki/ceo-decisions.md\`, commit \`cf7e16b7\`.
+
+I've saved this as a rule in my notes."
+alerted 'saved this as a rule in my notes' && ok "R5b. the real 2026-09-26 turn: a commit cited for something else does not back 'saved this as a rule in my notes'" || bad "R5b. notes with an unrelated commit" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "Recorded."
+alerted 'wrote NOTHING' && ok "R6. a bare 'Recorded.' in a turn that wrote nothing is ALERTED, and the alert says nothing was written" || bad "R6. bare recorded" "rc=$RC out=$OUT"
+
+run_hook "$TR_MEM_WRITE" "Recorded."
+alerted 'only a private memory note' && ok "R7. a memory-only write with an unqualified 'Recorded.' is ALERTED" || bad "R7. memory unqualified" "rc=$RC out=$OUT"
+
+run_hook "$TR_MEM_WRITE" "Saved in my private notes: phone testing goes through the command line."
+silent && ok "R8. a memory-only write described as 'in my private notes' is SILENT" || bad "R8. private notes" "rc=$RC out=$OUT"
+
+run_hook "$TR_REPO_COMMIT" "Recorded as a standing rule in \`wiki/ceo-decisions.md\` §100, commit \`cf7e16b7\`."
+silent && ok "R9. TRUE REPLY: written to a repository file, committed, path and the turn's own SHA named: SILENT" || bad "R9. true positive" "rc=$RC out=$OUT"
+
+run_hook "$TR_REPO_EDIT" "Recorded in \`wiki/ceo-decisions.md\` §100."
+silent && ok "R10. a repository file written and named but not committed: a write exists, so SILENT (no SHA recital)" || bad "R10. no commit" "rc=$RC out=$OUT"
+
+run_hook "$TR_REPO_COMMIT" "Recorded as a standing rule."
+silent && ok "R11. written and committed, the reply names no place: a write exists, so SILENT" || bad "R11. no where" "rc=$RC out=$OUT"
+
+run_hook "$TR_REPO_COMMIT" "Recorded in \`wiki/ceo-decisions.md\`, commit \`abc1234\`."
+silent && ok "R12. a typed SHA the turn never produced does not matter: a write exists, SILENT" || bad "R12. typed sha" "rc=$RC out=$OUT"
+
+run_hook "$TR_MEM_BASH" "$R1" true
+alerted 'Recorded as a standing rule' && ok "R13. the re-fire (stop_hook_active) carries the final reply and is ALERTED too, exit 0" || bad "R13. refire" "rc=$RC out=$OUT"
+
+run_hook "$TR_MEM_BASH" "That claim was wrong. It has not been recorded anywhere yet; I will write it to the rules file next." true
+silent && ok "R14. ...and the re-fire with the claim removed and the truth said is SILENT" || bad "R14. fixed refire" "rc=$RC out=$OUT"
+
+run_hook "$TR_MEM_BASH" "$R1
+
+stop-declared: nothing-unblocked — everything else this turn is genuinely finished and nothing remains to start."
+alerted 'Recorded as a standing rule' && ok "R15. NO ESCAPE LINE: a stop declaration does not excuse a false record claim" || bad "R15. no escape" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "Nothing was recorded before you asked."
+silent && ok "R16. a denial ('Nothing was recorded') is not a claim" || bad "R16. denial" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "When I wrote \"recorded as a standing rule\", that was wrong."
+silent && ok "R17. the claim inside quotes, reported, is not a claim" || bad "R17. quoted" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "Andy recorded the cold start on the phone, and the video is in his report."
+silent && ok "R18. a teammate's screen recording is not a record claim" || bad "R18. media" "rc=$RC out=$OUT"
+
+run_hook "$TR_ESC" "Recorded in the escalation ledger as esc-20261002T085838Z-029b1749."
+silent && ok "R19. a ledger written by its engine command, named with its entry id: SILENT" || bad "R19. ledger" "rc=$RC out=$OUT"
+
+TR_MEM_VAR="$SANDBOX/mem-var.jsonl"
+mk_tr "$TR_MEM_VAR" "[{\"prompt\":\"go\"},{\"bash\":$(js "M=$MEM
+cat > \"\$M/feedback_split_failures_obsolete_vs_broken.md\" <<'EOF'
+Report failures split obsolete versus broken.
+EOF")}]"
+run_hook "$TR_MEM_VAR" "Recorded so it doesn't need saying twice."
+alerted 'only a private memory note' && ok "R21. 2026-09-08: a memory write through a shell variable is seen as a private note, and 'Recorded so it doesn't need saying twice' is ALERTED" || bad "R21. variable target" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "No, and you found the hole in the very thing I recorded an hour ago."
+silent && ok "R22. a reference to a record from an earlier turn ('I recorded an hour ago') is not judged" || bad "R22. past reference" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "He nearly wrote five notes off bad captures, caught it, and recorded the anomaly as unresolved."
+silent && ok "R23. a teammate's act ('He ..., and recorded the anomaly') is not the lead's claim" || bad "R23. third person" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "Recorded numbers: the best cold start so far, per phone type."
+silent && ok "R24. 'Recorded numbers:' is a noun phrase, not a claim" || bad "R24. noun" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "Noted that the path implies rounds; I will number the next batches the same way."
+silent && ok "R25. 'Noted that ...' is an acknowledgment, not a record claim" || bad "R25. noted that" "rc=$RC out=$OUT"
+
+TR_WS="$SANDBOX/ws.jsonl"
+mk_tr "$TR_WS" "[{\"prompt\":\"go\"},{\"bash\":\"/x/engine/scripts/workspaces.sh wait quint-opus-rewalk4 --started 'merge running'\"}]"
+run_hook "$TR_WS" "I've recorded Quint's workspace (quint-opus-rewalk4) as merging: his record is already merged."
+silent && ok "R26. a workspace-registry entry written by its engine command: SILENT" || bad "R26. registry" "rc=$RC out=$OUT"
+
+TR_ECS="$SANDBOX/ecs.jsonl"
+mk_tr "$TR_ECS" "[{\"prompt\":\"go\"},{\"bash\":\"scripts/ecs/ecs checkpoint-template --session s1 --write\"}]"
+run_hook "$TR_ECS" "Recorded as a standing commitment, not a note."
+alerted 'only a private memory note' && ok "R27. a claim backed only by an ECS checkpoint (private shadow state) is ALERTED" || bad "R27. ecs only" "rc=$RC out=$OUT"
+
+run_hook "$TR_ECS" "I've saved the missing end-of-turn record."
+silent && ok "R28. an ECS checkpoint named as what it is ('end-of-turn record'): SILENT" || bad "R28. ecs named" "rc=$RC out=$OUT"
+
+# The misread classes the corpus replay found: none is a claim of THIS turn.
+run_hook "$TR_BASH" "I recorded it wrong. The version is 1.0.0, not 0.1.0."
+silent && ok "R30. a past CONFESSION ('I recorded it wrong.') is not a claim" || bad "R30. confession" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "I saved their work before the reset; the branch is committed."
+silent && ok "R31. a TEAMMATE's version-control 'saved' ('saved their work') is not a claim" || bad "R31. saved their work" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "Documented, never fixed. The tool still has the bug."
+silent && ok "R32. a DESCRIPTION of an existing document ('Documented, never fixed.') is not a claim" || bad "R32. documented never fixed" "rc=$RC out=$OUT"
+
+run_hook "$TR_BASH" "It was recorded, but never enforced."
+silent && ok "R33. 'It was recorded, but never enforced' describes an old record and is not a claim" || bad "R33. recorded but never" "rc=$RC out=$OUT"
+
+# An alert is never a refusal, whatever the switch says.
+printf 'STATED_ACTIONS_ENFORCE=0\n' > "$ENTITY/orchestration.config"
+run_hook "$TR_MEM_BASH" "$R1"
+alerted 'Recorded as a standing rule' && ok "R20. STATED_ACTIONS_ENFORCE=0: the alert is still issued and the turn ends" || bad "R20. report-only" "rc=$RC out=$OUT"
+: > "$ENTITY/orchestration.config"
+
+# The corpus replay tool (ass-kicker/tests/record-claims.replay.py), run on a
+# one-session fixture: a memory-only write, a claim, then a turn that commits
+# a named record. Counts on stdout, verdicts in the private --out file.
+REPLAY_DIR="$SANDBOX/replay-corpus"; mkdir -p "$REPLAY_DIR"
+python3 - "$REPLAY_DIR/s1.jsonl" "$MEM" "$ENTITY" <<'PY'
+import json, sys
+out, mem, ent = sys.argv[1:4]
+rows = []
+def turn(pid, cmd, result, text):
+    rows.append({"type": "user", "promptId": pid, "cwd": ent, "message": {"content": "go"}})
+    rows.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t-" + pid, "name": "Bash", "input": {"command": cmd}}]}})
+    rows.append({"type": "user", "promptId": pid, "cwd": ent, "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t-" + pid, "content": result}]}})
+    rows.append({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}})
+turn("p1", "cd %s && cat > rule.md <<'EOF'\nx\nEOF" % mem, "ok", "Recorded as a standing rule.")
+turn("p2", "cd %s && echo y >> wiki/ceo-decisions.md && git commit -am r" % ent, "[main 9a8b7c6] r",
+     "Recorded in `wiki/ceo-decisions.md`, commit `9a8b7c6`.")
+open(out, "w").write("".join(json.dumps(r) + "\n" for r in rows))
+PY
+REPLAY_SUM="$(python3 "$ENGINE_ROOT/ass-kicker/tests/record-claims.replay.py" "$REPLAY_DIR" --out "$SANDBOX/replay-out.jsonl" 2>/dev/null)"
+if printf '%s' "$REPLAY_SUM" | grep -q '"claim_turns": 2' && printf '%s' "$REPLAY_SUM" | grep -q '"alerted": 1' \
+   && printf '%s' "$REPLAY_SUM" | grep -q '"backed": 1' && grep -q '"private"' "$SANDBOX/replay-out.jsonl"; then
+    ok "R29. the corpus replay tool counts a refused memory-only claim and a backed committed one, verdicts to --out only"
+else bad "R29. replay tool" "sum=$REPLAY_SUM"; fi
 
 # ---------------------------------------------------------------------------
 # SAFETY

@@ -5804,8 +5804,8 @@
     },
     "ass-kicker/guard-stated-actions.py": {
       "source": "ass-kicker/guard-stated-actions.py",
-      "sha256": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
-      "evidence": "AST I/O/import boundaries: parses payload/transcript data, lists role names, reads team JSON and appends a verdict ledger. The only dynamic imports are the fixed turn-manifest and idle-land analyzers. Neither transcript commands nor role Markdown are executed. Ambient roster inputs require separate execution-reuse qualification.",
+      "sha256": "4cac3b0ff319b9f76a5f3475f04d2d8231d078f519184d10f38723d3ae3270c2",
+      "evidence": "AST I/O/import boundaries: parses payload/transcript data, lists role names, reads team JSON and appends a verdict ledger. The only dynamic imports are the fixed turn-manifest and idle-land analyzers. Neither transcript commands nor role Markdown are executed. Ambient roster inputs require separate execution-reuse qualification. ARM 3 (record claims) additionally reads the turn's tool inputs and results from the transcript, checks each write target's ancestors for a .git entry, and runs a read-only git check-ignore there; it writes nothing beyond the same verdict ledger and, on stdout, one RICHOS_RECORD_ALERT line the wrapper turns into lead-only context (read-only, no new file or key).",
       "keys": [],
       "edges": [
         {
@@ -5818,7 +5818,7 @@
     },
     "scripts/hooks/guard-stated-actions.sh#hook": {
       "source": "scripts/hooks/guard-stated-actions.sh",
-      "sha256": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+      "sha256": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
       "evidence": "Normal Stop invocation sources entity configuration for two flags, performs fixed recovery/payload/root checks and executes the fixed stated-actions analyzer. --self-test dispatch is not reached by the fixture callers.",
       "keys": [
         "CHECK_STATED_ACTIONS",
@@ -5844,13 +5844,16 @@
     },
     "ass-kicker/tests/guard-stated-actions.test.sh": {
       "source": "ass-kicker/tests/guard-stated-actions.test.sh",
-      "sha256": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
-      "evidence": "All hook invocations use the explicit private entity or private unadopted repository. Entity configs are empty or contain literal flag overrides; transcripts and role Markdown are generated as data. Mirror fixtures exercise missing helpers; the real analyzer is otherwise invoked. No mutation harness is called here.",
+      "sha256": "644e8cc86ae961a5a126d116fd5e3604e6dbaefd5c3fc9176d394febc214fea9",
+      "evidence": "All hook invocations use the explicit private entity or private unadopted repository. Entity configs are empty or contain literal flag overrides; transcripts and role Markdown are generated as data. Mirror fixtures exercise missing helpers; the real analyzer is otherwise invoked. No mutation harness is called here. Case R29 runs the corpus replay tool on a generated one-session fixture directory with a sandbox --out path.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/hooks/guard-stated-actions.sh#hook",
           "fixture": true
+        },
+        {
+          "to": "ass-kicker/tests/record-claims.replay.py"
         }
       ],
       "literal_keys": {
@@ -5860,8 +5863,8 @@
     },
     "ass-kicker/tests/stated-actions.mutation.sh": {
       "source": "ass-kicker/tests/stated-actions.mutation.sh",
-      "sha256": "5f6bba511e6b555c49bf3f45313de23d97742c5b38da3ff62d739114e2972a70",
-      "evidence": "Control and finite source mutants execute the same fixed stated-actions test, which recreates private entity config. The one added transcript reader reads generated JSON only. Replacement operands are source data; helper copies are fixed.",
+      "sha256": "80f74088499eed72e5349e2c36af809e1600be59ebbddc197344fb4943239ad0",
+      "evidence": "Control and finite source mutants execute the same fixed stated-actions test, which recreates private entity config. The one added transcript reader reads generated JSON only. Replacement operands are source data; helper copies are fixed. The fixed helper copies include the corpus replay tool that the suite's case R29 runs.",
       "keys": [],
       "edges": [
         {
@@ -7172,7 +7175,7 @@
     },
     "scripts/hooks/guard-stated-actions.sh#unadopted-stop": {
       "source": "scripts/hooks/guard-stated-actions.sh",
-      "sha256": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+      "sha256": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
       "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
       "keys": [],
       "edges": [
@@ -8558,7 +8561,7 @@
     },
     "scripts/hooks/guard-stated-actions.sh#forbidden-stop": {
       "source": "scripts/hooks/guard-stated-actions.sh",
-      "sha256": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+      "sha256": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
       "evidence": "The workspace unit suite invokes this hook without arguments for a recorded forbidden lead. Reviewed bootstrap and successful stop-session-recovery return before root resolution or later policy readers. Self-test dispatch is not entered.",
       "keys": [],
       "edges": [
@@ -15568,6 +15571,17 @@
         }
       ],
       "evidence": "Builds a private sandbox: HOME, CLAUDE_CONFIG_DIR, TMPDIR, RICHOS_WORKSPACES_DIR, the reaper ledger/log/state and a LITERAL SCRATCH_REAPER_CONFIG written by the suite (claude root, agent root, nightly dir inside the sandbox; shared tmp, campaign and Docker arms off). Runs the fixed scratch-reaper.sh --json with --agent for the plan, then loads the fixed workspaces.py by path and calls land_sweep_scopes and sweep_scratch_after_land, which run scratch-sweep.sh. Starts and kills only its own sleep process. Never reads orchestration.config."
+    },
+    "ass-kicker/tests/record-claims.replay.py": {
+      "source": "ass-kicker/tests/record-claims.replay.py",
+      "sha256": "094a016f81b059134abe4293ceef446032f0ddafe433042a49f53ac4d6f5b0cd",
+      "evidence": "Reads every *.jsonl in the directory it is given (a fixture directory in the suite), writes each Stop-point span to its own temp directory and removes it, imports the fixed analyzer by path, prints counts on stdout and writes verdicts only to the --out path it is given. No command from a transcript is executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ass-kicker/guard-stated-actions.py"
+        }
+      ]
     }
   },
   "units": {
@@ -16020,9 +16034,9 @@
       "all_events": true,
       "evidence": "Every scoped section derives its sandbox inventory from the entire real hooks manifest before dispatch. All event changes remain observable, including future events. These source bindings cover the shared inventory builders and all currently qualified scoped execution closures.",
       "sources": {
-        "ass-kicker/guard-stated-actions.py": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
-        "ass-kicker/tests/guard-stated-actions.test.sh": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
-        "ass-kicker/tests/stated-actions.mutation.sh": "5f6bba511e6b555c49bf3f45313de23d97742c5b38da3ff62d739114e2972a70",
+        "ass-kicker/guard-stated-actions.py": "4cac3b0ff319b9f76a5f3475f04d2d8231d078f519184d10f38723d3ae3270c2",
+        "ass-kicker/tests/guard-stated-actions.test.sh": "644e8cc86ae961a5a126d116fd5e3604e6dbaefd5c3fc9176d394febc214fea9",
+        "ass-kicker/tests/stated-actions.mutation.sh": "80f74088499eed72e5349e2c36af809e1600be59ebbddc197344fb4943239ad0",
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
         "mega-lander/tests/workspaces.test.py": "87d63a30fed0fc860079356036b38ead040301de1b2530dcb5b5afc04cc29453",
@@ -16055,7 +16069,7 @@
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
         "scripts/hooks/guard-resume-isolation.test.sh": "5ac890c807ee15f75bd087fd44388cd500e1772e755f2d2422fe6b83fbf237a5",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
-        "scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+        "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
         "scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
         "scripts/hooks/guard-unresolved-claims.py": "793b6ea10ac7db990e7c3062af9ce21d7fbcf984804d69d92452ab336737d053",
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
@@ -16262,7 +16276,8 @@
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
-        "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121"
+        "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121",
+        "ass-kicker/tests/record-claims.replay.py": "094a016f81b059134abe4293ceef446032f0ddafe433042a49f53ac4d6f5b0cd"
       }
     },
     "scripts/hooks/mechanical-findings.test.sh": {
@@ -16507,7 +16522,7 @@
         "scripts/hooks/guard-ci-turn-gate.sh": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
-        "scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
+        "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
@@ -16853,8 +16868,8 @@
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-stale-staging.sh": "3aaaea16970f7d9cb08b4600ba1a2edad55333c24115e7fb759cedc9512b1a6e",
-        "scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
-        "ass-kicker/guard-stated-actions.py": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
+        "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
+        "ass-kicker/guard-stated-actions.py": "4cac3b0ff319b9f76a5f3475f04d2d8231d078f519184d10f38723d3ae3270c2",
         "scripts/hooks/turn-manifest.py": "f7846899fa05c44ed325cffa18c6304c3177b46901923bd26d829e226d87665b",
         "scripts/hooks/guard-stop-live-work.sh": "5cd71abf69697f041f48560ab09d6e7f7f4b2324761916b07b589569ff7dd17e",
         "scripts/lib/stop-live-work.py": "d39269d911e9456fd0bbce45b95e67919c36dd4b7ecb96c58b3e4a8bd262532a",
