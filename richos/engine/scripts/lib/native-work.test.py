@@ -149,38 +149,41 @@ class CoresReachTheBuild(unittest.TestCase):
             self.assertEqual(N.run(command), 0)
         return seen['command'], seen['env']
 
-    def test_a_quiet_mac_gives_five_cores_and_never_more_than_two_to_one_process(self):
-        gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 5.0, 1)
-        self.assertIn('--max-workers=2', gradle)           # one JVM: PROCESS_CORES
-        self.assertIn('--parallel', gradle)
-        self.assertNotIn('--no-parallel', gradle)
-        self.assertIn('--no-daemon', gradle)              # the supervisor ends every daemon anyway
-        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=2 -Dfile.encoding=UTF-8', gradle)
-        self.assertEqual(env['CARGO_BUILD_JOBS'], '2')     # one rustc takes every job token
-        self.assertTrue(env['JAVA_TOOL_OPTIONS'].endswith('-XX:ActiveProcessorCount=2'))
-        self.assertEqual(env['SWIFTPM_MAX_CONCURRENT_OPERATIONS'], '5')
-        swift, _ = self.admitted(['swift', 'build'], 5.0, 1)
+    def test_a_quiet_mac_gives_five_cores_to_debug_swift_and_xcode_two_to_cargo_one_to_a_jvm(self):
+        swift, env = self.admitted(['swift', 'build'], 5.0, 1)
         self.assertEqual(swift[-2:], ['--jobs', '5'])      # debug: one frontend process per job
+        self.assertEqual(env['SWIFTPM_MAX_CONCURRENT_OPERATIONS'], '5')
+        self.assertEqual(env['CARGO_BUILD_JOBS'], '2')     # one rustc takes every job token
+        self.assertTrue(env['JAVA_TOOL_OPTIONS'].endswith('-XX:ActiveProcessorCount=1'))
         xcode, _ = self.admitted(['xcodebuild', 'build'], 5.0, 1)
         self.assertEqual(xcode[xcode.index('-jobs') + 1], '5')
         self.assertEqual(xcode[xcode.index('-parallel-testing-enabled') + 1], 'NO')
         swift, _ = self.admitted(['swift', 'build', '-c', 'release'], 5.0, 1)
-        self.assertEqual(swift[-2:], ['--jobs', '2'])      # release: one whole-module frontend
+        self.assertEqual(swift[-2:], ['--jobs', '1'])      # release: one whole-module frontend
         xcode, _ = self.admitted(['xcodebuild', '-configuration', 'Release', 'build'], 5.0, 1)
-        self.assertEqual(xcode[xcode.index('-jobs') + 1], '2')
+        self.assertEqual(xcode[xcode.index('-jobs') + 1], '1')
+
+    def test_a_jvm_keeps_one_processor_however_many_cores_are_free(self):
+        # 2026-10-02: a Gradle JVM given 4 ran at 6.08 cores and the watchdog stopped it.
+        gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 0.0, 1)
+        self.assertIn('--max-workers=1', gradle)
+        self.assertIn('--no-parallel', gradle)
+        self.assertIn('--no-daemon', gradle)              # the supervisor ends every daemon anyway
+        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=1 -Dfile.encoding=UTF-8', gradle)
+        self.assertTrue(env['JAVA_TOOL_OPTIONS'].endswith('-XX:ActiveProcessorCount=1'))
 
     def test_one_process_stays_under_the_watchdogs_per_process_line(self):
         self.assertLess(N.PROCESS_CORES, cpu_guard.JOB_CORES)
+        self.assertEqual(N.JVM_CORES, 1)
         self.assertEqual([N.one_process(c) for c in (1, 2, 5, 6)], [1, 2, 2, 2])
 
     def test_four_workers_admitted_share_and_a_busy_mac_gives_one(self):
-        gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 5.0, 4)
-        self.assertIn('--max-workers=1', gradle)
-        self.assertIn('--no-parallel', gradle)
-        gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 75.0, 1)
-        self.assertIn('--max-workers=1', gradle)
+        swift, env = self.admitted(['swift', 'build'], 5.0, 4)
+        self.assertEqual(swift[-2:], ['--jobs', '1'])
         self.assertEqual(env['CARGO_BUILD_JOBS'], '1')
-        self.assertTrue(env['JAVA_TOOL_OPTIONS'].endswith('-XX:ActiveProcessorCount=1'))
+        swift, env = self.admitted(['swift', 'build'], 75.0, 1)
+        self.assertEqual(swift[-2:], ['--jobs', '1'])
+        self.assertEqual(env['CARGO_BUILD_JOBS'], '1')
 
     def test_a_refused_override_is_refused_before_any_admission(self):
         with patch.object(sys, 'platform', 'darwin'), \

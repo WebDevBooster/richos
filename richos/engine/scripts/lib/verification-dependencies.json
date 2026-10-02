@@ -14504,7 +14504,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/lib/native-work.py",
-          "sha256": "9d36e7166ba8951dd7a5d5016d5e553c88e24394aae3d31f588923ccc5b5fefc",
+          "sha256": "323837d01f0ce094c28b5fef115847ee3b52a93042dae40edd8c56ee06de7ed6",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14547,7 +14547,7 @@
     },
     "scripts/lib/native-work.py#cpu-fixtures": {
       "source": "scripts/lib/native-work.py",
-      "sha256": "9d36e7166ba8951dd7a5d5016d5e553c88e24394aae3d31f588923ccc5b5fefc",
+      "sha256": "323837d01f0ce094c28b5fef115847ee3b52a93042dae40edd8c56ee06de7ed6",
       "keys": [],
       "edges": [
         {
