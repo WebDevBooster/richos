@@ -933,6 +933,9 @@ SEEDED_BY = ("condition.py wrote Android's fixture files; `rios perf-seed` trans
 
 def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.sleep, rios=RIOS):
     """perf.py ios. Returns (record, failures)."""
+    if getattr(args, "device", None) and os.environ.get("RICHOS_DEVICE_VERB") != "rios":
+        raise Refused("a physical iPhone is measured only through `rios device perf`, the one command line that puts "
+                      "only the Release build on it (CEO 2026-10-02)")
     stamp = None
     if args.stamp:
         with open(args.stamp) as f:

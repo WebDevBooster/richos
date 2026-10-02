@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { KEEP, allowanceSeconds, buildTree, configuration, deviceToolSources, plan, prebuilt, prune, resolveProducts, storeKey, verifyPushEnvironment } from './physical-device.mjs';
+import { KEEP, allowanceSeconds, buildTree, configuration, deviceArgs, deviceToolSources, main, plan, prebuilt, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
 
 test('only verify may reuse an earlier build, and only when asked', () => {
   assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'verify'), true);
@@ -171,7 +171,7 @@ test('the store stays bounded without removing a recent entry or the one in use'
 // CEO, 2026-10-01: the phone is dedicated to testing; its app and runner stay installed for good.
 const REMOVES_AN_APP = /(['"])(uninstall|erase)\1|devicectl[^\n]*\buninstall\b|\buninstall_app\b|ideviceinstaller|simctl[^\n]*\b(uninstall|erase)\b/i;
 test('no device tool can uninstall or wipe an app on the phone', () => {
-  for (const bad of ["['device', 'uninstall', 'app']", 'xcrun devicectl device uninstall app --device x', 'ideviceinstaller -U dev.richos.connect']) {
+  for (const bad of ["['device', 'uninstall', 'app']", 'xcrun devicectl device uninstall app --device x', 'ideviceinstaller -U dev.richos.connect']) {  // device-cli-exempt: planted commands that prove the never-uninstall pattern catches them
     assert.match(bad, REMOVES_AN_APP, `the check must catch: ${bad}`);
   }
   const sources = deviceToolSources();
@@ -181,4 +181,47 @@ test('no device tool can uninstall or wipe an app on the phone', () => {
       assert.doesNotMatch(line, REMOVES_AN_APP, `${file}:${i + 1} would remove an app from the test phone: ${line.trim()}`);
     });
   }
+});
+
+// CEO, 2026-10-02: only the build users get (Release) goes on the phone, and only through `rios device`.
+test('only `rios device` reaches the phone: started any other way, nothing is configured, built or installed', async () => {
+  await assert.rejects(main(['install'], { ...env }), /only through `rios device/);
+  await assert.rejects(main(['verify', 'script'], { ...env, RICHOS_DEVICE_VERB: 'randroid' }), /only through `rios device/);
+  assert.equal(configuration(env, 'install').device, env.RICHOS_IOS_DEVICE);
+});
+
+// The development markers `rios sim check-release` proves: every Debug bundle carries all, Release none.
+const MARKERS = ['rios-commands', 'rios-fixture', 'rios-interactive-fixture', 'rios-appearance', 'rios-notifications',
+  'rios-cards', 'compose-draft', 'Henderson proposal'];
+test('a Debug bundle is refused before it reaches the phone; a Release bundle passes', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'release-only-'));
+  try {
+    const debug = join(dir, 'Debug-iphoneos', 'RichOSNative.app');  // device-cli-exempt: a synthetic Debug bundle the refusal must catch
+    const release = join(dir, 'Release-iphoneos', 'RichOSNative.app');
+    mkdirSync(debug, { recursive: true });
+    mkdirSync(release, { recursive: true });
+    writeFileSync(join(debug, 'RichOSNative'), `binary ${MARKERS.join(' ')} bytes`);
+    writeFileSync(join(release, 'RichOSNative'), 'binary bytes with no development code');
+    assert.throws(() => releaseOnly(debug), /Refused: .*a Debug bundle.*only the build users get/);
+    assert.deepEqual(releaseOnly(release), { app: release, configuration: 'release' });
+    writeFileSync(join(release, 'Partial'), MARKERS[0]);
+    assert.throws(() => releaseOnly(release), /not a Release bundle/, 'some markers, not all: neither build, refused');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// richos/mobile/perf/watch.py calls `rios device install --device ID --expect-commit SHA`.
+test('--device and --expect-commit are read wherever they stand; the rest is the command', () => {
+  const parsed = deviceArgs(['install', '--device', 'a'.repeat(40), '--expect-commit', 'abc1234'], { RICHOS_APPLE_TEAM: 'ABCDEFGHIJ' });
+  assert.deepEqual(parsed.args, ['install']);
+  assert.equal(parsed.env.RICHOS_IOS_DEVICE, 'a'.repeat(40));
+  assert.equal(parsed.expect, 'abc1234');
+  assert.equal(deviceArgs(['build'], env).env.RICHOS_IOS_DEVICE, env.RICHOS_IOS_DEVICE);
+});
+
+test('--expect-commit compares build trees, never commit names: same tree passes, another tree or uncommitted sources are refused', () => {
+  assert.doesNotThrow(() => sameTree({ expect: 'later', wanted: 't1', head: { tree: 't1', dirty: false } }));
+  assert.throws(() => sameTree({ expect: 'other', wanted: 't2', head: { tree: 't1', dirty: false } }), /freshness mismatch.*nothing was built or installed/);
+  assert.throws(() => sameTree({ expect: 'x', wanted: 't1', head: { tree: 't1', dirty: true } }), /uncommitted changes/);
 });

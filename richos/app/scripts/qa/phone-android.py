@@ -55,6 +55,12 @@ switches only when the SAME process (pid and birth time) is present at both ends
 Only the named package's lines are kept, and notification records only for that package: the
 phone is a person's own phone, and nothing else on it belongs in a record.
 
+ONLY THROUGH `randroid device` (CEO, 2026-10-02: only the release build goes on his phones and every
+test on them tests it). Run as `randroid device --serial SERIAL <command> ...`; started any other way
+it refuses before touching the phone. Every command except `compare` first reads the installed
+RichConnect build in one adb round trip and refuses (exit 3, the sentence in `refused`) an emulator
+or a debuggable build (richos/mobile/physical.py).
+
 Prints one JSON document; exits 1 when the answer is "not found in time" and 2 when it cannot
 answer at all (no such device, unreadable screen, bad arguments), with the sentence in `error`.
 """
@@ -67,6 +73,9 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "mobile"))
+import physical  # noqa: E402 — richos/mobile/physical.py: the physical-phone rules
 
 # Each character goes to the phone's shell single-quoted, so everything here is literal there;
 # `'` cannot be quoted that way and `%` is `input text`'s own escape, so both are refused.
@@ -389,9 +398,11 @@ def main(argv):
             return emit({"ok": True, "compare": compare(before, after)})
         if not a.serial:
             raise CannotAnswer("name the phone with --serial: a bare adb reaches whatever is attached")
+        physical.require_verb("randroid")
         phone = Phone(a.adb, a.serial)
         if not phone.attached():
             raise CannotAnswer(f"{a.serial} is not an attached, authorized device in `adb devices`")
+        physical.gate(a.adb, a.serial)
         if a.command == "texts":
             seen = [v for n in phone.nodes() for v in (n["text"], n["desc"]) if v]
             return emit({"ok": True, "texts": seen})
@@ -535,8 +546,10 @@ def main(argv):
             phone.sh(f"input swipe {x} {y} {x + a.dx} {y + a.dy} 250")
             return emit({"ok": True, "swiped": a.value, "from": [x, y], "to": [x + a.dx, y + a.dy]})
         return emit({"ok": True, "shown": a.value, "node": node, "waitedS": round(time.monotonic() - started, 1)})
-    except CannotAnswer as e:
+    except (CannotAnswer, physical.CannotAnswer) as e:
         return emit({"ok": False, "error": str(e)}, 2)
+    except physical.Refused as e:
+        return emit({"ok": False, "refused": str(e)}, 3)
 
 
 if __name__ == "__main__":
