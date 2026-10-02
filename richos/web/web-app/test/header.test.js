@@ -18,7 +18,7 @@
 // `break-word` does not. Either rule alone is survivable; together they are "Runni / ng".
 //
 // MEASURED, NOT ESTIMATED. `test/desktop-verify.js` was run in Chromium against the OLD rules,
-// with two threads so the picker is on screen, at the width his HONOR X6b reports:
+// with two threads so the picker is on screen, at the width his Android phone reports:
 //
 //   360 px — the title's box was 80.6 px, "Running" needs 82.4 px, and the word occupied 2 line
 //            boxes. At 320 px the box was 70.4 px and it broke there too. At 375 px it did not.

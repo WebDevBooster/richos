@@ -67,6 +67,35 @@ struct TranscriptViewportGeometryTests {
         #expect(!showsLatest)
     }
 
+    /// RichOS (R3, iPhone re-walk 4): the list ignores the keyboard's area, so the keyboard and the cards
+    /// above the composer reach it only as a larger bottom inset. That alone must bring the newest
+    /// message back into view while following; it stayed where it was, under the card.
+    @Test @MainActor
+    func aGrowingBottomInsetAloneKeepsTheLatestMessageVisible() {
+        let layout = FixedTranscriptLayout()
+        let view = BottomAnchoredTranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
+        let dataSource = FixedTranscriptDataSource()
+        defer { withExtendedLifetime(dataSource) {} }
+        view.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "message")
+        view.dataSource = dataSource
+        view.contentInsetAdjustmentBehavior = .never
+        let controller = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        controller.view.addSubview(view)
+        layout.height = 3_000
+        view.reloadData()
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 600)
+        view.layoutIfNeeded()
+        #expect(view.contentOffset.y == 2_400)
+
+        view.setViewportInsets(UIEdgeInsets(top: 0, left: 0, bottom: 300, right: 0))
+        view.layoutIfNeeded()
+        #expect(view.contentOffset.y == 2_700)
+    }
+
     @Test func firstLoadedTranscriptAnchorsToLatestMessage() {
         let empty = TranscriptViewportGeometry(contentHeight: 0, viewportHeight: 700, topInset: 0, bottomInset: 0)
         let loaded = TranscriptViewportGeometry(contentHeight: 1_200, viewportHeight: 700, topInset: 0, bottomInset: 0)

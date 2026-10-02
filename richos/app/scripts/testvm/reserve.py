@@ -298,14 +298,47 @@ class StopRequested(BaseException):
         self.signum = signum
 
 
-def stop_group(child, signum):
-    """SIGTERM the command's group, SIGKILL it after 10 s, reap it, exit 128+signum."""
-    _killpg_if_present(child.pid, signal.SIGTERM)
+STOP_GRACE = 10  # seconds the command's group gets after SIGTERM before SIGKILL
+KILL_GRACE = 5   # seconds to wait for the group to vanish after SIGKILL
+
+
+def _group_present(child):
+    """True while any process of the command's group exists.
+
+    The leader (the Popen child) exiting does not mean the group is gone: a descendant in the
+    same group can outlive it and ignore SIGTERM. The leader is reaped first so its zombie
+    does not count; EPERM (macOS, members exiting) counts as present, under a bounded wait.
+    """
+    child.poll()
     try:
-        child.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+        os.killpg(child.pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _wait_group_gone(child, seconds):
+    end = time.monotonic() + seconds
+    while _group_present(child):
+        if time.monotonic() >= end:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+def stop_group(child, signum):
+    """SIGTERM the command's group, SIGKILL whatever of it remains after STOP_GRACE, exit 128+signum.
+
+    Completion is judged on the whole group, never on the leader alone (a descendant that
+    ignores SIGTERM survives the leader's exit and needs the SIGKILL).
+    """
+    _killpg_if_present(child.pid, signal.SIGTERM)
+    if not _wait_group_gone(child, STOP_GRACE):
         _killpg_if_present(child.pid, signal.SIGKILL)
-        child.wait()
+        _wait_group_gone(child, KILL_GRACE)
+    child.wait()
     raise SystemExit(128+signum)
 
 
@@ -358,9 +391,10 @@ def main():
                     signal.signal(sig, signal.SIG_IGN)
                 stop_group(child, requested.signum)
         finally:
-            if child.poll() is None:
+            if _group_present(child):
                 _killpg_if_present(child.pid, signal.SIGKILL)
-                child.wait()
+                _wait_group_gone(child, KILL_GRACE)
+            child.wait()
 
 
 if __name__ == '__main__':

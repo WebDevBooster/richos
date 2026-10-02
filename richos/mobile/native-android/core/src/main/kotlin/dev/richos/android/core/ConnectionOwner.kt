@@ -20,6 +20,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.supervisorScope
+import java.util.concurrent.atomic.AtomicLong
 import java.io.IOException
 
 /**
@@ -33,10 +39,11 @@ fun interface EventStream {
 
 /**
  * THE ONE CONNECTION OWNER (build plan §3.3; adoption ledger §2.8 C1-C3, "copy the design"; the
- * preserved `web/lib/link.js` rules): exactly one stream at a time, re-signed on every attempt,
- * back-off 1 s doubling to 30 s with no jitter, reset when a stream OPENS (a reconnect with
- * `since` may send nothing at once), a revocation probe after a stream that never opened (a stream
- * cannot read a refusal body), and [wake] (the app returning to the foreground) fires a pending
+ * preserved `web/lib/link.js` rules): exactly one stream at a time, re-signed on every attempt
+ * (with the held challenge while it is young, [CHALLENGE_REUSE_MS]; a 404 opening gets one fresh
+ * challenge and the stream again at once), back-off 1 s doubling to 30 s with no jitter, reset
+ * when a stream OPENS (a reconnect with `since` may send nothing at once), a revocation probe after
+ * a stream that never opened (a stream cannot read a refusal body), and [wake] (the app returning to the foreground) fires a pending
  * retry at once without resetting the back-off, as does "Try now" while the stream is down
  * ([RichCore.onTryNowWhileAway]).
  *
@@ -67,6 +74,20 @@ class ConnectionOwner(
      * and a tunnel coming UP is a useful connectivity event, so a pending retry fires at once.
      */
     fun tunnelChanged(up: Boolean) { tunnel.value = up }
+
+    /**
+     * The OS moved the default network to another one without reporting the old one lost
+     * ([DefaultNetwork]): the stream's socket is bound to the old route, which either died without
+     * a word (noticed only by the socket's read timeout) or is no longer the one the OS routes by.
+     * Before this nothing reconnected: the owner's online flag was already true. On screen: cut the stream and open it again at once on the
+     * new default; with no stream up, a pending retry fires at once. Hidden: nothing, the stream is
+     * closed and the return opens a new one.
+     */
+    fun networkSwitched() {
+        if (!visible.value) return
+        val open = synchronized(lock) { live?.also { cutting = true } }
+        if (open != null) open.cancel(CancellationException("the default network moved")) else wake()
+    }
 
     /** The network returned, or the app came back to the foreground: retry now if waiting. */
     fun wake() {
@@ -100,7 +121,9 @@ class ConnectionOwner(
         // "Try now" with the stream down (core's `retry`): this owner asks the Mac at once, skipping
         // what is left of its wait without resetting the back-off. Never a second owner (I06).
         core.onTryNowWhileAway(::wake)
-        coroutineContext.job.invokeOnCompletion { core.onTryNowWhileAway(null) }
+        watchScope = deliveryScope
+        core.watchSends(sends)
+        coroutineContext.job.invokeOnCompletion { core.onTryNowWhileAway(null); core.watchSends(null); watchScope = null }
         launch {
             tunnel.filterNotNull().collect { up ->
                 try { core.dispatch(Action.Health(vpn = up)) } catch (failure: IOException) { onStorageFailure(failure) }
@@ -143,16 +166,29 @@ class ConnectionOwner(
         // spent: this is already the immediate attempt.
         wakeups.tryReceive()
         var attempt = 0
+        // The Mac refused the last opening 404 (it did not know the challenge): the next attempt
+        // asks for a fresh one first, and goes at once. Once per stretch until a stream opens.
+        var refused = false
+        var retriedRefusal = false
         while (true) {
             val ready = core.states.first { it.paired && it.pairing.apiBase != null && it.pairing.deviceId != null }
             val apiBase = ready.pairing.apiBase!!
             val deviceId = ready.pairing.deviceId!!
-            // A persisted challenge may have expired while the app slept: refresh before every
-            // attempt except the very first, instead of provoking a refused stream.
-            if (!first) runCatching { api.freshChallenge(apiBase) }.getOrNull()?.let { core.adoptChallenge(it) }
+            // The held challenge is presented as it is while it is young: a challenge the Mac
+            // minted less than [CHALLENGE_REUSE_MS] ago (the stream's `hello` hands one over, every
+            // response another) is one it still honors, so asking for a fresh one first would only
+            // put a round trip in front of the stream's first byte. An older one, or one whose age
+            // this process does not know (read from disk), is replaced first, as before, except on
+            // the very first attempt of the process (its start is unchanged). Should the Mac refuse
+            // it anyway (it restarted and forgot it), the 404 below costs one fresh challenge and
+            // the stream again, at once.
+            val age = core.challengeAgeMs()
+            if (refused || (!first && (age == null || age >= CHALLENGE_REUSE_MS))) refreshChallenge(apiBase)
+            refused = false
             first = false
             val challenge = core.state.pairing.challenge
             var opened = false
+            var status: Int? = null
             if (challenge != null) {
                 val path = eventsPath(core.state, core.resnapshotRequested)
                 val raw = runCatching {
@@ -162,37 +198,71 @@ class ConnectionOwner(
                     core.dispatch(Action.Link(LinkStatus.OPENING))
                     val target = Signing.withAuthQuery(path, Signing.authorization(deviceId, challenge, raw))
                     try {
-                        stream.open(
-                            HttpRequest("GET", apiBase + target, mapOf("Accept" to "text/event-stream"), null),
-                            onOpen = { status ->
-                                requireCurrentPairing(apiBase, deviceId)
-                                if (status == 200) {
-                                    opened = true
-                                    attempt = 0
-                                    // Open: a wake that came while it was opening has been answered,
-                                    // and must not skip the wait after some later drop.
-                                    wakeups.tryReceive()
-                                    // A finite send batch belongs to the application, not the SSE
-                                    // socket. Closing the stream must not cancel useful delivery.
-                                    core.openedWithoutDraining()
-                                    deliveryScope.launch {
-                                        try { core.dispatch(Action.Sync) }
-                                        catch (failure: IOException) { onStorageFailure(failure) }
-                                    }
-                                }
-                            },
-                            onBytes = {
-                                requireCurrentPairing(apiBase, deviceId)
-                                core.receive(it)
-                                if (core.state.connection.reason == ConnectionReason.INCOMPATIBLE) throw IOException("incompatible protocol")
-                            },
-                        )
+                        // The stream runs as its own job, so the owner can cut it alone ([cut]):
+                        // a supervisor scope keeps its failure (an IOException) from failing this loop.
+                        supervisorScope {
+                            val open = async {
+                                stream.open(
+                                    HttpRequest("GET", apiBase + target, mapOf("Accept" to "text/event-stream"), null),
+                                    onOpen = { answered ->
+                                        requireCurrentPairing(apiBase, deviceId)
+                                        status = answered
+                                        if (answered == 200) {
+                                            opened = true
+                                            attempt = 0
+                                            retriedRefusal = false
+                                            synchronized(lock) { liveOpen = true }
+                                            // Open: a wake that came while it was opening has been answered,
+                                            // and must not skip the wait after some later drop.
+                                            wakeups.tryReceive()
+                                            // A finite send batch belongs to the application, not the SSE
+                                            // socket. Closing the stream must not cancel useful delivery.
+                                            core.openedWithoutDraining()
+                                            deliveryScope.launch {
+                                                try { core.dispatch(Action.Sync) }
+                                                catch (failure: IOException) { onStorageFailure(failure) }
+                                            }
+                                        }
+                                    },
+                                    onBytes = {
+                                        chunks.incrementAndGet()
+                                        requireCurrentPairing(apiBase, deviceId)
+                                        core.receive(it)
+                                        if (core.state.connection.reason == ConnectionReason.INCOMPATIBLE) throw IOException("incompatible protocol")
+                                    },
+                                )
+                            }
+                            synchronized(lock) { live = open; liveOpen = false }
+                            try { open.await() } finally {
+                                synchronized(lock) { live = null; liveOpen = false; echoWatch?.cancel(); echoWatch = null }
+                            }
+                        }
                     } catch (e: IOException) {
                         // A dropped or refused stream: what it means is decided below.
+                    } catch (e: CancellationException) {
+                        // Cut by this owner ([cut]) ends like a drop; any other cancellation (the app
+                        // left the screen, the pairing changed) is not this loop's to absorb.
+                        currentCoroutineContext().ensureActive()
+                        if (!synchronized(lock) { cutting }) throw e
                     }
                 }
             }
+            val wasCut = synchronized(lock) { cutting.also { cutting = false } }
             core.dispatch(Action.Link(LinkStatus.AWAY))
+            // Cut on purpose (silent after an accepted send, or the network moved): open again at
+            // once. Never a loop: a cut needs an accepted send or an OS network event.
+            if (wasCut) {
+                attempt = 0
+                continue
+            }
+            // A 404 opening is the Mac not knowing the challenge (a revoked phone is answered 403,
+            // and that still goes to the probe): a fresh one and the stream again, now, with no probe
+            // and no back-off. Once; a second 404 takes the ordinary path below.
+            if (!opened && status == 404 && !retriedRefusal) {
+                retriedRefusal = true
+                refused = true
+                continue
+            }
             if (!opened && core.state.connection.reason != ConnectionReason.INCOMPATIBLE) probeRevocation(apiBase, deviceId)
             if (core.state.connection.reason in setOf(ConnectionReason.REVOKED, ConnectionReason.INCOMPATIBLE)) {
                 // Terminal until paired again: wait for a new pairing rather than knocking forever.
@@ -209,6 +279,53 @@ class ConnectionOwner(
         }
     }
 
+    // --- a dead stream, noticed on screen -------------------------------------------------------
+
+    private val lock = Any()
+    /** The stream's job while one is opening or open; [liveOpen] once the Mac answered 200. */
+    private var live: Job? = null
+    private var liveOpen = false
+    /** Set when this owner cancels [live] on purpose, so the loop reopens at once. */
+    private var cutting = false
+    private var echoWatch: Job? = null
+    @Volatile private var watchScope: CoroutineScope? = null
+    /** Chunks of bytes the stream has delivered in this process: any byte at all is a sign of life. */
+    private val chunks = AtomicLong()
+
+    /**
+     * What the core tells this owner about a text it sends while the stream is open: when the Mac
+     * accepts it, the Mac publishes the phone's words on the stream (the echo). A stream that has
+     * delivered no byte at all since the request started, [ECHO_MS] after the acceptance, is
+     * presumed dead (a NAT or a radio dropped it without a FIN, which only the socket's read timeout
+     * would notice) and is replaced at once, resuming from its last frame, so nothing is lost even
+     * when it was only slow (the Mac busy with a long turn delays the echo; the cost then is one
+     * reopen). Armed only by an accepted send while the app is on screen with the stream open; never
+     * a periodic timer.
+     */
+    private val sends = SendWatch {
+        val stream: Job
+        val mark: Long
+        synchronized(lock) {
+            stream = live?.takeIf { liveOpen } ?: return@SendWatch null
+            mark = chunks.get()
+        }
+        return@SendWatch { expectEcho(stream, mark) }
+    }
+
+    private fun expectEcho(stream: Job, mark: Long) {
+        synchronized(lock) {
+            if (live !== stream || chunks.get() != mark || echoWatch?.isActive == true) return
+            echoWatch = watchScope?.launch {
+                delay(ECHO_MS)
+                synchronized(lock) {
+                    if (live !== stream || chunks.get() != mark) return@launch
+                    cutting = true
+                }
+                stream.cancel(CancellationException("the Mac's stream said nothing $ECHO_MS ms after it accepted a message"))
+            }
+        }
+    }
+
     private suspend fun requireCurrentPairing(origin: String, device: String) {
         currentCoroutineContext().ensureActive()
         val state = core.state
@@ -217,12 +334,32 @@ class ConnectionOwner(
         }
     }
 
-    /** One signed JSON request that can read a refusal body: `before=0&limit=1` (contract §5.4). */
+    /**
+     * A fresh challenge (`GET /api/challenge`, contract §5.7), given [QUICK_REQUEST_MS] and no more:
+     * on a stalled network `HttpsMac`'s own limits (10 s to connect, 30 s to read) would hold the
+     * stream up to 40 s. Cut short or failed, the stream is tried with the challenge held.
+     */
+    private suspend fun refreshChallenge(apiBase: String) {
+        val fresh = try {
+            withTimeoutOrNull(QUICK_REQUEST_MS) { api.freshChallenge(apiBase) }
+        } catch (e: TransportFailure) {
+            null
+        }
+        fresh?.let { core.adoptChallenge(it) }
+    }
+
+    /**
+     * One signed JSON request that can read a refusal body: `before=0&limit=1` (contract §5.4). It
+     * stands between a stream that never opened and the back-off, so it too gets [QUICK_REQUEST_MS]:
+     * cut short, the phone is not marked revoked, and the next failed attempt asks again.
+     */
     private suspend fun probeRevocation(apiBase: String, deviceId: String) {
         val thread = core.state.selectedThreadId ?: return
         val challenge = core.state.pairing.challenge ?: return
         try {
-            val (_, fresh) = api.backfill(apiBase, deviceId, challenge, thread, before = 0, limit = 1)
+            val (_, fresh) = withTimeoutOrNull(QUICK_REQUEST_MS) {
+                api.backfill(apiBase, deviceId, challenge, thread, before = 0, limit = 1)
+            } ?: return
             core.adoptChallenge(fresh)
         } catch (e: TransportFailure) {
             if (e.reason == "revoked") core.markRevoked()
@@ -233,6 +370,39 @@ class ConnectionOwner(
         const val FIRST_RETRY_MS = 1_000L
         const val MAX_RETRY_MS = 30_000L
 
+        /**
+         * A challenge younger than this is presented as it is, without a round trip for a fresh one
+         * first: 8 of the 10 minutes the Mac honors one for (`device.rs` `CHALLENGE_LIFETIME_MS`),
+         * the 2 left over covering the trip from the Mac to the phone and the stream's own request.
+         */
+        const val CHALLENGE_REUSE_MS = 8 * 60_000L
+
+        /**
+         * The most the challenge request and the revocation probe may hold the stream. A working
+         * network answers either in well under a second (one round trip; the probe's re-sign two);
+         * a stalled one fails here and is retried on the ordinary schedule.
+         */
+        const val QUICK_REQUEST_MS = 3_000L
+
+        /**
+         * With no byte from the stream this long after the Mac accepted a text (and none since its
+         * request started), the stream is presumed dead and replaced. The Mac publishes the phone's
+         * words as soon as its spine takes them, in milliseconds when it is free; 2 s leaves a
+         * working network's round trip plenty of room. A dead stream then costs about 2 s plus one
+         * reopen, where the socket's read timeout alone took 45 s.
+         */
+        const val ECHO_MS = 2_000L
+
+        /**
+         * The longest the stream may say nothing before its socket is presumed dead: the platform's
+         * read timeout on the stream (`HttpsMac`). The Mac writes a keep-alive whenever 15 s pass
+         * with no frame (`phone/mod.rs` `KEEPALIVE_MS`, written by `phone/listen.rs`), so a live stream is never silent for
+         * longer than that; 5 s more covers a late keep-alive. Was 45 s (three missed keep-alives).
+         * The idle case's detector, where no send arms [ECHO_MS]: a reply the Mac starts on its own
+         * (a message typed at the Mac) reaches a phone whose stream died within about 20 s plus one reopen.
+         */
+        const val STREAM_SILENCE_MS = 20_000L
+
         fun backoffMs(attempt: Int): Long = minOf(FIRST_RETRY_MS shl (attempt - 1).coerceIn(0, 20), MAX_RETRY_MS)
 
         /**
@@ -241,7 +411,9 @@ class ConnectionOwner(
          * reconnect gets a frame at once. Never from a row's cursor, hello's `latest_cursor` or a
          * send's answer: those are history positions and drift from the hub (Echo's measurement:
          * after 3 phone messages `latest_cursor` is 6 while the frame id is 9). No `since` after a
-         * re-snapshot or before any frame arrived.
+         * re-snapshot, before any frame arrived, or when the last frame was a `hello` (the core
+         * clears [AppState.streamCursor] on a `hello`: resuming from its id can be answered with an
+         * empty opening the Mac holds until its 15 s keep-alive).
          */
         fun eventsPath(state: AppState, resnapshot: Boolean = false): String {
             val thread = state.selectedThreadId

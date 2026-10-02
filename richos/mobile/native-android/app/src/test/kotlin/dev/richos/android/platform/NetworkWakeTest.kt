@@ -34,6 +34,26 @@ class NetworkWakeTest {
     }
 
     /**
+     * Wi-Fi to cellular with no onLost for Wi-Fi: the move itself is reported, so the open stream
+     * (bound to the old route) is reopened. The same network reported again is not a move.
+     */
+    @Test
+    fun `a new default network with the old one never lost is reported as a switch`() {
+        var switches = 0
+        val online = mutableListOf<Boolean>()
+        assertTrue(NetworkWake.register(app, { online += it }, switched = { switches++ }))
+        val callback = shadowOf(app.getSystemService(ConnectivityManager::class.java)).networkCallbacks.single()
+        callback.onAvailable(ShadowNetwork.newInstance(21))
+        callback.onAvailable(ShadowNetwork.newInstance(21))
+        assertEquals(0, switches)
+        callback.onAvailable(ShadowNetwork.newInstance(22))
+        assertEquals(1, switches)
+        callback.onLost(ShadowNetwork.newInstance(21))
+        assertEquals(true, online.last())
+        assertEquals(1, switches)
+    }
+
+    /**
      * D05: whether the default network runs through a VPN is the OS's own report, read from the
      * callback it already makes (never polled). On Android, Tailscale is a VPN: a Wi-Fi default
      * with no VPN transport is the phone with Tailscale off.

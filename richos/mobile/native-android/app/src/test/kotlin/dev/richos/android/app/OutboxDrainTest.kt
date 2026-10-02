@@ -17,6 +17,7 @@ import dev.richos.android.core.TransportFailure
 import dev.richos.android.core.dev.Fixtures
 import dev.richos.android.core.protocol.DeviceKeys
 import dev.richos.android.core.protocol.Http
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
@@ -49,11 +50,14 @@ class OutboxDrainTest {
     /** The Mac: refuses (unreachable) while [reachable] is false; every attempt is recorded. */
     private class Mac : Transport {
         var reachable = false
+        /** While set, a reachable Mac answers only once this completes (a request in flight). */
+        var hold: CompletableDeferred<Unit>? = null
         val attempts = mutableListOf<String>()
         val delivered = mutableListOf<String>()
         override suspend fun sendText(item: OutboxItem): Receipt {
             attempts += item.text
             if (!reachable) throw TransportFailure("mac-unreachable", retryable = true)
+            hold?.await()
             delivered += item.text
             return Receipt("m-${item.clientId}", duplicate = false, cursor = delivered.size.toLong())
         }
@@ -130,21 +134,68 @@ class OutboxDrainTest {
         assertEquals(0, core.state.outbox.size)
     }
 
+    /**
+     * The link drops and comes back 300 ms later, inside the message's 1 s back-off. A link that
+     * opens owes every waiting message a try at once (andy-opus-waits1, [Outbox.dueNow]), so the
+     * reopening sends it in the same tick; the back-off timer that would have run out at 1 s then
+     * finds nothing owed and sends nothing. Delivered exactly once, without waiting out the back-off.
+     *
+     * Before waits1 the reopening passed the message by and the timer sent it at 1 s; this test
+     * then asserted "no try at the reopening", which is the wait waits1 removed on purpose. Two
+     * tries here are one refused (the first, with the Mac away) and one delivered, never two sends.
+     */
     @Test
-    fun `the link reopening before the back-off ran out still delivers when it does`() {
+    fun `the link reopening inside the back-off delivers at once, and only once`() {
         val mac = Mac()
         val (store, core) = store(mac)
         share(store, "Before the tunnel")
-        // The link drops and comes back 300 ms later: the message is not owed a try yet, so the
-        // reopening's drain passes it by. That is where it used to stay.
+        assertEquals("the first try was refused", listOf("Before the tunnel"), mac.attempts)
+        assertEquals(emptyList<String>(), mac.delivered)
         store.dispatch(Action.Link(LinkStatus.AWAY))
         idleFor(100)
         mac.reachable = true
         store.dispatch(Action.Link(LinkStatus.OPEN))
-        idleFor(200)
-        assertEquals(listOf("Before the tunnel"), mac.attempts)
+        idleFor(0)
+        assertEquals("sent with the reopening, not after the back-off", listOf("Before the tunnel"), mac.delivered)
+        assertEquals(0, core.state.outbox.size)
+        // The back-off would have run out at 1 s, and Try now is pressed: nothing is owed, nothing goes.
         idleFor(1_000)
+        store.dispatch(Action.Retry)
+        idleFor(20_000)
+        assertEquals("one refused try, one delivery", 2, mac.attempts.size)
         assertEquals(listOf("Before the tunnel"), mac.delivered)
+    }
+
+    /**
+     * Exactly once while the send is still in flight: the reopening's send is waiting on the Mac
+     * when the old back-off runs out, Try now is pressed and the link reports open again. Every one
+     * of those drains joins the one in flight ([Outbox.flush] collapses concurrent calls); none
+     * starts a second request for the same message.
+     */
+    @Test
+    fun `a reopening, the back-off timer and Try now during one in-flight send make one request`() {
+        val mac = Mac()
+        val (store, core) = store(mac)
+        share(store, "Through the tunnel")
+        assertEquals(1, mac.attempts.size)
+        store.dispatch(Action.Link(LinkStatus.AWAY))
+        idleFor(100)
+        mac.reachable = true
+        val answer = CompletableDeferred<Unit>()
+        mac.hold = answer
+        store.dispatch(Action.Link(LinkStatus.OPEN))
+        idleFor(0)
+        assertEquals("the reopening's request is in flight", 2, mac.attempts.size)
+        idleFor(1_100)
+        store.dispatch(Action.Retry)
+        idleFor(0)
+        store.dispatch(Action.Link(LinkStatus.OPEN))
+        idleFor(0)
+        assertEquals("nothing else started while the first was in flight", 2, mac.attempts.size)
+        answer.complete(Unit)
+        idleFor(20_000)
+        assertEquals(2, mac.attempts.size)
+        assertEquals(listOf("Through the tunnel"), mac.delivered)
         assertEquals(0, core.state.outbox.size)
     }
 

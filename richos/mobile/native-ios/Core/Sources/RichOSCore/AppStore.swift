@@ -420,7 +420,7 @@ public final class AppStore {
                 return false
             }
             if !foreground {
-                eligible.removeAll { switch $0 { case .connect, .loadOlder, .checkMacConfirmation: return true; default: return false } }
+                eligible.removeAll { switch $0 { case .connect, .reconnect, .loadOlder, .checkMacConfirmation: return true; default: return false } }
             }
             for effect in eligible {
                 let followUps: [Action]
@@ -656,7 +656,7 @@ public final class AppStore {
     /// The kind of answer, in fixed words for the phone's log; a reason is named only when it is one
     /// of the phone's own (never text the Mac sent).
     static func answerWord(_ actions: [Action], canceled: Bool) -> String {
-        let known: Set<String> = ["unreachable", "fault", "refused", "revoked", "background", "background-budget", "link-lost", "local-storage"]
+        let known: Set<String> = ["unreachable", "fault", "refused", "revoked", "background", "background-budget", "link-lost", "local-storage", ConversationReducer.rateLimitedReason]
         let kind: String
         switch actions.first {
         case .deliveryAccepted?, .questionAnswered?: kind = "accepted"

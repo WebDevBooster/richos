@@ -444,7 +444,19 @@ data class ScreenModel(
             OutboxState.BLOCKED -> Delivery.ATTENTION
         },
         outboxClientId = item.clientId,
+        refusal = if (item.state == OutboxState.BLOCKED) refusalSentence(item.lastReason) else null,
     )
+}
+
+/**
+ * The Mac's own sentence for a refusal (HTTP 422 `reason`), or null. A refusal whose answer carried
+ * no sentence keeps the phone's one-word classification ("refused", "fault", "too large", a deferral
+ * such as "link-lost"), which is not for a person; the Mac's sentences start with a capital and are
+ * more than one word. iPhone parity: isaac-opus-r3floor1 `7faec1fda`.
+ */
+fun refusalSentence(reason: String?): String? {
+    val text = reason?.trim() ?: return null
+    return if (text.firstOrNull()?.isUpperCase() == true && text.contains(' ')) text else null
 }
 
 enum class Speaker { RICH, ME }
@@ -497,6 +509,8 @@ data class Message(
     val ref: Reference? = null,
     /** "Shared from Photos": where a shared item came from. */
     val via: String? = null,
+    /** Why the Mac refused this message, in its own words; null when it gave no sentence. */
+    val refusal: String? = null,
 )
 
 enum class HistoryEdge { MORE_AVAILABLE, LOADING_OLDER, BEGINNING }

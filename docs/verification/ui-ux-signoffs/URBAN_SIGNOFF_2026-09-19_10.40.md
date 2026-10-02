@@ -35,7 +35,7 @@ in this flow fails WCAG AA in either theme, and this audit declares **zero** con
 time.** Press `At home only` — the option whose own sentence says *"with no account and no third
 party"* — then `Set my phone up`, and the screen that appears is the **Tailscale** screen: *"Your
 phone reaches this Mac over your own Tailscale network… it costs one free Tailscale account signed in
-on both devices"*, the pairing URL `https://mm1.tail770f6e.ts.net:8443/#pair=XYX3G3SR`, and four
+on both devices"*, the pairing URL `https://mm1.tail1a2b3c.ts.net:8443/#pair=XYX3G3SR`, and four
 numbered steps that begin *"Install Tailscale from the store"* and *"Sign in with Google as
 &lt;his account&gt;"*. Frames **11** and **12**.
 
@@ -79,7 +79,7 @@ chooser has two doors and one of them lies.
   Nothing was eyeballed and no value was carried over from a token table or from Ray's audit.
 - **Pace:** human-paced. Clicks with settle waits; two real five-minute code expiries filmed at 20 s
   intervals and OCR'd against the wall clock; no teleporting into states.
-- **Serving was probed, not assumed:** `curl -sk https://mm1.tail770f6e.ts.net:8443/` at four points
+- **Serving was probed, not assumed:** `curl -sk https://mm1.tail1a2b3c.ts.net:8443/` at four points
   in the walk (200 while serving, exit 7 after each `Pick a different way`, exit 7 on both the tailnet
   and `127.0.0.1` at the end).
 - **Audio:** none. No voice turn, no `say`, no `afplay`, nothing through the speakers.
@@ -160,7 +160,7 @@ the verdict is the screen.*
 **Expected:** the home screen — the two warnings, the trust QR at `http://mm1.local:8444/ca`, the
 sixteen certificate taps, then the code at `https://mm1.local:8443/#pair=…`.
 **Actual:** the **Tailscale** screen. Tailnet intro sentence, tailnet pairing URL
-(`https://mm1.tail770f6e.ts.net:8443/#pair=XYX3G3SR`), *"On your phone, four things"*, *"Install
+(`https://mm1.tail1a2b3c.ts.net:8443/#pair=XYX3G3SR`), *"On your phone, four things"*, *"Install
 Tailscale from the store"*, *"Sign in with Google as &lt;his account&gt;"*, *"There is no certificate
 to install on this path"*. Frames 11, 12.
 

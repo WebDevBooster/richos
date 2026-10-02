@@ -751,6 +751,47 @@ for CMD56 in "cat $REG" "cat $REG | head -20" "grep -n 'Type 3' $REG" "sed -n 1,
     fi
 done
 
+# FT58 — P5-57: printing the register's name, matching it as a pattern or feeding it
+# as here-string text is not reading it; a real file operand or an interpreter
+# program that opens it still is. Direct on the predicate, both directions.
+FT58_OUT="$(python3 - "$LIB" "$REG" "$REL" <<'PYEOF'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("ft", sys.argv[1])
+ft = importlib.util.module_from_spec(spec); spec.loader.exec_module(ft)
+reg, rel = sys.argv[2], sys.argv[3]
+base = os.path.basename(reg)
+def reads(cmd):
+    return ft.bash_reads_register(cmd, reg, rel, base)
+not_reads = [
+    "python3 -c \"print('%s')\"" % base,
+    "grep %s other-file.md" % base,
+    "grep -n %s other-file.md" % base,
+    "wc <<< %s" % base,
+    "cat <<< %s" % base,
+    "sed -n 1,3p other.md <<< %s" % base,
+    "perl -e 'print \"%s\"'" % base,
+    "awk '/%s/' other.md" % base,
+]
+reads_it = [
+    "cat %s" % reg,
+    "grep -n 'Type 3' %s" % reg,
+    "grep -e foo %s" % reg,
+    "sed -n 1,20p %s" % reg,
+    "awk '{print}' %s" % reg,
+    "wc -l < %s" % reg,
+    "python3 -c \"print(open('%s').read())\"" % reg,
+    "perl -ne 'print' %s" % reg,
+]
+bad = ["MISCREDITED: " + c for c in not_reads if reads(c)] + ["MISSED: " + c for c in reads_it if not reads(c)]
+print("\n".join(bad))
+PYEOF
+)"
+if [ -z "$FT58_OUT" ]; then
+    ok "FT58 a printed, pattern or here-string mention of the register is not a read; real file operands and opening programs are"
+else
+    bad "FT58 register-read proof" "$FT58_OUT"
+fi
+
 # ===========================================================================
 # 4. BOTH HOOKS, IN ORDER — the replay shape
 # ===========================================================================

@@ -15,8 +15,8 @@ appends one line per reading to FILE, this Mac's epoch seconds first:
     1790867244.232 request_errors=0 response_by_code[200]=7 total_requests=7
 
 A reading that fails is written as `<epoch> unreadable <why>`, never as a number. (Not the
-file `hidden-send-try.py --metrics-file` writes: that one keeps an unlabeled counter's value
-inside its name, `total_requests 7=7`, and `between` refuses it rather than misread it.)
+file `hidden-send-try.py --metrics-file` writes: the same name=value shape since the fix of its
+unlabeled counters, which used to read `total_requests 7=7`; `between` refuses such an old file.)
 It refuses (exit 2) before writing anything when the port does not answer with the helper's
 request counter: a wrong port must not look like a quiet tunnel. SIGTERM or SIGINT ends it
 cleanly (exit 0); stop it by the PID you captured when you started it.

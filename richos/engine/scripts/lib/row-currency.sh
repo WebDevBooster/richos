@@ -621,8 +621,7 @@ rc_pending_tree() {
     fi
 
     # The index Git itself would read: an alternate one named by GIT_INDEX_FILE
-    # (a relative name is relative to the caller's directory, else the repository
-    # root), otherwise <gitdir>/index. Reading the default one while the commit
+    # (a relative name is relative to the repository root), otherwise <gitdir>/index. Reading the default one while the commit
     # uses another measures a tree that will not land.
     real="${GIT_INDEX_FILE:-}"
     if [ -z "$real" ]; then
@@ -630,7 +629,12 @@ rc_pending_tree() {
     else
         case "$real" in
             /*) ;;
-            *) if [ -f "$PWD/$real" ]; then real="$PWD/$real"; else real="$root/$real"; fi ;;
+            # A relative name is relative to the repository root, always: the
+            # measuring `git -C "$root"` chdirs there before it reads the variable,
+            # and a commit run from a subdirectory does the same. Preferring a file
+            # of that name in the caller's directory measured a tree that will not
+            # land (P5-64 v2 re-check).
+            *) real="$root/$real" ;;
         esac
     fi
     tmpidx="$(mktemp -t row-currency-index.XXXXXX)" || return 1

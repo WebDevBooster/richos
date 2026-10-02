@@ -14,7 +14,7 @@ Does the Tailscale serving wiring I added to PhoneRuntime::start (serving_plan) 
 
 ## What was already tried
 
-Measured on ec678bae by grep: zero production callers of tailnet::fetch_cert or listen::tls_config_with_tailnet. PhoneRuntime::start built a home-only TLS config and minted the pairing URL from names.origin(), so the QR carried https://mm1.local:8443 whatever Tailscale was doing. Separately, tailscale cert on this Mac returns an EC PRIVATE KEY (SEC1) and certified_key wrapped every key as PKCS#8, so ring would have refused it. Both fixed and proven live: curl https://mm1.tail770f6e.ts.net:8443/ with no -k, no --cacert, no --resolve returns the phone app, and POST /api/pair over that origin returns a device_id. Record: docs/verification/tailscale-path-first-proven-run-2026-09-19.md
+Measured on ec678bae by grep: zero production callers of tailnet::fetch_cert or listen::tls_config_with_tailnet. PhoneRuntime::start built a home-only TLS config and minted the pairing URL from names.origin(), so the QR carried https://mm1.local:8443 whatever Tailscale was doing. Separately, tailscale cert on this Mac returns an EC PRIVATE KEY (SEC1) and certified_key wrapped every key as PKCS#8, so ring would have refused it. Both fixed and proven live: curl https://mm1.tail1a2b3c.ts.net:8443/ with no -k, no --cacert, no --resolve returns the phone app, and POST /api/pair over that origin returns a device_id. Record: docs/verification/tailscale-path-first-proven-run-2026-09-19.md
 
 ## Proceeding meanwhile
 

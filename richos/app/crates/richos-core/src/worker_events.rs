@@ -260,13 +260,35 @@ impl SessionScope {
 /// `agent_id` are SKIPPED, never coerced — the same fail-open posture the emitters have on
 /// the write side. Order is preserved, because order is the derivation.
 pub fn parse_stream(contents: &str) -> Vec<WorkerEventRow> {
-    contents
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .filter_map(|l| serde_json::from_str::<WorkerEventRow>(l).ok())
-        .filter(|r| !r.agent_id.is_empty())
-        .collect()
+    parse_stream_counted(contents).rows
+}
+
+/// A stream as read: the rows that parsed, and how many non-empty lines did NOT.
+///
+/// **The skipped count is part of the answer, not a diagnostic** (hunt 2026-09-29 part 1 v2,
+/// finding 41). Skipping a line keeps the rows around it usable, and that is right; but a
+/// skipped line may have been a `started` (a worker running that nobody would count) or a
+/// `run_ended` (a finished one still counted as running), so a count made over a stream with
+/// skipped lines is not a count of this session's workers. A caller whose answer is a count
+/// reads `damaged` and says "unknown" when it is not zero.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StreamRead {
+    pub rows: Vec<WorkerEventRow>,
+    /// Non-empty lines that were not a row: malformed JSON (a torn or damaged write), a
+    /// `lifecycle_state` outside the four, or no `agent_id`.
+    pub damaged: usize,
+}
+
+/// [`parse_stream`], counting what it skipped.
+pub fn parse_stream_counted(contents: &str) -> StreamRead {
+    let mut read = StreamRead::default();
+    for line in contents.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        match serde_json::from_str::<WorkerEventRow>(line) {
+            Ok(row) if !row.agent_id.is_empty() => read.rows.push(row),
+            _ => read.damaged += 1,
+        }
+    }
+    read
 }
 
 /// Read and parse one stream file, and say whether it could be read at all.
@@ -280,19 +302,24 @@ pub fn parse_stream(contents: &str) -> Vec<WorkerEventRow> {
 /// Bytes that are not UTF-8 spoil only the line they are on: the file is decoded lossily and
 /// that line is then refused by [`parse_stream`] like any other malformed line. Before, one
 /// such byte made the whole file unreadable and every run in it vanished.
-pub fn try_read_stream(path: &Path) -> Result<Vec<WorkerEventRow>, String> {
+///
+/// **A refused line is COUNTED** ([`StreamRead::damaged`], finding 41 v2): a readable file
+/// with a damaged `started` row used to read as a clean empty stream, and the count made
+/// from it was the authoritative zero this function exists to prevent.
+pub fn try_read_stream(path: &Path) -> Result<StreamRead, String> {
     match fs::read(path) {
-        Ok(bytes) => Ok(parse_stream(&String::from_utf8_lossy(&bytes))),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Ok(bytes) => Ok(parse_stream_counted(&String::from_utf8_lossy(&bytes))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(StreamRead::default()),
         Err(error) => Err(error.to_string()),
     }
 }
 
 /// [`try_read_stream`] for a caller that only renders rows: an unreadable file reads as empty
-/// here. A caller whose answer is a COUNT of running workers must use [`try_read_stream`]
-/// and say "unknown" on `Err` (`worker_status::read_from_dir_with_probe` does).
+/// here and damaged lines are dropped. A caller whose answer is a COUNT of running workers
+/// must use [`try_read_stream`] and say "unknown" on `Err` or on a damaged line
+/// (`worker_status::read_from_dir_with_probe` does).
 pub fn read_stream(path: &Path) -> Vec<WorkerEventRow> {
-    try_read_stream(path).unwrap_or_default()
+    try_read_stream(path).map(|read| read.rows).unwrap_or_default()
 }
 
 /// The stream file inside a team-session directory. **The team dir only** — see the module

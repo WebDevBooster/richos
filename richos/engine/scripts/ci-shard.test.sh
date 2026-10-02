@@ -208,6 +208,16 @@ else
     bad "S5   rc=$RC for an unknown unit id"
 fi
 
+# S5b (P5-78): --only-units together with an unreadable --units-file is fatal. `die`
+# used to run in the pipeline's child, after the inline ids were emitted, and the run
+# went on with that PARTIAL selection and exit 0.
+RC="$(run_shard --list --only-units scripts/lib/green.test.sh --units-file "$SANDBOX/no-such-units-file.txt")"
+if [ "$RC" != "0" ] && grep -q 'no such file' "$SANDBOX/out" && ! grep -q '^scripts/lib/green.test.sh$' "$SANDBOX/out"; then
+    ok "S5b  --only-units plus a missing --units-file is fatal (rc=$RC) and lists no partial selection"
+else
+    bad "S5b  rc=$RC — a missing units file still produced a partial plan"; sed 's/^/          /' "$SANDBOX/out"
+fi
+
 # --- S6 / S7 / S8: the known-red table ------------------------------------
 KR="$E/scripts/lib/ci-known-red.tsv"
 FUTURE="$(python3 -c 'import datetime; print((datetime.date.today() + datetime.timedelta(days=30)).isoformat())')"
@@ -237,6 +247,40 @@ if [ "$RC" = "1" ] && grep -q 'EXPIRED' "$SANDBOX/out"; then
 else
     bad "S8   rc=$RC on an expired entry"; sed 's/^/          /' "$SANDBOX/out"
 fi
+
+# S8b: the expiry is read on the OPERATOR'S calendar (local), never UTC. Pinned with two
+# zones at the extremes (UTC+14 and UTC-12): at every hour of the day at least one of them is
+# on a different calendar date from UTC, which is what made S8 fail 00:00-01:00 BST. In each
+# zone, an expiry of local yesterday is expired and an expiry of local today is still live.
+for TZNAME in Pacific/Kiritimati Etc/GMT+12; do
+    LTODAY="$(TZ=$TZNAME python3 -c 'import datetime; print(datetime.date.today().isoformat())')"
+    LYEST="$(TZ=$TZNAME python3 -c 'import datetime; print((datetime.date.today() - datetime.timedelta(days=1)).isoformat())')"
+    printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\texpired tolerance\n' "$LYEST" > "$KR"
+    RC="$(TZ=$TZNAME run_shard --only-units scripts/lib/red.test.sh)"
+    if [ "$RC" = "1" ] && grep -q 'EXPIRED' "$SANDBOX/out"; then
+        ok "S8b  $TZNAME: local yesterday is expired"
+    else
+        bad "S8b  $TZNAME: local yesterday ($LYEST) not expired, rc=$RC"
+    fi
+    printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tlive tolerance\n' "$LTODAY" > "$KR"
+    RC="$(TZ=$TZNAME run_shard --only-units scripts/lib/red.test.sh)"
+    if [ "$RC" = "0" ] && grep -q 'KNOWN-RED' "$SANDBOX/out" && ! grep -q 'EXPIRED' "$SANDBOX/out"; then
+        ok "S8b  $TZNAME: an expiry of local today is still live"
+    else
+        bad "S8b  $TZNAME: local today ($LTODAY) treated as expired, rc=$RC"
+    fi
+done
+# S8c (P5-77): an expiry that is not a real calendar date is not a time boundary; it
+# used to compare as a string and keep the excuse alive indefinitely.
+for BADEXP in tomorrow 2999-99-99 2026-02-30 20991231; do
+    printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tbad expiry\n' "$BADEXP" > "$KR"
+    RC="$(run_shard --only-units scripts/lib/red.test.sh)"
+    if [ "$RC" = "1" ] && grep -q 'EXPIRED' "$SANDBOX/out"; then
+        ok "S8c  an entry whose expiry is '$BADEXP' (not a valid YYYY-MM-DD date) fails the job as expired"
+    else
+        bad "S8c  expiry '$BADEXP' kept a red unit excused (rc=$RC)"; sed 's/^/          /' "$SANDBOX/out"
+    fi
+done
 rm -f "$KR"
 
 # --- S9: receipts ---------------------------------------------------------

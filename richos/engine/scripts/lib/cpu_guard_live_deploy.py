@@ -2,6 +2,7 @@
 """Put the committed live CPU guard in place, take it out again, or say which one runs.
 
     cpu_guard_live_deploy.py status
+    cpu_guard_live_deploy.py check      exit 0: launchd runs this checkout's file; 3: it does not
     cpu_guard_live_deploy.py deploy
     cpu_guard_live_deploy.py rollback
 
@@ -14,7 +15,8 @@ the containment that was rolled back.
 
 DEPLOY refuses unless the plist runs exactly `<state>/runtime/cpu_guard.py`, the runtime's
 cpu_policy.py is the one it was installed with, the candidate is committed, and the running
-file is the known legacy controller (already the candidate: nothing to do). The candidate
+file is a known controller: the legacy one, or the last candidate this script deployed and
+recorded in live-runtime.json (already the candidate: nothing to do). The candidate
 must load and answer `status` from the runtime directory before anything changes. Then the
 running file is copied to `<state>/runtime-backups/`, the candidate replaces it atomically,
 the CPU watch service alone is restarted (`launchctl kickstart -k`), and the deploy waits for
@@ -75,7 +77,25 @@ class Live:
             return 'legacy controller (9154bf51)'
         if self.candidate.exists() and digest == sha256(self.candidate):
             return 'this checkout\'s cpu_guard_live.py'
+        last = self.previous()
+        if last:
+            return 'an earlier deploy by this script (%s, from %s)' % (
+                last['source_revision'][:12], last.get('source_file', 'unknown'))
         return 'UNKNOWN controller'
+
+    def previous(self):
+        """The last deploy this script recorded, when the running file is still exactly it.
+
+        Until 2026-10-02 a deploy refused any running file but the 9154bf51 legacy controller,
+        so once one candidate was live no later candidate could replace it: cpu_guard_live.py
+        changed on main (P5-22, 7bd2efeb6, 2026-09-30) while launchd kept running the
+        8e9cad40 bytes. A running file that matches this script's own record is known."""
+        record = read_json(self.record)
+        if (isinstance(record, dict) and not record.get('rolled_back_at') and record.get('sha256')
+                and record.get('source_revision') and self.running.exists()
+                and sha256(self.running) == record['sha256']):
+            return record
+        return None
 
     def status(self):
         digest = sha256(self.running)
@@ -154,9 +174,13 @@ class Live:
         running = sha256(self.running)
         if running == candidate:
             return 'already running %s (%s); nothing changed' % (candidate[:12], self.describe(running))
-        if running != LEGACY_SHA256:
-            raise SystemExit('refused: the running controller %s is neither the legacy controller nor this '
-                             'candidate; inspect it before replacing it' % running)
+        if running != LEGACY_SHA256 and self.previous() is None:
+            raise SystemExit('refused: the running controller %s is neither the legacy controller, this '
+                             'candidate, nor the last deploy this script recorded; inspect it before '
+                             'replacing it' % running)
+        # What a failed deploy puts back must report as itself: the legacy controller names no
+        # controller in its heartbeat; an earlier candidate names its own sha256.
+        restored = None if running == LEGACY_SHA256 else running
         staged = self.runtime / 'cpu_guard.py.deploy-check'
         shutil.copyfile(self.candidate, staged)
         try:
@@ -174,10 +198,10 @@ class Live:
         beat = self.restarted_as(candidate, old_pid)
         if beat is None:
             self.swap_in(backup, running)
-            back = self.restarted_as(None, None)
-            raise SystemExit('FAILED: no heartbeat from the new controller within %ss; the legacy controller '
-                             'was put back and %s' % (self.wait, 'is running' if back else
-                                                       'HAS NOT reported a heartbeat either: run status now'))
+            back = self.restarted_as(restored, None)
+            raise SystemExit('FAILED: no heartbeat from the new controller within %ss; the previous controller '
+                             '(%s) was put back and %s' % (self.wait, running[:12], 'is running' if back else
+                                                            'HAS NOT reported a heartbeat either: run status now'))
         record = {'deployed_at': time.time(), 'sha256': candidate, 'source_revision': revision,
                   'source_file': str(self.candidate), 'backup': str(backup), 'watch_pid': beat['pid']}
         self.record.write_text(json.dumps(record, indent=2) + '\n')
@@ -203,13 +227,24 @@ class Live:
 
 
 def main(argv):
-    if len(argv) != 1 or argv[0] not in ('status', 'deploy', 'rollback'):
+    if len(argv) != 1 or argv[0] not in ('status', 'check', 'deploy', 'rollback'):
         print(__doc__, file=sys.stderr)
         return 2
     live = Live()
     if argv[0] == 'status':
         print(json.dumps(live.status(), indent=2))
         return 0
+    if argv[0] == 'check':
+        # Exit 0 when launchd runs exactly this checkout's cpu_guard_live.py, 3 when it runs
+        # something else (a land that changed the controller and was not deployed), so a land
+        # or a session start can say so instead of anyone finding out from a stopped build.
+        status = live.status()
+        current = status['running_sha256'] == sha256(live.candidate)
+        print(('CPU guard: launchd runs this checkout\'s controller (%s)' if current else
+               'CPU GUARD STALE: launchd runs %s (%s), this checkout has %s; deploy it with '
+               'cpu_guard_live_deploy.py deploy') % ((status['running_sha256'][:12],) if current else (
+                   status['running_sha256'][:12], status['running_is'], sha256(live.candidate)[:12])))
+        return 0 if current else 3
     if not os.path.ismount('/Volumes/E1TB') and live.state.is_relative_to('/Volumes/E1TB'):
         raise SystemExit('refused: /Volumes/E1TB is not mounted')
     print(live.deploy() if argv[0] == 'deploy' else live.rollback())

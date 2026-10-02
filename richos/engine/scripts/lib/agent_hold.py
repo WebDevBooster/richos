@@ -946,15 +946,25 @@ def watch(session_id, agent_id, registry_every=6):
         if parents:
             table = snapshot()
             if not any(table.get(int(p), {}).get("birth") == b for p, b in parents.items()):
-                _log("watchdog released %s: its session process is gone" % (rec.get("name") or agent_id))
-                release(session_id, agent_id)
-                return 0
+                if _watch_release(session_id, agent_id, rec, "its session process is gone"):
+                    return 0
         polls += 1
         if polls % registry_every == 0 and _registry_finished(rec):
-            _log("watchdog released %s: the registry records it finished" % (rec.get("name") or agent_id))
-            release(session_id, agent_id)
-            return 0
+            if _watch_release(session_id, agent_id, rec, "the registry records it finished"):
+                return 0
         time.sleep(_watch_seconds())
+
+
+def _watch_release(session_id, agent_id, rec, why):
+    """The watchdog's release. A failed one is logged and the watchdog keeps watching, so
+    the next poll tries again instead of leaving the hold standing with nobody on it."""
+    name = rec.get("name") or agent_id
+    result = release(session_id, agent_id)
+    if result.get("ok"):
+        _log("watchdog released %s: %s" % (name, why))
+        return True
+    _log("watchdog release of %s FAILED (%s): %s; trying again" % (name, why, result.get("why")))
+    return not os.path.lexists(_held_path(session_id, agent_id))
 
 
 def _log(line):
@@ -1267,10 +1277,18 @@ def release(session_id, agent_id):
     t0 = time.monotonic()
     # Moved aside FIRST, so no new command suspends itself after the scans below,
     # yet the record of what was stopped survives until every SIGCONT is sent.
+    # Only an ABSENT active record is the retry of a release cut short; an active
+    # record that is still there after a failed move means the hold stands: its new
+    # commands are still refused and its wait never sees a release, so nothing is
+    # continued and the release reports that it failed (hunt P5-76).
     try:
         os.replace(path, path + RELEASING)
-    except OSError:
-        pass
+    except OSError as error:
+        if os.path.lexists(path):
+            return {"ok": False, "continued": [], "gone": [], "waited": [], "name": rec.get("name", ""),
+                    "why": "its hold record could not be moved aside (%s: %s), so the hold still stands and "
+                           "nothing was continued; release it again once %s is writable"
+                           % (type(error).__name__, error, os.path.dirname(path))}
     table = snapshot()
     continued, gone, waited = [], [], []
     for key, birth in sorted((rec.get("held") or {}).items(), key=lambda kv: int(kv[0])):
@@ -1299,13 +1317,21 @@ def release(session_id, agent_id):
                     waited.append(pid)
                 except ProcessLookupError:
                     pass
+    result = {"ok": True, "continued": continued, "gone": gone, "waited": waited, "name": rec.get("name", ""),
+              "held_seconds": round(time.time() - float(rec.get("at") or time.time()), 1),
+              "continued_seconds": round(time.monotonic() - t0, 3)}
     try:
         os.unlink(path + RELEASING)
-    except OSError:
+    except FileNotFoundError:
         pass
-    return {"ok": True, "continued": continued, "gone": gone, "waited": waited, "name": rec.get("name", ""),
-            "held_seconds": round(time.time() - float(rec.get("at") or time.time()), 1),
-            "continued_seconds": round(time.monotonic() - t0, 3)}
+    except OSError as error:
+        # The processes are continued, but the record left behind is read by the next
+        # hold as "already held", so that hold would skip suspending them: not a success.
+        result["ok"] = False
+        result["why"] = ("its processes were continued, but the release record %s could not be removed "
+                         "(%s: %s); the next hold of this agent would treat them as already suspended"
+                         % (path + RELEASING, type(error).__name__, error))
+    return result
 
 
 def records():
@@ -1368,6 +1394,9 @@ def describe_release(result):
     name = result.get("name") or "the agent"
     if result.get("why") == "nothing was held":
         return ""
+    if result.get("ok") is False:
+        return "RELEASE %s: FAILED (%s); %d process(es) continued: agent_hold.py status." % (
+            name, result.get("why") or "no reason recorded", len(result.get("continued") or []))
     line = "RELEASE %s: %d process(es) continued after %.0f s held" % (
         name, len(result["continued"]), result.get("held_seconds") or 0)
     if result.get("waited"):

@@ -304,22 +304,16 @@ final class AccessibilityLayoutTests: XCTestCase {
 
     /// D10 (the iPhone walk, 2026-10-01, the iPhone SE): with the keyboard up, the kept voice message's
     /// card was cut through its Send and Discard buttons, with the conversation's text showing in the
-    /// strip beside it. The card shows whole above the field, with both buttons touchable, in both
-    /// appearances.
+    /// strip beside it. Its region never runs under the field, and Send and Discard can each be brought
+    /// whole into view and touched, in both appearances. Since R3 (re-walk 4) one card yields to the
+    /// conversation as several do, so where the card does not fit it scrolls with its cue rather than
+    /// showing whole at rest.
     func testTheKeptVoiceCardIsWholeWithTheKeyboardUp() {
         for appearance in ["light", "dark"] {
             let what = "voice-interrupted \(appearance), keyboard up"
             let app = Screen.launch("voice-interrupted", appearance: appearance)
-            XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 5), "\(what): the card is missing")
-            messageField(app).tap()
-            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
-            Thread.sleep(forTimeInterval: 0.8)
-            let fieldTop = messageField(app).frame.minY
-            for id in ["kept.send", "kept.discard"] {
-                let button = app.buttons[id]
-                XCTAssertLessThanOrEqual(button.frame.maxY, fieldTop + 0.5, "\(what): \(id) at \(button.frame) is cut off by the field at \(fieldTop)")
-                XCTAssertTrue(button.isHittable, "\(what): \(id) cannot be touched")
-            }
+            assertBottomCardsReachable(app, what, anchor: "kept.send", texts: ["Recording was interrupted"],
+                                       buttons: ["kept.send", "kept.discard"])
             keepScreenshot(app, name: "d10-\(appearance)")
         }
     }
@@ -528,6 +522,151 @@ final class AccessibilityLayoutTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(room, Self.usableConversation, "\(what): the conversation has \(room) pt between the header (\(headerBottom(app))) and the cards (\(cards.frame.minY))")
             XCTAssertLessThanOrEqual(cards.frame.maxY, messageField(app).frame.minY + 0.5, "\(what): the cards run under the field")
             keepScreenshot(app, name: "r2-two-cards-keyboard-\(appearance)")
+        }
+    }
+
+    /// R3 (iPhone re-walk 4, 2026-10-01, shot light-44): with ONE card, the kept voice card, and the
+    /// keyboard up, the card kept its whole 193 pt and the conversation got 66 pt, so the sender's own
+    /// last message was hidden behind the header. The conversation keeps a usable height with one card
+    /// as with two, its latest row whole, and the card's Send and Discard are still reachable.
+    func testTheLatestMessageStaysInViewAboveOneCardWithTheKeyboardUp() {
+        for appearance in ["light", "dark"] {
+            let what = "one card \(appearance), keyboard up"
+            let app = Screen.launch("voice-interrupted", appearance: appearance)
+            XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 5), "\(what): the kept card is missing")
+            messageField(app).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
+            Thread.sleep(forTimeInterval: 0.8)
+            let cards = region(of: "kept.send", in: app)
+            let header = headerBottom(app)
+            let room = cards.frame.minY - header
+            XCTAssertGreaterThanOrEqual(room, Self.usableConversation, "\(what): the conversation has \(room) pt between the header (\(header)) and the card (\(cards.frame.minY))")
+            // The fixture's last message of yours, "Yes. And keep it short.", whole between the header and the card.
+            let mine = app.descendants(matching: .any)["row.m3"]
+            XCTAssertTrue(mine.exists, "\(what): your last message is missing")
+            XCTAssertGreaterThanOrEqual(mine.frame.minY, header - 0.5, "\(what): your last message \(mine.frame) starts under the header, which ends at \(header)")
+            XCTAssertLessThanOrEqual(mine.frame.maxY, cards.frame.minY + 0.5, "\(what): your last message \(mine.frame) runs under the card at \(cards.frame.minY)")
+            keepScreenshot(app, name: "r3-one-card-keyboard-\(appearance)")
+            // The card's own actions: on screen, or a cue says where, and a scroll brings each one whole and touchable.
+            let fieldTop = messageField(app).frame.minY
+            for id in ["kept.send", "kept.discard"] {
+                let button = app.buttons[id]
+                if button.frame.minY < cards.frame.minY - 1 || button.frame.maxY > cards.frame.maxY + 1 {
+                    let cue = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "cards.more")).firstMatch
+                    XCTAssertTrue(cue.exists, "\(what): \(id) at \(button.frame) is outside the card's region \(cards.frame) with no cue")
+                }
+                XCTAssertTrue(scrollInto(button, cards) && button.isHittable, "\(what): \(id) cannot be scrolled into view and touched")
+                XCTAssertLessThanOrEqual(button.frame.maxY, fieldTop + 0.5, "\(what): \(id) at \(button.frame) is cut off by the field at \(fieldTop)")
+            }
+        }
+    }
+
+    /// R2 at the floor (iPhone re-walk 4, shots light-38 and dark-39): with two cards and the keyboard
+    /// up, the cards' region rested scrolled so its first visible line ("…as soon as it is back
+    /// online.") was cut through its letters at the region's top edge, with the "More above" cue drawn
+    /// over it. At every resting place the strip at an edge that hides more holds only its cue: no part
+    /// of a line, a button or a cut card is drawn there. Read from the screen's pixels, because a
+    /// line's frame in the accessibility tree is the same whether it is drawn or masked.
+    func testTheCardsRegionNeverCutsALineAtItsEdges() {
+        for appearance in ["light", "dark"] {
+            let what = "two cards \(appearance), keyboard up"
+            let app = Screen.launch("voice-interrupted", appearance: appearance, cards: "camera-denied")
+            XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 5), "\(what): the kept card is missing")
+            messageField(app).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
+            Thread.sleep(forTimeInterval: 0.8)
+            let cards = region(of: "kept.send", in: app)
+            XCTAssertTrue(cards.exists, "\(what): the cards' region is missing")
+            var checked = 0
+            // Resting places down the region and back up, slow 23 pt drags so each one comes to rest.
+            for step in 0..<12 {
+                let r = cards.frame
+                let above = app.descendants(matching: .any)["cards.moreAbove"]
+                let below = app.descendants(matching: .any)["cards.moreBelow"]
+                if step == 0 { XCTAssertTrue(above.exists || below.exists, "\(what): the cards fit whole at \(r), so this pose does not reach the floor") }
+                let pixels = ScreenPixels(XCUIScreen.main.screenshot())
+                for (cue, top) in [(above, true), (below, false)] where cue.exists {
+                    let band = top ? (r.minY + 0.5)...(r.minY + Self.edgeBand - 0.5) : (r.maxY - Self.edgeBand + 0.5)...(r.maxY - 0.5)
+                    if let row = pixels.firstDrawnRow(in: band, from: r.minX + 14, to: r.maxX - 14, skipping: (r.midX - 14)...(r.midX + 14)) {
+                        XCTFail("\(what), rest \(step): the \(top ? "top" : "bottom") edge's strip of \(r) has something drawn at y \(row) beside its cue: a line or a control is cut there")
+                        keepScreenshot(app, name: "r2-floor-cut-\(appearance)-\(step)")
+                    }
+                    checked += 1
+                }
+                // And the room between the strips shows a line or a control, not only a card's bare surface.
+                let room = (r.minY + (above.exists ? Self.edgeBand : 0))...(r.maxY - (below.exists ? Self.edgeBand : 0))
+                XCTAssertNotNil(pixels.firstDrawnRow(in: room, from: r.minX + 14, to: r.maxX - 14, skipping: 0...0),
+                                "\(what), rest \(step): the room \(room) between the strips of \(r) shows nothing")
+                let from = cards.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                let to = from.withOffset(CGVector(dx: 0, dy: step < 6 ? -23 : 23))
+                from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.4)
+                Thread.sleep(forTimeInterval: 0.5)
+            }
+            XCTAssertGreaterThan(checked, 0, "\(what): no edge hid anything, so nothing was checked")
+            keepScreenshot(app, name: "r2-floor-\(appearance)")
+        }
+    }
+
+    /// The strip at a hiding edge of a cards' region that holds only the cue (`EdgeCuedScroll.band`).
+    private static let edgeBand: CGFloat = 16
+
+    /// R2 at the floor, as the physical iPhone posed it (2026-10-02): a card raised while another shows
+    /// is scrolled to by the app (I05), not by a finger, and the region then rested where the room
+    /// between its two strips held only a bare strip of card. Where the app leaves the region, as where
+    /// a drag does, the room starts at a whole line or control.
+    func testARaisedCardAtTheFloorShowsAWholeLine() {
+        for appearance in ["light", "dark"] {
+            let what = "kept + raised microphone card \(appearance), keyboard up"
+            // As the phone posed it: the keyboard up and the region at its floor first, then a card raised.
+            let app = Screen.launch("voice-interrupted", appearance: appearance, interactive: true, microphone: "denied",
+                                    cards: "camera-denied")
+            XCTAssertTrue(app.descendants(matching: .any)["debug.microphone.denied"].waitForExistence(timeout: 5),
+                          "\(what): the core was not told the microphone is off")
+            messageField(app).tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "\(what): the keyboard did not come up")
+            Thread.sleep(forTimeInterval: 1.0)
+            app.descendants(matching: .any)["composer.mic"].press(forDuration: 0.4)
+            XCTAssertTrue(app.descendants(matching: .any)["card.micDenied"].waitForExistence(timeout: 5), "\(what): the press raised no microphone-off card")
+            Thread.sleep(forTimeInterval: 1.5)
+            let cards = region(of: "kept.send", in: app)
+            let r = cards.frame
+            let above = app.descendants(matching: .any)["cards.moreAbove"]
+            let below = app.descendants(matching: .any)["cards.moreBelow"]
+            XCTAssertTrue(above.exists || below.exists, "\(what): the cards fit whole at \(r), so this pose does not reach the floor")
+            let pixels = ScreenPixels(XCUIScreen.main.screenshot())
+            for (cue, top) in [(above, true), (below, false)] where cue.exists {
+                let band = top ? (r.minY + 0.5)...(r.minY + Self.edgeBand - 0.5) : (r.maxY - Self.edgeBand + 0.5)...(r.maxY - 0.5)
+                XCTAssertNil(pixels.firstDrawnRow(in: band, from: r.minX + 14, to: r.maxX - 14, skipping: (r.midX - 14)...(r.midX + 14)),
+                             "\(what): the \(top ? "top" : "bottom") strip of \(r) has something drawn beside its cue")
+            }
+            let room = (r.minY + (above.exists ? Self.edgeBand : 0))...(r.maxY - (below.exists ? Self.edgeBand : 0))
+            XCTAssertNotNil(pixels.firstDrawnRow(in: room, from: r.minX + 14, to: r.maxX - 14, skipping: 0...0),
+                            "\(what): the room \(room) between the strips of \(r) shows nothing")
+            keepScreenshot(app, name: "r2-floor-raised-\(appearance)")
+        }
+    }
+
+    /// A refused voice message (iPhone re-walk 4, shot light-48) showed "Not sent · needs attention" and
+    /// Discard, but not why: the Mac answers a refusal with a sentence for the person ("I could not
+    /// hear speech in that recording. Your recording is still on your phone."), and the phone held it
+    /// and drew nothing of it. The reason is shown under the message, beside Discard, readable (16 pt).
+    func testARefusedMessageShowsTheMacsReason() {
+        for appearance in ["light", "dark"] {
+            let what = "conv-pending \(appearance)"
+            let app = Screen.launch("conv-pending", appearance: appearance)
+            // The fixture's refused message, "And cancel the car.", holds the Mac's answer "The Mac could not take this message."
+            let row = app.descendants(matching: .any)["row.p3"]
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "\(what): the refused message is missing")
+            let reason = app.staticTexts["row.p3.reason"]
+            XCTAssertTrue(reason.exists, "\(what): the Mac's reason is not shown under the refused message")
+            XCTAssertEqual(reason.label, "The Mac could not take this message.", "\(what): the reason shown is not the Mac's own sentence")
+            XCTAssertGreaterThanOrEqual(reason.frame.minY, row.frame.maxY - 0.5, "\(what): the reason \(reason.frame) is not under the message \(row.frame)")
+            let discard = app.buttons["Discard this message"]
+            XCTAssertTrue(discard.exists && discard.isHittable, "\(what): Discard is missing beside the reason")
+            XCTAssertLessThan(abs(discard.frame.midY - reason.frame.midY), 60, "\(what): Discard \(discard.frame) is not beside the reason \(reason.frame)")
+            // 16 pt Inter (Typography.read) draws a line about 19 pt tall; 14 pt would be about 17.
+            XCTAssertGreaterThanOrEqual(reason.frame.height, 19, "\(what): the reason is drawn smaller than 16 pt")
+            keepScreenshot(app, name: "refused-reason-\(appearance)")
         }
     }
 

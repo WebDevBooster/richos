@@ -526,6 +526,13 @@ def analyze(repo, main="", ledger=None):
                 "its workspace holds uncommitted or untracked changes, so it is not a finished "
                 "land even though '%s' has no commits past %s — never swept, by rule. READ IT "
                 "before removing anything." % (branch or "(detached)", main))
+        elif dirty is None:
+            # An unread status is not a clean one: `merged` alone reads an agent that has not
+            # committed yet as a finished land, so without the status nothing is judged (P5-80).
+            disp, reason = UNKNOWN_MERGE, (
+                "whether its workspace holds uncommitted or untracked changes could not be read "
+                "(`git status` failed), so this worktree was NOT judged a finished land; READ IT "
+                "before removing anything")
         elif merged is None:
             disp, reason = UNKNOWN_MERGE, (
                 "the merge status of '%s' could not be decided, so this worktree was NOT judged"

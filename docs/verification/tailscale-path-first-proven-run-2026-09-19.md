@@ -76,20 +76,20 @@ loudly on any state but `ready`, so it can never pass by being vacuous.
 $ cargo test -q --bin richos-tauri phone::listen::tests::live -- --ignored --nocapture
 running 1 test
 state      = ready None
-name       = mm1.tail770f6e.ts.net
-origin     = https://mm1.tail770f6e.ts.net:8443
+name       = mm1.tail1a2b3c.ts.net
+origin     = https://mm1.tail1a2b3c.ts.net:8443
 addresses  = [100.68.9.4, fd7a:115c:a1e0::6e31:905]
 account    = Some("Google as <login>")
-phone      = Some(PhonePeer { name: "HONOR X6b", online: true })
+phone      = Some(PhonePeer { name: "Android phone", online: true })
 cert       = 4 certificate(s) in the chain, key is SEC1 (`EC PRIVATE KEY`)
 listening  = 100.68.9.4:8443, 100.68.9.4:8444, [fd7a:115c:a1e0::6e31:905]:8443, [fd7a:115c:a1e0::6e31:905]:8444
-GET https://mm1.tail770f6e.ts.net:8443/ -> 6876 bytes, curl ok
-POST https://mm1.tail770f6e.ts.net:8443/api/pair -> {"api_base":"https://mm1.tail770f6e.ts.net:8443",
+GET https://mm1.tail1a2b3c.ts.net:8443/ -> 6876 bytes, curl ok
+POST https://mm1.tail1a2b3c.ts.net:8443/api/pair -> {"api_base":"https://mm1.tail1a2b3c.ts.net:8443",
   "ca_fingerprint_sha256":"D1:B1:9B:BB:62:5B:70:92:D2:6C:9C:DF:90:BE:60:3D:94:A5:EC:44:BB:6D:61:8D:F9:50:EE:E8:B2:4D:72:07",
   "challenge":"mYj65bW1Y7DwBBofeSsdUK4ctR-HiWOL","device_id":"dev_2221beaa4ad2",
   "thread_id":"thr_4d59063c0adb4d1596294be8a9851c62","thread_title":"the proposal",
   "vapid_public_key":"BKQ1PzbMib1HIbgxP8_L-oRxC2Q1ZGLGo4vRaRDn0CWI8swecJqqb3WC4nHumhUCP_09DOYv4myt5D4XBns-8CM"}
-pair url   = https://mm1.tail770f6e.ts.net:8443/#pair=M3RKDWBD
+pair url   = https://mm1.tail1a2b3c.ts.net:8443/#pair=M3RKDWBD
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 309 filtered out; finished in 0.11s
 ```
 
@@ -97,12 +97,12 @@ Point by point, against the six things the brief asked to be proven:
 
 | # | Claim | How this run establishes it |
 |---|---|---|
-| 1 | Detection reports the signed-in state with the tailnet name | `state = ready`, `name = mm1.tail770f6e.ts.net`, no diagnostic |
+| 1 | Detection reports the signed-in state with the tailnet name | `state = ready`, `name = mm1.tail1a2b3c.ts.net`, no diagnostic |
 | 2 | `tailscale cert` succeeds, key kept off disk | 4 certificates and a SEC1 key, **read from the command's stdout through a pipe** — `fetch_cert` asks for `--cert-file -` and `--key-file -` precisely so nothing is written |
 | 3 | The channel serves on that origin | bound on `100.68.9.4:8443` and the IPv6 tailnet address, with the tailnet certificate in the resolver |
-| 4 | `curl` reaches the listener with the public certificate and **no `-k`** | `GET https://mm1.tail770f6e.ts.net:8443/` returned 6876 bytes of the phone app. The curl invocation is `--silent --show-error --max-time 20` and the URL. **No `--insecure`, no `--cacert`, no `--resolve`** — the name was resolved by MagicDNS and the chain validated against the system's own roots, both of which had to work for this to return anything |
+| 4 | `curl` reaches the listener with the public certificate and **no `-k`** | `GET https://mm1.tail1a2b3c.ts.net:8443/` returned 6876 bytes of the phone app. The curl invocation is `--silent --show-error --max-time 20` and the URL. **No `--insecure`, no `--cacert`, no `--resolve`** — the name was resolved by MagicDNS and the chain validated against the system's own roots, both of which had to work for this to return anything |
 | 5 | The API, not only static assets | `POST /api/pair` over the same origin returned a real pairing answer with a `device_id`; its `api_base` is the tailnet origin |
-| 6 | The pairing QR carries that origin | `https://mm1.tail770f6e.ts.net:8443/#pair=M3RKDWBD`, built exactly as `PhoneRuntime::status` builds it |
+| 6 | The pairing QR carries that origin | `https://mm1.tail1a2b3c.ts.net:8443/#pair=M3RKDWBD`, built exactly as `PhoneRuntime::status` builds it |
 
 **Four certificates in the chain, not one.** `tailscale cert` returns the leaf and its issuing
 intermediates, and `listen.rs`'s own note says why that matters: a public chain that omits the
@@ -145,7 +145,7 @@ leaves two thirds of its life as slack.
 `tailscale status --json` on this Mac carried his Android **twice** — one stale registration per
 reinstall — and earlier in the evening **both were `"Online": false`**, because Tailscale was
 installed on the phone and switched off. By the time of the run above, one registration was live:
-`PhonePeer { name: "HONOR X6b", online: true }`.
+`PhonePeer { name: "Android phone", online: true }`.
 
 Read the way the landed parser read it, the earlier document said *"you have two phones and they are
 both here."* Neither half was true. So `parse_status` now de-duplicates by `HostName`, carries

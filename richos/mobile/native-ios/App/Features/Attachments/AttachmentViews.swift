@@ -612,10 +612,12 @@ private struct AttachRefusedCard: View {
                 Text(tooLarge ? "Too large to send" : "Rich can’t open this type yet")
                     .type(Typography.body.weight(600)).foregroundStyle(palette.ink)
             }
+            .edgeGuardBlock()
             (Text(name).run(Typography.read.weight(600), dynamicTypeSize).foregroundColor(palette.ink)
              + Text(" " + detail).foregroundColor(palette.inkSoft))
                 .type(Typography.read)
                 .fixedSize(horizontal: false, vertical: true)
+                .edgeGuardLines(Typography.read)
                 .padding(.top, 3)
             FlowButtons {
                 Button { send(.openPicker(.files)) } label: { IconLabel(icon: .folder, text: "Choose another file") }

@@ -53,7 +53,7 @@ def mark(log, *words):
 
 
 def counter(line):
-    name = line.split("{")[0].replace("cloudflared_tunnel_", "")
+    name = line.split("{")[0].split()[0].replace("cloudflared_tunnel_", "")
     if "{" in line:
         name += "[" + line.split('"')[1] + "]"
     return name + "=" + line.split()[-1]
@@ -80,7 +80,19 @@ def sockets(serial, uid, path, seconds, stop):
     end = time.time() + seconds
     with open(path, "a", encoding="utf-8") as out:
         while time.time() < end and not stop.is_set():
-            done = subprocess.run(["adb", "-s", serial, "shell", "cat", "/proc/net/tcp6", "/proc/net/tcp"], capture_output=True, text=True, timeout=10)
+            try:
+                done = subprocess.run(["adb", "-s", serial, "shell", "cat", "/proc/net/tcp6", "/proc/net/tcp"], capture_output=True, text=True, timeout=10)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                done = None
+                why = str(e)
+            if done is not None:
+                why = (done.stderr.strip() or done.stdout.strip() or "no output")[:120] if done.returncode != 0 or not done.stdout.strip() else None
+            if done is None or why:
+                # An unreadable table is no evidence the app has no sockets: say so, never "none".
+                out.write("%.3f unreadable %s\n" % (time.time(), why))
+                out.flush()
+                time.sleep(0.3)
+                continue
             seen = []
             for line in done.stdout.splitlines():
                 f = line.split()

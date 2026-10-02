@@ -75,5 +75,18 @@ if [ "$RC" = 1 ] && grep -q 'expired' <<<"$OUT"; then ok "R7  KNOWN-RED past its
 RICHOS_CI_KNOWN_RED="$SANDBOX/does-not-exist.tsv" run "$(receipt KNOWN-RED 1 0)"
 if [ "$RC" = 1 ] && grep -q 'could not be read' <<<"$OUT"; then ok "R8  KNOWN-RED with an unreadable table is refused"; else bad "R8  (rc=$RC): $OUT"; fi
 
+# R9 (P5-77): an expiry that is not a real calendar date is not a time boundary. The
+# old string comparison sorted `tomorrow` and `2999-99-99` after every date, so a red
+# unit stayed excused forever.
+for BADEXP in tomorrow 2999-99-99 2026-02-30 "" 20991231; do
+    kr_table "$SANDBOX/bad.tsv" "$BADEXP"
+    RICHOS_CI_KNOWN_RED="$SANDBOX/bad.tsv" run "$(receipt KNOWN-RED 1 0)"
+    if [ "$RC" = 1 ] && grep -q 'not excused' <<<"$OUT"; then
+        ok "R9  KNOWN-RED with expiry '$BADEXP' is refused (not a valid YYYY-MM-DD date)"
+    else
+        bad "R9  expiry '$BADEXP' excused a red unit (rc=$RC): $OUT"
+    fi
+done
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -326,6 +326,7 @@ struct KeptRecordingCard: View {
                     .foregroundStyle(palette.ink)
                     .accessibilityLabel(DayLabel.spokenDuration(recording.durationMs))
             }
+            .edgeGuardBlock()
             .padding(.top, 10)
             FlowButtons {
                 Button { send(.sendKept(id: recording.id)) } label: { IconLabel(icon: .send, text: "Send") }
@@ -364,6 +365,7 @@ struct ToastView: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 16).padding(.vertical, 9)
             .floatingSurface(palette, radius: 16)
+            .edgeGuardBlock()
             .accessibilityIdentifier("composer.toast")
             .accessibilityAddTraits(.updatesFrequently)
     }

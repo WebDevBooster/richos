@@ -157,5 +157,15 @@ for base in SCAN:
 check(not both, "V3 no code outside the two app trees names both the iPhone and the Android version keys",
       "these files read both apps' versions, so a raise of one breaks on the other: " + ", ".join(sorted(both)))
 
+# V5 (hunt V03): a suite whose every covered file lives in one phone app's own tree is a phone-app
+# suite. Left unfiled it runs in the desktop release gate (an unlisted suite defaults to desktop) and is
+# missing from that phone's own gate. A suite that also covers anything the Mac app ships stays
+# unfiled on purpose (the "NOT here" list in phone-app-suites.tsv).
+PHONE_TREES = ("richos/mobile/native-ios/", "richos/mobile/native-android/")
+unfiled = sorted(suite for suite, _inputs, covers in declarations
+                 if covers and suite not in filed and all(c.startswith(PHONE_TREES) for c in covers))
+check(not unfiled, "V5 every suite that covers only a phone app's own files is filed in phone-app-suites.tsv",
+      "unfiled, so they run in the desktop gate and not in the phone's: " + ", ".join(unfiled))
+
 print("phone-apps-independent: %d passed, %d failed" % (PASSED, FAILED))
 sys.exit(1 if FAILED else 0)

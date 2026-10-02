@@ -48,6 +48,8 @@ struct RButtonStyle: ButtonStyle {
             .frame(minHeight: height)
             .frame(maxWidth: wide ? .infinity : nil)
             .background(background(height: height))
+            // Inside a cards' region, a button is drawn whole or not at all (EdgeCuedScroll `wholeLines`).
+            .edgeGuardBlock()
             .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
@@ -150,10 +152,12 @@ struct CardText: View {
             Text(title)
                 .type(Typography.body.weight(600))
                 .foregroundStyle(palette.ink)
+                .edgeGuardLines(Typography.body.weight(600))
             if let detail {
                 Text(detail)
                     .type(Typography.read)
                     .foregroundStyle(palette.inkSoft)
+                    .edgeGuardLines(Typography.read)
             }
         }
         .fixedSize(horizontal: false, vertical: true)

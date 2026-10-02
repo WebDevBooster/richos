@@ -171,7 +171,7 @@ fun RichButton(
     }
     val style: TextStyle = (if (tall) t.bodyStrong else t.readStrong).copy(color = fg, textAlign = TextAlign.Center)
     // The click area is the 48 dp target; the drawing inside it keeps the design's height.
-    var m = modifier.clickable(source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick).touchTarget()
+    var m = modifier.edgeGuardBlock().clickable(source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick).touchTarget()
     if (wide) m = m.fillMaxWidth()
     m = m.pressScale(source, 0.97f)
         .heightIn(min = height)

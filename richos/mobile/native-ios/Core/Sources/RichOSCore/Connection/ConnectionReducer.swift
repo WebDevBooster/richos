@@ -37,6 +37,13 @@ public enum ConnectionReducer {
                 s.troubleSinceMs = at
                 if s.pairing == .paired { effects.append(.connect) }
                 ConversationReducer.pump(&s, at: at, &effects)
+            } else if s.pairing == .paired, s.connectionNotice != .incompatible {
+                // Online, and online before: the ROUTE changed (Wi-Fi to cellular, a network joined,
+                // Tailscale coming or going; the app reports only real changes, `NetworkPath.isNews`).
+                // A stream on the old route may be dead without a word, an open on it may hang, and
+                // a back-off may be running: the owner replaces it at once. Before, nothing happened
+                // here, and only the 20 s silence limit noticed (andy-opus-resume1's third wait).
+                effects.append(.reconnect)
             }
         case .connectionLost(let at):
             s.troubleSinceMs = s.troubleSinceMs ?? at

@@ -794,7 +794,22 @@ fn open_stream(channel: Arc<Channel>, device: &str, opening: Vec<String>, mark: 
     };
 
     let produce = async move {
-        for frame in opening.into_iter().chain(missed.iter().map(|f| f.to_wire())) {
+        // **THE FIRST BYTES GO OUT THE MOMENT THE STREAM IS ACCEPTED, WHATEVER THE OPENING HOLDS**
+        // (2026-10-01, isaac-opus-reopen1's headless-lab measurement: a reply 15.3 s after the
+        // iPhone app reopened). A resume whose `since` names nothing held (the last frame was the
+        // `hello` right after pairing, id 0, or the hub's cursor sits above what it holds) is
+        // answered with an EMPTY opening. The head left at once, but no body byte did until the first
+        // keep-alive, `KEEPALIVE_MS` = 15,000 ms later, and the iPhone's `URLSession` hands its core
+        // the response only with the first body bytes: the lab logged "answered 200 after 15059 ms",
+        // and for those 15 s the phone was not connected, so a waiting message was not sent and a
+        // waiting reply was not shown. One keep-alive written first puts a body chunk on the wire
+        // with the head on every stream, so no client, transport or proxy depends on which trigger
+        // it hit or on whether it reports a response before its first body bytes. It is a
+        // comment in the vocabulary every client already reads and ignores (iPhone `SSEParser`
+        // returns it apart from events and acts only on `re-snapshot`; Android `SseParser` yields
+        // `SseItem.KeepAlive`, which `RichCore` drops; `EventSource` discards comment lines).
+        let first = std::iter::once(keepalive_comment());
+        for frame in first.chain(opening).chain(missed.iter().map(|f| f.to_wire())) {
             if sender.send_data(Bytes::from(frame)).await.is_err() {
                 return;
             }
@@ -827,8 +842,7 @@ fn open_stream(channel: Arc<Channel>, device: &str, opening: Vec<String>, mark: 
                     // A comment, not an event: it keeps the connection warm without inventing
                     // anything for the phone to render, and it never wakes the Mac — it only
                     // writes to a socket that is already open.
-                    let keepalive = format!(": keep-alive {}\n\n", super::now_millis());
-                    if sender.send_data(Bytes::from(keepalive)).await.is_err() {
+                    if sender.send_data(Bytes::from(keepalive_comment())).await.is_err() {
                         return;
                     }
                 }
@@ -862,6 +876,12 @@ fn open_stream(channel: Arc<Channel>, device: &str, opening: Vec<String>, mark: 
         .header("x-accel-buffering", "no")
         .body(StreamBody { inner: body.boxed(), _slot: slot }.boxed())
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::new()).boxed()))
+}
+
+/// The keep-alive comment: written first on every accepted stream, and after every
+/// `KEEPALIVE_MS` without a frame. A comment, never an event, so no client renders anything.
+fn keepalive_comment() -> String {
+    format!(": keep-alive {}\n\n", super::now_millis())
 }
 
 /// Percent-decode a path.
@@ -1189,6 +1209,10 @@ mod tests {
                     _ => false,
                 }
             }
+            // Every stream's first chunk is a keep-alive, written whatever the opening holds (see
+            // `a_resume_with_nothing_to_replay_is_answered_at_once_and_not_at_the_first_keepalive`).
+            assert!(read(&mut body,&mut seen).await,"the stream wrote nothing at all when it opened");
+            assert!(seen.starts_with(": keep-alive "),"the first chunk was not the keep-alive comment: {seen:?}");
             assert!(read(&mut body,&mut seen).await,"nothing arrived: the event published in the gap was lost");
             assert!(seen.contains("in the gap"),"the stream did not carry the event published in the gap: {seen:?}");
             // And what follows is live, and the gap's event is not repeated.
@@ -3593,5 +3617,76 @@ mod tests {
             assert!(held.ended_within(std::time::Duration::from_secs(10)), "stream {} was replaced but never ended", i + 1);
         }
         assert_eq!(wire.devices.open_streams(), 1, "only the newest stream may still be counted");
+    }
+
+    /// **A RESUME WITH NOTHING TO REPLAY IS ANSWERED AT ONCE, NOT AT THE FIRST KEEP-ALIVE**
+    /// (2026-10-01, isaac-opus-reopen1: a reply 15.3 s after the iPhone app reopened, measured in
+    /// the headless lab against this listener). Right after pairing the phone's last frame is the
+    /// `hello`, id 0, and it resumes with `since=0`. The hub holds nothing at or after 0, so the
+    /// opening is EMPTY (`PhoneHub::replay_after_marked`, `Replay::Tail(vec![])`). This listener
+    /// wrote the head at once but no body byte until `KEEPALIVE_MS` = 15,000 ms later, and the
+    /// iPhone's `URLSession` reports the response only with the first body bytes, so the phone sat
+    /// unconnected for those 15 s.
+    ///
+    /// Asserted over real TLS from the request being on the wire: the head AND a first body chunk
+    /// arrive within 1,000 ms (KEEPALIVE_MS / 15), and that chunk is an SSE comment every client
+    /// ignores. The read gives up at 3,000 ms so the old behavior fails here in 3 s, not 15
+    /// (on the code before this fix: the head alone, then nothing, for the whole 3 s).
+    #[test]
+    fn a_resume_with_nothing_to_replay_is_answered_at_once_and_not_at_the_first_keepalive() {
+        const LIMIT: std::time::Duration = std::time::Duration::from_millis(1_000);
+        const GIVE_UP: std::time::Duration = std::time::Duration::from_millis(3_000);
+        assert!(LIMIT.as_millis() * 15 <= u128::from(KEEPALIVE_MS), "the bound must sit far below the keep-alive");
+
+        let wire = wire_with("firstbyte", Arc::new(EmptyThread));
+        wire.devices.confirm_on_mac().unwrap();
+        // The pose: a phone whose last frame was the pairing `hello`, id 0, resuming from it.
+        let path = "/api/events?thread_id=thr_firstbyte&since=0";
+        let signature = super::super::b64url(&wire.phone.sign(&signing_string(&wire.challenge, "GET", path, b"")));
+        let auth = format!("RichOS-Device {}.{}.{signature}", wire.device_id, wire.challenge).replace(' ', "%20");
+        let url = format!("{path}&auth={auth}");
+
+        let server_name = rustls::pki_types::ServerName::try_from(HOLD_TAILNET).unwrap().to_owned();
+        let mut connection = rustls::ClientConnection::new(Arc::clone(&wire.client), server_name).unwrap();
+        let mut socket = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, wire.port)).expect("connect");
+        // The handshake is completed by the request write below, under a generous timeout; only
+        // then is the read shortened to a poll and the clock started.
+        socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        let mut tls = rustls::Stream::new(&mut connection, &mut socket);
+        let head = format!("GET {url} HTTP/1.1\r\nHost: {HOLD_TAILNET}\r\nAccept: text/event-stream\r\n\r\n");
+        tls.write_all(head.as_bytes()).expect("write request");
+        tls.flush().ok();
+        tls.sock.set_read_timeout(Some(std::time::Duration::from_millis(10))).unwrap();
+        let sent = std::time::Instant::now();
+
+        let mut raw: Vec<u8> = Vec::new();
+        let mut buffer = [0u8; 4096];
+        let mut first_body_at: Option<std::time::Duration> = None;
+        while sent.elapsed() < GIVE_UP {
+            match tls.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => raw.extend_from_slice(&buffer[..n]),
+                Err(ref e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+                Err(_) => break,
+            }
+            let text = String::from_utf8_lossy(&raw);
+            if let Some(split) = text.find("\r\n\r\n") {
+                // Chunked: the body is `<size>\r\n<data>\r\n`. A comment line in the data is enough.
+                if text[split + 4..].contains("\n:") || text[split + 4..].contains("\r\n:") {
+                    first_body_at = Some(sent.elapsed());
+                    break;
+                }
+            }
+        }
+        let text = String::from_utf8_lossy(&raw).to_string();
+        let Some(took) = first_body_at else {
+            panic!("no head and first chunk within {GIVE_UP:?} of the request (keep-alive is {KEEPALIVE_MS} ms): {text:?}");
+        };
+        eprintln!("[test] empty-opening stream: head and first chunk {} ms after the request", took.as_millis());
+        assert_eq!(parse_response(&raw).0, 200, "{text}");
+        assert!(took < LIMIT, "the first bytes took {took:?}, limit {LIMIT:?}: {text:?}");
+        let body = &text[text.find("\r\n\r\n").unwrap() + 4..];
+        assert!(body.contains(": keep-alive "), "the first chunk is not the comment every client ignores: {body:?}");
+        assert!(!body.contains("event:"), "an empty opening invented an event: {body:?}");
     }
 }

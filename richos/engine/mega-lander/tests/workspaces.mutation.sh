@@ -166,7 +166,7 @@ mutant p09-readonly-not-registered "test_point_09_a_restarted_read_only_agent_is
     "a read-only agent would carry no registration, so the lock-out could never find it finished and a restarted Explore — which carries Bash — could write (point 9)."
 
 mutant p09-processes-not-stopped "test_point_09_every_process_it_started_is_stopped_before_deletion" "$W" \
-    '    pids = processes_in(paths)' \
+    '    pids = processes_in(paths, deadline)' \
     '    pids = []' \
     "a process the agent started would keep running while its workspace is deleted under it (point 9)."
 
@@ -495,13 +495,13 @@ mutant p03-killed-registration-not-bound-at-its-post "test_point_03_a_spawn_whos
     "a spawn whose PreToolUse registration was killed would stay unbound at its Post, although the platform delivers the name and the agent id together there — the first moment the gap exists (point 3)."
 
 mutant p03-missed-spawn-never-reconciled "test_point_03_a_spawn_the_registry_never_saw_is_reconciled_from_the_platforms_own_record" "$W" \
-    '    if not rec or rec.get("agent_id") or rec.get("provisional") or rec.get("orphan"):{NL}        return rec' \
-    '    if True:{NL}        return rec' \
+    '    if not rec or rec.get("agent_id") or rec.get("provisional") or rec.get("orphan"):{NL}        return None' \
+    '    if True:{NL}        return None' \
     "a registration the registry never bound to an agent would never adopt the platform's own record of which agent it became, so its finished work could be retired only by hand — which is what point 11 forbids (\"automatically and never by Rich noticing\")."
 
 mutant p03-reconciliation-picks-a-candidate "test_point_03_an_ambiguous_platform_record_is_never_guessed_at" "$W" \
-    '    if len(hits) != 1:{NL}        return rec' \
-    '    if not hits:{NL}        return rec' \
+    '    if len(hits) != 1:{NL}        return None' \
+    '    if not hits:{NL}        return None' \
     "two of the platform's records answering to one name would be resolved by taking the first, which makes a reconciliation a guess between candidates instead of the adoption of a fact (point 3)."
 
 mutant p03-reconciliation-invents-an-ending "test_point_03_a_reconciled_binding_never_invents_an_ending" "$W" \

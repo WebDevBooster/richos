@@ -101,6 +101,16 @@ JOB_CORES = 3.0
 # the ordinary 10-second rule again. Everything else is unchanged.
 BUILD_ROLE = 'release-build'
 BUILD_WINDOW = 600.0
+# A NATIVE BUILD IS JUDGED BY THE CORES IT WAS GRANTED (2026-10-02). native-work.py admits a
+# build with a core grant and registers its own process with this role, the grant (`cores`)
+# and a `group` (its workspace); a Gradle daemon it keeps warm for that workspace is
+# registered the same way. Every owned process whose CURRENT parent chain reaches such a
+# root counts toward its group, and while the group's total stays within its grant no
+# process in it is held to JOB_CORES: a Gradle JVM given four processors ran at 6.08 cores
+# and was stopped by the per-process rule (2026-10-02 00:21Z, pid 3022) although its build
+# was inside what admission had granted it. A group above its grant, and anything outside a
+# group, is judged exactly as before. The same rule is in cpu_guard_live.py.
+NATIVE_ROLE = 'native-build'
 LABEL = 'com.richos.cpu-guard'
 IOS_FIRST_BOOT_SECONDS = 180
 IOS_WARM_BOOT_SECONDS = 120
@@ -161,14 +171,54 @@ def processes():
     return rows
 
 
-def register(pid, label, role='session', verification=None):
+def grant_fields(role, grant):
+    """The grant a NATIVE_ROLE root carries: {'cores': > 0, 'group': non-empty}. Shared shape
+    with cpu_guard_live.py; any other role carries none."""
+    if role != NATIVE_ROLE:
+        if grant:
+            raise ValueError('only a %s root carries a core grant' % NATIVE_ROLE)
+        return {}
+    try:
+        cores, group = float(grant['cores']), str(grant['group'])
+    except (TypeError, KeyError, ValueError):
+        raise ValueError('a %s root needs a grant with cores and group' % NATIVE_ROLE)
+    if not cores > 0 or cores != cores or not group:
+        raise ValueError('a %s grant needs positive cores and a group' % NATIVE_ROLE)
+    return dict(cores=cores, group=group)
+
+
+def grant_groups(owned, rows, rates, roots):
+    """{group: {'cores': grant, 'used': cores now, 'members': [pid]}} for every registered
+    native build. A process belongs to the nearest NATIVE_ROLE root on its CURRENT parent
+    chain (a process that left the tree is no longer the build's). Shared with cpu_guard_live.py."""
+    grants = {p: r for p, r in roots.items() if r.get('role') == NATIVE_ROLE and r.get('cores', 0) > 0}
+    groups = {}
+    if not grants:
+        return groups
+    for pid in owned:
+        seen, at = set(), pid
+        while at in rows and at not in seen and at not in grants:
+            seen.add(at)
+            at = rows[at]['parent']
+        if at not in grants:
+            continue
+        name = grants[at].get('group') or 'root:%s' % at
+        group = groups.setdefault(name, {'cores': 0.0, 'used': 0.0, 'members': []})
+        group['cores'] = max(group['cores'], grants[at]['cores'])
+        group['used'] += rates.get(pid, 0)
+        group['members'].append(pid)
+    return groups
+
+
+def register(pid, label, role='session', verification=None, grant=None):
     rows = processes()
     if pid not in rows:
         raise ValueError('owner process is not alive or not owned by this user')
     generation = rows[pid].get('generation')
     if not generation:
         raise ValueError('owner process generation is unavailable')
-    record = dict(pid=pid, birth=rows[pid]['birth'], generation=generation, label=label, role=role)
+    record = dict(pid=pid, birth=rows[pid]['birth'], generation=generation, label=label, role=role,
+                  **grant_fields(role, grant))
     if role == 'verification':
         if not verification or not re.fullmatch('[0-9a-f]{64}', verification.get('input_key', '')):
             raise ValueError('verification registration requires its input identity')
@@ -894,6 +944,14 @@ class Watch:
         self.containment = None
         self.resource_over = {}
         self.windows = {}
+        self.grants = {}
+
+    def grant_of(self, pid):
+        """The grant group a process was judged in at the last sample, for the stop record."""
+        for name, group in self.grants.items():
+            if pid in group['members']:
+                return dict(group=name, cores=group['cores'], used=round(group['used'], 2))
+        return None
 
     @staticmethod
     def in_release_build(pid, rows, build_roots):
@@ -1003,11 +1061,14 @@ class Watch:
         else:
             self.pressure_since = None
         pressured = self.pressure_since is not None and now - self.pressure_since >= WINDOW
+        # A registered native build within its grant is not held to JOB_CORES (NATIVE_ROLE).
+        self.grants = grant_groups(owned, rows, rates, roots)
+        within = {p for g in self.grants.values() if g['used'] <= g['cores'] for p in g['members']}
         for pid in allowed:
             rate = rates.get(pid, 0)
             window = BUILD_WINDOW if self.in_release_build(pid, rows, build_roots) else WINDOW
             self.windows[pid] = window
-            if rate > JOB_CORES:
+            if rate > JOB_CORES and pid not in within:
                 self.over.setdefault((pid, rows[pid]['birth']), now)
             else:
                 self.over.pop((pid, rows[pid]['birth']), None)
@@ -1229,6 +1290,7 @@ class Watch:
               reason=reason,
               executable=rows[pid]['name'], owner=self.owned[str(pid)]['owner'],
               cores=round(rates.get(pid, 0), 2), sustained_seconds=self.windows.get(pid, WINDOW),
+              grant=self.grant_of(pid),
               signalled=signalled)
 
     def reap(self, rows, now):
@@ -1297,6 +1359,8 @@ def watch(engine):
                            pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1),
                            admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU,
                            cpu_count=os.cpu_count(),
+                           grants={name: dict(cores=g['cores'], used=round(g['used'], 2), processes=len(g['members']))
+                                   for name, g in watcher.grants.items()},
                            verification_rss_mb=sum(g['rss_mb'] for g in watcher.verification.values()),
                            unattributed_cores=max(sum(watcher.unowned_rates.values()),
                                busy / 100 * os.cpu_count() - sum(g['cores'] for g in watcher.verification.values())),

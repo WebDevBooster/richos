@@ -902,6 +902,28 @@ else
 fi
 rm -f "$ALT_IDX"
 
+# A RELATIVE alternate index is read the way `git -C <root>` reads it: from the
+# repository root, even when the caller's directory holds a file of the same name
+# with different content (P5-64 v2 re-check: the caller's file won).
+REL_CALLER="$SCRATCH/rel-caller"
+rm -rf "$REL_CALLER"; mkdir -p "$REL_CALLER"
+rm -f "$WORK/alternate"
+GIT_INDEX_FILE="alternate" git -C "$WORK" read-tree HEAD >/dev/null 2>&1
+REL_BLOB1="$(printf 'one\n' | git -C "$WORK" hash-object -w --stdin)"
+GIT_INDEX_FILE="alternate" git -C "$WORK" update-index --add --cacheinfo "100644,$REL_BLOB1,one.txt" >/dev/null 2>&1
+REL_EXPECTED="$(GIT_INDEX_FILE="alternate" git -C "$WORK" write-tree 2>/dev/null)"
+GIT_DIR_WORK="$(git -C "$WORK" rev-parse --absolute-git-dir)"
+cp "$GIT_DIR_WORK/index" "$REL_CALLER/alternate"
+REL_BLOB2="$(printf 'two\n' | git -C "$WORK" hash-object -w --stdin)"
+GIT_INDEX_FILE="$REL_CALLER/alternate" git -C "$WORK" update-index --add --cacheinfo "100644,$REL_BLOB2,two.txt" >/dev/null 2>&1
+REL_ACTUAL="$(cd "$REL_CALLER" && GIT_INDEX_FILE="alternate" "$BASH_BIN" -c 'source "$1"; rc_pending_tree "$2" index' _ "$ENGINE_ROOT/scripts/lib/row-currency.sh" "$WORK")"
+if [ -n "$REL_EXPECTED" ] && [ "$REL_ACTUAL" = "$REL_EXPECTED" ]; then
+    ok "a relative GIT_INDEX_FILE is resolved from the repository root, never from a same-named file in the caller's directory"
+else
+    bad "relative alternate index resolved from the caller's directory (expected root's tree=$REL_EXPECTED actual=$REL_ACTUAL)"
+fi
+rm -f "$WORK/alternate"; rm -rf "$REL_CALLER"
+
 # ---------------------------------------------------------------------------
 # (i) NO OVERRIDE — there is no escape token, deliberately
 # ---------------------------------------------------------------------------
@@ -1711,7 +1733,10 @@ OID="$(oid_of "$WORK" lib/thing.js)"
 write_record "$REC" \
   "| 3.1 | **The prerequisite is in place.** | **Headline:** \`000000000000\` — \`echo ASSERTION ok && exit 7\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
   "| 3.2 | **Nothing mentions the word.** | **Headline:** \`000000000000\` — \`grep -c nosuchword lib/thing.js\` → \`0\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
-  "| 3.3 | **The tool complains but prints the words.** | **Headline:** \`000000000000\` — \`echo ASSERTION; echo broken >&2; exit 1\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |"
+  "| 3.3 | **The tool complains but prints the words.** | **Headline:** \`000000000000\` — \`echo ASSERTION; echo broken >&2; exit 1\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.4 | **A quiet failure prints the words.** | **Headline:** \`000000000000\` — \`echo ASSERTION; exit 1\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.5 | **A Python check prints the words then fails.** | **Headline:** \`000000000000\` — \`python3 -c \"print('ASSERTION'); raise SystemExit(1)\"\` → \`ASSERTION\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |" \
+  "| 3.6 | **The word is absent, asked with a pipeline.** | **Headline:** \`000000000000\` — \`cat lib/thing.js | grep -c nosuchword\` → \`0\` **State:** \`OPEN\` — \`work/lib/thing.js\`@\`${OID}\` |"
 commit_record "$REC"
 run_verify "$REC"
 if case "$VOUT" in *"MATCH       3.1"*) false ;; *"ERROR       3.1"*"exited 7"*) true ;; *) false ;; esac; then
@@ -1728,6 +1753,19 @@ if case "$VOUT" in *"MATCH       3.3"*) false ;; *"ERROR       3.3"*) true ;; *)
 else
     bad "a command that complained on stderr was credited as a match: $VOUT"
 fi
+# P5-67 (v2 re-check): the quiet exit 1 is the answer only when the command that
+# produced it is grep/test/diff and the like, not any command that printed the words.
+for ROW67 in 3.4 3.5; do
+    if case "$VOUT" in *"MATCH       $ROW67"*) false ;; *"ERROR       $ROW67"*"exited 1"*) true ;; *) false ;; esac; then
+        ok "a quiet exit 1 from a command that is not a no-match tool is an ERROR, not a MATCH ($ROW67)"
+    else
+        bad "a silent exit 1 was credited as a match ($ROW67): $VOUT"
+    fi
+done
+case "$VOUT" in
+    *"MATCH       3.6"*) ok "a pipeline ending in grep keeps the conventional exit-1 answer" ;;
+    *) bad "a pipeline ending in grep -c lost its exit-1 answer: $VOUT" ;;
+esac
 [ "$VRC" -eq 1 ] && ok "a failing command makes the verifier exit 1" || bad "the verifier did not fail on a failing command (rc=$VRC)"
 run_verify "$REC" --only 9.99
 if [ "$VRC" -eq 2 ] && case "$VOUT" in *"9.99"*) true ;; *) false ;; esac; then

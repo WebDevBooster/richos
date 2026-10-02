@@ -80,6 +80,10 @@
 #        refused; acquire and status name it (Frank's case E, Fix 2)
 #   F33  a non-starter's refused commit during the holder's live merge does not
 #        make the merge "orphaned" (Fix 3)
+#   F34  a declared holder an app update moved inside its own bundle is still the
+#        holder; another name, another team or no team does not pass; status
+#        and the session-start notice name it (scripts/lib/operator-fences-holders.test.py,
+#        run once: it asks the kernel and the bundle, never Git)
 #   F3L, F12L  measured limits, asserted so the record goes red if Git changes:
 #        a refused reset --hard and a refused merge --abort have already
 #        rewritten the tree (the early check exists for exactly these)
@@ -699,6 +703,11 @@ expect "F23" "[git $G] uninstall restores the previous hook and removes the laun
 ofx_end A; ofx_end B
 done
 export PATH="$ORIG_PATH"
+
+# ---- F34: a declared holder an app update moved ---------------------------------------------
+# Once, outside the per-git loop: the identity is the kernel's and the bundle's.
+out="$(python3 "$ENGINE_ROOT/scripts/lib/operator-fences-holders.test.py" 2>&1)"; rc=$?
+expect "F34" "a holder moved inside its app bundle is still the holder, nothing else passes as it, and status names it" "$rc" "$out"
 
 # M: this suite's mutation harness runs as its own unit,
 # scripts/operator-fences-mutation.test.sh, so each gets a deadline that fits it.

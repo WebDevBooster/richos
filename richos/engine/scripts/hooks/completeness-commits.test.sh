@@ -52,6 +52,9 @@
 #       degrades into a quiet pass.
 #   (i) REGISTRATION on BOTH surfaces plus the probe's oracle — the guard is
 #       wired where the host will actually load it.
+#   (j) ANOTHER REPOSITORY'S WORK — a commit here is never refused over a
+#       private tree's executable, staged or committed; the push refuses a
+#       COMMITTED misplaced mechanism by name, and never an uncommitted one.
 #
 # Run directly: scripts/hooks/completeness-commits.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
@@ -420,6 +423,40 @@ if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'BROKEN INSTALL'; then
 else
     bad "a missing predicate should refuse with BROKEN INSTALL (rc=$rc)"
 fi
+
+# ---------------------------------------------------------------------------
+echo "--- (j) another repository's work never refuses a commit here"
+# ---------------------------------------------------------------------------
+# 2026-10-01 (and 2026-09-28): a teammate's commit in its own richos workspace
+# was refused over a Codex audit probe STAGED, not committed, in richos-hq's main
+# checkout. A commit here can neither change nor fix another repository, so the
+# commit arm leaves the private trees to the push, and Check 4 reads only what
+# the private repository COMMITTED. The push (the land) still refuses a
+# committed misplaced mechanism, by name.
+JPUB="$(mktree jpub)"
+JPRIV="$SCRATCH/jpriv"
+mkdir -p "$JPRIV/scripts"
+git -C "$JPRIV" init -q 2>/dev/null || git init -q "$JPRIV"
+printf '# HQ\n' > "$JPRIV/README.md"
+git -C "$JPRIV" add -A >/dev/null 2>&1
+git -C "$JPRIV" commit -qm "hq" >/dev/null 2>&1
+printf 'PRIVATE_RECORD="hq"\nPRIVATE_SOURCES="%s"\n' "$JPRIV" > "$JPUB/.publication-boundary"
+commit_all "$JPUB"
+cat > "$JPRIV/scripts/probes-v2.py" <<'EOF'
+#!/usr/bin/env python3
+# An audit probe that reads .widget: work in progress in the private checkout.
+print(open(".widget").read())
+EOF
+git -C "$JPRIV" add scripts/probes-v2.py >/dev/null 2>&1
+printf 'unrelated\n' > "$JPUB/docs/unrelated.md"
+git -C "$JPUB" add docs/unrelated.md >/dev/null 2>&1
+cc_case "an unrelated commit is not refused over another repository's STAGED, uncommitted executable" 0 "$JPUB"
+cc_case "nor with the staging idiom" 0 "$JPUB" "git -C $JPUB add -A && git -C $JPUB commit -m msg"
+cc_case "nor does the push refuse what the private repository has not committed" 0 "$JPUB" "git -C $JPUB push"
+git -C "$JPRIV" commit -qm "probe" >/dev/null 2>&1
+cc_case "a commit here is not refused over another repository's COMMITTED mechanism either" 0 "$JPUB"
+cc_case "the PUSH (the land) refuses the committed misplaced mechanism" 2 "$JPUB" "git -C $JPUB push"
+says    "naming it" "probes-v2.py"
 
 # ---------------------------------------------------------------------------
 echo "--- (i) registration: a guard the host will actually load"

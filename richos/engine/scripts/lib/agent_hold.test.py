@@ -1034,6 +1034,64 @@ class Interrupted(Base):
         self.assertTrue(wait_for(lambda: not self.state_of(self.sleeper.pid).startswith("T")))
         self.assertFalse(os.path.exists(agent_hold._held_path(self.session, self.agent) + agent_hold.RELEASING))
 
+    # A release that cannot move the active hold record aside has NOT released anything:
+    # the record still refuses the agent's new commands and its wait (hunt P5-76).
+    def test_a_release_whose_record_cannot_move_reports_failure_and_continues_nothing(self):
+        from unittest.mock import patch
+        self.hold_it()
+        self.assertTrue(wait_for(lambda: self.state_of(self.sleeper.pid).startswith("T")))
+        path = agent_hold._held_path(self.session, self.agent)
+        with patch.object(agent_hold.os, "replace", side_effect=PermissionError("fixture denied move")):
+            result = agent_hold.release(self.session, self.agent)
+        self.assertTrue(os.path.exists(path), "the hold record is still there")
+        self.assertIs(result["ok"], False, "a release that left the hold standing is not a success")
+        self.assertIn("could not be moved aside", result["why"])
+        self.assertEqual(result["continued"], [], "nothing is continued while the hold still stands")
+        self.assertTrue(self.state_of(self.sleeper.pid).startswith("T"), "held work stays held, consistently")
+        self.assertIn("FAILED", agent_hold.describe_release(result))
+        # Once the record can move, the same release finishes the job.
+        again = agent_hold.release(self.session, self.agent)
+        self.assertIs(again["ok"], True)
+        self.assertIn(self.sleeper.pid, again["continued"])
+        self.assertFalse(os.path.exists(path))
+
+    def test_a_release_whose_record_cannot_be_removed_is_not_reported_ok(self):
+        from unittest.mock import patch
+        self.hold_it()
+        real_unlink = os.unlink
+
+        def deny_releasing(p, *a, **k):
+            if str(p).endswith(agent_hold.RELEASING):
+                raise PermissionError("fixture denied unlink")
+            return real_unlink(p, *a, **k)
+        with patch.object(agent_hold.os, "unlink", side_effect=deny_releasing):
+            result = agent_hold.release(self.session, self.agent)
+        self.assertIn(self.sleeper.pid, result["continued"])
+        self.assertIs(result["ok"], False)
+        self.assertIn("could not be removed", result["why"])
+
+    def test_the_watchdog_keeps_watching_after_a_failed_release(self):
+        from unittest.mock import patch
+        self.hold_it()
+        path = agent_hold._held_path(self.session, self.agent)
+        rec = agent_hold._read_json(path)
+        rec["parents"] = {"999999": "not-a-live-birth"}
+        agent_hold._write_json(path, rec)
+        moves = []
+        real_replace = os.replace
+
+        def deny_first(src, dst):
+            moves.append(src)
+            if len(moves) == 1:
+                raise PermissionError("fixture denied move")
+            return real_replace(src, dst)
+        with patch.object(agent_hold.os, "replace", side_effect=deny_first), \
+                patch.object(agent_hold, "_watch_seconds", return_value=0.01):
+            self.assertEqual(agent_hold.watch(self.session, self.agent), 0)
+        self.assertEqual(len(moves), 2, "the failed release was tried again")
+        self.assertFalse(os.path.exists(path))
+        self.assertTrue(wait_for(lambda: not self.state_of(self.sleeper.pid).startswith("T")))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

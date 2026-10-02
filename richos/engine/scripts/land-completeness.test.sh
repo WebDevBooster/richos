@@ -667,6 +667,27 @@ else
     bad "L25  reused-path -> '$D', expected unowned"
 fi
 
+# --- L26: an unreadable workspace status decides nothing (hunt P5-80) -----
+# `git status` failing (here: a corrupt worktree index) cannot show that the workspace
+# holds no uncommitted work, so it is never a finished land: unknown, never blocking.
+R26="$SANDBOX/unread/repo"
+mkrepo "$R26"
+mkworktree "$R26" "unreadable-agent" yes
+register "$R26" "$SANDBOX/unread/unreadable-agent" "unreadable-agent" "abab7777"
+IDX26="$(git -C "$SANDBOX/unread/unreadable-agent" rev-parse --path-format=absolute --git-path index)"
+printf 'not an index' > "$IDX26"
+if git -C "$SANDBOX/unread/unreadable-agent" status --porcelain >/dev/null 2>&1; then
+    bad "L26  fixture: git status still reads the corrupted workspace, so the case proves nothing"
+else
+    J26="$(analyze_json "$R26")"
+    D="$(printf '%s' "$J26" | disposition_of "unreadable-agent")"
+    if [ "$D" = "unknown-merge" ]; then
+        ok "L26  a workspace whose status cannot be read is UNKNOWN, never an incomplete land"
+    else
+        bad "L26  unreadable-agent -> '$D', expected unknown-merge"
+    fi
+fi
+
 # --- THE MUTATION HARNESS -------------------------------------------------
 # Guarded so the harness, which runs this suite once per mutant, does not
 # recurse into itself.

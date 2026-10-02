@@ -91,8 +91,8 @@ class GuardTests(unittest.TestCase):
         env = {'RICHOS_VERIFICATION_MODE': 'fixture', 'RICHOS_VERIFICATION_FIXTURE_ROOT': str(fixture),
                'HOME': str(fixture / 'home'), 'CLAUDE_CONFIG_DIR': str(fixture / 'home/.claude')}
         with patch.object(G, 'CANONICAL_STATE', machine), patch.dict(os.environ, env):
-            self.assertEqual(G.governed_directory(fixture / 'pool', machine), fixture / 'pool')
-            self.assertEqual(G.governed_directory(machine, machine), machine)
+            self.assertEqual(G.governed_directory(fixture / 'pool', machine), (fixture / 'pool').resolve())
+            self.assertEqual(G.governed_directory(machine, machine), machine.resolve())
             for changes in ({'HOME': G.pwd.getpwuid(os.getuid()).pw_dir},
                             {'CLAUDE_CONFIG_DIR': str(G.STATE / 'outside')},
                             {'RICHOS_VERIFICATION_MODE': ''}):
@@ -562,10 +562,11 @@ class GuardTests(unittest.TestCase):
 
     def test_unavailable_cpu_sample_retries_using_full_interval(self):
         reserve=Mock()
-        reserve.host_sample.side_effect=[BlockingIOError('counters did not advance'), {'cpu_idle_percent':80}]
+        reserve.host_sample.side_effect=[BlockingIOError('counters did not advance'),
+                                         {'cpu_idle_percent':80, 'cpu_user_percent':15, 'cpu_system_percent':5}]
         reserve._refusal.return_value=False
         with patch.object(N.time,'sleep') as sleep:
-            N.wait_for_headroom(reserve, timeout=10)
+            self.assertEqual(N.wait_for_headroom(reserve, timeout=10), 20)   # total CPU: user + system
         self.assertEqual(reserve.host_sample.call_count,2)
         reserve.host_sample.assert_called_with()
         sleep.assert_called_once_with(3)

@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Opens the app on a round-12 screen by name — the core's fixture of the same name
@@ -62,6 +63,58 @@ enum Screen {
         "updates": ["upd-banner", "upd-dialog", "upd-blocking", "upd-feature-off"],
         "launch": ["launch-cached"],
     ]
+}
+
+/// A screenshot's pixels, read in points, to tell what is drawn from what is not where the accessibility
+/// tree cannot: a masked line keeps its frame in the tree.
+struct ScreenPixels {
+    private let bytes: [UInt8]
+    private let width: Int
+    private let height: Int
+    private let scale: CGFloat
+
+    init(_ shot: XCUIScreenshot) {
+        let image = shot.image
+        guard let cg = image.cgImage else { bytes = []; width = 0; height = 0; scale = 1; return }
+        let w = cg.width, h = cg.height
+        var buffer = [UInt8](repeating: 0, count: w * h * 4)
+        buffer.withUnsafeMutableBytes { raw in
+            let context = CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        }
+        bytes = buffer; width = w; height = h
+        scale = CGFloat(w) / max(image.size.width, 1)
+    }
+
+    private func rgb(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+        let i = (y * width + x) * 4
+        return (Int(bytes[i]), Int(bytes[i + 1]), Int(bytes[i + 2]))
+    }
+
+    /// The first pixel row (in points) inside `rows` where something is drawn between `x0` and `x1`,
+    /// outside `skipping`: a row is plain when every pixel is within `tolerance` of the row's first one
+    /// in each channel (the ground's lamp light changes far more slowly than that across a row).
+    func firstDrawnRow(in rows: ClosedRange<CGFloat>, from x0: CGFloat, to x1: CGFloat,
+                       skipping: ClosedRange<CGFloat>, tolerance: Int = 24) -> CGFloat? {
+        guard width > 0 else { return rows.lowerBound }
+        var y = Int((rows.lowerBound * scale).rounded(.up))
+        while CGFloat(y) <= rows.upperBound * scale, y < height {
+            let xs = stride(from: Int(x0 * scale), to: min(Int(x1 * scale), width), by: 1)
+                .filter { !skipping.contains(CGFloat($0) / scale) }
+            if let first = xs.first {
+                let base = rgb(first, y)
+                for x in xs {
+                    let c = rgb(x, y)
+                    if abs(c.0 - base.0) > tolerance || abs(c.1 - base.1) > tolerance || abs(c.2 - base.2) > tolerance {
+                        return CGFloat(y) / scale
+                    }
+                }
+            }
+            y += 1
+        }
+        return nil
+    }
 }
 
 extension XCTestCase {

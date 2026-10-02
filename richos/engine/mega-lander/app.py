@@ -370,15 +370,37 @@ def merge_commit(repo, tip, commit, branch, reviewer_id):
                          % (commit[:12], repo, str(error).strip()[-2000:]))
 
 
+def ever_dispatched(record, canonical=None):
+    """Any sign that this receipt's worker was handed to the provider: the
+    receipt's own tool call or agent id, or the spawn evidence the canonical
+    record writes at PreToolUse[Agent], SubagentStart and PostToolUse[Agent]."""
+    return bool(record.get("tool_use_id") or record.get("agent_id")
+                or (canonical and any(canonical.get(field) for field in SPAWN_EVIDENCE)))
+
+
 def refresh(record):
     canonical = W.load_agent(W.named_key(record["binding"]["session_id"], record["name"]))
     if canonical:
         record["workspace_ref"] = canonical["key"]
         if canonical.get("agent_id"): record["agent_id"] = canonical["agent_id"]
         if canonical.get("started_at"): record["status"] = "running"
-        if not canonical.get("end") and W.session_state(record["binding"]["session_id"])[0] == "ended":
+        # A SESSION ENDING INTERRUPTS ONLY A WORKER THAT WAS DISPATCHED (hunt
+        # part 4 v2, V2-01). It used to turn every unended receipt
+        # `interrupted`, including a preparation that never reached `Agent`;
+        # `interrupted` then skipped settle_undispatched for good (it survives
+        # a resume), and completion counted that receipt as a final worker
+        # that had to show integration evidence for work it never did. A
+        # never-dispatched receipt keeps its own status and is settled like
+        # any other; one an older build already marked `interrupted` is put
+        # back to `unknown` here, which is what it was.
+        dispatched = ever_dispatched(record, canonical)
+        if not canonical.get("end") and dispatched \
+                and W.session_state(record["binding"]["session_id"])[0] == "ended":
             record["status"] = "interrupted"
             record["interruption"] = "the owning provider process ended without an observed worker result"
+        elif record.get("status") == "interrupted" and not dispatched:
+            record["status"] = "unknown"
+            record["interruption"] = None
         if canonical.get("end"):
             record["status"] = "run-ended"
             record["end_observation"] = canonical["end"]

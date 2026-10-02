@@ -41,6 +41,7 @@ Bash|guard-public-record-repo.sh
 Bash|guard-land-lease-commands.sh
 Bash|guard-foreign-app-data.sh
 Bash|guard-operator-claim.sh
+Bash|guard-shared-scratchpad.sh
 
 Write|guard-main-checkout-writes.sh
 Write|scan-secrets.sh

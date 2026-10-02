@@ -71,6 +71,7 @@
 #           syslog-rate counts one process's log entries per bucket, refuses a non-log;
 #           I31-I32 Settings and Safari places and an https-only open step; I33-I34
 #           another app launched fresh, a switch by kind and label, SpringBoard never closed
+#   FC1-FC4 phone-ios forecast: prompt-free runs, other id, unknown, run ledger
 #   J1-J7   phone-ios approval: the UI-automation approval forecast from the phone's
 #           own sessions, and a run expected to ask refused until the CEO was told
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
@@ -811,13 +812,21 @@ mkdir -p "$TMP/notlab"; cp "$TMP/lab/timeline.json" "$TMP/notlab/timeline.json"
 run "$QA/lab-ledger.py" --timeline "$TMP/notlab/timeline.json" one
 expect "L4 a timeline that is not the isolated lab's is refused, never read" 2 "owner marker"
 echo "=== P. lab-pause: the isolated lab Mac held silent between two phone marks ==="
-# A stand-in listener: sleep reached through a link whose name carries the listener's test name,
-# so its command line is the one the tool checks for. It is this suite's own child, stopped here.
+# A stand-in listener: a python sleeper whose command line carries the listener's test name and
+# whose environment carries this lab's RICHOS_MOBILE_MAC_DIR (as mac-server.mjs gives the real one),
+# the two things the tool checks. (Not /bin/sleep: a system binary hides its environment from ps.)
+# It is this suite's own child, stopped here.
 mkdir -p "$TMP/lp/data"
 printf 'richos-mobile-isolated-v1' > "$TMP/lp/data/lab-owner"
-ln -sf /bin/sleep "$TMP/lp/mobile_mac_server::serve"
-"$TMP/lp/mobile_mac_server::serve" 60 &
+RICHOS_MOBILE_MAC_DIR="$TMP/lp/data" python3 -c 'import time; time.sleep(60)' 'mobile_mac_server::serve' &
 LPPID=$!
+mkdir -p "$TMP/lp-foreign/data"
+RICHOS_MOBILE_MAC_DIR="$TMP/lp-foreign/data" python3 -c 'import time; time.sleep(60)' 'mobile_mac_server::serve' &
+LPFOREIGN=$!
+# load-bound: a fresh child shows its environment to ps only once it has finished starting
+for LPWHO in "$LPPID" "$LPFOREIGN"; do
+  n=0; until ps -E -p "$LPWHO" -o command= | grep -q 'RICHOS_MOBILE_MAC_DIR=' || [ "$n" -ge 200 ]; do sleep 0.05; n=$((n + 1)); done
+done
 printf '{"pid": %s, "data": "%s"}' "$LPPID" "$TMP/lp/data" > "$TMP/lp/mac.json"
 : > "$TMP/lp/run-test.log"
 ( echo 'PHONE_STEP {"detail":{"label":"PAUSE MAC 1"}}' >> "$TMP/lp/run-test.log"
@@ -841,6 +850,16 @@ printf '{"pid": %s, "data": "%s"}' "$$" "$TMP/lp/data" > "$TMP/lp/other.json"
 mkdir -p "$TMP/lp-other"; cp "$TMP/lp/other.json" "$TMP/lp-other/mac.json"
 run python3 "$QA/lab-pause.py" --lab "$TMP/lp-other" --log "$TMP/lp/run-test.log" --stop-at x --cont-at y --timeout 2
 expect "LP3 a pid that is not the lab's listener is refused, never paused" 2 "is not the lab's listener"
+# R35: a listener of ANOTHER lab (same command name) now holds the pid the cache recorded.
+mkdir -p "$TMP/lp-stale"; printf '{"pid": %s, "data": "%s"}' "$LPFOREIGN" "$TMP/lp/data" > "$TMP/lp-stale/mac.json"
+run python3 "$QA/lab-pause.py" --lab "$TMP/lp-stale" --log "$TMP/lp/run-test.log" --stop-at x --cont-at y --timeout 2
+FSTAT="$(ps -p "$LPFOREIGN" -o stat= | tr -d ' ')"
+if [ "$CODE" = 2 ] && printf '%s' "$OUT" | grep -q 'listener of another lab' && case "$FSTAT" in T*) false ;; *) true ;; esac; then
+  ok "LP5 a pid that is another lab's listener (same command name, other data directory) is refused and never paused"
+else
+  bad "LP5 another lab's listener is refused, never paused" "exit $CODE, state '$FSTAT': $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"
+fi
+kill "$LPFOREIGN" 2>/dev/null; wait "$LPFOREIGN" 2>/dev/null
 echo 'PHONE_STEP {"detail":{"label":"PAUSE MAC 2"}}' >> "$TMP/lp/run-test.log"
 run python3 "$QA/lab-pause.py" --lab "$TMP/lp" --log "$TMP/lp/run-test.log" --stop-at 'PAUSE MAC 2' --cont-at 'never written' --timeout 3
 NOW="$(ps -p "$LPPID" -o stat= | tr -d ' ')"
@@ -887,8 +906,42 @@ if [ "$CODE" != 0 ] && [ "$(tail -n 1 "$TMP/hs-adb.log")" = "-s TESTSERIAL shell
 else
   bad "HS2 Wi-Fi is put back on however the try ends" "exit $CODE, last adb call '$(tail -n 1 "$TMP/hs-adb.log")'"
 fi
+# R39: an unreadable socket table is recorded as unreadable, never as "none".
+: > "$TMP/hs.log"; : > "$TMP/hs-adb.log"; rm -f "$TMP/hs-sock.txt"
+cat > "$TMP/fakebin/adb" <<'FAKE'
+#!/bin/sh
+case "$*" in *"cat /proc/net"*) [ -n "$FAKE_PROC_DENIED" ] && { echo "Permission denied" >&2; exit 1; }
+  echo "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode"
+  echo "   0: 00000000:0000 00000000:01BB 01 0:0 00:0 0 10001 0 0"; exit 0 ;; esac
+echo "$*" >> "$FAKE_ADB_LOG"
+exit 0
+FAKE
+FAKE_PROC_DENIED=1 FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 1,2 --sockets-uid 10001 --sockets-file "$TMP/hs-sock.txt" --observe 1
+if [ "$CODE" = 0 ] && grep -q ' unreadable Permission denied' "$TMP/hs-sock.txt" && ! grep -q ' none$' "$TMP/hs-sock.txt"; then
+  ok "HS4 a denied /proc/net read is recorded 'unreadable Permission denied', never 'none'"
+else
+  bad "HS4 an unreadable socket table is not 'none'" "exit $CODE: $(tr '\n' ';' < "$TMP/hs-sock.txt" 2>/dev/null | cut -c1-200)"
+fi
+rm -f "$TMP/hs-sock.txt"
+FAKE_ADB_LOG="$TMP/hs-adb.log" PATH="$TMP/fakebin:$PATH" run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send 1,2 --sockets-uid 10001 --sockets-file "$TMP/hs-sock.txt" --observe 1
+if [ "$CODE" = 0 ] && grep -q ' ESTABLISHED:01BB$' "$TMP/hs-sock.txt"; then
+  ok "HS5 a readable table still records the app's socket (control)"
+else
+  bad "HS5 a readable socket table is recorded" "exit $CODE: $(tr '\n' ';' < "$TMP/hs-sock.txt" 2>/dev/null | cut -c1-200)"
+fi
 run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send nonsense
 expect "HS3 a Send position that is not X,Y is refused before any adb call" 2 "X,Y integers"
+HSC="$(python3 - "$QA/hidden-send-try.py" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("hst", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m.counter("cloudflared_tunnel_total_requests 7"), m.counter('cloudflared_tunnel_response_by_code{status_code="200"} 7'))
+PY
+)"
+if [ "$HSC" = "total_requests=7 response_by_code[200]=7" ]; then
+  ok "HS4 an unlabeled and a labeled counter both write name=value, the name alone left of the ="
+else
+  bad "HS4 counter lines parse as name=value" "got '$HSC'"
+fi
 
 echo ""
 echo "=== TR. tunnel-requests: the lab tunnel's request counter, sampled on this Mac and counted between two instants ==="
@@ -1127,6 +1180,7 @@ expect "I26 a runner with no step dispatcher is refused, never read as agreeing"
 # Fixture logs are shaped like xcodebuild's: the phone named on the command line, the runner's
 # start and the first suite's start on the phone clock. Their age is their modification time.
 SESS="$TMP/sessions"; mkdir -p "$SESS"
+export RICHOS_IOS_SESSION_LEDGER="$SESS/ledger.jsonl"   # never the operator's real run ledger
 PHONE="00000000-0000000000000000"
 session_log() {  # session_log <file> <runner hh:mm:ss.mmm> <suite hh:mm:ss.mmm or TIMEOUT> <seconds ago>
   {
@@ -1178,6 +1232,51 @@ echo 'PHONE_PASSCODE {"configured":false,"error":"com.apple.LocalAuthentication 
 python3 -c 'import os,sys,time; t=time.time()-36000; os.utime(sys.argv[1],(t,t))' "$SESS/d.log"
 run forecast
 expect "J7 ten hours idle, but the phone said it has no passcode: no approval is expected" 0 'the phone has no passcode (the phone itself at a session'
+
+# FC1-FC4 (2026-10-02): the forecast must not send the CEO to the phone for nothing.
+# K1: back-to-back runs that enabled automation without a prompt, the last one 50 min ago (past the
+# 10 min quiet window, short of 9.3 h): no approval expected. Red on main: it said "expected".
+rm -f "$SESS"/*.log "$SESS/ledger.jsonl"
+session_log a.log 07:00:00.000 07:00:00.700 20000
+session_log b.log 07:47:23.244 07:47:24.000 3000
+run forecast
+expect "FC1 recent prompt-free sessions, passcode unreadable: no approval is expected" 0 '"approvalExpected": false'
+# K2: the same phone under its other spelling (CoreDevice UUID vs hardware UDID) finds its sessions.
+run env RICHOS_IOS_DEVICE_ALIASES="$PHONE" RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" approval --device 1D1D1D1D-2E2E-4F4F-8A8A-3B3B3B3B3B3B
+expect "FC2 a phone named by its other id still has its sessions on record" 0 '"sessionsOnRecord": 2'
+# K3: nothing known: unknown, never "expected", and it says what settles it.
+rm -f "$SESS"/*.log "$SESS/ledger.jsonl"
+run forecast
+expect "FC3 no passcode reading and no session: unknown, not expected" 0 '"approvalExpected": "unknown"'
+expect "FC3b the unknown forecast says what would settle it" 0 'settledBy'
+# K4: a run writes its session record where `approval` reads it (fake rios; the log is shaped like xcodebuild's).
+KOUT="/Volumes/E1TB/tmp/claude/quint-forecast1-qa-$$"
+mkdir -p "$KOUT/physical"
+cat > "$TMP/fake-rios" <<SH
+#!/bin/sh
+printf '%s\n' "$KOUT/physical/script-123.xcresult"
+{
+  echo "-destination id=$PHONE"
+  echo "2026-10-01 07:47:23.244123+0100 RichOSNativeUITests-Runner[5881:1] [Default] Running tests..."
+  echo "Test Suite 'Selected tests' started at 2026-10-01 07:47:24.000."
+} > "$KOUT/physical/verify-script-123-test.log"
+exit 0
+SH
+chmod +x "$TMP/fake-rios"
+session_log a.log 07:47:23.244 07:47:24.000 120
+run env RICHOS_IOS_DEVICE="$PHONE" RICHOS_APPLE_TEAM=y RICHOS_IOS_RIOS="$TMP/fake-rios" RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out "$KOUT/out"
+if [ -s "$SESS/ledger.jsonl" ] && grep -qF '"enableWaitSeconds": 0.8' "$SESS/ledger.jsonl" && grep -qF '"approvalNeeded": false' "$SESS/ledger.jsonl"; then
+  ok "FC4 a run records its session (start, end, enable wait, approval needed) in the ledger"
+else bad "FC4 a run records its session" "ledger: $(cat "$SESS/ledger.jsonl" 2>/dev/null | head -c 300) out: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"; fi
+rm -f "$SESS"/*.log
+run forecast
+expect "FC4b the recorded run alone is a session on record that approval reads" 0 '"sessionsOnRecord": 1'
+rm -rf "$KOUT"
+rm -f "$SESS"/*.log "$SESS/ledger.jsonl"
+# the P tests need a phone whose forecast IS expected: a 10 h old session of PHONE2 with no reading.
+PHONE_SAVE="$PHONE"; PHONE="00008030-0000FEEDFACE0001"
+session_log p2.log 07:47:23.244 07:47:24.000 36000
+PHONE="$PHONE_SAVE"
 
 # P01-P05: the approval refusal raises its own needs=ceo-hands escalation (2026-10-01, richos-hq
 # docs/operations/2026-10-01-escalation-wakes-the-lead.md item C, and Sage's review items 7 and 11).
@@ -1327,7 +1426,8 @@ if [ "$FAIL" -gt 0 ]; then
   exit 1
 fi
 if [ "$SKIP" -gt 0 ]; then
-  echo "=== qa toolkit tests: all $PASS passed, $SKIP SKIPPED (named above) ==="
-  exit 0
+  # Exit 2, never 0: a skipped case did not run, and exit 0 is recorded as `passed` (hunt R18 pattern).
+  echo "=== qa toolkit tests: all $PASS passed, $SKIP NOT RUN (skipped cases named above) ==="
+  exit 2
 fi
 echo "=== qa toolkit tests: all $PASS passed ==="
