@@ -27,7 +27,7 @@ The split is enforced structurally:
 core/        settings · IndexedDB · offscreen host · output writer · alerts/badge · registry
 modules/
   call-capture/     everything about calls
-  chatgpt-export/   seam stub only
+  gpt-exporter/     manual ChatGPT export module
 ```
 
 A module is a plain object with `id`, `defaults`, `settingsSchema`, `init`, `onMessage`,

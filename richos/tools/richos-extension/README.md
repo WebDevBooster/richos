@@ -1,3 +1,19 @@
+## RichOS Helper 1.1.0
+
+Call capture and manual ChatGPT export are independent modules under
+`modules/call-capture/` and `modules/gpt-exporter/`. Call capture excludes ChatGPT,
+including audible tabs. GPT Exporter runs only on `https://chatgpt.com` after you
+grant that optional site permission in its panel. Open **ChatGPT export** in the
+Helper popup for the existing Current, All and New/Updated workflows. Markdown,
+JSON, branch handling and ZIP exports retain the standalone defaults. Settings
+and export history stay separate from recorder data.
+
+See [the exporter module documentation](modules/gpt-exporter/README.md) for
+manual migration from standalone GPT Exporter 2.2.1 and explicit job recovery.
+There is no automatic conversation sync into RichOS. Export progress does not
+replace recording status, its badge or its alerts. ZIP packaging runs in a
+dedicated worker while core manages ownership of Chrome’s one offscreen document.
+
 ## Windows call reliability (1.0.0)
 
 Capture never starts automatic Chrome downloads. If the local native host is available, audio streams to it and it writes files continuously. If it is absent or fails, the extension keeps session metadata, audio and captions in IndexedDB and shows that location in the popup. After the call, use **Export** to download one ZIP containing the session directory. Chrome may ask where to save that explicit export once. Cancel keeps the recording for retry. Extract the ZIP before using the existing drop-zone sync helper.
@@ -316,7 +332,7 @@ alarm fire — see [TEST-PROTOCOL.md](TEST-PROTOCOL.md).
 ## Layout
 
 ```
-manifest.json            MV3 shell (name: RichOS)
+manifest.json            MV3 shell (name: RichOS Helper, version: 1.1.0)
 background.js            service worker: registers modules, routes messages
 core/                    shared by every module
   constants.js           product identity, storage keys, badge colors, core settings
@@ -341,7 +357,14 @@ modules/
       caption-dedup.js   pure revision aggregation; the caption COUNT lives here (unit-tested)
       meet.js            Google Meet DOM adapter, read-only (both renderers)
       content-meet.js    tiny read-only content script injected on meet.google.com
-  chatgpt-export/        module 2 seam — the GPT Exporter port lands here later
+  gpt-exporter/          module 2: manual ChatGPT exports
+    controller.js        job admission, recovery and migration
+    runtime.js jobs.js    export workflows and durable checkpoints
+    content.js           on-demand ChatGPT page bridge
+    panel.html/.js       independent export controls
+    offscreen.js         owned export URLs and worker lifecycle
+    packaging-worker.js  file and ZIP generation
+    export/ lib/ sync/   pinned formatters, downloads and export history
 options/ popup/ icons/   shared UI shell
 sync/
   richos-sync.mjs        drop zone → loro, with anomaly reporting

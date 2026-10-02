@@ -1,14 +1,14 @@
 # GPT Exporter integration into RichOS Helper
 
-Status: design only. The Helper rename is implemented at 84ea55d9d, version 1.0.0.
-The ChatGPT export module is not implemented. The owner confirmed that the first
+Status: historical design, implemented for Helper 1.1.0. See README.md for the
+current module layout and actual verification evidence. The owner confirmed that the first
 integration must preserve current functionality and defaults. Preserve the manual
 export workflow; automatic sync and RichOS ingestion are outside this milestone.
 
 ## Source and parity
 
 Use the owner's standalone `/Users/alex/ab/gpt-exporter` checkout at
-`8e01bf8` (GPT Exporter 2.2.0) as the port baseline. The copy under
+`3f832818` (GPT Exporter 2.2.1) as the port baseline. The copy under
 `richos/engine/tools/gpt-exporter` has 18 identical tracked files; its
 `export/markdown.js` differences are documentation examples only. Several source
 and test-support files are absent from the bundled copy, including the test runner
@@ -59,9 +59,8 @@ and pending save state so popup closure and worker eviction do not lose hours of
 Keep deliberate pacing and pauses; resume the same job rather than refetching it
 from the start.
 
-The standalone `downloadBlobUrl` returns when Chrome starts a download.
-`markConversationsAsExported` is subsequently called before Chrome necessarily
-reports completion. In the port, update incremental history only after a successful
+The standalone download-completion defect was fixed in 2.2.1. The port likewise
+updates incremental history only after a successful
 terminal download or an acknowledged local-host write. Cancellation/interruption
 retains staged files and leaves affected conversations eligible for retry.
 
