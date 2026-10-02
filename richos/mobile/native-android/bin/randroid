@@ -30,6 +30,24 @@
 #                                       of the installed build (richos/mobile/perf/perf.py android)
 #   randroid emu stop | delete          quit the emulator this CLI started (by its recorded PID) /
 #                                       also delete its AVD
+#   randroid device --serial S <command>  a PHYSICAL phone; the only way anything touches one. Only
+#                                       the release build goes on it and every command below tests
+#                                       that build (CEO 2026-10-02): each refuses an emulator, and a
+#                                       phone whose installed RichConnect is debuggable, with the
+#                                       sentence. Nothing here uninstalls the app or clears its data.
+#                                       (RANDROID_DEVICE may name the serial instead of --serial.)
+#       build                           the installed build: version, debuggable, configuration
+#       install [APK]                   the release APK (default: `randroid build release`'s), over
+#                                       the installed app with `adb install -r`, data kept; refuses a
+#                                       debuggable APK; stamps it for `device perf`
+#       seed TWIN_APK [perf args]       the made-up conversation through the release build's
+#                                       debuggable twin (perf.py --seed-twin; the twin is replaced by
+#                                       the release build in the same call)
+#       perf [perf args]                cold start, return from background, ... (perf.py android)
+#       record FILE.mp4 [--seconds N]   a screen recording (at most 180 s)
+#       texts|wait|gone|tap|node|swipe|type-file|keys|field|unlabeled|shot|burst|idle-frames|state|observe
+#                                       the walk steps (richos/app/scripts/qa/phone-android.py)
+#       hidden-send [args]              a send kept in flight across Home (qa/hidden-send-try.py)
 #   randroid doctor                     the tools this command found
 #
 # Output is JSON; a failure exits nonzero. The command grammar and the result envelope are the
@@ -365,6 +383,82 @@ emu() {
   esac
 }
 
+# --- a physical phone -------------------------------------------------------------------------
+# The ONLY way anything touches one (CEO 2026-10-02: only the release build goes on his phones and
+# every test on them tests it). The rules (release only, never an uninstall, the installed build
+# checked first) live in richos/mobile/physical.py; the tools run here refuse a phone unless this
+# verb started them (RICHOS_DEVICE_VERB), so no other path reaches it.
+device() {
+  # --serial S may stand before or after the command (`randroid device --serial S install`,
+  # `randroid device install --serial S`, the grammar richos/mobile/perf/watch.py calls).
+  local serial="${RANDROID_DEVICE:-}" rest=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --serial) serial="${2:-}"; shift 2 || shift $# ;;
+      *) rest+=("$1"); shift ;;
+    esac
+  done
+  set -- ${rest[@]+"${rest[@]}"}
+  [ -n "$serial" ] || fail "name the phone: randroid device --serial SERIAL <command> (or RANDROID_DEVICE); never a bare adb"
+  local sub="${1:-}"; shift || true
+  local phys="$HERE/../physical.py" qa="$HERE/../../app/scripts/qa" perf="$HERE/../perf/perf.py"
+  export RICHOS_DEVICE_VERB=randroid PYTHONDONTWRITEBYTECODE=1
+  case "$sub" in
+    build) exec python3 "$phys" android-build --adb "$ADB" --serial "$serial" ;;
+    install)
+      local apk="" expect=""
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --expect-commit) expect="${2:-}"; shift 2 || shift $# ;;
+          -*) fail "unknown install option '$1'; see randroid --help" ;;
+          *) apk="$1"; shift ;;
+        esac
+      done
+      if [ -z "$apk" ]; then
+        # This checkout's release build, signed with the upload key when it is in the environment
+        # (richos-hq with-android-signing.py); then no configuration cache, which would hold it.
+        if upload_key_present; then gradle -q --no-configuration-cache :app:assembleRelease >&2 || fail "the release APK did not build"
+        else gradle -q :app:assembleRelease >&2 || fail "the release APK did not build"; fi
+        apk="$(built_apk release)" || fail "no release APK recorded in output-metadata.json"
+      fi
+      case "$apk" in *-unsigned.apk)
+        fail "REFUSED: $apk is unsigned, and a phone installs only a signed APK. Run through richos-hq scripts/with-android-signing.py so the release build carries the upload key" 3 ;;
+      esac
+      # Its identity beside it, first: `--expect-commit` is checked against it before the phone is
+      # touched, and `device perf` refuses an installed app whose bytes are not these.
+      python3 "$perf" stamp --artifact "$apk" --checkout "$HERE/../../.." --paths richos/mobile/native-android \
+        > "$apk.stamp.json" || fail "could not stamp $apk"
+      if [ -n "$expect" ]; then
+        python3 - "$apk.stamp.json" "$expect" <<'PY' || exit 3
+import json, sys
+stamp, want = json.load(open(sys.argv[1])), sys.argv[2]
+if len(want) < 7 or not str(stamp.get("commit", "")).startswith(want) or stamp.get("dirty"):
+    print(json.dumps({"ok": False, "refused": f"freshness mismatch: the APK was built from {stamp.get('commit')} "
+                      f"(uncommitted changes: {stamp.get('dirty')}), not {want}; nothing was installed"}), file=sys.stderr)
+    sys.exit(1)
+PY
+      fi
+      python3 "$phys" android-install --adb "$ADB" --serial "$serial" --apk "$apk" \
+        --aapt2 "${RANDROID_AAPT2:-$ANDROID_HOME/build-tools/36.0.0/aapt2}" || exit $? ;;
+    record) exec python3 "$phys" android-record --adb "$ADB" --serial "$serial" --out "${1:?record FILE.mp4}" "${@:2}" ;;
+    perf|seed)
+      local extra=()
+      if [ "$sub" = seed ]; then
+        [ "$#" -ge 1 ] || fail "seed takes the release build's debuggable twin: randroid device seed TWIN_APK"
+        extra=(--seed-twin "$1" --only seed); shift
+      fi
+      case " $* " in *" --stamp "*) ;; *)
+        local rel; rel="$(built_apk release 2>/dev/null)" && [ -f "$rel.stamp.json" ] && extra+=(--stamp "$rel.stamp.json") ;;
+      esac
+      exec python3 "$perf" android --adb "$ADB" --serial "$serial" --kind physical --checkout "$HERE/../../.." \
+        ${extra[@]+"${extra[@]}"} "$@" ;;
+    hidden-send) exec python3 "$qa/hidden-send-try.py" --adb "$ADB" --serial "$serial" "$@" ;;
+    texts|wait|gone|tap|node|swipe|type-file|keys|field|unlabeled|shot|burst|idle-frames|state|observe)
+      exec python3 "$qa/phone-android.py" --adb "$ADB" --serial "$serial" "$sub" "$@" ;;
+    *) fail "unknown device command '$sub'; see randroid --help" ;;
+  esac
+}
+
 # --- the release check ------------------------------------------------------------------------
 # Scans one APK for the development bridge: its classes (the debug package and core/dev) and
 # its manifest entries (DevBridgeReceiver, DevBridgeInit, the devbridge authority).
@@ -663,7 +757,8 @@ case "$mode" in
     verify_bundle "$1" ;;
   check-release) check_release ;;
   emu) emu "$@" ;;
+  device) device "$@" ;;
   doctor) doctor ;;
-  ""|-h|--help|help) sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,60p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) fail "unknown mode '$mode'; see randroid --help" ;;
 esac

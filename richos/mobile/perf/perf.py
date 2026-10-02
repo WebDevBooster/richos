@@ -443,10 +443,22 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
         raise Refused("--production requires --route managed or tailnet")
     if args.kind == "emulator" and args.owned_by != "randroid":
         raise Refused("an emulator is measured only through `randroid emu perf` (its recorded serial), never by a raw serial")
+    if args.kind == "physical" and os.environ.get("RICHOS_DEVICE_VERB") != "randroid":
+        raise Refused("a physical phone is measured only through `randroid device perf` (or `randroid device "
+                      "seed`), which checks that the build on it is the release build (CEO 2026-10-02)")
     stamp = load_stamp(args.stamp, args.expect_commit)
     log = log or (lambda s: print(s, file=sys.stderr, flush=True))
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
                          touch=touch or lease_toucher(args.lease))
+    if args.kind == "physical":
+        # CEO 2026-10-02: only the release build goes on a physical phone and every test on one tests
+        # it. Checked before anything is saved, seeded or measured, so a debuggable build is neither
+        # measured nor kept to be put back afterwards.
+        check_kind(dev, "physical")
+        if android.debuggable(dev):
+            raise Refused(f"{dev.serial} has a DEBUGGABLE RichConnect installed: only the release build is measured on a "
+                          "physical phone (CEO 2026-10-02). Put the release build over it first: `randroid build release`, "
+                          f"then `randroid device --serial {dev.serial} install`")
     keeper = android.StateKeeper(dev, root=getattr(args, "keep_dir", None) or os.environ.get("RICHOS_PERF_KEEP_DIR"),
                                  log=log, accept_loss=getattr(args, "accept_state_loss", None),
                                  twin_apk=getattr(args, "seed_twin", None))
@@ -502,7 +514,8 @@ def measure_android(args, dev, stamp, keeper, host, log):
     if args.kind == "emulator" and args.lease and not runner:
         pace, waits = emulator_pacer(args.lease)
     m = android.Measure(dev, log=log, settle_s=args.settle, pace=pace,
-                        evidence_dir=str(args.out) + ".evidence" if args.kind == "physical" and not runner else None)
+                        evidence_dir=(getattr(args, "evidence_dir", None) or str(args.out) + ".evidence")
+                        if args.kind == "physical" and not runner else None)
     record = {"schema": perfcore.SCHEMA, "platform": "android", "startedAt": now_iso(),
               "tool": {"path": "richos/mobile/perf/perf.py", **perfcore.source_identity(REPO, ["richos/mobile/perf"])},
               "build": build, "device": device, "metrics": {}, "phases": {}, "notMeasured": []}
@@ -852,6 +865,7 @@ def parse_args(argv):
     a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")
     a.add_argument("--benchmark", help="the benchmark file the record is judged against (default: the private benchmark file, see benchmark.py)")
+    a.add_argument("--evidence-dir", help="a physical phone's retained traces (default: the record's path + .evidence)")
     i = sub.add_parser("ios", help="measure an iOS build with explicit evidence boundaries")
     target = i.add_mutually_exclusive_group(required=True)
     target.add_argument("--simulator", help="a simulator UDID (never 'booted')")

@@ -27,6 +27,30 @@ import ios  # noqa: E402
 import perf  # noqa: E402
 import perfcore  # noqa: E402
 
+# A physical phone is measured only when `randroid device` / `rios device` started the run (they set
+# RICHOS_DEVICE_VERB). Every case below runs as the verb would run it; DV1-DV2 call the unwrapped
+# functions to prove the refusal without it.
+VERB = "RICHOS_DEVICE_VERB"
+BARE_RUN_ANDROID, BARE_RUN_IOS = perf.run_android, ios.run_ios
+
+
+def as_verb(cli, fn):
+    def wrapped(*a, **kw):
+        before = os.environ.get(VERB)
+        os.environ[VERB] = cli
+        try:
+            return fn(*a, **kw)
+        finally:
+            if before is None:
+                os.environ.pop(VERB, None)
+            else:
+                os.environ[VERB] = before
+    return wrapped
+
+
+perf.run_android = as_verb("randroid", BARE_RUN_ANDROID)
+ios.run_ios = as_verb("rios", BARE_RUN_IOS)
+
 failures = []
 
 
@@ -557,7 +581,7 @@ def _():
 @case("R10 physical background observation preserves battery history and reports unknown work")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
-        fake = FakeAdb(qemu="0")
+        fake = FakeAdb(qemu="0", debuggable=False)
         record, failures_ = perf.run_android(
             android_args(tmp, kind="physical", production=True, route="managed", only="background", conversation="as-installed"),
             runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
@@ -2230,6 +2254,35 @@ def _():
         assert "replaces the app's saved state on the phone" not in text, path
     readme = open(os.path.join(PERF, "README.md")).read()
     assert "--accept-state-loss" in readme and "--disposable-phone" not in readme and "install -r" in readme
+
+
+@case("DV1 a physical phone is measured only through randroid device / rios device: without it, refused before any adb or devicectl call")
+def _():
+    saved = os.environ.pop(VERB, None)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeAdb(qemu="0", debuggable=False)
+            msg = raises(perfcore.Refused, BARE_RUN_ANDROID, android_args(tmp, kind="physical", production=True, route="managed",
+                         only="cold", conversation="as-installed"), runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+            assert "randroid device perf" in msg and fake.calls == [], (msg, fake.calls)
+            calls = []
+            msg = raises(perfcore.Refused, BARE_RUN_IOS, types.SimpleNamespace(device="u", stamp=None, expect_commit=None),
+                         runner=lambda *a, **k: calls.append(a))
+            assert "rios device perf" in msg and calls == [], (msg, calls)
+    finally:
+        if saved is not None:
+            os.environ[VERB] = saved
+
+
+@case("DV2 a DEBUGGABLE build on a physical phone is refused before anything is saved, seeded, installed or measured")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeAdb(qemu="0", debuggable=True)
+        msg = raises(perfcore.Refused, perf.run_android, android_args(tmp, kind="physical", production=True, route="managed",
+                     only="cold", conversation="as-installed"), runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert "DEBUGGABLE" in msg and "randroid device" in msg, msg
+        touched = [c for c in fake.calls if c.startswith(("install", "uninstall", "pull", "push", "am ", "run-as"))]
+        assert touched == [], touched
 
 
 if __name__ == "__main__":
