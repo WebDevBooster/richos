@@ -24,6 +24,7 @@ struct RichOSNativeApp: App {
     init() {
         LaunchTiming.start()
         Boot.start()
+        LaunchScreenCache.refreshAfterUpdate()
     }
 
     /// When the core is next owed a `tick`, while the app is on screen; `nil` otherwise.
