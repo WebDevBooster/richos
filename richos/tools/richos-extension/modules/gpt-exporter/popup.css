@@ -393,3 +393,5 @@ footer {
 .log-entry.info {
     color: #3b82f6;
 }
+/* Author display rules must not override permission/recovery visibility. */
+[hidden] { display: none !important; }

@@ -4,7 +4,7 @@ import vm from 'node:vm';
 const root = new URL('../modules/gpt-exporter/', import.meta.url);
 const html = await readFile(new URL('panel.html', root), 'utf8');
 const source = await readFile(new URL('panel.js', root), 'utf8');
-const elements = new Map(), messages = [], timers = [], listeners = [];
+const elements = new Map(), messages = [], timers = [], listeners = [], windows = [];
 function element() {
   const classes = new Set();
   return { value: '', checked: false, disabled: true, hidden: false, style: {}, children: [], handlers: {}, textContent: '',
@@ -32,19 +32,28 @@ const chrome = {
       if (callback) { queueMicrotask(() => callback(response)); return; }
       return Promise.resolve(response);
     }
-  }, windows: { create() {} }
+  }, windows: { create(options) { windows.push(options); } }
 };
 const context = vm.createContext({ chrome, document: { getElementById: id => elements.get(id), createElement: element, addEventListener(type, fn) { if (type === 'DOMContentLoaded') initialize = fn; } },
   window: { innerWidth: 420, close() {} }, console: { log() {}, error() {} }, Date, URL, Blob, setTimeout() {}, setInterval(fn) { timers.push(fn); }, alert() {}, confirm() { return true; } });
 vm.runInContext(source, context);
 await initialize();
+assert.equal(elements.get('btnEnableAccess').hidden, true);
+assert.equal(elements.get('accessHint').hidden, true);
+await elements.get('btnPopout').handlers.click();
+assert.equal(windows[0].url, 'chrome-extension://test/modules/gpt-exporter/panel.html');
+const beforePoll = elements.get('logOutput').children.length;
+await vm.runInContext('checkExportState()', context);
+assert.equal(elements.get('logOutput').children.length, beforePoll, 'running-state polling must stay quiet');
 assert.equal(elements.get('downloadFolder').value, '中文');
 assert.equal(elements.get('exportLimit').value, 7);
 assert.equal(elements.get('includeAboveBranchedFrom').checked, false);
 assert.equal(elements.get('btnExportAll').disabled, true, 'reopened panel must show existing export');
 assert.equal(elements.get('progressText').textContent, 'Saving export... waiting for Chrome to finish');
 jobRunning = false;
+const idleLogCount = elements.get('logOutput').children.length;
 await vm.runInContext('checkExportState()', context);
+assert.equal(elements.get('logOutput').children.length, idleLogCount, 'current-target polling must stay quiet');
 assert.equal(elements.get('btnExportAll').disabled, false, 'completed job must re-enable reopened controls');
 await elements.get('btnExportCurrent').handlers.click();
 const start = messages.find(m => m.action === 'exportCurrentConversation');
@@ -58,5 +67,6 @@ listeners[0]({ module: 'gptExporter', type: 'gpt:progress', phase: 'saving', cur
 assert.equal(elements.get('progressText').textContent, 'Saving export... waiting for Chrome to finish');
 assert.ok(html.includes('btnResume') && html.includes('historyFile') && html.includes('btnEnableAccess'));
 const css = await readFile(new URL('popup.css', root), 'utf8');
+assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important/);
 assert.ok(css.includes('.hidden') && css.includes('.progress-fill'), 'panel ships its own style classes');
 console.log('PASS exporter controls, namespaced settings/messages, saving status and popup reopening');

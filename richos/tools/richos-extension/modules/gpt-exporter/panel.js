@@ -36,14 +36,14 @@ function isPopup() {
  */
 function handlePopout() {
     chrome.windows.create({
-        url: chrome.runtime.getURL('popup/popup.html'),
+        url: chrome.runtime.getURL('modules/gpt-exporter/panel.html'),
         type: 'popup',
         width: 420,
         height: 650,
         focused: true
     });
     // Close the popup
-    window.close();
+    if (window === window.top) window.close();
 }
 
 let locallyRunning = false;
@@ -73,7 +73,7 @@ function clearLog() {
  * Send message to background script with logging
  */
 async function sendMessage(message) {
-    const quiet = message.action === 'getExportState';
+    const quiet = ['getExportState', 'getCurrentConversationTarget'].includes(message.action);
     if (!quiet) log(`Sending: ${message.action}`, 'info');
     try {
         const response = await new Promise((resolve, reject) => {
@@ -427,7 +427,6 @@ async function checkExportState() {
         await updateCurrentConversationAvailability();
     }
     if (state?.isRunning && current.phase) {
-        log(`Export in progress: ${current.phase} ${current.current}/${current.total}`);
         showProgress(current.phase, current.current, current.total);
 
         // Disable buttons while export is running
@@ -443,6 +442,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadSettings();
     const enabled = await chrome.permissions.contains({ origins: ['https://chatgpt.com/*'] });
     document.getElementById('btnEnableAccess').hidden = enabled;
+    document.getElementById('accessHint').hidden = enabled;
     if (enabled) await updateConnectionStatus();
     await updateCurrentConversationAvailability();
     await updateStats();
@@ -453,6 +453,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 document.getElementById('btnEnableAccess').addEventListener('click', async () => {
     if (await chrome.permissions.request({ origins: ['https://chatgpt.com/*'] })) {
         document.getElementById('btnEnableAccess').hidden = true;
+        document.getElementById('accessHint').hidden = true;
         await updateConnectionStatus();
         await updateCurrentConversationAvailability();
     } else log('ChatGPT access was not granted. You can enable it when ready.', 'info');
