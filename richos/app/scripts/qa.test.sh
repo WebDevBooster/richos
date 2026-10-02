@@ -1227,7 +1227,7 @@ session_log b.log 07:47:23.244 07:47:24.000 3000
 run forecast
 expect "FC1 recent prompt-free sessions, passcode unreadable: no approval is expected" 0 '"approvalExpected": false'
 # K2: the same phone under its other spelling (CoreDevice UUID vs hardware UDID) finds its sessions.
-run env RICHOS_IOS_DEVICE_ALIASES="$PHONE" RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" approval --device 691DB4F7-92AA-5438-9B04-D364558D0F2F
+run env RICHOS_IOS_DEVICE_ALIASES="$PHONE" RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" approval --device 111AA1A1-11AA-1111-1A11-A111111A1A1A
 expect "FC2 a phone named by its other id still has its sessions on record" 0 '"sessionsOnRecord": 2'
 # K3: nothing known: unknown, never "expected", and it says what settles it.
 rm -f "$SESS"/*.log "$SESS/ledger.jsonl"
