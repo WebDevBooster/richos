@@ -464,7 +464,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None, 
                                  twin_apk=getattr(args, "seed_twin", None),
                                  apksigner=getattr(args, "apksigner", None))
     try:
-        record, failures = measure_android(args, dev, stamp, keeper, host, log)
+        record, failures = measure_android(args, dev, stamp, keeper, host, log, popen=popen)
     except BaseException as e:  # noqa: BLE001 — including an interrupt: the phone is given back whatever ended the run
         problems = keeper.restore()
         if problems:
@@ -480,7 +480,9 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None, 
     return record, failures
 
 
-def measure_android(args, dev, stamp, keeper, host, log):
+def measure_android(args, dev, stamp, keeper, host, log, popen=None):
+    """The measurement inside run_android's save-and-restore. `popen` is the cold-blank phase's
+    screen recorder (blankstart.android_cold_blank), replaceable for the suite like `runner`."""
     import android
     runner = dev.runner if dev.runner is not subprocess.run else None
     conversation = getattr(args, "conversation", "fixture")
