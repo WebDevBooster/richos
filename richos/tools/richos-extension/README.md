@@ -281,6 +281,14 @@ device delivers digital silence on this host (measured; see the harness header),
 injects a real spoken WAV into the recorder's own encode path via a test seam — the audio that
 crosses native messaging is genuine browser MediaRecorder Opus.
 
+On macOS with an external SSD, native helpers have their own privacy identity. Set
+`RICHOS_NATIVE_LAUNCHER_PYTHON` to the absolute path of a Python interpreter already permitted
+to access that SSD. The fixture uses it to execute the real Node host directly, preserving
+stdio and avoiding a broad disk-access grant to `/bin/sh`. The default launcher remains a shell.
+Use the service's pinned model and matching Whisper toolchain; a small-model override under
+the shipping tier is correctly refused by the pipeline. `--leg=native` or `--leg=fallback`
+retries one leg; the default invocation verifies both.
+
 The live harness launches a throwaway Chrome profile with the extension loaded, serves a page as
 `https://meet.google.com/...` that plays a real tone **and emits Meet-shaped captions** so both
 the real platform detection and the real caption content script run. It verifies that mic +
