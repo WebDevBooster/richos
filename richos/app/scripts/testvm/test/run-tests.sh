@@ -1705,6 +1705,20 @@ t "asked-again-walk: two proposals for the entity with a torn answer between; a 
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/asked-again-walk.test.py" >"$TMP/asked-again-walk.log" 2>&1; ok $? "$(cat "$TMP/asked-again-walk.log")"
 t_done
 
+t "reap: WALL 2 admits the walk-* and probes-* clone names the harnesses create (R53)"
+  # The stub-tart route is closed: reap.sh refuses an unsigned tart at its launch preflight, so
+  # the wall is read from source, the way the claude-login tests above read theirs.
+  wall="$(grep 'WALL 2' -A3 "$TESTVM_DIR/reap.sh" | grep 'richos-test-')"
+  has "$wall" 'richos-test-*'
+  has "$wall" 'walk-*'
+  has "$wall" 'probes-*'
+t_done
+
+t "shot: the OCR reads the saved frame's own guest file, never a second capture (R54)"
+  n="$(grep -c 'screencapture -x' "$TESTVM_DIR/shot.sh")"
+  eq "$n" "1" "shot.sh takes more than one screencapture"
+t_done
+
 t "reap-walk: unrecorded pids are refused, late or surviving commands fail, a finished command is never cut short"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/reap-walk.test.py" >"$TMP/reap-walk.log" 2>&1; ok $? "$(cat "$TMP/reap-walk.log")"
 t_done
