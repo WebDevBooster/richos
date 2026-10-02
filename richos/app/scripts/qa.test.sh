@@ -929,6 +929,17 @@ else
 fi
 run python3 "$QA/hidden-send-try.py" --serial TESTSERIAL --log "$TMP/hs.log" --n 1 --send nonsense
 expect "HS3 a Send position that is not X,Y is refused before any adb call" 2 "X,Y integers"
+HSC="$(python3 - "$QA/hidden-send-try.py" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("hst", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m.counter("cloudflared_tunnel_total_requests 7"), m.counter('cloudflared_tunnel_response_by_code{status_code="200"} 7'))
+PY
+)"
+if [ "$HSC" = "total_requests=7 response_by_code[200]=7" ]; then
+  ok "HS4 an unlabeled and a labeled counter both write name=value, the name alone left of the ="
+else
+  bad "HS4 counter lines parse as name=value" "got '$HSC'"
+fi
 
 echo ""
 echo "=== TR. tunnel-requests: the lab tunnel's request counter, sampled on this Mac and counted between two instants ==="

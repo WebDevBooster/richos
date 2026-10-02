@@ -53,7 +53,7 @@ def mark(log, *words):
 
 
 def counter(line):
-    name = line.split("{")[0].replace("cloudflared_tunnel_", "")
+    name = line.split("{")[0].split()[0].replace("cloudflared_tunnel_", "")
     if "{" in line:
         name += "[" + line.split('"')[1] + "]"
     return name + "=" + line.split()[-1]
