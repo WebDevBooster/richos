@@ -1699,7 +1699,8 @@ class Closure(unittest.TestCase):
         expected = {'PROTECTED_PATHS', 'SECRET_SCAN_MIN_LENGTH', 'SECRET_SCAN_MIN_ENTROPY',
                     'SECRET_SCAN_ALLOWLIST', 'SECRET_SCAN_CODE_AWARE', 'DIALECT_TARGET',
                     'DIALECT_SCAN_ALLOWLIST', 'DIALECT_EXEMPT_PATHS',
-                    'HOME_NETWORK_PHONE_GUARD', 'HOST_DISPLAY_POWER_GUARD', 'PUBLIC_RECORD_REPO_GUARD'}
+                    'HOME_NETWORK_PHONE_GUARD', 'HOST_DISPLAY_POWER_GUARD', 'PUBLIC_RECORD_REPO_GUARD',
+                    'SCRATCH_CLAUDE_ROOTS'}
         self.assertEqual(set(closure['keys']), expected)
         self.assertTrue(closure['presence'])
         unrelated = inputs.config_change('MODEL_TIERS=one', 'MODEL_TIERS=two')

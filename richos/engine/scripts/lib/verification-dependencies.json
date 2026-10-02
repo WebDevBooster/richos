@@ -1104,7 +1104,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "df905ab7770ae60c0b3d599fe0756c9409b124dc9a1b2b1d34c3cd3cf85d819b",
+      "sha256": "48a315b145ba6c1bed80a8631c4abec49ecfb056f36bbf53b593f447fdb641d4",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8879,6 +8879,13 @@
       "source": "scripts/lib/publication-boundary.py",
       "sha256": "41bfce6cd434f436098821e164d8af586af0df411c15bda9d5760b58050f2aff",
       "evidence": "AST inventory and every import, execution and I/O boundary reviewed. Only stdlib hashing, JSON, path and text operations; supplied corpus/item files and job limits are data. No configuration, engine imports or subprocess execution.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/lib/device-identifiers.py": {
+      "source": "scripts/lib/device-identifiers.py",
+      "sha256": "ea6527aad936c0f53655e12733e298e3b25bc9e05eba67f84f34adb931dc4c7c",
+      "evidence": "Full file reviewed (2026-10-02). Environment reads: RICHOS_DEVICE_IDENTIFIERS_FILE only, an operator-scope path override, never an orchestration.config key; HOME via expanduser. The one subprocess is the external git executable (rev-parse --is-inside-work-tree on the list's folder), not an engine reader. Manifest rows and blobs are supplied data; no engine imports, no config reads, no writes.",
       "keys": [],
       "edges": []
     },
