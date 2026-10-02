@@ -558,7 +558,8 @@ while IFS= read -r p; do
         : > "$SHOTSDIR/$d"
         while IFS= read -r s; do
           [ -n "$s" ] || continue
-          grep -qF -- "$d" "$UI_TESTS/$s" 2>/dev/null && printf '%s\n' "$s" >> "$SHOTSDIR/$d"
+          # Whole folder name only: shots-5 must not match shots-5b (hunt part 2, R46).
+          grep -qE -- "$d([^A-Za-z0-9_-]|\$)" "$UI_TESTS/$s" 2>/dev/null && printf '%s\n' "$s" >> "$SHOTSDIR/$d"
         done < "$UI_SUITES"
       fi
       while IFS= read -r s; do
