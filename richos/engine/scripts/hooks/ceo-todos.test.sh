@@ -528,6 +528,62 @@ else
     bad "a deleting commit must still be refused on a stale row (rc=$GRC): $GOUT"
 fi
 
+# ...but only a removal the record CAN be about (hunt 2026-09-29 part 3,
+# finding 1, partial in the v2 re-check). Removing a file no row and no page
+# names cannot make any row false, so it is told of the stale row and goes
+# through; the refusal above stands because row 1.1 names docs/prepared.md.
+R="$(mk_repo unrelateddeletion)"
+write_record "$R" '### 2.1 READY-FOR-CEO — Verify the podcast reference transcript
+
+- **Open:** `repo/docs/worksheet-that-was-never-written.md`
+- **Time:** 30 minutes
+- **Done:** every one of the 30 windows carries OK or a correction, handed back
+- **Unblocks:** the first computable word error rate, and with it decision 1.3
+'
+printf 'not named in the record\n' > "$R/docs/unrelated-old.md"
+printf 'not named either\n' > "$R/docs/unrelated-other.md"
+git -C "$R" add -A 2>/dev/null
+BASE_TREE="$(git -C "$R" write-tree 2>/dev/null)"
+BASE_COMMIT="$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git -C "$R" commit-tree "$BASE_TREE" -m base 2>/dev/null)"
+git -C "$R" update-ref HEAD "$BASE_COMMIT" 2>/dev/null
+git -C "$R" rm -q docs/unrelated-old.md 2>/dev/null
+run_guard "$R"
+if [ "$GRC" -eq 0 ] && printf '%s' "$GOUT" | grep -qF 'PRE-EXISTING'; then
+    ok "removing a file no row names is told of the stale row (PRE-EXISTING) but not blocked"
+else
+    bad "an unrelated deletion must pass with a PRE-EXISTING notice (rc=$GRC): $GOUT"
+fi
+# A rename away is a removal too, and the same answer.
+git -C "$R" mv docs/unrelated-other.md docs/renamed-away.md 2>/dev/null
+run_guard "$R"
+if [ "$GRC" -eq 0 ]; then
+    ok "renaming away a file no row names is not blocked either"
+else
+    bad "an unrelated rename must pass (rc=$GRC): $GOUT"
+fi
+git -C "$R" reset -q 2>/dev/null
+git -C "$R" checkout -q -- docs 2>/dev/null
+# THE OTHER SIDE, so the narrowing cannot become an off switch: a removal from
+# the INDEX of a file a row names refuses even though the bytes are still on
+# disk (`git rm --cached`), because after the commit the row names nothing.
+git -C "$R" rm -q --cached docs/prepared.md 2>/dev/null
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'docs/prepared.md'; then
+    ok "un-tracking a file a row names refuses, and names the file"
+else
+    bad "removing a named artifact from the index must refuse and name it (rc=$GRC): $GOUT"
+fi
+git -C "$R" reset -q 2>/dev/null
+# ...and the CEO's page is a claim of its own: removing it refuses.
+git -C "$R" rm -q --cached CEO-TODOs.md 2>/dev/null
+run_guard "$R"
+if [ "$GRC" -eq 2 ]; then
+    ok "removing the CEO's page refuses over a stale row"
+else
+    bad "removing the entry point must refuse (rc=$GRC): $GOUT"
+fi
+git -C "$R" reset -q 2>/dev/null
+
 # The staged blob is what lands, so it is what is judged: a GOOD record in the
 # index and a BAD one in the worktree must pass.
 R="$(mk_repo stagedwins)"

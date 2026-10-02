@@ -487,11 +487,16 @@ STRONG = [
     r"\bat home " + PATH_NOUN + r"\b",
     r"\bAtHome\b",
     r"\bhome plan\b",
-    # A .local HOST NAME (mDNS), not a settings file: "settings.local.json" and
-    # ".env.local" are file names, so a ".local" followed by more file-name
-    # dots is refused as a host. "host.local", "host.local:8443", "host.local."
-    # at a sentence end are hosts.
-    r"[A-Za-z0-9>]\.local(?::\d+)?\b(?!\.[A-Za-z0-9])",
+    # A .local HOST NAME (mDNS), not a settings file. Two file-name shapes are
+    # not hosts: "settings.local.json", where more file-name dots follow, and
+    # ".env.local", a DOTFILE: a name that begins with a dot is never a host
+    # name (hunt part 3, finding 6, still partial in the v2 re-check, because
+    # the old pattern began matching at the "v" of ".env"). So the name must
+    # start at a boundary with a letter, digit, "_" or a "<placeholder>",
+    # and may carry more labels: "host.local", "my-mac.local:8443",
+    # "<name>.local", "_richos._tcp.local" and "host.local." at a sentence end
+    # are hosts.
+    r"(?<![\w.-])(?:[\w-]+\.)*(?:[\w-]*\w|<[^<>\s]+>)\.local(?::\d+)?\b(?!\.[A-Za-z0-9])",
     # Port 8444 as a PORT: ":8444", "port 8444" or "a listener on 8444", never
     # a bare number such as a width of 8444 pixels.
     r"(?::|\bports?\s+|\bon\s+)8444\b(?!\s*(?:px|pixels?)\b)",

@@ -587,7 +587,7 @@
     },
     "scripts/hooks/ceo-asks.mutation.sh": {
       "source": "scripts/hooks/ceo-asks.mutation.sh",
-      "sha256": "33b277c48240615f462ba9a703a70f22b62008ff4748e2a110ec58bf024d89e3",
+      "sha256": "725db41447a235f5ed23adda76b69987dda3e350b20fe9e932ae7f942573dfb1",
       "evidence": "Copies a finite hook/helper list, never the real configuration. Thirteen literal mutations change matching, gating and reporting, not config provenance. Nested ceo-asks.test.sh reconstructs private configs before execution. The ledger mutation needle now matches append/read mode, without changing executed helpers or settings provenance.",
       "keys": [],
       "edges": [
@@ -600,6 +600,9 @@
         {
           "to": "scripts/hooks/ceo-asks.test.sh",
           "fixture": true
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -725,8 +728,8 @@
     },
     "scripts/lib/stop-at-line.py": {
       "source": "scripts/lib/stop-at-line.py",
-      "sha256": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
-      "evidence": "Runs the finite caller-supplied command and stops its owned process tree at a named output line. No config reads of its own; the caller declares the nested suite.",
+      "sha256": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
+      "evidence": "Runs the finite caller-supplied command and stops its owned process tree at a named output line. No config reads of its own; the caller declares the nested suite. --boundary only narrows the match to a caller's own word-boundary witness test.",
       "keys": [],
       "edges": [
         {
@@ -1038,7 +1041,7 @@
     },
     "scripts/hooks/ceo-ruled.mutation.sh": {
       "source": "scripts/hooks/ceo-ruled.mutation.sh",
-      "sha256": "7c0f9ec0800572c348af416c0b9716b8f19479133216863d614f4be2496a83ff",
+      "sha256": "44319bb20fa4eb8189e26561707f16af5889e306533ff0cb59815dd40975e596",
       "evidence": "Six finite mutants change refusal, matching or citation rendering. Each rebuilt engine runs the same private-config suite. Drift runs change only supplied ruling files; export-register executes the suite fixture constructor. No orchestration file is copied.",
       "keys": [],
       "edges": [
@@ -1050,6 +1053,9 @@
         },
         {
           "to": "scripts/hooks/ceo-ruled.test.sh"
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -1654,7 +1660,7 @@
     },
     "scripts/hooks/guard-no-home-network-phone.sh": {
       "source": "scripts/hooks/guard-no-home-network-phone.sh",
-      "sha256": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
+      "sha256": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
       "evidence": "Sources the resolved entity config for the guard switch. Root/adoption, seat-jurisdiction and unevaluated-payload helpers run; citation resolution uses ceo-ruled. Embedded Python classifies payload strings and never executes their commands.",
       "keys": [
         "HOME_NETWORK_PHONE_GUARD"
@@ -1701,7 +1707,7 @@
     },
     "scripts/hooks/guard-no-home-network-phone.test.sh": {
       "source": "scripts/hooks/guard-no-home-network-phone.test.sh",
-      "sha256": "878184852f6f769782c00607ca8f9c86b230580589d6764036caa8430488dd17",
+      "sha256": "2936a13cd755b431e3f574417fee0dc973dd353ab1ced54952530907f154c904",
       "evidence": "Creates a private entity orchestration.config and a private ruling repository. Every hook invocation resolves that entity, its off-switch variant or an explicitly unadopted directory. Missing-resolver fixture refuses before config. Nested mutations recreate the same private settings; literal historical commands remain payload data.",
       "keys": [],
       "edges": [
@@ -2086,7 +2092,7 @@
     },
     "scripts/hooks/contract-integrity-layer-ep.sh": {
       "source": "scripts/hooks/contract-integrity-layer-ep.sh",
-      "sha256": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
+      "sha256": "07e3050ff624370ff1c25f7a763667de2249206ce99261333b91260645cf2fa2",
       "evidence": "Reads ENTRYPOINTS from the supplied variable or named engine config key. Calls the currency lint for entity and engine roots then two generated canaries; no full contract probe or listed entrypoint executes.",
       "keys": [
         "ENTRYPOINTS"
@@ -2102,7 +2108,7 @@
     },
     "scripts/entrypoint-currency-lint.test.sh": {
       "source": "scripts/entrypoint-currency-lint.test.sh",
-      "sha256": "806210bc6d17f59e4a651c80b9a0976e99b15204728eb7942d88132938aefec7",
+      "sha256": "bc29c45cb08a0f21a33da8ad6ebb8040cb404791910009ed768f8451f8842c78",
       "evidence": "All direct and EP-layer calls supply generated root and engine configs. The generated hook text and superseded executables are data, never run. The parser receives literal specifications.",
       "keys": [],
       "edges": [
@@ -2474,7 +2480,7 @@
     },
     "scripts/hooks/unasked-deferral.mutation.sh": {
       "source": "scripts/hooks/unasked-deferral.mutation.sh",
-      "sha256": "172d70109dad46a2f1d439da9289657323be76c891d4e844653a3cc239d08e47",
+      "sha256": "7ed92cd95203f3ed8e5e3f24bb61eaa255e68c77a0f8251fa0aef05b0a99027b",
       "evidence": "Copies only the fixed hook, analyzer, test and four named root/notice helpers. Its generated mutator replaces literal source needles. The copied test constructs its own entity config before execution; the callback has no additional engine dependency.",
       "keys": [],
       "edges": [
@@ -2486,6 +2492,9 @@
         },
         {
           "to": "scripts/hooks/unasked-deferral.test.sh"
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -3263,7 +3272,7 @@
     },
     "scripts/hooks/turn-manifest.mutation.sh": {
       "source": "scripts/hooks/turn-manifest.mutation.sh",
-      "sha256": "6f76e3eba8e25ebeaeb0c3b61b475dc4e09bce317ee7538f5af0cbe98cea5ac3",
+      "sha256": "549fd3b0802c320c62bb5b56bba583b6ffdd6c9d4d8f0e69a9383d17f230124d",
       "evidence": "Copies the fixed hook, renderer, suite and root/notice helpers, applies seven finite literal replacements then executes the copied suite with nested mutation disabled. That suite regenerates all entity configs; no production config is copied.",
       "keys": [],
       "edges": [
@@ -3275,6 +3284,9 @@
         },
         {
           "to": "scripts/hooks/turn-manifest.test.sh"
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -3387,7 +3399,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#fixture-records": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "Resolves seat adoption by presence but reads TODO governance from the payload target. Fixtures supply that target and all records, staged blobs and artifacts. Calls root/jurisdiction/payload helpers and the TODO predicate, never sources orchestration settings.",
       "keys": [],
       "edges": [
@@ -3425,7 +3437,7 @@
     },
     "scripts/hooks/ceo-todos.test.sh": {
       "source": "scripts/hooks/ceo-todos.test.sh",
-      "sha256": "4ce8bf99eb39a587d86364a1f3beab8128abc85b3b008d0101398dbd51a9ff61",
+      "sha256": "456edf169779e0b78ae8d3ffba553ded91e72bb0ff61573fccd1ec80ed648cc6",
       "evidence": "mk_repo and write_record construct every TODO declaration, record and artifact. The real engine is only the adoption seat and source of registration data; it supplies no config values. Cold-open calls are --record, init calls skip cold reading and nested mutants rerun these same fixed constructors.",
       "keys": [],
       "edges": [
@@ -4752,7 +4764,7 @@
     },
     "scripts/hooks/claim-roles.mutation.sh": {
       "source": "scripts/hooks/claim-roles.mutation.sh",
-      "sha256": "e20d4194ed09142931ad32ba5e5f09b12a3b0348fb8165c78f94a386eb352196",
+      "sha256": "73f0f9a1974cd17863539183827f795c5d343ff418b6acca7e98ca7242b811b2",
       "evidence": "The finite mutation callback copies fixed claims sources and runs guard-unresolved-claims.test.sh. Every downstream semantic input comes from that reviewed test; the harness itself never transports or sources the real config.",
       "keys": [],
       "edges": [
@@ -4764,6 +4776,9 @@
         },
         {
           "to": "scripts/hooks/guard-unresolved-claims.test.sh"
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -5013,8 +5028,8 @@
     },
     "scripts/hooks/guard-idle-land.py": {
       "source": "scripts/hooks/guard-idle-land.py",
-      "sha256": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
-      "evidence": "Reviewed transcript and landed-record analyzer uses standard library, fixed Git queries and a fixed workspaces import for integration_for. Transcript shell commands and record paths are inspected as data. No config file is sourced; wrapper settings arrive as RICHOS_IDLE_* arguments.",
+      "sha256": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
+      "evidence": "Reviewed transcript and landed-record analyzer uses standard library, fixed Git queries, the reflog files Git names for the current branch and its upstream (rev-parse --git-path), and a fixed workspaces import for integration_for. The turn start is the host timestamp on the transcript's first record of the turn. Transcript shell commands and record paths are inspected as data. No config file is sourced; wrapper settings arrive as RICHOS_IDLE_* arguments.",
       "keys": [],
       "edges": [
         {
@@ -5653,7 +5668,7 @@
     },
     "scripts/hooks/mechanical-findings.mutation.sh": {
       "source": "scripts/hooks/mechanical-findings.mutation.sh",
-      "sha256": "2d7eb897f7a8986e47fb1aebab8c351454178633c208d21a5e635e2cdcf54f99",
+      "sha256": "97603e4a262aebf057e1f55a00ca649bdf24517bfbd9fa3bfc9049c7210d221a",
       "evidence": "The fixed control and finite mutants copy only named source and run the same mechanical-findings suite, which rebuilds private config and record fixtures. Mutations are literal replacements; none introduces another reader or program.",
       "keys": [],
       "edges": [
@@ -5665,6 +5680,9 @@
         },
         {
           "to": "scripts/hooks/mechanical-findings.test.sh"
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -5841,8 +5859,8 @@
     },
     "scripts/hooks/guard-idle-land.test.sh": {
       "source": "scripts/hooks/guard-idle-land.test.sh",
-      "sha256": "e79ecdfea218fc6d681278a8ba4cabbf7d491d5488e3c58ac01150184dca1ea6",
-      "evidence": "Every hook invocation uses a private generated entity config, transcript and record. Git branches and the bare remote are created within the sandbox. Direct Python imports invoke only the fixed idle-land record parser. The suite never calls its mutation harness.",
+      "sha256": "494de414236b3721d0980d21350487fbb87fe28122d77838046062b457bf61e4",
+      "evidence": "Every hook invocation uses a private generated entity config, transcript and record. Git branches and the bare remote are created within the sandbox. Direct Python imports invoke only the fixed idle-land record parser. Four cases stamp their transcripts with the wall clock and run real merges and pushes inside the sandbox, so the hook reads their reflog entries. The suite never calls its mutation harness.",
       "keys": [],
       "edges": [
         {
@@ -5853,7 +5871,7 @@
     },
     "scripts/hooks/idle-land.mutation.sh": {
       "source": "scripts/hooks/idle-land.mutation.sh",
-      "sha256": "28cf75331043b1a779457eb942b65ac46dc484496716ecad268763bffa258d99",
+      "sha256": "e3de8b289b5b99df8e534d1f1650f0aea78606b8d15f32b4b534bb64b1616cc6",
       "evidence": "The finite mutations copy fixed guard, analyzer, test and root/notice helpers. The copied test recreates all entity configuration and Git records. The one added transcript read consumes a generated test file. No shipped config is transported.",
       "keys": [],
       "edges": [
@@ -5865,6 +5883,9 @@
         },
         {
           "to": "scripts/hooks/guard-idle-land.test.sh"
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -6418,7 +6439,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#benign-bash": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
       "keys": [],
       "edges": [
@@ -6675,7 +6696,7 @@
     },
     "scripts/hooks/guard-no-home-network-phone.sh#benign-bash": {
       "source": "scripts/hooks/guard-no-home-network-phone.sh",
-      "sha256": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
+      "sha256": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
       "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
       "keys": [
         "HOME_NETWORK_PHONE_GUARD"
@@ -7554,7 +7575,7 @@
     },
     "scripts/hooks/waiver-repetition.mutation.sh": {
       "source": "scripts/hooks/waiver-repetition.mutation.sh",
-      "sha256": "3d429bdd454539d5becbf6404d9f52adedf671e062ee22eddf9430a8c5d65337",
+      "sha256": "a767577b4b2a78dd280f9dd90a43359a1db4d0c19f3fb54a4f91351cd3df5403",
       "evidence": "Full driver creates minimal engine copies, retains hooks JSON then executes one control and finite literal mutants with INNER=1. No orchestration config is copied. Source replacements alter verdicts, grouping, notices and registration; no additional executed target is introduced. Renewed 2026-10-01: the sandbox is allocated by sourcing scripts/lib/scratch.sh before anything is copied; the driver never sources a config and passes only the environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -7570,6 +7591,9 @@
         {
           "to": "scripts/lib/scratch.sh",
           "fixture": true
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -9213,7 +9237,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#operator-lease-payload": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
       "keys": [],
       "edges": [
@@ -10421,7 +10445,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#inventory-write": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
       "keys": [],
       "edges": [
@@ -12255,12 +12279,15 @@
     },
     "scripts/hooks/claim-capability-delivery.mutation.sh": {
       "source": "scripts/hooks/claim-capability-delivery.mutation.sh",
-      "sha256": "02bccc1f53a6ea812e3783989989cad578bd33d25bbcf4fb842024fe53940574",
+      "sha256": "18a4a80f55b78fa496aefdd26ca3a71d7021d2ba3a233a35359d186646b56b6b",
       "evidence": "Custom builder copies only notice hook, owning test and brief-provenance parser; no config. Literal replacements exercise same suite with nested mutation disabled.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/hooks/notice-claim-capability.test.sh"
+        },
+        {
+          "to": "scripts/lib/mutant-suite-run.sh"
         }
       ]
     },
@@ -14083,7 +14110,7 @@
     },
     "scripts/hooks/guard-ceo-todos-commits.sh#find-payload": {
       "source": "scripts/hooks/guard-ceo-todos-commits.sh",
-      "sha256": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+      "sha256": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
       "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
       "keys": [],
       "edges": [
@@ -15348,8 +15375,8 @@
     },
     "scripts/lib/mutant-suite-run.sh": {
       "source": "scripts/lib/mutant-suite-run.sh",
-      "sha256": "e0134a8ac9ee1a06ce9266e8d58df81476ebe7c1951f5002b0d47873b8e14535",
-      "evidence": "Defines mutant_suite_run only. It runs the caller's literal suite command with its output in the caller's file, through stop-at-line.py beside it, and stops at the caller's named FAIL line. RICHOS_MUTATION_FOCUS=off runs the whole command instead. No config, state or entity file is read.",
+      "sha256": "df2633f95b2ffdb109789853f302a09c675012b0fda659ce8bc571c81f932d47",
+      "evidence": "Defines mutant_suite_run only. It runs the caller's literal suite command with its output in the caller's file, through stop-at-line.py beside it, and stops at the caller's named FAIL line (with --boundary, only where the caller's own witness test ends in a word boundary). RICHOS_MUTATION_FOCUS=off runs the whole command instead. No config, state or entity file is read.",
       "keys": [],
       "edges": [
         {
@@ -15608,7 +15635,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/hooks/session-start-ceo-ask.sh": "722f3e24fc066989c8721ccfa8a5b0e4b1746b265edca30083c2e3febd297079",
         "scripts/ceo-asks-status.sh": "ee087fd11e7a3a9507845240dd367c3528935f31d85c1ba7bb9eca004de2f7cf",
-        "scripts/hooks/ceo-asks.mutation.sh": "33b277c48240615f462ba9a703a70f22b62008ff4748e2a110ec58bf024d89e3",
+        "scripts/hooks/ceo-asks.mutation.sh": "725db41447a235f5ed23adda76b69987dda3e350b20fe9e932ae7f942573dfb1",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -15652,7 +15679,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/ceo-ruled-exempt.sh": "d763157b150db58cf30e87a25c6215e869e29eada3760b8b44295553657cab09",
-        "scripts/hooks/ceo-ruled.mutation.sh": "7c0f9ec0800572c348af416c0b9716b8f19479133216863d614f4be2496a83ff",
+        "scripts/hooks/ceo-ruled.mutation.sh": "44319bb20fa4eb8189e26561707f16af5889e306533ff0cb59815dd40975e596",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -15701,7 +15728,7 @@
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1"
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc"
       },
       "evidence": "8a parses the PreToolUse Agent groups for the stale-staging command. No JSON formatting or unrelated registration is asserted. Nested mutants execute the same assertion and all their executable helper sources are bound. Seated settings are observed only by assertion 8b, a grep for guard-stale-staging.sh. Comparing every complete line containing the guard-stale-staging prefix covers its unescaped-dot pattern and formatting changes. The bound mutation transport copies settings for the same assertion; no other reached reader consumes them.",
       "seated_text_needles": [
@@ -15813,7 +15840,7 @@
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "scripts/lib/resolve-roots.test.sh": "d5d4f7b6dc49da7d8dbc216bd244cd41028297b4141b18586323c8f4bb5a02c8",
         "scripts/hooks/session-start-stdin.test.sh": "7fe7fa956e36b6d93e4ed748fd4c57a96199cbde01bbce0d12567513d2fecd5f",
         "scripts/hooks/session-start-escalations.sh": "25af57857b1dc4a1e4a61c6848753ede1d217f3a1037379e30cee4e64b206a5f",
@@ -15862,8 +15889,8 @@
         "mega-lander/workspaces.py": "5d0896f1079d551bca956045fe12c2ae55cbd673d6980b4bd4af7489707d6912",
         "mega-lander/workspaces.sh": "93b86b885516641e69a7cd84105260ee94d52300f0099362c7ed9b475855764e",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
-        "scripts/hooks/claim-roles.mutation.sh": "e20d4194ed09142931ad32ba5e5f09b12a3b0348fb8165c78f94a386eb352196",
-        "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
+        "scripts/hooks/claim-roles.mutation.sh": "73f0f9a1974cd17863539183827f795c5d343ff418b6acca7e98ca7242b811b2",
+        "scripts/hooks/contract-integrity-layer-ep.sh": "07e3050ff624370ff1c25f7a763667de2249206ce99261333b91260645cf2fa2",
         "scripts/hooks/contract-integrity-probe.sh": "211cedac90c1c5bb34442fa30c9430406a268cc7b56af73244691ff108a6795b",
         "scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
@@ -15874,9 +15901,9 @@
         "scripts/hooks/guard-definition-drift.test.sh": "ae3616c638a5835284feff2a91a3129e67ca176b71ddd58900405d447c781690",
         "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
-        "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
+        "scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
-        "scripts/hooks/guard-idle-land.test.sh": "e79ecdfea218fc6d681278a8ba4cabbf7d491d5488e3c58ac01150184dca1ea6",
+        "scripts/hooks/guard-idle-land.test.sh": "494de414236b3721d0980d21350487fbb87fe28122d77838046062b457bf61e4",
         "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
         "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
         "scripts/hooks/guard-interactive-prompt.test.sh": "47cfd426cfc6d972022d9427aa548d4c859ee28d7d64c0be484fcd59f3d373a0",
@@ -15900,12 +15927,12 @@
         "scripts/hooks/guard-worktree-removal.mutation.sh": "1721b57276b427d4c27f4ad6ba553d8613f16da62b73c71fbd17f0d0d6f0aa80",
         "scripts/hooks/guard-worktree-removal.sh": "b39ff96220cb74cf9f94acc3d6210f3207b57bdf50cb33ffdd29882e536a5f37",
         "scripts/hooks/guard-worktree-removal.test.sh": "b4e717bbb5ff0089902e69e286e3e845a502121a898259534f04c370048f58e5",
-        "scripts/hooks/idle-land.mutation.sh": "28cf75331043b1a779457eb942b65ac46dc484496716ecad268763bffa258d99",
+        "scripts/hooks/idle-land.mutation.sh": "e3de8b289b5b99df8e534d1f1650f0aea78606b8d15f32b4b534bb64b1616cc6",
         "scripts/hooks/inflight-notify.mutation.sh": "f6b5be7ab1bc4ed684b2f6b011bb58bced5bbb27e8974d262410671ae48ad3e5",
         "scripts/hooks/inflight-notify.test.sh": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
         "scripts/hooks/install.sh": "f5bdf9bc751585af7c3fe3f0513a910dfff8821ee1f8e11b743d3c7d8a5adc3a",
         "scripts/hooks/interactive-prompt.mutation.sh": "1bb0a806036cd202ca66914fd09a429847e66e1fdf2b365a209a317de668876a",
-        "scripts/hooks/mechanical-findings.mutation.sh": "2d7eb897f7a8986e47fb1aebab8c351454178633c208d21a5e635e2cdcf54f99",
+        "scripts/hooks/mechanical-findings.mutation.sh": "97603e4a262aebf057e1f55a00ca649bdf24517bfbd9fa3bfc9049c7210d221a",
         "scripts/hooks/mechanical-findings.test.sh": "e23f188f029e21dec0e06c0758bb6912ede88002d366c5c3b331f3a0ca7a0397",
         "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
         "scripts/hooks/notice-inflight-sends.sh": "b5120d7d24070d1e306ed38fd96345bfee3c7d2538e1bde72c4bde155a4e0af4",
@@ -15954,7 +15981,7 @@
         "scripts/lib/scratch-reaper.py": "9b819095fdea55fbef5e2a61b47c8459ff5fe02f4a4f0af878ab23c81c144280",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -16001,7 +16028,7 @@
         "scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
         "scripts/hooks/guard-ci-turn-gate.py": "5885c97b0fa8dd1eba44e16361166149e0e0108ebb773994870cf91dff22ba18",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
@@ -16018,7 +16045,7 @@
         "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
         "scripts/lib/named-persons.py": "3392076d89530f9a120fea16eaba9fa6053f577ae836023c691b5f0eb011c871",
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
-        "scripts/hooks/guard-no-home-network-phone.sh": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
+        "scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
         "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
@@ -16152,7 +16179,7 @@
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Full outer registration assertions resolve the row guard through real plugin and seated surfaces using registered-hooks. Inner mutation groups now omit registration and retain the same guard call surface. Probe and installer checks remain source-data scans in the outer suite, not dynamic inventory execution. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
@@ -16276,9 +16303,9 @@
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "scripts/hooks/guard-bash-main-writes.sh": "17813a0bf3a26cd016d0c641c71825c282d443af06325b31d3622b0910a7f039",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
@@ -16299,7 +16326,7 @@
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
         "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
-        "scripts/hooks/guard-no-home-network-phone.sh": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
+        "scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
         "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
@@ -16376,7 +16403,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/hooks/notice-waiver-repetition.py": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
         "scripts/waiver-repetition-lint.sh": "03bba7c566c0b3348d91badad662f240b2da1085c80291bc34765418ce88adb0",
-        "scripts/hooks/waiver-repetition.mutation.sh": "3d429bdd454539d5becbf6404d9f52adedf671e062ee22eddf9430a8c5d65337",
+        "scripts/hooks/waiver-repetition.mutation.sh": "a767577b4b2a78dd280f9dd90a43359a1db4d0c19f3fb54a4f91351cd3df5403",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "f0d5b03158603f0e5600c06a3c9e203906e6cad2a5666ecc8fc47f34a3fd5ea3",
@@ -16414,7 +16441,7 @@
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "scripts/hooks/dispatch-pretooluse.manifest": "d5022dd189c9fc70c3b728c76f713558ab2f893dbe8cb4dd5f84d34e7f307f4f"
       },
       "evidence": "Only this guard registration is resolved on plugin and seated surfaces. Probe, installer and declaration-resolver source assertions are text data; no other hook registration is executed. Seated observation compares every raw line containing a named guard prefix plus every parsed dispatcher command across all events; this covers the helper direct grep and dispatcher-key lookup without approximating its verdict. The dispatcher manifest is bound as an additional input. Probe is inspected as source only: named registration grep and, where present, rootless-block source assertions. Only unrelated literal BR_EXPECTED rows may differ; all other probe bytes are preserved.",
@@ -16508,7 +16535,7 @@
         "scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
         "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
         "scripts/hooks/guard-row-currency-commits.sh": "5e6104b981b6119bb22c51bbda81184df800c42e6353eeb16d05c2ca1d62c36d",
@@ -16527,7 +16554,7 @@
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
         "scripts/lib/named-persons.py": "3392076d89530f9a120fea16eaba9fa6053f577ae836023c691b5f0eb011c871",
         "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
-        "scripts/hooks/guard-no-home-network-phone.sh": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
+        "scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
@@ -16542,7 +16569,7 @@
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1"
       },
@@ -16641,18 +16668,18 @@
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "scripts/hooks/guard-host-display-power.sh": "a6b99e74c251343564a32b52dbdafbf5a00ae84268853dfa7f622d032e79dc45",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
-        "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
+        "scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
         "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
         "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
-        "scripts/hooks/guard-no-home-network-phone.sh": "90012513625b70e5ccf0dddc3e2dca9b4db2ea6e466364fc6eb71891b26d35a9",
+        "scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
         "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
@@ -16728,7 +16755,7 @@
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
         "scripts/hooks/verify-agent-prompt.sh": "862ddf86cca9e7c3b9039d656165f2f4b2afa655d0bc834bc25a59b6371aafda",
         "scripts/hooks/guard-bash-main-writes.sh": "17813a0bf3a26cd016d0c641c71825c282d443af06325b31d3622b0910a7f039",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/hooks/guard-ci-red-lands.sh": "64d83f115beb4a9db8c3cfe52438b72951d2a9e2ce5becee5f9344b9fb3eb6b0",
         "scripts/hooks/guard-completeness-commits.sh": "bb6d0253b44d251a08dd325e8901399aafcbe4ca6fe4aa4c30c9b41a57cee673",
         "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
@@ -16789,7 +16816,7 @@
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
-        "scripts/hooks/guard-idle-land.py": "5f75c89a50a316e8737c1bc901686b914d93c094012c59d55d8e3f1d1d7eb713",
+        "scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
         "scripts/hooks/guard-resume-isolation.sh": "2366c33e6d87e0b53a7c1e18a6b153b72652ac86532f88e145fd66539e373f56",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
@@ -16805,7 +16832,7 @@
         "scripts/operator-fences.sh": "057c5d9cb36f1563366bcacfc2a295a5bd62aded90860f8208865ee86de8e217",
         "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/operator_fences_admin.py": "310c9f04074eb90a9a8e190812247c80dd4a2f271cfe9b7444fc843c0674acac",
-        "scripts/hooks/contract-integrity-layer-ep.sh": "d94c802f86a8862bfe166f522d6e0a309a54b850cfdc8818d3e7057e7b6ac976",
+        "scripts/hooks/contract-integrity-layer-ep.sh": "07e3050ff624370ff1c25f7a763667de2249206ce99261333b91260645cf2fa2",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
         "scripts/hooks/engine-status.sh": "c1ea99017ada713a0a68a56fe7f23dfab11b027ed53ea3a7846d4e51b8e467b0",
@@ -16886,7 +16913,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/scratch-reaper.py": "9b819095fdea55fbef5e2a61b47c8459ff5fe02f4a4f0af878ab23c81c144280",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
@@ -16945,7 +16972,7 @@
         "scripts/hooks/owned-state.mutation.sh": "16c882410080023b2f3502ca2d7237fe005ce31b9c91be738ffba65551d05932",
         "scripts/owned-state.sh": "313a26b975baf1005c6a86beaa03cc7910481b9e1d6754d45a0e4206b5b001a0",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
-        "scripts/lib/stop-at-line.py": "1ca658dddc4b0d0c3e986ee8fc5391286ef0d09ec3aa268721d3a11306acb6b1",
+        "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
         "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
         "scripts/lib/mutation-harness.sh": "c867dfbed295d061cf1f7cd5dc5ba85b01519f31706e313d1da333c1f92aab63",
         "scripts/lib/cpu_guard.py": "ec1aaf15b949a5b6b2acf80f144c9130c4a744251eea30ad24d72264012afb5a",
@@ -16979,7 +17006,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "scripts/lib/scratch.sh": "7d470ae8400772bc9950cd10021e4271a1be03e367a02f04009f498f3755f01a",
-        "scripts/hooks/guard-ceo-todos-commits.sh": "4183718c840a61a0955e15b4249625bae07b01b2219694630b578d153857c557",
+        "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/seat-jurisdiction.sh": "dbc8a2941310e6a6738dec2af07822f8183796a82d2e7136cc27df7e7808eebc",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16989,7 +17016,7 @@
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/lib/operator_fences.py": "1aa6c6e69eeb033d199199a6aeb947c1bc36322195479c0ca0752edad3f932cf",
         "scripts/lib/registered-hooks.sh": "fd420bef04f47939b0e0df297fc2760cdcc0e73e655c27e0c468e9d8bc3f7215",
-        "scripts/hooks/ceo-todos.test.sh": "4ce8bf99eb39a587d86364a1f3beab8128abc85b3b008d0101398dbd51a9ff61",
+        "scripts/hooks/ceo-todos.test.sh": "456edf169779e0b78ae8d3ffba553ded91e72bb0ff61573fccd1ec80ed648cc6",
         "scripts/ceo-todos-render.sh": "63b00d5fde2eb129df925749ae9967521d9251936f5f19db627bded6049fddc3",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/proc_tree.py": "72f331b1890b417c09b1b7618f550a439db66e37ed9f4e2581135140458ecf0b",

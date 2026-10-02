@@ -225,6 +225,12 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
     bash_by_id, uptodate = {}, set()
     backgrounded = False
     started = False
+    # WHEN THE TURN BEGAN, from the host's own record of it: the timestamp on
+    # the first record bearing this prompt_id. confirm_landing uses it to ask
+    # whether a merge or push CHANGED a ref during this turn, rather than only
+    # whether the ref contains the commit (hunt part 3, finding 2). None when
+    # the record carries no timestamp.
+    started_at = None
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -238,6 +244,7 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
                 if rec.get("promptId") == prompt_id:
                     if not started:
                         started = True
+                        started_at = _epoch(rec.get("timestamp"))
                     if rec.get("cwd"):
                         cwd = rec["cwd"]
                 if not started:
@@ -311,7 +318,19 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
     # gets a KeyError at the line that reaches, not a quiet empty string that
     # lets the old behavior grow back looking harmless.
     return {"tools": tools, "bash": bash, "uptodate": uptodate,
-            "notices": notices, "backgrounded": backgrounded, "cwd": cwd}
+            "notices": notices, "backgrounded": backgrounded, "cwd": cwd,
+            "started_at": started_at}
+
+
+def _epoch(stamp):
+    """An ISO-8601 transcript timestamp as epoch seconds, or None."""
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -520,7 +539,108 @@ def _recorded_integration_branch(repo):
     return "" if why_not else (branch or "")
 
 
-def confirm_landing(repo, kind, ref):
+ZERO_SHA = "0" * 40
+
+
+def _reflog(repo, refname):
+    """[(old, new, epoch, message)] for refname, oldest first, or None.
+
+    Read from git's own reflog file, which states BOTH ends of every update
+    (the `git reflog` porcelain gives only the new one). None when there is no
+    file to read (reflogs off, a reftable store, a ref that was never
+    updated): the caller then keeps the identity answer alone, as before.
+    """
+    rel = _git(repo, "rev-parse", "--git-path", "logs/" + refname)
+    if not rel:
+        return None
+    path = rel if os.path.isabs(rel) else os.path.join(repo, rel)
+    out = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                head, _, msg = line.rstrip("\n").partition("\t")
+                parts = head.split(" ")
+                if len(parts) < 4:
+                    continue
+                try:
+                    when = int(parts[-2])
+                except ValueError:
+                    continue
+                out.append((parts[0], parts[1], when, msg))
+    except OSError:
+        return None
+    return out or None
+
+
+def _contains(repo, commit, tip):
+    if not tip or tip == ZERO_SHA:
+        return False
+    try:
+        p = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", commit, tip],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return False
+    return p.returncode == 0
+
+
+def _in_window(when, since):
+    # Whole seconds on the reflog, milliseconds on the transcript: the turn's
+    # own second counts as inside it.
+    return since is None or when >= int(since)
+
+
+def changed_in_turn(repo, kind, ref, head, since):
+    """Did THIS TURN move a ref so that it now carries the landed commit?
+
+    THE QUESTION THE ANCESTRY TEST CANNOT ANSWER (hunt part 3, finding 2). A
+    merge of a ref that was already merged changes nothing and still leaves
+    the ref an ancestor of HEAD; a push of a branch already at its upstream
+    pushes nothing and still leaves HEAD equal to it. The first fix excluded
+    only a merge whose own output said "Already up to date", so the same
+    no-op with its output sent to a log still counted as a land. The answer
+    does not come from output at all: it comes from the reflog git keeps of
+    every update to a ref, read from the start of this turn.
+
+    merge  an update of the current branch (HEAD when detached), inside the
+           turn, from a tip that did NOT contain <ref> to one that does. The
+           creation of a branch is not a merge and does not count.
+    push   an `update by push` of the branch's remote-tracking ref, inside
+           the turn, to HEAD.
+
+    Without a turn start (a transcript with no timestamps) every entry is
+    in the window, which is the most this can say. True/False, or None when
+    no reflog could be read, in which case the caller keeps the identity
+    answer alone rather than going quiet on a repository that keeps none.
+    """
+    if kind == "merge":
+        branch = _git(repo, "symbolic-ref", "-q", "HEAD")
+        entries = _reflog(repo, branch or "HEAD")
+        if entries is None:
+            return None
+        commit = _git(repo, "rev-parse", "--verify", "-q", ref + "^{commit}")
+        if not commit:
+            return False
+        for old, new, when, _msg in entries:
+            if not _in_window(when, since) or old == ZERO_SHA or old == new:
+                continue
+            if _contains(repo, commit, new) and not _contains(repo, commit, old):
+                return True
+        return False
+    branch = _git(repo, "symbolic-ref", "--short", "-q", "HEAD")
+    if not branch:
+        return False
+    upstream = _git(repo, "rev-parse", "--symbolic-full-name", branch + "@{upstream}")
+    if not upstream:
+        return False
+    entries = _reflog(repo, upstream)
+    if entries is None:
+        return None
+    return any(_in_window(when, since) and new == head and old != new
+               and msg.startswith("update by push")
+               for old, new, when, msg in entries)
+
+
+def confirm_landing(repo, kind, ref, since=None):
     """Did the operation actually change this repository? Identity, not prose.
 
     merge <ref>  the merged tip is now an ancestor of HEAD. A merge that
@@ -528,8 +648,11 @@ def confirm_landing(repo, kind, ref):
     push         HEAD equals the branch's remote-tracking ref. A push that was
                  rejected, or that never ran, fails this.
 
-    Both are content identities: no clock, no reflog window, no parsing of
-    command output that a pipe may have swallowed.
+    Both are content identities, and neither parses command output that a
+    pipe or a redirect may have swallowed. Both now also require that the
+    ref MOVED during this turn (changed_in_turn): inclusion alone is true of
+    every no-op merge and push of work that landed before the turn began.
+    `since` is the turn's start in epoch seconds, or None when unknown.
     """
     if not repo or not os.path.isdir(repo):
         return False
@@ -550,6 +673,11 @@ def confirm_landing(repo, kind, ref):
         except Exception:
             return False
         if p.returncode != 0:
+            return False
+        # AND THIS TURN MOVED THE BRANCH TO CARRY IT (finding 2). A merge of
+        # something already merged passes the ancestry test above and lands
+        # nothing.
+        if changed_in_turn(repo, "merge", ref, head, since) is False:
             return False
         # AND IT REACHED THE BRANCH THIS WORK INTEGRATES ON (point 14). HEAD
         # alone is the literal effect of `git merge` -- it merges into the
@@ -576,7 +704,12 @@ def confirm_landing(repo, kind, ref):
     if not branch:
         return False
     up = _git(repo, "rev-parse", "--verify", "-q", branch + "@{upstream}")
-    return bool(up) and up == head
+    if not (bool(up) and up == head):
+        return False
+    # The same question for a push: did one in this turn move the upstream?
+    # A push of a branch already at its upstream ("Everything up-to-date")
+    # leaves HEAD equal to it and pushed nothing.
+    return changed_in_turn(repo, "push", ref, head, since) is not False
 
 
 # --------------------------------------------------------------------------
@@ -1136,7 +1269,7 @@ def main():
     landed, unconfirmed = [], []
     for repo, kind, ref in ops:
         top = _repo_top(repo)
-        if confirm_landing(repo, kind, ref):
+        if confirm_landing(repo, kind, ref, turn.get("started_at")):
             if top and top not in landed:
                 landed.append(top)
         else:

@@ -5,7 +5,10 @@
 # WHO USES IT. The mutation harnesses that keep their own mutant loop instead of
 # the shared one in mutation-harness.sh (the dialect, resume-isolation, host
 # display/power, inflight-notify, interactive-prompt, public-record-repo,
-# reference-ledger and phone-surface harnesses). The shared loop already stops a
+# reference-ledger and phone-surface harnesses, and since 2026-10-01 the
+# ceo-asks, ceo-ruled, claim-capability-delivery, claim-roles, idle-land,
+# mechanical-findings, turn-manifest, unasked-deferral and waiver-repetition
+# harnesses). The shared loop already stops a
 # mutant's run at its named line when a harness declares `mutation_focus
 # stop-at-want`; these did not, so every one of their mutants ran its WHOLE suite
 # (hunt 2026-09-29 part 3, finding 9) although the verdict is settled the
@@ -16,17 +19,32 @@
 # line always ends the run red. If the line never appears, the run finishes and
 # is judged exactly as it was before this helper existed.
 #
-#   mutant_suite_run <out-file> <want> <command...>
+#   mutant_suite_run [--boundary] <out-file> <want> <command...>
 #
 # sets MUTANT_RC (the suite's exit status, or 0 when it was stopped at the line)
 # and MUTANT_STOPPED (1 when it was stopped at the line, else 0). A caller that
 # sees MUTANT_STOPPED=1 has its verdict: the named case went red.
 # RICHOS_MUTATION_FOCUS=off runs the whole suite instead, as the shared harness
 # does, for a before/after measurement on one tree.
+#
+# THE STOP IS NEVER LOOSER THAN THE CALLER'S OWN WITNESS TEST, which is the
+# whole condition for using it. `<want>` is matched as a fixed string, so a
+# caller whose test is an ESCAPED literal (`grep "FAIL  ${want_re}"`) passes its
+# want TRIMMED and gets exactly that test; a caller whose test is an unescaped
+# `grep "FAIL  $want"` gets a stricter one, and when the stricter line never
+# appears the run finishes and the caller's own test decides as before. A
+# caller whose test ends in `\b` passes --boundary, so `D1` never stops at
+# `FAIL  D14`. (Hunt 2026-09-29 part 3, finding 9: the nine harnesses left on
+# whole-suite runs were held back on exactly this question.)
 
 _MSR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mutant_suite_run() {
+    local boundary=""
+    if [ "${1:-}" = --boundary ]; then
+        boundary=--boundary
+        shift
+    fi
     local out="$1" want="$2"
     shift 2
     MUTANT_STOPPED=0
@@ -38,7 +56,7 @@ mutant_suite_run() {
     fi
     local marker="$out.stopped"
     rm -f "$marker"
-    python3 "$_MSR_DIR/stop-at-line.py" --out "$out" --line "FAIL  $want" --marker "$marker" -- "$@"
+    python3 "$_MSR_DIR/stop-at-line.py" --out "$out" --line "FAIL  $want" --marker "$marker" ${boundary:+"$boundary"} -- "$@"
     MUTANT_RC=$?
     if [ "$MUTANT_RC" -eq 0 ] && [ -f "$marker" ]; then
         MUTANT_STOPPED=1
