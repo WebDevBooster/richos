@@ -6891,7 +6891,7 @@
     },
     "scripts/hooks/dispatch-pretooluse.sh#stub-modules": {
       "source": "scripts/hooks/dispatch-pretooluse.sh",
-      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "sha256": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
       "evidence": "Dispatcher chassis with literal private stub modules and manifest from its content-bound suite. Root memo and payload memo run; fixed stubs only consume stdin or emit literal values.",
       "keys": [],
       "edges": [
@@ -6912,7 +6912,7 @@
     },
     "scripts/hooks/dispatch-pretooluse.test.sh": {
       "source": "scripts/hooks/dispatch-pretooluse.test.sh",
-      "sha256": "dd8225c1e9a845bb28635d878d3d073099840ebf0b7be434c6c16628b0d00511",
+      "sha256": "5bfc323bee366d2149f4b13246eddabad5b165178ffb0cf4058b2ed11b282558",
       "evidence": "Full suite review: private literal dispatcher stubs; real config copied for root/adoption and D21 benign standalone modules. D21b installs only into a new HOME. D18-D20 inspect shipped manifest and all hook events. Fixed nested mutants change chassis/memo decisions without replacing the D21 payload or adding executable targets.",
       "keys": [],
       "edges": [
@@ -9518,7 +9518,7 @@
     },
     "scripts/hooks/dispatch-pretooluse.sh#operator-fixtures": {
       "source": "scripts/hooks/dispatch-pretooluse.sh",
-      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "sha256": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
       "evidence": "Full chassis/manifest reviewed. D1 uses a lease-acquire Bash payload and an Edit of a fixture record with no publication declaration. Both use explicit literal entity config. Every module is bound, including modules after the refusal.",
       "keys": [],
       "edges": [
@@ -9972,7 +9972,7 @@
     },
     "scripts/hooks/dispatch-pretooluse.sh#fenced-commit": {
       "source": "scripts/hooks/dispatch-pretooluse.sh",
-      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "sha256": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
       "evidence": "Real Bash dispatcher with one fixed git commit target: private fenced repository without publication, TODO, row-currency or hook adoption declarations. Real seat config can still be inherited by preclassification guards. Every manifest module is bound.",
       "keys": [],
       "edges": [
@@ -10080,7 +10080,7 @@
     },
     "scripts/hooks/dispatch-pretooluse.sh#no-chain": {
       "source": "scripts/hooks/dispatch-pretooluse.sh",
-      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "sha256": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
       "evidence": "These inventory drivers invoke the script basename without chain arguments. The explicit missing-chain branch exits 2 before root helpers, manifest reads or any module execution.",
       "keys": [],
       "edges": [],
@@ -14424,7 +14424,7 @@
     },
     "scripts/hooks/dispatch-pretooluse.sh#find-payload": {
       "source": "scripts/hooks/dispatch-pretooluse.sh",
-      "sha256": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+      "sha256": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
       "keys": [],
       "edges": [
         {
@@ -16221,7 +16221,7 @@
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
         "scripts/lib/publication-boundary.sh": "b8e3d8f8b80e0048174b55ca2a479f0030e7b1c6f03caae6e7aa14def514ab4f",
         "scripts/hooks/detect-nonnative-worktree.sh": "11fe1d4301e448a709fa0117b1b7df797f3dc7750233d275f09b4d749a150dee",
-        "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+        "scripts/hooks/dispatch-pretooluse.sh": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
         "scripts/lib/failure-type.py": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
         "scripts/lib/left-off.py": "f42910420dc6f26fbc0f8f060d9d94ce754bc7fc17a33847297e1f1278fd71c6",
@@ -16499,8 +16499,8 @@
       "all_events": true,
       "evidence": "D19 scans registrations across all events for dispatcher overlap. D20 checks PreToolUse chain keys. Installer derives and validates full registration inventory. Content-bound manifest, every D21 module and all reached helpers are retained.",
       "sources": {
-        "scripts/hooks/dispatch-pretooluse.test.sh": "dd8225c1e9a845bb28635d878d3d073099840ebf0b7be434c6c16628b0d00511",
-        "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+        "scripts/hooks/dispatch-pretooluse.test.sh": "5bfc323bee366d2149f4b13246eddabad5b165178ffb0cf4058b2ed11b282558",
+        "scripts/hooks/dispatch-pretooluse.sh": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
@@ -16739,7 +16739,7 @@
         "scripts/hooks/guard-shared-writes.sh": "8c93495c7a2fd02ef98b701af51fff16859fa0e11295eb9706d639a62148784a",
         "scripts/hooks/release-shared-writes.sh": "da06d8fbe6b3438a0bb1c33cea6e6b4789aeb041f9aef246ec3eea24d0f4ed80",
         "scripts/hooks/guard-live-names.sh": "f836427a7eff9c4785a22318725e87826b6890bb20c44511cb6ae9b86fe88d30",
-        "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+        "scripts/hooks/dispatch-pretooluse.sh": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
         "scripts/hooks/dispatch-pretooluse.manifest": "2c8df980b988666f70540291575d461262ca0192a012a4e3c1a8a32723daf85c",
         "scripts/hooks/guard-interactive-prompt.sh": "006331257e3424466c9bd8f5f49d895362f0602063cb25d98dcef32b18fbd8c8",
         "scripts/lib/interactive-prompt.py": "fd95664d486aa1cde400a9c216e1d2fda2eeb5f21a202a8ccce2b2d1a7b11af8",
@@ -16849,7 +16849,7 @@
         "scripts/hooks/unevaluated-payload.test.sh": "ec86bceca7bee15e6ecb6fe5a1104832c177bb30fee64e307ae856824364091d",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
         "hooks/hooks.json": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
-        "scripts/hooks/dispatch-pretooluse.sh": "9719dd18f9703702a3e7a01f51365902732f63f480cc9d0205a3a384d04ee687",
+        "scripts/hooks/dispatch-pretooluse.sh": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
