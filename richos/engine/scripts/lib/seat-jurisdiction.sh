@@ -93,7 +93,8 @@ _sj_notice_dir() {
 _sj_once() {
     local key="$1" dir stamp
     dir="$(_sj_notice_dir)" || return 0
-    stamp="$dir/$(printf '%s' "$key" | cksum | tr -d ' /')"
+    # The session id is part of the identity: a new session must be told again.
+    stamp="$dir/$(printf '%s' "${CLAUDE_SESSION_ID:-nosession}|$key" | cksum | tr -d ' /')"
     [ -e "$stamp" ] && return 1
     : >"$stamp" 2>/dev/null || return 0
     return 0
