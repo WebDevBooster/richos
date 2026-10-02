@@ -2471,7 +2471,7 @@ mod tests {
         let mut store = ConfigStore::open(&path).unwrap();
         assert!(!store.readable());
         assert_eq!(store.raw_retention(), RawRetention::FOREVER);
-        store.set_font_scale(120).unwrap();
+        assert!(store.set_font_scale(120).is_err(), "an unreadable store refuses the change, not 'saved'");
         assert_eq!(std::fs::read(&path).unwrap(), original);
         std::fs::remove_file(&path).unwrap();
     }
@@ -2485,7 +2485,7 @@ mod tests {
         assert!(!store.readable(), "a shape this build does not know is not read");
         assert!(store.unreadable_reason().unwrap().contains("99"), "and it names the version it found");
         assert_eq!(store.company_name(), None, "nothing is read out of a document it cannot understand");
-        store.set_company_name("Anything").unwrap();
+        assert!(store.set_company_name("Anything").is_err(), "an unreadable store refuses the change, not 'saved'");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original, "and nothing is written over it");
         let _ = std::fs::remove_file(&path);
     }
