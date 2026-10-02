@@ -89,16 +89,26 @@ assert m.ws.MEGA_LANDER_SELECTED
         scripts = self.engine / "scripts"
         for name in ("ci-units.sh", "ci-affected-units.sh"):
             shutil.copy2(ENGINE / "scripts" / name, scripts / name)
+        # The fixture's basename must be one NO suite in the copied engine names:
+        # the selector's basename rule (affected_units.py, "basename dependency
+        # (conservative)") rightly selects any suite whose text contains it. It was
+        # "worker.py" until 2026-10-02; workspace-pause-hold.test.sh (07544629f,
+        # 2026-09-28) writes its own $T/worker.py, so the selector also picked that
+        # suite and this case failed on main for a collision, not a selector defect.
+        stem = "relocation_unnamed_feature_worker"
         feature = self.engine / "isolated-feature"
         (feature / "tests").mkdir(parents=True)
-        (feature / "worker.py").write_text("pass\n")
-        suite = feature / "tests/worker.test.sh"
+        (feature / (stem + ".py")).write_text("pass\n")
+        suite = feature / "tests" / (stem + ".test.sh")
         suite.write_text("#!/usr/bin/env bash\nexit 0\n")
+        namers = sorted(str(p.relative_to(self.engine)) for p in self.engine.rglob("*.test.sh")
+                        if p != suite and (stem + ".py") in p.read_text(errors="replace"))
+        self.assertEqual(namers, [], "premise: no other suite may name the fixture's basename")
         self.run_command("git", "init", "-q", str(self.engine))
         result = self.run_command("bash", str(scripts / "ci-affected-units.sh"),
-                                  "--paths", "isolated-feature/worker.py", "--strict")
+                                  "--paths", "isolated-feature/%s.py" % stem, "--strict")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "isolated-feature/tests/worker.test.sh")
+        self.assertEqual(result.stdout.strip(), "isolated-feature/tests/%s.test.sh" % stem)
 
     def test_probe_runner_accepts_a_commit_before_the_move(self):
         self.engine = self.engine.rename(self.root / "engine")
