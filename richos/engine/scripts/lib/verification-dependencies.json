@@ -11976,7 +11976,7 @@
     },
     "scripts/ci-shard.test.sh": {
       "source": "scripts/ci-shard.test.sh",
-      "sha256": "92d00e67a082aa6734bee4ece2eb19929f70a812978be63e070134f9b2fbd064",
+      "sha256": "1e53733e05cfa1bae116ddd81dbe73855ef9b6efc4edfafc63718883cd90cb66",
       "evidence": "Full synthetic-engine fixture review: copies only runner/inventory/receipt/canary/process helpers and constructs literal suites, predicates and weight tables. No orchestration.config is copied or sourced. The allocator fixture sources scratch.sh with environment/default settings. Nested receipt verification uses emit/plain verify, without --proof-run; the normal engine-unit launcher sets RICHOS_PROOF_RUN only for its separate receipt item.",
       "keys": [],
       "edges": [
@@ -11991,8 +11991,8 @@
     },
     "scripts/ci-shard.sh#synthetic-fixture": {
       "source": "scripts/ci-shard.sh",
-      "sha256": "fbe04e13dd863cd62c7bc9536170519ef5de12b42ae73c79e1aab8d14b1a30e8",
-      "evidence": "Reached through ci-shard.test.sh synthetic inventory only. Executes literal fixture suites and known-red shell predicates supplied by that test. Plan/weights/receipts/canary data do not execute config. The optional target-provenance route is not requested by the fixture. All actual runner helpers are bound below. The teammate-workspace default (2026-10-01: no selector in a cc/ worktree runs what ci-affected-units.sh maps the branch to; reads RICHOS_TEST_SCOPE through lib/workspace_scope.py) is inert here: the fixture copies no lib/workspace_scope.py, so that branch is skipped and neither the library nor ci-affected-units.sh is executed.",
+      "sha256": "b97c18c3cb6abf21cb032786f4639669edf3e9bad266633f782f46c2761d8138",
+      "evidence": "Reached through ci-shard.test.sh synthetic inventory only. Executes literal fixture suites and known-red shell predicates supplied by that test. Plan/weights/receipts/canary data do not execute config. The optional target-provenance route is not requested by the fixture. All actual runner helpers are bound below. The teammate-workspace default (2026-10-01: no selector in a cc/ worktree runs what ci-affected-units.sh maps the branch to; reads RICHOS_TEST_SCOPE through lib/workspace_scope.py) is inert here: the fixture copies no lib/workspace_scope.py, so that branch is skipped and neither the library nor ci-affected-units.sh is executed. The run's folder (2026-10-02) is allocated by sourcing the copied lib/scratch.sh (scratch_new/scratch_release, ledger under the suite's sandbox CLAUDE_CONFIG_DIR, TMPDIR the suite's or S24's sandbox); TERM/INT/HUP traps only defer the exit until the running unit returns.",
       "keys": [],
       "edges": [
         {
@@ -12018,6 +12018,9 @@
         },
         {
           "to": "scripts/lib/engine_pass.py"
+        },
+        {
+          "to": "scripts/lib/scratch.sh"
         }
       ]
     },
@@ -12241,8 +12244,8 @@
     },
     "scripts/ci-shard.sh#boundary-fixture": {
       "source": "scripts/ci-shard.sh",
-      "sha256": "fbe04e13dd863cd62c7bc9536170519ef5de12b42ae73c79e1aab8d14b1a30e8",
-      "evidence": "Runner-boundaries fixture copies this runner into a synthetic engine and creates literal marker/status suites and known-red data. No target-proof receipt route; all actual runner helper sources remain bound. The teammate-workspace default (2026-10-01; lib/workspace_scope.py, ci-affected-units.sh, RICHOS_TEST_SCOPE) is inert here: the synthetic engine has no lib/workspace_scope.py, so that branch is skipped.",
+      "sha256": "b97c18c3cb6abf21cb032786f4639669edf3e9bad266633f782f46c2761d8138",
+      "evidence": "Runner-boundaries fixture copies this runner into a synthetic engine and creates literal marker/status suites and known-red data. No target-proof receipt route; all actual runner helper sources remain bound. The teammate-workspace default (2026-10-01; lib/workspace_scope.py, ci-affected-units.sh, RICHOS_TEST_SCOPE) is inert here: the synthetic engine has no lib/workspace_scope.py, so that branch is skipped. The scratch-allocator branch (2026-10-02) is inert too: the fixture copies no lib/scratch.sh, so the run's folder is the bare mktemp fallback under the fixture's TMPDIR.",
       "keys": [],
       "edges": [
         {
@@ -14554,7 +14557,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/ci-shard.sh",
-          "sha256": "fbe04e13dd863cd62c7bc9536170519ef5de12b42ae73c79e1aab8d14b1a30e8",
+          "sha256": "b97c18c3cb6abf21cb032786f4639669edf3e9bad266633f782f46c2761d8138",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {

@@ -66,14 +66,26 @@
 #        Codex's reproduction 337: a unit whose only act is scratch_new/release
 #        creates its first scratch ledger in its own home, never in the
 #        operator's config/state (S15i).
+#   S24  A STOPPED RUN NEVER DELETES ITS OWN FOLDER UNDER ITS UNIT (2026-10-02).
+#        The merge gate's stop reached ci-shard.sh and worker_tokens.py at the
+#        same moment; the shell's EXIT trap removed the folder while
+#        worker_tokens.py was still stopping the unit, its timing write died with
+#        FileNotFoundError, and the unit's own log went with the folder. Here the
+#        run is started under the gate's own supervisor (proc_tree.py run) and
+#        stopped the way the gate stops it (TERM to the supervisor); the folder
+#        must outlive the unit's own TERM cleanup, the unit's last output must
+#        be printed, no receipt may be written, and the folder must come from
+#        the scratch allocator with this run's pid as its owner and be released
+#        afterward.
 #
-# Exit 0 = all cases pass; exit 1 = at least one failure.
+# Exit 0 = all cases pass; exit 1 = at least one failure. A scoped run
+# (--contamination-only, --stop-only) exits 3 when its cases pass.
 
 set -uo pipefail
 case "${1:-}" in
     "") ;;
-    --contamination-only) [ "$#" -eq 1 ] || exit 2 ;;
-    *) echo "usage: ci-shard.test.sh [--contamination-only]" >&2; exit 2 ;;
+    --contamination-only|--stop-only) [ "$#" -eq 1 ] || exit 2 ;;
+    *) echo "usage: ci-shard.test.sh [--contamination-only | --stop-only]" >&2; exit 2 ;;
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,7 +97,7 @@ trap 'rm -rf "$SANDBOX"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh lib/proc_tree.py lib/operator_fences.py lib/worker_tokens.py lib/engine_pass.py; do
+for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh lib/proc_tree.py lib/operator_fences.py lib/worker_tokens.py lib/engine_pass.py lib/scratch.sh; do
     [ -f "$ENGINE_ROOT/scripts/$f" ] || { echo "FATAL: missing scripts/$f" >&2; exit 1; }
 done
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
@@ -113,7 +125,7 @@ mk_engine() { # <root>
     for f in ci-shard.sh ci-units.sh; do
         cp "$ENGINE_ROOT/scripts/$f" "$r/scripts/$f"; chmod +x "$r/scripts/$f"
     done
-    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh proc_tree.py operator_fences.py worker_tokens.py engine_pass.py; do
+    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh proc_tree.py operator_fences.py worker_tokens.py engine_pass.py scratch.sh; do
         cp "$ENGINE_ROOT/scripts/lib/$f" "$r/scripts/lib/$f"
     done
     # The sectioned suite, with two real `if _section` markers, so the section
@@ -159,7 +171,7 @@ run_shard() { # captures stdout+stderr to $SANDBOX/out, echoes the rc
 }
 
 # --- S1 / S2 ---------------------------------------------------------------
-if [ "${1:-}" != --contamination-only ]; then
+if [ -z "${1:-}" ]; then
 RC="$(run_shard --only-units scripts/lib/green.test.sh)"
 if [ "$RC" = "0" ] && grep -q 'PASS' "$SANDBOX/out"; then
     ok "S1   a suite unit is green at exit 0"
@@ -933,6 +945,7 @@ fi
 
 # A contamination finding stops the shard even with default continuation and
 # signals the outer runner without inventing receipts for units never executed.
+if [ "${1:-}" != --stop-only ]; then
 mk_suite "$E/scripts/lib/01-stop-green.test.sh" 0
 cat > "$E/scripts/lib/00-contaminate.test.sh" <<'CONTAMINATE'
 #!/usr/bin/env bash
@@ -951,11 +964,97 @@ else
     sed 's/^/          /' "$SANDBOX/out"
 fi
 unset RICHOS_VERIFICATION_CONTAMINATION
+fi
+
+# ---------------------------------------------------------------------------
+# S24 — A STOPPED RUN NEVER DELETES ITS FOLDER UNDER ITS OWN UNIT (2026-10-02)
+# ---------------------------------------------------------------------------
+# The reproduction of the merge gate's refusals of cc/zach-sonnet-vinputs1:
+# the run is started under the supervisor the gate uses (proc_tree.py run) and
+# stopped the way the gate stops a check at its cap (TERM to that supervisor,
+# whose finish_scope then sends TERM to every process of the run at once). The
+# unit TRAPS TERM and spends a second on its own cleanup before it prints its
+# last line, so a folder removed at the moment of the signal is caught three
+# ways: worker_tokens.py's timing write fails (the gate's FileNotFoundError),
+# the unit's last line is never printed, and nothing names where it was.
+if [ "${1:-}" != --contamination-only ]; then
+S24T="$SANDBOX/s24-tmp"; S24PID="$SANDBOX/s24-unit.pid"
+mkdir -p "$S24T"
+cat > "$E/scripts/lib/stopped.test.sh" <<STOPPED
+#!/usr/bin/env bash
+trap 'trap "" TERM; sleep 1; echo "S24-UNIT-CLEANUP-FINISHED"; exit 143' TERM
+echo "S24-UNIT-REACHED-ITS-LONG-STEP"
+echo \$\$ > "$S24PID"
+sleep 300 &
+wait
+STOPPED
+chmod +x "$E/scripts/lib/stopped.test.sh"
+: > "$SANDBOX/s24.jsonl"
+( cd "$E" && TMPDIR="$S24T" exec python3 "$E/scripts/lib/proc_tree.py" run "$$" -- \
+    bash "$SH" --only-units scripts/lib/stopped.test.sh --receipt "$SANDBOX/s24.jsonl" \
+    > "$SANDBOX/s24.out" 2>&1 ) &
+S24SUP=$!
+S24DIR=""
+for _ in $(seq 1 300); do
+    if [ -s "$S24PID" ]; then
+        S24LOG="$(find "$S24T" -name 1.log -type f 2>/dev/null | head -1)"
+        [ -n "$S24LOG" ] && S24DIR="$(dirname "$S24LOG")" && break
+    fi
+    sleep 0.1
+done
+S24ROOT="$(cd "$S24T" && pwd -P)/richos-scratch"
+S24ALLOC=0
+S24OWNER=""
+if [ -n "$S24DIR" ]; then
+    # The run's folder, while the unit runs: allocated, and its owner on record.
+    case "$S24DIR" in
+        "$S24ROOT"/*-ci-shard-*)
+            S24OWNER="${S24DIR##*/}"; S24OWNER="${S24OWNER%%-*}"
+            if kill -0 "$S24OWNER" 2>/dev/null \
+               && grep -F "\"path\":\"$S24DIR\"" "$CLAUDE_CONFIG_DIR/state/scratch-ledger.jsonl" 2>/dev/null \
+                  | grep -q "\"pid\":$S24OWNER,.*\"event\":\"new\""; then
+                S24ALLOC=1
+            fi ;;
+    esac
+fi
+kill -TERM "$S24SUP" 2>/dev/null
+wait "$S24SUP" 2>/dev/null
+S24PROCLEFT="$(cat "$S24PID" 2>/dev/null)"
+if [ -n "$S24PROCLEFT" ] && kill -0 "$S24PROCLEFT" 2>/dev/null; then kill -KILL "$S24PROCLEFT" 2>/dev/null; fi
+if [ -z "$S24DIR" ]; then
+    bad "S24  the stopped-run fixture never started its unit"
+    sed 's/^/          /' "$SANDBOX/s24.out"
+elif grep -q 'FileNotFoundError\|No such file or directory' "$SANDBOX/s24.out"; then
+    bad "S24  the run's folder was removed while its unit was still stopping (the merge gate's FileNotFoundError)"
+    sed 's/^/          /' "$SANDBOX/s24.out"
+elif ! grep -q 'S24-UNIT-CLEANUP-FINISHED' "$SANDBOX/s24.out" \
+     || ! grep -q 'S24-UNIT-REACHED-ITS-LONG-STEP' "$SANDBOX/s24.out"; then
+    bad "S24  a stopped run did not print its unit's own last output, so a stop at the cap leaves nothing to say where the unit was"
+    sed 's/^/          /' "$SANDBOX/s24.out"
+else
+    ok "S24  a stopped run keeps its folder until its unit has finished stopping, and prints the unit's last output"
+fi
+if [ "$S24ALLOC" -eq 1 ]; then
+    ok "S24b the run's folder comes from the scratch allocator, its live owner (pid $S24OWNER) on record in the ledger and the name"
+else
+    bad "S24b the run's folder is not an allocation with a live recorded owner: ${S24DIR:-none} (allocator root $S24ROOT)"
+fi
+if [ -n "$S24DIR" ] && [ ! -e "$S24DIR" ] && ! grep -q . "$SANDBOX/s24.jsonl"; then
+    ok "S24c the stopped run still removes its folder afterward, and writes no receipt for the unfinished unit"
+else
+    bad "S24c after the stop: folder ${S24DIR:-none} exists=$([ -e "${S24DIR:-/nonexistent}" ] && echo yes || echo no), receipt rows=$(grep -c . "$SANDBOX/s24.jsonl")"
+fi
+rm -f "$E/scripts/lib/stopped.test.sh"
+fi
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     if [ "${1:-}" = --contamination-only ]; then
         echo "=== ci-shard tests: scoped S23 passed; other cases were not run ==="
+        exit 3
+    fi
+    if [ "${1:-}" = --stop-only ]; then
+        echo "=== ci-shard tests: scoped S24 passed; other cases were not run ==="
         exit 3
     fi
     echo "=== ci-shard tests: all $PASS passed ==="
