@@ -160,7 +160,12 @@ impl NavStore {
     /// asks.
     fn persist(&self) -> std::io::Result<()> {
         if !self.readable {
-            return Ok(());
+            // Not written, and SAID: an `Ok` told the caller "saved" about a pin, archive or
+            // rename that is gone at the next launch (hunt part 1, finding 38).
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the navigation file could not be read, so it was left untouched and this change was not saved",
+            ));
         }
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -380,13 +385,13 @@ mod tests {
         assert!(!store.readable(), "the file exists and this build cannot read it");
         assert_eq!(store.state(), &NavState::default(), "the boot is served from defaults");
 
-        store.set_sidebar_width(420.0).unwrap();
-        store.set_inspector_width(380.0).unwrap();
-        store.set_sidebar_collapsed(true).unwrap();
-        store.set_entity_collapsed("ent_a", true).unwrap();
-        store.set_thread_pinned("thr_a", true).unwrap();
-        store.set_thread_archived("thr_b", true).unwrap();
-        store.rename_thread("thr_a", "Something Else").unwrap();
+        assert!(store.set_sidebar_width(420.0).is_err(), "an unwritten change is not reported as saved");
+        assert!(store.set_inspector_width(380.0).is_err());
+        assert!(store.set_sidebar_collapsed(true).is_err());
+        assert!(store.set_entity_collapsed("ent_a", true).is_err());
+        assert!(store.set_thread_pinned("thr_a", true).is_err());
+        assert!(store.set_thread_archived("thr_b", true).is_err());
+        assert!(store.rename_thread("thr_a", "Something Else").is_err());
         assert_eq!(
             std::fs::read(&path).unwrap(),
             original,
