@@ -294,9 +294,10 @@ comparison no longer waits for someone to run it:
   calls the platform command lines' phone verbs only: `randroid device install` / `randroid device
   perf` and `rios device install` / `rios device perf` (the release build of the clone installed over
   the existing app with its data kept, the benchmark's fixed conversation seeded, 100 cold starts and
-  100 returns measured, the app's own saved state put back). **These verbs are being added by
-  zach-opus-releaseonly1; until they land every run reports COULD NOT MEASURE naming the missing
-  verb.** Then `perf.py compare` judges the record; both metrics must be compared. A phone whose app
+  100 returns measured, the app's own saved state put back). A checkout without these verbs reports
+  COULD NOT MEASURE naming the missing verb. The perf verb's exit 1 (a phase failed) or 4 (slower)
+  with its record written is a measurement and is judged; any other failure could not measure.
+  Then `perf.py compare` judges the record; both metrics must be compared. A phone whose app
   cannot have changed (every change since its last good run is in the other app's directory) is not
   measured again.
 - **Never an uninstall.** Everything a verb starts reaches adb and xcrun through `phone_guard.py`
@@ -308,8 +309,12 @@ comparison no longer waits for someone to run it:
 - **A missed run.** The request is written before the runner starts and every round records
   `started` and `finished` under a lock held for the runner's life. The next move of main reports
   any request no finished round covers, with no runner alive, as MISSED (once) and retries it.
-- **Blank screen:** quint-opus-blank1's check joins the verdict in `blank_screen_problems()` when it
-  lands in perf.py.
+- **Blank screen** (CEO 2026-10-02: no blank screen on start)**:** on Android the perf verb runs the
+  cold-start blank check inside the same measurement (perf.py's `cold-blank` phase, `--blank-starts`
+  10, `blankstart.py` judged by `blank.py`), and `blank_screen_problems()` reads its verdict from the
+  record's `metrics.coldBlank`: a FAIL is a regression exactly as a slower p95 is, and an Android
+  record without the verdict could not measure. The iPhone's check needs isaac-opus-white1's screen
+  recording of the tap launches; until then its outcome says it was not checked.
 - `python3 richos/mobile/perf/watch.py status` prints the last good run per phone, what is pending
   and the recent outcomes; `watch.py busy android|ios` shows what keeps a phone busy right now. State
   is private, in `/Volumes/E1TB/state/richos/phone-speed-watch/`. Tests:

@@ -50,8 +50,15 @@ its own clone of main's tip on the external SSD (never a worktree of the reposit
   - puts phone_guard.py in front of adb and xcrun for everything the verbs start (first on PATH):
     an uninstall or a data clear is refused, the run stops there and is reported REFUSED (CEO rule
     2026-10-01: never uninstall the app or clear its data, on either phone).
-  - BLANK SCREEN: quint-opus-blank1's blank-screen check is not in perf.py yet. When it lands, its
-    verdict joins the run's in blank_screen_problems() below; nothing else changes.
+  - BLANK SCREEN (CEO 2026-10-02: no blank screen on start): on Android the perf verb runs
+    quint-opus-blank1's cold-start check inside the same measurement (perf.py's `cold-blank` phase,
+    `--blank-starts` BLANK_STARTS: blankstart.android_cold_blank taps the icon with the screen
+    recorded and blank.py judges each recording), and the record carries the verdict as
+    `metrics.coldBlank`. blank_screen_problems() below reads it: a FAIL makes the run a REGRESSION
+    exactly as a slower p95 does, and an Android record without the verdict is a run that could not
+    measure. The analyzer runs inside the verb because it needs the phone, which this file reaches
+    only through the verbs. The iPhone's cold-start blank check needs isaac-opus-white1's screen
+    recording; until then an iPhone record without `coldBlank` says so, and one with it is judged.
 
 WHAT REACHES RICH. Every outcome but a good or unchanged one raises an escalation in the committed
 ledger (richos/engine/scripts/escalate.sh, read at every session start and turn end, louder at 1 h,
@@ -695,12 +702,52 @@ def compare(checkout, record_path, log_path):
     return "not-compared", {**result, "why": result.get("why") or f"perf.py compare exited {p.returncode}"}
 
 
+def blank_starts():
+    return setting("BLANK_STARTS", "10")
+
+
+# A platform whose record must carry the blank-screen verdict. The iPhone joins when its cold-start
+# recording does (isaac-opus-white1); until then its record is judged only when it carries one.
+BLANK_REQUIRED = ("android",)
+IPHONE_BLANK_PENDING = ("not checked on the iPhone yet: its cold-start blank check needs "
+                        "isaac-opus-white1's screen recording of the tap launches")
+
+
 def blank_screen_problems(platform, record_data):
-    """THE PLACE FOR quint-opus-blank1's BLANK-SCREEN CHECK. It is not in perf.py yet. When it lands,
-    perf.py's record carries its verdict: read it here and return one sentence per failure (a blank
-    first frame, a blank screen longer than its limit). A non-empty list makes the run a REGRESSION
-    exactly as a slower p95 does. Until then this returns [] and every outcome says it was not checked."""
-    return []
+    """quint-opus-blank1's cold-start blank check, as the run's verdict. The analyzer
+    (blankstart.android_cold_blank, judged by blank.py) ran inside the perf verb and left its
+    series in the record as `metrics.coldBlank`. Returns one sentence per failure; a non-empty list
+    makes the run a REGRESSION exactly as a slower p95 does. Raises Unmeasured when a platform in
+    BLANK_REQUIRED has no verdict: the start was not checked for a blank screen."""
+    metrics = record_data.get("metrics") or {}
+    cb = metrics.get("coldBlank")
+    if not cb:
+        if platform in BLANK_REQUIRED:
+            phase = (record_data.get("phases") or {}).get("cold-blank", "the record has no cold-blank phase")
+            raise Unmeasured(f"the cold-start blank-screen check gave no verdict ({phase})")
+        return []
+    if cb.get("verdict") == "PASS":
+        return []
+    label = "Android" if platform == "android" else "iPhone"
+    problems = [f"{label} cold start BLANK SCREEN: {'; '.join(cb.get('why') or ['verdict ' + str(cb.get('verdict'))])} "
+                f"(limit {cb.get('limitMs')} ms, blank.py)"]
+    over = cb.get("overLimit") or []
+    if over:
+        worst = max(o.get("worstMs") or 0 for o in over)
+        problems.append(f"{len(over)} of {len(cb.get('starts') or [])} starts over the limit, the worst {worst:.0f} ms")
+    return problems
+
+
+def blank_screen_status(platform, record_data, problems):
+    """What the outcome row says about the blank-screen check."""
+    if problems:
+        return problems
+    cb = (record_data.get("metrics") or {}).get("coldBlank")
+    if not cb:
+        return IPHONE_BLANK_PENDING if platform == "ios" else "not checked"
+    value = cb.get("valueMs")
+    return (f"PASS: {cb.get('statistic')} {value if value is None else round(value)} ms of "
+            f"{len(cb.get('samplesMs') or [])} starts, limit {cb.get('limitMs')} ms")
 
 
 def summary_line(result):
@@ -752,29 +799,38 @@ def run_platform(repo, round_id, sha, platform, work, checkout):
         verb(platform, "install", checkout, phone, ["--expect-commit", sha], guard, log_path)
         out = str(work / f"{platform}.json")
         n = str(trials())
-        verb(platform, "perf", checkout, phone, ["--expect-commit", sha, "--cold", n, "--warm", n,
-                                                 "--evidence-dir", str(work / "evidence"), "--out", out],
-             guard, log_path, record_out=out)
+        extra = ["--expect-commit", sha, "--cold", n, "--warm", n, "--evidence-dir", str(work / "evidence"), "--out", out]
+        if platform in BLANK_REQUIRED:
+            extra += ["--blank-starts", blank_starts()]  # perf.py's cold-blank phase (quint-opus-blank1)
+        verb(platform, "perf", checkout, phone, extra, guard, log_path, record_out=out)
         if not Path(out).exists():
             raise Unmeasured(f"the perf verb wrote no record at {out}: {log_tail(log_path)}")
         verdict, result = compare(checkout, out, log_path)
         with open(out) as f:
-            blanks = blank_screen_problems(platform, json.load(f))
+            data = json.load(f)
+        try:
+            blanks = blank_screen_problems(platform, data)
+        except Unmeasured as exc:
+            raise Unmeasured(f"{exc}; speed: {summary_line(result)}") from None
+        speed = verdict
         if blanks and verdict == "good":
             verdict = "slower"
         outcome.update(verdict=verdict, record=out, compare=summary_line(result),
-                       blankScreen=blanks or "not checked yet (quint-opus-blank1)")
+                       blankScreen=blank_screen_status(platform, data, blanks))
         if verdict == "good":
             set_good(platform, {"commit": sha, "at": now(), "record": out, "compare": summary_line(result)})
         elif verdict == "slower":
-            escalate(repo, f"Phone speed: {label} start SLOWER than the benchmark at main {sha[:12]}",
+            what = ("start SLOWER than the benchmark" + (" and a BLANK SCREEN" if blanks else "")
+                    if speed == "slower" else "start shows a BLANK SCREEN")
+            escalate(repo, f"Phone speed: {label} {what} at main {sha[:12]}",
                      f"{label} {summary_line(result)}{'; ' + '; '.join(blanks) if blanks else ''}. Range {span}. "
                      f"Commits in it touching richos/mobile/: {' | '.join(commits) or 'none listed'}. Which of them "
-                     "slowed the start, and who fixes it?",
+                     f"{'slowed the start' if speed == 'slower' else 'put a blank screen on the start'}, and who fixes it?",
                      f"The automatic run after the land measured {trials()} cold starts and {trials()} returns with "
                      f"the benchmark's fixed conversation and ran perf.py compare. Record: {out}; log: {log_path}.")
         else:
-            raise Unmeasured(f"the record could not be compared with the benchmark: {result.get('why')}")
+            raise Unmeasured(f"the record could not be compared with the benchmark: {result.get('why')}"
+                             + (f"; and {'; '.join(blanks)}" if blanks else ""))
     except Unmeasured as exc:
         kind = "refused" if isinstance(exc, Refused) else "unmeasured"
         outcome.update(verdict=kind, why=str(exc))

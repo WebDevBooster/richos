@@ -76,10 +76,22 @@ if mode == "uninstall" and args[:2] == ["device", "install"]:
     subprocess.run(["adb", "install", "twin.apk"])  # device-cli-exempt: a fake phone or the guard under test; plants the command to prove the refusal
     sys.exit(1)
 if args[:2] == ["device", "perf"]:
-    # mode "VERDICT[:EXIT]": perf.py writes its record first, then exits 1 (a phase failed) or 4 (slower).
-    verdict, _, code = mode.partition(":")
+    # mode "VERDICT[:EXIT[:BLANK]]": perf.py writes its record first, then exits 1 (a phase failed) or
+    # 4 (slower). BLANK is the cold-start blank check's verdict in it (metrics.coldBlank, as
+    # blankstart.metric writes it): pass, fail or none; Android runs it by default, the iPhone not yet.
+    verdict, code, blank = (mode.split(":") + ["", ""])[:3]
+    blank = blank or ("pass" if platform == "android" else "none")
+    record = {"fake": verdict, "metrics": {}, "phases": {}}
+    if blank == "none":
+        record["phases"]["cold-blank"] = "NOT MEASURED: the RichConnect icon is not on the launcher's first page"
+    else:
+        record["metrics"]["coldBlank"] = {
+            "verdict": blank.upper(), "statistic": "median", "valueMs": 120.0 if blank == "pass" else 900.0,
+            "limitMs": 400, "samplesMs": [120.0, 900.0, 900.0], "starts": [{}, {}, {}],
+            "why": [] if blank == "pass" else ["the median of 3 starts' longest blank stretch is 900 ms, over the 400 ms limit"],
+            "overLimit": [] if blank == "pass" else [{"recording": "start-002.mp4", "worstMs": 900.0}, {"recording": "start-003.mp4", "worstMs": 950.0}]}
     out = args[args.index("--out") + 1]
-    json.dump({"fake": verdict}, open(out, "w"))
+    json.dump(record, open(out, "w"))
     sys.exit(int(code or 0))
 """
 FAKE_PERF = """#!/usr/bin/env python3
@@ -258,6 +270,8 @@ class Run(Base):
         self.request()
         outcomes = self.run_round()
         self.assertEqual(sorted((o["platform"], o["verdict"]) for o in outcomes), [("android", "good"), ("ios", "good")])
+        blank = {o["platform"]: o["blankScreen"] for o in outcomes}
+        self.assertTrue(blank["android"].startswith("PASS: median 120 ms of 3 starts"), blank)
         self.assertEqual(self.escalated(), [])
         good = json.loads((self.base / "home/good.json").read_text())
         self.assertEqual(good["android"]["commit"], head)
@@ -328,6 +342,41 @@ class Run(Base):
         titles = [e["title"] for e in self.escalated()]
         self.assertTrue(any("Android start SLOWER than the benchmark" in t for t in titles), titles)
         self.assertTrue(any("iPhone run COULD NOT MEASURE" in t for t in titles), titles)
+
+    def test_W15_a_blank_screen_on_the_android_start_is_a_regression_even_at_good_speed(self):
+        # quint-opus-blank1's check runs inside the perf verb (perf.py cold-blank phase) and its FAIL
+        # makes perf.py exit 1 with the record written; the run reads the verdict from the record.
+        good_sha = self.git("rev-parse", "HEAD")
+        self.request()
+        first = self.run_round()
+        ios = [o for o in first if o["platform"] == "ios"][0]
+        self.write("richos/mobile/native-android/App.kt", "white flash\n")
+        sha = self.commit("android: the change that put a blank screen on the start")
+        self.request()
+        outcomes = self.run_round(env=dict(self.env, FAKE_MODE_ANDROID="good:1:fail"))
+        android = [o for o in outcomes if o["platform"] == "android"][-1]
+        self.assertEqual(android["verdict"], "slower", android)
+        self.assertIn("Android cold start BLANK SCREEN", android["blankScreen"][0])
+        self.assertIn("2 of 3 starts over the limit, the worst 950 ms", android["blankScreen"][1])
+        self.assertIn(f"--blank-starts 10", self.tools(), "the verb is asked for the blank check explicitly")
+        self.assertIn("not checked on the iPhone yet", ios["blankScreen"])
+        [esc] = self.escalated()
+        self.assertIn("Android start shows a BLANK SCREEN", esc["title"])
+        self.assertIn(f"{good_sha[:12]}..{sha[:12]}", esc["question"])
+        self.assertIn("put a blank screen on the start", esc["question"])
+        self.assertEqual(json.loads((self.base / "home/good.json").read_text())["android"]["commit"], good_sha,
+                         "a blank start never becomes the good run")
+
+    def test_W16_an_android_record_without_the_blank_verdict_could_not_measure(self):
+        self.request()
+        outcomes = self.run_round(env=dict(self.env, FAKE_MODE_ANDROID="good:1:none"))
+        android = [o for o in outcomes if o["platform"] == "android"][0]
+        self.assertEqual(android["verdict"], "unmeasured", android)
+        self.assertIn("blank-screen check gave no verdict", android["why"])
+        self.assertIn("icon is not on the launcher's first page", android["why"])
+        self.assertIn("coldLaunch p95 900 ms", android["why"], "the speed it did measure is still said")
+        titles = [e["title"] for e in self.escalated()]
+        self.assertTrue(any("Android run COULD NOT MEASURE" in t for t in titles), titles)
 
     def test_W9_a_busy_phone_waits_and_is_not_interrupted(self):
         user = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)", SERIAL])
