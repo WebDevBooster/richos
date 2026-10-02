@@ -355,7 +355,7 @@ async function main() {
     for (const target of targetInfos.filter((t) => t.type === 'service_worker' && t.url.startsWith('chrome-extension://'))) {
       const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
       const name = await evaluate(cdp, sessionId, 'chrome.runtime.getManifest().name');
-      if (name === 'RichOS') return { swSession: sessionId, extensionId: new URL(target.url).host };
+      if (name === 'RichOS Helper') return { swSession: sessionId, extensionId: new URL(target.url).host };
       await cdp.send('Target.detachFromTarget', { sessionId });
     }
     return null;
@@ -385,7 +385,7 @@ async function main() {
   // Manifest sanity, read from the running extension rather than the file on disk.
   const manifest = await evaluate(cdp, swSession, 'JSON.stringify(chrome.runtime.getManifest())');
   const parsedManifest = JSON.parse(manifest);
-  check('manifest parsed by Chrome, name is RichOS', parsedManifest.name === 'RichOS', `v${parsedManifest.version}`);
+  check('manifest parsed by Chrome, name is RichOS Helper', parsedManifest.name === 'RichOS Helper', `v${parsedManifest.version}`);
 
   // Set fast capture settings BEFORE the call tab ages into auto-arm range (armDelayMs, 3s), so
   // that whoever starts the session first — the extension's own auto-scan or the harness — uses

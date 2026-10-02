@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/WebDevBooster/gpt-exporter",
+  "commit": "3f832818791d536279f402aaff8da1dab9abec14",
+  "version": "2.2.1",
+  "unchangedFiles": {
+    "export/markdown.js": "47f347bb26dcfb653a2336ea71a52d6c6afee7b6bbbebd2e5471a7e837122613",
+    "export/json.js": "64276ee05984979662bff921cf600ee7e1761f579a655c4de8961bc7640c62b4",
+    "lib/jszip.min.js": "acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e",
+    "lib/chatgpt-url.js": "32c00fb1e65e94121c826058b68efaccf8fc9e0467e2774670713472381a6922",
+    "LICENSE": "0eed416a81f4012ecc8f38be9e9afc7cacd8345e773b70962a6fac0ba3b84477"
+  },
+  "adaptedFiles": [
+    "runtime.js",
+    "content.js",
+    "sync/tracker.js",
+    "lib/downloads.js",
+    "panel.html",
+    "panel.js",
+    "popup.css"
+  ]
+}

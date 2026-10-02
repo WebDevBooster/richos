@@ -2,16 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>RichOS</title>
+    <title>RichOS Helper</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <header>
       <span id="dot" class="dot idle"></span>
-      <h1>RichOS</h1>
+      <h1>RichOS Helper</h1>
       <a id="options-link" href="#">Settings</a>
     </header>
 
+    <h2>Call capture</h2>
     <section id="status" class="card">
       <p class="muted">Loading…</p>
     </section>
@@ -26,6 +27,13 @@
     <section id="exports"></section>
 
     <section id="recent"></section>
+
+    <section id="gpt-section" hidden>
+      <h2>ChatGPT export</h2>
+      <p id="gpt-summary" class="muted"></p>
+      <iframe id="gpt-panel" title="ChatGPT export" hidden></iframe>
+      <button id="gpt-open">Open ChatGPT export controls</button>
+    </section>
 
     <footer>
       <span class="muted" id="hint"></span>
