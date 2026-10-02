@@ -8,9 +8,11 @@ scratch git repository. No phone, emulator, build or window.
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -131,7 +133,8 @@ class Phone:
     def randroid(self, *args, env=None):
         e = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "FAKE_PHONE": str(self.file),
              "RANDROID_CACHE": str(self.tmp / "cache"), "ANDROID_HOME": str(self.tmp / "sdk"),
-             "RANDROID_AAPT2": str(self.bin / "aapt2"), "PYTHONDONTWRITEBYTECODE": "1"}
+             "RANDROID_AAPT2": str(self.bin / "aapt2"), "PYTHONDONTWRITEBYTECODE": "1",
+             "RICHOS_PHONE_LOCK_DIR": str(self.tmp / "locks"), "RICHOS_DEVICE_HOLDER": "test-runner"}
         e.pop("RICHOS_DEVICE_VERB", None)
         e.update(env or {})
         p = subprocess.run(["bash", str(RANDROID), *args], capture_output=True, text=True, env=e, timeout=120)
@@ -279,6 +282,136 @@ def _():
         assert p.returncode == 3 and "randroid device perf" in p.stderr and ph.calls == [], (p.returncode, p.stderr, ph.calls)
         code, out = ph.randroid("device", "--serial", "PHONE1", "seed")
         assert code == 1 and "debuggable twin" in out, (code, out)
+
+
+# -- one user per phone (CEO 2026-10-02) ---------------------------------------------------------
+# Every holder below is a process this test started; its PID is the one recorded at spawn (the
+# hold process) or the one its own command wrote (the held command), and only those are signaled.
+
+def hold_cmd(phone, *cmd, wait=0, holder="agent-one", platform="android"):
+    return [sys.executable, str(PHYSICAL), "hold", "--platform", platform, "--phone", phone, "--wait", str(wait),
+            "--holder", holder, "--", *cmd]
+
+
+class Holder:
+    """A first user of a phone: `hold` running a command that writes its own PID, then sleeps."""
+
+    def __init__(self, tmp, phone="P1", seconds=30, holder="agent-one", platform="android"):
+        self.env = {**os.environ, "RICHOS_PHONE_LOCK_DIR": str(Path(tmp) / "locks"), "PYTHONDONTWRITEBYTECODE": "1"}
+        self.flag = Path(tmp) / f"held-{holder}-{phone}"
+        body = f"import os, pathlib, time; pathlib.Path({str(self.flag)!r}).write_text(str(os.getpid())); time.sleep({seconds})"
+        self.proc = subprocess.Popen(hold_cmd(phone, sys.executable, "-c", body, holder=holder, platform=platform),
+                                     env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # The fact waited for: the held command wrote its PID, or the holder ended without doing so.
+        while not (self.flag.exists() and self.flag.read_text()):
+            if self.proc.poll() is not None:
+                raise AssertionError(f"the first holder ended before its command ran: {self.proc.stderr.read()}")
+            time.sleep(0.05)
+        self.child = int(self.flag.read_text())
+
+    def stop(self):
+        for pid in (self.proc.pid, self.child):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        self.proc.wait()  # SIGKILL always ends it; this only reaps it
+
+
+def second(tmp, phone="P1", wait=0, cmd=("true",), holder="agent-two", platform="android"):
+    env = {**os.environ, "RICHOS_PHONE_LOCK_DIR": str(Path(tmp) / "locks"), "PYTHONDONTWRITEBYTECODE": "1"}
+    return subprocess.run(hold_cmd(phone, *cmd, wait=wait, holder=holder, platform=platform), env=env,
+                          capture_output=True, text=True, timeout=900)  # load-bound: a hang guard only; no verdict rests on it
+
+
+def lock_status(tmp, phone="P1", platform="android"):
+    env = {**os.environ, "RICHOS_PHONE_LOCK_DIR": str(Path(tmp) / "locks")}
+    p = subprocess.run([sys.executable, str(PHYSICAL), "status", "--platform", platform, "--phone", phone],
+                       env=env, capture_output=True, text=True)
+    return json.loads(p.stdout)["result"]
+
+
+@case("D16 two users of one phone: the second is refused at once, naming the holder; status says held and by whom")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        first = Holder(tmp)
+        try:
+            p = second(tmp)
+            assert p.returncode == 3, (p.returncode, p.stderr)
+            assert "in use by agent-one" in p.stderr and f"process {first.proc.pid}" in p.stderr, p.stderr
+            st = lock_status(tmp)
+            assert st["state"] == "held" and st["holder"] == "agent-one" and st["pid"] == first.proc.pid, st
+        finally:
+            first.stop()
+
+
+@case("D17 a second user given --wait waits for the first, says so, and goes on when the phone is free")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        first = Holder(tmp, seconds=2)
+        try:
+            p = second(tmp, wait=600)  # load-bound: the first ends after its 2 s sleep; 600 s only bounds a hang
+            assert p.returncode == 0, (p.returncode, p.stderr)
+            assert "waiting up to 600 s" in p.stderr and "held by agent-one" in p.stderr and "is free after" in p.stderr, p.stderr
+            st = lock_status(tmp)
+            assert st["state"] == "free" and st["previous"]["holder"] == "agent-two" and st["previous"]["endedAt"], st
+        finally:
+            first.stop()
+
+
+@case("D18 a holder whose process is gone: its lock is free, status says so, and the next user takes it and records whose it was")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        first = Holder(tmp)
+        first.stop()  # killed outright: no handler, no release of its own
+        st = lock_status(tmp)
+        assert st["state"] == "free" and "process is gone" in st["previous"]["note"], st
+        p = second(tmp)
+        assert p.returncode == 0 and "ended without releasing" in p.stderr and "agent-one" in p.stderr, (p.returncode, p.stderr)
+        record = json.loads((Path(tmp) / "locks" / Path(lock_status(tmp)["record"]).name).read_text())
+        assert record["reclaimedFrom"]["holder"] == "agent-one" and record["holder"] == "agent-two", record
+
+
+@case("D19 one session, many commands: a device command inside `hold` of the same phone runs without waiting")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        inner = hold_cmd("P1", "true", holder="inner")
+        p = second(tmp, cmd=inner, holder="walker")
+        assert p.returncode == 0, (p.returncode, p.stderr)
+
+
+@case("D20 two phones are two locks; the iPhone's spellings (hardware UDID, CoreDevice UUID) are one")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        first = Holder(tmp, phone="P1")
+        try:
+            assert second(tmp, phone="P2").returncode == 0
+        finally:
+            first.stop()
+        iphone = Holder(tmp, phone="00008030-AAAA", platform="ios")
+        try:
+            p = second(tmp, phone="AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE", platform="ios")
+            assert p.returncode == 3 and "iPhone is in use by agent-one" in p.stderr, p.stderr
+        finally:
+            iphone.stop()
+
+
+@case("D21 randroid device refuses a walk step while another user holds the phone (nothing reaches it), and status names the holder")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = Phone(tmp, sha="f" * 64)
+        first = Holder(tmp, phone="PHONE1")
+        try:
+            code, out = ph.randroid("device", "--serial", "PHONE1", "tap", "Send message")
+            assert code == 3 and "in use by agent-one" in out, (code, out)
+            assert ph.calls == [], ph.calls
+            code, out = ph.randroid("device", "--serial", "PHONE1", "status")
+            result = json.loads(out)["result"]
+            assert code == 0 and result["state"] == "held" and result["holder"] == "agent-one", out
+        finally:
+            first.stop()
+        code, out = ph.randroid("device", "--serial", "PHONE1", "build")
+        assert code == 0 and '"configuration": "release"' in out, (code, out)
 
 
 # -- the commit check ---------------------------------------------------------------------------

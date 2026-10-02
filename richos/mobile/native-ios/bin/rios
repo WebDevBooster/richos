@@ -16,6 +16,9 @@
 #       verify <check>                one XCUITest check against the Release app (Tools/physical-device.mjs)
 #       perf --device UDID ...        cold launch and warm return on the phone (perf.py ios)
 #       run|approval|procs|apps|lock|battery|syslog ...   the walk and its reads (qa/phone-ios.py)
+#       status                        the iPhone's lock: free or held, and by whom
+#       hold -- <command>             run <command> holding the iPhone (many commands, one use)
+#     Each holds the iPhone's lock for its whole length; --wait SECONDS waits for another holder.
 #   bin/rios --help                   every command
 #
 # Build output never lands in the repository: SwiftPM's scratch directory, DerivedData and the
@@ -55,8 +58,23 @@ fi
 if [ "${1:-}" = "device" ]; then
   shift
   # The tools below refuse a phone unless this verb started them (richos/mobile/physical.py).
+  # One user per phone: each command holds the iPhone's lock for its whole length (a UI-test
+  # session, a perf series); another holder means a refusal naming it, or a wait of at most
+  # --wait seconds (RICHOS_DEVICE_WAIT). `device status` says free or held, and by whom.
   export RICHOS_DEVICE_VERB=rios PYTHONDONTWRITEBYTECODE=1
+  PHYS="$HERE/../physical.py"
+  wait="${RICHOS_DEVICE_WAIT:-0}"; rest=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in --wait) wait="${2:-}"; shift 2 || shift $# ;; *) rest+=("$1"); shift ;; esac
+  done
+  set -- ${rest[@]+"${rest[@]}"}
+  HOLD=(python3 "$PHYS" hold --platform ios --phone iphone --wait "$wait" --)
   case "${1:-}" in
+    status) exec python3 "$PHYS" status --platform ios --phone iphone ;;
+    hold)
+      shift; [ "${1:-}" = "--" ] && shift
+      [ "$#" -ge 1 ] || { echo '{"ok":false,"error":"rios device hold -- <command>"}' >&2; exit 2; }
+      exec "${HOLD[@]}" "$@" ;;
     perf)
       shift
       # Unless a stamp is named: the store's Release bytes for this checkout's committed app tree
@@ -71,9 +89,9 @@ if [ "${1:-}" = "device" ]; then
         out="$(node "$HERE/Tools/physical-device.mjs" stamp ${pick[@]+"${pick[@]}"})" || exit 3
         set -- "$@" --stamp "$(printf '%s' "$out" | python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["stamp"])')"
       fi
-      exec python3 "$HERE/../perf/perf.py" ios "$@" ;;
-    run|approval|procs|apps|lock|battery|syslog) exec python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
-    *) exec node "$HERE/Tools/physical-device.mjs" "$@" ;;
+      exec "${HOLD[@]}" python3 "$HERE/../perf/perf.py" ios "$@" ;;
+    run|approval|procs|apps|lock|battery|syslog) exec "${HOLD[@]}" python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
+    *) exec "${HOLD[@]}" node "$HERE/Tools/physical-device.mjs" "$@" ;;
   esac
 fi
 

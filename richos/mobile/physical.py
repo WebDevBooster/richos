@@ -15,7 +15,13 @@ So a physical phone is touched ONLY through the two command lines, `randroid dev
     physical.py android-install --adb ADB --serial S --apk APK --aapt2 AAPT2
     physical.py android-record  --adb ADB --serial S --out FILE.mp4 [--seconds N]
     physical.py ios-app APP                                 exit 0 for a Release bundle, 3 otherwise
+    physical.py hold --platform android|ios --phone ID [--wait S] [--holder NAME] -- <command>
+                                                            run <command> holding that phone's lock
+    physical.py status --platform android|ios --phone ID    free or held, and by whom (JSON)
     physical.py scan [--root DIR]                           the commit check (autocheck.py runs it)
+
+One user per phone (CEO 2026-10-02): see "one user per phone" below. The lock records live in
+/Volumes/E1TB/state/richos/phone-locks/<android-<sha256(serial)[:16]> | ios-iphone>.json.
 
 The gate refuses: an emulator (it goes through `randroid emu`), and a phone whose installed
 RichConnect is debuggable (`dumpsys package` pkgFlags DEBUGGABLE), naming the build it found. The
@@ -28,12 +34,15 @@ a simulator is never refused here; it has its own commands.
 Exit codes: 0 done, 2 cannot answer (bad arguments, a tool missing), 3 refused, with the sentence.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 PACKAGE = "dev.richos.connect"
@@ -197,6 +206,174 @@ def record(adb_path, serial, out, seconds):
     return {"recording": out, "seconds": seconds, "bytes": os.path.getsize(out), "build": info}
 
 
+# -- one user per phone -------------------------------------------------------------------------
+# CEO, 2026-10-02: two agents used the iPhone at once and broke each other's runs twice. Every
+# command of the two verbs runs inside `hold`: an exclusive lock per physical phone for the whole
+# use (a perf series, a recording, a UI-test session: the command's full length, never per adb
+# call; `randroid device hold -- <script>` keeps it across a walker's many commands). The lock is
+# the kernel's (flock), so it is released however the holder ends, a crash or a kill included; the
+# record beside it says who holds it (teammate, process, start, command). A second caller is refused
+# at once with the holder's name, or waits up to --wait seconds, saying so. A holder whose process
+# is gone left its lock released; the next caller says so and takes it. Queried by `status`.
+# The iPhone lock is one for every spelling of the phone (hardware UDID, CoreDevice UUID): the Mac
+# has one wired iPhone, and two spellings must never be two locks.
+
+LOCK_DIR = "/Volumes/E1TB/state/richos/phone-locks"
+HOLD_ENV = "RICHOS_DEVICE_HOLD"
+
+
+def lock_dir():
+    d = os.environ.get("RICHOS_PHONE_LOCK_DIR") or LOCK_DIR
+    if d == LOCK_DIR and not os.path.ismount("/Volumes/E1TB"):
+        raise CannotAnswer("the phone locks live on /Volumes/E1TB, which is not mounted; nothing touches a phone without its lock")
+    return d
+
+
+def lock_paths(platform, phone):
+    if platform not in ("android", "ios"):
+        raise CannotAnswer("--platform is android or ios")
+    if platform == "android" and not phone:
+        raise CannotAnswer("an Android phone's lock is named by its serial")
+    name = "ios-iphone" if platform == "ios" else "android-" + hashlib.sha256(phone.encode()).hexdigest()[:16]
+    base = os.path.join(lock_dir(), name)
+    return name, base + ".lock", base + ".json"
+
+
+def phone_label(platform, phone):
+    return "iPhone" if platform == "ios" else f"Android phone {phone}"
+
+
+def holder_name():
+    if os.environ.get("RICHOS_DEVICE_HOLDER"):
+        return os.environ["RICHOS_DEVICE_HOLDER"]
+    branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+    return f"{branch or 'unknown'} in {os.getcwd()}"
+
+
+def read_record(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def write_record(path, record):
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(record, f, indent=1)
+    os.replace(tmp, path)
+
+
+def alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except (PermissionError, ValueError, TypeError):
+        return True
+
+
+def ancestors():
+    pids, pid = set(), os.getppid()
+    for _ in range(64):
+        if pid <= 1 or pid in pids:
+            break
+        pids.add(pid)
+        out = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        pid = int(out) if out.isdigit() else 0
+    return pids
+
+
+def inside_hold(name):
+    """True when a `hold` of this phone is an ancestor of this process: one session, many commands."""
+    held, _, pid = os.environ.get(HOLD_ENV, "").rpartition(":")
+    return held == name and pid.isdigit() and int(pid) in ancestors()
+
+
+def now_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def status(platform, phone):
+    """free or held, and by whom. Reads the record; tests the kernel lock only when the record says
+    held and its process lives (a reused process id), and then only for an instant."""
+    name, lock, record_path = lock_paths(platform, phone)
+    rec = read_record(record_path) or {}
+    out = {"phone": phone_label(platform, phone), "lock": lock, "record": record_path}
+    if not rec or rec.get("endedAt") or not alive(rec.get("pid")):
+        if rec and not rec.get("endedAt"):
+            out["previous"] = {**rec, "note": "its process is gone; the kernel released its lock"}
+        elif rec:
+            out["previous"] = rec
+        return {"state": "free", **out}
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return {"state": "free", **out, "previous": {**rec, "note": "its process id lives on, but it holds no lock"}}
+    except BlockingIOError:
+        return {"state": "held", **out, **{k: rec.get(k) for k in ("holder", "pid", "startedAt", "command")}}
+    finally:
+        os.close(fd)
+
+
+def hold(platform, phone, cmd, wait_s=0, holder=None, say=lambda s: print(s, file=sys.stderr, flush=True)):
+    """Run `cmd` holding the phone's lock for its whole length; returns its exit code."""
+    if not cmd:
+        raise CannotAnswer("hold runs a command: hold ... -- <command>")
+    name, lock, record_path = lock_paths(platform, phone)
+    if inside_hold(name):
+        return subprocess.call(cmd)
+    os.makedirs(os.path.dirname(lock), mode=0o700, exist_ok=True)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    started, said = time.monotonic(), False
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            who = read_record(record_path) or {}
+            waited = time.monotonic() - started
+            line = (f"{who.get('holder', 'an unknown holder')} (process {who.get('pid')}, since {who.get('startedAt')}: "
+                    f"{who.get('command')})")
+            if waited >= wait_s:
+                os.close(fd)
+                raise Refused(f"the {phone_label(platform, phone)} is in use by {line}; two users of one phone break each "
+                              f"other's runs (CEO 2026-10-02). " + (f"Waited {waited:.0f} s. " if wait_s else "") +
+                              "Run it again when it is free (`device status` says), or pass --wait SECONDS")
+            if not said:
+                say(f"waiting up to {wait_s:.0f} s for the {phone_label(platform, phone)}, held by {line}")
+                said = True
+            time.sleep(min(1.0, max(0.05, wait_s - waited)))
+    waited = round(time.monotonic() - started, 1)
+    previous = read_record(record_path)
+    record = {"holder": holder or holder_name(), "pid": os.getpid(), "startedAt": now_iso(), "command": " ".join(cmd)[:300],
+              "platform": platform, "waitedSeconds": waited}
+    if previous and not previous.get("endedAt"):
+        record["reclaimedFrom"] = {k: previous.get(k) for k in ("holder", "pid", "startedAt", "command")}
+        say(f"the previous holder of the {phone_label(platform, phone)}, {previous.get('holder')} (process "
+            f"{previous.get('pid')}), ended without releasing it; the kernel released its lock and it is taken now")
+    if said:
+        say(f"the {phone_label(platform, phone)} is free after {waited} s; taken")
+    write_record(record_path, record)
+    child = subprocess.Popen(cmd, env={**os.environ, HOLD_ENV: f"{name}:{os.getpid()}"})
+    forward = lambda signum, _frame: child.send_signal(signum)
+    previous_handlers = {s: signal.signal(s, forward) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+    code = None
+    try:
+        code = child.wait()
+        return code
+    finally:
+        for s, h in previous_handlers.items():
+            signal.signal(s, h)
+        record.update(endedAt=now_iso(), exit=code)
+        write_record(record_path, record)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
 # -- iOS --------------------------------------------------------------------------------------
 
 def ios_configuration(app):
@@ -333,8 +510,30 @@ def scan(root, paths=None):
 # -- the command line ---------------------------------------------------------------------------
 
 def main(argv):
+    if argv[:1] == ["hold"]:
+        if "--" not in argv:
+            print(json.dumps({"ok": False, "error": "hold --platform P --phone ID [--wait S] -- <command>"}), file=sys.stderr)
+            return 2
+        cut = argv.index("--")
+        q = argparse.ArgumentParser(prog="physical.py hold")
+        q.add_argument("--platform", required=True)
+        q.add_argument("--phone", default="")
+        q.add_argument("--wait", type=float, default=float(os.environ.get("RICHOS_DEVICE_WAIT") or 0))
+        q.add_argument("--holder")
+        h = q.parse_args(argv[1:cut])
+        try:
+            return hold(h.platform, h.phone, argv[cut + 1:], h.wait, h.holder)
+        except Refused as e:
+            print(json.dumps({"ok": False, "refused": str(e)}), file=sys.stderr)
+            return 3
+        except CannotAnswer as e:
+            print(json.dumps({"ok": False, "error": str(e)}), file=sys.stderr)
+            return 2
     p = argparse.ArgumentParser(prog="physical.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["android-build", "android-gate", "android-install", "android-record", "ios-app", "scan"])
+    p.add_argument("command", choices=["android-build", "android-gate", "android-install", "android-record", "ios-app", "scan",
+                                       "status"])
+    p.add_argument("--platform")
+    p.add_argument("--phone", default="")
     p.add_argument("value", nargs="?")
     p.add_argument("--adb", default="adb")
     p.add_argument("--serial")
@@ -357,7 +556,9 @@ def main(argv):
                 return 1
             print("physical.py scan: no phone install, uninstall or wipe outside the command lines")
             return 0
-        if a.command == "ios-app":
+        if a.command == "status":
+            result = status(a.platform, a.phone)
+        elif a.command == "ios-app":
             if not a.value:
                 raise CannotAnswer("ios-app takes the app bundle's path")
             result = ios_app(a.value)
