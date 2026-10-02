@@ -485,7 +485,9 @@ def _():
     commit = text[text.index("def commit_check("):text.index("def policy_inputs(")]
     assert commit.count("physical_check(repo, what)") == 2, "both commit paths (inside and outside richos/app) run it"
     land = text[text.index("def land_check("):text.index("def left_out(")]
-    assert "python3 {PHYSICAL_CHECK} scan" in land, "every land runs it"
+    # proof-run.py reads only `cd <dir> && <command>` lines, so the land writes the scan in that form
+    assert 'f"cd {scanner.parent} && python3 {scanner.name} scan"' in land, "every land runs it, as a line proof-run can read"
+    assert "python3 {PHYSICAL_CHECK} scan" not in land, "not the bare form proof-run refuses"
 
 
 if __name__ == "__main__":
