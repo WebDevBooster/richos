@@ -4,9 +4,19 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WD="$SCRIPT_DIR/disk-watchdog.sh"
-# --install refuses from a temp dir or worktree, so the copy under test lives
-# under $HOME/.cache (override: DW_INSTALL_TEST_BASE), not under TMPDIR.
-BASE="${DW_INSTALL_TEST_BASE:-$HOME/.cache}"; mkdir -p "$BASE"
+# --install refuses from a temp dir or worktree, so the copy under test must
+# live outside TMPDIR, /tmp, /private/var/folders and .claude/worktrees. HOME is
+# itself under TMPDIR in the sharded merge gate, so pick the first candidate
+# base that the script's own refusal would accept (no bypass added to the script).
+BASE=""
+for _c in "${DW_INSTALL_TEST_BASE:-}" "$HOME/.cache" "/Volumes/E1TB/tmp/claude" "/Users/Shared"; do
+    [ -n "$_c" ] || continue
+    mkdir -p "$_c" 2>/dev/null || continue
+    _r="$(cd "$_c" && pwd -P)"; _t="${TMPDIR:-/tmp}"; _t="${_t%/}"
+    case "$_r" in /tmp/*|/private/tmp/*|/private/var/folders/*|*/.claude/worktrees/*|"$_t"/*) continue ;; esac
+    [ -w "$_r" ] && { BASE="$_r"; break; }
+done
+[ -n "$BASE" ] || { echo "no usable base outside temp dirs"; exit 2; }
 SB="$(cd "$(mktemp -d "$BASE/dw-install.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$SB"' EXIT
 mkdir -p "$SB/bin" "$SB/home/Library/LaunchAgents" "$SB/engine/scripts/lib"
