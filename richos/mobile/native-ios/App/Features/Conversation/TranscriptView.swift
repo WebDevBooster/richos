@@ -28,6 +28,13 @@ struct TranscriptView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> BottomAnchoredTranscriptCollectionView {
+        Self.makeCollectionView(coordinator: context.coordinator)
+    }
+
+    /// The list and its coordinator's wiring, exactly as `makeUIView` builds them (the launch tests
+    /// build the same view without a SwiftUI host).
+    @MainActor
+    static func makeCollectionView(coordinator: Coordinator) -> BottomAnchoredTranscriptCollectionView {
         let layout = UICollectionViewCompositionalLayout { _, environment in
             let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(64))
             let item = NSCollectionLayoutItem(layoutSize: size)
@@ -44,8 +51,8 @@ struct TranscriptView: UIViewRepresentable {
         view.keyboardDismissMode = .interactive
         view.alwaysBounceVertical = true
         view.accessibilityIdentifier = "conversation.list"
-        view.delegate = context.coordinator
-        context.coordinator.attach(to: view)
+        view.delegate = coordinator
+        coordinator.attach(to: view)
         return view
     }
 
@@ -394,7 +401,50 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
         }
     }
 
+    /// RichOS: the first layout in a window makes cells for the newest rows only, newest first. Without
+    /// this, `super.layoutSubviews()` laid out (and self-sized) the oldest rows at offset 0 before the
+    /// bottom position below moved the list: on the test iPhone, cells for rows 0-2, then rows 91-99
+    /// of 100, on every launch (2026-10-02). Starting at the bottom of the estimated content was not
+    /// enough either: the rows are taller than the 64-point estimate, so the cells made there were
+    /// mostly pushed off screen once they measured themselves.
+    ///
+    /// So each pass shows one more row above the rows already measured, with the list's top at that
+    /// row (the space below the content is empty), and UIKit makes and sizes exactly that one cell.
+    /// A scroll view pulls an offset past its end back to its end, so for these passes only the
+    /// bottom inset holds a screen's height more. It stops when the measured rows fill what the list
+    /// shows at its bottom. Once per view; the exact bottom is still set after the last pass. No
+    /// timer: a few layout passes in this one layout.
+    private var laidOutNewestFirst = false
+
+    private func layOutNewestFirst() {
+        guard !laidOutNewestFirst, needsInitialBottomPosition, !pendingAwayPosition, window != nil,
+              bounds.height > 0, !isTracking, !isDragging, !isDecelerating, numberOfSections > 0 else { return }
+        let section = numberOfSections - 1
+        let count = numberOfItems(inSection: section)
+        guard count > 0 else { return }
+        laidOutNewestFirst = true
+        // At its bottom the list shows the last (height - bottom inset) points of its content.
+        let fill = bounds.height - adjustedContentInset.bottom
+        let insets = contentInset
+        isRestoringBottomAnchor = true
+        contentInset.bottom = insets.bottom + bounds.height
+        defer {
+            contentInset = insets
+            isRestoringBottomAnchor = false
+        }
+        var oldest = count - 1
+        while oldest >= 0 {
+            guard let row = layoutAttributesForItem(at: IndexPath(item: oldest, section: section)) else { return }
+            contentOffset = CGPoint(x: contentOffset.x, y: row.frame.minY)
+            super.layoutSubviews()
+            guard let measured = layoutAttributesForItem(at: IndexPath(item: oldest, section: section)) else { return }
+            if collectionViewLayout.collectionViewContentSize.height - measured.frame.minY >= fill { return }
+            oldest -= 1
+        }
+    }
+
     override func layoutSubviews() {
+        layOutNewestFirst()
         super.layoutSubviews()
 
         let geometry = viewportGeometry
