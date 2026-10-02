@@ -459,6 +459,8 @@ def observe_pushes(transcript_path, state, budget):
                 raw = fh.readline()
                 if not raw:
                     break
+                if not raw.endswith(b"\n"):
+                    break               # half-written record: leave the offset before it (P3-18)
                 offset = fh.tell()
                 line = raw.decode("utf-8", "replace").strip()
                 if not line:
