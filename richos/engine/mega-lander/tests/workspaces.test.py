@@ -2678,10 +2678,11 @@ class QAToolkitAtTheLand(Base):
         """The wiring, not just the function: `workspaces.sh land <agent>` is
         what Rich runs, and a count no command prints is a count nobody reads.
 
-        sweep_scratch_after_land is patched out because it sweeps the MACHINE's
-        declared scratch roots through scripts/scratch-sweep.sh — live peers'
-        included — and no unit test has any business reaching outside its
-        sandbox to do that."""
+        sweep_scratch_after_land is patched out because it deletes through
+        scripts/scratch-sweep.sh against the machine's declared scratch roots,
+        and no unit test has any business reaching outside its sandbox to do
+        that. (Since 2026-10-01 it takes the landed agent's scopes; the scoped
+        sweep has its own suite, scripts/scratch-land-scope.test.sh.)"""
         import contextlib
         import io
         aid, npath = self.spawn("ray-opus-q7", agent_id="aray000000070000",
@@ -2691,7 +2692,7 @@ class QAToolkitAtTheLand(Base):
         self.finish(aid)
         self.merge(self.entity, "worktree-agent-" + aid)
         buf = io.StringIO()
-        with patch.object(ws, "sweep_scratch_after_land", lambda: None):
+        with patch.object(ws, "sweep_scratch_after_land", lambda *a, **k: None):
             with contextlib.redirect_stdout(buf):
                 rc = ws.main(["--session", self.sid, "land", "ray-opus-q7"])
         out = buf.getvalue()

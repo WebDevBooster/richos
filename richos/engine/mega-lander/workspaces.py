@@ -6129,8 +6129,59 @@ def _print_status(me, entity):
     return 0
 
 
-def sweep_scratch_after_land():
+def land_sweep_scopes(ref, me=""):
+    """What a land may sweep: for the agent and every agent its work continues,
+    its name, its session and every workspace it ever had. Read BEFORE the land,
+    because the land deletes the workspaces. [] when the record cannot be read,
+    and then the land sweeps nothing (never the whole machine instead).
+
+    `hold_named` is set when another agent with the same name is not finished:
+    a directory named for this agent could then be that one's, so it is kept."""
+    try:
+        rec = _resolve_record(ref, me)
+    except Exception:
+        return []
+    if not rec:
+        return []
+    others = []
+    try:
+        others = all_agents()
+    except Exception:
+        others = []
+    scopes = []
+    for r in _chain(rec):
+        name = r.get("name") or ""
+        if not name:
+            continue
+        hold = False
+        for o in others:
+            if o.get("key") == r.get("key") or o.get("name") != name:
+                continue
+            try:
+                fin, _paused, _why = finished_state(o)
+            except Exception:
+                fin = False
+            if not fin:
+                hold = True
+                break
+        scopes.append({"name": name, "session": r.get("session_id") or "",
+                       "workspaces": [w["path"] for w in r.get("workspaces") or [] if w.get("path")],
+                       "hold_named": hold})
+    return scopes
+
+
+def sweep_scratch_after_land(scopes=None):
     """Reclaim the landed agent's scratch, right here, while somebody is looking.
+
+    ONLY THE LANDED AGENT'S (2026-10-01). This used to run the whole machine's
+    sweep, so landing one agent took every other agent's and session's eligible
+    scratch with it: two lands that night deleted 141 entries, none of them the
+    landed agent's. Now it passes the agent's name, session and workspaces
+    (land_sweep_scopes) and the reaper plans only what provably belongs to it:
+    allocations made from its workspaces and directories named for it
+    (scratch-reaper.py scan_agent). Everything else it looks at is counted as
+    unattributed and left to the scheduled sweep, and the printed line says how
+    many. No scope, no sweep.
 
     A LAND IS THE MOMENT THE GARBAGE BECOMES GARBAGE. The agent has finished, its
     workspace is gone, and every temporary directory its harnesses made is now
@@ -6152,35 +6203,58 @@ def sweep_scratch_after_land():
     """
     sweep = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "scripts", "scratch-sweep.sh")
-    if not os.access(sweep, os.X_OK):
+    if not scopes or not os.access(sweep, os.X_OK):
         return
-    try:
-        r = subprocess.run(["bash", sweep], capture_output=True, text=True,
-                           timeout=600)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print("scratch sweep after land could not run: %s" % exc, file=sys.stderr)
-        return
-    line = (r.stdout or "").strip().splitlines()
-    if not line:
-        return
-    try:
-        rep = json.loads(line[-1])
-    except ValueError:
-        return
-    # SPEAK ONLY WHEN THERE IS SOMETHING TO SAY. A land already prints a lot, and
-    # a line about zero bytes on every land is the kind of noise that gets the
-    # informative lines skipped too.
+    for scope in scopes:
+        args = ["bash", sweep, "--agent", scope["name"]]
+        if scope.get("session"):
+            args += ["--session", scope["session"]]
+        for w in scope.get("workspaces") or []:
+            args += ["--workspace", w]
+        if scope.get("hold_named"):
+            args.append("--hold-named")
+        try:
+            r = subprocess.run(args, capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print("scratch sweep after land could not run: %s" % exc, file=sys.stderr)
+            continue
+        line = (r.stdout or "").strip().splitlines()
+        if not line:
+            continue
+        try:
+            rep = json.loads(line[-1])
+        except ValueError:
+            continue
+        for out in _land_sweep_lines(scope["name"], rep):
+            print(out[1], file=sys.stderr if out[0] else sys.stdout)
+
+
+def _land_sweep_lines(name, rep):
+    """[(to_stderr, text)] for one scoped sweep's JSON. SPEAK ONLY WHEN THERE IS
+    SOMETHING TO SAY: a land already prints a lot. Something is: a failure, a
+    skip, bytes reclaimed, or entries left alone because they are not provably
+    this agent's (the count the land owes, whatever was reclaimed)."""
+    def entries(n):
+        return "%d entr%s" % (n, "y" if n == 1 else "ies")
     if rep.get("failures"):
-        print("SCRATCH SWEEP: %d deletion(s) FAILED after this land — %s"
-              % (rep["failures"], rep.get("reason") or ""), file=sys.stderr)
-        print("  The CEO's rule (ceo-decisions §54): if the clean-up fails, it is"
-              " deleted BY HAND. scripts/disk-watchdog.sh --status names the paths.",
-              file=sys.stderr)
-    elif rep.get("freed_bytes"):
-        print("scratch swept: %s reclaimed (%s entr%s)"
-              % (rep.get("freed_human") or rep["freed_bytes"],
-                 rep.get("swept") or 0,
-                 "y" if rep.get("swept") == 1 else "ies"))
+        return [(True, "SCRATCH SWEEP: %d deletion(s) FAILED after this land — %s"
+                 % (rep["failures"], rep.get("reason") or "")),
+                (True, "  The CEO's rule (ceo-decisions §54): if the clean-up fails, it is"
+                 " deleted BY HAND. scripts/disk-watchdog.sh --status names the paths.")]
+    if rep.get("skipped"):
+        return [(False, "scratch of %s NOT swept: %s; the scheduled sweep will not take its "
+                 "named directories" % (name, rep.get("reason") or "skipped"))]
+    swept = int(rep.get("swept") or 0)
+    unattr = int(rep.get("unattributed") or 0)
+    undec = int(rep.get("undecidable") or 0)
+    if not swept and not unattr and not undec:
+        return []
+    text = "scratch swept for %s: %s reclaimed (%s of its own)" % (
+        name, rep.get("freed_human") or "0 B", entries(swept))
+    if undec:
+        text += "; %s of its own kept undecided (scratch-reaper.log says why)" % entries(undec)
+    text += "; %s not provably its own, left alone" % entries(unattr)
+    return [(False, text)]
 
 
 def main(argv):
@@ -6334,11 +6408,14 @@ def main(argv):
             # cost the count. The transcript itself lives in the platform's
             # projects directory and no workspace deletion touches it.
             qa_lines = qa_throwaway_lines(a.agent, me)
+            # Read BEFORE the land, which deletes the workspaces the sweep
+            # attributes this agent's scratch by.
+            sweep_scopes = land_sweep_scopes(a.agent, me)
             land(a.agent, me, ignored_ok=a.ignored_not_needed)
             print("landed: %s — every workspace and branch deleted (or retrying)" % a.agent)
             for _l in qa_lines:
                 print(_l)
-            sweep_scratch_after_land()
+            sweep_scratch_after_land(sweep_scopes)
         elif a.cmd == "discard":
             r = discard(a.agent, a.reason, a.ceo_word, a.not_ceo_ordered, me)
             print("discarded: %s — tips recorded: %s" % (a.agent, json.dumps(r["tips"])))
