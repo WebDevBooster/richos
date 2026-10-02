@@ -107,10 +107,14 @@ enum Typography {
             && (CTFontCopyPostScriptName(serif) as String) == serifName
     }
 
+    /// The faces ship as plain TrueType, byte for byte Android's `res/font` copies: as WOFF2 (the
+    /// desktop app's container), CoreText Brotli-decompressed and rebuilt both faces on the main thread
+    /// at every launch, 5-25 ms of the useful frame on the test iPhone (2026-10-02 time profiles). Every
+    /// glyph outline and advance is identical in both containers (checked at three instances per face).
     fileprivate static let registerOnce: Void = {
         for name in ["Inter-Variable", "Newsreader-Regular"] {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "woff2") else {
-                assertionFailure("bundled face \(name).woff2 is missing from the app")
+            guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else {
+                assertionFailure("bundled face \(name).ttf is missing from the app")
                 continue
             }
             var error: Unmanaged<CFError>?
@@ -118,7 +122,7 @@ enum Typography {
                 // Already registered in this process is fine; anything else is a packaging defect.
                 let code = error.map { CFErrorGetCode($0.takeRetainedValue()) } ?? 0
                 assert(code == Int(CTFontManagerError.alreadyRegistered.rawValue),
-                       "could not register \(name).woff2 (CTFontManagerError \(code))")
+                       "could not register \(name).ttf (CTFontManagerError \(code))")
             }
         }
     }()
