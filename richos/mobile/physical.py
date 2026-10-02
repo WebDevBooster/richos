@@ -261,7 +261,7 @@ RULES = [
     (INSTALLS, re.compile(
         ADB + r"install(-multiple)?\b"
         r"|\bpm\s+install\b"
-        r"|devicectl\s+device\s+install\b|[\"']device[\"'],\s*[\"']install[\"']"
+        r"|devicectl\s+device\s+install\b|[\"']devicectl[\"'],\s*[\"']device[\"'],\s*[\"']install[\"']"
         r"|ideviceinstaller[^\n]*?(\s-i\b|--install)"
         r"|\bios-deploy\b"
         r"|platform=iOS,\s*(?:id|name)="), False),

@@ -140,7 +140,7 @@ class Phone:
 
 def touched(calls):
     """The calls that change the phone: an install, an uninstall, a data clear."""
-    return [c for c in calls if " install" in f" {c.split(' ', 2)[-1]}" or "uninstall" in c or "pm clear" in c]
+    return [c for c in calls if " install" in f" {c.split(' ', 2)[-1]}" or "uninstall" in c or "pm clear" in c]  # device-cli-exempt: reads the scripted adb's log for the calls that must not happen
 
 
 def sha(path):
@@ -296,13 +296,13 @@ PLANTED = {
     "docs/howto.md": "Prose about adb install is fine.\n\n```sh\nadb -s SERIAL install app.apk\n```\n",  # device-cli-exempt: planted, the fenced command must be refused
 }
 CLEAN = {
-    "richos/mobile/native-android/bin/apk-install.sh": 'echo never an uninstall; "$adb" -s "$serial" install -r "$apk"\n',
-    "richos/app/scripts/qa/t.test.py": 'assert "uninstall" not in calls and "pm clear" not in calls\n',
+    "richos/mobile/native-android/bin/apk-install.sh": 'echo never an uninstall; "$adb" -s "$serial" install -r "$apk"\n',  # device-cli-exempt: a fixture the check must pass
+    "richos/app/scripts/qa/t.test.py": 'assert "uninstall" not in calls and "pm clear" not in calls\n',  # device-cli-exempt: a fixture the check must pass
     "richos/app/scripts/qa/sim.sh": 'xcrun simctl install "$UDID" "$APP"\nmake install\n',
-    "richos/mobile/perf/android.py": 'dev.run("install", "-r", apk)\n',
+    "richos/mobile/perf/android.py": 'dev.run("install", "-r", apk)\n',  # device-cli-exempt: a fixture the check must pass
     "richos/app/scripts/qa/x.sh": 'adb -s "$S" install x.apk  # device-cli-exempt: a reviewer-visible reason here\n',
-    "docs/prose.md": "Run `adb install -r` only through randroid device.\n",
-    "richos/engine/reference/advanced-tier/old.sh": 'adb -s "$S" uninstall example\n',
+    "docs/prose.md": "Run `adb install -r` only through randroid device.\n",  # device-cli-exempt: a fixture the check must pass
+    "richos/engine/reference/advanced-tier/old.sh": 'adb -s "$S" uninstall example\n',  # device-cli-exempt: a fixture the check must pass
 }
 
 
@@ -337,6 +337,16 @@ def _():
 def _():
     p = subprocess.run([sys.executable, str(PHYSICAL), "scan", "--root", str(REPO)], capture_output=True, text=True)
     assert p.returncode == 0, p.stderr[-1500:]
+
+
+@case("D13 the commit check is wired into the commit and the land (autocheck.py)")
+def _():
+    text = (REPO / "richos/app/scripts/autocheck/autocheck.py").read_text()
+    assert 'PHYSICAL_CHECK = "richos/mobile/physical.py"' in text
+    commit = text[text.index("def commit_check("):text.index("def policy_inputs(")]
+    assert commit.count("physical_check(repo, what)") == 2, "both commit paths (inside and outside richos/app) run it"
+    land = text[text.index("def land_check("):text.index("def left_out(")]
+    assert "python3 {PHYSICAL_CHECK} scan" in land, "every land runs it"
 
 
 if __name__ == "__main__":
