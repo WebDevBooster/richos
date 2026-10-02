@@ -1,4 +1,4 @@
-## Windows call reliability (0.3.1)
+## Windows call reliability (1.0.0)
 
 Capture never starts automatic Chrome downloads. If the local native host is available, audio streams to it and it writes files continuously. If it is absent or fails, the extension keeps session metadata, audio and captions in IndexedDB and shows that location in the popup. After the call, use **Export** to download one ZIP containing the session directory. Chrome may ask where to save that explicit export once. Cancel keeps the recording for retry. Extract the ZIP before using the existing drop-zone sync helper.
 
