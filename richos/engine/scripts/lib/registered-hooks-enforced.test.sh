@@ -51,5 +51,19 @@ if hook_enforced_on_surface "$SURFACE" guard-nothing.sh; then
     bad "4  an unknown guard must not be enforced"
 else ok "4  an unregistered guard is not enforced"; fi
 
+# The dispatcher half of hook_enforced_on_surface used to be
+# `_rh_dispatch_modules | grep -qxF`. grep -q exits at its first match; when the
+# writer still had output to send it died of SIGPIPE (141), and under the
+# caller's pipefail (this suite's, guard-dialect.test.sh's) an enforced guard
+# read as NOT enforced. guard-dialect.test.sh E2 failed that way about one run in
+# thirty on a loaded host. A writer that pauses after the match makes the race
+# certain rather than occasional.
+if (
+    _rh_dispatch_modules() { printf 'guard-via-dispatcher.sh\n'; sleep 0.5; printf 'guard-later.sh\n'; }
+    hook_enforced_on_surface "$SURFACE" guard-via-dispatcher.sh
+); then
+    ok "10 a match is not lost when the expansion is still being written (no SIGPIPE under pipefail)"
+else bad "10 an enforced dispatcher rule read as NOT enforced: the expansion writer died of SIGPIPE"; fi
+
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

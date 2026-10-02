@@ -300,7 +300,16 @@ raise SystemExit(1)
     else
         grep -q "scripts/hooks/$g" "$f" 2>/dev/null && return 0
     fi
-    _rh_dispatch_modules "$f" | grep -qxF "$g" 2>/dev/null
+    # The whole expansion is read BEFORE it is searched. It used to be piped into
+    # `grep -qxF`, which exits at its first match; a writer with output still to
+    # send then died of SIGPIPE (141), and under a caller's pipefail an enforced
+    # dispatcher rule read as NOT enforced (guard-dialect.test.sh E2, about one run
+    # in thirty on a loaded host; registered-hooks-enforced.test.sh case 10). The
+    # expansion's own rc is not the answer here, as it never was: whatever it
+    # printed is searched, and nothing printed is "no".
+    local _rh_mods
+    _rh_mods="$(_rh_dispatch_modules "$f")" || true
+    grep -qxF "$g" <<<"$_rh_mods" 2>/dev/null
 }
 
 registered_hook_scripts() {
