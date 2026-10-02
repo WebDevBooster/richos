@@ -562,10 +562,11 @@ class GuardTests(unittest.TestCase):
 
     def test_unavailable_cpu_sample_retries_using_full_interval(self):
         reserve=Mock()
-        reserve.host_sample.side_effect=[BlockingIOError('counters did not advance'), {'cpu_idle_percent':80}]
+        reserve.host_sample.side_effect=[BlockingIOError('counters did not advance'),
+                                         {'cpu_idle_percent':80, 'cpu_user_percent':15, 'cpu_system_percent':5}]
         reserve._refusal.return_value=False
         with patch.object(N.time,'sleep') as sleep:
-            N.wait_for_headroom(reserve, timeout=10)
+            self.assertEqual(N.wait_for_headroom(reserve, timeout=10), 20)   # total CPU: user + system
         self.assertEqual(reserve.host_sample.call_count,2)
         reserve.host_sample.assert_called_with()
         sleep.assert_called_once_with(3)

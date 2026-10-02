@@ -194,9 +194,11 @@ def python_command():
     return [sys.executable, *flags]
 
 
-def command(argv, owner=None, verification=None):
+def command(argv, owner=None, verification=None, release=None):
     """A separate supervisor survives the caller's SIGKILL and owns normal-exit cleanup too."""
     options = ["--verification", str(verification)] if verification else []
+    if release:
+        options += ["--release-gradle-daemons", str(release)]
     return [*python_command(), os.path.abspath(__file__), "run", str(owner or os.getpid()), *options, "--", *map(str, argv)]
 
 
@@ -293,7 +295,38 @@ class TrackedTree:
         # {pid: last proven generation, or None}: members whose generation could not be
         # read at the last sample. See refresh() for why they are carried, not fatal.
         self.unresolved = {}
+        # {pid: generation}: proven members handed over by release() (a Gradle daemon kept
+        # warm for its workspace). They, their descendants and a group one of them leads are
+        # no longer this tree's: never signaled, never counted as survivors.
+        self.released = {}
         self.refresh()
+
+    def release(self, members):
+        """Hand proven members over to their next owner. Only a member whose generation was
+        proven by this tree can be released; the caller decides which (see
+        release_gradle_daemons)."""
+        for pid, generation in members.items():
+            if self.known.get(pid) == generation:
+                self.released[pid] = generation
+                self.known.pop(pid, None)
+                self.groups.pop(pid, None)
+
+    def _released_closure(self, table):
+        """Released members still alive as themselves, their descendants by current parent
+        links, and the members of a process group a released member leads."""
+        if not self.released:
+            return set()
+        out = {pid for pid, generation in self.released.items()
+               if pid in table and table[pid][2] in (generation, None)}
+        leaders = {pid for pid in out if table[pid][1] == pid}
+        grew = True
+        while grew:
+            grew = False
+            for pid, (parent, group, _) in table.items():
+                if pid not in out and (parent in out or group in leaders):
+                    out.add(pid)
+                    grew = True
+        return out
 
     def refresh(self, tags=False):
         """Re-sample the tree. Returns every live member: proven ones (`known`, the only
@@ -321,20 +354,21 @@ class TrackedTree:
         carried = {pid: birth for pid, birth in self.unresolved.items() if birth is not None}
         settle = False
         while True:
+            excluded = self._released_closure(table)
             owned = {pid for pid, birth in {**carried, **self.known}.items()
-                     if pid in table and table[pid][2] == birth}
+                     if pid in table and table[pid][2] == birth} - excluded
             if self.root in table and table[self.root][2] == self.root_birth:
                 owned.add(self.root)
             # Preserve a group until empty, but reject a reused leader. An
             # unreadable leader must first be reconciled, never assumed owned.
             groups = {g: birth for g, birth in self.groups.items()
                       if g not in table or table[g][2] in (birth, None)}
-            owned |= {p for p, row in table.items() if row[1] in groups}
-            owned |= tagged
+            owned |= {p for p, row in table.items() if row[1] in groups} - excluded
+            owned |= tagged - excluded
             while True:
                 active_groups = {table[p][1] for p in owned if p in table} - {os.getpgrp(), 0, 1}
                 more = {pid for pid, (parent, group, _) in table.items()
-                        if parent in owned or group in active_groups}
+                        if parent in owned or group in active_groups} - excluded
                 if more <= owned:
                     break
                 owned |= more
@@ -378,12 +412,35 @@ class TrackedTree:
                     else:
                         self.groups.setdefault(group, None)
         previous = {**self.unresolved, **self.known}
-        members = (owned | set(self.known) | set(self.unresolved) | {self.root}) - {os.getpid()}
+        members = (owned | set(self.known) | set(self.unresolved) | {self.root}) - {os.getpid()} - excluded
         self.known = {pid: table[pid][2] for pid in owned
                       if pid in table and pid != os.getpid() and table[pid][2] is not None}
         self.unresolved = {pid: (previous.get(pid) if pid != self.root else self.root_birth)
                            for pid in members if pid in table and table[pid][2] is None}
         return set(self.known) | set(self.unresolved)
+
+
+def release_gradle_daemons(tracker, registry):
+    """At a normal end of a build: release the Gradle daemon(s) it started for its workspace.
+
+    A survivor is released only when BOTH hold: it is a proven member of this tree (its birth
+    generation tracked by this supervisor, re-read now), and Gradle recorded THIS process as a
+    daemon in `registry`, the workspace's private daemon registry (a daemon-<pid>.out.log
+    written at or after its start; scripts/lib/gradle_daemons.py). Its descendants and its
+    own process group go with it. Everything else is cleaned up exactly as before. What was
+    released is written to <registry>.released.json for native-work.py to register.
+    """
+    import gradle_daemons
+    tracker.refresh(tags=True)
+    released = {pid: birth for pid, birth in tracker.known.items()
+                if pid != tracker.root and identity(pid) == birth
+                and gradle_daemons.is_announced_daemon(pid, birth, registry)}
+    if released:
+        tracker.release(released)
+        gradle_daemons.write_json(gradle_daemons.released_path(registry), {
+            'released': [{'pid': pid, 'generation': birth} for pid, birth in sorted(released.items())],
+            'supervisor': os.getpid(), 'at': time.time()})
+    return released
 
 
 def finish_scope(child, tracker, grace=8.0):
@@ -428,7 +485,11 @@ def finish_scope(child, tracker, grace=8.0):
 GUARD_ROLES = ("session", "release-build")
 
 
-def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None, guard_role="session"):
+def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None, guard_role="session",
+              release=None):
+    # `release` is a workspace's private Gradle daemon registry (native-work.py). At a normal
+    # end of the command, the daemon Gradle started there is released instead of ended
+    # (release_gradle_daemons). Never with verification: managed accounting owns the tree.
     # Enroll managed workloads even when invoked by Codex or a nightly without
     # Claude hooks. Fixtures copying just this helper keep working unchanged.
     # `release-build` is the one other role: nightly-local.py names it for its build
@@ -511,6 +572,11 @@ def supervise(owner, argv, deadline=None, timeout_marker=None, verification=None
             time.sleep(0.2)
         else:
             rc = child.returncode
+            if release and client is None:
+                try:
+                    release_gradle_daemons(tracker, release)
+                except Exception as exc:  # never fail the build: nothing released, all ended
+                    print('proc_tree: Gradle daemon not kept warm: %s' % exc, file=sys.stderr)
     except BlockingIOError as exc:
         print('verification admission refused: %s' % exc, file=sys.stderr)
         rc = 75
@@ -548,13 +614,14 @@ def main(argv):
         parser.add_argument("--timeout-marker")
         parser.add_argument("--verification")
         parser.add_argument("--guard-role", choices=GUARD_ROLES, default="session")
+        parser.add_argument("--release-gradle-daemons", metavar="REGISTRY")
         split = argv.index("--")
         args = parser.parse_args(argv[1:split])
         if args.deadline is not None and (not math.isfinite(args.deadline) or args.deadline <= 0):
             parser.error("deadline must be finite and positive")
         try:
             return supervise(args.owner, argv[split + 1:], args.deadline, args.timeout_marker, args.verification,
-                             args.guard_role)
+                             args.guard_role, release=args.release_gradle_daemons)
         except (RuntimeError, ValueError, OSError) as exc:
             print('process supervision unavailable: %s' % exc, file=sys.stderr)
             return 125

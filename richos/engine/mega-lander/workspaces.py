@@ -5234,12 +5234,18 @@ def processes_in(paths, deadline=None):
     (`_named_only`), never signaled.
 
     With a `deadline` (V2-03) the two listings are bounded by it, and a listing
-    that did not finish makes the answer None -- unknown, never "none"."""
+    that did not finish makes the answer None -- unknown, never "none".
+
+    A GRADLE DAEMON A NATIVE BUILD KEPT WARM FOR THE WORKSPACE IS THE WORKSPACE'S OWN too
+    (2026-10-02, scripts/lib/gradle_daemons.py). It works from Gradle's registry, not from
+    the workspace, and the build that started it has ended, so neither test above sees it;
+    its record (PID and birth generation, re-read here) does, and its children follow it by
+    ancestry like any other descendant."""
     paths = [realpath(p) for p in paths if p]
     if not paths:
         return []
     keep = _protected_pids()
-    hits = set()
+    hits = set(_gradle_daemons(paths))
     cwds = _process_cwds(timeout=_bounded(deadline, 60), strict=deadline is not None)
     if cwds is None:
         return None
@@ -5275,6 +5281,28 @@ def _named_only(paths, owned):
     return sorted(out)
 
 
+def _gradle_daemons(paths):
+    """Live Gradle daemons native builds kept warm for workspaces at or inside `paths`
+    (scripts/lib/gradle_daemons.py). Never raises: tidying up cannot break the deleter."""
+    try:
+        here = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "lib")
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import gradle_daemons
+        return gradle_daemons.owned_pids(paths)
+    except Exception as e:
+        event("gradle-daemons-unread", why=str(e)[:200], paths=paths or None)
+        return []
+
+
+def _forget_gradle_daemons(paths):
+    try:
+        import gradle_daemons
+        gradle_daemons.forget(paths)
+    except Exception as e:
+        event("gradle-daemons-unforgotten", why=str(e)[:200], paths=paths or None)
+
+
 def stop_processes(paths, deadline=None):
     """Point 9. With a `deadline` (V2-03) the process listings are bounded by
     it, and a listing that could not be made is answered as UNKNOWN (never as
@@ -5291,6 +5319,7 @@ def stop_processes(paths, deadline=None):
               why="their command line names the workspace, but nothing shows the workspace started them; "
                   "left running (hunt part 4, finding 12)")
     if not pids:
+        _forget_gradle_daemons(paths)
         return {"stopped": [], "survivors": []}
     for p in pids:
         try:
@@ -5324,6 +5353,8 @@ def stop_processes(paths, deadline=None):
         time.sleep(0.05)
         survivors = [p for p in survivors if _alive(p)]
     event("processes-stopped", pids=pids, survivors=survivors or None)
+    if not survivors:
+        _forget_gradle_daemons(paths)
     return {"stopped": pids, "survivors": survivors}
 
 

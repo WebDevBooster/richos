@@ -385,9 +385,10 @@ def machine_directory():
     return directory
 
 
-def run_command(cmd, token, env=None, worker=True):
+def run_command(cmd, token, env=None, worker=True, release=None):
     # The supervisor inherits the lease. If this wrapper is killed, admission cannot
     # reuse that slot until the supervisor has stopped the command's descendants.
+    # `release`: a workspace's private Gradle daemon registry; see proc_tree.release_gradle_daemons.
     import proc_tree
     env = dict(env if env is not None else os.environ)
     env.setdefault("RICHOS_VERIFICATION_CHECKOUT", os.getcwd())
@@ -409,7 +410,7 @@ def run_command(cmd, token, env=None, worker=True):
             # The supervisor retains the slot through owned cleanup even if this
             # wrapper dies. Its child does not inherit an unusable FD hint.
             lease_fds.append(fd)
-        child = subprocess.Popen(proc_tree.command(cmd, owner=os.getpid()), env=env,
+        child = subprocess.Popen(proc_tree.command(cmd, owner=os.getpid(), release=release), env=env,
                                  pass_fds=tuple(lease_fds), start_new_session=True)
         def stop(signum, _frame):
             child.send_signal(signum)
