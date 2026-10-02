@@ -98,7 +98,13 @@ class FailurePolicy(unittest.TestCase):
 
     def test_explicit_fail_fast_cancels_unfinished_checks(self):
         self.args.fail_fast = True
-        items = [self.item("failure", "raise SystemExit(1)"), self.item("queued", "pass")]
+        # "queued" is ordered after the failure (an ordering-only dependency, still independent
+        # of its success), so it is still waiting when the failure is observed: schedule() polls
+        # the failure, then cancels in the same pass, before anything new can start. Without the
+        # ordering it raced the failure for the second worker; at low CPU priority (taskpolicy
+        # -c utility nice -n 20) it started and passed first, three land attempts on 2026-10-02.
+        items = [self.item("failure", "raise SystemExit(1)"),
+                 self.item("queued", "pass", after=["failure"])]
         self.run_items(items)
         self.assertEqual([i.state for i in items], ["failed", "cancelled"])
         self.assertGreater(items[1].admission_wait, 0)
