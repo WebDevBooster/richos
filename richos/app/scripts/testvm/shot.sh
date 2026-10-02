@@ -37,6 +37,14 @@ GUEST_PATH="testvm-shot-$$.png"
 guest_ssh "$VM" "screencapture -x -t png '$GUEST_PATH'" \
   || die "screencapture failed inside the guest"
 
+# The OCR reads the SAME guest file that is copied out below, so the text and the saved frame
+# describe one capture (a second screencapture could show a different transient state).
+OCR_TEXT=""
+if [ "$WANT_OCR" -eq 1 ]; then
+  # cd to $HOME and use the bare filename: see the GUEST_PATH comment above.
+  OCR_TEXT="$(guest_ssh "$VM" "cd \$HOME && /opt/homebrew/bin/tesseract '$GUEST_PATH' - 2>/dev/null" || true)"
+fi
+
 mkdir -p "$(dirname "$OUT")"
 IP="$(cat "$TESTVM_RUN/$VM/ip" 2>/dev/null || vm_ip "$VM")"
 scp "${TESTVM_SSH_OPTS[@]}" -O -i "$TESTVM_SSH_KEY" \
@@ -62,8 +70,4 @@ fi
 
 log "captured ${W}x${H}, ${NB}% non-black -> $OUT"
 
-if [ "$WANT_OCR" -eq 1 ]; then
-  # cd to $HOME and use a bare filename — see the GUEST_PATH comment above.
-  guest_ssh "$VM" "cd \$HOME && screencapture -x -t png ocr-$$.png && \
-      /opt/homebrew/bin/tesseract ocr-$$.png - 2>/dev/null; rm -f \$HOME/ocr-$$.png"
-fi
+if [ "$WANT_OCR" -eq 1 ]; then printf '%s\n' "$OCR_TEXT"; fi
