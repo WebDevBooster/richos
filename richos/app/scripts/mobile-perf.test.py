@@ -756,6 +756,22 @@ def _():
         assert open(os.path.join(retained, 'launch-0001.log.stderr')).read() == 'device disconnected'
 
 
+@case("I6a xctrace temp files land in the run's own folder and are removed, even when the capture fails")
+def _():
+    from unittest.mock import patch
+    seen = []
+    def stub(cmd, **kwargs):
+        tmp = os.environ["TMPDIR"]
+        seen.append(tmp)
+        open(os.path.join(tmp, "instruments-1.ktrace"), "w").write("x")
+        return subprocess.CompletedProcess(cmd, 1, "", "boom")
+    with tempfile.TemporaryDirectory() as evidence, tempfile.TemporaryDirectory() as usertmp, \
+            patch.dict(os.environ, {"TMPDIR": usertmp}), patch.object(ios, "evidence_root_ok", return_value=True):
+        ios.device_cold("test-device", 1, evidence, stub)
+        assert seen and seen[0].startswith(evidence) and not os.path.exists(seen[0])
+        assert os.environ["TMPDIR"] == usertmp and os.listdir(usertmp) == []
+
+
 @case("I6b traces are refused outside the mounted external SSD, before anything is captured")
 def _():
     calls = []

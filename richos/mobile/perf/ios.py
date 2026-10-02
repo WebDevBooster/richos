@@ -20,6 +20,7 @@ number. Simulator timing without --xctrace uses the host launch command and the
 device log on the Mac's clock. Simulator background observations use the
 simulated process's CPU and network use, not physical iPhone energy.
 """
+import contextlib
 import datetime
 import json
 import os
@@ -634,6 +635,23 @@ def _return_capture(driver, trace, prefix, seconds, away, app_args, runner, pope
     return pid
 
 
+@contextlib.contextmanager
+def _own_tmp(evidence):
+    """xctrace spills multi-GB `instruments*.ktrace` files into $TMPDIR. Point TMPDIR at a folder
+    inside this run's evidence directory for the run, and remove it however the run ends."""
+    mine = tempfile.mkdtemp(prefix="tmp-", dir=evidence)
+    before = os.environ.get("TMPDIR")
+    os.environ["TMPDIR"] = mine
+    try:
+        yield mine
+    finally:
+        if before is None:
+            os.environ.pop("TMPDIR", None)
+        else:
+            os.environ["TMPDIR"] = before
+        shutil.rmtree(mine, ignore_errors=True)
+
+
 def trace_series(cls, driver, trials, evidence, runner=subprocess.run, popen=subprocess.Popen, sleep=time.sleep,
                  seconds=10, away=2.0, app_args=()):
     """`cold` or `warm` trials with Instruments, each trace retained under a unique directory.
@@ -648,29 +666,30 @@ def trace_series(cls, driver, trials, evidence, runner=subprocess.run, popen=sub
     os.makedirs(evidence, exist_ok=True)
     evidence = tempfile.mkdtemp(prefix=f"ios-{cls}-", dir=evidence)
     samples, rejected = [], []
-    for i in range(trials):
-        prefix = os.path.join(evidence, f"{'launch' if cls == 'cold' else 'return'}-{i + 1:04}")
-        trace = prefix + ".trace"
-        try:
-            if cls == "cold":
-                _capture(RECORD + ["--device", driver.target, "--time-limit", f"{seconds}s", "--output", trace,
-                                   "--launch", "--", BUNDLE, *app_args], prefix, runner, seconds + 120)
-                tables, attempts = export_tables(trace, prefix, runner, sleep)
-                sample = launch_sample(tables)
-            else:
-                pid = _return_capture(driver, trace, prefix, seconds, away, app_args, runner, popen, sleep)
-                tables, attempts = export_tables(trace, prefix, runner, sleep)
-                sample = return_sample(tables, pid)
-            sample.update(trial=i + 1, trace=trace, exportAttempts=len(attempts))
-            with open(prefix + ".json", "w") as f:
-                json.dump(sample, f, indent=2)
-            samples.append(sample)
-        except (Unmeasurable, ET.ParseError, ValueError, KeyError, subprocess.TimeoutExpired) as e:
-            rejection = {"trial": i + 1, "why": str(e), "evidence": prefix}
-            rejected.append(rejection)
-            with open(prefix + ".rejected.json", "w") as f:
-                json.dump(rejection, f, indent=2)
-            break
+    with _own_tmp(evidence):
+        for i in range(trials):
+            prefix = os.path.join(evidence, f"{'launch' if cls == 'cold' else 'return'}-{i + 1:04}")
+            trace = prefix + ".trace"
+            try:
+                if cls == "cold":
+                    _capture(RECORD + ["--device", driver.target, "--time-limit", f"{seconds}s", "--output", trace,
+                                       "--launch", "--", BUNDLE, *app_args], prefix, runner, seconds + 120)
+                    tables, attempts = export_tables(trace, prefix, runner, sleep)
+                    sample = launch_sample(tables)
+                else:
+                    pid = _return_capture(driver, trace, prefix, seconds, away, app_args, runner, popen, sleep)
+                    tables, attempts = export_tables(trace, prefix, runner, sleep)
+                    sample = return_sample(tables, pid)
+                sample.update(trial=i + 1, trace=trace, exportAttempts=len(attempts))
+                with open(prefix + ".json", "w") as f:
+                    json.dump(sample, f, indent=2)
+                samples.append(sample)
+            except (Unmeasurable, ET.ParseError, ValueError, KeyError, subprocess.TimeoutExpired) as e:
+                rejection = {"trial": i + 1, "why": str(e), "evidence": prefix}
+                rejected.append(rejection)
+                with open(prefix + ".rejected.json", "w") as f:
+                    json.dump(rejection, f, indent=2)
+                break
     return samples, rejected, evidence
 
 
