@@ -99,6 +99,19 @@ async function main() {
     return n;
   };
 
+  await run.check("0  the source-order check compares order, not just presence", async () => {
+    const { setupAskedBeforeMemory } = require("./lib/source-order");
+    assert(
+      setupAskedBeforeMemory("const a = maybeAskAboutSetup();\nconst m = !a && maybeAskAboutMemory();"),
+      "a setup-then-memory source was rejected"
+    );
+    assert(
+      !setupAskedBeforeMemory("const m = maybeAskAboutMemory();\nconst a = maybeAskAboutSetup();"),
+      "a memory-then-setup source was accepted"
+    );
+    return "a reversed order is refused";
+  });
+
   await run.check("1  a customer's Mac asks, first, and one dialog at a time", async () => {
     const page = await openApp(browser, {
       setup: "missing-both",
@@ -521,9 +534,10 @@ async function main() {
     assertEqual(found[0].file, "main.js", "the one call site moved to " + found[0].site);
     // ...and the setup question is asked before the memory one, in the source as well as on
     // screen, so the order is not an accident of two async calls racing.
-    const setupAt = MAIN_JS.indexOf("maybeAskAboutSetup()");
-    const memoryAt = MAIN_JS.indexOf("maybeAskAboutMemory()");
-    assert(setupAt > 0 && memoryAt > 0, "both question helpers must exist");
+    assert(
+      require("./lib/source-order").setupAskedBeforeMemory(MAIN_JS),
+      "main.js must ask the setup question first and gate the memory question on its answer"
+    );
     bump(2);
     return (
       "one call site (" + found[0].site + ") across " + searched.length +

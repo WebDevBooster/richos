@@ -2401,6 +2401,16 @@ async function main() {
 
   // ---- 10c. no panel in the shell is unwalked without being written down --------------------
 
+  await run.check("10d  the coverage control still runs when no panel is left unwalked", async () => {
+    const { coverageControl } = require("./lib/panel-control");
+    const full = coverageControl(["a", "b"], new Map([["a", 1], ["b", 1]]), new Map());
+    assert(full.victim, "complete coverage: the control found no panel to drop");
+    assertEqual(full.named, [full.victim], "complete coverage: the comparator did not name the dropped panel");
+    const debt = coverageControl(["a", "b"], new Map([["a", 1]]), new Map([["b", "reason"]]));
+    assertEqual(debt.named, ["b"], "with coverage debt the comparator did not name the dropped panel");
+    return "the control runs with and without coverage debt";
+  });
+
   await run.check("10c  every panel the shell declares is walked, or is declared unwalked with a reason", async () => {
     // 10b catches a driver list that got SHORTER. This catches one that went STALE, which is
     // the failure that actually happened elsewhere in this directory today: a hand-maintained
@@ -2460,13 +2470,10 @@ async function main() {
     // name exactly that panel. Without this the check is only ever OBSERVED passing, and a
     // comparator built out of one set — the failure 10b's own comment records — passes by
     // construction. Run against a copy; the real declaration is untouched.
-    const oneShort = new Map(declaredUnwalked);
-    const victim = unreached[0];
-    assert(victim, "there is nothing declared unwalked, so this control cannot run — say so rather than skipping it");
-    oneShort.delete(victim);
+    const control = require("./lib/panel-control").coverageControl(PANELS, seen.panelsReached, declaredUnwalked);
     assertEqual(
-      PANELS.filter((id) => !seen.panelsReached.has(id) && !oneShort.has(id)),
-      [victim],
+      control.named,
+      [control.victim],
       "the comparator did not notice a panel that is neither walked nor declared"
     );
 
