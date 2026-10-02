@@ -20,8 +20,8 @@
  *     correct transcript, and that NOTHING was written to Downloads.
  *
  *   LEG 2 (the fallback proof) — with NO host registered, the same auto-arm path detects the service
- *     is unreachable and falls back to the Downloads capture path: audio still lands, nothing is
- *     lost. This is the belt-and-suspenders half of the cutover.
+ *     is unreachable and retains audio in browser storage without automatic downloads. One explicit
+ *     archive export contains the complete saved session.
  *
  *   TAB-ARMING INVESTIGATION — a best-effort probe of whether tab capture can be armed with no human
  *     gesture in a test build (it is a trusted-gesture security boundary). Non-fatal; reported.
@@ -29,6 +29,7 @@
  * Dependency-free (node's built-in WebSocket + https). Leaves a machine-readable result file behind.
  */
 
+import { exportBufferedArchive } from './buffered-export.mjs';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { createServer } from 'node:https';
 import fs from 'node:fs';
@@ -42,6 +43,8 @@ const SERVICE_DIR = path.resolve(EXT_DIR, '..', 'richos-service');
 const HOST_JS = path.join(SERVICE_DIR, 'host', 'native-host.js');
 const HEADED = process.argv.includes('--headed');
 const KEEP = process.argv.includes('--keep');
+const LEG = process.argv.find((arg) => arg.startsWith('--leg='))?.slice(6) || 'all';
+if (!['all', 'native', 'fallback'].includes(LEG)) throw new Error(`unknown leg: ${LEG}`);
 const NATIVE_HOST_ID = 'com.richos.host';
 
 const results = [];
@@ -170,14 +173,15 @@ function makeCert(dir) {
 /** Write a launcher that runs the REAL native host with a scratch drop zone + toolchain on PATH. */
 function writeLauncher(dir, zone) {
   const launcher = path.join(dir, 'richos-e2e-launcher.sh');
-  const model = MODEL ? `export RICHOS_WHISPER_MODEL="${MODEL}"\n` : '';
+  const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
+  const model = MODEL ? `export RICHOS_WHISPER_MODEL=${quote(MODEL)}\n` : '';
   fs.writeFileSync(launcher,
     `#!/bin/sh\n` +
-    `export PATH="${HOMEBREW}:/usr/local/bin:/usr/bin:/bin:$PATH"\n` +
-    `export RICHOS_DROP_ZONE="${zone}"\n` +
+    `export PATH=${quote(`${process.env.PATH || ''}:${HOMEBREW}:/usr/local/bin:/usr/bin:/bin`)}\n` +
+    `export RICHOS_DROP_ZONE=${quote(zone)}\n` +
     `export RICHOS_LOG_LEVEL=error\n` +
     model +
-    `exec "${process.execPath}" "${HOST_JS}"\n`);
+    `exec ${quote(process.execPath)} ${quote(HOST_JS)} 2>>${quote(path.join(dir, 'native-host-stderr.log'))}\n`);
   fs.chmodSync(launcher, 0o755);
   return launcher;
 }
@@ -200,10 +204,11 @@ async function launchChrome(profileDir, downloadDir, httpsPort, extraArgs = []) 
   const args = [
     `--user-data-dir=${profileDir}`, `--load-extension=${EXT_DIR}`, `--disable-extensions-except=${EXT_DIR}`,
     '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',
+    '--enable-logging=stderr', '--vmodule=native_message*=1',
     '--disable-features=DialMediaRouteProvider,MediaRouter',
     '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
     '--autoplay-policy=no-user-gesture-required', '--ignore-certificate-errors',
-    `--host-resolver-rules=MAP meet.google.com 127.0.0.1:${httpsPort}`, '--window-size=1000,700',
+    '--host-resolver-rules=MAP meet.google.com 127.0.0.1', '--no-proxy-server', '--window-size=1000,700',
     ...extraArgs,
   ];
   if (!HEADED) args.push('--headless=new');
@@ -237,10 +242,12 @@ async function setFastSettings(cdp, swSession) {
   await evaluate(cdp, swSession, `(async () => { await chrome.storage.local.set({'richos.settings': {
     callCapture: { micProcessing: false, chunkMs: 1000, maxSessionMinutes: 10, autoStartMicCaptions: true, captureCaptions: true } } }); return 'ok'; })()`);
 }
-async function openCallTab(cdp) {
-  const CALL_URL = 'https://meet.google.com/abc-defg-hij';
+async function openCallTab(cdp, httpsPort) {
+  const CALL_URL = `https://meet.google.com:${httpsPort}/abc-defg-hij`;
   const { targetId } = await cdp.send('Target.createTarget', { url: CALL_URL });
   const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+  const navigation=await cdp.send('Page.navigate',{url:CALL_URL},sessionId);
+  if(navigation.errorText)throw new Error(`fixture navigation: ${navigation.errorText}`);
   await cdp.send('Runtime.enable', {}, sessionId);
   return { tabTargetId: targetId, tabSession: sessionId };
 }
@@ -273,8 +280,9 @@ async function runNativeLeg(workDir, speechB64) {
   await cdp.send('Runtime.enable', {}, swSession);
   check('LEG1: RichOS service worker booted', true, `ext id ${extensionId}`);
   const manifest = JSON.parse(await evaluate(cdp, swSession, 'JSON.stringify(chrome.runtime.getManifest())'));
-  check('LEG1: extension manifest declares nativeMessaging + version 0.3.0',
-    manifest.permissions.includes('nativeMessaging') && manifest.version === '0.3.0',
+  const expectedVersion = JSON.parse(fs.readFileSync(path.join(EXT_DIR, 'manifest.json'), 'utf8')).version;
+  check('LEG1: extension manifest declares nativeMessaging + current source version',
+    manifest.permissions.includes('nativeMessaging') && manifest.version === expectedVersion,
     `v${manifest.version} perms=${manifest.permissions.includes('nativeMessaging')}`);
 
   // Register the REAL host for this extension id BEFORE the call tab triggers connectNative.
@@ -282,8 +290,24 @@ async function runNativeLeg(workDir, speechB64) {
   const manifestPath = installHostManifest(profileDir, extensionId, launcher);
   check('LEG1: native host manifest installed (profile NativeMessagingHosts, real launcher)', fs.existsSync(manifestPath), manifestPath);
 
+  const hostProbe = await evalJson(cdp, swSession, `new Promise(resolve => {
+    const port = chrome.runtime.connectNative(${JSON.stringify(NATIVE_HOST_ID)});
+    let done = false;
+    const finish = value => {if(done)return;done=true;clearTimeout(timer);resolve(JSON.stringify(value));port.disconnect();};
+    const timer = setTimeout(() => finish({available:false,error:'handshake deadline'}),1500);
+    port.onMessage.addListener(message => finish({available:message.type==='ready',message}));
+    port.onDisconnect.addListener(() => finish({available:false,error:chrome.runtime.lastError?.message || 'disconnected'}));
+    port.postMessage({type:'hello'});
+  })`);
+  check('LEG1: registered host answers the real Chrome handshake', hostProbe.available, JSON.stringify(hostProbe));
+  if (!hostProbe.available) {
+    fs.writeFileSync(path.join(workDir, 'native-chrome.log'), log.join(''));
+    cdp.close(); chrome.kill('SIGTERM'); server.close();
+    throw new Error(`native host prerequisite: ${JSON.stringify(hostProbe)}`);
+  }
+
   await setFastSettings(cdp, swSession);
-  const { tabTargetId, tabSession } = await openCallTab(cdp);
+  const { tabTargetId, tabSession } = await openCallTab(cdp, httpsPort);
   await sleep(2500);
   check('LEG1: fixture call page is playing', /running/.test(String(await evaluate(cdp, tabSession, 'document.getElementById("s")?.textContent'))), '');
 
@@ -391,7 +415,7 @@ async function runFallbackLeg(workDir, speechB64) {
   const { swSession, extensionId } = await findRichosSw(cdp);
   await cdp.send('Runtime.enable', {}, swSession);
   await setFastSettings(cdp, swSession);
-  const { tabTargetId, tabSession } = await openCallTab(cdp);
+  const { tabTargetId, tabSession } = await openCallTab(cdp, httpsPort);
   await sleep(2500);
 
   const callTabId = (await evaluate(cdp, swSession,
@@ -401,7 +425,7 @@ async function runFallbackLeg(workDir, speechB64) {
     await evaluate(cdp, swSession, `globalThis.__richos.callCapture.armTab(${callTabId}, 'auto').catch(()=>{})`);
     status = await waitFor('fallback session to start', async () => { const s = await evalJson(cdp, swSession, getStatusExpr); return s.active ? s : null; }, { timeout: 10000 }).catch(() => status);
   }
-  check('LEG2: with no host reachable, the session fell back to the DOWNLOADS transport', status.active === true && status.transport === 'downloads', `transport=${status.transport}`);
+  check('LEG2: with no host reachable, the session retained a durable BROWSER transport', status.active === true && status.transport === 'browser', `transport=${status.transport}`);
 
   const injected = await evalJson(cdp, swSession,
     `(async () => JSON.stringify(await globalThis.__richos.core.callOffscreen({ type: 'cc:test-inject-audio', b64: ${JSON.stringify(speechB64)}, loop: true })))()`);
@@ -411,10 +435,13 @@ async function runFallbackLeg(workDir, speechB64) {
   // session.json at START must be on disk in Downloads (the anomaly guarantee on the fallback path).
   const walk = (dir, acc = []) => { if (!fs.existsSync(dir)) return acc; for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, e.name); if (e.isDirectory()) walk(p, acc); else acc.push(path.relative(downloadDir, p)); } return acc; };
   const early = walk(downloadDir);
-  check('LEG2: session.json written to Downloads at START on the fallback path', early.some((f) => f.endsWith('session.json')), early.join(', ') || 'nothing');
+  check('LEG2: browser checkpoint exists with no automatic download at START', (await evaluate(cdp,swSession,`(async()=>Boolean(await globalThis.__richos.core.idb.get('sessions',${JSON.stringify(status.sessionId)})))()`))===true && early.length===0, early.join(', ') || 'nothing');
 
   await cdp.send('Target.closeTarget', { targetId: tabTargetId });
   await sleep(6000);
+  const ended=await evalJson(cdp,swSession,getStatusExpr);
+  check('LEG2: automatic close preserves a pending browser export without downloads',ended.lastSession?.exportPending===true && walk(downloadDir).length===0);
+  await exportBufferedArchive(cdp,swSession,evaluate,downloadDir,ended.lastSession.sessionId);
   const found = walk(downloadDir);
   const audio = found.filter((f) => /audio-part-\d+\.webm$/.test(f));
   check('LEG2: audio was captured to the Downloads folder (no audio lost when the host is absent)',
@@ -449,7 +476,7 @@ async function investigateTabArming(workDir) {
   const { swSession } = await findRichosSw(cdp);
   await cdp.send('Runtime.enable', {}, swSession);
   await setFastSettings(cdp, swSession);
-  const { tabTargetId } = await openCallTab(cdp);
+  const { tabTargetId } = await openCallTab(cdp, httpsPort);
   await sleep(2500);
   const callTabId = (await evaluate(cdp, swSession,
     `(async () => (await chrome.tabs.query({})).filter(t => (t.url||'').includes('meet.google.com')).map(t => t.id))()`))?.[0];
@@ -486,11 +513,11 @@ async function main() {
   check('setup: generated a real spoken WAV for the recorder to emit', fs.statSync(wav).size > 1000, `${fs.statSync(wav).size} bytes; phrase="${SPOKEN}"`);
 
   let leg1;
-  try { leg1 = await runNativeLeg(workDir, speechB64); } catch (e) { check('LEG1 ran to completion', false, String(e.stack || e).slice(0, 300)); }
-  try { await runFallbackLeg(workDir, speechB64); } catch (e) { check('LEG2 ran to completion', false, String(e.stack || e).slice(0, 300)); }
-  try { await investigateTabArming(workDir); } catch (e) { note('INVESTIGATION errored (non-fatal)', String(e.message).slice(0, 160)); }
+  if (LEG !== 'fallback') try { leg1 = await runNativeLeg(workDir, speechB64); } catch (e) { check('LEG1 ran to completion', false, String(e.stack || e).slice(0, 300)); }
+  if (LEG !== 'native') try { await runFallbackLeg(workDir, speechB64); } catch (e) { check('LEG2 ran to completion', false, String(e.stack || e).slice(0, 300)); }
+  if (LEG === 'all') try { await investigateTabArming(workDir); } catch (e) { note('INVESTIGATION errored (non-fatal)', String(e.message).slice(0, 160)); }
 
-  const summary = { ranAt: new Date().toISOString(), chrome: CHROME, headless: !HEADED, results, leg1: leg1 ? { sessionId: leg1.sessionId, streamedBytes: leg1.streamedBytes, finalAudioBytes: leg1.finalAudioBytes } : null };
+  const summary = { ranAt: new Date().toISOString(), chrome: CHROME, headless: !HEADED, selection: LEG, results, leg1: leg1 ? { sessionId: leg1.sessionId, streamedBytes: leg1.streamedBytes, finalAudioBytes: leg1.finalAudioBytes } : null };
   const summaryPath = path.join(workDir, 'native-transport-result.json');
   fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
   console.log(`\n${results.filter((r) => r.ok === true).length} checks passed, ${failures} failed`);
