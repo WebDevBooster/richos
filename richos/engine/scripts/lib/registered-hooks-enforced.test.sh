@@ -51,6 +51,42 @@ if hook_enforced_on_surface "$SURFACE" guard-nothing.sh; then
     bad "4  an unknown guard must not be enforced"
 else ok "4  an unregistered guard is not enforced"; fi
 
+# P5-45 (v2 re-check): a registered command that only PRINTS the exact guard path
+# never runs the guard. The same mistake lived at every reader of a hook command.
+cat > "$SANDBOX/hooks/printed.json" <<'JSON'
+{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+  {"type": "command", "command": "echo \"scripts/hooks/guard-ghost.sh\""},
+  {"type": "command", "command": "printf '%s\\n' ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-printed.sh"},
+  {"type": "command", "command": "cat scripts/hooks/guard-catted.sh; echo scripts/hooks/dispatch-pretooluse.sh bash"},
+  {"type": "command", "command": "FOO=1 bash \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-real.sh\""},
+  {"type": "command", "command": "echo start && bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-chained.sh"}
+]}]}}
+JSON
+PRINTED="$SANDBOX/hooks/printed.json"
+for g in guard-ghost.sh guard-printed.sh guard-catted.sh; do
+    if hook_enforced_on_surface "$PRINTED" "$g"; then
+        bad "5  a command that only prints $g must NOT be credited as enforcing it"
+    else ok "5  printed path of $g is not enforcement"; fi
+done
+for g in guard-real.sh guard-chained.sh; do
+    if hook_enforced_on_surface "$PRINTED" "$g"; then
+        ok "6  $g, executed through a runner or after a chain, is enforced"
+    else bad "6  an executed guard ($g) must still be enforced"; fi
+done
+inv="$(registered_hook_scripts "$PRINTED" PreToolUse 2>/dev/null)"
+if printf '%s\n' "$inv" | grep -qE 'guard-ghost|guard-printed|guard-catted|dispatch-pretooluse'; then
+    bad "7  the inventory must list only executed guards" "$inv"
+else ok "7  the inventory lists only executed guards"; fi
+if printf '%s\n' "$inv" | grep -qx guard-real.sh; then
+    ok "7b the inventory still lists an executed guard"
+else bad "7b executed guard missing from inventory" "$inv"; fi
+
+# registered-hooks-gaps.test.py (the dispatcher-manifest cases, P5-08) was named by
+# no suite, so nothing ran it; it exercises the same library, so it runs here.
+if python3 "$HERE/registered-hooks-gaps.test.py" >/dev/null 2>&1; then
+    ok "8  registered-hooks-gaps.test.py passes"
+else bad "8  registered-hooks-gaps.test.py fails"; fi
+
 # The dispatcher half of hook_enforced_on_surface used to be
 # `_rh_dispatch_modules | grep -qxF`. grep -q exits at its first match; when the
 # writer still had output to send it died of SIGPIPE (141), and under the

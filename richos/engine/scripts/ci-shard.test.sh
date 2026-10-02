@@ -208,6 +208,16 @@ else
     bad "S5   rc=$RC for an unknown unit id"
 fi
 
+# S5b (P5-78): --only-units together with an unreadable --units-file is fatal. `die`
+# used to run in the pipeline's child, after the inline ids were emitted, and the run
+# went on with that PARTIAL selection and exit 0.
+RC="$(run_shard --list --only-units scripts/lib/green.test.sh --units-file "$SANDBOX/no-such-units-file.txt")"
+if [ "$RC" != "0" ] && grep -q 'no such file' "$SANDBOX/out" && ! grep -q '^scripts/lib/green.test.sh$' "$SANDBOX/out"; then
+    ok "S5b  --only-units plus a missing --units-file is fatal (rc=$RC) and lists no partial selection"
+else
+    bad "S5b  rc=$RC — a missing units file still produced a partial plan"; sed 's/^/          /' "$SANDBOX/out"
+fi
+
 # --- S6 / S7 / S8: the known-red table ------------------------------------
 KR="$E/scripts/lib/ci-known-red.tsv"
 FUTURE="$(python3 -c 'import datetime; print((datetime.date.today() + datetime.timedelta(days=30)).isoformat())')"
@@ -258,6 +268,17 @@ for TZNAME in Pacific/Kiritimati Etc/GMT+12; do
         ok "S8b  $TZNAME: an expiry of local today is still live"
     else
         bad "S8b  $TZNAME: local today ($LTODAY) treated as expired, rc=$RC"
+    fi
+done
+# S8c (P5-77): an expiry that is not a real calendar date is not a time boundary; it
+# used to compare as a string and keep the excuse alive indefinitely.
+for BADEXP in tomorrow 2999-99-99 2026-02-30 20991231; do
+    printf 'scripts/lib/red.test.sh\t2026-01-01\t%s\tdeadbeef\tC1\tbad expiry\n' "$BADEXP" > "$KR"
+    RC="$(run_shard --only-units scripts/lib/red.test.sh)"
+    if [ "$RC" = "1" ] && grep -q 'EXPIRED' "$SANDBOX/out"; then
+        ok "S8c  an entry whose expiry is '$BADEXP' (not a valid YYYY-MM-DD date) fails the job as expired"
+    else
+        bad "S8c  expiry '$BADEXP' kept a red unit excused (rc=$RC)"; sed 's/^/          /' "$SANDBOX/out"
     fi
 done
 rm -f "$KR"

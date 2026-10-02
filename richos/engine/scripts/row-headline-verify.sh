@@ -174,6 +174,47 @@ MUTATES = re.compile(
     r"\bgit\s+(?:push|commit|merge|reset|clean|checkout|rebase|am|apply)\b|"
     r"[^<>]>[^&]|>>", re.I)
 
+NO_MATCH_TOOLS = {"grep", "egrep", "fgrep", "rg", "test", "[", "diff", "cmp"}
+
+
+def ends_in_no_match_tool(cmd):
+    """True when the LAST simple command of `cmd` is a tool whose exit 1 means
+    "found nothing" (grep, test, diff, cmp); sh -c exits with that command's status."""
+    import shlex
+    try:
+        lex = shlex.shlex(cmd.replace("\n", " ; "), posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        lex.commenters = ""
+        tokens = list(lex)
+    except ValueError:
+        return False
+    segs, cur = [], []
+    for tok in tokens:
+        if tok and set(tok) <= set(";|&()"):
+            if cur:
+                segs.append(cur)
+            cur = []
+        else:
+            cur.append(tok)
+    if cur:
+        segs.append(cur)
+    seg = segs[-1] if segs else []
+    if not seg:
+        return False
+    words = list(seg)
+    while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0])
+                     or words[0] in ("env", "command", "time", "nice", "!")):
+        words.pop(0)
+    if not words:
+        return False
+    verb = os.path.basename(words[0])
+    if verb == "git" and len(words) > 1:
+        sub = next((w for w in words[1:] if not w.startswith("-")), "")
+        return sub == "grep" or (sub == "diff" and any(
+            w in ("--quiet", "--exit-code") for w in words))
+    return verb in NO_MATCH_TOOLS
+
+
 rows = []
 with open(os.environ["RH_ROWS"], encoding="utf-8") as fh:
     for line in fh:
@@ -263,7 +304,12 @@ for row in rows:
     # how a row records "the file does not mention it".
     want = row["expect"].strip()
     rc = p.returncode
-    quiet_no_match = (rc == 1 and not (p.stderr or "").strip())
+    # ...and only when the command that produced the exit status IS one of those
+    # tools: sh -c exits with its LAST command's status, so the last simple command
+    # must be grep/test/diff and the like. Any other command's quiet exit 1 is a
+    # failure (P5-67 v2 re-check: `python3 -c "print(...); raise SystemExit(1)"`).
+    quiet_no_match = (rc == 1 and not (p.stderr or "").strip()
+                      and ends_in_no_match_tool(cmd))
     if rc != 0 and not quiet_no_match:
         counts["ERROR"] += 1
         worst = max(worst, 1)

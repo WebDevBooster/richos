@@ -459,6 +459,24 @@ def cron_interval_seconds(cron_exprs):
     an abstention that says which one it is.
     """
     best = None
+    # P5-81: weekday-restricted expressions are judged on the UNION of their days. `1,4` on
+    # one line and `1` and `4` on two are the same firing schedule (longest gap 4 days);
+    # taking each expression's own gap and the minimum made the split form 7 days, so the
+    # same schedule got a different stale verdict. If any such expression cannot be read the
+    # union is unknown, so the weekday part abstains rather than judge on a partial set.
+    week_days, week_ok = set(), True
+    for expr in cron_exprs or []:
+        parts = expr.split()
+        if len(parts) == 5 and parts[2] == "*" and parts[3] == "*" and parts[4] != "*":
+            days = _cron_weekdays(parts[4])
+            if days:
+                week_days |= days
+            else:
+                week_ok = False
+    if week_days and week_ok:
+        ordered = sorted(week_days)
+        gaps = [(ordered[(i + 1) % len(ordered)] - d) % 7 or 7 for i, d in enumerate(ordered)]
+        best = max(gaps) * 24 * 3600
     for expr in cron_exprs or []:
         parts = expr.split()
         if len(parts) != 5:
@@ -473,15 +491,7 @@ def cron_interval_seconds(cron_exprs):
         if dow != "*":
             # A weekday restriction: what matters for "have firings been
             # missed" is the LONGEST gap between scheduled days, whatever the
-            # hour field says.
-            days = _cron_weekdays(dow)
-            if not days:
-                continue
-            ordered = sorted(days)
-            gaps = [(ordered[(i + 1) % len(ordered)] - d) % 7 or 7
-                    for i, d in enumerate(ordered)]
-            iv = max(gaps) * 24 * 3600
-            best = iv if best is None else min(best, iv)
+            # hour field says. Judged on the union of days above.
             continue
         if hour.startswith("*/"):
             try:
@@ -1866,6 +1876,14 @@ def self_test():
     want("a month-restricted cron abstains", cron_interval_seconds(["0 3 * 6 *"]), None)
     want("Mon and Thu gap is the longest gap", cron_interval_seconds(["0 3 * * 1,4"]), 4 * 86400)
     want("weekdays only leaves the weekend gap", cron_interval_seconds(["0 3 * * 1-5"]), 3 * 86400)
+    # P5-81: the same Monday-and-Thursday schedule, however it is split across expressions
+    want("Mon and Thu on two lines is the same 4-day gap", cron_interval_seconds(["0 3 * * 1", "0 3 * * 4"]), 4 * 86400)
+    want("Mon and Thu on two lines at different hours is the same", cron_interval_seconds(["0 3 * * 1", "30 17 * * 4"]), 4 * 86400)
+    want("weekdays split across lines keep the weekend gap",
+         cron_interval_seconds(["0 3 * * 1-3", "0 3 * * 4,5"]), 3 * 86400)
+    want("an unreadable weekday expression abstains from the weekday part",
+         cron_interval_seconds(["0 3 * * 1", "0 3 * * MON"]), None)
+    want("a daily line still wins over a weekly one", cron_interval_seconds(["0 3 * * *", "0 3 * * 1"]), 86400)
     want("daily cron is unchanged", cron_interval_seconds(["0 3 * * *"]), 86400)
 
     # P5-53: two distinct API paths never share a cache file.

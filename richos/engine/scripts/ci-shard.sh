@@ -393,13 +393,26 @@ kr_applies() { # <unit-id> — 0 when the row is in force here
 }
 
 kr_declared() { kr_field "$1" 1 >/dev/null 2>&1 && kr_applies "$1"; }
-kr_expired()  { # <unit-id> — 0 when today is past the expiry
-    local exp; exp="$(kr_field "$1" 3 2>/dev/null)" || return 1
-    [ -n "$exp" ] || return 1
+kr_expired()  { # <unit-id> — 0 when the entry's expiry has passed or is not a valid date
+    local exp rc=0; exp="$(kr_field "$1" 3 2>/dev/null)" || return 1
+    # P5-77: only a real calendar date YYYY-MM-DD that is today or later keeps an entry
+    # live (python exits 7 for that, and for nothing else). A blank or malformed expiry
+    # (`tomorrow`, `2999-99-99`) sorted after every date as a string and excused a red
+    # unit forever; and a python that cannot run must not fail open either, so anything
+    # other than the one live answer counts as expired.
     # LOCAL date: the expiry is a date the operator writes, so it is read on the operator's
     # calendar. ci-receipts.py (lib/) reads the same column the same way; a UTC "today" here
-    # made S8 fail 00:00-01:00 BST, when local yesterday equals the UTC date.
-    [ "$(date +%Y-%m-%d)" \> "$exp" ]
+    # made S8 fail 00:00-01:00 BST, when local yesterday equals the UTC date. An unreadable
+    # local date is not a date either, so it fails closed like a malformed expiry.
+    python3 -c 'import datetime, re, sys
+e = sys.argv[1]
+try:
+    live = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", e)) and \
+        datetime.date.fromisoformat(e) >= datetime.date.fromisoformat(sys.argv[2])
+except ValueError:
+    live = False
+sys.exit(7 if live else 0)' "$exp" "$(date +%Y-%m-%d)" 2>/dev/null || rc=$?
+    [ "$rc" -ne 7 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -482,9 +495,16 @@ resolve_selection() {
         return 0
     fi
     if [ -n "$ONLY_UNITS" ] || [ -n "$UNITS_FILE" ]; then
+        # The file is checked HERE, in this shell: `die` inside the pipeline's left
+        # side ran in a child, printed its error and let the inline --only-units
+        # through as a successful PARTIAL plan (P5-78).
+        if [ -n "$UNITS_FILE" ]; then
+            [ -f "$UNITS_FILE" ] || die "--units-file: no such file: $UNITS_FILE"
+            [ -r "$UNITS_FILE" ] || die "--units-file: not readable: $UNITS_FILE"
+        fi
         {
             printf '%s' "${ONLY_UNITS#,}" | tr ',' '\n'
-            [ -n "$UNITS_FILE" ] && { [ -f "$UNITS_FILE" ] || die "--units-file: no such file: $UNITS_FILE"; cat "$UNITS_FILE"; }
+            [ -z "$UNITS_FILE" ] || cat "$UNITS_FILE"
         } | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | grep -v '^#' | LC_ALL=C sort -u
         return 0
     fi
