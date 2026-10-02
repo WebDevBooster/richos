@@ -301,6 +301,46 @@ class DeployTests(unittest.TestCase):
         self.assertIn('rolled_back_at', json.loads((self.state / 'live-runtime.json').read_text()))
         self.assertIn('already running', self.live().rollback())
 
+    def test_a_later_candidate_replaces_the_one_this_script_deployed(self):
+        # 2026-10-02: launchd ran the 8e9cad40 candidate while main's cpu_guard_live.py had
+        # moved on (P5-22), and deploy refused it as neither legacy nor candidate.
+        earlier = b'# an earlier candidate\nimport sys\nsys.exit(0)\n'
+        digest = hashlib.sha256(earlier).hexdigest()
+        (self.state / 'runtime/cpu_guard.py').write_bytes(earlier)
+        (self.state / 'live-runtime.json').write_text(json.dumps(
+            {'sha256': digest, 'source_revision': 'e' * 40, 'source_file': '/elsewhere/cpu_guard_live.py'}))
+        self.assertIn('earlier deploy', self.live().status()['running_is'])
+        self.assertIn('deployed', self.live().deploy())
+        self.assertEqual(D.sha256(self.state / 'runtime/cpu_guard.py'), D.sha256(self.candidate))
+        backup = self.state / 'runtime-backups' / ('cpu_guard-%s.py' % digest[:12])
+        self.assertEqual(backup.read_bytes(), earlier)
+
+    def test_a_failed_deploy_over_an_earlier_candidate_puts_that_candidate_back(self):
+        earlier = b'# an earlier candidate\nimport sys\nsys.exit(0)\n'
+        digest = hashlib.sha256(earlier).hexdigest()
+        (self.state / 'runtime/cpu_guard.py').write_bytes(earlier)
+        (self.state / 'live-runtime.json').write_text(json.dumps({'sha256': digest, 'source_revision': 'e' * 40}))
+        # The new controller never reports; the earlier one reports its own sha256 when put back.
+        live = self.live(lambda running: self.heartbeat(running) if running == digest else None)
+        with self.assertRaisesRegex(SystemExit, 'FAILED.*put back and is running'):
+            live.deploy()
+        self.assertEqual((self.state / 'runtime/cpu_guard.py').read_bytes(), earlier)
+
+    def test_a_running_file_that_differs_from_the_recorded_deploy_is_still_refused(self):
+        (self.state / 'runtime/cpu_guard.py').write_bytes(b'# edited in place\n')
+        (self.state / 'live-runtime.json').write_text(json.dumps({'sha256': '0' * 64, 'source_revision': 'e' * 40}))
+        with self.assertRaisesRegex(SystemExit, 'neither the legacy controller'):
+            self.live().deploy()
+        self.assertEqual(self.restarts, [])
+
+    def test_check_says_whether_launchd_runs_this_checkouts_controller(self):
+        live = self.live()
+        with patch.object(D, 'Live', lambda: live), patch('builtins.print') as said:
+            self.assertEqual(D.main(['check']), 3)
+            self.assertIn('CPU GUARD STALE', said.call_args.args[0])
+            live.deploy()
+            self.assertEqual(D.main(['check']), 0)
+
     def test_status_names_what_runs_and_changes_nothing(self):
         status = self.live().status()
         self.assertEqual(status['running_is'], 'legacy controller (9154bf51)')
