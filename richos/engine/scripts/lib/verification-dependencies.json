@@ -4273,7 +4273,7 @@
     },
     "scripts/disk-watchdog.sh#alert": {
       "source": "scripts/disk-watchdog.sh",
-      "sha256": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+      "sha256": "40930d78fec671182cb8957a7b755a02ff094ec09a4ee32014d5818bb99964da",
       "evidence": "Caller supplies --alert. Wrapper sources selected engine config, computes state/log paths and exports finite DISK/SCRATCH/APP/TEST_DEVICE families to fixed Python. Install/uninstall and scheduling branches are unreachable; enable cannot disable alert. Actual value readers are the alert Python closure.",
       "keys": [
         "DISK_STATE_JSON",
@@ -4599,7 +4599,7 @@
     },
     "scripts/disk-watchdog.sh#check": {
       "source": "scripts/disk-watchdog.sh",
-      "sha256": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+      "sha256": "40930d78fec671182cb8957a7b755a02ff094ec09a4ee32014d5818bb99964da",
       "evidence": "Caller supplies --check. Wrapper sources the selected config and exports finite resource families to fixed Python. Install, uninstall and status are not invoked. The enable switch may return before Python.",
       "keys": [
         "DISK_STATE_JSON",
@@ -8283,7 +8283,7 @@
     },
     "scripts/disk-watchdog.sh#suite-fixtures": {
       "source": "scripts/disk-watchdog.sh",
-      "sha256": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+      "sha256": "40930d78fec671182cb8957a7b755a02ff094ec09a4ee32014d5818bb99964da",
       "evidence": "Full wrapper receives explicit private config and LaunchAgents directories. Normal alert/json/status/check calls execute the fixed Python library. The copied print-plist call renders data; the copied worktree install call refuses before scheduling. No live service is installed.",
       "keys": [
         "DISK_STATE_JSON",
@@ -8416,7 +8416,7 @@
     },
     "scripts/scratch-sweep.sh": {
       "source": "scripts/scratch-sweep.sh",
-      "sha256": "919159e47941f1023a3eeaed276c380f8ce8b8c6e394501c4afe0dbcce1437ca",
+      "sha256": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241",
       "evidence": "Full wrapper acquires a kernel lock and invokes the fixed scratch-reaper.sh with apply/dry-run arguments. It parses stdout/log counters and formats JSON. No config is sourced by the wrapper; actual reaper settings are retained. Renewed 2026-10-01 (a land sweeps only the landed agent's scratch): --agent/--session/--workspace/--hold-named are forwarded verbatim to the same fixed reaper; with --agent the lock probe waits up to 120 s; unattributed= is parsed from the reaper's stdout like undecidable=.",
       "keys": [],
       "edges": [
@@ -11769,14 +11769,14 @@
     },
     "scripts/ledger-prune-sandbox.py": {
       "source": "scripts/ledger-prune-sandbox.py",
-      "sha256": "6eae706be128d9c1f12f1af5de9f1fdbdaeae86507e862727ef4efd2310e0860",
+      "sha256": "2884e394ff455b4616ff15f26441527c5ee3e24b4f3d37bd8d2642687133e01b",
       "evidence": "Reviewed all CLI/predicate/apply paths: reads the supplied ledger as JSON, stats named paths, preserves bytes and writes backups/replacement. Standard library only, no subprocess or configuration reader. Data paths are never executed.",
       "keys": [],
       "edges": []
     },
     "scripts/ledger-prune-sandbox.test.sh": {
       "source": "scripts/ledger-prune-sandbox.test.sh",
-      "sha256": "ad564cbb9337b10c594e822f768e6d7ac3ffd5ff9dbaf69c5cbec4f5c07cdee3",
+      "sha256": "6aabeb747dbcdb0f8d39083d4770a0e672f64941830f7efebb74bdecabe3603b",
       "evidence": "Uses explicit private ledger and backup paths. Invokes only the pruner; fixed inline Python creates a unique absent-path string. Runtime path-existence and clock inputs are distinct from orchestration config values.",
       "keys": [],
       "edges": [
@@ -15984,7 +15984,7 @@
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
         "scripts/hooks/notice-disk-alert.sh": "8d30387da21de0f07be504cc9d64e73ad43455816b41af567474fc63462331f0",
-        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/disk-watchdog.sh": "40930d78fec671182cb8957a7b755a02ff094ec09a4ee32014d5818bb99964da",
         "scripts/lib/disk-watchdog.py": "3d1400ec023b28cec954c47edb77c75d5fdccb1bf7ba8cc7ef42dd32e1db823d",
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
@@ -16060,7 +16060,7 @@
         "scripts/hooks/session-start-ci-surface.sh": "a4f1b332f362a2374ae1dad83d44af14a977d8cfdb753154014bbcc7e74c05a5",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
         "scripts/hooks/notice-disk-alert.sh": "8d30387da21de0f07be504cc9d64e73ad43455816b41af567474fc63462331f0",
-        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/disk-watchdog.sh": "40930d78fec671182cb8957a7b755a02ff094ec09a4ee32014d5818bb99964da",
         "scripts/lib/disk-watchdog.py": "3d1400ec023b28cec954c47edb77c75d5fdccb1bf7ba8cc7ef42dd32e1db823d",
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
@@ -16212,7 +16212,7 @@
         "scripts/scratch-reaper.mutation.sh": "8ef0a08373e7aed2c4f3388e701a29346b51ad2862108b8170d35f4d9c0ef6e4",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
         "scripts/scratch-reaper.test.sh": "02bfc4d3f7cf1945618b84b99949dd784bf472c76858cd7ecaec8de9a288c135",
-        "scripts/scratch-sweep.sh": "919159e47941f1023a3eeaed276c380f8ce8b8c6e394501c4afe0dbcce1437ca",
+        "scripts/scratch-sweep.sh": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
         "scripts/hooks/dispatch-pretooluse.manifest": "2c8df980b988666f70540291575d461262ca0192a012a4e3c1a8a32723daf85c",
         "hooks/hooks.json": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
@@ -16289,7 +16289,7 @@
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
         "scripts/hooks/notice-claim-capability.sh": "f918e14199d059e57f306ee1202fe0edb3ab27711deb0003358ad36bcae3a1c5",
         "scripts/hooks/notice-disk-alert.sh": "8d30387da21de0f07be504cc9d64e73ad43455816b41af567474fc63462331f0",
-        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/disk-watchdog.sh": "40930d78fec671182cb8957a7b755a02ff094ec09a4ee32014d5818bb99964da",
         "scripts/lib/disk-watchdog.py": "3d1400ec023b28cec954c47edb77c75d5fdccb1bf7ba8cc7ef42dd32e1db823d",
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
         "scripts/hooks/notice-escalations.sh": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
@@ -16589,7 +16589,7 @@
         "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
         "scripts/hooks/notice-disk-alert.sh": "8d30387da21de0f07be504cc9d64e73ad43455816b41af567474fc63462331f0",
-        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/disk-watchdog.sh": "40930d78fec671182cb8957a7b755a02ff094ec09a4ee32014d5818bb99964da",
         "scripts/lib/disk-watchdog.py": "3d1400ec023b28cec954c47edb77c75d5fdccb1bf7ba8cc7ef42dd32e1db823d",
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
         "scripts/hooks/notice-escalations.sh": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
@@ -16948,7 +16948,7 @@
         "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
         "scripts/hooks/notice-disk-alert.sh": "8d30387da21de0f07be504cc9d64e73ad43455816b41af567474fc63462331f0",
-        "scripts/disk-watchdog.sh": "5168a316708d2fc3dc19e76604942e7377a6b8529d267052be2fa16f6f90cea5",
+        "scripts/disk-watchdog.sh": "40930d78fec671182cb8957a7b755a02ff094ec09a4ee32014d5818bb99964da",
         "scripts/lib/disk-watchdog.py": "3d1400ec023b28cec954c47edb77c75d5fdccb1bf7ba8cc7ef42dd32e1db823d",
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
         "scripts/hooks/notice-escalations.sh": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
@@ -17150,7 +17150,7 @@
         "scripts/lib/unlanded-branches.py": "2aa9d32b80809d78c10c9571a91c4bdbb58c7cf22197b6398fd1239b481b1810",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
-        "scripts/scratch-sweep.sh": "919159e47941f1023a3eeaed276c380f8ce8b8c6e394501c4afe0dbcce1437ca",
+        "scripts/scratch-sweep.sh": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241",
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f"
       },
       "evidence": "The manifest name appears only in suite/header and helper comments or printed remedies. Reviewed finite fixture execution calls fixed hook/CLI paths; no installer, platform dispatch or registered-hook discovery runs. Shared mutation transport may copy hooks/settings bytes but this execution closure never reads them. Existing configuration/call contracts bind the same transitive sources; actual config readers and ordinary source-path selection remain required."
@@ -17184,7 +17184,7 @@
         "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
-        "scripts/scratch-sweep.sh": "919159e47941f1023a3eeaed276c380f8ce8b8c6e394501c4afe0dbcce1437ca"
+        "scripts/scratch-sweep.sh": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241"
       },
       "evidence": "The manifest name appears only in suite/header and helper comments or printed remedies. Reviewed finite fixture execution calls fixed hook/CLI paths; no installer, platform dispatch or registered-hook discovery runs. Shared mutation transport may copy hooks/settings bytes but this execution closure never reads them. Existing configuration/call contracts bind the same transitive sources; actual config readers and ordinary source-path selection remain required."
     },

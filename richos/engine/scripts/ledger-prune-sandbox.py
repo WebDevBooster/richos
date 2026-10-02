@@ -157,9 +157,11 @@ def census(lines):
 
 
 def read_lines(path):
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        data = f.read()
-    return data.splitlines(True), len(data.encode("utf-8", "replace"))
+    # Read BYTES: text mode turns CRLF into LF, so the decoded length is smaller
+    # than the file and the "appended while we worked" offset lands too early.
+    with open(path, "rb") as f:
+        raw = f.read()
+    return raw.decode("utf-8", "replace").splitlines(True), len(raw)
 
 
 def main(argv=None):

@@ -141,8 +141,12 @@ if [ "$MODE" = "uninstall" ]; then
 fi
 
 if [ "$MODE" = "installed" ]; then
-    [ -f "$PLIST" ] && exit 0
-    exit 1
+    [ -f "$PLIST" ] || exit 1
+    # A plist on disk is not a scheduled job: on a real host it must be loaded.
+    if command -v launchctl >/dev/null 2>&1 && [ -z "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
+        launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || exit 1
+    fi
+    exit 0
 fi
 
 if [ "$MODE" = "install" ] || [ "$MODE" = "print-plist" ]; then
@@ -206,6 +210,10 @@ if [ "$MODE" = "install" ] || [ "$MODE" = "print-plist" ]; then
         launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
         launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || \
             launchctl load "$PLIST" >/dev/null 2>&1 || true
+        if ! launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
+            echo "✗ $LABEL was written to $PLIST but launchd did not load it; NOT scheduled" >&2
+            exit 1
+        fi
     fi
     echo "✓ scheduled $LABEL every $MINUTES minutes"
     echo "  plist: $PLIST"
