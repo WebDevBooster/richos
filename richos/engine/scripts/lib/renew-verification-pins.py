@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Renew the sha256 pins verification-dependencies.json holds for files you changed.
+"""Renew the sha256 pins the verification maps hold for files you changed.
 
     renew-verification-pins.py [--map FILE] PATH [PATH ...]
+
+The maps (both, unless --map names one): richos/engine/scripts/lib/verification-dependencies.json
+(the engine's dependency map) and docs/development/verification-input-qualifications.json (the
+reviewed checks' qualified readers; the commit and the merge refuse a stale pin there).
 
 PATH is a file in this repository (absolute, or relative to the current directory). Every
 pin in verification-dependencies.json that names that file (a `path`/`source` entry with a
@@ -20,6 +24,7 @@ import subprocess
 import sys
 
 MAP = Path(__file__).resolve().with_name('verification-dependencies.json')
+QUALIFICATIONS = Path(__file__).resolve().parents[4] / 'docs/development/verification-input-qualifications.json'
 
 
 def repository_root(map_path):
@@ -65,18 +70,11 @@ def renew(document, relative, digest, changes):
     walk(document, '')
 
 
-def main(argv):
-    map_path = MAP
-    if argv[:1] == ['--map'] and len(argv) > 1:
-        map_path, argv = Path(argv[1]).resolve(), argv[2:]
-    if not argv:
-        print(__doc__, file=sys.stderr)
-        return 2
+def renew_map(map_path, paths):
     root = repository_root(map_path)
     document = json.loads(map_path.read_text())
     unpinned = []
-    for raw in argv:
-        path = Path(raw).resolve()
+    for path in paths:
         relative = path.relative_to(root).as_posix()
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         changes = []
@@ -84,10 +82,25 @@ def main(argv):
         if not changes:
             unpinned.append(relative)
         for line in changes:
-            print(line)
+            print('%s: %s' % (map_path.name, line))
     map_path.write_text(json.dumps(document, indent=2) + '\n')
     for relative in unpinned:
-        print('not pinned (left alone): %s' % relative)
+        print('%s: not pinned (left alone): %s' % (map_path.name, relative))
+
+
+def main(argv):
+    maps = [MAP, QUALIFICATIONS]
+    if argv[:1] == ['--map'] and len(argv) > 1:
+        maps, argv = [Path(argv[1]).resolve()], argv[2:]
+    if not argv:
+        print(__doc__, file=sys.stderr)
+        return 2
+    paths = [Path(raw).resolve() for raw in argv]
+    for map_path in maps:
+        if map_path.is_file():
+            renew_map(map_path, paths)
+        else:
+            print('no map at %s (left alone)' % map_path)
     return 0
 
 
