@@ -193,6 +193,8 @@
 #     engine/mega-lander/workspace-probes.py --tree-only        # skip other branches
 #
 # Exit 0 only when every discovered probe ran and every one of them was green.
+# Exit 3 when nothing failed but a probe ran that asserts nothing (OBSERVED):
+# it was run, and nothing it printed was checked, so the run certifies nothing.
 # ===========================================================================
 import argparse
 import importlib.util
@@ -227,6 +229,10 @@ ENTRY_POINTS = ("barrier", "observe_created_refs", "register_spawn", "register_c
                 "integration_for", "record_integration", "load_agent", "snapshot_refs",
                 "named_key", "all_integration_records", "finished_state")
 DRIVES = LOADERS + ENTRY_POINTS
+
+# Nothing failed, and something ran that checks nothing (V2-06). Not 1, which
+# is "a probe is red or did not run"; not 0, which is "verified".
+EXIT_UNCERTIFIED = 3
 
 RETIREMENTS = "docs/verification/workspace-probe-retirements.tsv"
 MANIFEST = "docs/verification/workspace-probes.manifest"
@@ -1188,6 +1194,31 @@ def main(argv):
                      else "not one of them is a probe of this library"))
             print("A run that asked nothing is not a run that passed.")
             return 1
+        # THE ENDING SAYS ONLY WHAT THE VERDICTS ABOVE SAY (hunt part 4 v2,
+        # V2-06). It used to be "everything that is not RED or UNRUNNABLE is
+        # green", so a scenario probe that ASSERTS NOTHING -- verdict OBSERVED,
+        # whose own row says it can neither regress nor certify -- ended the run
+        # "every one of them is green" with exit 0, even when what it printed was
+        # the wrong behavior. The ending is now built from the GREEN verdicts
+        # alone: anything else that is not blocking is named, and an observation
+        # holds exit 0 back, because 0 is the runner's word for "verified".
+        green = [p for p in probes if p.verdict == "GREEN"]
+        observed = [p for p in probes if p.verdict == "OBSERVED"]
+        retired = [p for p in probes if p.verdict == "RETIRED"]
+        other = [p for p in probes if p not in green + observed + retired]
+        if observed or other:
+            print("NOT CERTIFIED. Nothing failed, but only %d probe(s) ran green; %d checked "
+                  "no expectation:" % (len(green), len(observed) + len(other)))
+            for p in observed + other:
+                print("    %-10s %s   author: %s" % (p.verdict, p.name, p.author))
+            print("An observation-only probe prints what the library did and checks no "
+                  "expectation, so it cannot tell right behavior from wrong. Its verdict is "
+                  "its author's reading, not this run's; exit %d says exactly that." % EXIT_UNCERTIFIED)
+            return EXIT_UNCERTIFIED
+        if retired:
+            print("every probe still asked ran, and every one of them is green (%d); %d "
+                  "retired by its author and not run, named above." % (len(green), len(retired)))
+            return 0
         print("every discovered probe ran, and every one of them is green.")
         return 0
     finally:

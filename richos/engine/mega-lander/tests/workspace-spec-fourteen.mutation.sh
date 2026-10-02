@@ -142,16 +142,16 @@ mutant R-p04-branch-left-after-land "C4.3 " "$W" \
     '    if False:{NL}        for repo, b in _branch_targets([rec]):' \
     "RECORDED [lifecycle-failure-record-2026-09-12.md §2c, 2026-09-12: 'git branch --contains 6fd5aef8' returned cc/frank-opus-c6, cc/sage-opus-c6, cc/zach-opus-g4 after their workspaces were cut and left; and the same record's addendum §A2: 22 cc/ branches deleted by hand today, none by the system]: a land would delete the workspace and leave the branch."
 mutant R-p04-quarantine-instead-of-delete "C4.4 " "$W" \
-    '            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=300)' \
-    '            rc, _o, err = git(main, "worktree", "move", path, os.path.join(os.path.dirname(path), ".richos-retired-" + os.path.basename(path)), timeout=300)' \
+    '            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=_bounded(deadline, 300))' \
+    '            rc, _o, err = git(main, "worktree", "move", path, os.path.join(os.path.dirname(path), ".richos-retired-" + os.path.basename(path)), timeout=_bounded(deadline, 300))' \
     "RECORDED [lifecycle-failure-record-2026-09-12.md addendum §A4, 2026-09-12 16:12Z and 16:13Z: the running engine's removal path renamed cc/sage-opus-c6 and cc/frank-opus-c6 into richos-wt/.richos-retired/ and both are still registered git worktrees; brief-audit-frank-round6 P7; brief-audit-sage-round6 §4.4]: a land would quarantine the workspace instead of deleting it."
 mutant S-p04-no-automatic-land "C4.1 " "$W" \
     '        if auto and not _past(deadline):{NL}            try:{NL}                res = land(rec["key"], me, auto=True, deadline=deadline)' \
     '        if False:{NL}            try:{NL}                res = land(rec["key"], me, auto=True, deadline=deadline)' \
     "SPEC-DERIVED (point 4 negated, 'automatically, with nothing left undecided'): merged work would stay undecided until somebody ran a command."
 mutant S-p04-quarantine-under-another-name "C4.4 " "$W" \
-    '            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=300)' \
-    '            rc, _o, err = git(main, "worktree", "move", path, os.path.join(os.path.dirname(path), ".parked-" + os.path.basename(path)), timeout=300); (entry and entry.get("branch") and git(main, "branch", "-m", entry["branch"], "parked/" + os.path.basename(path)))' \
+    '            rc, _o, err = git(main, "worktree", "remove", "--force", "--force", path, timeout=_bounded(deadline, 300))' \
+    '            rc, _o, err = git(main, "worktree", "move", path, os.path.join(os.path.dirname(path), ".parked-" + os.path.basename(path)), timeout=_bounded(deadline, 300)); (entry and entry.get("branch") and git(main, "branch", "-m", entry["branch"], "parked/" + os.path.basename(path)))' \
     "SPEC-DERIVED (point 4 negated, 'the workspace AND the branch are deleted'; constructed by frank-fable-c7 as F4, certification-frank-round6-2026-09-12.md §2.2, against which every round-6 sub-assertion of check 4 stayed green): a land would park the workspace under a name the old directory grep could not see, on a parked/ branch, and report it deleted."
 
 # --- point 5 ---------------------------------------------------------------
@@ -286,8 +286,8 @@ mutant S-p09-sigkill-escalation-removed "C9.6 " "$W" \
     '    for p in []:{NL}        try:{NL}            os.kill(p, signal.SIGKILL)' \
     "SPEC-DERIVED (point 9 negated, 'every process it started is stopped before its workspaces are deleted'; constructed by frank-fable-b3 as F-G, brief-audit-frank-round8 §5, which survived the round-7 fourteen because C9's holder dies on TERM): a process that ignores SIGTERM would outlive the deletion of its workspace."
 mutant R-p09-processes-not-stopped "C9.3 " "$W" \
-    'def stop_processes(paths):' \
-    'def stop_processes(paths):{NL}    return {"stopped": [], "survivors": []}' \
+    'def stop_processes(paths, deadline=None):' \
+    'def stop_processes(paths, deadline=None):{NL}    return {"stopped": [], "survivors": []}' \
     "RECORDED [femcboost CLAUDE.md, Git Worktree Isolation, 'Corollary (zombie residue, 2026-07-18)': a background child outlived both its agent and its worktree and re-created the path; brief-audit-frank-round6 P11, 2026-09-12: VM pid 1483 holding 324 files inside a finished agent's trees five days later]: a process the agent started would outlive the deletion of its workspace."
 
 # --- point 10 --------------------------------------------------------------
