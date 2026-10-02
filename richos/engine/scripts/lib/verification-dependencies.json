@@ -14626,13 +14626,13 @@
         {
           "root": "repository",
           "path": "richos/mobile/native-ios/bin/rios",
-          "sha256": "e8e617b9275bd485a7f29b7b3079e3b9bef3439205bfdae07f6c6bd878b1238c",
+          "sha256": "1aafb899bcb6563f2d2e2924c3b69907e6175fa3ecd7fb8a8bed8e1d88307388",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
           "root": "repository",
           "path": "richos/mobile/native-android/bin/randroid",
-          "sha256": "1172f7dbf815912a35c7dda894d5d91088f3a447e6cd7b286a1a08a130dca4f1",
+          "sha256": "e8f83428d2998995ccb8d92f27b3cf9355909b040704f7e474dc0c58f96182b6",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {

@@ -20,17 +20,21 @@ python3 <richos-hq>/scripts/with-android-firebase.py richos/mobile/native-androi
 richos/mobile/native-android/bin/randroid emu perf --out <file.json> [--expect-commit <sha>] [--theme dark] [--only cold,warm]
 richos/mobile/native-android/bin/randroid emu delete
 
-# an Android phone (named explicitly; the tool checks it is not an emulator). A release build is seeded
-# with the made-up conversation through its debuggable twin, which REPLACES the app's saved state on the phone
-python3 richos/mobile/perf/perf.py android --production --route managed --adb <adb> --serial <serial> --kind physical \
-  --stamp <apk>.stamp.json --seed-twin <debug.apk> --out <file.json>
+# an Android phone: ONLY through `randroid device` (CEO 2026-10-02: only the release build goes on a phone
+# and every test on it tests that build; perf.py refuses a phone it did not start, and a debuggable build).
+# `randroid device --serial <serial> install` puts the release APK over the app and stamps it. A release build is seeded
+# with the made-up conversation through its debuggable twin (signed with the same key): `adb install -r` the twin,
+# write the fixture with run-as, `install -r` the release build back. Never an uninstall, never a data clear; the
+# app's build and data are saved first and put back after the run.
+richos/mobile/native-android/bin/randroid device --serial <serial> perf --production --route managed \
+  --seed-twin <debug.apk> --out <file.json>
 
 # iOS: a named simulator or physical iPhone; trace series retain every raw trace (see "iOS launch and return").
 # A simulator is seeded with Android's made-up conversation by default and the app's own state is put back after
 richos/mobile/native-ios/bin/rios perf --simulator <UDID> --stamp <stamp.json> --out <file.json>
 # An iPhone has no seeding path yet, so the condition is named explicitly and the record is never compared
-richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 100 --out <file.json>
-richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 0 --warm 100 --out <file.json>
+richos/mobile/native-ios/bin/rios device perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 100 --out <file.json>
+richos/mobile/native-ios/bin/rios device perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 0 --warm 100 --out <file.json>
 richos/mobile/native-ios/bin/rios perf --reparse <series-dir> --out <file.json>   # re-read retained traces, capture nothing
 
 python3 richos/mobile/perf/perf.py check <record.json>...   # a record's structural promises
@@ -144,11 +148,32 @@ only worth keeping if two builds are measured the same way, so:
   - Any other build: `synthetic-conversation/1`, 100 rows by default, written into the app's own
     saved-state files (`files/core/session.json` and `history.json`) and read back by SHA-256.
     Its pairing names a host under `.invalid`, which never resolves, so the Mac is unreachable by
-    construction. A debuggable build is written with `run-as`. A release build is seeded through its
-    debuggable twin (`--seed-twin <debug.apk>`, same commit, same signing key). The tool
-    uninstalls the app, installs the twin, writes the files, then installs the stamped release APK
-    over it with the data kept. **That replaces the app's saved state on the phone.** A release build
-    without `--seed-twin` is refused before anything on the device changes.
+    construction. A debuggable build is written with `run-as`, in place. A release build is seeded
+    through its debuggable twin (`--seed-twin <debug.apk>`, same commit, **same signing key**):
+    `adb install -r` the twin over the app (its data kept), write the files with `run-as`, then
+    `adb install -r` the stamped release APK back over it, data kept. **Nothing is ever uninstalled
+    and no data is ever cleared** (the phone is not a disposable test device, CEO 2026-10-01). If the
+    phone refuses an install (another signature, a lower version) the run is refused and reports the
+    phone's own words; Android replaces a package whole or not at all, so the app is untouched. A
+    release build without `--seed-twin` is refused before anything on the device changes. The
+    function is `android.seed_release(dev, files, twin_apk, release_apk, release_sha256, scratch, log)`.
+  - **The phone is given back as it was found** (`android.StateKeeper(dev, root, log, accept_loss,
+    twin_apk)`; `perf.run_android` calls `save()` first and `restore()` in a `finally`). Before either
+    seeding path touches the phone, the tool copies the installed APK (`adb pull`) and the app's whole
+    private data directory (a tar streamed back through `run-as`; a release build is read by
+    installing the twin over it) to a private directory under `/Volumes/E1TB/tmp/claude/perf-keep/`
+    (mode 0700, never in a repository; `RICHOS_PERF_KEEP_DIR` moves it), with a SHA-256 manifest.
+    However the run ends (success, failure or interrupt) it puts the data back in place (`run-as`:
+    the files the run added are removed, the saved tar is extracted over the rest), reads the data
+    hashes back, installs the saved APK with `install -r` and reads its hash back
+    (`savedState.restored`). The private copy is deleted only after the hashes match. When it cannot
+    put things back, its last stderr line is `SAVED STATE NOT RESTORED ...`, it exits 6 and the copy
+    stays, its path in the message.
+  - **Without `run-as` and without a twin, the data cannot be saved and the seeding would lose it**
+    (this lost the CEO's pairing on 2026-10-02). The tool REFUSES before touching the phone unless
+    `--accept-state-loss <who>` names who agreed to lose that saved state (recorded as
+    `savedState.dataLostBy`); the build itself is still put back. Nothing installed means nothing to
+    lose or restore.
 
   The default sizes are the ones the established benchmarks were taken with. `--rows N` is a
   different condition. After the cold series the tool checks the seeded conversation's marker row is
@@ -213,7 +238,7 @@ has a number for it; anything else is listed as NOT COMPARED with the reason, ne
 
 **What still needs a phone.** The comparison only judges a record that exists, and a phone record
 exists only when someone runs the series. On the Android phone that is
-`perf.py android --production ... --kind physical --seed-twin <debug.apk> --only cold,warm --cold 100 --warm 100`.
+`randroid device --serial <serial> perf --production ... --seed-twin <debug.apk> --only cold,warm --cold 100 --warm 100`.
 No iPhone benchmark can exist until the iPhone seeding path does (see "Conditions"; a simulator
 is seeded, but simulator numbers are never a phone benchmark). No commit
 runs a phone. The fixture suite (`mobile-perf.test.sh`) runs on any change to this tool.
@@ -309,19 +334,19 @@ RICHOS_IOS_DEVICE=$UDID RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/ri
 APP=<the printed app: …/physical/derived/Build/Products/Release-iphoneos/RichOSNative.app>
 mkdir -p "$RUN"
 python3 richos/mobile/perf/perf.py stamp --artifact "$APP" --checkout "$PWD" --paths richos/mobile/native-ios > "$RUN/stamp.json"
-xcrun devicectl device install app --device "$UDID" "$APP"
+RICHOS_IOS_DEVICE=$UDID RICHOS_APPLE_TEAM=<team> richos/mobile/native-ios/bin/rios device install   # Release only, over the app
 SHA=$(git rev-parse HEAD)
 
 # one trial of each class first: proves the device, the tool and this phone's lists before a long series
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
+richos/mobile/native-ios/bin/rios device perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
   --evidence-dir "$RUN/traces" --cold 1 --out "$RUN/pilot-cold.json"
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
+richos/mobile/native-ios/bin/rios device perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
   --evidence-dir "$RUN/traces" --cold 0 --warm 1 --out "$RUN/pilot-warm.json"
 
 # the series: cold launches, then warm returns
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
+richos/mobile/native-ios/bin/rios device perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
   --evidence-dir "$RUN/traces" --cold 100 --out "$RUN/cold-100.json"
-richos/mobile/native-ios/bin/rios perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
+richos/mobile/native-ios/bin/rios device perf --device "$UDID" --stamp "$RUN/stamp.json" --expect-commit "$SHA" --conversation as-installed --mac reachable \
   --evidence-dir "$RUN/traces" --cold 0 --warm 100 --away 2 --out "$RUN/warm-100.json"
 ```
 
@@ -383,8 +408,8 @@ and record that condition; the tool does not disable Wi-Fi or alter Tailscale. U
 daily phone and the PRD's separately scheduled overnight test.
 
 ```sh
-python3 richos/mobile/perf/perf.py android --production --route managed \
-  --adb /opt/homebrew/bin/adb --serial SERIAL --kind physical --stamp BUILD.stamp.json --seed-twin DEBUG_TWIN.apk \
+richos/mobile/native-android/bin/randroid device --serial SERIAL perf --production --route managed \
+  --stamp BUILD.stamp.json --seed-twin DEBUG_TWIN.apk \
   --expect-commit COMMIT --only cold,warm,scroll --cold 100 --warm 100 --out PRIVATE_RECORD.json
 ```
 

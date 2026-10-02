@@ -47,6 +47,13 @@
                                                    entries ONE process (exact name) wrote per S seconds of
                                                    a `syslog` capture: what the app did while hidden
 
+ONLY THROUGH `rios device` (CEO, 2026-10-02: only the build users get goes on his phones and every
+test on them tests it). `run`, `approval`, `procs`, `apps`, `lock`, `battery` and `syslog` touch the
+phone, so they run as `rios device <command> ...` and refuse (exit 3) when started any other way;
+`rios device verify` runs only the Release build and refuses a bundle carrying Debug's development
+markers. `check`, `parse-log`, `summary`, `vocabulary`, `pair-steps` and `syslog-rate` touch no
+phone and run directly.
+
 The iPhone counterpart of phone-android.py. iOS 26 offers no shell on the phone, so every tap,
 type, Home, lock and screenshot goes through one XCUITest check that executes a list of steps
 (`PhysicalDeviceTests.testScript`). Each step prints one `PHONE_STEP` JSON line with its start and
@@ -1026,6 +1033,12 @@ def main(argv):
                 return emit({"steps": parse_log(Path(args.log).read_text(errors="replace"))})
             except FileNotFoundError:
                 raise CannotAnswer(f"no log at {args.log}")
+        # Everything below touches the phone: only through `rios device ...` (CEO 2026-10-02: only the
+        # Release build goes on his phones and every test on them tests it).
+        if os.environ.get("RICHOS_DEVICE_VERB") != "rios":
+            return emit({"refused": f"`{args.command}` touches a physical iPhone, which is done only through "
+                                    f"`rios device {args.command} ...`: the one command line that puts only the Release "
+                                    "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
                 "syslog": syslog, "approval": approval}[args.command](args)
     except CannotAnswer as error:
