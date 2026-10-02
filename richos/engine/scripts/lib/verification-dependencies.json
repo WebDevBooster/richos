@@ -12442,7 +12442,7 @@
     },
     "scripts/lib/resource_waits.py": {
       "source": "scripts/lib/resource_waits.py",
-      "sha256": "0e1a7dc300ee05dfdf2e182b176268471b36c488e9c451f0f786619893292cb9",
+      "sha256": "54eea17e1ba47b273c45df71bd5ca47106e6f50cd9d176d8d31b96368109d3fd",
       "evidence": "Stdlib reads private wait/slot/escalation JSON and native ps output. Only engine import is sibling escalations. Resource command strings are classified as data; wait writer loops over supplied file existence, never invokes a VM or build.",
       "keys": [],
       "edges": [
@@ -12479,7 +12479,7 @@
     },
     "scripts/hooks/resource-waits.test.sh": {
       "source": "scripts/hooks/resource-waits.test.sh",
-      "sha256": "60b0d929774f59d184fc2f6d1f3cbdce22fab4dbc413a2dec66eef660ba2dc17",
+      "sha256": "1721e14046d3e10c2753cf657c57c79b5fcfe412de9233448e414113c67d9a55",
       "evidence": "All hook calls target explicit private entity and empty/literal config, analyzer reads private wait/escalation/slot files. Generated process fixtures sleep or spawn supplied fixture commands only. Shared mutation transport remains source-bound.",
       "keys": [],
       "edges": [
