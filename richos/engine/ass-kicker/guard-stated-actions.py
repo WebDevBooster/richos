@@ -1,12 +1,79 @@
 #!/usr/bin/env python3
 """guard-stated-actions.py — THE ANALYSIS HALF of the Stop-time check that a
-turn's REPORT agrees with the turn's ACTIONS, in two arms:
+turn's REPORT agrees with the turn's ACTIONS, in three arms:
 
   ARM 1  STATED, NOT TAKEN   the text states an action; the tool calls do not
                              contain it.
   ARM 2  THE TURN THAT STOPS a teammate's completion arrived in this turn, and
                              the turn ends having started nothing and declared
                              nothing.
+  ARM 3  RECORDED, NOT       the text claims something was recorded, saved,
+         WRITTEN             written down, logged, filed or made a rule, and
+                             the turn wrote it nowhere durable, or the reply
+                             does not say where.
+
+===========================================================================
+ARM 3 — RECORDED, NOT WRITTEN (added 2026-10-02)
+===========================================================================
+The CEO, 2026-10-02, after "Recorded as a standing rule": recorded WHERE???
+— "Get a hook added that HITS YOU WITH A HAMMER every time you claim to have
+'recorded' something without actually doing it." The turn behind that claim
+wrote one file, in the lead's private memory directory, through
+`cd …/memory && cat > feedback_….md`, and the claim was a bulleted line.
+
+THE CLAIM is read from the reply with list items INCLUDED (ARM 1 skips them;
+this claim lives in them): a first-person act ("I've saved your ruling"), a
+subjectless participle ("Recorded as the first job for the next session"), a
+pronoun or rule-noun passive ("It's recorded", "Your ruling is recorded as
+§59"), or a rule claim ("now a standing rule", "now on record"). Excluded, each
+for a measured reason: denials, questions, conditionals, modals, quotes,
+reported speech, other people's acts ("He …, and recorded the anomaly"),
+result clauses (", so the gap is written down"), habitual mechanisms ("it's
+logged every time"), media senses (a screen recording), noun uses ("Recorded
+numbers:"), acknowledgments ("Noted that …") and references to earlier turns
+("the thing I recorded an hour ago").
+
+THE EVIDENCE is this turn's own tool calls: Write / Edit / MultiEdit /
+NotebookEdit targets, and Bash write targets (redirects, tee, sed -i, python
+writes) resolved against the command's own `cd` and shell variables; commits;
+engine record commands (escalation ledger, acknowledgement logs, workspace
+registry) with the entry ids on their command lines; ECS checkpoints. Each
+target is classified: the memory directory and ECS are PRIVATE; scratch and
+temp are nothing; a git work tree file is a REPOSITORY record; anything else
+durable is a FILE record.
+
+THE VERDICT, per claim:
+  * it names a repository file this turn wrote: the reply must also carry a
+    commit SHA that this turn's own traffic produced or read;
+  * it names a durable file this turn wrote, or the entry an engine record
+    command wrote, or cites in its own sentence a commit the turn saw: backed;
+  * it says plainly "in my private notes" and the turn wrote the memory
+    directory (or names the ECS record and the turn wrote one): backed;
+  * it points at "my notes" / "memory" without saying private: REFUSED;
+  * it wrote something durable and the reply does not say where: REFUSED;
+  * it wrote only private notes: REFUSED; it wrote nothing at all: REFUSED;
+  * a citation of an existing record ("it is written in", "already
+    recorded") must name its place in its own sentence: else REFUSED.
+
+THE HAMMER: the refusal quotes every failing sentence, says what the turn
+actually wrote, and lists the three ways out (write and commit it and say
+where; say "in my private notes"; or remove the claim). It runs on the
+re-fire too (ARMS 1 and 2 stand down there; ARM 3 does not), because the
+re-fire carries the corrected reply: a reply still claiming an unwritten record
+is refused again. There is no declaration or override line for it. Removing a
+false sentence needs no tool, so the arm cannot strand a turn.
+
+MEASURED: every Stop point in the governed project's lead transcripts (72
+sessions, 2026-08-07 to 2026-10-02), replayed through this file by
+ass-kicker/tests/record-claims.replay.py. Counts and the adjudication are in
+ass-kicker/docs/stated-actions.corpus.md (ARM 3); the excerpts, which quote the
+lead's replies and the CEO's questions, are in the private record only.
+
+WHAT ARM 3 CANNOT SEE: a claim made in an intermediate text block of a turn
+(only the final message is read, like ARMS 1 and 2); whether the record says
+what the claim says it does; a session the workspace gate holds in recovery
+(every Stop guard stands down there, by that gate's own contract); a write by
+a command shape none of the parsers know.
 
 Called by guard-stated-actions.sh, which has already resolved the two roots,
 read orchestration.config and decided that this repository adopted the engine.
@@ -239,11 +306,13 @@ Every error path returns 0. A Stop guard that fails closed refuses to let the
 session end, and the wrapper explains why that is worse than the defect.
 
 Exit codes:
-  0  nothing stated-but-untaken and no undeclared stop after a completion;
-     or exempt, not evaluable, report-only, or any error at all
+  0  nothing stated-but-untaken, no undeclared stop after a completion, and
+     every record claim backed; or exempt, not evaluable, report-only, or any
+     error at all
   2  BLOCKED — the final message states an action this turn did not take, or
      a teammate finished this turn and the turn ends having started nothing
-     and declared nothing
+     and declared nothing, or the message claims a record this turn did not
+     write or does not locate
 """
 
 import importlib.util
@@ -622,8 +691,664 @@ def stop_after_completion(idle, transcript, prompt_id, message):
 
 
 # --------------------------------------------------------------------------
+# ARM 3 — RECORDED, NOT WRITTEN
+# --------------------------------------------------------------------------
+#
+# The claim is read from the reply; the evidence is read from this turn's own
+# tool calls. Both are structure-first: a claim is a SENTENCE SHAPE (first
+# person, a subjectless participle, or a pronoun passive) over one closed verb
+# family, and the evidence is the list of files this turn's Write / Edit / Bash
+# calls actually wrote, classified by WHERE they are.
+#
+# LIST ITEMS ARE SCANNED HERE, unlike ARM 1. The case that built this arm was a
+# bullet: "- **Recorded as a standing rule:** every phone-testing instruction
+# names the command to use." (2026-10-02). A plan is written as a list; so is a
+# report of what was done, and that is where this claim lives.
+
+REC_VERB = (r"(?:recorded|saved|logged|documented|filed|captured|written\s+down|"
+            r"noted(?=\s+(?:in|as|where|under|down)\b))")
+# What may follow a sentence-initial "Recorded" when it is the verb and not an
+# adjective. "Recorded as a rule", "Recorded.", "Recorded the lesson so ...",
+# "Saved your choice" are claims; "Recorded creation", "Recorded numbers:" and
+# "Saved work:" are noun phrases (all three measured on the corpus).
+_FOLLOW = (r"(?=\s*(?:$|[.,:;!—–-]|\(|\s(?:as|so|in|into|to|at|and|that|it|this|these|the|for|with|including|"
+           r"under|here|there|both|now|against|because|on|rather|but|separately|word|your|his|her|their|"
+           r"my|its|all|each|every|alongside|together|prominently|verbatim|plainly|deliberately|"
+           r"properly|exactly|first|too|also|them|him|a|an)\b))")
+
+# "Recorded as a standing rule: ...", "Approved and recorded.", "Done —
+# documented, filed, pushed.", "Noted where it'll bind next time.", "Saved."
+ARM3_SUBJECTLESS_RE = re.compile(
+    r"^(?:(?:and|also|then|now|both|all|this\s+is)\s+)?"
+    r"(?:(?:approved|ruled|withdrawn|done|fixed|corrected|updated|accepted|understood|"
+    r"agreed|confirmed|held|dispatched|started|sent|rule|ruling|decision)\s*(?:,|and|—|–|-|:)?\s*)*"
+    r"(?:now\s+)?" + REC_VERB + _FOLLOW, re.I)
+
+# "I've also saved your ruling", "I recorded it", "we've written it down",
+# "I've made it a standing rule", "I'm recording this as a rule".
+ARM3_FIRST_RE = re.compile(
+    r"\b(?:I|we)(?:'ve|\s+have|\s+had)?(?:\s+(?:also|now|just|already|then|both))*\s+"
+    r"(?:recorded|saved|logged|documented|filed|captured|"
+    r"noted\s+(?:(?:it|this|them)\b|down\b|in\b|as\b|where\b)|"
+    r"wrote\s+(?:it|this|that|them|these|those|both|each)\s+down|"
+    r"written\s+(?:it|this|that|them|these|those|both)\s+down|"
+    r"made\s+(?:it|this|that)\s+a\s+(?:standing\s+|permanent\s+|hard\s+)?rule|"
+    r"put\s+(?:it|this|that)\s+(?:in|into|on)\s+(?:the\s+|your\s+|my\s+)?"
+    r"(?:record|memory|notes|rules|wiki|decisions|claude\.md)|"
+    r"added\s+(?:it|this|that|them)\s+to\s+(?:the\s+|your\s+|my\s+)?"
+    r"(?:record|memory|notes|rules|wiki|decisions|claude\.md|open[- ]items))\b"
+    r"|\bI'?m\s+(?:recording|saving|logging|documenting|filing|"
+    r"writing\s+(?:it|this|that)\s+down)\b", re.I)
+
+# The passive, with a subject that is the lead's own record or the thing he
+# was told: "It's recorded", "That's filed as row 3.20", "Your ruling is
+# recorded as §59", "it is written in the three places I read". Any other
+# subject reads as a description of somebody else's text ("his answer is
+# written in the vocabulary of what he probed", "7 test files are written in a
+# form this check can't read") and is not scanned, unless "now" makes it an
+# announcement ("Isaac's fix is now recorded as merging").
+_SUBJ = (r"(?:it|this|that|both|these|they|all\s+(?:two|three|four|five)|"
+         r"(?:the|your|my|this|that)\s+(?:rule|ruling|rulings|decision|order|correction|answer|words|"
+         r"spec|lesson|failure(?:\s+type)?|type|finding|plan|choice|question))")
+# "written in" is a claim only before a place: "written in the three places I
+# read", "written into PRD 5", "written into CLAUDE.md". "It's written in his
+# first person" is about voice, not a record.
+_WRITTEN_IN = (r"written(?=\s+(?:in|into|on)\s+(?:the|your|my|our|both|all|two|three|four|"
+               r"CLAUDE|PRD|§|[\w-]+\.md)\b)")
+ARM3_PASSIVE_RE = re.compile(
+    r"^(?:(?:and|but)\s+)?" + _SUBJ +
+    r"\s*(?:is|'s|are|'re|was|were|has\s+been|have\s+been)\s+(?:now\s+|also\s+|already\s+)?"
+    r"(?:" + REC_VERB + r"|" + _WRITTEN_IN + r")\b", re.I)
+# The same passive with no "now", followed by a place ("it's recorded in two
+# places", "it is written in the three places I read"), cites a record rather
+# than announcing one: it must NAME the place.
+ARM3_CITES_RE = re.compile(r"\s+(?:in|into|under|at|on)\b", re.I)
+ARM3_PASSIVE_NOW_RE = re.compile(
+    r"\b(?:is|'s|are|'re|has\s+been|have\s+been)\s+now\s+" + REC_VERB + r"\b"
+    r"|^" + REC_VERB + r"\s+now\b", re.I)
+
+# "recorded as a standing rule", "it's now a standing rule", "now the ruling on
+# record". A rule claim is the strongest claim of the family: a rule is a
+# mechanism or a line in the rules file, never a note.
+ARM3_RULE_RE = re.compile(
+    r"\b(?:recorded|saved|filed|logged)\s+(?:it\s+|this\s+|that\s+)?as\s+(?:a\s+|the\s+|my\s+)?"
+    r"(?:standing\s+|new\s+|permanent\s+|hard\s+)?(?:rule|ruling|doctrine)\b"
+    r"|\b(?:is|'s)\s+now\s+(?:a\s+|the\s+)?(?:standing\s+)?(?:rule|ruling)\b"
+    r"|\bnow\s+(?:the\s+\w+\s+)?on\s+record\b", re.I)
+
+# A record said to exist from BEFORE this turn ("already recorded", "recorded
+# earlier", "on Sept 20"). It cannot be checked against this turn's calls, so
+# it is held to the other half only: it must say WHERE.
+ARM3_PAST_RE = re.compile(r"\b(?:earlier|previously|yesterday|last\s+(?:night|week|session|time)|"
+                          r"this\s+morning|ago|since\s+then|on\s+(?:sept?\.?|september|"
+                          r"oct\.?|october|aug\.?|august)\s+\d|on\s+\d{4}-\d\d-\d\d)\b", re.I)
+ARM3_ALREADY_RE = re.compile(r"\balready\b", re.I)
+ARM3_NOW_RE = re.compile(r"\bnow\b", re.I)
+# Governs the verb only when it comes BEFORE it in the clause: "nothing was
+# recorded" is a denial, while "it's now recorded as a standing rule, not a
+# note" is the claim at full strength.
+ARM3_NEG_RE = re.compile(r"\b(?:not|never|nothing|nobody|no\s+one|neither|nor|without)\b|n't\b", re.I)
+ARM3_MODAL_RE = re.compile(r"\b(?:would|could|should|might|may|must|can|will|shall|'ll|going\s+to|"
+                           r"to\s+be|needs?\s+to|has\s+to|have\s+to|want\s+to)\b", re.I)
+ARM3_SUBORD_RE = re.compile(r"\b(?:once|when|whenever|if|unless|until|till|before|after|"
+                            r"as\s+soon\s+as|whether|in\s+case|the\s+moment|how)\b", re.I)
+ARM3_REPORTED_RE = re.compile(r"\b(?:I\s+(?:said|told|wrote|claimed|announced|promised|typed|reported)|"
+                              r"you\s+(?:said|asked|told|wrote)|(?:he|she|they)\s+(?:said|asked|wrote)|"
+                              r"as\s+I\s+(?:noted|said|mentioned)|(?:before|by|without)\s+saying|"
+                              r"instead\s+of)\b", re.I)
+# A mechanism, not an act: "it's logged every time it's used".
+ARM3_HABITUAL_RE = re.compile(r"\b(?:every\s+time|each\s+time|whenever|automatically|always)\b", re.I)
+# The other senses of the verbs. A screen recording, a voice clip, a saved
+# second: none of them is a claim about the record.
+ARM3_MEDIA_RE = re.compile(r"\b(?:video|screen|screenshots?|audio|clip|mp4|mov|microphone|mic|voice|"
+                           r"podcast|calls?|recordings?|recorder|footage|camera|frames?)\b", re.I)
+ARM3_SAVED_QTY_RE = re.compile(r"\bsaved\s+(?:you\s+|us\s+|me\s+|him\s+)?(?:\d|a\s+(?:round|day|minute|second|lot|"
+                               r"few)|an?\s+hour|time|minutes|hours|seconds|money|tokens|nothing|"
+                               r"everything\s+from)", re.I)
+ARM3_LOGGED_IN_RE = re.compile(r"\blogged\s+(?:in|out|into|on)\b", re.I)
+# A sentence whose subject is somebody else: in "He nearly wrote five notes,
+# caught it, and recorded the anomaly", the bare "recorded" of the third
+# clause is HIS act, not the lead's.
+_NOT_THIRD = {"i", "i've", "i'm", "i'll", "we", "we've", "it", "it's", "this", "that", "that's", "these",
+              "both", "all", "and", "also", "then", "now", "so", "but", "your", "my", "our", "here",
+              "there", "yes", "no", "understood", "one", "two", "three", "every", "first", "next"}
+
+
+def third_subject(sentence):
+    """True when the sentence's subject is somebody else: He, She, They, a
+    capitalized name ("Echo had also started unsaved edits"), or "The
+    engineer". Participles ("Recorded, and ...", "Dispatched, and ...") and
+    the lead's own pronouns are not."""
+    m = re.match(r"([A-Za-z][\w']*)(?:\s+(\w+))?", sentence)
+    if not m:
+        return False
+    w = m.group(1)
+    lw = w.lower()
+    if lw in ("he", "she", "they", "each", "everyone", "nobody", "someone"):
+        return True
+    if lw == "the":
+        return (m.group(2) or "").lower() not in ("rule", "ruling", "decision", "correction", "lesson", "type")
+    if lw in _NOT_THIRD or lw.endswith("ed") or lw.endswith("ing") or not w[0].isupper():
+        return False
+    return True
+PRIVATE_NOTES_RE = re.compile(r"\bprivate\s+(?:memory\s+)?notes?\b", re.I)
+NOTES_POINTER_RE = re.compile(r"\b(?:in|to|into)\s+(?:my\s+|the\s+)?(?:notes|memory)\b", re.I)
+# From the corpus (ass-kicker/docs/stated-actions.corpus.md, ARM 3).
+CEO_ASKED_WHERE = ("13 times between 2026-09-08 and 2026-10-02, and the replay finds 90 turns "
+                   "claiming a record that was only a private note or nothing at all")
+# Clause boundaries for ARM 3 carry their connector, so a result clause
+# (", so the gap is written down") can be told from a coordinated act
+# (", and recorded it").
+ARM3_CLAUSE_RE = re.compile(r"(,\s+(?:and|but|so|then|which|while)\b|;\s+)")
+ARM3_LABEL_RE = re.compile(r"^[A-Z][\w' -]{0,40}:\s+")
+
+
+def clean_keep_lists(message):
+    """clean(), except that a list item is SCANNED with its marker removed.
+    Fences, code spans, quotes, blockquotes, headings and tables still go."""
+    text = FENCE_RE.sub(" ", message)
+    kept = []
+    for line in text.split("\n"):
+        if BLOCKQUOTE_LINE_RE.match(line) or HEADING_LINE_RE.match(line) or TABLE_LINE_RE.match(line):
+            continue
+        m = LIST_LINE_RE.match(line)
+        if m:
+            line = line[m.end():]
+        kept.append(line)
+    text = "\n".join(kept)
+    text = CODE_SPAN_RE.sub(" ", text)
+    text = DQUOTE_RE.sub(" ", text)
+    text = SQUOTE_RE.sub(" ", text)
+    text = EMPH_RE.sub("", text)
+    return text
+
+
+def _before(rx, clause, pos):
+    return bool(rx.search(clause[:pos]))
+
+
+def _arm3_clauses(sentence):
+    """[(connector, clause)] — connector is '' for the first clause."""
+    parts = ARM3_CLAUSE_RE.split(sentence)
+    out = [("", parts[0])]
+    for i in range(1, len(parts) - 1, 2):
+        out.append((parts[i].strip(" ,;").lower(), parts[i + 1]))
+    return [(k, c.strip().strip(",;:")) for k, c in out if c.strip()]
+
+
+def record_claims(message):
+    """[(kind, sentence)] — kind is 'act' (a record made in this turn) or
+    'state' (a record said to exist already). One entry per sentence."""
+    out = []
+    for s in SENTENCE_SPLIT_RE.split(clean_keep_lists(message)):
+        s = s.strip()
+        if not s or QUESTION_RE.search(s) or ARM3_REPORTED_RE.search(s):
+            continue
+        third = third_subject(s)
+        kind = None
+        for i, (conn, c) in enumerate(_arm3_clauses(s)):
+            if conn in ("so", "which", "while"):
+                continue
+            m = ARM3_FIRST_RE.search(c) or ARM3_RULE_RE.search(c) or ARM3_PASSIVE_NOW_RE.search(c)
+            if not m and not (i > 0 and third):
+                m = ARM3_SUBJECTLESS_RE.search(c) or ARM3_PASSIVE_RE.search(c)
+                # A short label in front ("First question: it is written in
+                # the three places I read") hides the clause's real start.
+                lab = ARM3_LABEL_RE.match(c)
+                if not m and lab:
+                    c = c[lab.end():]
+                    m = ARM3_SUBJECTLESS_RE.search(c) or ARM3_PASSIVE_RE.search(c)
+            if not m:
+                continue
+            pos = m.start()
+            if (_before(ARM3_NEG_RE, c, pos) or _before(ARM3_MODAL_RE, c, pos)
+                    or _before(ARM3_SUBORD_RE, c, pos) or ARM3_HABITUAL_RE.search(c)):
+                continue
+            if re.search(r"record", m.group(0), re.I) and ARM3_MEDIA_RE.search(s):
+                continue
+            if ARM3_SAVED_QTY_RE.search(c) or ARM3_LOGGED_IN_RE.search(c):
+                continue
+            # The tense is read from the clause, never the sentence: "I've
+            # recorded Quint's workspace as merging: his record is already
+            # merged" is an act of this turn. "Now" makes it an act; a past
+            # marker ("the thing I recorded an hour ago") makes it a reference
+            # to an earlier turn, which this arm does not judge; "already", or
+            # a passive that points at a place, makes it a citation.
+            stop = re.search(r"[:—–;(]", c[m.end():])
+            seg = c[:m.end() + stop.start()] if stop else c
+            if ARM3_NOW_RE.search(seg):
+                k = "act"
+            elif ARM3_PAST_RE.search(seg):
+                continue
+            elif ARM3_ALREADY_RE.search(seg):
+                k = "state"
+            elif m.re is ARM3_PASSIVE_RE and ARM3_CITES_RE.match(c, m.end()):
+                k = "state"
+            else:
+                k = "act"
+            kind = "act" if (kind == "act" or k == "act") else "state"
+        if kind:
+            out.append((kind, s[:300]))
+    return out
+
+
+# --- what the turn actually wrote ------------------------------------------
+
+MEMORY_DIR_RE = re.compile(r"/\.claude/projects/[^/]+/memory(?:/|$)")
+SCRATCH_RE = re.compile(r"^(?:/tmp/|/private/tmp/|/private/var/folders/|/var/folders/|/dev/)|/scratchpad(?:/|$)")
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+# A Bash command's write targets, by the shapes the lead actually uses:
+# `cat > f <<EOF`, `>> f`, `tee [-a] f`, `sed -i … f`, python's open(p, "w").
+# EVERY QUANTIFIER IS BOUNDED. A Bash command can carry a megabyte with no
+# whitespace in it, and an unbounded `[^'"\s]+` path scan over that is
+# quadratic: the first corpus replay sat on one 10 MB transcript for over ten
+# minutes before the bounds went in.
+# Not `>=`: awk's `NR>=593` is a comparison, and reading it as a write once
+# produced a "file" named =593 that excused a false claim in the replay.
+REDIRECT_RE = re.compile(r"(?<![0-9&<>|=!])>{1,2}(?!=)[ \t]{0,8}(['\"]?)([^\s'\";|&<>()=`]{1,400})\1")
+TEE_RE = re.compile(r"\btee[ \t]+(?:-a[ \t]+)?(['\"]?)([^\s'\";|&<>()`]{1,400})\1")
+CD_RE = re.compile(r"(?:^|[;&|\n(])[ \t]{0,8}cd[ \t]+(['\"]?)([^\s'\";|&<>()]{1,400})\1")
+PY_PATH_RE = re.compile(r"(['\"])((?:/|~/)[^'\"\s]{1,400}?\.[A-Za-z0-9]{1,8})\1")
+ASSIGN_RE = re.compile(r"(?:^|[;&|\n(]|\s)([A-Za-z_]\w{0,40})=(['\"]?)([^\s'\";|&<>()$]{1,400})\2")
+VAR_RE = re.compile(r"\$\{([A-Za-z_]\w{0,40})\}|\$([A-Za-z_]\w{0,40})")
+SED_PATH_RE = re.compile(r"\s((?:[\w.~-]{1,100}/){0,20}[\w-]{1,100}(?:\.[\w-]{1,40}){0,4}\."
+                         r"(?:md|json|jsonl|txt|toml|ya?ml|sh|py|config))\b")
+PY_WRITE_RE = re.compile(r"open\([^)]*['\"][wa]\+?['\"]|\.write_text\(|\.write\(|json\.dump\(")
+SED_I_RE = re.compile(r"\bsed\s+-i\b")
+COMMIT_RE = re.compile(r"\bgit\b(?:\s+-[Cc]\s+\S+)*\s+(?:commit|merge|cherry-pick|revert|am)\b(?![^;&|\n]*--dry-run)")
+# Engine commands whose whole job is to write a durable record outside any
+# repository: the escalation ledger, the exemption and acknowledgement logs,
+# and the workspace registry ("I've recorded zach-sonnet-rest6's branch as
+# waiting on zach-sonnet-rest7"). The reply says WHERE by naming the entry the
+# command wrote: an id or a workspace name taken from the command line.
+RECORD_SCRIPT_RE = re.compile(r"\b(?:escalate\.sh\s+(?:raise|ack)|ceo-ruled-exempt\.sh|stop-work-ack\.sh|"
+                              r"inflight-ack\.sh|workspaces\.sh\s+(?:wait|merging|merge|land|discard|"
+                              r"register|shelve|park|block|hold|note|start|started))\b")
+RECORD_TOKEN_RE = re.compile(r"\b[A-Za-z0-9][A-Za-z0-9._-]{5,80}\b")
+# The Executive Continuity System checkpoint: typed turn state in a private
+# shadow store the CEO never reads. Like the memory directory, it is a private
+# note, and a claim backed only by it must say so, or name it.
+ECS_RE = re.compile(r"\becs\b[^\n;|&]{0,80}\bcheckpoint", re.I)
+ECS_NAMED_RE = re.compile(r"\b(?:ECS|checkpoint|end-of-turn\s+record|continuity\s+(?:record|system))\b", re.I)
+SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
+
+
+def _resolve(path, base):
+    path = os.path.expanduser(path)
+    if not os.path.isabs(path):
+        path = os.path.join(base or "/", path)
+    path = os.path.normpath(path)
+    return "/" + path.lstrip("/") if path.startswith("//") else path
+
+
+def bash_writes(command, cwd):
+    """{targets, committed, record_tokens, ecs} for one Bash command. Relative
+    targets are resolved against the last `cd` before them — the 2026-10-02
+    memory write was `cd …/memory && cat > feedback_….md`, and a reader that
+    took the bare name would have filed it under the working directory."""
+    targets = []
+    # `M=…/memory; cat > "$M/feedback_….md"`: the 2026-09-08 memory write took
+    # this shape, and a target that starts with `$` is a path once expanded.
+    assigns = {m.group(1): m.group(3) for m in ASSIGN_RE.finditer(command)}
+
+    def expand(t):
+        return VAR_RE.sub(lambda v: assigns.get(v.group(1) or v.group(2), v.group(0)), t)
+
+    command = expand(command)
+    cds = [(m.start(), m.group(2)) for m in CD_RE.finditer(command)]
+
+    def base_at(pos):
+        b = cwd
+        for p, d in cds:
+            if p < pos:
+                b = _resolve(d, b)
+        return b
+
+    for rx in (REDIRECT_RE, TEE_RE):
+        for m in rx.finditer(command):
+            t = m.group(2)
+            if (t.startswith("&") or t in ("/dev/null", "-") or t.startswith("$")
+                    or not re.search(r"[A-Za-z0-9]", os.path.basename(t))):
+                continue
+            targets.append(_resolve(t, base_at(m.start())))
+    if PY_WRITE_RE.search(command) or SED_I_RE.search(command):
+        for m in PY_PATH_RE.finditer(command):
+            targets.append(_resolve(m.group(2), cwd))
+        if SED_I_RE.search(command):
+            for m in SED_PATH_RE.finditer(command):
+                targets.append(_resolve(m.group(1), base_at(m.start())))
+    tokens = []
+    for m in RECORD_SCRIPT_RE.finditer(command):
+        line = command[m.start():].split("\n", 1)[0]
+        tokens.extend(t for t in RECORD_TOKEN_RE.findall(line[m.end() - m.start():])
+                      if re.search(r"[-\d]", t) and not t.startswith("-"))
+    return {"targets": targets, "committed": bool(COMMIT_RE.search(command)),
+            "record_tokens": tokens, "record_script": bool(RECORD_SCRIPT_RE.search(command)),
+            "ecs": bool(ECS_RE.search(command))}
+
+
+def classify_target(path):
+    """'memory' | 'scratch' | 'repo' | 'file'. A repository file is one that
+    git would commit: inside a work tree and not ignored."""
+    if MEMORY_DIR_RE.search(path):
+        return "memory"
+    # A git work tree is checked BEFORE the scratch prefixes: a repository that
+    # happens to live under the temp directory is still a repository, and a
+    # scratch file is never inside one.
+    # The walk ends when the parent stops changing, never on a spelling of the
+    # root: normpath keeps a leading "//", dirname("//") is "//", and a loop
+    # that waited for "/" hung the first corpus replay on exactly that path.
+    d = os.path.dirname(path)
+    while True:
+        if os.path.exists(os.path.join(d, ".git")):
+            try:
+                import subprocess
+                r = subprocess.run(["git", "-C", d, "check-ignore", "-q", path],
+                                   capture_output=True, timeout=5)
+                return "file" if r.returncode == 0 else "repo"
+            except Exception:
+                return "repo"
+        parent = os.path.dirname(d)
+        if not parent or parent == d:
+            return "scratch" if SCRATCH_RE.search(path) else "file"
+        d = parent
+
+
+def turn_writes(tm, transcript, prompt_id, cwd):
+    """What this turn wrote, from its own calls. None plus a reason when the
+    turn cannot be read. The cap turn-manifest.py keeps for rendering is lifted
+    here: a long session's transcript passes 48 MB (one on disk is 57 MB), and
+    an arm that goes blind on long sessions goes blind exactly where it is
+    needed. The read happens only on a turn that made a claim."""
+    if tm is None:
+        return None, "turn-manifest.py could not be loaded"
+    try:
+        tm.MAX_TRANSCRIPT = 1 << 40
+    except Exception:
+        pass
+    calls, results, _examined, err = tm.read_turn(transcript, prompt_id)
+    if err:
+        return None, err
+    ids = {tid for tid, name in calls if name in WRITE_TOOLS or name == "Bash"}
+    inputs = {}
+    if ids:
+        try:
+            with open(transcript, encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    if "tool_use" not in line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except Exception:
+                        continue
+                    content = (rec.get("message") or {}).get("content")
+                    if not isinstance(content, list):
+                        continue
+                    for b in content:
+                        if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id") in ids:
+                            inputs[b["id"]] = b.get("input") if isinstance(b.get("input"), dict) else {}
+        except OSError as exc:
+            return None, "the transcript could not be read (%s)" % exc
+    w = {"targets": [], "committed": False, "record_script": False, "record_tokens": [],
+         "ecs": False, "traffic": ""}
+    traffic = []
+    for tid, name in calls:
+        inp = inputs.get(tid) or {}
+        if name in WRITE_TOOLS:
+            p = inp.get("file_path") or inp.get("notebook_path")
+            if p:
+                w["targets"].append(_resolve(str(p), cwd))
+        elif name == "Bash":
+            cmd = str(inp.get("command") or "")
+            traffic.append(cmd)
+            b = bash_writes(cmd, cwd)
+            w["targets"].extend(b["targets"])
+            w["committed"] = w["committed"] or b["committed"]
+            w["record_script"] = w["record_script"] or b["record_script"]
+            w["record_tokens"].extend(b["record_tokens"])
+            w["ecs"] = w["ecs"] or b["ecs"]
+        res = results.get(tid)
+        if res is not None:
+            traffic.append(tm.flatten(res.get("content")))
+    seen = set()
+    w["targets"] = [(p, classify_target(p)) for p in w["targets"] if not (p in seen or seen.add(p))]
+    w["traffic"] = "\n".join(traffic)
+    return w, None
+
+
+LOCATION_RE = re.compile(
+    r"(?:[\w.~-]{0,100}/[\w.@-]{1,100})"
+    r"|\b[\w-]{1,100}(?:\.[\w-]{1,40}){0,4}\.(?:md|json|jsonl|txt|toml|ya?ml|sh|py|rs|kt|swift|config|log|html|csv)\b"
+    r"|§\s*\d+"
+    r"|\besc-\d{8}T\d{6}Z-[0-9a-f]{4,16}\b"
+    r"|\b(?:row|entry|decision|ruling|section|item|point)\s+[A-Z]?\d+(?:\.\d+)*\b", re.I)
+
+
+def _named(path, raw):
+    low = raw.lower()
+    base = os.path.basename(path).lower()
+    stem = os.path.splitext(base)[0]
+    if len(base) < 4 or not re.search(r"[a-z0-9]", base):
+        return False
+    if base in low:
+        return True
+    return len(stem) >= 4 and re.search(r"(?<![\w-])" + re.escape(stem) + r"(?![\w-])", low) is not None
+
+
+def raw_window(raw, sentence):
+    """The raw text a claim sentence came from: its own line, plus the list
+    its colon introduces. The cleaned sentence lost its code spans (two spaces
+    where each was), so the line is found by the words before the first gap."""
+    probe = re.split(r"\s{2,}", sentence.strip())[0][:60].strip()
+    if len(probe) < 8:
+        probe = sentence.strip()[:30]
+    lines = raw.split("\n")
+    for i, line in enumerate(lines):
+        if probe and probe in EMPH_RE.sub("", line):
+            out = [line]
+            if line.rstrip().endswith(":"):
+                for nxt in lines[i + 1:i + 12]:
+                    if not nxt.strip() and len(out) > 1:
+                        break
+                    out.append(nxt)
+            return "\n".join(out)
+    return sentence
+
+
+def judge_record_claims(claims, writes, raw):
+    """[(sentence, code, problem)] for every claim this turn does not back.
+    code is one of: nothing, private, where, sha, state. Pure: claims from
+    record_claims(), writes from turn_writes(), raw = the reply."""
+    failing = []
+    low = raw.lower()
+    concrete = bool(LOCATION_RE.search(raw))
+    traffic = writes["traffic"].lower()
+    # A SHA counts only when this turn's own traffic carries it: the commit
+    # line, a push range, a log the turn read. A typed SHA is not evidence.
+    cited = [s for s in SHA_RE.findall(low)
+             if re.search(r"[a-f]", s) and re.search(r"\d", s) and s in traffic]
+    targets = writes["targets"]
+    durable = [(p, k) for p, k in targets if k in ("repo", "file")]
+    memory = [p for p, k in targets if k == "memory"]
+    named = [(p, k) for p, k in durable if _named(p, raw)]
+    entry_named = any(t.lower() in low for t in writes.get("record_tokens") or [])
+
+    def wrote():
+        parts = []
+        if durable:
+            parts.append("to a record: " + ", ".join(p for p, _k in durable))
+        if writes["committed"]:
+            parts.append("a commit")
+        if writes["record_script"]:
+            parts.append("an entry through an engine record command")
+        priv = [os.path.basename(p) for p in memory] + (["an ECS checkpoint"] if writes.get("ecs") else [])
+        if priv:
+            parts.append("privately only: " + ", ".join(priv))
+        return "; ".join(parts) or "nothing"
+
+    for kind, sentence in claims:
+        if kind == "state":
+            # A citation names its place where it is made, not somewhere else
+            # in the reply: "it is written in the three places I read: the
+            # rules file, your decisions page, and my memory" named no file,
+            # and a path three paragraphs down does not change that.
+            win = raw_window(raw, sentence)
+            here = bool(LOCATION_RE.search(win)) or any(s in win.lower() for s in cited)
+            if not (here or (writes["record_script"] and entry_named)):
+                failing.append((sentence, "state", "it says the record already exists and names no "
+                                                   "place for it: no path, no file, no section, no commit"))
+            continue
+        # Said plainly to be private, and it is: that is the truth, told.
+        if (memory and PRIVATE_NOTES_RE.search(sentence)) or \
+                (writes.get("ecs") and ECS_NAMED_RE.search(sentence)):
+            continue
+        # The claim itself points at the memory directory ("saved this as a
+        # rule in my notes", "recorded in memory as standing doctrine"): that
+        # is where it is, whatever else the turn wrote, and it must be said in
+        # plain words. Measured: the CEO answered the first with "so what???".
+        if NOTES_POINTER_RE.search(sentence):
+            failing.append((sentence, "private", "the claim points at your notes or memory, which is "
+                                                 "%s, and does not say \"in my private notes\". A "
+                                                 "private note is not a record and not a rule"
+                            % ("what this turn wrote there: " + ", ".join(os.path.basename(p) for p in memory)
+                               if memory else "a place this turn did not even write")))
+            continue
+        if named:
+            if any(k == "repo" for _p, k in named) and not cited:
+                failing.append((sentence, "sha", "it names %s, a repository file, and no commit this "
+                                                 "turn produced; commit it and give the SHA"
+                                % ", ".join(os.path.basename(p) for p, _k in named)))
+            continue
+        if writes["record_script"] and entry_named:
+            continue
+        # A commit this turn produced or read, cited in the reply alongside a
+        # place: the reply says where, which is the standard. (A claim that
+        # points at "my notes" was judged above and never reaches this line,
+        # so an unrelated commit elsewhere cannot excuse a note.)
+        if cited and (concrete or durable or writes["committed"]):
+            continue
+        if durable or writes["committed"] or writes["record_script"]:
+            if writes["committed"] and concrete and not cited:
+                failing.append((sentence, "sha", "it names a place and no commit this turn produced; "
+                                                 "give the SHA. This turn wrote %s" % wrote()))
+            else:
+                failing.append((sentence, "where", "the reply does not say WHERE. This turn wrote %s, "
+                                                   "and the reply names none of it" % wrote()))
+            continue
+        if memory or writes.get("ecs"):
+            failing.append((sentence, "private", "this turn wrote %s, and the reply does not say "
+                                                 "\"in my private notes\". A private note is not a "
+                                                 "record and not a rule" % wrote()))
+            continue
+        failing.append((sentence, "nothing", "this turn wrote NOTHING to any record: no Write, no "
+                                             "Edit, no file written by a command, no commit"))
+    return failing
+
+
+def record_claim_verdict(payload, message):
+    """None when the reply claims no record. Otherwise a dict:
+         claims   [(kind, sentence)]
+         failing  [(sentence, problem)] — non-empty means REFUSE
+         written  [(path, class)] this turn wrote, for the refusal
+         verdict  'backed' | 'refused' | 'unscoped' | 'unavailable: …'
+    Every failure to READ the turn lets it end (the arm fails open like its
+    siblings); a turn that was read and does not back its claim is refused."""
+    try:
+        claims = record_claims(message)
+    except Exception:
+        return None
+    if not claims:
+        return None
+    v = {"claims": claims, "failing": [], "written": [], "verdict": "backed"}
+    prompt_id = payload.get("prompt_id")
+    if not prompt_id:
+        v["verdict"] = "unscoped"
+        return v
+    tm = _load("turn_manifest_arm3", "turn-manifest.py")
+    cwd = payload.get("cwd") or os.getcwd()
+    try:
+        writes, err = turn_writes(tm, payload.get("transcript_path"), prompt_id, cwd)
+    except Exception as exc:
+        writes, err = None, "the turn could not be read (%s)" % exc
+    if writes is None:
+        v["verdict"] = "unavailable: " + str(err)
+        return v
+    v["written"] = writes["targets"]
+    v["failing"] = judge_record_claims(claims, writes, message)
+    if v["failing"]:
+        v["verdict"] = "refused"
+    return v
+
+
+def _arm3_log(payload, v):
+    try:
+        root = os.environ.get("RICHOS_SA_ENTITY_ROOT") or payload.get("cwd") or os.getcwd()
+        state = os.path.join(root, ".claude", "state")
+        os.makedirs(state, exist_ok=True)
+        with open(os.path.join(state, "stated-actions.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"session": payload.get("session_id"), "prompt_id": payload.get("prompt_id"),
+                                "refire": True, "arm3": {"claims": len(v["claims"]),
+                                                         "failing": len(v["failing"]),
+                                                         "verdict": v["verdict"]}}) + "\n")
+    except Exception:
+        pass
+
+
+def arm3_refusal(v):
+    """THE HAMMER. Loud on purpose: the CEO asked for one, after asking
+    "recorded WHERE?" more times than any other single question of its kind."""
+    bar = "#" * 78
+    codes = {c for _s, c, _p in v["failing"]}
+    if codes <= {"nothing", "private"}:
+        headline = "This reply claims something was recorded. This turn did not record it."
+    elif codes <= {"sha"}:
+        headline = "This reply claims a record in a repository and names no commit."
+    else:
+        headline = "This reply claims something was recorded and does not say WHERE."
+    out = [bar,
+           "###  RECORDED WHERE?  TURN REFUSED.",
+           "###  " + headline,
+           bar]
+    for sentence, _code, problem in v["failing"]:
+        out.append("")
+        out.append("  YOU WROTE:")
+        out.append("      \"%s\"" % sentence)
+        out.append("")
+        out.append("  WHAT THIS TURN ACTUALLY DID: %s." % problem)
+    durable = [p for p, k in v["written"] if k in ("repo", "file")]
+    others = [p for p, k in v["written"] if k not in ("repo", "file")]
+    out.append("")
+    if durable:
+        out.append("  Files this turn wrote to a record: %s" % ", ".join(durable))
+    if others:
+        out.append("  Files this turn wrote that are NOT a record: %s" % ", ".join(others))
+    if not durable and not others:
+        out.append("  Files this turn wrote: none.")
+    out.append("")
+    out.append("  The CEO has had to ask \"recorded WHERE?\" over and over, because the")
+    out.append("  answer was nowhere (%s)." % CEO_ASKED_WHERE)
+    out.append("")
+    out.append("  DO ONE OF THESE, NOW, IN THIS TURN:")
+    out.append("    1. WRITE IT to a durable record (a repository file such as the rules")
+    out.append("       file or the decisions page), COMMIT it, and say WHERE: the path, or")
+    out.append("       the record and section, and the commit SHA.")
+    out.append("    2. If it is only in your memory directory, SAY SO in plain words:")
+    out.append("       \"in my private notes\". A note is not a record and not a rule.")
+    out.append("    3. Or REMOVE THE CLAIM and write what is true: it has not been recorded.")
+    out.append("")
+    out.append("  This refusal repeats on every attempt until the reply is true. There is")
+    out.append("  no override line and no stand-down. Do not weaken or unwire this hook.")
+    out.append("(hook: scripts/hooks/guard-stated-actions.sh, ARM 3)")
+    return "\n".join(out)
+
+
+# --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
+
+ARM3_BLOCK = 2           # ARM 3 refuses a first Stop
+ARM3_REFIRE_BLOCK = 2    # ... and refuses the re-fire too, while the claim stands
+
 
 def main():
     try:
@@ -631,11 +1356,22 @@ def main():
     except Exception:
         return 0
 
-    if payload.get("stop_hook_active"):
-        return 0
-
     message = payload.get("last_assistant_message") or ""
     if not message.strip():
+        return 0
+
+    # ARM 3 runs FIRST and runs on the re-fire too. ARMS 1 and 2 stand down
+    # once a Stop hook has refused this turn; ARM 3 does not, because the
+    # re-fire carries the NEW reply, and a reply that still claims a record
+    # nobody wrote is refused again. Removing the claim needs no tool, so this
+    # can never strand a turn.
+    arm3 = record_claim_verdict(payload, message)
+    if payload.get("stop_hook_active"):
+        if arm3 is not None:
+            _arm3_log(payload, arm3)
+            if arm3["failing"]:
+                sys.stderr.write(arm3_refusal(arm3) + "\n")
+                return ARM3_REFIRE_BLOCK if os.environ.get("RICHOS_SA_ENFORCE", "1") != "0" else 0
         return 0
 
     entity_root = (os.environ.get("RICHOS_SA_ENTITY_ROOT") or payload.get("cwd") or os.getcwd())
@@ -718,6 +1454,21 @@ def main():
 
     undeclared = stop is not None and stop["verdict"] == "undeclared-stop"
 
+    if arm3 is not None:
+        record["arm3"] = {"claims": len(arm3["claims"]), "failing": len(arm3["failing"]),
+                          "verdict": arm3["verdict"]}
+    if arm3 is not None and arm3["failing"]:
+        # THE HAMMER is printed on its own, ahead of anything ARM 1 or 2 has to
+        # say, and it blocks whatever they decided.
+        sys.stderr.write(arm3_refusal(arm3) + "\n")
+        if not unmet and not undeclared:
+            record["verdict"] = "block" if enforce else "report-only"
+            log()
+            # Spelled apart from ARM 1's return on purpose: the mutation harness
+            # rewrites that line by its text, and must reach ARM 1's, not this.
+            return ARM3_BLOCK if enforce else 0
+        sys.stderr.write("\n  (The same turn ALSO fails the stated-actions check below.)\n\n")
+
     if not unmet and not undeclared:
         if reported:
             record["verdict"] = "report"
@@ -793,7 +1544,7 @@ def main():
             out.append("")
             out.append("  A declaration was present and REJECTED: %s" % problem)
     out.append("")
-    out.append("  This gate stands down on the re-fire, so it can refuse a turn at most")
+    out.append("  Arms 1 and 2 stand down on the re-fire, so they refuse a turn at most")
     out.append("  once. Fix the reply and finish the turn. Do not weaken or unwire this hook.")
     out.append("(hook: scripts/hooks/guard-stated-actions.sh)")
     sys.stderr.write("\n".join(out) + "\n")

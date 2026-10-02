@@ -130,6 +130,10 @@ git -C "$NOROLES" commit -qm seed >/dev/null 2>&1
 #   {"send": "<to>"}             a SendMessage tool_use
 #   {"tool": "..."}              any other assistant tool_use, by name
 #   {"turn": "<prompt-id>"}      switch the promptId from here on
+#   {"write": "<path>"}          a Write tool_use (ARM 3)
+#   {"edit": "<path>"}           an Edit tool_use (ARM 3)
+#   {"bashout": [cmd, out]}      a Bash tool_use whose result is <out> (ARM 3:
+#                                the commit line a SHA is checked against)
 mk_tr() { # <outfile> <json-spec>
     python3 - "$1" "$2" "$PROMPT_ID" "$ENTITY" <<'PY'
 import json, sys
@@ -141,7 +145,7 @@ def user(text, machine):
     rows.append({"type": "user", "promptId": cur, "cwd": cwd,
                  "promptSource": "user" if not machine else "hook",
                  "message": {"content": text}})
-def call(name, inp):
+def call(name, inp, result="ok"):
     global n
     n += 1
     tid = "toolu_%03d" % n
@@ -149,7 +153,7 @@ def call(name, inp):
         {"type": "tool_use", "id": tid, "name": name, "input": inp}]}})
     rows.append({"type": "user", "promptId": cur, "cwd": cwd,
                  "message": {"content": [
-                     {"type": "tool_result", "tool_use_id": tid, "content": "ok"}]}})
+                     {"type": "tool_result", "tool_use_id": tid, "content": result}]}})
 for step in json.loads(spec):
     if "turn" in step:
         cur = step["turn"]; continue
@@ -168,6 +172,12 @@ for step in json.loads(spec):
         call("SendMessage", {"to": step["send"], "message": "hi"}); continue
     if "tool" in step:
         call(step["tool"], {}); continue
+    if "write" in step:
+        call("Write", {"file_path": step["write"], "content": "x"}); continue
+    if "edit" in step:
+        call("Edit", {"file_path": step["edit"], "old_string": "a", "new_string": "b"}); continue
+    if "bashout" in step:
+        call("Bash", {"command": step["bashout"][0]}, step["bashout"][1]); continue
 with open(out, "w", encoding="utf-8") as fh:
     for r in rows:
         fh.write(json.dumps(r) + "\n")
@@ -419,6 +429,173 @@ run_hook "$TR_SHELL" "The suite is green."
 
 run_hook "$TR_NOTDONE" "$FIN_REPORT"
 [ "$RC" -eq 0 ] && ok "n11. a notification without <status>completed</status> is not a delivery" || bad "n11. not completed" "rc=$RC"
+
+# ---------------------------------------------------------------------------
+# ARM 3 — RECORDED, NOT WRITTEN
+# The R cases are the real claims the CEO answered with "recorded WHERE?" (or
+# its equivalent), each with the shape of what its turn actually wrote. The
+# full excerpts, his questions and the replay that adjudicated every fire are
+# in the private record; only the lead's own claim sentences are carried here.
+# ---------------------------------------------------------------------------
+MEM="$SANDBOX/home/.claude/projects/-Users-x-proj/memory"
+mkdir -p "$MEM" "$ENTITY/wiki"
+printf '# decisions\n' > "$ENTITY/wiki/ceo-decisions.md"
+git -C "$ENTITY" add -A >/dev/null 2>&1; git -C "$ENTITY" commit -qm decisions >/dev/null 2>&1
+js() { python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1"; }
+
+TR_MEM_BASH="$SANDBOX/mem-bash.jsonl"
+mk_tr "$TR_MEM_BASH" "[{\"prompt\":\"go\"},{\"bash\":$(js "cd $MEM && cat > feedback_mobile_testing_through_the_cli.md <<'EOF'
+All mobile testing goes through the command line.
+EOF")}]"
+TR_MEM_WRITE="$SANDBOX/mem-write.jsonl"
+mk_tr "$TR_MEM_WRITE" "[{\"prompt\":\"go\"},{\"write\":$(js "$MEM/project_mobile_version_and_builds.md")}]"
+TR_REPO_COMMIT="$SANDBOX/repo-commit.jsonl"
+mk_tr "$TR_REPO_COMMIT" "[{\"prompt\":\"go\"},{\"bash\":$(js "cd $ENTITY && cat >> wiki/ceo-decisions.md <<'EOF'
+## 100. Phones
+EOF")},{\"bashout\":[$(js "cd $ENTITY && git add wiki/ceo-decisions.md && git commit -m 'decisions 100'"),\"[main cf7e16b7] decisions 100\"]}]"
+TR_REPO_EDIT="$SANDBOX/repo-edit.jsonl"
+mk_tr "$TR_REPO_EDIT" "[{\"prompt\":\"go\"},{\"edit\":$(js "$ENTITY/wiki/ceo-decisions.md")}]"
+TR_ESC="$SANDBOX/esc.jsonl"
+mk_tr "$TR_ESC" "[{\"prompt\":\"go\"},{\"bashout\":[\"/x/engine/scripts/escalate.sh ack esc-20261002T085838Z-029b1749 --disposition 'judged on the median'\",\"acknowledged esc-20261002T085838Z-029b1749\"]}]"
+
+R1="Three changes are in.
+
+- **Recorded as a standing rule:** every phone-testing instruction names the command to use.
+- The old scripts become thin wrappers around that command."
+run_hook "$TR_MEM_BASH" "$R1"
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'RECORDED WHERE' \
+   && printf '%s' "$ERR" | grep -q 'Recorded as a standing rule: every phone-testing instruction' \
+   && printf '%s' "$ERR" | grep -q 'privately only' \
+   && printf '%s' "$ERR" | grep -q 'feedback_mobile_testing_through_the_cli.md'; then
+    ok "R1. 2026-10-02: a bulleted 'Recorded as a standing rule' whose turn wrote only memory (via cd + cat >) is REFUSED, quoting the claim and naming the memory file"
+else bad "R1. recorded as a standing rule" "rc=$RC err=$(printf '%s' "$ERR" | head -c 500)"; fi
+
+run_hook "$TR_MEM_WRITE" "Understood. The first phone version is 1.0.0. I've also saved your ruling so it isn't lost."
+[ "$RC" -eq 2 ] && ok "R2. 2026-09-26: 'I've also saved your ruling' with a memory-only Write is REFUSED" || bad "R2. saved your ruling" "rc=$RC"
+
+run_hook "$TR_MEM_WRITE" "The results are in. Recorded as the first job for the next session."
+[ "$RC" -eq 2 ] && ok "R3. 2026-09-28: 'Recorded as the first job for the next session' with a memory-only Write is REFUSED" || bad "R3. first job" "rc=$RC"
+
+run_hook "$TR_BASH" "**First question:** it is written in the three places I read: the rules file, your decisions page, and my memory."
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'names no place' && printf '%s' "$ERR" | grep -q 'Files this turn wrote: none'; then
+    ok "R4. 2026-09-20: 'it is written in the three places I read' with no write and no place named is REFUSED"
+else bad "R4. written in three places" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
+
+TR_AWK="$SANDBOX/awk.jsonl"
+mk_tr "$TR_AWK" "[{\"prompt\":\"go\"},{\"bash\":\"cd $ENTITY && awk 'NR>=593 && NR<=626' wiki/ceo-decisions.md | wc -l\"}]"
+run_hook "$TR_AWK" "**First question:** it is written in the three places I read: the rules file, your decisions page, and my memory.
+
+The gate itself is in \`scripts/nightly-local.py\`, lines 593 to 626."
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'names no place'; then
+    ok "R4b. the real 2026-09-20 turn: an awk comparison (NR>=593) is not a write, and a path elsewhere in the reply does not name the cited place"
+else bad "R4b. awk and elsewhere-path" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
+
+run_hook "$TR_MEM_WRITE" "I've saved this as a rule in my notes."
+[ "$RC" -eq 2 ] && ok "R5. 2026-09-26: 'saved this as a rule in my notes' (memory only, not 'private notes') is REFUSED" || bad "R5. in my notes" "rc=$RC"
+
+TR_MIXED="$SANDBOX/mixed.jsonl"
+mk_tr "$TR_MIXED" "[{\"prompt\":\"go\"},{\"write\":$(js "$MEM/feedback_interrupted_work_is_shelved_by_hand.md")},{\"bash\":$(js "cd $ENTITY && cat >> wiki/ceo-decisions.md <<'EOF'
+row closed
+EOF")},{\"bashout\":[$(js "cd $ENTITY && git commit -am 'close row'"),\"[main cf7e16b7] close row\"]}]"
+run_hook "$TR_MIXED" "The row is closed in \`wiki/ceo-decisions.md\`, commit \`cf7e16b7\`.
+
+I've saved this as a rule in my notes."
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'points at your notes'; then
+    ok "R5b. the real 2026-09-26 turn: a commit cited for something else does not back 'saved this as a rule in my notes'"
+else bad "R5b. notes with an unrelated commit" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
+
+run_hook "$TR_BASH" "Recorded."
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'wrote NOTHING'; then
+    ok "R6. a bare 'Recorded.' in a turn that wrote nothing is REFUSED, and the refusal says it wrote nothing"
+else bad "R6. bare recorded" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
+
+run_hook "$TR_MEM_WRITE" "Recorded."
+[ "$RC" -eq 2 ] && ok "R7. a memory-only write with an unqualified 'Recorded.' is REFUSED" || bad "R7. memory unqualified" "rc=$RC"
+
+run_hook "$TR_MEM_WRITE" "Saved in my private notes: phone testing goes through the command line."
+[ "$RC" -eq 0 ] && ok "R8. a memory-only write described as 'in my private notes' PASSES" || bad "R8. private notes" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"
+
+run_hook "$TR_REPO_COMMIT" "Recorded as a standing rule in \`wiki/ceo-decisions.md\` §100, commit \`cf7e16b7\`."
+[ "$RC" -eq 0 ] && ok "R9. TRUE POSITIVE: written to a repository file, committed, path and the turn's own SHA named -> PASSES" || bad "R9. true positive" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"
+
+run_hook "$TR_REPO_EDIT" "Recorded in \`wiki/ceo-decisions.md\` §100."
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'no commit this turn produced'; then
+    ok "R10. a repository file written and named but never committed (no SHA) is REFUSED"
+else bad "R10. no commit" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
+
+run_hook "$TR_REPO_COMMIT" "Recorded as a standing rule."
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'does not say WHERE'; then
+    ok "R11. written and committed, but the reply does not say where -> REFUSED"
+else bad "R11. no where" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
+
+run_hook "$TR_REPO_COMMIT" "Recorded in \`wiki/ceo-decisions.md\`, commit \`abc1234\`."
+[ "$RC" -eq 2 ] && ok "R12. a SHA the turn never produced does not count as the commit" || bad "R12. typed sha" "rc=$RC"
+
+run_hook "$TR_MEM_BASH" "$R1" true
+[ "$RC" -eq 2 ] && ok "R13. NO STAND-DOWN: the re-fire (stop_hook_active) with the same false claim is REFUSED again" || bad "R13. refire" "rc=$RC"
+
+run_hook "$TR_MEM_BASH" "That claim was wrong. It has not been recorded anywhere yet; I will write it to the rules file next." true
+[ "$RC" -eq 0 ] && ok "R14. ...and the re-fire with the claim removed and the truth said PASSES" || bad "R14. fixed refire" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"
+
+run_hook "$TR_MEM_BASH" "$R1
+
+stop-declared: nothing-unblocked — everything else this turn is genuinely finished and nothing remains to start."
+[ "$RC" -eq 2 ] && ok "R15. NO ESCAPE LINE: a stop declaration does not excuse a false record claim" || bad "R15. no escape" "rc=$RC"
+
+run_hook "$TR_BASH" "Nothing was recorded before you asked."
+[ "$RC" -eq 0 ] && ok "R16. a denial ('Nothing was recorded') is not a claim" || bad "R16. denial" "rc=$RC"
+
+run_hook "$TR_BASH" "When I wrote \"recorded as a standing rule\", that was wrong."
+[ "$RC" -eq 0 ] && ok "R17. the claim inside quotes, reported, is not a claim" || bad "R17. quoted" "rc=$RC"
+
+run_hook "$TR_BASH" "Andy recorded the cold start on the phone, and the video is in his report."
+[ "$RC" -eq 0 ] && ok "R18. a teammate's screen recording is not a record claim" || bad "R18. media" "rc=$RC"
+
+run_hook "$TR_ESC" "Recorded in the escalation ledger as esc-20261002T085838Z-029b1749."
+[ "$RC" -eq 0 ] && ok "R19. a ledger written by its engine command, named with its entry id, PASSES" || bad "R19. ledger" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"
+
+TR_MEM_VAR="$SANDBOX/mem-var.jsonl"
+mk_tr "$TR_MEM_VAR" "[{\"prompt\":\"go\"},{\"bash\":$(js "M=$MEM
+cat > \"\$M/feedback_split_failures_obsolete_vs_broken.md\" <<'EOF'
+Report failures split obsolete versus broken.
+EOF")}]"
+run_hook "$TR_MEM_VAR" "Recorded so it doesn't need saying twice."
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'feedback_split_failures_obsolete_vs_broken.md'; then
+    ok "R21. 2026-09-08: a memory write through a shell variable (M=…; cat > \"\$M/…\") is seen, and 'Recorded so it doesn't need saying twice' is REFUSED"
+else bad "R21. variable target" "rc=$RC err=$(printf '%s' "$ERR" | head -c 400)"; fi
+
+run_hook "$TR_BASH" "No, and you found the hole in the very thing I recorded an hour ago."
+[ "$RC" -eq 0 ] && ok "R22. a reference to a record from an earlier turn ('I recorded an hour ago') is not judged" || bad "R22. past reference" "rc=$RC"
+
+run_hook "$TR_BASH" "He nearly wrote five notes off bad captures, caught it, and recorded the anomaly as unresolved."
+[ "$RC" -eq 0 ] && ok "R23. a teammate's act ('He …, and recorded the anomaly') is not the lead's claim" || bad "R23. third person" "rc=$RC"
+
+run_hook "$TR_BASH" "Recorded numbers: the best cold start so far, per phone type."
+[ "$RC" -eq 0 ] && ok "R24. 'Recorded numbers:' is a noun phrase, not a claim" || bad "R24. noun" "rc=$RC"
+
+run_hook "$TR_BASH" "Noted that the path implies rounds; I will number the next batches the same way."
+[ "$RC" -eq 0 ] && ok "R25. 'Noted that …' is an acknowledgment, not a record claim" || bad "R25. noted that" "rc=$RC"
+
+TR_WS="$SANDBOX/ws.jsonl"
+mk_tr "$TR_WS" "[{\"prompt\":\"go\"},{\"bash\":\"/x/engine/scripts/workspaces.sh wait quint-opus-rewalk4 --started 'merge running'\"}]"
+run_hook "$TR_WS" "I've recorded Quint's workspace (quint-opus-rewalk4) as merging: his record is already merged."
+[ "$RC" -eq 0 ] && ok "R26. a workspace-registry entry written by its engine command and named by the workspace PASSES" || bad "R26. registry" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"
+
+TR_ECS="$SANDBOX/ecs.jsonl"
+mk_tr "$TR_ECS" "[{\"prompt\":\"go\"},{\"bash\":\"scripts/ecs/ecs checkpoint-template --session s1 --write\"}]"
+run_hook "$TR_ECS" "Recorded as a standing commitment, not a note."
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -q 'an ECS checkpoint'; then
+    ok "R27. a claim backed only by an ECS checkpoint (private shadow state) is REFUSED and says so"
+else bad "R27. ecs only" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
+
+run_hook "$TR_ECS" "I've saved the missing end-of-turn record."
+[ "$RC" -eq 0 ] && ok "R28. an ECS checkpoint named as what it is ('end-of-turn record') PASSES" || bad "R28. ecs named" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"
+
+printf 'STATED_ACTIONS_ENFORCE=0\n' > "$ENTITY/orchestration.config"
+run_hook "$TR_MEM_BASH" "$R1"
+if [ "$RC" -eq 0 ] && printf '%s' "$ERR" | grep -q 'RECORDED WHERE'; then ok "R20. STATED_ACTIONS_ENFORCE=0: the hammer is printed and the turn ends"
+else bad "R20. report-only" "rc=$RC err=$(printf '%s' "$ERR" | head -c 200)"; fi
+: > "$ENTITY/orchestration.config"
 
 # ---------------------------------------------------------------------------
 # SAFETY

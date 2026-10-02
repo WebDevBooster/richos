@@ -284,6 +284,87 @@ mutant refusal-lacks-the-declaration-form "n." "$P" \
     '        out.append("           (declare the stop in the documented form)")' \
     "an escape described but not spelled is an escape that gets waived by guesswork."
 
+# --- 4b. ARM 3: RECORDED, NOT WRITTEN ---------------------------------------
+mutant arm3-does-not-block "R6." "$P" \
+    '            return ARM3_BLOCK if enforce else 0' \
+    '            return 0' \
+    "the CEO asked for a hammer; a refusal printed beside a turn that ends anyway is the notice he already had."
+
+mutant arm3-stands-down-on-refire "R13." "$P" \
+    'ARM3_REFIRE_BLOCK = 2    #' \
+    'ARM3_REFIRE_BLOCK = 0    #' \
+    "the re-fire carries the corrected reply; standing down there lets the same false claim through on the second try."
+
+mutant arm3-list-items-skipped "R1." "$P" \
+    '        if m:\n            line = line[m.end():]' \
+    '        if m:\n            continue' \
+    "the 2026-10-02 claim was a bulleted line; ARM 1 skips lists, ARM 3 must not."
+
+mutant arm3-cd-not-followed "R1." "$P" \
+    '                b = _resolve(d, b)' \
+    '                pass' \
+    "the 2026-10-02 memory write was cd …/memory && cat > …; without the cd it reads as a file in the working directory."
+
+mutant arm3-shell-variable-not-expanded "R21." "$P" \
+    '    command = expand(command)' \
+    '    pass' \
+    "the 2026-09-08 memory write was M=…; cat > \"\$M/…\"; an unexpanded target is no target."
+
+mutant arm3-memory-is-a-record "R8." "$P" \
+    '        return "memory"' \
+    '        return "file"' \
+    "a note in the private memory directory is not a record; §97 and the CEO both say so."
+
+mutant arm3-private-notes-not-honored "R8." "$P" \
+    '        if (memory and PRIVATE_NOTES_RE.search(sentence)) or \' \
+    '        if False or \' \
+    "'in my private notes' is the truth told plainly, and the brief lets it through."
+
+mutant arm3-notes-pointer-ignored "R5b." "$P" \
+    '        if NOTES_POINTER_RE.search(sentence):' \
+    '        if False:' \
+    "'saved this as a rule in my notes' was excused by an unrelated commit until this term existed."
+
+mutant arm3-ecs-not-private "R27." "$P" \
+    '"ecs": bool(ECS_RE.search(command))}' \
+    '"ecs": False}' \
+    "most September 'Recorded.' lines had only an ECS checkpoint behind them; the refusal must say so."
+
+mutant arm3-commit-not-required "R10." "$P" \
+    '            if any(k == "repo" for _p, k in named) and not cited:' \
+    '            if False:' \
+    "a repository record without its commit is a file in a worktree that can still be thrown away."
+
+mutant arm3-typed-sha-counts "R12." "$P" \
+    ' and s in traffic]' \
+    ']' \
+    "a SHA is read from the turn's own output, never typed; a typed one proves nothing."
+
+mutant arm3-citation-borrows-a-path "R4b." "$P" \
+    '            here = bool(LOCATION_RE.search(win)) or any(s in win.lower() for s in cited)' \
+    '            here = concrete or bool(cited)' \
+    "the 2026-09-20 claim named no file; a path three paragraphs down excused it before this term."
+
+mutant arm3-registry-entry-not-counted "R26." "$P" \
+    '        if writes["record_script"] and entry_named:\n            continue' \
+    '        if False:\n            continue' \
+    "the workspace registry and the escalation ledger are records when the reply names the entry."
+
+mutant arm3-third-person-scanned "R23." "$P" \
+    '            if not m and not (i > 0 and third):' \
+    '            if not m:' \
+    "'He …, and recorded the anomaly' is a teammate's act, not the lead's claim."
+
+mutant arm3-earlier-turn-judged "R22." "$P" \
+    '            elif ARM3_PAST_RE.search(seg):\n                continue' \
+    '            elif False:\n                continue' \
+    "'the thing I recorded an hour ago' refers to another turn; this turn's calls cannot judge it."
+
+mutant arm3-noun-use-scanned "R24." "$P" \
+    '    r"(?:now\s+)?" + REC_VERB + _FOLLOW, re.I)' \
+    '    r"(?:now\s+)?" + REC_VERB + r"\b", re.I)' \
+    "'Recorded numbers:' is a noun phrase; the corpus had three of these shapes."
+
 # --- 5. THE WRAPPER'S OWN STAND-DOWNS ARE SEEN ----------------------------
 mutant stood-down-silently "t." "$H" \
     'if [ "$CHECK_STATED_ACTIONS" = "0" ]; then' \

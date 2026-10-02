@@ -2233,11 +2233,11 @@
       }
     },
     "engine ass-kicker/tests/guard-stated-actions.test.sh": {
-      "review": "All supplied transcripts, role Markdown, literal entity switches and unadopted/missing-helper copies are private. Ambient team/roster and Stop recovery lookups are redirected by private HOME/config. The analyzer reads payload command strings as text and appends fixture verdicts; no send, spawn or operator transcript is invoked. Clock fields only label output records.",
+      "review": "All supplied transcripts, role Markdown, literal entity switches and unadopted/missing-helper copies are private. Ambient team/roster and Stop recovery lookups are redirected by private HOME/config. The analyzer reads payload command strings as text and appends fixture verdicts; no send, spawn or operator transcript is invoked. For a record claim (ARM 3) it also reads the fixture transcript's tool inputs and results, checks the named write targets for an enclosing .git, and runs a read-only git check-ignore inside the sandbox repositories; the memory-directory fixture is a sandbox path, never the operator's. Clock fields only label output records.",
       "sources": {
-        "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
-        "richos/engine/scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
-        "richos/engine/ass-kicker/guard-stated-actions.py": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
+        "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "f1e0fa6b3ad1f7a9c51bcdfdfd214db2d9cfae754449beb15ca29da37b8003fa",
+        "richos/engine/scripts/hooks/guard-stated-actions.sh": "7655563dd1b9b9d24099ba91a2e8fa24a3a4ad6313081084411dd51b4a7f2fe0",
+        "richos/engine/ass-kicker/guard-stated-actions.py": "ec3b1600da8dbca4bb6d75f23486ba52c78ab8361d99c7eae5a6de40394ee6eb",
         "richos/engine/scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
         "richos/engine/mega-lander/workspaces.py": "5d0896f1079d551bca956045fe12c2ae55cbd673d6980b4bd4af7489707d6912",
         "richos/engine/scripts/hooks/turn-manifest.py": "f7846899fa05c44ed325cffa18c6304c3177b46901923bd26d829e226d87665b",
@@ -2359,13 +2359,13 @@
       }
     },
     "engine scripts/hooks/contract-integrity.test.sh:SA": {
-      "review": "Shared template/installer setup uses private HOME/config, generated Git history and literal settings. The scoped section executes its existing complete nested fixture/mutation coverage. All supplied transcripts, role Markdown, literal entity switches and unadopted/missing-helper copies are private. Ambient team/roster and Stop recovery lookups are redirected by private HOME/config. The analyzer reads payload command strings as text and appends fixture verdicts; no send, spawn or operator transcript is invoked. Clock fields only label output records.",
+      "review": "Shared template/installer setup uses private HOME/config, generated Git history and literal settings. The scoped section executes its existing complete nested fixture/mutation coverage. All supplied transcripts, role Markdown, literal entity switches and unadopted/missing-helper copies are private. Ambient team/roster and Stop recovery lookups are redirected by private HOME/config. The analyzer reads payload command strings as text and appends fixture verdicts; no send, spawn or operator transcript is invoked. For a record claim (ARM 3) it also reads the fixture transcript's tool inputs and results, checks the named write targets for an enclosing .git, and runs a read-only git check-ignore inside the sandbox repositories; the memory-directory fixture is a sandbox path, never the operator's. Clock fields only label output records.",
       "sources": {
         "richos/engine/scripts/hooks/contract-integrity.test.sh": "48636864b57ee3a8940f6729552b115d305333d8a729d1cd5a46bd4e0c6202fe",
-        "richos/engine/ass-kicker/tests/stated-actions.mutation.sh": "5f6bba511e6b555c49bf3f45313de23d97742c5b38da3ff62d739114e2972a70",
-        "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "2d60f14e7fbc4cb65f11873f119fa1a8b6920552b54ca434418d63a5099e25e6",
-        "richos/engine/scripts/hooks/guard-stated-actions.sh": "21ba110b91c10046b34ae46153ef9a42b140f5833e53217bfdb7e1b656862a27",
-        "richos/engine/ass-kicker/guard-stated-actions.py": "e18787c25137c401eabdb34cfe833612c7d569a1aa790e9dfcd7955470697fc4",
+        "richos/engine/ass-kicker/tests/stated-actions.mutation.sh": "03fd8d372bbc3803c8170618e846fe2aed66b2542b4ac2dc1cd77a92e79121e7",
+        "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "f1e0fa6b3ad1f7a9c51bcdfdfd214db2d9cfae754449beb15ca29da37b8003fa",
+        "richos/engine/scripts/hooks/guard-stated-actions.sh": "7655563dd1b9b9d24099ba91a2e8fa24a3a4ad6313081084411dd51b4a7f2fe0",
+        "richos/engine/ass-kicker/guard-stated-actions.py": "ec3b1600da8dbca4bb6d75f23486ba52c78ab8361d99c7eae5a6de40394ee6eb",
         "richos/engine/scripts/hooks/guard-idle-land.py": "35142504be348f80d64fb0a4f60cb63e65a688b23daee0be14a10fdf229b5cc3",
         "richos/engine/mega-lander/workspaces.py": "5d0896f1079d551bca956045fe12c2ae55cbd673d6980b4bd4af7489707d6912",
         "richos/engine/scripts/hooks/turn-manifest.py": "f7846899fa05c44ed325cffa18c6304c3177b46901923bd26d829e226d87665b",
