@@ -89,6 +89,7 @@ REAPER="$SCRIPT_DIR/scratch-reaper.sh"
 
 APPLY="--apply"
 QUIET=0
+BAD_FLAG=""
 # A LAND'S SCOPED SWEEP (2026-10-01). With --agent, the reaper plans ONLY what
 # provably belongs to that landed agent (scratch-reaper.py scan_agent) and
 # counts everything else it looked at as unattributed. Without it, this is the
@@ -108,6 +109,9 @@ while [ $# -gt 0 ]; do
         --json)    : ;;   # the only output format there is; accepted so a
                           # caller can say it out loud
         --help|-h) sed -n '2,78p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *dry*|*preview*|*plan*|*simulate*|*no-apply*|*noop*|*no-op*)
+            # A misspelled PREVIEW request must never become a real deletion.
+            BAD_FLAG="$1" ;;
         *)         : ;;   # An unknown flag is IGNORED rather than fatal. This is
                           # called by an application that may be a version ahead
                           # or behind; refusing to sweep because of an argument
@@ -133,6 +137,10 @@ emit() { # <exit-code> <ok> <swept> <freed> <freed_human> <undecidable> <failure
     fi
     exit "$1"
 }
+
+if [ -n "$BAD_FLAG" ]; then
+    emit 2 false 0 0 "0 B" 0 0 false "unrecognized preview flag $BAD_FLAG; nothing was swept (the preview flag is --dry-run)"
+fi
 
 if [ ! -x "$REAPER" ]; then
     emit 2 false 0 0 "0 B" 0 0 false "no scratch-reaper.sh at $REAPER"

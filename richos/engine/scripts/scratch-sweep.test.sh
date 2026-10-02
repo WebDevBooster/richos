@@ -59,5 +59,18 @@ if [ "$RC" = 3 ] && grep -q '"ok":true' <<<"$OUT"; then ok "K5  undecidable (exi
 run_with 2 "refused"
 if [ "$RC" = 2 ] && grep -q '"ok":false' <<<"$OUT"; then ok "K6  a refusal (exit 2) stays ok:false with exit 2"; else bad "K6  (rc=$RC): $OUT"; fi
 
+# P5-34: a misspelled preview flag must refuse, never sweep.
+run_flag() {
+    printf '#!/usr/bin/env bash\ntouch "%s/reaper-ran"\nexit 0\n' "$SANDBOX" > "$SANDBOX/engine/scripts/scratch-reaper.sh"
+    chmod +x "$SANDBOX/engine/scripts/scratch-reaper.sh"; rm -f "$SANDBOX/reaper-ran"
+    OUT="$(TMPDIR="$SANDBOX/tmp" SCRATCH_REAPER_LOG="$SANDBOX/reaper.log" \
+           bash "$SANDBOX/engine/scripts/scratch-sweep.sh" "$@" 2>/dev/null)"
+    RC=$?
+}
+run_flag --dryrun
+if [ "$RC" = 2 ] && [ ! -e "$SANDBOX/reaper-ran" ]; then ok "K7  --dryrun refuses and runs no deletion"; else bad "K7  (rc=$RC) reaper ran: $OUT"; fi
+run_flag --some-future-option
+if [ "$RC" = 0 ] && [ -e "$SANDBOX/reaper-ran" ]; then ok "K8  CONTROL: an unrelated unknown flag is still ignored"; else bad "K8  (rc=$RC): $OUT"; fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

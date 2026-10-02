@@ -8416,7 +8416,7 @@
     },
     "scripts/scratch-sweep.sh": {
       "source": "scripts/scratch-sweep.sh",
-      "sha256": "919159e47941f1023a3eeaed276c380f8ce8b8c6e394501c4afe0dbcce1437ca",
+      "sha256": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241",
       "evidence": "Full wrapper acquires a kernel lock and invokes the fixed scratch-reaper.sh with apply/dry-run arguments. It parses stdout/log counters and formats JSON. No config is sourced by the wrapper; actual reaper settings are retained. Renewed 2026-10-01 (a land sweeps only the landed agent's scratch): --agent/--session/--workspace/--hold-named are forwarded verbatim to the same fixed reaper; with --agent the lock probe waits up to 120 s; unattributed= is parsed from the reaper's stdout like undecidable=.",
       "keys": [],
       "edges": [
@@ -16212,7 +16212,7 @@
         "scripts/scratch-reaper.mutation.sh": "8ef0a08373e7aed2c4f3388e701a29346b51ad2862108b8170d35f4d9c0ef6e4",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
         "scripts/scratch-reaper.test.sh": "02bfc4d3f7cf1945618b84b99949dd784bf472c76858cd7ecaec8de9a288c135",
-        "scripts/scratch-sweep.sh": "919159e47941f1023a3eeaed276c380f8ce8b8c6e394501c4afe0dbcce1437ca",
+        "scripts/scratch-sweep.sh": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
         "scripts/hooks/dispatch-pretooluse.manifest": "2c8df980b988666f70540291575d461262ca0192a012a4e3c1a8a32723daf85c",
         "hooks/hooks.json": "6a828f27c771dd6fbe02a110e574d2ff61a1088f52ff296d6defeecf1bae0304",
@@ -17150,7 +17150,7 @@
         "scripts/lib/unlanded-branches.py": "2aa9d32b80809d78c10c9571a91c4bdbb58c7cf22197b6398fd1239b481b1810",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
-        "scripts/scratch-sweep.sh": "919159e47941f1023a3eeaed276c380f8ce8b8c6e394501c4afe0dbcce1437ca",
+        "scripts/scratch-sweep.sh": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241",
         "scripts/unlanded-branches-lint.sh": "c65f6be6da126b18127b28f36860c213c9649e843831ae4c0ee1f393cc52971f"
       },
       "evidence": "The manifest name appears only in suite/header and helper comments or printed remedies. Reviewed finite fixture execution calls fixed hook/CLI paths; no installer, platform dispatch or registered-hook discovery runs. Shared mutation transport may copy hooks/settings bytes but this execution closure never reads them. Existing configuration/call contracts bind the same transitive sources; actual config readers and ordinary source-path selection remain required."
@@ -17184,7 +17184,7 @@
         "scripts/lib/testdevices.py": "7269b4abebc9a977723324a4f80b720e44559dfafcca5d2878437933101f08ff",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/scratch-reaper.sh": "1cdefb018a15be05c60b6dd257678573d2135230ceb58cfaef0fcd9c835975b1",
-        "scripts/scratch-sweep.sh": "919159e47941f1023a3eeaed276c380f8ce8b8c6e394501c4afe0dbcce1437ca"
+        "scripts/scratch-sweep.sh": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241"
       },
       "evidence": "The manifest name appears only in suite/header and helper comments or printed remedies. Reviewed finite fixture execution calls fixed hook/CLI paths; no installer, platform dispatch or registered-hook discovery runs. Shared mutation transport may copy hooks/settings bytes but this execution closure never reads them. Existing configuration/call contracts bind the same transitive sources; actual config readers and ordinary source-path selection remain required."
     },
