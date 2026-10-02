@@ -117,6 +117,20 @@ mkdir -p "$SANDBOX/repo-wt/echo-opus-ct4"
 [ "$rc" -eq 3 ] && ok "C11  refuses a path that is not inside a repository (exit 3)" || bad "C11  non-repo rc=$rc"
 "$HELPER" "$REPO" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "C12  missing arguments is a usage error (exit 2)" || bad "C12  usage rc=$rc"
+# An option with no value: the helper has no errexit, so an unguarded `shift 2` looped
+# forever (hunt P5-27 pattern). Bounded by python's timeout, which kills only its own child.
+for opt in --dir --base --session; do
+    rc="$(python3 - "$HELPER" "$REPO" echo-opus-ct7 "$opt" <<'PYB'
+import subprocess, sys
+try:
+    print(subprocess.run(sys.argv[1:], capture_output=True, timeout=10).returncode)
+except subprocess.TimeoutExpired:
+    print("timeout")
+PYB
+)"
+    [ "$rc" = 2 ] && ok "C12c $opt with no value is a usage error (exit 2), never a loop" \
+        || bad "C12c $opt with no value: rc=$rc"
+done
 git -C "$REPO" branch codex/their-fix HEAD
 "$HELPER" "$REPO" echo-opus-cx1 --base codex/their-fix >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 3 ] && [ ! -d "$SANDBOX/repo-wt/echo-opus-cx1" ] && ok "C12b refuses a codex/ base: an agent works from a copy, never inside codex/ (point 2)" || bad "C12b codex base rc=$rc"

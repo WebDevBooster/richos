@@ -222,6 +222,39 @@ else
     printf '%s\n' "$SRC_OUT" | sed 's/^/        /'
 fi
 
+# ---------------------------------------------------------------------------
+# S13 — a --ttl with no value is refused at once (hunt P5-27)
+# ---------------------------------------------------------------------------
+# `shift 2` with one argument left shifts nothing; in a caller without errexit the
+# parser looped forever. Run in a child with NO errexit, bounded by python's own
+# timeout (which kills only the child it started), so a regression is a FAIL, not a hang.
+bounded() {
+    python3 - "$@" <<'PYB'
+import subprocess, sys
+try:
+    p = subprocess.run(sys.argv[1:], capture_output=True, text=True, timeout=10)
+except subprocess.TimeoutExpired:
+    print("TIMEOUT"); sys.exit(0)
+print("rc=%d" % p.returncode); sys.stdout.write(p.stdout + p.stderr)
+PYB
+}
+S13_FN="$(bounded bash -c 'set +e; . "$1"; scratch_new own-fixture --ttl; echo "fn-rc=$?"' s13 "$SCRATCH_SH")"
+S13_CLI="$(bounded bash "$SCRATCH_SH" new own-fixture --ttl)"
+S13_BAD="$(bounded bash -c 'set +e; . "$1"; scratch_new own-fixture --ttl soon; echo "fn-rc=$?"' s13 "$SCRATCH_SH")"
+if printf '%s' "$S13_FN" | grep -q 'fn-rc=2' && printf '%s' "$S13_FN" | grep -q -- '--ttl needs' \
+   && printf '%s' "$S13_CLI" | grep -q '^rc=2' && printf '%s' "$S13_BAD" | grep -q 'fn-rc=2'; then
+    ok "S13 a --ttl with no value (or not a number) is refused with status 2, never a loop"
+else
+    bad "S13 a bare or non-numeric --ttl was not refused: fn [$S13_FN] cli [$S13_CLI] bad [$S13_BAD]"
+fi
+D13="$(scratch_new ttl-given --ttl 30)"
+if [ -d "$D13" ] && grep "\"path\":\"$D13\"" "$LEDGER" | grep -q '"ttl_minutes":30,'; then
+    ok "S13b CONTROL: a numeric --ttl is still recorded as given"
+else
+    bad "S13b a numeric --ttl was not recorded for $D13"
+fi
+scratch_release "$D13" >/dev/null 2>&1 || true
+
 echo ""
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

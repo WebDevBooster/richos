@@ -2370,7 +2370,10 @@ def release_held_ids(session_id, agent_id, name="", key=None, notes=None):
         ah = _agent_hold()
         res = ah.release(str(session_id or ""), str(agent_id or ""))
         line = ah.describe_release(res)
-        if line:
+        if line and res.get("ok") is False:
+            event("release-failed", key=key, agent_id=agent_id, why=str(res.get("why"))[:200],
+                  continued=len(res.get("continued") or []))
+        elif line:
             event("release", key=key, agent_id=agent_id, continued=len(res.get("continued") or []),
                   waited=len(res.get("waited") or []), gone=len(res.get("gone") or []))
     except Exception as e:
@@ -2393,8 +2396,10 @@ def release_session_holds(session_id, notes=None):
         for res in results:
             line = ah.describe_release(res)
             if line:
-                event("release", continued=len(res.get("continued") or []), gone=len(res.get("gone") or []),
-                      why="session ended" if session_id else "session process gone")
+                event("release-failed" if res.get("ok") is False else "release",
+                      continued=len(res.get("continued") or []), gone=len(res.get("gone") or []),
+                      why=("session ended" if session_id else "session process gone")
+                      + ("; " + str(res.get("why"))[:200] if res.get("ok") is False else ""))
                 if notes is not None:
                     notes.append(line + " (its session ended)")
     except Exception as e:
