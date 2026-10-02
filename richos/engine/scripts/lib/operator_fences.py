@@ -387,6 +387,146 @@ def claude_session(chain=None):
     return None
 
 
+# ---------------------------------------------------------------------------
+# a declared holder that an app update moved inside its own bundle
+# ---------------------------------------------------------------------------
+# On 2026-09-30 21:58 the ChatGPT app updated itself and moved Codex from
+# ChatGPT.app/Contents/Resources/codex to
+# ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex.
+# The declared path stopped existing, no ancestor matched it, and every Codex
+# land in a fenced checkout was refused until the declaration was edited and
+# the launchers reinstalled by hand. A vendor app moves its own files on its
+# own schedule, so one file path is not an identity that survives an update.
+#
+# THE IDENTITY USED WHEN THE DECLARED PATH MATCHES NO ANCESTOR, all four parts
+# required, the last two read from the kernel and the bundle's signature:
+#   1. the ancestor's executable lies inside the declared path's app bundle
+#      (the outermost `<name>.app` directory of the declared path);
+#   2. it has the declared executable's file name (`codex`), so the app's other
+#      programs (ChatGPT itself, its helpers and renderers) never pass;
+#   3. the kernel says the running process is validly code-signed (CS_VALID) and
+#      names its signing team;
+#   4. that team is the team that signed the bundle itself.
+# An unsigned, ad hoc or platform-signed program has no team, so a copy of bash
+# renamed `codex` and dropped inside the bundle still does not pass. The exact
+# declared path stays the first test, and the only one off macOS.
+
+_CS_VALID = 0x1
+_CS_OPS_STATUS = 0
+_CS_OPS_TEAMID = 14
+_LIBSYSTEM = False
+_BUNDLE_TEAMS = {}
+
+
+def _libsystem():
+    global _LIBSYSTEM
+    if _LIBSYSTEM is False:
+        _LIBSYSTEM = None
+        if sys.platform == "darwin":
+            try:
+                lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+                lib.csops.argtypes = [ctypes.c_int, ctypes.c_uint, ctypes.c_void_p, ctypes.c_size_t]
+                lib.csops.restype = ctypes.c_int
+                _LIBSYSTEM = lib
+            except (OSError, AttributeError):
+                _LIBSYSTEM = None
+    return _LIBSYSTEM
+
+
+def signing_team(pid):
+    """The code-signing team of a RUNNING process as the kernel holds it, or ""
+    when the process is not validly signed by a team (unsigned, ad hoc, a
+    platform binary, gone, or not macOS)."""
+    lib = _libsystem()
+    if lib is None:
+        return ""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return ""
+    status = ctypes.c_uint32(0)
+    if lib.csops(pid, _CS_OPS_STATUS, ctypes.byref(status), 4) != 0 or not status.value & _CS_VALID:
+        return ""
+    buf = ctypes.create_string_buffer(256)
+    if lib.csops(pid, _CS_OPS_TEAMID, buf, 256) != 0:
+        return ""
+    # A blob: 4-byte type, 4-byte big-endian length (header included), then the
+    # NUL-terminated team identifier.
+    raw = buf.raw
+    length = int.from_bytes(raw[4:8], "big")
+    team = raw[8:max(8, min(length, len(raw)))].split(b"\0")[0]
+    return team.decode("ascii", "replace").strip()
+
+
+def file_signing_team(path):
+    """The signing team recorded in an executable or bundle on disk, or "".
+    Displays the signature (`codesign -d`); it does not re-hash the bundle,
+    which on a 4,000-file app takes seconds."""
+    if sys.platform != "darwin" or not path or not os.path.exists(path):
+        return ""
+    try:
+        r = subprocess.run(["/usr/bin/codesign", "-d", "--verbose=2", path], capture_output=True,
+                           text=True, timeout=20, env=dict(os.environ, LC_ALL="C"))
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    for line in (r.stderr + r.stdout).splitlines():
+        if line.startswith("TeamIdentifier="):
+            team = line.split("=", 1)[1].strip()
+            return "" if team in ("", "not set") else team
+    return ""
+
+
+def bundle_team(bundle):
+    if bundle not in _BUNDLE_TEAMS:
+        _BUNDLE_TEAMS[bundle] = file_signing_team(bundle)
+    return _BUNDLE_TEAMS[bundle]
+
+
+def app_bundle(path):
+    """The outermost `<name>.app` directory that contains `path`, or ""."""
+    parts = (path or "").split(os.sep)
+    for i, part in enumerate(parts[:-1]):
+        if part.endswith(".app") and len(part) > len(".app"):
+            return os.sep.join(parts[:i + 1])
+    return ""
+
+
+def moved_holder_path(declared, pid):
+    """The executable of `pid` when it stands for `declared` after an update
+    moved it inside the same app bundle (the four parts above), else ""."""
+    bundle = app_bundle(declared)
+    if not bundle:
+        return ""
+    path = proc_path(pid)
+    if not path.startswith(bundle + os.sep) or os.path.basename(path) != os.path.basename(declared):
+        return ""
+    team = signing_team(pid)
+    if not team or team != bundle_team(bundle):
+        return ""
+    return path
+
+
+def bundle_candidates(declared, limit=20000):
+    """Executables on disk that would pass as `declared` once running: same file
+    name, inside the same bundle, signed by the bundle's team. Read by
+    `operator-fences.sh status`, so a moved holder is named before anyone's
+    land needs it."""
+    bundle = app_bundle(declared)
+    team = bundle_team(bundle) if bundle else ""
+    if not bundle or not team:
+        return []
+    name, found, seen = os.path.basename(declared), [], 0
+    for dirpath, _dirs, files in os.walk(bundle):
+        seen += len(files)
+        if seen > limit:
+            break
+        if name in files:
+            full = os.path.join(dirpath, name)
+            if os.path.isfile(full) and os.access(full, os.X_OK) and file_signing_team(full) == team:
+                found.append(os.path.realpath(full))
+    return sorted(set(found))
+
+
 def declared_holder(kind, conf, chain=None, holder_pid=None):
     exe = declared_holders(conf).get(kind)
     if not exe:
@@ -401,7 +541,17 @@ def declared_holder(kind, conf, chain=None, holder_pid=None):
     for pid, start in chain:
         if proc_path(pid) == exe:
             return {"kind": kind, "pid": pid, "start": start, "executable": exe}
-    return {"error": "no ancestor of this command is the declared %s executable (%s)" % (kind, exe)}
+    # The exact path matched nobody: an update may have moved the holder inside
+    # its bundle. Asked only now, so the common case never runs codesign.
+    for pid, start in chain:
+        moved = moved_holder_path(exe, pid)
+        if moved:
+            return {"kind": kind, "pid": pid, "start": start, "executable": moved, "declared": exe}
+    gone = "" if os.path.exists(exe) else (
+        "; that file no longer exists (an app update may have moved it), and no ancestor is a program of the "
+        "same name inside %s signed by the same team. `operator-fences.sh status` names what is there"
+        % (app_bundle(exe) or "its app bundle"))
+    return {"error": "no ancestor of this command is the declared %s executable (%s)%s" % (kind, exe, gone)}
 
 
 def caller_identity(conf, chain=None):

@@ -8,6 +8,7 @@
 #   operator-fences.sh off       [--repo <path>]...
 #   operator-fences.sh status    [--repo <path>]... [--entity <path>] [--declaration-check]
 #   operator-fences.sh uninstall [--repo <path>]...
+#   operator-fences.sh holders-notice [--repo <path>]...
 #
 # install    writes the launcher as each repository's reference-transaction hook,
 #            moves the hook that was there into its chain, and records the
@@ -22,6 +23,11 @@
 #            check). With --declaration-check, exit 0 when the launchers agree with
 #            the declaration, on or off (the integrity probe's question).
 # uninstall  restores each repository's previous hook and removes the launcher.
+# holders-notice  one sentence per land-lease holder a fenced launcher declares
+#            whose executable is gone (naming what in its bundle would pass as it);
+#            silent when none is. Reads launchers only, never the declaration.
+#            engine-status.sh prints it at session start, so a holder an app
+#            update moved is heard before its land is refused.
 #
 # This command never edits ~/.codex/AGENTS.md. See the as-built record,
 # richos-hq docs/verification/2026-09-24-operator-fences/README.md.

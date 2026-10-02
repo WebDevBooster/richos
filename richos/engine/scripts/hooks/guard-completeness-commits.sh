@@ -90,7 +90,9 @@
 #   * "shipped inert" is a claim about the whole tree's onboarding set, so
 #     deleting one README paragraph anywhere breaks it;
 #   * a mechanism left behind in the private tree is not in the diff by
-#     definition — it is in the OTHER repository.
+#     definition — it is in the OTHER repository. (That one is judged at the
+#     PUSH, not at the commit: see "THE COMMIT ARM LEAVES THE PRIVATE TREES TO
+#     THE PUSH" below. A commit here can neither change nor fix it.)
 #
 # Scoping to the diff would have produced a guard that passes the commit that
 # introduces the defect and never mentions it again. At three tenths of a second
@@ -543,7 +545,22 @@ fi
 # script with the SAME arguments. A second, hook-shaped reimplementation would
 # be the defect class this engine keeps finding in itself — a predicate in two
 # copies, drifting.
-OUT="$(bash "$CHECKER" --root "$CC_REPO" 2>&1)" && CC_RC=0 || CC_RC=$?
+# THE COMMIT ARM LEAVES THE PRIVATE TREES TO THE PUSH (2026-10-01). Check 4 judges
+# executables in ANOTHER repository (PRIVATE_SOURCES). A commit here neither
+# changed them nor can fix them, and on 2026-10-01 (2026-09-28 before it) a
+# teammate's commit in its own richos workspace was refused over a Codex probe
+# staged, uncommitted, in richos-hq's main checkout. So the commit arm asks every
+# check about the tree being committed and skips Check 4; the PUSH arm (the land:
+# Rich pushes main), the land's run on the branch and CI still run it, and Check 4
+# now reads the private repository's committed HEAD, never its working tree.
+# The flag is passed only to a checker that knows it (an older engine's checker
+# runs whole, as before).
+CC_SCOPE=""
+if [ "$VERB" = "commit" ] && grep -q -- '--skip-private-trees' "$CHECKER" 2>/dev/null; then
+    CC_SCOPE="--skip-private-trees"
+fi
+# shellcheck disable=SC2086
+OUT="$(bash "$CHECKER" --root "$CC_REPO" $CC_SCOPE 2>&1)" && CC_RC=0 || CC_RC=$?
 ELAPSED="$SECONDS"
 
 # The checker paints its findings; a hook's stderr is read in a transcript, so
