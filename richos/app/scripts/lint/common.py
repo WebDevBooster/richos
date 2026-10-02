@@ -27,7 +27,15 @@ def finish_group(process):
     for sig in (signal.SIGTERM, signal.SIGKILL):
         if not alive():
             break
-        os.killpg(process.pid, sig)
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            # macOS rejects the signal while the group's exiting orphans are reaped (the same
+            # EPERM alive() counts as present; nightly-local.py stop_group). The bounded wait
+            # and the final presence check below still decide.
+            pass
         end = time.monotonic() + 2
         while alive() and time.monotonic() < end:
             time.sleep(.02)

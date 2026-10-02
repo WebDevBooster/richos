@@ -29,6 +29,19 @@ class Execution(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout.strip(), 'acquired')
 
+    def test_a_group_of_exiting_orphans_rejecting_the_signal_is_not_a_lint_refusal(self):
+        # Nightly 20261002T171147Z-3893b3f9: "Lint refused: [Errno 1] Operation not permitted".
+        # macOS answers killpg with EPERM while a group's orphaned members are being reaped;
+        # alive() already counts that as present, and the signal that followed raised it.
+        answers = {'probe': [PermissionError(1, 'Operation not permitted')]}
+        def killpg(pid, sig):
+            if sig == 0:
+                raise answers['probe'].pop(0) if answers['probe'] else ProcessLookupError(3, 'No such process')
+            raise PermissionError(1, 'Operation not permitted')
+        with patch('common.os.killpg', side_effect=killpg):
+            result, _ = run([sys.executable, '-c', 'pass'], cwd=Path.cwd(), timeout=10)
+        self.assertEqual(result.returncode, 0)
+
     def test_missing_tool(self):
         with self.assertRaises(FileNotFoundError):
             run(['/nonexistent/lint-tool'], cwd=Path.cwd())
