@@ -21,6 +21,7 @@ sys.path.insert(0, PERF)
 
 import blank  # noqa: E402
 import blankstart  # noqa: E402
+import launchscreen  # noqa: E402
 import perf  # noqa: E402
 import perfcore  # noqa: E402
 
@@ -364,6 +365,111 @@ def _():
     assert m["samplesMs"] == [200.0, 600.0, 200.0], m
     assert m["verdict"] == "PASS" and [o["recording"] for o in m["overLimit"]] == ["/phone/session.mp4#4.500-7.900"], m
     assert "no tap moments" in raises(perfcore.Unmeasurable, blankstart.iphone_cold_blank, "/x.mp4", [], decode=None)
+
+
+# ------------------------------------------------------------------------------------------------
+# the static check: the launch surfaces the apps declare
+# ------------------------------------------------------------------------------------------------
+
+def tree(ios_project, ios_files=(), theme_bg="@color/launch_ground", splash_icon=None, min_sdk=29, icon=True, drawables=()):
+    root = tempfile.mkdtemp()
+    def put(rel, text):
+        path = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(text)
+    put(launchscreen.IOS + "/project.yml", ios_project)
+    for rel, text in ios_files:
+        put(launchscreen.IOS + "/" + rel, text)
+    put(launchscreen.ANDROID + "/build.gradle.kts", f"android {{ defaultConfig {{ minSdk = {min_sdk} }} }}")
+    put(launchscreen.ANDROID + "/src/main/AndroidManifest.xml",
+        '<manifest><application ' + ('android:icon="@mipmap/ic_launcher" ' if icon else '') + 'android:theme="@style/Theme.RichOS"></application></manifest>')
+    put(launchscreen.ANDROID_RES + "/mipmap-anydpi/ic_launcher.xml", '<adaptive-icon><foreground android:drawable="@mipmap/fg"/></adaptive-icon>')
+    item = f'<item name="android:windowSplashScreenAnimatedIcon">{splash_icon}</item>' if splash_icon else ""
+    put(launchscreen.ANDROID_RES + "/values/themes.xml",
+        f'<resources><style name="Theme.RichOS" parent="x"><item name="android:windowBackground">{theme_bg}</item>{item}</style></resources>')
+    for rel, text in drawables:
+        put(launchscreen.ANDROID_RES + "/" + rel, text)
+    return root
+
+
+GENERATED = 'settings:\n  INFOPLIST_KEY_UILaunchScreen_Generation: "YES"\n'
+
+
+@case("static: a generated iPhone launch screen with no image is EMPTY; an image or a storyboard with a view SHOWS")
+def _():
+    roots = []
+    try:
+        roots.append(tree(GENERATED))
+        assert launchscreen.iphone(roots[-1])["empty"]
+        roots.append(tree(GENERATED + "info:\n  properties:\n    UILaunchScreen:\n      UIImageName: LaunchMark\n",
+                          [("App/Assets.xcassets/LaunchMark.imageset/Contents.json", "{}")]))
+        assert not launchscreen.iphone(roots[-1])["empty"]
+        roots.append(tree(GENERATED + "info:\n  properties:\n    UILaunchScreen:\n      UIImageName: Missing\n"))
+        assert launchscreen.iphone(roots[-1])["empty"], "an image name with no image set is still empty"
+        roots.append(tree("settings:\n  INFOPLIST_KEY_UILaunchStoryboardName: Launch\n",
+                          [("App/Launch.storyboard", '<document><scenes><view><subviews><imageView/></subviews></view></scenes></document>')]))
+        assert not launchscreen.iphone(roots[-1])["empty"]
+        roots.append(tree("settings:\n  INFOPLIST_KEY_UILaunchStoryboardName: Launch\n", [("App/Launch.storyboard", "<document><view/></document>")]))
+        assert launchscreen.iphone(roots[-1])["empty"], "a storyboard with no image view or label is empty"
+    finally:
+        for r in roots:
+            shutil.rmtree(r)
+
+
+@case("static: Android 12+ shows the launcher icon unless the theme hides it; Android 10-11 need a picture in windowBackground")
+def _():
+    roots = []
+    try:
+        roots.append(tree(GENERATED))
+        s = launchscreen.android(roots[-1])
+        assert not s["android-31+"]["empty"] and s["android-pre31"]["empty"], s
+        roots.append(tree(GENERATED, splash_icon="@android:color/transparent"))
+        assert launchscreen.android(roots[-1])["android-31+"]["empty"]
+        roots.append(tree(GENERATED, icon=False))
+        assert launchscreen.android(roots[-1])["android-31+"]["empty"]
+        roots.append(tree(GENERATED, theme_bg="@drawable/launch",
+                          drawables=[("drawable/launch.xml", '<layer-list><item android:drawable="@color/g"/><item><bitmap android:src="@mipmap/m"/></item></layer-list>')]))
+        assert not launchscreen.android(roots[-1])["android-pre31"]["empty"]
+        roots.append(tree(GENERATED, min_sdk=31))
+        assert "android-pre31" not in launchscreen.android(roots[-1])
+    finally:
+        for r in roots:
+            shutil.rmtree(r)
+
+
+@case("static: a moved source is a broken check (exit 2), never a pass")
+def _():
+    import contextlib
+    import io
+    root, said = tempfile.mkdtemp(), io.StringIO()
+    try:
+        with contextlib.redirect_stderr(said):
+            assert launchscreen.main(["--root", root]) == 2
+        assert "cannot answer" in said.getvalue() and "project.yml is missing" in said.getvalue(), said.getvalue()
+    finally:
+        shutil.rmtree(root)
+
+
+# The launch surfaces of THIS tree that are empty today, each with who owns it. A surface that turns
+# empty and is not listed fails; a listed one that now shows something fails until its line is removed
+# here, so the list never outlives the defect.
+KNOWN_OPEN = {
+    "iphone": "the generated launch screen is one flat color; isaac-opus-white1 is fixing the iPhone's blank start "
+              "(2026-10-02): remove this line in the land that makes it show something",
+    "android-pre31": "Android 10 and 11 (minSdk 29) show the flat launch ground with no logo before the first frame; "
+                     "reported by quint-opus-blank1 on 2026-10-02 (Android 12+, where the CEO's phone is, shows the icon)",
+}
+
+
+@case("static: this tree's launch surfaces: nothing empty beyond the declared open list")
+def _():
+    found = launchscreen.surfaces(REPO)
+    empty = {k for k, v in found.items() if v["empty"]}
+    new = empty - set(KNOWN_OPEN)
+    fixed = set(KNOWN_OPEN) - empty
+    assert not new, "launch surface(s) now EMPTY: " + ", ".join(k + ": " + found[k]["why"] for k in sorted(new))
+    assert not fixed, f"no longer empty, remove from KNOWN_OPEN in {os.path.basename(__file__)}: {', '.join(sorted(fixed))}"
 
 
 if __name__ == "__main__":
