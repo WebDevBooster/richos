@@ -1344,7 +1344,12 @@ def device_tap_series(hw, team, stamp_path, launches, returns, away, out_dir, ru
     to_page = 0.46 + 1 + ICON_PAGE_SWIPES * (2.69 + 1)
     expected = (launches * (1.08 + TAP_SETTLE_S + to_page + 2.0 + TAP_DWELL_S)
                 + returns * (0.46 + away + to_page + 4.0 + TAP_DWELL_S))
-    allowance = min(TAP_ALLOWANCE_MAX_S, max(120, int(expected * 1.25) + 60))
+    if expected * 1.25 > TAP_ALLOWANCE_MAX_S:
+        return [], (f"{launches} launches and {returns} returns need about {int(expected)} s, more than one runner "
+                    f"session's {TAP_ALLOWANCE_MAX_S} s; run fewer")
+    # The largest allowance, as the on-screen check asks: the device runner's limit also counts the wait
+    # for native-work's CPU admission before the session starts.
+    allowance = TAP_ALLOWANCE_MAX_S
     env = {**os.environ, "RICHOS_IOS_DEVICE": hw, "RICHOS_APPLE_TEAM": team}
     try:
         p = runner([sys.executable, PHONE_IOS, "run", steps_path, "--out", os.path.join(out_dir, "run"), "--prebuilt",
