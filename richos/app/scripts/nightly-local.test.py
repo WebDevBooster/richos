@@ -1620,6 +1620,20 @@ while True: time.sleep(.02)
         self.assertEqual([name for name, _ in log.seen],
                          ["build/engine-asset", "build/engine-asset-recheck"])
 
+    def test_milestones_are_not_gated_on_a_release_url_the_build_never_prints(self):
+        """R49: the build uploads into an existing release and prints no release URL, so a
+        marker waiting for one stopped the collector before `verify-download` and after."""
+        path = self.root / "run.log"
+        with m.TimestampedLog(path, m.BUILD_MILESTONES) as log:
+            log.arm(True)
+            log.write("building the engine asset for v1.2.0-nightly.20260919.9\n")
+            log.write("=== --check: building a second time, in a DIFFERENT environment\n")
+            log.write("=== every member accounted for, against git ===\n")
+            log.write("fetching the PUBLISHED asset \u2014 the bytes a customer's first run will get:\n")
+        self.assertEqual([name for name, _ in log.seen],
+                         ["build/engine-asset", "build/engine-asset-recheck",
+                          "build/engine-member-audit", "build/engine-verify-download"])
+
     def test_an_unseen_milestone_is_reported_rather_than_folded_into_its_neighbor(self):
         """A boundary nobody saw must not silently inflate the segment beside it."""
         r = m.Runner(self.root, self.root / "state",
