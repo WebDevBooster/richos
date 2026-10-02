@@ -68,7 +68,12 @@ EXEMPT_LOG = "blocking-ask-exempts.log"
 MIN_REASON = 20
 RESURFACE_CHARS = 800
 STOP_FEEDBACK = "Stop hook feedback:"
-_LEAD_IN_RX = re.compile(r"^[ \t>*_#-]*" + re.escape(LEAD_IN), re.M)
+# No `>` in the prefix: a blockquoted lead-in is a quoted example, not a
+# question put to him (hunt part 3, finding 35). Fenced blocks are removed
+# before the search for the same reason.
+_LEAD_IN_RX = re.compile(r"^[ \t*_#-]*" + re.escape(LEAD_IN), re.M)
+_FENCE_RX = re.compile(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$|^[ \t]*(`{3,}|~{3,}).*\Z",
+                       re.M | re.S)
 
 
 def _rows(transcript):
@@ -160,6 +165,7 @@ def unanswered_question(transcript):
             text = _assistant_text(d)
             if not text:
                 continue
+            text = _FENCE_RX.sub("", text)
             m = _LEAD_IN_RX.search(text)
             if m:
                 pending = (text[m.start():].strip(), str(d.get("timestamp") or ""))
@@ -262,7 +268,16 @@ def main(argv):
         return 0
     if not isinstance(payload, dict) or payload.get("stop_hook_active") or payload.get("agent_id"):
         return 0
-    found = unanswered_question(str(payload.get("transcript_path") or ""))
+    tpath = str(payload.get("transcript_path") or "")
+    if tpath and not os.access(tpath, os.R_OK):
+        # An unreadable transcript is NOT "no unanswered question" (hunt part
+        # 3, finding 28): say that the watch did not run.
+        print(json.dumps({"suppressOutput": True, "systemMessage":
+                          "UNANSWERED-QUESTION WATCH DID NOT RUN: the transcript at %s "
+                          "could not be read, so an unanswered question is not repeated "
+                          "this turn." % tpath}))
+        return 0
+    found = unanswered_question(tpath)
     if not found:
         return 0
     text, at = found

@@ -256,6 +256,11 @@ def read_turn(path, prompt_id):
                             results[tid] = b
     except OSError as exc:
         return [], {}, examined, "the transcript could not be read (%s)" % exc
+    if not in_turn:
+        # The requested boundary was never found: that is missing evidence,
+        # not an empty turn (hunt part 3, finding 26).
+        return [], {}, examined, (
+            "this turn's prompt (%s) was not found in the transcript" % prompt_id)
     return calls, results, examined, None
 
 

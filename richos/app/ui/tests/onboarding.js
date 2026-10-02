@@ -44,6 +44,8 @@ const {
   shot,
   UI_DIR,
 } = require("./lib/harness");
+const { parseCssColor, compositeOver, contrastRatio, round2 } = require("./lib/contrast");
+const { paneGround } = require("./lib/pane-ground");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_RS = fs.readFileSync(path.join(UI_DIR, "..", "src-tauri", "src", "main.rs"), "utf8");
@@ -115,6 +117,13 @@ async function main() {
   // -------------------------------------------------------------------------------------
   // 1. It is on screen without him typing — AND the negative control comes with it.
   // -------------------------------------------------------------------------------------
+
+  await run.check("0  the pane ground is composited through transparent layers to html, never read as black", async () => {
+    const g = paneGround(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)", "rgb(234, 230, 221)"]);
+    assertEqual([g.r, g.g, g.b], [234, 230, 221], "transparent pane and body over an html ground");
+    assertEqual(paneGround(["rgb(10, 20, 30)", "rgb(234, 230, 221)"]).r, 10, "an opaque pane wins");
+    return "transparent layers show the html ground behind them";
+  });
 
   await run.check("1  an un-described company is offered the interview, unprompted", async () => {
     const page = await openApp(browser, { onboarding: "not-yet" });
@@ -395,21 +404,27 @@ async function main() {
         // The panel's own edge, against the pane behind it — the one non-text indicator on
         // this surface that is not identified by a label.
         const panel = getComputedStyle(document.getElementById("first-run"));
-        const behind = parse(getComputedStyle(document.getElementById("conversation")).backgroundColor);
-        const pane =
-          behind && behind.a > 0.99
-            ? behind
-            : parse(getComputedStyle(document.body).backgroundColor);
         out.push({
           sel: "#first-run border",
           kind: "indicator",
           px: null,
           weight: null,
-          ratio: Math.round(ratio(parse(panel.borderTopColor), pane) * 100) / 100,
+          border: panel.borderTopColor,
+          layers: [
+            getComputedStyle(document.getElementById("conversation")).backgroundColor,
+            getComputedStyle(document.body).backgroundColor,
+            getComputedStyle(document.documentElement).backgroundColor,
+          ],
         });
         return out;
       });
       for (const m of measured) {
+        // The edge is measured here, against the ground composited through the transparent
+        // layers down to html (hunt R50), not in the page against a body that paints nothing.
+        if (m.layers) {
+          const ground = paneGround(m.layers);
+          m.ratio = round2(contrastRatio(compositeOver(parseCssColor(m.border), ground), ground));
+        }
         // 4.5:1 for normal text; 3:1 for a non-text indicator and for LARGE text, which is
         // 24px, or 18.66px at 700+. Nothing on this surface is large, and rounding a tier
         // down is how a "large text" pass gets claimed for text that is not large.

@@ -21,7 +21,7 @@ globalThis.chrome = {
 };
 globalThis.__controllerDependencies = {
   getModuleSettings: async module => module === 'core' ? { dropFolder: 'capture' } : settings,
-  ensureOffscreen: async () => {}, closeOffscreen: async () => {}, offscreenExists: async () => true,
+  acquireOffscreen: async () => async () => {}, ensureOffscreen: async () => {}, closeOffscreen: async () => {}, offscreenExists: async () => true,
   async callOffscreen(message) {
     calls.push(message);
     if (message.type === 'cc:orphans') return {ok:true,sessionIds:orphanIDs};

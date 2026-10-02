@@ -402,7 +402,10 @@ Path(sys.argv[1]).write_text(str(p.pid))
             start = time.monotonic()
             r.command(sys.executable, script, pid_file, cwd=self.root,
                       capture=True, timeout=5)
-            self.assertLess(time.monotonic() - start, 5)
+            # The child sleeps 60 s; returning well before that proves the pipe was not waited on.
+            # A tight bound here failed on a busy Mac (5.37 s), so it has room for a loaded host.
+            # load-bound: a hang catcher only; the verdict is the child's pid being gone below
+            self.assertLess(time.monotonic() - start, 45)
         self.assert_pid_gone(int(pid_file.read_text()))
 
     def private_budget(self):
@@ -1588,7 +1591,8 @@ while True: time.sleep(.02)
         self.addCleanup(straggler.kill)
         began = time.monotonic()
         log.close()
-        self.assertLess(time.monotonic() - began, 10, "close() waited on a process it does not own")
+        # load-bound: a hang catcher only; the straggler sleeps 30 s, so 25 s proves close() did not wait for it
+        self.assertLess(time.monotonic() - began, 25, "close() waited on a process it does not own")
         self.assertEqual(errors, [])
         lines = path.read_text().splitlines()
         self.assertTrue(lines[0].endswith(" before"), lines)
@@ -1619,6 +1623,20 @@ while True: time.sleep(.02)
             log.write("=== every member accounted for, against git ===\n")
         self.assertEqual([name for name, _ in log.seen],
                          ["build/engine-asset", "build/engine-asset-recheck"])
+
+    def test_milestones_are_not_gated_on_a_release_url_the_build_never_prints(self):
+        """R49: the build uploads into an existing release and prints no release URL, so a
+        marker waiting for one stopped the collector before `verify-download` and after."""
+        path = self.root / "run.log"
+        with m.TimestampedLog(path, m.BUILD_MILESTONES) as log:
+            log.arm(True)
+            log.write("building the engine asset for v1.2.0-nightly.20260919.9\n")
+            log.write("=== --check: building a second time, in a DIFFERENT environment\n")
+            log.write("=== every member accounted for, against git ===\n")
+            log.write("fetching the PUBLISHED asset \u2014 the bytes a customer's first run will get:\n")
+        self.assertEqual([name for name, _ in log.seen],
+                         ["build/engine-asset", "build/engine-asset-recheck",
+                          "build/engine-member-audit", "build/engine-verify-download"])
 
     def test_an_unseen_milestone_is_reported_rather_than_folded_into_its_neighbor(self):
         """A boundary nobody saw must not silently inflate the segment beside it."""

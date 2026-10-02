@@ -317,6 +317,15 @@ FOR_BUILD=""
 FULL=""
 NO_HOST_SCREEN="${RUN_TESTS_NO_HOST_SCREEN:-}"
 while [ $# -gt 0 ]; do
+  # An option that takes a value but is last on the line: `shift 2` fails and shifts nothing,
+  # so the loop would never end (hunt part 2, R44). Refuse it instead.
+  case "$1" in
+    --jobs|--only|--for|--proof-out|--results-out)
+      if [ $# -lt 2 ]; then
+        echo "run-tests.sh: $1 needs a value." >&2
+        exit 2
+      fi ;;
+  esac
   case "$1" in
     --jobs)            JOBS="${2:-}"; shift 2 ;;
     --only)            ONLY="$ONLY ${2:-}"; shift 2 ;;
@@ -1035,6 +1044,11 @@ print_result() {
   n="$(printf '%s' "$out" | sed -n 's/.*all \([0-9]*\) passed ===.*/\1/p' | tail -1)"
   [ -n "$n" ] && TOTAL_CHECKS=$((TOTAL_CHECKS + n))
   if [ -n "$PROOF_OUT" ] && is_host_screen "${SUITES[$idx]}"; then
+    # One file per suite (hunt part 2, R45): the first suite takes the path as given, every
+    # later one gets its own name beside it, so no suite's proof overwrites another's.
+    proof_path="$PROOF_OUT"
+    if [ -n "${PROOF_USED:-}" ]; then proof_path="$PROOF_OUT.$(basename "$rel")"; fi
+    PROOF_USED=1
     {
       echo "richos-gui-proof 1"
       echo "suite=$rel"
@@ -1044,9 +1058,9 @@ print_result() {
       echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       echo "--- output ---"
       printf '%s\n' "$out"
-    } > "$PROOF_OUT" 2>/dev/null \
-      || echo "    run-tests.sh: could not write the gui proof to $PROOF_OUT"
-    echo "    gui proof written to $PROOF_OUT"
+    } > "$proof_path" 2>/dev/null \
+      && echo "    gui proof written to $proof_path" \
+      || echo "    run-tests.sh: could not write the gui proof to $proof_path"
   fi
   # A HERE-STRING, NEVER A PIPE INTO `grep -q`. This file runs under `pipefail`, and
   # `grep -q` exits the instant it matches — so with a pipe, the writer on the left can be

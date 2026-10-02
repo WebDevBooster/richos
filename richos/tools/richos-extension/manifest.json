@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "RichOS",
-  "version": "0.3.1",
-  "description": "RichOS capture. Records call audio locally, health-checks it second by second, and alarms you during the call if anything stops.",
+  "name": "RichOS Helper",
+  "version": "1.1.0",
+  "description": "RichOS Helper: local call recording and manual ChatGPT conversation exports.",
   "minimum_chrome_version": "116",
   "permissions": [
     "tabCapture",
@@ -22,6 +22,7 @@
     "https://*.zoom.us/*"
   ],
   "optional_host_permissions": [
+    "https://chatgpt.com/*",
     "<all_urls>"
   ],
   "content_scripts": [
@@ -64,7 +65,7 @@
   },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "RichOS",
+    "default_title": "RichOS Helper",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -80,7 +81,7 @@
       "suggested_key": {
         "default": "Alt+Shift+L"
       },
-      "description": "Arm RichOS capture on the current tab"
+      "description": "Arm RichOS Helper capture on the current tab"
     }
   },
   "icons": {

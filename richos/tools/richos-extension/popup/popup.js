@@ -61,6 +61,12 @@ function renderRecent(recent = []) {
 
 async function refresh() {
   const response = await ask({ type: 'core:get-status' });
+  const exporter = response?.modules?.gptExporter;
+  if (exporter) {
+    $('gpt-section').hidden = false;
+    const job = exporter.job;
+    $('gpt-summary').textContent = exporter.isRunning ? `Export running: ${job?.phase || 'starting'}` : job?.error || 'Manual ChatGPT conversation exports';
+  }
   const status = response?.modules?.callCapture;
   if (!status) {
     $('status').innerHTML = `<p class="muted">No status: ${response?.error || 'service worker not responding'}</p>`;
@@ -181,3 +187,9 @@ $('options-link').addEventListener('click', (event) => {
 
 refresh();
 setInterval(refresh, 1000);
+
+$('gpt-open').addEventListener('click', () => {
+  if (!$('gpt-panel').getAttribute('src')) $('gpt-panel').src = '../modules/gpt-exporter/panel.html';
+  $('gpt-panel').hidden = !$('gpt-panel').hidden;
+  $('gpt-open').textContent = $('gpt-panel').hidden ? 'Open ChatGPT export controls' : 'Hide ChatGPT export controls';
+});

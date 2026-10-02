@@ -440,6 +440,13 @@ if args[:4] == ["devicectl", "device", "process", "launch"]:
     sys.exit(0)
 if args[:4] == ["devicectl", "device", "process", "terminate"]:
     sys.exit(0)
+if args[:3] == ["devicectl", "device", "reboot"]:
+    # A restart puts the network back only when the fake phone says it would (2026-10-02 it did).
+    state["reboots"] = state.get("reboots", 0) + 1
+    if state.get("reboot_fixes"):
+        state["network"] = "on"
+    json.dump(state, open(state_path, "w"))
+    sys.exit(0)
 print("unexpected xcrun call: " + " ".join(args), file=sys.stderr)
 sys.exit(1)
 '''
@@ -455,8 +462,13 @@ class IPhone:
         self.set(network=network, launch_error=launch_error)
         self.env = {**os.environ, "PATH": f"{self.tmp / 'bin'}:{os.environ['PATH']}", "FAKE_IPHONE": str(self.file),
                     "RICHOS_PHONE_LOCK_DIR": str(self.tmp / "locks"), "PYTHONDONTWRITEBYTECODE": "1",
-                    "RICHOS_IOS_DEVICE": "00000000-0000000000000000", "RICHOS_DEVICE_HOLDER": "net-test"}
+                    "RICHOS_IOS_DEVICE": "00000000-0000000000000000", "RICHOS_DEVICE_HOLDER": "net-test",
+                    "RICHOS_PHONE_REBOOT_SETTLE": "0", "RICHOS_PHONE_REBOOT_STEP": "0"}
         self.env.pop("RICHOS_PHONE_NET_RESTORE", None)
+
+    @property
+    def reboots(self):
+        return json.loads(self.file.read_text()).get("reboots", 0)
 
     def set(self, **state):
         old = json.loads(self.file.read_text()) if self.file.exists() else {}
@@ -483,20 +495,56 @@ def phone_sets(file, network):
     return f"import json; p={str(file)!r}; s=json.load(open(p)); s['network']={network!r}; json.dump(s, open(p, 'w'))"
 
 
-@case("D22 the phone cannot reach Apple: rios device refuses up front with one sentence naming the fix, runs nothing, and releases the phone")
+@case("D22 the phone cannot reach Apple even after one restart: rios device refuses up front with one sentence, runs nothing, and releases the phone")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
         ph = IPhone(tmp, network="off")
         flag = Path(tmp) / "ran"
         p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
         assert p.returncode == 3 and not flag.exists(), (p.returncode, p.stderr)
-        for word in ("cannot reach Apple", "rios device trust", "no Verify App", "Wi-Fi", "Tailscale"):
+        for word in ("cannot reach Apple", "rios device reboot", "rios device trust", "no Verify App", "Wi-Fi", "Tailscale"):
             assert word in p.stderr, (word, p.stderr)
-        assert len(ph.launches()) == 1, ph.launches()
+        assert ph.reboots == 1, ph.reboots          # once, never a loop
+        assert len(ph.launches()) == 2, ph.launches()   # before the restart, and once after it
         env = {**ph.env}
         st = json.loads(subprocess.run([sys.executable, str(PHYSICAL), "status", "--platform", "ios", "--phone", "iphone"],
                                        env=env, capture_output=True, text=True).stdout)["result"]
         assert st["state"] == "free", st
+
+
+@case("D22b the phone cannot verify the app and a restart clears it: rios device restarts it once on its own (no step asks anyone) and the run goes on")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp, network="off")
+        ph.set(reboot_fixes=True)
+        flag = Path(tmp) / "ran"
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
+        assert p.returncode == 0 and flag.exists(), (p.returncode, p.stderr)
+        assert ph.reboots == 1 and "restarting it once" in p.stderr and "the run goes on" in p.stderr, (ph.reboots, p.stderr)
+        calls = Path(str(ph.file) + ".log").read_text()
+        assert "devicectl device reboot --device 00000000-0000000000000000 --wait-for-device" in calls, calls
+
+
+@case("D22c rios device reboot: restarts the phone through devicectl, waits for it, opens the app; exit 0 only when iOS opens it")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp, network="off")
+        ph.set(reboot_fixes=True)
+        env = {**ph.env, "RICHOS_DEVICE_VERB": "rios"}
+        script = REPO / "richos/app/scripts/qa/phone-ios.py"
+        p = subprocess.run([sys.executable, str(script), "reboot", "--device", "00000000-0000000000000000"],
+                           env=env, capture_output=True, text=True, timeout=120)
+        result = json.loads(p.stdout)
+        assert p.returncode == 0 and result["state"] == "ok" and result["rebooted"] and ph.reboots == 1, (p.returncode, p.stdout, p.stderr)
+        ph.set(network="off", reboot_fixes=False)
+        p = subprocess.run([sys.executable, str(script), "reboot", "--device", "00000000-0000000000000000"],
+                           env=env, capture_output=True, text=True, timeout=120)
+        assert p.returncode == 1 and json.loads(p.stdout)["state"] == "untrusted", (p.returncode, p.stdout)
+        # Without the rios verb it touches nothing.
+        env.pop("RICHOS_DEVICE_VERB")
+        p = subprocess.run([sys.executable, str(script), "reboot", "--device", "00000000-0000000000000000"],
+                           env=env, capture_output=True, text=True, timeout=120)
+        assert p.returncode == 3 and ph.reboots == 2, (p.returncode, ph.reboots)
 
 
 @case("D23 the phone is online: the app is opened once and closed again before the run, and the run goes on")
@@ -548,7 +596,8 @@ def _():
     for verb in ('verify) exec "${HOLDN[@]}"', 'run) exec "${HOLDN[@]}"', 'exec "${HOLDN[@]}" python3 "$HERE/../perf/perf.py"'):
         assert verb in text, verb
     # `trust` is the diagnosis of a refused check, so it runs without the check (which would refuse it).
-    assert 'approval|procs|apps|lock|battery|syslog|trust|wifi-restore) exec "${HOLD[@]}"' in text
+    # `reboot` is the remedy the check itself applies, so it too runs without the check, holding the phone.
+    assert 'approval|procs|apps|lock|battery|syslog|trust|wifi-restore|reboot) exec "${HOLD[@]}"' in text
 
 
 def load_phone_ios():

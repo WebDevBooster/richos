@@ -7,6 +7,7 @@
  * Module handlers are dispatched by message prefix.
  */
 
+import { handleExportFile, busy as exportBusy } from '../modules/gpt-exporter/offscreen.js';
 import * as recorder from '../modules/call-capture/recorder.js';
 
 /** @type {Set<string>} blob URLs we minted, so nothing leaks if a download is abandoned. */
@@ -38,7 +39,10 @@ async function chime() {
  * @returns {Promise<any>|undefined}
  */
 function handle(msg) {
+  if (msg.module === 'gptExporter') return handleExportFile(msg);
   switch (msg.type) {
+    case 'core:resource-status':
+      return Promise.resolve({ ok: true, busy: Boolean(recorder.status().active || exportBusy() || minted.size) });
     case 'core:ping':
       return Promise.resolve({ ok: true, at: Date.now() });
     case 'core:mint-blob-url': {

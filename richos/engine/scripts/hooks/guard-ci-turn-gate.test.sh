@@ -575,6 +575,16 @@ else
     bad "9d. red still refuses" "expected exit 2, got $RC"
 fi
 
+# 10. THE HUNT ROWS P3-13, 15, 16, 17, 18, 34 — one unit test each, in
+# guard-ci-turn-gate.rows.test.py (the parser, the transcript offset, the cache
+# expiry, the target rotation and the timeout handling are functions, not
+# something a transcript fixture reaches cheaply).
+if python3 "$SCRIPT_DIR/guard-ci-turn-gate.rows.test.py" >"$SANDBOX/rows.out" 2>&1; then
+    ok "10. the hunt-row unit tests (P3-13, 15, 16, 17, 18, 34) pass"
+else
+    bad "10. hunt-row unit tests" "$(tail -c 600 "$SANDBOX/rows.out")"
+fi
+
 echo ""
 printf 'passed %d, failed %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

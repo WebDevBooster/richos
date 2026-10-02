@@ -15,7 +15,7 @@
  * lives in the browser chrome, not in the meeting tab.
  */
 
-import { BADGE, KEYS } from './constants.js';
+import { BADGE, KEYS, PRODUCT } from './constants.js';
 import { callOffscreen } from './offscreen-host.js';
 import { getModuleSettings } from './settings.js';
 
@@ -39,7 +39,7 @@ export async function setHealth({ level, text, title }) {
     await chrome.action.setBadgeBackgroundColor({ color });
     await chrome.action.setBadgeText({ text: text == null ? '' : String(text).slice(0, 4) });
     if (chrome.action.setTitle) {
-      await chrome.action.setTitle({ title: title || 'RichOS' });
+      await chrome.action.setTitle({ title: title || PRODUCT.name });
     }
   } catch {
     /* action APIs can be unavailable during teardown */

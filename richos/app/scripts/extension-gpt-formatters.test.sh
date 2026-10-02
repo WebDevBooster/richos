@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# run-tests: inputs richos/app/scripts/extension-gpt-formatters.test.sh richos/tools/richos-extension/modules/gpt-exporter/UPSTREAM.json richos/tools/richos-extension/modules/gpt-exporter/export/markdown.js richos/tools/richos-extension/modules/gpt-exporter/export/json.js richos/tools/richos-extension/modules/gpt-exporter/export/__tests__/branch-trim.test.mjs richos/tools/richos-extension/modules/gpt-exporter/export/__tests__/branch-trim.fixture.mjs richos/tools/richos-extension/modules/gpt-exporter/lib/chatgpt-url.js richos/tools/richos-extension/modules/gpt-exporter/lib/jszip.min.js richos/tools/richos-extension/tests/gpt-format-parity.mjs
+# run-tests: covers richos/tools/richos-extension/modules/gpt-exporter/UPSTREAM.json richos/tools/richos-extension/modules/gpt-exporter/export/markdown.js richos/tools/richos-extension/modules/gpt-exporter/export/json.js richos/tools/richos-extension/modules/gpt-exporter/export/__tests__/branch-trim.test.mjs richos/tools/richos-extension/modules/gpt-exporter/export/__tests__/branch-trim.fixture.mjs richos/tools/richos-extension/modules/gpt-exporter/lib/chatgpt-url.js richos/tools/richos-extension/modules/gpt-exporter/lib/jszip.min.js richos/tools/richos-extension/tests/gpt-format-parity.mjs
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+node "$ROOT/richos/tools/richos-extension/tests/gpt-format-parity.mjs"
+node "$ROOT/richos/tools/richos-extension/modules/gpt-exporter/export/__tests__/branch-trim.test.mjs"

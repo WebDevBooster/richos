@@ -19,7 +19,10 @@
 #       wifi-restore                  read the phone's Wi-Fi switch in Settings and turn it on if off
 #       trust --device ID --out FILE  why iOS will or will not open the app: Developer Mode, profiles,
 #                                     one launch read into a cause (trust check, DNS, VPN); reads only
-#     verify, run, perf and hold check before and after that the phone can reach Apple (phone_net.py)
+#       reboot --device ID            restart the phone (devicectl), wait for it, open RichConnect until
+#                                     iOS verifies it (the phone has no passcode: back usable on its own)
+#     verify, run, perf and hold check before and after that the phone can reach Apple (phone_net.py);
+#     when it cannot, they restart the phone once on their own and go on, or say why not
 #       status                        the iPhone's lock: free or held, and by whom
 #       hold -- <command>             run <command> holding the iPhone (many commands, one use)
 #     Each holds the iPhone's lock for its whole length; --wait SECONDS waits for another holder.
@@ -99,7 +102,7 @@ if [ "${1:-}" = "device" ]; then
       fi
       exec "${HOLDN[@]}" python3 "$HERE/../perf/perf.py" ios "$@" ;;
     run) exec "${HOLDN[@]}" python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
-    approval|procs|apps|lock|battery|syslog|trust|wifi-restore) exec "${HOLD[@]}" python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
+    approval|procs|apps|lock|battery|syslog|trust|wifi-restore|reboot) exec "${HOLD[@]}" python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
     verify) exec "${HOLDN[@]}" node "$HERE/Tools/physical-device.mjs" "$@" ;;
     *) exec "${HOLD[@]}" node "$HERE/Tools/physical-device.mjs" "$@" ;;
   esac
