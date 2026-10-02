@@ -1312,7 +1312,8 @@ if [ "$FAIL" -gt 0 ]; then
   exit 1
 fi
 if [ "$SKIP" -gt 0 ]; then
-  echo "=== qa toolkit tests: all $PASS passed, $SKIP SKIPPED (named above) ==="
-  exit 0
+  # Exit 2, never 0: a skipped case did not run, and exit 0 is recorded as `passed` (hunt R18 pattern).
+  echo "=== qa toolkit tests: all $PASS passed, $SKIP NOT RUN (skipped cases named above) ==="
+  exit 2
 fi
 echo "=== qa toolkit tests: all $PASS passed ==="

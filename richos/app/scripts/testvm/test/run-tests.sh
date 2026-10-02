@@ -1645,6 +1645,10 @@ t "reserve: stopping a command that ignores SIGTERM never raises, even when kill
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/reserve-stop.test.py" >"$TMP/reserve-stop.log" 2>&1; ok $? "$(cat "$TMP/reserve-stop.log")"
 t_done
 
+t "reserve: stopping a command ends its whole group, a descendant that ignores SIGTERM included (leader exit is not group exit)"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/reserve-stop-descendant.test.py" >"$TMP/reserve-stop-descendant.log" 2>&1; ok $? "$(cat "$TMP/reserve-stop-descendant.log")"
+t_done
+
 t "run-walk --wait reaches the guest-slot admission; the default still refuses at once; hold-walk.py is retired"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/run-walk-wait.test.py" >"$TMP/run-walk-wait.log" 2>&1; ok $? "$(cat "$TMP/run-walk-wait.log")"
 t_done

@@ -18,7 +18,12 @@ WHAT IT DOES
      (<app-state-dir>/release.lock, observed with a non-blocking flock that is released at
      once): the app nightly is never made to share the Mac with this. A lock file that does
      not exist means no app nightly ever ran from that state directory, so none is running.
-     An unreadable one refuses (exit 2): unknown is not permission.
+     An unreadable one refuses (exit 2): unknown is not permission. The same observation is
+     repeated every YIELD_POLL seconds for the whole run, because an app nightly can start
+     after this one did and the app nightly never looks for this job: when one does, this run
+     YIELDS (its runner's whole process group is stopped, exit 75, no escalation) so the
+     release never queues behind engine work. A lock that becomes unreadable mid-run yields
+     too (exit 2).
   2. Checks the commit out (default: main's tip) into a detached worktree of its own under
      the state directory, so a land moving main during the run changes nothing it reads, and
      the engine's leak canary watches a tree nobody else writes.
@@ -33,7 +38,7 @@ WHAT IT DOES
 
 It is started by hand or by a schedule, after the app nightly; nothing in nightly-local.py
 calls it. Exit: 0 every unit passed; 1 something did not pass (escalation raised); 2 setup
-refused or no verdict; 75 not started, an app nightly holds its release lock.
+refused or no verdict; 75 not started or yielded, an app nightly holds its release lock.
 
 REFERENCE: adoption ledger §2.4 (release gating), COPY THE APPROACH: affected checks at the
 merge, each short; the expensive passes run in a scheduled job of their own.
@@ -46,9 +51,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_STATE = Path("/Volumes/E1TB/state/richos/nightly-engine")
@@ -58,6 +65,8 @@ KEEP_RUNS = 3
 # switch), the workspace suites' and the fourteen-point pass only when told 1.
 PASSES_ON = {"RICHOS_MUTATION_PASSES": "1", "RICHOS_FOURTEEN_MUTANTS": "1"}
 NOT_STARTED = 75
+YIELD_POLL = 15    # seconds between looks at the app nightly's lock while the units run
+STOP_GRACE = 10    # seconds a yielding run's process group gets after SIGTERM before SIGKILL
 # One selected unit, in the line shape proof-for.sh prints and proof-run.py plans.
 UNIT_RUNNER = ["bash", "scripts/ci-shard.sh", "--only-units"]
 
@@ -91,6 +100,54 @@ def app_nightly_running(app_state):
             raise
         fcntl.flock(stream, fcntl.LOCK_UN)
         return False
+
+
+def _group_present(proc):
+    """True while any process of the runner's own group exists (the leader is reaped first)."""
+    proc.poll()
+    try:
+        os.killpg(proc.pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def stop_group(proc, grace):
+    """SIGTERM the runner's group (it was started as its own session), SIGKILL what remains after
+    `grace` seconds. The leader exiting is not the group exiting."""
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 5)):
+        if not _group_present(proc):
+            break
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        end = time.monotonic() + wait
+        while _group_present(proc) and time.monotonic() < end:
+            time.sleep(0.05)
+    proc.wait()
+
+
+def run_yielding(argv, cwd, env, app_state, poll, grace):
+    """Run `argv`; while it runs, look at the app nightly's lock every `poll` seconds. Returns
+    (exit status, None) when it finished, or (None, "running" | OSError) after yielding."""
+    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, start_new_session=True)
+    try:
+        while True:
+            try:
+                return proc.wait(timeout=poll), None
+            except subprocess.TimeoutExpired:
+                pass
+            try:
+                if app_nightly_running(app_state):
+                    return None, "running"
+            except OSError as exc:
+                return None, exc
+    finally:
+        if _group_present(proc):
+            stop_group(proc, grace)
 
 
 def engine_units(src):
@@ -148,6 +205,10 @@ def main(argv=None):
     p.add_argument("--app-state-dir", type=Path, default=DEFAULT_APP_STATE,
                    help="the app nightly's state directory, whose release lock this waits for")
     p.add_argument("--dry-run", action="store_true", help="print the plan and run nothing")
+    p.add_argument("--yield-poll", type=float, default=YIELD_POLL, metavar="SECONDS",
+                   help="seconds between looks at the app nightly's lock during the run (default %d)" % YIELD_POLL)
+    p.add_argument("--stop-grace", type=float, default=STOP_GRACE, metavar="SECONDS",
+                   help="seconds a yielding run's group gets after SIGTERM before SIGKILL (default %d)" % STOP_GRACE)
     args = p.parse_args(argv)
     repo = Path(git(HERE, "rev-parse", "--show-toplevel"))
     state = args.state_dir
@@ -189,8 +250,19 @@ def main(argv=None):
             say("dry run: " + " ".join(argv_run))
             return 0
         started = datetime.datetime.now(datetime.timezone.utc)
-        done = subprocess.run(argv_run, cwd=src, env={**os.environ, **PASSES_ON}, stdin=subprocess.DEVNULL)
+        code, yielded = run_yielding(argv_run, src, {**os.environ, **PASSES_ON}, args.app_state_dir,
+                                     args.yield_poll, args.stop_grace)
         minutes = (datetime.datetime.now(datetime.timezone.utc) - started).total_seconds() / 60
+        if code is None:
+            if yielded == "running":
+                say("YIELDED after %.1f min: an app nightly took %s; the engine run was stopped so the "
+                    "release never shares the Mac with it; run this after it ends" % (
+                        minutes, args.app_state_dir / "release.lock"))
+                return NOT_STARTED
+            say("REFUSED after %.1f min: the app nightly's release lock could not be inspected (%s); "
+                "the engine run was stopped" % (minutes, yielded))
+            return 2
+        done = subprocess.CompletedProcess(argv_run, code)
         try:
             bad = not_passed(summary)
         except (OSError, ValueError, KeyError, TypeError) as exc:

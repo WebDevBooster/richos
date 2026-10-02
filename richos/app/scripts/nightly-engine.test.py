@@ -15,6 +15,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -36,6 +37,11 @@ with log.open("a") as out:
     out.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd(),
                           "passes": os.environ.get("RICHOS_MUTATION_PASSES"),
                           "fourteen": os.environ.get("RICHOS_FOURTEEN_MUTANTS")}) + "\\n")
+if os.environ.get("FIXTURE_HOLD"):  # a long run that ignores SIGTERM: only the SIGKILL ends it
+    import signal, time
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    Path(os.environ["FIXTURE_PIDFILE"]).write_text(str(os.getpid()))
+    time.sleep(float(os.environ["FIXTURE_HOLD"]))
 lines = Path(sys.argv[sys.argv.index("--commands") + 1]).read_text().splitlines()
 bad = os.environ.get("FIXTURE_FAIL", "")
 rows = [{"check": "engine " + l.split()[-1], "result": "failed" if bad and l.endswith(bad) else "passed"}
@@ -146,6 +152,39 @@ class NightlyEngine(unittest.TestCase):
         self.assertFalse(self.state.exists())
         # Released, the same lock file lets it run.
         self.assertEqual(self.run_job().returncode, 0)
+
+    def test_an_app_nightly_that_starts_after_it_does_stops_the_run(self):
+        # V01: the exclusion held in one launch order only. The app nightly never looks for this job,
+        # so this job must notice the app nightly's lock appearing mid-run and yield.
+        pidfile = self.base / "runner.pid"
+        job = subprocess.Popen([sys.executable, str(self.repo / "richos/app/scripts/nightly-engine.py"),
+                                "--state-dir", str(self.state), "--app-state-dir", str(self.app_state),
+                                "--yield-poll", "0.2", "--stop-grace", "1"],
+                               cwd=self.repo, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                               env={**self.env, "FIXTURE_HOLD": "120", "FIXTURE_PIDFILE": str(pidfile)})
+        lock = None
+        try:
+            for _ in range(200):
+                if pidfile.exists() and pidfile.read_text().strip():
+                    break
+                time.sleep(0.1)
+            self.assertTrue(pidfile.exists(), "the stand-in runner never started")
+            runner = int(pidfile.read_text())
+            lock = open(self.app_state / "release.lock", "wb")  # the app nightly starts now
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            out, _ = job.communicate(timeout=60)
+        finally:
+            if lock:
+                lock.close()
+            if job.poll() is None:
+                job.kill()
+                job.wait()
+        self.assertEqual(job.returncode, 75, out)
+        self.assertIn("YIELDED", out)
+        with self.assertRaises(ProcessLookupError):  # the runner (which ignored SIGTERM) is gone
+            os.kill(runner, 0)
+        self.assertFalse(self.escalations.exists())
+        self.assertEqual(len(self.worktrees()), 1, self.worktrees())
 
     def test_the_fields_a_failing_run_writes_are_accepted_by_the_real_escalate(self):
         # The stand-in above proves what is sent; this proves the real channel takes it.
