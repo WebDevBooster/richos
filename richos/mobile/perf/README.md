@@ -21,8 +21,9 @@ richos/mobile/native-android/bin/randroid emu perf --out <file.json> [--expect-c
 richos/mobile/native-android/bin/randroid emu delete
 
 # an Android phone (named explicitly; the tool checks it is not an emulator). A release build is seeded
-# with the made-up conversation through its debuggable twin; the app's build and saved state are saved first
-# and put back after the run (a release build, whose data cannot be saved, needs --accept-state-loss <who agreed>)
+# with the made-up conversation through its debuggable twin (signed with the same key): `adb install -r` the twin,
+# write the fixture with run-as, `install -r` the release build back. Never an uninstall, never a data clear; the
+# app's build and data are saved first and put back after the run.
 python3 richos/mobile/perf/perf.py android --production --route managed --adb <adb> --serial <serial> --kind physical \
   --stamp <apk>.stamp.json --seed-twin <debug.apk> --out <file.json>
 
@@ -145,25 +146,32 @@ only worth keeping if two builds are measured the same way, so:
   - Any other build: `synthetic-conversation/1`, 100 rows by default, written into the app's own
     saved-state files (`files/core/session.json` and `history.json`) and read back by SHA-256.
     Its pairing names a host under `.invalid`, which never resolves, so the Mac is unreachable by
-    construction. A debuggable build is written with `run-as`. A release build is seeded through its
-    debuggable twin (`--seed-twin <debug.apk>`, same commit, same signing key). The tool
-    uninstalls the app, installs the twin, writes the files, then installs the stamped release APK
-    over it with the data kept. A release build without `--seed-twin` is refused before anything on
-    the device changes.
-  - **The phone is given back as it was found** (`android.StateKeeper`). Before either seeding path
-    touches the phone, the tool copies the installed APK (`adb pull`) and, for a debuggable build,
-    the app's whole private data directory (a tar streamed back through `run-as`) to a private
-    directory under `/Volumes/E1TB/tmp/claude/perf-keep/` (mode 0700, never in a repository;
-    `RICHOS_PERF_KEEP_DIR` moves it), with a SHA-256 manifest of both. However the run ends (success,
-    failure or interrupt) it reinstalls that APK, extracts that data and reads the hashes back
-    (`savedState.restored`). The private copy is deleted only after the hashes match. When it
-    cannot put them back, its last stderr line is `SAVED STATE NOT RESTORED ...`, it exits 6 and
-    the copy stays, its path in the message.
-  - **A release build has no `run-as`, so its data cannot be saved and the uninstall would lose it**
+    construction. A debuggable build is written with `run-as`, in place. A release build is seeded
+    through its debuggable twin (`--seed-twin <debug.apk>`, same commit, **same signing key**):
+    `adb install -r` the twin over the app (its data kept), write the files with `run-as`, then
+    `adb install -r` the stamped release APK back over it, data kept. **Nothing is ever uninstalled
+    and no data is ever cleared** (the phone is not a disposable test device, CEO 2026-10-01). If the
+    phone refuses an install (another signature, a lower version) the run is refused and reports the
+    phone's own words; Android replaces a package whole or not at all, so the app is untouched. A
+    release build without `--seed-twin` is refused before anything on the device changes. The
+    function is `android.seed_release(dev, files, twin_apk, release_apk, release_sha256, scratch, log)`.
+  - **The phone is given back as it was found** (`android.StateKeeper(dev, root, log, accept_loss,
+    twin_apk)`; `perf.run_android` calls `save()` first and `restore()` in a `finally`). Before either
+    seeding path touches the phone, the tool copies the installed APK (`adb pull`) and the app's whole
+    private data directory (a tar streamed back through `run-as`; a release build is read by
+    installing the twin over it) to a private directory under `/Volumes/E1TB/tmp/claude/perf-keep/`
+    (mode 0700, never in a repository; `RICHOS_PERF_KEEP_DIR` moves it), with a SHA-256 manifest.
+    However the run ends (success, failure or interrupt) it puts the data back in place (`run-as`:
+    the files the run added are removed, the saved tar is extracted over the rest), reads the data
+    hashes back, installs the saved APK with `install -r` and reads its hash back
+    (`savedState.restored`). The private copy is deleted only after the hashes match. When it cannot
+    put things back, its last stderr line is `SAVED STATE NOT RESTORED ...`, it exits 6 and the copy
+    stays, its path in the message.
+  - **Without `run-as` and without a twin, the data cannot be saved and the seeding would lose it**
     (this lost the CEO's pairing on 2026-10-02). The tool REFUSES before touching the phone unless
     `--accept-state-loss <who>` names who agreed to lose that saved state (recorded as
-    `savedState.dataLostBy`). The build itself is still put back. Nothing installed means nothing
-    to lose or restore.
+    `savedState.dataLostBy`); the build itself is still put back. Nothing installed means nothing to
+    lose or restore.
 
   The default sizes are the ones the established benchmarks were taken with. `--rows N` is a
   different condition. After the cold series the tool checks the seeded conversation's marker row is

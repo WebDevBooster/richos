@@ -448,7 +448,8 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
                          touch=touch or lease_toucher(args.lease))
     keeper = android.StateKeeper(dev, root=getattr(args, "keep_dir", None) or os.environ.get("RICHOS_PERF_KEEP_DIR"),
-                                 log=log, accept_loss=getattr(args, "accept_state_loss", None))
+                                 log=log, accept_loss=getattr(args, "accept_state_loss", None),
+                                 twin_apk=getattr(args, "seed_twin", None))
     try:
         record, failures = measure_android(args, dev, stamp, keeper, host, log)
     except BaseException as e:  # noqa: BLE001 — including an interrupt: the phone is given back whatever ended the run
@@ -478,7 +479,7 @@ def measure_android(args, dev, stamp, keeper, host, log):
                           "by construction; --mac reachable needs the Debug build's bridge")
         check_kind(dev, args.kind)  # before anything on the device changes
         rows = args.rows or condition.FILE_DEFAULT_ROWS
-        keeper.save()  # the uninstall below drops the app's saved state; refuses first when it cannot be kept
+        keeper.save()  # the seeding below overwrites the app's saved state; refuses first when it cannot be kept
         with tempfile.TemporaryDirectory() as scratch:
             twin_seed = android.seed_release(dev, condition.file_fixture(rows), twin, stamp.get("artifact"),
                                              stamp.get("sha256"), scratch, log)
@@ -840,13 +841,13 @@ def parse_args(argv):
     a.add_argument("--mac", choices=condition.MAC_STATES, default="unreachable",
                    help="the Mac's state while measured (default unreachable; reachable only through the Debug bridge)")
     a.add_argument("--seed-twin", metavar="DEBUG_APK",
-                   help="seed a release build through its debuggable twin (same commit, same signing key): UNINSTALLS the "
-                        "app; the app's build and saved state are saved first and put back after the run (a release build, "
-                        "whose data cannot be saved, is refused unless --accept-state-loss names who agreed to lose it); the "
-                        "stamped release APK (the stamp's artifact) is installed over the twin for the measurement")
+                   help="seed a release build through its debuggable twin (same commit, SAME SIGNING KEY): `adb install -r` "
+                        "the twin over the app (data kept), write the fixture with run-as, `install -r` the stamped release APK "
+                        "(the stamp's artifact) back. Never an uninstall: a different signature is refused and reported. The app's "
+                        "build and data are saved first (read through the twin) and put back after the run")
     a.add_argument("--accept-state-loss", metavar="WHO",
-                   help="the app's saved state cannot be copied off a release build (no run-as): the run is refused unless "
-                        "that state is already empty or WHO agreed to lose it; WHO is recorded")
+                   help="only when the app's saved state cannot be copied off the phone (a release build with no twin to read "
+                        "it through): the run is refused unless that state is already empty or WHO agreed to lose it; WHO is recorded")
     a.add_argument("--type-text", default="measuredtypingcost")
     a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")

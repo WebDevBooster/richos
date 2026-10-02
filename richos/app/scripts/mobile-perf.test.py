@@ -346,6 +346,7 @@ class FakeAdb:
         self.contents = {SHA: APK_BYTES}  # apk sha256 -> bytes (what `adb pull` returns)
         self.flags = {installed: debuggable}  # apk sha256 -> debuggable
         self.fail = set()  # verbs that fail: "pull", "install", "tar-x", "tar-c"
+        self.bad_signature = set()  # local APK paths the phone refuses to install over the app
         self.ui_text = "Synthetic message 4 for the launch"  # the newest row a UI dump shows
 
     def tar_bytes(self):
@@ -377,6 +378,10 @@ class FakeAdb:
         elif args[0] == "install":
             if "install" in self.fail:
                 return types.SimpleNamespace(returncode=1, stdout="", stderr="install failed")
+            if args[-1] in self.bad_signature:
+                return types.SimpleNamespace(returncode=1, stdout="",
+                                             stderr="Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match]")
+            assert "-r" in args, f"an install without -r would replace the app the hard way: {args}"
             if args[-1] in self.apks:
                 self.installed, self.debuggable = self.apks[args[-1]]
             else:  # an APK this tool pulled earlier: its bytes say which build it is
@@ -403,6 +408,8 @@ class FakeAdb:
                 return f"{hashlib.sha256(self.core[name]).hexdigest()}  files/core/{name}" if name in self.core else ""
             elif rest.startswith("sh -c"):
                 return "".join(f"{hashlib.sha256(d).hexdigest()}  ./files/core/{n}\n" for n, d in sorted(self.core.items()))
+            elif rest.startswith("rm -f"):
+                self.core.pop(rest.split("/")[-1].strip("'"), None)
             elif rest.startswith("tar -xf"):
                 if "tar-x" in self.fail:
                     return "tar: extract failed"
@@ -1713,12 +1720,6 @@ def _():
         assert not any(c.startswith(("uninstall", "install")) for c in fake.calls), fake.calls
         fake.ui_text = "Perf probe 50: what is on my plate this afternoon?"
         args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
-        # a release build's data cannot be copied off the phone: refused, untouched, unless someone agreed to lose it
-        before = len(fake.calls)
-        assert "no run-as" in raises(perfcore.Refused, perf.run_android, args, runner=fake, sleep=lambda s: None, log=quiet,
-                                     host=lambda: {})
-        assert not any(c.startswith(("uninstall", "install", "push", "run-as")) for c in fake.calls[before:]), fake.calls[before:]
-        args.accept_state_loss = "the CEO, in the test"
         from unittest.mock import patch
         cold = {"first": [500], "useful": [700], "rejected": [], "presentationSamples": []}
         def fake_cold(self, trials, marker=None, physical=False):
@@ -1728,9 +1729,10 @@ def _():
         with patch.object(android.Measure, "cold", fake_cold):
             record, failures_ = perf.run_android(args, runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
         installs = [c for c in fake.calls if c.startswith(("uninstall", "install"))]
-        assert [c.split()[0] for c in installs] == ["uninstall", "install", "install"], installs  # the release APK is already back
-        assert installs[1].endswith("twin.apk") and installs[2].endswith("-r " + fake_release(stamp)), installs
-        assert record["savedState"]["restored"] is True and record["savedState"]["dataLostBy"] == "the CEO, in the test", record
+        assert all(c.startswith("install -r ") for c in installs), installs  # never an uninstall, data kept every time
+        assert installs[0].endswith("twin.apk") and installs[2].endswith(fake_release(stamp)), installs
+        assert installs[-1].endswith("base.apk"), installs  # the build found on the phone, put back from the saved copy
+        assert record["savedState"]["restored"] is True and record["savedState"]["dataLostBy"] is None, record
         assert failures_ == 0 and record["build"]["configuration"] == "release", (failures_, record["phases"])
         cond = record["condition"]
         assert (cond["conversation"]["fixture"], cond["conversation"]["rows"], cond["mac"], cond["build"]) == \
@@ -2086,6 +2088,8 @@ def _():
         written = [i for i, c in enumerate(fake.calls) if c.startswith("push ") and "richos-perf-session" in c]
         assert pulled and tar_out and pulled[0] < written[0] and tar_out[0] < written[0], fake.calls  # saved before the first write
         assert not os.path.isdir(os.path.join(tmp, "keep")) or not os.listdir(os.path.join(tmp, "keep")), "private copy deleted after a verified restore"
+        assert not any(c.startswith(("uninstall", "install", "pm clear")) or "pm clear" in c for c in fake.calls), \
+            "the app is never uninstalled or its data cleared on a default phone"
 
 
 @case("K2 a run that fails or is interrupted midway still puts the phone back")
@@ -2111,15 +2115,20 @@ def _():
             assert fake.core == own and fake.installed == SHA, (type(boom).__name__, sorted(fake.core))
 
 
-@case("K3 a release build whose data cannot be saved is REFUSED before the phone is touched, unless someone agreed to lose it")
+@case("K3 a release build with no twin to read it through is REFUSED before the phone is touched, unless someone agreed to lose its data")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
         fake, stamp, twin = release_setup(tmp)
-        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
-        msg = raises(perfcore.Refused, keep_run, args, fake)
+        fake.core = {"session.json": b"the CEO's pairing"}
+        dev = android.Device("/fake/adb", "emulator-5580", runner=fake, sleep=lambda s: None)
+        msg = raises(perfcore.Refused, android.StateKeeper(dev, root=os.path.join(tmp, "keep"), log=quiet).save)
         assert "release build" in msg and "--accept-state-loss" in msg, msg
         assert not any(c.startswith(("uninstall", "install", "push", "pull", "run-as", "exec-out", "am force-stop")) for c in fake.calls), fake.calls
-        assert fake.installed and not os.path.exists(os.path.join(tmp, "keep")), "nothing was saved either"
+        assert not os.path.exists(os.path.join(tmp, "keep")), "nothing was saved either"
+        keeper = android.StateKeeper(dev, root=os.path.join(tmp, "keep"), log=quiet, accept_loss="the CEO, in the test")
+        keeper.save()
+        assert keeper.lost == "the CEO, in the test" and keeper.tar is None
+        assert keeper.restore() == [] and fake.core == {"session.json": b"the CEO's pairing"}
 
 
 @case("K4 an app that is not installed has nothing to lose: seeding goes ahead and nothing is saved")
@@ -2161,12 +2170,42 @@ def _():
         lines = [l for l in err.getvalue().splitlines() if l.strip()]
         assert code == perf.EXIT_NOT_RESTORED != 0 and lines[-1].startswith("SAVED STATE NOT RESTORED"), (code, lines[-1:])
         # a failure to install the saved APK is the same
-        other = os.path.join(tmp, "second")
-        os.makedirs(other)
-        fake2, args2 = keep_setup(other)
-        fake2.fail = {"install"}
-        record2, _ = keep_run(args2, fake2)
-        assert record2["savedState"]["restored"] is False and "install" in " ".join(record2["savedState"]["problems"])
+
+
+@case("K8 a twin signed with another key is refused and reported: nothing uninstalled, the app and its data untouched")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        own = {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"}
+        fake.core = dict(own)
+        fake.bad_signature = {twin}
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        msg = raises(perfcore.Refused, keep_run, args, fake)
+        assert "NOT uninstalled" in msg and "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in msg, msg
+        assert not any(c.startswith("uninstall") for c in fake.calls), fake.calls
+        assert fake.installed == json.load(open(stamp))["sha256"] and fake.core == own, "the app and its data are as found"
+
+
+@case("K9 --seed-twin on a release phone holding data never uninstalls: install -r the twin, write, install -r back, data restored")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        from unittest.mock import patch
+        fake, stamp, twin = release_setup(tmp)
+        own = {"session.json": b"the CEO's pairing", "history.json": b"the CEO's conversation"}
+        fake.core = dict(own)
+        fake.ui_text = "Perf probe 50: what is on my plate this afternoon?"
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        cold = {"first": [500], "useful": [700], "rejected": [], "presentationSamples": []}
+
+        def fake_cold(self, trials, marker=None, physical=False):
+            seeded = dict(fake.core)  # what the app would have read while measured
+            assert seeded == condition.file_fixture(100), sorted(seeded)
+            return dict(cold, screenCheck={"composerOnScreen": True, "newestMessageOnScreen": True})
+        with patch.object(android.Measure, "cold", fake_cold):
+            record, failures_ = keep_run(args, fake)
+        assert not any(c.startswith("uninstall") or "pm clear" in c for c in fake.calls), fake.calls
+        assert record["savedState"]["restored"] is True and fake.core == own, (record["savedState"], sorted(fake.core))
+        assert fake.installed == json.load(open(stamp))["sha256"] and not fake.debuggable, "the release build is back"
 
 
 @case("K6 an exception that ends the run AND a failed restore raise RestoreFailed (exit non-zero, loud last line), the cause kept")
@@ -2189,7 +2228,8 @@ def _():
         text = open(path).read()
         assert "previous saved\n    state for this app is gone" not in text, path
         assert "replaces the app's saved state on the phone" not in text, path
-    assert "--accept-state-loss" in open(os.path.join(PERF, "README.md")).read()
+    readme = open(os.path.join(PERF, "README.md")).read()
+    assert "--accept-state-loss" in readme and "--disposable-phone" not in readme and "install -r" in readme
 
 
 if __name__ == "__main__":
