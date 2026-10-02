@@ -70,6 +70,7 @@
 #           syslog-rate counts one process's log entries per bucket, refuses a non-log;
 #           I31-I32 Settings and Safari places and an https-only open step; I33-I34
 #           another app launched fresh, a switch by kind and label, SpringBoard never closed
+#   FC1-FC4 phone-ios forecast: prompt-free runs, other id, unknown, run ledger
 #   J1-J7   phone-ios approval: the UI-automation approval forecast from the phone's
 #           own sessions, and a run expected to ask refused until the CEO was told
 #   V1-V10  pair-words: the phone corpus's own v2 words, the origin written as a
@@ -1164,6 +1165,7 @@ expect "I26 a runner with no step dispatcher is refused, never read as agreeing"
 # Fixture logs are shaped like xcodebuild's: the phone named on the command line, the runner's
 # start and the first suite's start on the phone clock. Their age is their modification time.
 SESS="$TMP/sessions"; mkdir -p "$SESS"
+export RICHOS_IOS_SESSION_LEDGER="$SESS/ledger.jsonl"   # never the operator's real run ledger
 PHONE="00000000-0000000000000000"
 session_log() {  # session_log <file> <runner hh:mm:ss.mmm> <suite hh:mm:ss.mmm or TIMEOUT> <seconds ago>
   {
@@ -1215,6 +1217,51 @@ echo 'PHONE_PASSCODE {"configured":false,"error":"com.apple.LocalAuthentication 
 python3 -c 'import os,sys,time; t=time.time()-36000; os.utime(sys.argv[1],(t,t))' "$SESS/d.log"
 run forecast
 expect "J7 ten hours idle, but the phone said it has no passcode: no approval is expected" 0 'the phone has no passcode (the phone itself at a session'
+
+# FC1-FC4 (2026-10-02): the forecast must not send the CEO to the phone for nothing.
+# K1: back-to-back runs that enabled automation without a prompt, the last one 50 min ago (past the
+# 10 min quiet window, short of 9.3 h): no approval expected. Red on main: it said "expected".
+rm -f "$SESS"/*.log "$SESS/ledger.jsonl"
+session_log a.log 07:00:00.000 07:00:00.700 20000
+session_log b.log 07:47:23.244 07:47:24.000 3000
+run forecast
+expect "FC1 recent prompt-free sessions, passcode unreadable: no approval is expected" 0 '"approvalExpected": false'
+# K2: the same phone under its other spelling (CoreDevice UUID vs hardware UDID) finds its sessions.
+run env RICHOS_IOS_DEVICE_ALIASES="$PHONE" RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" approval --device 691DB4F7-92AA-5438-9B04-D364558D0F2F
+expect "FC2 a phone named by its other id still has its sessions on record" 0 '"sessionsOnRecord": 2'
+# K3: nothing known: unknown, never "expected", and it says what settles it.
+rm -f "$SESS"/*.log "$SESS/ledger.jsonl"
+run forecast
+expect "FC3 no passcode reading and no session: unknown, not expected" 0 '"approvalExpected": "unknown"'
+expect "FC3b the unknown forecast says what would settle it" 0 'settledBy'
+# K4: a run writes its session record where `approval` reads it (fake rios; the log is shaped like xcodebuild's).
+KOUT="/Volumes/E1TB/tmp/claude/quint-forecast1-qa-$$"
+mkdir -p "$KOUT/physical"
+cat > "$TMP/fake-rios" <<SH
+#!/bin/sh
+printf '%s\n' "$KOUT/physical/script-123.xcresult"
+{
+  echo "-destination id=$PHONE"
+  echo "2026-10-01 07:47:23.244123+0100 RichOSNativeUITests-Runner[5881:1] [Default] Running tests..."
+  echo "Test Suite 'Selected tests' started at 2026-10-01 07:47:24.000."
+} > "$KOUT/physical/verify-script-123-test.log"
+exit 0
+SH
+chmod +x "$TMP/fake-rios"
+session_log a.log 07:47:23.244 07:47:24.000 120
+run env RICHOS_IOS_DEVICE="$PHONE" RICHOS_APPLE_TEAM=y RICHOS_IOS_RIOS="$TMP/fake-rios" RICHOS_IOS_SESSION_LOGS="$SESS/*.log" python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out "$KOUT/out"
+if [ -s "$SESS/ledger.jsonl" ] && grep -qF '"enableWaitSeconds": 0.8' "$SESS/ledger.jsonl" && grep -qF '"approvalNeeded": false' "$SESS/ledger.jsonl"; then
+  ok "FC4 a run records its session (start, end, enable wait, approval needed) in the ledger"
+else bad "FC4 a run records its session" "ledger: $(cat "$SESS/ledger.jsonl" 2>/dev/null | head -c 300) out: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"; fi
+rm -f "$SESS"/*.log
+run forecast
+expect "FC4b the recorded run alone is a session on record that approval reads" 0 '"sessionsOnRecord": 1'
+rm -rf "$KOUT"
+rm -f "$SESS"/*.log "$SESS/ledger.jsonl"
+# the P tests need a phone whose forecast IS expected: a 10 h old session of PHONE2 with no reading.
+PHONE_SAVE="$PHONE"; PHONE="00008030-0000FEEDFACE0001"
+session_log p2.log 07:47:23.244 07:47:24.000 36000
+PHONE="$PHONE_SAVE"
 
 # P01-P05: the approval refusal raises its own needs=ceo-hands escalation (2026-10-01, richos-hq
 # docs/operations/2026-10-01-escalation-wakes-the-lead.md item C, and Sage's review items 7 and 11).
