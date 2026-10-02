@@ -913,6 +913,46 @@ def for_the_nightly(repo, commands):
     return kept, moved
 
 
+DEVICE_IDENTIFIERS = "richos/engine/scripts/lib/device-identifiers.py"
+
+
+def device_identifier_gate(repo, what):
+    """0, or 1 after printing a refusal: the tree being landed holds an identifier of one of the
+    owner's test devices (the private list, outside every repository). 2026-10-02: a CoreDevice
+    id reached a branch in a commit made before the commit-time scan existed, and a merge
+    carries what a branch already holds without a commit to scan, so the id was one push away
+    from public. This reads the WHOLE index (the tree main will point at), not the commit's
+    additions. It prints file:line and a masked preview, never the identifier. No list on this
+    machine (a public clone) is announced, not refused; a list that cannot be trusted refuses."""
+    script = repo.top / DEVICE_IDENTIFIERS
+    if not script.is_file():
+        say(f"autocheck: {what}: {DEVICE_IDENTIFIERS} is not in this tree; device identifiers NOT checked")
+        return 0
+    try:
+        out = subprocess.run([sys.executable, str(script), "--scan-tree", str(repo.top)],
+                             capture_output=True, text=True, timeout=600, env=repo.env)
+        rows = out.stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        rows = []
+    verdict = rows[0].split("\t")[0] if rows else "BROKEN"
+    if verdict == "CLEAN":
+        return 0
+    if verdict == "ABSENT":
+        say(f"autocheck: {what}: DEVICE-IDENTIFIER LIST ABSENT ({rows[0].partition(chr(9))[2]}); the tree was NOT checked for test-device identifiers")
+        return 0
+    if verdict == "FOUND":
+        banner(f"{what.upper()} REFUSED: the tree holds an identifier of a known test device", [
+            *[f"  {label} (matches {preview})" for label, _, preview in (r.partition("\t") for r in rows[1:]) if label],
+            "",
+            "Replace each with a neutral made-up value of the same shape and commit again. The identifier is",
+            "never printed; the list is private and outside every repository: edit that, never this tree.",
+        ])
+        return 1
+    banner(f"{what.upper()} REFUSED: the device-identifier check could not be trusted",
+           [rows[0].partition("\t")[2] if rows else "the scanner printed nothing"])
+    return 1
+
+
 def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
     """Run the suites proof-for.sh assigns plus the lint on the working tree, which the
     caller has established IS the tree being landed. Returns 0 and writes the receipt when
@@ -924,6 +964,8 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         if not (repo.top / need).is_file():
             banner(f"{what.upper()} REFUSED: cannot select the checks", [f"{need} is not in this tree."])
             return 1
+    if (rc := device_identifier_gate(repo, what)):
+        return rc
     commands = []
     covered = set()
     if range_argv:

@@ -32,7 +32,13 @@ terminal scrollback.
 
 Usage:
   device-identifiers.py --scan-manifest <manifest-file>   rows: label<TAB>blobpath[<TAB>...]
+  device-identifiers.py --scan-tree <repo>                 the whole INDEX of <repo>, text and paths
   device-identifiers.py --list-path
+
+--scan-tree is the merge gate's check (autocheck land_check): the commit-time scan above
+sees only what a commit ADDS, so an identifier that reached a branch before the list
+existed, or that a merge carried in, was never looked at. This one reads the tree being
+landed, and each row is `path:line<TAB>masked preview` (a path match has no line).
 """
 import os
 import subprocess
@@ -126,12 +132,51 @@ def scan_manifest(manifest):
     return 0
 
 
+def scan_tree(repo):
+    verdict, payload = load()
+    if verdict in ('ABSENT', 'BROKEN'):
+        print('%s\t%s' % (verdict, payload))
+        return 0
+    found = []
+    try:
+        listing = subprocess.run(['git', '-C', repo, 'ls-files', '-z'], capture_output=True,
+                                 timeout=120, check=True).stdout.decode('utf-8', 'ignore')
+        for ident in payload:
+            low = ident.lower()
+            for name in listing.split('\0'):
+                if name and low in name.lower():
+                    found.append((name, mask(ident)))
+            # The same case-insensitive substring rule as the commit scan; -a reads binary files too.
+            out = subprocess.run(['git', '-C', repo, 'grep', '--cached', '-a', '-n', '-i', '-F', '-z',
+                                  '-e', ident], capture_output=True, timeout=300)
+            if out.returncode not in (0, 1):
+                print('BROKEN\tthe index could not be searched (exit %d)' % out.returncode)
+                return 0
+            for hit in out.stdout.split(b'\n'):
+                parts = hit.split(b'\0')
+                if len(parts) >= 3 and parts[0]:
+                    found.append(('%s:%s' % (parts[0].decode('utf-8', 'replace'),
+                                             parts[1].decode('ascii', 'replace')), mask(ident)))
+    except (OSError, subprocess.SubprocessError) as err:
+        print('BROKEN\tthe tree scan could not run (%s)' % type(err).__name__)
+        return 0
+    if found:
+        print('FOUND')
+        for label, preview in found:
+            print('%s\t%s' % (label, preview))
+    else:
+        print('CLEAN')
+    return 0
+
+
 def main(argv):
     if len(argv) == 2 and argv[1] == '--list-path':
         print(list_path())
         return 0
     if len(argv) == 3 and argv[1] == '--scan-manifest':
         return scan_manifest(argv[2])
+    if len(argv) == 3 and argv[1] == '--scan-tree':
+        return scan_tree(argv[2])
     sys.stderr.write(__doc__)
     return 2
 

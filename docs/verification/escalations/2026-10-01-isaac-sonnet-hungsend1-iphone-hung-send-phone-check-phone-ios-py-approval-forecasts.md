@@ -10,7 +10,7 @@
 
 ## The question
 
-phone-ios.py approval --device 691DB4F7-92AA-5438-9B04-D364558D0F2F says approvalExpected true (passcodeConfigured null, no session on record, because the passcode could not be read). Your brief says to report before running if it forecasts a prompt. Is the phone ready (passcode off, so no prompt will appear), may I run, or should the phone check wait?
+phone-ios.py approval --device 111AA1A1-11AA-1111-1A11-A111111A1A1A says approvalExpected true (passcodeConfigured null, no session on record, because the passcode could not be read). Your brief says to report before running if it forecasts a prompt. Is the phone ready (passcode off, so no prompt will appear), may I run, or should the phone check wait?
 
 ## What was already tried
 
