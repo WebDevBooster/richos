@@ -1170,7 +1170,9 @@ TAP_DWELL_S = 4.0    # after a tap: the launch or return finishes and the app ha
 # Where a return's probe touch lands: the middle of the transcript on an iPhone SE in portrait, where
 # no control is. Its offsets after the tap that brings the app back, cycled over the returns.
 PROBE_POINT = (187.0, 300.0)
-PROBE_OFFSETS_S = (0.1, 0.2, 0.3, 0.45, 0.6)
+# 0.9 s is the positive control: past the scene's activation (about 0.47 s after the tap on the test
+# iPhone), a touch must reach the app, or the probe itself is not working.
+PROBE_OFFSETS_S = (0.1, 0.2, 0.3, 0.45, 0.6, 0.9)
 TAP_ALLOWANCE_MAX_S = 1800
 UNPROFILED_METHOD = (
     "No profiler: the phone's UI-test runner taps the RichConnect icon on the Home Screen (a cold launch after "
@@ -1281,7 +1283,10 @@ def tap_return_samples(rows, events):
     samples, rejected = [], []
     for n, probe in enumerate(probes, 1):
         start = probe["detail"]["synthesizedAt"] * 1e6
-        end = probes[n]["detail"]["synthesizedAt"] * 1e6 if n < len(probes) else None
+        # The return belongs to this tap: before the next one, and within the dwell (the last one's window
+        # would otherwise reach the on-screen check's later launch and read it as a relaunch).
+        end = min(probes[n]["detail"]["synthesizedAt"] * 1e6 if n < len(probes) else float("inf"),
+                  start + (TAP_DWELL_S + 6.0) * 1e6)
         window = [e for e in events if e["wallUs"] >= start and (end is None or e["wallUs"] < end)]
         if any(e["e"] == "process" for e in window):
             rejected.append({"trial": n, "why": "a new process started: a relaunch, not a return"})

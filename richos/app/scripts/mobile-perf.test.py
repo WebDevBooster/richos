@@ -2348,7 +2348,8 @@ def _():
             {"i": 2, "do": "tap", "ok": True, "detail": {"tapAt": 120.0}},
             {"i": 3, "do": "tapThen", "ok": True, "after": 0.1, "detail": {"synthesizedAt": 130.0}},
             {"i": 4, "do": "tapThen", "ok": True, "after": 0.45, "detail": {"synthesizedAt": 140.0}},
-            {"i": 5, "do": "tapThen", "ok": True, "after": 0.2, "detail": {"synthesizedAt": 150.0}}]
+            {"i": 5, "do": "tapThen", "ok": True, "after": 0.2, "detail": {"synthesizedAt": 150.0}},
+            {"i": 6, "do": "tapThen", "ok": True, "after": 0.9, "detail": {"synthesizedAt": 160.0}}]
     lines = [
         timing_line("process", 7, 100.20, startUs=int(100.05e6)),  # launch 1: spawn 50 ms after the tap
         timing_line("did-activate", 7, 100.30), timing_line("useful-content", 7, 100.31),
@@ -2365,6 +2366,11 @@ def _():
         timing_line("input-ready", 10, 140.49),
         # return 3: a relaunch
         timing_line("process", 11, 150.2, startUs=int(150.05e6)), timing_line("did-activate", 11, 150.5),
+        # return 4, the last: the touch at +900 ms arrives after activation; the on-screen check's launch
+        # 15 s later is not this return's
+        timing_line("will-enter-foreground", 11, 160.02), timing_line("did-activate", 11, 160.46),
+        timing_line("touch", 11, 160.91, eventUptime=160.90 - 1000.0, scene="foregroundActive", view="UICollectionView"),
+        timing_line("input-ready", 11, 160.5), timing_line("process", 12, 175.2, startUs=int(175.05e6)),
         "{torn",
     ]
     events = ios.parse_timing("\n".join(lines))
@@ -2375,8 +2381,9 @@ def _():
     assert [(r["trial"], r["why"]) for r in rejected] == [
         (2, "no input-ready line from the launched process"), (3, "2 processes started between this tap and the next")]
     returns, rejected = ios.tap_return_samples(rows, events)
-    assert [s["trial"] for s in returns] == [1, 2] and rejected[0]["trial"] == 3 and "relaunch" in rejected[0]["why"]
-    one, two = returns
+    assert [s["trial"] for s in returns] == [1, 2, 4] and rejected[0]["trial"] == 3 and "relaunch" in rejected[0]["why"]
+    one, two, four = returns
+    assert four["touch"]["received"] and not four["touch"]["beforeActive"] and four["touch"]["scene"] == "foregroundActive"
     assert one["touch"]["received"] and one["touch"]["beforeActive"] and one["touch"]["scene"] == "foregroundInactive"
     assert one["touch"]["eventMs"] == 110.0 and one["activeMs"] == 447.0 and one["probeAfterMs"] == 100.0
     assert two["touch"] == {"received": False} and two["inputReadyMs"] == 490.0
