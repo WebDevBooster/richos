@@ -5,7 +5,7 @@
  * the RichOS local service, which writes the contract directory DIRECTLY into the loro drop zone and
  * runs the transcription pipeline. This module is that client — and it is written so the extension
  * DEGRADES GRACEFULLY: if the service is not installed/running, `isAvailable()` is false and the
- * caller keeps using the existing Downloads path unchanged. The service is never a dependency for
+ * caller retains capture in browser storage until explicit archive export. The service is never a dependency for
  * capture to keep working.
  *
  * The message BUILDERS are pure (no `chrome.*`) so they are node-testable; only `NativeHostClient`
@@ -95,7 +95,7 @@ export function chooseSink(hostState) {
 
 /**
  * Thin wrapper over the native-messaging port. Connects lazily; any failure leaves `available`
- * false so the caller falls back to Downloads. The port dies with the browser (no listening port).
+ * false so the caller retains the browser copy. The port dies with the browser (no listening port).
  */
 export class NativeHostClient {
   constructor({ hostId = NATIVE_HOST_ID } = {}) {
