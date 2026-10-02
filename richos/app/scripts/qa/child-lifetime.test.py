@@ -22,7 +22,7 @@ class ChildLifetime(unittest.TestCase):
             fake = Path(d, "idevicesyslog")
             fake.write_text('#!/bin/sh\ntrap "" PIPE\necho $$ > "%s/pid"\nwhile :; do echo RichOSNative line 2>/dev/null; sleep 0.2; done\n' % d)
             fake.chmod(0o755)
-            env = dict(os.environ, PATH=d + ":" + os.environ["PATH"])
+            env = dict(os.environ, PATH=d + ":" + os.environ["PATH"], RICHOS_DEVICE_VERB="rios")  # started the way `rios device` starts it
             tool = subprocess.Popen([sys.executable, str(TOOL), "syslog", "--device", "X", "--seconds", "600",
                                      "--out", d + "/out"], env=env, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL)
