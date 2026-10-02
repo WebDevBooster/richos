@@ -302,6 +302,12 @@ Branded Google Chrome refuses `--load-extension`, so the harness uses a Chrome f
 Chromium build if one is cached locally (`CHROME_PATH` overrides). Loading the extension by
 hand in your normal Chrome is unaffected.
 
+Both browser harnesses create disposable profiles. On macOS they pass
+`--use-mock-keychain` so Chrome uses its test encryption key storage instead of
+requesting access to the user's `Chromium Safe Storage` Keychain item. These
+profiles are for fixtures only. Do not reuse them for account sign-ins or apply
+that flag to a personal browser profile.
+
 For validating on a real call — including how to deliberately break each channel and watch the
 alarm fire — see [TEST-PROTOCOL.md](TEST-PROTOCOL.md).
 
