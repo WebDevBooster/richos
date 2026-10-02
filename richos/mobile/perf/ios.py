@@ -24,6 +24,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -766,6 +767,9 @@ def _reparsed(args, record, runner):
         series = json.load(f)
     record["device"], record["build"] = series["device"], series["build"]
     record["condition"] = series.get("condition")  # a series retained before conditions were written has none
+    cond = record["condition"] or {}
+    if cond and (cond.get("conversation") or {}).get("fixture") != condition.AS_INSTALLED and "verified" not in cond:
+        cond["verified"] = {"row": None, "onScreen": None, "why": "the retained series names no on-screen check"}
     record["ranOnHardware"] = series["device"].get("kind") == "physical"
     record["evidence"] = {series["class"]: args.reparse}
     samples, rejected = reparse(args.reparse, series["class"], runner)
@@ -777,10 +781,142 @@ def _reparsed(args, record, runner):
     return int(bool(rejected) or not samples)
 
 
-NO_IOS_SEED = ("perf.py ios has no seeded conversation yet: a Release build takes no fixture argument and its saved "
-               "state cannot be written from the Mac by this tool (README 'Conditions'). Measure with --conversation "
-               "as-installed --mac reachable|unreachable; that record states its condition and is never compared "
-               "with a benchmark")
+NO_DEVICE_SEED = ("perf.py ios seeds the made-up conversation on a simulator only so far: on an iPhone the saved state "
+                  "goes in through devicectl's app data container, after a backup of the phone's own state, and the "
+                  "on-screen check needs the phone's UI-test runner (README 'Conditions'). Measure the iPhone with "
+                  "--conversation as-installed --mac reachable|unreachable; that record states its condition and is "
+                  "never compared with a benchmark")
+
+
+# ---------------------------------------------------------------------------------------------
+# The seeded condition on a simulator (condition.py FILE_FIXTURE, as the iPhone app's saved state)
+# ---------------------------------------------------------------------------------------------
+
+RIOS = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "native-ios", "bin", "rios"))
+# LocalOnlyStorage.appRoot (native-ios/App/Platform/Shared/PlatformIdentity.swift) inside the data container.
+STATE_DIR = os.path.join("Library", "Application Support", "RichOS")
+# EffectRunner.stateKey and historyKey: the files the seeding replaces, and restores afterwards.
+STATE_FILES = ("history.json", "state.json")
+SCREEN_SETTLE_S = 3.0
+
+
+def _sha256(data):
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
+
+
+def _rios_json(cmd, runner):
+    """A `bin/rios` command's result: its JSON envelope on stdout, or its JSON error refused."""
+    p = runner(cmd, capture_output=True, text=True, timeout=900)
+    if p.returncode:
+        detail = (p.stderr or p.stdout).strip()
+        try:
+            detail = json.loads(detail.splitlines()[-1]).get("error", detail)
+        except (ValueError, IndexError, AttributeError):
+            pass
+        raise Unmeasurable(f"rios {cmd[1]} exited {p.returncode}: {str(detail)[-400:]}")
+    try:
+        return json.loads(p.stdout)["result"]
+    except (ValueError, KeyError) as e:
+        raise Unmeasurable(f"rios {cmd[1]} printed no result: {e}")
+
+
+def app_state_files(rows, scratch, runner=subprocess.run, rios=RIOS):
+    """FILE_FIXTURE with `rows`, as the iPhone app's saved state: condition.py writes Android's files,
+    `rios perf-seed` translates them through the app's own core (refusing unless their manifest is the
+    condition's SHA-256, and unless the core loads every row back), and each written file is checked
+    against the SHA-256 the core reported. Returns (report, {name: bytes})."""
+    fixture_dir, out_dir = os.path.join(scratch, "fixture"), os.path.join(scratch, "app-state")
+    condition.write_fixture(rows, fixture_dir)
+    expected = condition.for_files(rows, "release", "-")["conversation"]["sha256"]
+    report = _rios_json([rios, "perf-seed", fixture_dir, expected, out_dir], runner)
+    if report.get("fixtureSha256") != expected or report.get("rows") != rows:
+        raise Unmeasurable(f"rios perf-seed wrote {report.get('rows')} rows of {report.get('fixtureSha256')}, "
+                           f"not {rows} of {expected}")
+    files = {}
+    for name in STATE_FILES:
+        with open(os.path.join(out_dir, name), "rb") as f:
+            files[name] = f.read()
+        if _sha256(files[name]) != (report.get("written") or {}).get(name):
+            raise Unmeasurable(f"the written {name} is not the file rios perf-seed reported")
+    if set(report.get("written") or {}) != set(STATE_FILES):
+        raise Unmeasurable(f"rios perf-seed wrote {sorted(report.get('written') or {})}, not {list(STATE_FILES)}")
+    return report, files
+
+
+class SimState:
+    """The installed app's saved state on a simulator, in its data container on this Mac. The app is
+    terminated before every change, so it never writes over what is put there."""
+
+    def __init__(self, udid, runner=subprocess.run):
+        self.udid, self.runner = udid, runner
+
+    def directory(self):
+        data = run(["xcrun", "simctl", "get_app_container", self.udid, BUNDLE, "data"], self.runner).strip()
+        if not data or not os.path.isdir(data):
+            raise Unmeasurable(f"the app's data container {data!r} is not on this Mac")
+        return os.path.join(data, STATE_DIR)
+
+    def stop(self):
+        self.runner(["xcrun", "simctl", "terminate", self.udid, BUNDLE], capture_output=True, text=True)
+
+    def read(self):
+        """{name: bytes or None} of STATE_FILES as they are now."""
+        here = self.directory()
+        out = {}
+        for name in STATE_FILES:
+            path = os.path.join(here, name)
+            out[name] = open(path, "rb").read() if os.path.isfile(path) else None
+        return out
+
+    def put(self, files):
+        """Write `files` ({name: bytes, or None to remove}) and read each back."""
+        self.stop()
+        here = self.directory()
+        os.makedirs(here, exist_ok=True)
+        for name, data in sorted(files.items()):
+            path = os.path.join(here, name)
+            if data is None:
+                if os.path.exists(path):
+                    os.remove(path)
+                continue
+            staging = path + ".perf-seed"
+            with open(staging, "wb") as f:
+                f.write(data)
+            os.replace(staging, path)
+        now = self.read()
+        for name, data in files.items():
+            if now.get(name) != data:
+                raise Unmeasurable(f"{name} in the app's data container does not read back as written")
+
+
+def normalized(text):
+    return " ".join(text.split()).lower()
+
+
+def screen_check(udid, marker, keep_dir, runner=subprocess.run, sleep=time.sleep, rios=RIOS):
+    """After the launches: bring the app to the front (a launch if it is not running, which reads the
+    saved state again), take a screenshot and read its text with the Mac's Vision framework (`rios
+    screen-text`). The seeded newest CEO row must be among it. The screenshot shows only the made-up
+    conversation; it is kept in `keep_dir` when given, otherwise deleted."""
+    result = {"row": marker, "onScreen": None,
+              "how": "simctl launch (front), a screenshot, its text read by Vision (rios screen-text); the "
+                     "newest seeded CEO row must be in it"}
+    with tempfile.TemporaryDirectory() as tmp:
+        shot = os.path.join(keep_dir or tmp, "screen-check.png")
+        try:
+            run(["xcrun", "simctl", "launch", udid, BUNDLE], runner)
+            sleep(SCREEN_SETTLE_S)
+            run(["xcrun", "simctl", "io", udid, "screenshot", shot], runner)
+            lines = _rios_json([rios, "screen-text", shot], runner).get("lines") or []
+        except (Unmeasurable, subprocess.TimeoutExpired, OSError) as e:
+            result["why"] = f"the screen could not be read: {e}"
+            return result
+        result["onScreen"] = normalized(marker) in normalized(" ".join(lines))
+        result["linesRead"] = len(lines)
+        if keep_dir:
+            result["screenshot"] = shot
+    return result
 
 
 def _as_installed(args, build):
@@ -789,7 +925,13 @@ def _as_installed(args, build):
                                   "the Mac's state is the operator's --mac")
 
 
-def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.sleep):
+SEEDED_BY = ("condition.py wrote Android's fixture files; `rios perf-seed` translated them through the app's own core "
+             "(EffectRunner .persist) into its saved state and loaded every row back; the files were copied into the "
+             "simulator's data container with the app terminated and read back. The pairing names a host under .invalid "
+             "and no device id, so the app reads no key and opens no connection: the Mac is unreachable")
+
+
+def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.sleep, rios=RIOS):
     """perf.py ios. Returns (record, failures)."""
     stamp = None
     if args.stamp:
@@ -798,9 +940,17 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
     if args.expect_commit and (not stamp or not str(stamp.get("commit", "")).startswith(args.expect_commit) or stamp.get("dirty")):
         raise Refused(f"freshness mismatch: the stamp is {stamp and stamp.get('commit')} (dirty {stamp and stamp.get('dirty')}), not {args.expect_commit}")
     measuring = not getattr(args, "reparse", None)
-    if measuring and getattr(args, "conversation", "fixture") != condition.AS_INSTALLED:
-        raise Refused(NO_IOS_SEED)
-    if measuring and getattr(args, "mac", None) not in condition.MAC_STATES:
+    seeding = measuring and getattr(args, "conversation", "fixture") != condition.AS_INSTALLED
+    if seeding:
+        if not args.simulator:
+            raise Refused(NO_DEVICE_SEED)
+        if getattr(args, "mac", None) not in (None, "unreachable"):
+            raise Refused("the seeded conversation's pairing names a host that never resolves: the Mac is unreachable "
+                          "by construction (--mac unreachable, or leave --mac out)")
+        if getattr(args, "app_arg", None):
+            raise Refused("a launch argument (a Debug fixture) would replace the seeded conversation; the seeded "
+                          "condition launches the app with none")
+    elif measuring and getattr(args, "mac", None) not in condition.MAC_STATES:
         raise Refused("--conversation as-installed needs --mac reachable or --mac unreachable: the record states the "
                       "Mac's state even when it does not control the conversation")
     record = {"schema": perfcore.SCHEMA, "platform": "ios", "startedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -818,28 +968,11 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
         record["build"] = {"bundle": BUNDLE, "commit": stamp and stamp.get("commit"), "dirty": stamp and stamp.get("dirty"),
                            "installedSha256": installed, "builtSha256": stamp and stamp.get("sha256"),
                            "configuration": build_configuration(container)}
-        record["condition"] = _as_installed(args, record["build"])
-        if getattr(args, "xctrace", False):
-            failures += _trace_classes(record, Simctl(args.simulator, runner), args, runner, popen, sleep)
+        if seeding:
+            failures += _seeded_simulator(args, record, runner, popen, sleep, rios)
         else:
-            sim = Sim(args.simulator, runner)
-            samples, rejected = sim.cold(args.cold)
-            if samples:
-                record["metrics"]["coldLaunch"] = {"method": "simctl terminate; host clock before simctl launch to the app's "
-                                                   "'useful-content' signpost in the simulator log (one clock: the Mac's). "
-                                                   "Includes simctl's own launch overhead",
-                                                   "samplesMs": samples, "stats": perfcore.stats(samples),
-                                                   "budget": perfcore.compare("coldLaunch", perfcore.stats(samples)), "rejected": rejected}
-            else:
-                failures += 1
-                record["notMeasured"].append({"what": "coldLaunch", "why": "; ".join(r["why"] for r in rejected[:1]) or "no trial"})
-            try:
-                record["metrics"]["backgroundQuiet"] = {"method": "the simulated app is a Mac process: top idle wakeups, "
-                                                        "context switches and CPU time, nettop bytes, differenced over the window",
-                                                        **sim.background(args.background_seconds, args.background_settle)}
-            except Unmeasurable as e:
-                failures += 1
-                record["notMeasured"].append({"what": "backgroundQuiet", "why": str(e)})
+            record["condition"] = _as_installed(args, record["build"])
+            failures += _measure_simulator(args, record, runner, popen, sleep)
     else:
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "devices.json")
@@ -857,6 +990,99 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
     record["acceptance"] = ios_acceptance(record)
     record["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return record, failures
+
+
+def _seeded_simulator(args, record, runner, popen, sleep, rios):
+    """Seed FILE_FIXTURE as the app's saved state, measure, check the screen, and put the app's own
+    saved state back whatever happened. Nothing on the simulator changes before the fixture has been
+    written and checked on the Mac."""
+    configuration = record["build"]["configuration"]
+    if configuration not in condition.BUILDS:
+        raise Refused("the installed bundle is neither a Debug nor a Release build (development markers: some, not all), "
+                      "so the condition cannot name its build")
+    rows = getattr(args, "rows", None) or condition.FILE_DEFAULT_ROWS
+    state = SimState(args.simulator, runner)
+    scratch = tempfile.mkdtemp(prefix="rios-perf-seed-")
+    try:
+        report, files = app_state_files(rows, scratch, runner, rios)
+        cond = condition.for_app_state(rows, configuration, SEEDED_BY, report["written"], report["fixtureFiles"])
+        marker = condition.file_fixture_marker(rows)
+        cond["verified"] = {"row": marker, "onScreen": None, "why": "not checked yet"}
+        backup = state.read()
+        state.put(files)
+        record["condition"] = cond
+        record["conditions"] = {"fixture": condition.FILE_FIXTURE, "history": rows, "networkCondition": "mac-unreachable"}
+        record["route"] = {"name": "seeded fixture",
+                           "detail": "the seeded pairing names a host under .invalid and no device id: the app opens no "
+                                     "connection, so no Mac is reachable",
+                           "persistence": "production (the app's own Application Support/RichOS files)"}
+        record["phases"]["seed"] = "measured"
+        keep = None
+        if getattr(args, "evidence_dir", None) and evidence_root_ok(args.evidence_dir):
+            os.makedirs(args.evidence_dir, exist_ok=True)
+            keep = tempfile.mkdtemp(prefix="ios-screen-", dir=args.evidence_dir)
+        try:
+            return _measure_simulator(args, record, runner, popen, sleep,
+                                      check=lambda: screen_check(args.simulator, marker, keep, runner, sleep, rios))
+        finally:
+            try:
+                state.put(backup)
+                record["conditions"]["savedStateRestored"] = True
+            except (Unmeasurable, OSError) as e:
+                record["conditions"]["savedStateRestored"] = False
+                record["notMeasured"].append({"what": "the app's own saved state after the run",
+                                              "why": f"not put back: {e}"})
+    except condition.ConditionError as e:
+        raise Refused(str(e))
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _measure_simulator(args, record, runner, popen, sleep, check=None):
+    """The launch series, then `check` (the seeded conversation on screen) while the app is still
+    the one the series launched, then the background window."""
+    failures = 0
+    xctrace = getattr(args, "xctrace", False)
+    if xctrace:
+        failures += _trace_classes(record, Simctl(args.simulator, runner), args, runner, popen, sleep)
+    else:
+        sim = Sim(args.simulator, runner)
+        samples, rejected = sim.cold(args.cold)
+        if samples:
+            record["metrics"]["coldLaunch"] = {"method": "simctl terminate; host clock before simctl launch to the app's "
+                                               "'useful-content' signpost in the simulator log (one clock: the Mac's). "
+                                               "Includes simctl's own launch overhead",
+                                               "samplesMs": samples, "stats": perfcore.stats(samples),
+                                               "budget": perfcore.compare("coldLaunch", perfcore.stats(samples)), "rejected": rejected}
+        else:
+            failures += 1
+            record["notMeasured"].append({"what": "coldLaunch", "why": "; ".join(r["why"] for r in rejected[:1]) or "no trial"})
+    if check:
+        verified = check()
+        record["condition"]["verified"] = verified
+        for evidence in (record.get("evidence") or {}).values():  # a retained series reparses with its check
+            path = os.path.join(evidence, "series.json")
+            if os.path.isfile(path):
+                with open(path) as f:
+                    series = json.load(f)
+                series["condition"] = record["condition"]
+                with open(path, "w") as f:
+                    json.dump(series, f, indent=2)
+        if verified.get("onScreen") is not True:
+            failures += 1
+            record["notMeasured"].append({"what": "the seeded condition",
+                                          "why": "the seeded row was not seen on screen after the launches "
+                                                 f"({verified.get('why') or 'the screen showed something else'}); "
+                                                 "the record is never compared"})
+    if not xctrace:
+        try:
+            record["metrics"]["backgroundQuiet"] = {"method": "the simulated app is a Mac process: top idle wakeups, "
+                                                    "context switches and CPU time, nettop bytes, differenced over the window",
+                                                    **sim.background(args.background_seconds, args.background_settle)}
+        except Unmeasurable as e:
+            failures += 1
+            record["notMeasured"].append({"what": "backgroundQuiet", "why": str(e)})
+    return failures
 
 
 def ios_acceptance(record):

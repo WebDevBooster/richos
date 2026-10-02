@@ -24,8 +24,9 @@ recorded and the stamp of the APK it installed; a physical phone is named explic
 
 Every record names its condition (condition.py): the seeded made-up conversation (fixture, rows,
 SHA-256), the Mac's state and the build type. `android` seeds that conversation by default
-(--conversation fixture; a release build through --seed-twin); `ios` has no seeding path yet and
-needs --conversation as-installed, whose records are never compared. Every record `android`, `ios`
+(--conversation fixture; a release build through --seed-twin); `ios` seeds the same conversation
+on a simulator by default (`rios perf-seed`, the app's own core writing its saved state) and
+refuses an iPhone until its path exists, where --conversation as-installed is never compared. Every record `android`, `ios`
 and `merge` write is also compared with benchmarks.json, but only with a benchmark taken under the
 same condition; anything else is NOT COMPARED ("different conditions"). The result is the record's
 `benchmark`, and a slower build's `acceptance` reads REFUSED.
@@ -829,10 +830,15 @@ def parse_args(argv):
     i.add_argument("--background-seconds", type=float, default=60.0)
     i.add_argument("--background-settle", type=float, default=5.0)
     i.add_argument("--conversation", choices=("fixture", AS_INSTALLED), default="fixture",
-                   help="fixture (default) is refused until an iOS seeding path exists (README 'Conditions'); "
-                        "as-installed measures whatever the app holds, recorded as uncontrolled and never compared")
+                   help="fixture (default): Android's made-up conversation written as the app's saved state on a simulator "
+                        "(rios perf-seed), checked on screen after the launches, the app's own state put back after; an "
+                        "iPhone is refused until its path exists (README 'Conditions'). as-installed: whatever the app "
+                        "holds, recorded as uncontrolled and never compared")
+    i.add_argument("--rows", type=int, default=None,
+                   help=f"rows in the seeded conversation (default {condition.FILE_DEFAULT_ROWS}, Android's benchmark count)")
     i.add_argument("--mac", choices=condition.MAC_STATES,
-                   help="with --conversation as-installed: the Mac's state while measured, as the operator set it")
+                   help="the Mac's state while measured: unreachable by construction when seeded; with --conversation "
+                        "as-installed, as the operator set it")
     i.add_argument("--benchmark", help="the benchmark file the record is judged against (default: the private benchmark file, see benchmark.py)")
     s = sub.add_parser("stamp", help="the identity of a build artifact")
     s.add_argument("--artifact", required=True)

@@ -23,7 +23,9 @@ Two seeded conversations exist:
                     files/core), generated here; the pairing names a host under `.invalid`, a
                     name that never resolves (RFC 6761), so the Mac is unreachable by
                     construction. Ported from andy-opus-coldstart1's genstate.py (2026-10-02);
-                    byte-identical output for the same row count.
+                    byte-identical output for the same row count. The iPhone is given the same
+                    files, translated by its own core into its saved state (`rios perf-seed`,
+                    for_app_state): the same conversation, named by the same SHA-256.
     BRIDGE_FIXTURE  the Debug build's development bridge: a `hello` frame of synthetic rows
                     (android.history_frame), fed with the scripted Mac set unreachable.
 
@@ -128,6 +130,18 @@ def for_files(rows, build, seeded_by):
     return seeded(FILE_FIXTURE, rows, _manifest_sha256(files), "unreachable", build, seeded_by, files)
 
 
+def for_app_state(rows, build, seeded_by, written, fixture_files):
+    """FILE_FIXTURE given to an app whose saved state has another shape (the iPhone's): the same
+    conversation, so the same fixture name, rows and SHA-256 as on Android (`fixture_files` are the
+    fixture's own files, checked against it here); `files` are the files that app was given."""
+    cond = for_files(rows, build, seeded_by)
+    if fixture_files != cond["conversation"]["files"]:
+        raise ConditionError(f"the seeded fixture files {fixture_files} are not {FILE_FIXTURE} x{rows}")
+    cond["conversation"]["fixtureFiles"] = cond["conversation"].pop("files")
+    cond["conversation"]["files"] = dict(sorted(written.items()))
+    return cond
+
+
 def for_bridge(rows, frame, mac, build):
     """The condition of BRIDGE_FIXTURE: `frame` is the hello frame that was fed."""
     sha = hashlib.sha256(json.dumps(frame, sort_keys=True).encode()).hexdigest()
@@ -151,9 +165,14 @@ def why_not_comparable(record_condition, bench_condition):
     if _lookup(record_condition, "conversation.fixture") == AS_INSTALLED:
         return (f"{DIFFERENT}: the record's conversation is {AS_INSTALLED} (not a seeded fixture), "
                 "so nothing taken under a fixed condition can be compared with it")
-    if (record_condition.get("verified") or {}).get("onScreen") is False:
-        return (f"{DIFFERENT}: the seeded row {record_condition['verified'].get('row')!r} was not on screen "
+    verified = record_condition.get("verified")
+    if verified is not None and verified.get("onScreen") is False:
+        return (f"{DIFFERENT}: the seeded row {verified.get('row')!r} was not on screen "
                 "after the cold series, so the app did not launch into the conversation it was given")
+    if verified is not None and verified.get("onScreen") is not True:
+        # A record that carries a check names its result; an unfinished check is never a pass.
+        return (f"{DIFFERENT}: whether the seeded row {verified.get('row')!r} was on screen after the launches "
+                f"is unknown ({verified.get('why') or 'the check did not run'}), so the seeding is not verified")
     if not bench_condition:
         return f"{DIFFERENT}: the benchmark class names no condition yet (it has no number taken under one)"
     diffs = [f"{k} is {_lookup(record_condition, k)!r} here, {_lookup(bench_condition, k)!r} in the benchmark"

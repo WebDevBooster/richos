@@ -26,8 +26,9 @@ python3 richos/mobile/perf/perf.py android --production --route managed --adb <a
   --stamp <apk>.stamp.json --seed-twin <debug.apk> --out <file.json>
 
 # iOS: a named simulator or physical iPhone; trace series retain every raw trace (see "iOS launch and return").
-# No iOS seeding path exists yet, so the condition is named explicitly and the record is never compared
-richos/mobile/native-ios/bin/rios perf --simulator <UDID> --stamp <stamp.json> --conversation as-installed --mac unreachable --out <file.json>
+# A simulator is seeded with Android's made-up conversation by default and the app's own state is put back after
+richos/mobile/native-ios/bin/rios perf --simulator <UDID> --stamp <stamp.json> --out <file.json>
+# An iPhone has no seeding path yet, so the condition is named explicitly and the record is never compared
 richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 100 --out <file.json>
 richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --conversation as-installed --mac reachable --evidence-dir /Volumes/E1TB/reports/<run> --cold 0 --warm 100 --out <file.json>
 richos/mobile/native-ios/bin/rios perf --reparse <series-dir> --out <file.json>   # re-read retained traces, capture nothing
@@ -152,11 +153,34 @@ only worth keeping if two builds are measured the same way, so:
   The default sizes are the ones the established benchmarks were taken with. `--rows N` is a
   different condition. After the cold series the tool checks the seeded conversation's marker row is
   on screen. If it is not, the condition is marked unverified and the record is never compared.
+- **`perf.py ios` seeds the same conversation on a simulator by default** (`--conversation fixture`):
+  - `condition.py` writes Android's fixture files (`synthetic-conversation/1`, 100 rows by default),
+    and `bin/rios perf-seed` turns them into the iPhone app's own saved state (`state.json` and
+    `history.json`) through the app's own core. It refuses unless the files' SHA-256 manifest is the
+    condition's, and unless the core loads every row back. So the iPhone is given the same
+    conversation as the Android phone, named by the same SHA-256. The record also names the files
+    the app was given (`conversation.files`).
+  - The tool terminates the app, keeps a copy of its saved state, copies the seeded files into the
+    simulator's data container (`Library/Application Support/RichOS`) and reads them back. After the
+    measurement it puts the app's own saved state back (`conditions.savedStateRestored`).
+  - The pairing names a host under `.invalid` and no device id. With a device id, the app would look
+    for this phone's own key for that Mac, which only a real pairing creates; finding none, it treats
+    the pairing as removed and leaves the conversation. Without one, it opens no connection at all, so
+    the Mac is unreachable. (Android's app tries the `.invalid` host and fails to resolve it.)
+  - **Nothing of this is in any app build.** The seeder is the core package's `RichOSPerfSeed`
+    target, which is not a product, so the app's project cannot link it. The Release app that is
+    measured is the stamped bundle with no launch argument. `rios sim check-release` proves the
+    seeder's marker is absent from the Debug and Release bundles and present in `rios-cli`.
+  - After the launches the tool brings the app to the front, takes a screenshot and reads its text
+    with the Mac's Vision framework (`bin/rios screen-text`). The newest seeded CEO row must be on
+    screen. If it is not, or the screen cannot be read, the record names that and is never compared.
+  - A Debug launch argument (`--app-arg`) or `--mac reachable` is refused before anything changes.
+  - **An iPhone is refused for now.** It needs `devicectl` copies into the app data container, with
+    a backup of the phone's own saved state, and an on-screen check through the phone's UI-test
+    runner. Neither has been run on a phone yet.
 - **`--conversation as-installed`** measures whatever the app holds. The record says so, and is never
-  compared with anything. **`perf.py ios` has no seeding path yet:** a Release build takes no fixture
-  argument and its saved state cannot be written from the Mac by this tool. So it refuses the default
-  and needs `--conversation as-installed --mac reachable|unreachable`. Until an iOS seeding path exists,
-  no iOS record is compared.
+  compared with anything. On an iPhone it is the only choice until the iPhone path exists:
+  `--conversation as-installed --mac reachable|unreachable`.
 - **`perf.py compare` compares a record only with a class whose device matches and whose condition is
   equal on every key.** A device match under another condition, a record that names no condition, an
   as-installed record or an unverified one is NOT COMPARED with the reason "different conditions".
@@ -190,7 +214,8 @@ has a number for it; anything else is listed as NOT COMPARED with the reason, ne
 **What still needs a phone.** The comparison only judges a record that exists, and a phone record
 exists only when someone runs the series. On the Android phone that is
 `perf.py android --production ... --kind physical --seed-twin <debug.apk> --only cold,warm --cold 100 --warm 100`.
-No iPhone benchmark can exist until an iOS seeding path does (see "Conditions"). No commit
+No iPhone benchmark can exist until the iPhone seeding path does (see "Conditions"; a simulator
+is seeded, but simulator numbers are never a phone benchmark). No commit
 runs a phone. The fixture suite (`mobile-perf.test.sh`) runs on any change to this tool.
 
 **Raising a number.** A faster series is reported as FASTER and changes nothing by itself.
@@ -338,8 +363,15 @@ the committed emulator numbers recompute exactly from the committed baseline. Th
 (C1-C7): the same condition and slower is refused; a different condition, none, as-installed or an
 unverified seed is not compared, slower or faster; the seeded files are the 2026-10-02 fixture byte
 for byte; twin and run-as seeding against a scripted adb (a release build without a twin is refused
-untouched); declarations; benchmark files without conditions; iOS refusing the default. No emulator,
-simulator, build or window.
+untouched); declarations; benchmark files without conditions; an iPhone refusing the default. C9-C12:
+on a scripted simulator, the app is given exactly what `rios perf-seed` wrote from Android's fixture,
+the record states the same condition and its on-screen check, the app's own state is put back; an
+unseen or unreadable screen is never compared; refusals leave the simulator untouched; no app target
+can link the seeder. No emulator, simulator, build or window.
+
+`bin/rios test --filter PerfSeedTests` (the core's tests, on this Mac): the seeder takes condition.py's
+own output, writes all 100 rows as the app's saved state and loads them back through the core;
+changed bytes and a conversation the app would not keep whole are refused.
 
 ## Production journeys and markers (24 September follow-up)
 

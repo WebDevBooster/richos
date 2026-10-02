@@ -1759,10 +1759,11 @@ def _():
                                           write(tmp, "e.json", dict(retired, retired=[{"name": "x"}])))
 
 
-@case("C7 iOS: the default is refused until a seeding path exists; as-installed states the Mac; merge and a pair refuse mixed conditions")
+@case("C7 iOS: an iPhone's default is refused until its path exists; as-installed states the Mac; merge and a pair refuse mixed conditions")
 def _():
-    msg = raises(perfcore.Refused, ios.run_ios, ios_args(conversation="fixture"), runner=devicectl_listing)
-    assert "no seeded conversation" in msg and "as-installed" in msg, msg
+    touched = []
+    msg = raises(perfcore.Refused, ios.run_ios, ios_args(conversation="fixture"), runner=lambda cmd, **kw: touched.append(cmd))
+    assert "simulator only" in msg and "as-installed" in msg and not touched, (msg, touched)
     assert "--mac" in raises(perfcore.Refused, ios.run_ios, ios_args(mac=None), runner=devicectl_listing)
     from unittest.mock import patch
     sample = {**ios.launch_sample(launch_tables()), "trial": 1, "trace": "/t/launch-0001.trace", "exportAttempts": 5}
@@ -1809,6 +1810,193 @@ def _():
         with open(os.path.join(wt, ".git"), "w") as f:
             f.write(f"gitdir: {os.path.join(tmp, 'elsewhere', '.git', 'worktrees', 'someone')}\n")
         assert benchmark._display(inside) == inside
+
+
+# ---------------------------------------------------------------------------------------------
+# the iPhone app under the same condition: Android's conversation as its saved state (simulator)
+# ---------------------------------------------------------------------------------------------
+
+UDID = "11111111-2222-3333-4444-555555555555"
+
+
+class FakeSimulator:
+    """simctl, `rios perf-seed` and `rios screen-text` for one booted simulator: the app's data
+    container is a real directory, so what a launch would read is what is on disk at that moment."""
+
+    def __init__(self, tmp, screen=None, seed_fails=False, read_fails=False):
+        self.app = os.path.join(tmp, "RichOSNative.app")
+        self.data = os.path.join(tmp, "data")
+        os.makedirs(self.app, exist_ok=True)
+        with open(os.path.join(self.app, "RichOSNative"), "wb") as f:
+            f.write(b"release bytes")  # no development marker: a Release bundle
+        self.state = os.path.join(self.data, ios.STATE_DIR)
+        os.makedirs(self.state, exist_ok=True)
+        with open(os.path.join(self.state, "state.json"), "wb") as f:
+            f.write(b'{"the person\'s own":"state"}')  # history.json absent before the run
+        self.screen, self.seed_fails, self.read_fails = screen, seed_fails, read_fails
+        self.calls, self.fixture_seen, self.written = [], None, None
+
+    def now(self):
+        return {n: open(os.path.join(self.state, n), "rb").read() for n in sorted(os.listdir(self.state))}
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(cmd)
+        ok = lambda out="": subprocess.CompletedProcess(cmd, 0, out, "")
+        if cmd[:4] == ["xcrun", "simctl", "list", "devices"]:
+            return ok(json.dumps({"devices": {"com.apple.CoreSimulator.SimRuntime.iOS-26-3": [
+                {"udid": UDID, "state": "Booted", "name": "iPhone 16 Pro"}]}}))
+        if cmd[:3] == ["xcrun", "simctl", "get_app_container"]:
+            return ok(self.app if cmd[-1] == "app" else self.data)
+        if cmd[0] == ios.RIOS and cmd[1] == "perf-seed":
+            fixture, expected, out = cmd[2], cmd[3], cmd[4]
+            files = {n: open(os.path.join(fixture, n), "rb").read() for n in sorted(os.listdir(fixture))}
+            self.fixture_seen = (files, expected)
+            if self.seed_fails or condition._manifest_sha256(files) != expected:
+                return subprocess.CompletedProcess(cmd, 1, "", json.dumps({"ok": False, "error": "refused"}))
+            os.makedirs(out)
+            self.written = {"state.json": b'{"schema":2,"seeded":true}', "history.json": b'{"messages":"100 rows"}'}
+            for name, data in self.written.items():
+                with open(os.path.join(out, name), "wb") as f:
+                    f.write(data)
+            import hashlib
+            sha = lambda b: hashlib.sha256(b).hexdigest()
+            return ok(json.dumps({"ok": True, "result": {
+                "fixture": "synthetic-conversation/1", "fixtureSha256": expected, "rows": json.loads(files["history.json"])["cursor"] // 2,
+                "fixtureFiles": {n: sha(b) for n, b in files.items()}, "written": {n: sha(b) for n, b in self.written.items()}}}))
+        if cmd[:4] == ["xcrun", "simctl", "io", UDID]:
+            with open(cmd[-1], "wb") as f:
+                f.write(b"png")
+            return ok()
+        if cmd[0] == ios.RIOS and cmd[1] == "screen-text":
+            if self.read_fails:
+                return subprocess.CompletedProcess(cmd, 1, "", json.dumps({"ok": False, "error": "Vision failed"}))
+            return ok(json.dumps({"ok": True, "result": {"lines": self.screen or []}}))
+        return ok()  # terminate, launch
+
+
+def seeded_args(**over):
+    return ios_args(**dict(dict(simulator=UDID, device=None, conversation="fixture", mac=None, rows=None,
+                                evidence_dir=None, background_seconds=1.0, background_settle=0.0), **over))
+
+
+def run_seeded(sim, **over):
+    """run_ios against `sim`; the cold series and background window are replaced, and the cold series
+    records what the app would have read at launch."""
+    from unittest.mock import patch
+    seen = {}
+    def cold(self, trials):
+        seen["atLaunch"] = sim.now()
+        return [500, 520], []
+    with patch.object(ios.Sim, "cold", cold), \
+         patch.object(ios.Sim, "background", lambda self, s, t: {"seconds": s, "idleWakeups": 0}):
+        record, failed = ios.run_ios(seeded_args(**over), runner=sim, sleep=lambda s: None)
+    return record, failed, seen
+
+
+NEWEST_CEO = "Perf probe 50: what is on my plate this afternoon?"
+
+
+@case("C9 iOS seeding gives the app exactly Android's fixture, states the same condition, checks the screen and puts the app's own state back")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        sim = FakeSimulator(tmp, screen=["Rich", "Perf probe 50: what is on my plate this", "afternoon?", "Message Rich"])
+        before = sim.now()
+        stamp = write(tmp, "stamp.json", {"commit": "c" * 40, "dirty": False, "sha256": perfcore.tree_sha256(sim.app)})
+        record, failed, seen = run_seeded(sim, stamp=stamp, expect_commit="ccccccc")
+        files, expected = sim.fixture_seen
+        # what perf-seed was given is Android's fixture byte for byte, named by the condition's SHA-256
+        assert files == condition.file_fixture(100) and expected == COND["conversation"]["sha256"], sorted(files)
+        # what the app read at launch is exactly what perf-seed wrote: nothing more, nothing else
+        assert seen["atLaunch"] == sim.written, seen
+        cond = record["condition"]
+        assert condition.same(cond, COND) and cond["build"] == "release" and cond["mac"] == "unreachable", cond
+        assert cond["conversation"]["fixtureFiles"] == condition.for_files(100, "release", "x")["conversation"]["files"]
+        assert set(cond["conversation"]["files"]) == {"history.json", "state.json"} and "rios perf-seed" in cond["conversation"]["seededBy"]
+        assert cond["verified"]["onScreen"] is True and cond["verified"]["row"] == NEWEST_CEO, cond["verified"]
+        assert condition.why_not_comparable(cond, COND) is None
+        assert record["conditions"] == {"fixture": "synthetic-conversation/1", "history": 100,
+                                        "networkCondition": "mac-unreachable", "savedStateRestored": True}, record["conditions"]
+        assert record["route"]["name"] == "seeded fixture" and not failed, (record["route"], failed)
+        assert sim.now() == before, sim.now()  # the person's own state is back; the seeded history is gone
+        # the app was terminated before its files changed, and launched for the screen check
+        first_write = next(i for i, c in enumerate(sim.calls) if c[:3] == ["xcrun", "simctl", "terminate"])
+        assert first_write < next(i for i, c in enumerate(sim.calls) if c[:4] == ["xcrun", "simctl", "io", UDID])
+        assert not perfcore.check_record(record), perfcore.check_record(record)
+
+
+@case("C10 iOS: a seeded record whose conversation was not seen on screen, or whose screen could not be read, is never compared")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = bench_file(tmp)
+        for sim, said in ((FakeSimulator(tmp + "/a", screen=["Pair with your Mac"]), "was not on screen"),
+                          (FakeSimulator(tmp + "/b", read_fails=True), "is unknown")):
+            before = sim.now()
+            record, failed, _ = run_seeded(sim)
+            cond = record["condition"]
+            assert failed and cond["verified"]["onScreen"] is not True, cond["verified"]
+            assert said in condition.why_not_comparable(cond, COND)
+            assert any(g["what"] == "the seeded condition" for g in record["notMeasured"]), record["notMeasured"]
+            assert sim.now() == before  # restored either way
+            for cold in (900.0, 700.0):  # neither a pass nor a fail: NOT COMPARED, exit 5
+                out = run_perf("compare", write(tmp, "r.json", bench_record(cold=p95_of(cold), cond=cond)), "--benchmark", path)
+                assert out.returncode == 5 and said in out.stdout and "SLOWER" not in out.stdout, (out.returncode, out.stdout)
+        # a verified one is compared under the same benchmark
+        record, _, _ = run_seeded(FakeSimulator(tmp + "/c", screen=[NEWEST_CEO]))
+        out = run_perf("compare", write(tmp, "r.json", bench_record(cold=p95_of(900.0), cond=record["condition"])), "--benchmark", path)
+        assert out.returncode == 4 and re.search(r"^coldLaunch\s+SLOWER", out.stdout, re.M), out.stdout
+        # a retained trace series reparsed without its check is unknown too, never a pass
+        series = {"class": "cold", "device": {"kind": "simulator"}, "build": {}, "condition": condition.for_files(100, "release", "x")}
+        d = os.path.join(tmp, "series")
+        os.makedirs(d)
+        write(d, "series.json", series)
+        from unittest.mock import patch
+        with patch.object(ios, "reparse", return_value=([], [{"why": "fixture"}])):
+            record, _ = ios.run_ios(ios_args(device=None, reparse=d), runner=lambda *a, **k: None)
+        assert "is unknown" in condition.why_not_comparable(record["condition"], COND)
+
+
+@case("C11 iOS seeding refuses before the simulator changes: a fixture perf-seed rejects, a Debug launch argument, a reachable Mac")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        sim = FakeSimulator(tmp, seed_fails=True)
+        before = sim.now()
+        assert "rios perf-seed exited 1: refused" in raises(perfcore.Unmeasurable, run_seeded, sim)
+        assert sim.now() == before and not any(c[:3] == ["xcrun", "simctl", "terminate"] for c in sim.calls), sim.calls
+        for over, said in (({"app_arg": ["-rios-fixture", "conv-long"]}, "launch argument"), ({"mac": "reachable"}, "unreachable")):
+            sim = FakeSimulator(tmp + "/" + said.replace(" ", "-"))
+            assert said in raises(perfcore.Refused, run_seeded, sim, **over)
+            assert sim.calls == [], sim.calls
+
+
+IOS = os.path.join(MOBILE, "native-ios")
+
+
+@case("C12 no app build has a seeding path: the app links only the core's products, the seeder is no product, and check-release searches both bundles for its marker")
+def _():
+    with open(os.path.join(IOS, "Core", "Package.swift")) as f:
+        package = f.read()
+    products = package[package.index("products: ["):package.index("targets: [")]
+    assert "RichOSPerfSeed" not in products, products  # only products can be linked by the app's project
+    assert '.target(name: "RichOSPerfSeed", dependencies: ["RichOSCore"]' in package
+    with open(os.path.join(IOS, "project.yml")) as f:
+        project = f.read()
+    assert "PerfSeed" not in project, "the app's project names the seeder"
+    for top in ("App", "DevBridge", "NotificationService", "ShareExtension"):
+        for root, _, names in os.walk(os.path.join(IOS, top)):
+            for name in names:
+                if name.endswith(".swift"):
+                    with open(os.path.join(root, name)) as f:
+                        text = f.read()
+                    assert "PerfSeed" not in text and "rios-perf-seed-fixture-writer" not in text, os.path.join(root, name)
+    with open(os.path.join(IOS, "Core", "Sources", "RichOSPerfSeed", "PerfSeed.swift")) as f:
+        assert 'public static let marker = "rios-perf-seed-fixture-writer"' in f.read()
+    with open(os.path.join(IOS, "Core", "Sources", "RichOSCLI", "Simulator.swift")) as f:
+        sim = f.read()
+    check = sim[sim.index("func checkRelease()"):sim.index("func stop()")]
+    assert "seedingMarkers" in check and "rios-cli" in check, "check-release must search both bundles and probe the CLI"
+    assert "static let seedingMarkers = [PerfSeed.marker]" in sim
+    # longer than Swift's 15-byte small strings, so the literal is stored whole and a byte search can find it
+    assert len("rios-perf-seed-fixture-writer") > 15
 
 
 if __name__ == "__main__":
