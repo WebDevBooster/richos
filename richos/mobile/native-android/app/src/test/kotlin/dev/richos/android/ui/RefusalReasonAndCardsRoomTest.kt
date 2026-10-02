@@ -75,8 +75,8 @@ class RefusalReasonAndCardsRoomTest {
         }
     }
 
-    private fun refused(reason: String?): ScreenModel {
-        val base = ScreenCatalog.model("conv-retry", Theme.LIGHT, 412f)
+    private fun refused(reason: String?, theme: Theme = Theme.LIGHT): ScreenModel {
+        val base = ScreenCatalog.model("conv-retry", theme, 412f)
         return base.copy(app = base.app.copy(outbox = base.app.outbox.map {
             it.copy(state = OutboxState.BLOCKED, lastReason = reason)
         }))
@@ -102,6 +102,22 @@ class RefusalReasonAndCardsRoomTest {
     @Test
     fun `a bare code shows no extra line`() {
         compose.setContent { RichApp(refused("refused"), onEvent = {}) }
+        compose.waitForIdle()
+        compose.onNodeWithText("Discard").assertExists()
+        compose.onNodeWithText("refused").assertDoesNotExist()
+    }
+
+    @Test
+    fun `dark - the screen shows the reason under the line, beside Discard`() {
+        compose.setContent { RichApp(refused(heard, Theme.DARK), onEvent = {}) }
+        compose.waitForIdle()
+        compose.onNodeWithText("Discard").assertExists()
+        compose.onNodeWithText(heard).assertExists()
+    }
+
+    @Test
+    fun `dark - a bare code shows no extra line`() {
+        compose.setContent { RichApp(refused("refused", Theme.DARK), onEvent = {}) }
         compose.waitForIdle()
         compose.onNodeWithText("Discard").assertExists()
         compose.onNodeWithText("refused").assertDoesNotExist()
