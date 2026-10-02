@@ -334,10 +334,38 @@ SHA = "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf"
 class FakeAdb:
     """Answers the adb commands the run issues, as the API 34 emulator did; records them all."""
 
-    def __init__(self, installed=SHA, qemu="1", pid_changes_on_warm=False):
+    def __init__(self, installed=SHA, qemu="1", pid_changes_on_warm=False, debuggable=True, apks=None):
         self.calls, self.installed, self.qemu = [], installed, qemu
         self.cold_next, self.pid, self.pid_changes = True, 5911, pid_changes_on_warm
         self.state = {"draft": "", "messages": [], "paired": True}
+        self.debuggable, self.apks = debuggable, apks or {}  # apks: local path -> (sha256, debuggable)
+        self.pushed, self.core = {}, {}  # device path -> bytes; files/core name -> bytes (the app's data)
+        self.ui_text = "Synthetic message 4 for the launch"  # the newest row a UI dump shows
+
+    def file_command(self, args):
+        """push, install, uninstall and run-as against an app whose data is `self.core`."""
+        import hashlib
+        cmd = " ".join(args[1:]) if args[0] == "shell" else None
+        if args[0] == "push":
+            with open(args[1], "rb") as f:
+                self.pushed[args[2]] = f.read()
+        elif args[0] == "uninstall":
+            self.installed, self.core = None, {}
+        elif args[0] == "install":
+            self.installed, self.debuggable = self.apks[args[-1]]
+        elif cmd and cmd.startswith("run-as dev.richos.connect"):
+            if not self.debuggable:
+                return "run-as: package not debuggable: dev.richos.connect"
+            rest = cmd.split(" ", 2)[2]
+            if rest.startswith("cp "):
+                _, src, dst = rest.split()
+                self.core[dst.split("/")[-1]] = self.pushed[src]
+            elif rest.startswith("sha256sum "):
+                name = rest.split("/")[-1]
+                return f"{hashlib.sha256(self.core[name]).hexdigest()}  files/core/{name}" if name in self.core else ""
+        else:
+            return None
+        return ""
 
     def bridge(self, cmd):
         command = re.search(r"--es command (\S+)", cmd).group(1)
@@ -355,6 +383,9 @@ class FakeAdb:
         args = argv[3:]
         cmd = " ".join(args[1:]) if args[0] == "shell" else " ".join(args)
         self.calls.append(cmd)
+        out = self.file_command(args)
+        if out is not None:
+            return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
         out = ""
         if cmd.startswith("getprop ro.kernel.qemu"):
             out = self.qemu
@@ -365,7 +396,8 @@ class FakeAdb:
         elif cmd.startswith("sha256sum"):
             out = f"{self.installed}  /data/app/base.apk"
         elif cmd.startswith("dumpsys package"):
-            out = "versionName=0.1.0-dev\n    versionCode=1 minSdk=29\n    pkgFlags=[ DEBUGGABLE HAS_CODE ]\n    appId=10192"
+            flags = "DEBUGGABLE HAS_CODE" if self.debuggable else "HAS_CODE"
+            out = f"versionName=0.1.0-dev\n    versionCode=1 minSdk=29\n    pkgFlags=[ {flags} ]\n    appId=10192"
         elif cmd.startswith("am broadcast"):
             out = self.bridge(cmd)
         elif cmd.startswith("am force-stop"):
@@ -382,7 +414,7 @@ class FakeAdb:
         elif cmd.startswith("pidof"):
             out = str(self.pid)
         elif cmd.startswith("exec-out cat /sdcard"):
-            out = ('<?xml version="1.0"?><hierarchy><node text="Synthetic message 4 for the launch" content-desc="" bounds="[0,0][1,1]"/>'
+            out = (f'<?xml version="1.0"?><hierarchy><node text="{self.ui_text}" content-desc="" bounds="[0,0][1,1]"/>'
                    '<node text="" content-desc="Message Rich" bounds="[21,2179][1059,2316]"/></hierarchy>')
         elif "gfxinfo" in cmd and "framestats" in cmd:
             out = "Window: dev.richos.connect/dev.richos.android.app.MainActivity\nTotal frames rendered: 0\n"
@@ -426,6 +458,10 @@ def _():
         assert record["build"]["commit"].startswith("b4b1b517") and record["build"]["configuration"] == "debug"
         assert record["acceptance"]["verdict"] == "NOT VERIFIED" and record["device"]["kind"] == "emulator"
         assert record["conditions"]["transport"] == "unreachable"  # launch never waits on the network (Sage T6)
+        cond = record["condition"]  # the default: a seeded conversation of a stated size, the Mac's state stated
+        assert (cond["conversation"]["fixture"], cond["conversation"]["rows"], cond["mac"], cond["build"]) == \
+            ("devbridge-hello/1", 4, "unreachable", "debug"), cond
+        assert cond["verified"] == {"row": "Synthetic message 4 ", "onScreen": True}, cond
         assert touched, "the emulator lease was never renewed"
         assert "dumpsys battery reset" in fake.calls  # the unplugged state is always put back
         assert any("sendToQueued" in g["what"] for g in record["notMeasured"])
@@ -438,13 +474,14 @@ def _():
             raise AssertionError("production run invoked the development bridge")
     with tempfile.TemporaryDirectory() as tmp:
         record, failures_ = perf.run_android(
-            android_args(tmp, production=True, route="tailnet", only="cold,warm"),
+            android_args(tmp, production=True, route="tailnet", only="cold,warm", conversation="as-installed"),
             runner=ProductionAdb(), sleep=lambda s: None, log=quiet, host=lambda: {})
         assert failures_ == 0, record["phases"]
         assert record["route"]["name"] == "tailnet"
         assert record["route"]["persistence"] == "production"
         assert record["conditions"]["productionControls"] is True
         assert "seed" not in record["phases"]
+        assert record["condition"]["conversation"]["fixture"] == "as-installed", record["condition"]
 
 
 @case("R9 production Send timing records its method without invoking the bridge")
@@ -453,7 +490,7 @@ def _():
     with tempfile.TemporaryDirectory() as tmp:
         with patch.object(android.Measure, "tap", return_value={"samples": [20], "settled": [30], "burstFrames": [], "rejected": []}):
             record, failures_ = perf.run_android(
-                android_args(tmp, production=True, exercise_sends=True, route="managed", only="tap"),
+                android_args(tmp, production=True, exercise_sends=True, route="managed", only="tap", conversation="as-installed"),
                 runner=FakeAdb(), sleep=lambda s: None, log=quiet, host=lambda: {})
         assert failures_ == 0, record["phases"]
         assert "real controls" in record["metrics"]["tapToFeedback"]["method"]
@@ -464,7 +501,7 @@ def _():
     with tempfile.TemporaryDirectory() as tmp:
         fake = FakeAdb(qemu="0")
         record, failures_ = perf.run_android(
-            android_args(tmp, kind="physical", production=True, route="managed", only="background"),
+            android_args(tmp, kind="physical", production=True, route="managed", only="background", conversation="as-installed"),
             runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
         assert failures_ == 0, record["phases"]
         assert record["metrics"]["backgroundQuiet"]["zeroWork"] is None
@@ -1050,7 +1087,8 @@ def _():
 
 def ios_args(**over):
     base = dict(simulator=None, device="test-device", reparse=None, stamp=None, expect_commit=None, cold=1, warm=0,
-                evidence_dir="unused", away=2.0, trace_seconds=10, app_arg=None, xctrace=False)
+                evidence_dir="unused", away=2.0, trace_seconds=10, app_arg=None, xctrace=False,
+                conversation="as-installed", mac="reachable")
     base.update(over)
     return types.SimpleNamespace(**base)
 
@@ -1265,17 +1303,24 @@ def _():
 # ---------------------------------------------------------------------------------------------
 
 import benchmark  # noqa: E402
+import condition  # noqa: E402
 
 PERF_PY = os.path.join(PERF, "perf.py")
+# The fixture class's condition: the made-up conversation of 100 rows, the Mac unreachable, release.
+COND = condition.for_files(100, "release", "fixture")
+KEEP = object()
 
 
-def bench_record(cold=None, warm=None, model="Fixture Phone", kind="physical", built="a" * 64, dirty=False):
-    """A sound record of the fixture class; `cold` and `warm` are sample lists (None leaves the metric out)."""
+def bench_record(cold=None, warm=None, model="Fixture Phone", kind="physical", built="a" * 64, dirty=False, cond=KEEP):
+    """A sound record of the fixture class; `cold` and `warm` are sample lists (None leaves the metric out).
+    `cond` is its condition (default the fixture class's; None writes none)."""
     r = {"schema": perfcore.SCHEMA, "platform": "android", "startedAt": "2026-10-01T12:00:00Z",
          "build": {"commit": "b" * 40, "dirty": dirty, "builtSha256": built, "installedSha256": built, "configuration": "release"},
          "device": {"kind": kind, "model": model}, "route": {"name": "managed"},
-         "conditions": {"networkCondition": "live"}, "metrics": {}, "notMeasured": [],
+         "conditions": {"networkCondition": "mac-unreachable"}, "metrics": {}, "notMeasured": [],
          "acceptance": {"verdict": "NOT VERIFIED", "why": ["fixture"]}}
+    if cond is not None:
+        r["condition"] = json.loads(json.dumps(COND if cond is KEEP else cond))
     for name, samples in (("coldLaunch", cold), ("warmResume", warm)):
         if samples is not None:
             r["metrics"][name] = {"method": "fixture", "samplesMs": samples, "stats": perfcore.stats(samples)}
@@ -1294,10 +1339,9 @@ def bench_file(tmp, cold=800.0, warm=100.0, cold_allow=5.0, warm_allow=10.0):
                 "noiseSeries": [dict(source, n=100, p95Ms=p95, bootstrapSeMs=1.0, twoRunBoundMs=1.0, twoRunBoundPercent=allow)]}
     bench = {"schema": benchmark.SCHEMA, "classes": [
         {"name": "fixture-phone", "match": {"platform": "android", "device.kind": "physical", "device.model": "Fixture Phone",
-                                             "build.configuration": "release", "route.name": "managed",
-                                             "conditions.networkCondition": "live"},
+                                             "build.configuration": "release"}, "condition": COND,
          "metrics": {"coldLaunch": entry(cold, cold_allow), "warmResume": entry(warm, warm_allow)}},
-        {"name": "fixture-never", "match": {"platform": "ios", "device.kind": "physical"}, "metrics": {},
+        {"name": "fixture-never", "match": {"platform": "ios", "device.kind": "physical"}, "condition": COND, "metrics": {},
          "neverEstablished": "never measured as a distribution: fixture"}]}
     path = os.path.join(tmp, "benchmarks.json")
     with open(path, "w") as f:
@@ -1432,18 +1476,24 @@ def _():
 @case("G7 every record perf.py writes is judged: merge and a measurement run exit 4 when slower and the record reads REFUSED")
 def _():
     parts_dir = os.path.join(BASELINES, "2026-09-24-richconnect-android-perf-baseline", "parts")
-    parts = [os.path.join(parts_dir, p) for p in sorted(os.listdir(parts_dir))]
     with tempfile.TemporaryDirectory() as tmp:
+        # the baseline's own condition (40 bridge rows, the scripted Mac unreachable, Debug), written into copies
+        cond = condition.for_bridge(40, android.history_frame(40), "unreachable", "debug")
+        parts = []
+        for p in sorted(os.listdir(parts_dir)):
+            with open(os.path.join(parts_dir, p)) as f:
+                part = json.load(f)
+            part["condition"] = cond
+            parts.append(write(tmp, "part-" + p, part))
         # a fixture benchmark of the baseline's own class, established from the baseline itself
         absent = os.path.join(tmp, "absent.json")
         out = run_perf("merge", *parts, "--out", os.path.join(tmp, "first.json"), "--benchmark", absent)
         assert out.returncode == 0 and "no private benchmark file" in out.stderr, (out.returncode, out.stderr)
         with open(os.path.join(tmp, "first.json")) as f:
             first = json.load(f)
-        match = {k: benchmark.lookup(first, k) for k in ("platform", "device.kind", "device.model", "build.configuration",
-                                                          "route.name", "conditions.networkCondition")}
-        fixture = {"schema": benchmark.SCHEMA, "classes": [{"name": "fixture-emulator", "match": match, "metrics": {},
-                                                              "neverEstablished": "fixture"}]}
+        match = {k: benchmark.lookup(first, k) for k in ("platform", "device.kind", "device.model", "build.configuration")}
+        fixture = {"schema": benchmark.SCHEMA, "classes": [{"name": "fixture-emulator", "match": match, "condition": cond,
+                                                              "metrics": {}, "neverEstablished": "fixture"}]}
         benchmark.update(fixture, [os.path.join(tmp, "first.json")])
         same_bench = write(tmp, "same-bench.json", fixture)
         out = run_perf("merge", *parts, "--out", os.path.join(tmp, "same.json"), "--benchmark", same_bench)
@@ -1511,6 +1561,244 @@ def _():
     assert any("not REFUSED" in p for p in perfcore.check_record(r)), perfcore.check_record(r)
     r["acceptance"]["verdict"] = "REFUSED: slower than the established benchmark"
     assert not perfcore.check_record(r), perfcore.check_record(r)
+
+
+# ---------------------------------------------------------------------------------------------
+# conditions: a record is compared only with benchmarks taken under the same condition
+# ---------------------------------------------------------------------------------------------
+
+def other_condition(**change):
+    """COND with fields changed: rows=40, mac="reachable", build="debug", fixture=..."""
+    c = json.loads(json.dumps(COND))
+    for key, value in change.items():
+        (c["conversation"] if key in ("rows", "fixture", "sha256") else c)[key] = value
+    return c
+
+
+@case("C1 same condition and slower is REFUSED (exit 4); a different condition or none is NOT COMPARED (exit 5), never a pass or a fail")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = bench_file(tmp)  # cold 800 ms + 5% -> limit 840, taken under COND
+        slow = write(tmp, "slow.json", bench_record(cold=p95_of(900.0), warm=p95_of(100.0)))
+        out = run_perf("compare", slow, "--benchmark", path)
+        assert out.returncode == 4 and re.search(r"^coldLaunch\s+SLOWER", out.stdout, re.M), (out.returncode, out.stdout)
+        assert "condition synthetic-conversation/1 x100, Mac unreachable, release build" in out.stdout, out.stdout
+        for change, said in (({"rows": 40}, "conversation.rows is 40 here, 100 in the benchmark"),
+                             ({"mac": "reachable"}, "mac is 'reachable' here, 'unreachable' in the benchmark"),
+                             ({"sha256": "f" * 64}, "conversation.sha256"),
+                             ({"fixture": "devbridge-hello/1"}, "conversation.fixture")):
+            for cold in (900.0, 700.0):  # slower and faster: neither fails nor passes across conditions
+                rec = write(tmp, "other.json", bench_record(cold=p95_of(cold), warm=p95_of(100.0), cond=other_condition(**change)))
+                out = run_perf("compare", rec, "--benchmark", path)
+                assert out.returncode == 5 and "verdict: NOT COMPARED" in out.stdout, (change, cold, out.returncode, out.stdout)
+                assert out.stdout.count("different conditions") == 2 and said in out.stdout, (change, out.stdout)
+                assert "SLOWER" not in out.stdout and "FASTER" not in out.stdout and "WITHIN" not in out.stdout, out.stdout
+        none = write(tmp, "none.json", bench_record(cold=p95_of(900.0), warm=p95_of(100.0), cond=None))
+        out = run_perf("compare", none, "--benchmark", path)
+        assert out.returncode == 5 and "the record names no condition" in out.stdout, (out.returncode, out.stdout)
+        loose = write(tmp, "loose.json", bench_record(cold=p95_of(900.0), cond=condition.as_installed("reachable", "release", "x")))
+        out = run_perf("compare", loose, "--benchmark", path)
+        assert out.returncode == 5 and "as-installed" in out.stdout and "different conditions" in out.stdout, out.stdout
+        unseen = json.loads(json.dumps(COND))
+        unseen["verified"] = {"row": "Perf probe 50", "onScreen": False}
+        rec = write(tmp, "unseen.json", bench_record(cold=p95_of(900.0), cond=unseen))
+        out = run_perf("compare", rec, "--benchmark", path)
+        assert out.returncode == 5 and "was not on screen" in out.stdout, out.stdout
+        # a measurement run's own judgment: a record under another condition is never REFUSED
+        rec = bench_record(cold=p95_of(900.0), cond=other_condition(rows=40))
+        assert perf.judge(rec, path, log=quiet) is False and rec["benchmark"]["verdict"] == benchmark.VERDICT_NONE
+        assert not str(rec["acceptance"]["verdict"]).startswith("REFUSED"), rec["acceptance"]
+
+
+@case("C2 the seeded conversation is the 2026-10-02 fixture byte for byte; the default sizes are the benchmarks'")
+def _():
+    files = condition.file_fixture(100)
+    import hashlib
+    # andy-opus-coldstart1's genstate.py 100 produced these bytes (sizes 413 and 38016 in his seed logs)
+    assert {n: (len(b), hashlib.sha256(b).hexdigest()) for n, b in files.items()} == {
+        "session.json": (413, "02d1ed15a951637d5e4732a27af47f9ba7dd86a763c6672827899a0dcf72529f"),
+        "history.json": (38016, "b17f4c2b62260ecd699a3e639c8f0b4b908e34dc18ba62bc87635b19a269fa0b")}, files.keys()
+    history = json.loads(files["history.json"])
+    assert len(history["rows"]["perf-thread"]) == 100 and ".invalid" in history["identity"]  # never resolves: Mac unreachable
+    assert condition.for_files(100, "release", "a") ["conversation"]["sha256"] == COND["conversation"]["sha256"]
+    assert condition.file_fixture(40) != condition.file_fixture(100)
+    assert condition.file_fixture_marker(100) == "Perf probe 50: what is on my plate this afternoon?"
+    assert (condition.FILE_DEFAULT_ROWS, condition.BRIDGE_DEFAULT_ROWS) == (100, 40)
+    assert "Synthetic message" in json.dumps(android.history_frame(2))  # synthetic text only
+    raises(condition.ConditionError, condition.file_fixture, 0)
+
+
+def release_setup(tmp):
+    """A stamped release APK and its debuggable twin, as local files the fake adb installs."""
+    import hashlib
+    release, twin = os.path.join(tmp, "release.apk"), os.path.join(tmp, "twin.apk")
+    for path, data in ((release, b"release-bytes"), (twin, b"twin-bytes")):
+        with open(path, "wb") as f:
+            f.write(data)
+    rsha, tsha = hashlib.sha256(b"release-bytes").hexdigest(), hashlib.sha256(b"twin-bytes").hexdigest()
+    stamp = write(tmp, "release-stamp.json", {"commit": "b4b1b517011837108979b5e690cb84105fef6a53", "dirty": False,
+                                               "sha256": rsha, "artifact": release, "paths": ["richos/mobile/native-android"]})
+    fake = FakeAdb(installed=rsha, qemu="0", debuggable=False, apks={release: (rsha, False), twin: (tsha, True)})
+    return fake, stamp, twin
+
+
+def fake_release(stamp):
+    return json.load(open(stamp))["artifact"]
+
+
+@case("C3 Android: a release build is seeded through its twin, read back, and the record states the condition; without a twin it is refused untouched")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake, stamp, twin = release_setup(tmp)
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None)
+        msg = raises(perfcore.Refused, perf.run_android, args, runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert "--seed-twin" in msg and "as-installed" in msg, msg
+        assert not any(c.startswith(("uninstall", "install", "am start", "run-as")) for c in fake.calls), fake.calls
+        assert "reachable" in raises(perfcore.Refused, perf.run_android, android_args(
+            tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin, mac="reachable"),
+            runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert not any(c.startswith(("uninstall", "install")) for c in fake.calls), fake.calls
+        fake.ui_text = "Perf probe 50: what is on my plate this afternoon?"
+        args = android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp, rows=None, seed_twin=twin)
+        from unittest.mock import patch
+        cold = {"first": [500], "useful": [700], "rejected": [], "presentationSamples": []}
+        def fake_cold(self, trials, marker=None, physical=False):
+            nodes = self.dump_ui()
+            return dict(cold, screenCheck={"composerOnScreen": True,
+                                           "newestMessageOnScreen": android.find_node(nodes, contains=marker) is not None})
+        with patch.object(android.Measure, "cold", fake_cold):
+            record, failures_ = perf.run_android(args, runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        installs = [c for c in fake.calls if c.startswith(("uninstall", "install"))]
+        assert [c.split()[0] for c in installs] == ["uninstall", "install", "install"], installs
+        assert installs[1].endswith("twin.apk") and installs[2].endswith("-r " + fake_release(stamp)), installs
+        assert fake.core == condition.file_fixture(100), sorted(fake.core)
+        assert failures_ == 0 and record["build"]["configuration"] == "release", (failures_, record["phases"])
+        cond = record["condition"]
+        assert (cond["conversation"]["fixture"], cond["conversation"]["rows"], cond["mac"], cond["build"]) == \
+            ("synthetic-conversation/1", 100, "unreachable", "release"), cond
+        assert condition.same(cond, COND) and cond["verified"]["onScreen"] is True, cond
+        assert "debuggable twin" in cond["conversation"]["seededBy"] and record["route"]["name"] == "seeded fixture"
+        assert record["conditions"]["networkCondition"] == "mac-unreachable" and not perfcore.check_record(record)
+        # the app read something else: the condition stands but is never compared
+        fake.ui_text = "Pair with your Mac"
+        with patch.object(android.Measure, "cold", fake_cold):
+            record, _ = perf.run_android(args, runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert record["condition"]["verified"]["onScreen"] is False
+        assert "not on screen" in condition.why_not_comparable(record["condition"], COND)
+        # --conversation as-installed is said in the record and never compared
+        loose, _ = perf.run_android(android_args(tmp, kind="physical", production=True, route="managed", only="cold", stamp=stamp,
+                                                 conversation="as-installed", network_condition="live"),
+                                    runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert loose["condition"]["conversation"]["fixture"] == "as-installed" and loose["condition"]["mac"] == "reachable"
+
+
+@case("C4 a debuggable build without its bridge is seeded through run-as; --only never skips the seeding a condition depends on")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeAdb()
+        record, failures_ = perf.run_android(android_args(tmp, production=True, route="managed", only="cold", rows=None),
+                                             runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert record["phases"].get("seed") == "measured" and fake.core == condition.file_fixture(100), record["phases"]
+        assert record["condition"]["conversation"]["fixture"] == "synthetic-conversation/1" and record["condition"]["build"] == "debug"
+        assert not any(c.startswith(("uninstall", "install")) for c in fake.calls), "run-as seeding never reinstalls"
+        bridge, _ = perf.run_android(android_args(tmp, only="cold"), runner=FakeAdb(), sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert bridge["phases"].get("seed") == "measured" and bridge["condition"]["conversation"]["rows"] == 4, bridge["phases"]
+
+
+@case("C5 a condition declaration states the condition of exactly the records it names, never contradicts or replaces one")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        import hashlib
+        bench = benchmark.load(bench_file(tmp))
+        bench["classes"][0]["metrics"], bench["classes"][0]["neverEstablished"] = {}, "fixture"
+        old = write(tmp, "old.json", bench_record(cold=p95_of(800.0), cond=None))
+        digest = hashlib.sha256(open(old, "rb").read()).hexdigest()
+        assert "names no condition" in raises(perfcore.Refused, benchmark.update, bench, [old])
+        decl = write(tmp, "decl.json", {"schema": condition.DECLARATION_SCHEMA, "condition": COND,
+                                        "records": [{"record": "old.json", "sha256": digest}],
+                                        "evidence": "fixture", "declaredBy": "test", "date": "2026-10-02"})
+        decls = [condition.load_declaration(decl)]
+        changes = benchmark.update(bench, [old], declarations=decls)
+        src = bench["classes"][0]["metrics"]["coldLaunch"]["source"]
+        assert any("established at 800.0" in c for c in changes) and src["conditionDeclaration"]["sha256"], src
+        other = write(tmp, "other.json", bench_record(cold=p95_of(700.0), cond=None, built="e" * 64))
+        assert "names no condition" in raises(perfcore.Refused, benchmark.update, bench, [other], declarations=decls)
+        out = run_perf("compare", old, "--benchmark", bench_file(tmp), "--condition-declaration", decl)
+        assert out.returncode == 0 and "WITHIN NOISE" in out.stdout, (out.returncode, out.stdout, out.stderr)
+        out = run_perf("compare", old, "--benchmark", bench_file(tmp))
+        assert out.returncode == 5 and "names no condition" in out.stdout, out.stdout
+        own = write(tmp, "own.json", bench_record(cold=p95_of(800.0)))
+        listed = write(tmp, "decl2.json", dict(json.load(open(decl)), records=[
+            {"record": "own.json", "sha256": hashlib.sha256(open(own, "rb").read()).hexdigest()}]))
+        assert "never replaces" in raises(condition.ConditionError, condition.apply, json.load(open(own)), own,
+                                          [condition.load_declaration(listed)])
+        debug = json.loads(json.dumps(COND))
+        debug["build"] = "debug"
+        wrong = write(tmp, "decl3.json", dict(json.load(open(decl)), condition=debug))
+        assert "contradicts" in raises(perfcore.Refused, benchmark.update, bench, [old],
+                                       declarations=[condition.load_declaration(wrong)])
+        assert "names no evidence" in raises(condition.ConditionError, condition.load_declaration,
+                                             write(tmp, "decl4.json", dict(json.load(open(decl)), evidence="")))
+
+
+@case("C6 a benchmark file whose class names no condition, or of the old schema, is refused; retired classes are never compared")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = bench_file(tmp)
+        bench = json.load(open(path))
+        no_cond = dict(bench, classes=[{k: v for k, v in bench["classes"][0].items() if k != "condition"}])
+        assert "class fixture-phone names no condition" in raises(perfcore.Refused, benchmark.load, write(tmp, "a.json", no_cond))
+        assert "richos-mobile-perf-benchmarks/2" in raises(perfcore.Refused, benchmark.load,
+                                                           write(tmp, "b.json", dict(bench, schema="richos-mobile-perf-benchmarks/1")))
+        loose = dict(bench, classes=[dict(bench["classes"][0], condition=condition.as_installed("reachable", "release", "x"))])
+        assert "never comparable" in raises(perfcore.Refused, benchmark.load, write(tmp, "c.json", loose))
+        retired = dict(bench, classes=[], retired=[dict(bench["classes"][0], retiredBecause="different conditions")])
+        result = benchmark.compare([bench_record(cold=p95_of(900.0))], benchmark.load(write(tmp, "d.json", retired)))
+        assert result["verdict"] == benchmark.VERDICT_NONE and result["class"] is None, result
+        assert "retiredBecause" in raises(perfcore.Refused, benchmark.load,
+                                          write(tmp, "e.json", dict(retired, retired=[{"name": "x"}])))
+
+
+@case("C7 iOS: the default is refused until a seeding path exists; as-installed states the Mac; merge and a pair refuse mixed conditions")
+def _():
+    msg = raises(perfcore.Refused, ios.run_ios, ios_args(conversation="fixture"), runner=devicectl_listing)
+    assert "no seeded conversation" in msg and "as-installed" in msg, msg
+    assert "--mac" in raises(perfcore.Refused, ios.run_ios, ios_args(mac=None), runner=devicectl_listing)
+    from unittest.mock import patch
+    sample = {**ios.launch_sample(launch_tables()), "trial": 1, "trace": "/t/launch-0001.trace", "exportAttempts": 5}
+    with tempfile.TemporaryDirectory() as d:
+        with patch.object(ios, 'trace_series', return_value=([sample], [], d)):
+            record, _ = ios.run_ios(ios_args(mac="unreachable"), runner=devicectl_listing)
+        assert record["condition"]["conversation"]["fixture"] == "as-installed" and record["condition"]["mac"] == "unreachable"
+        assert json.load(open(os.path.join(d, "series.json")))["condition"] == record["condition"]
+    cold, warm = bench_record(cold=p95_of(800.0)), bench_record(warm=p95_of(100.0), cond=other_condition(rows=40))
+    with tempfile.TemporaryDirectory() as tmp:
+        assert "different conditions" in raises(perfcore.Refused, benchmark.compare, [cold, warm], benchmark.load(bench_file(tmp)))
+        first, _ = perf.run_android(android_args(tmp, only="seed,cold"), runner=FakeAdb(), sleep=lambda s: None, host=lambda: {}, log=quiet)
+        second, _ = perf.run_android(android_args(tmp, only="seed,warm", rows=6), runner=FakeAdb(), sleep=lambda s: None, host=lambda: {}, log=quiet)
+        assert "different conditions" in raises(perfcore.Refused, perf.merge_records, [first, second])
+
+
+@case("C8 declare-condition computes the condition from the fixture, checks every record, and refuses a contradiction")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        old = write(tmp, "old.json", bench_record(cold=p95_of(800.0), cond=None))
+        base = ["declare-condition", "--fixture", "synthetic-conversation/1", "--rows", "100", "--mac", "unreachable",
+                "--seeded-by", "fixture", "--evidence", "fixture", "--declared-by", "test", "--date", "2026-10-02"]
+        out = run_perf(*base, "--build", "release", old, "--out", os.path.join(tmp, "decl.json"))
+        assert out.returncode == 0, (out.returncode, out.stderr)
+        decl = condition.load_declaration(os.path.join(tmp, "decl.json"))
+        assert condition.same(decl["condition"], COND) and decl["records"][0]["commit"] == "b" * 40, decl
+        assert benchmark.record_condition(json.load(open(old)), old, [decl])[0]["name"] == COND["name"]
+        out = run_perf(*base, "--build", "debug", old)
+        assert out.returncode == 3 and "the record's build is release" in out.stderr, (out.returncode, out.stderr)
+        own = write(tmp, "own.json", bench_record(cold=p95_of(800.0)))
+        out = run_perf(*base, "--build", "release", own)
+        assert out.returncode == 3 and "names its own condition" in out.stderr, (out.returncode, out.stderr)
+        live = bench_record(cold=p95_of(800.0), cond=None)
+        live["conditions"]["networkCondition"] = "live"
+        out = run_perf(*base, "--build", "release", write(tmp, "live.json", live))
+        assert out.returncode == 3 and "the Mac was reachable" in out.stderr, (out.returncode, out.stderr)
 
 
 if __name__ == "__main__":

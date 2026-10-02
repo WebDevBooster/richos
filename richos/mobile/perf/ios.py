@@ -29,6 +29,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
+import condition
 import perfcore
 from perfcore import Refused, Unmeasurable
 
@@ -745,7 +746,8 @@ def _trace_classes(record, driver, args, runner, popen, sleep):
                                                    away=getattr(args, "away", 2.0),
                                                    app_args=tuple(getattr(args, "app_arg", None) or ()))
         with open(os.path.join(evidence, "series.json"), "w") as f:
-            json.dump({"class": cls, "device": record["device"], "build": record["build"]}, f, indent=2)
+            json.dump({"class": cls, "device": record["device"], "build": record["build"],
+                       "condition": record.get("condition")}, f, indent=2)
         record.setdefault("evidence", {})[cls] = evidence
         if samples:
             record["metrics"][KEYS[cls]] = trace_metric(cls, samples, rejected, evidence)
@@ -763,6 +765,7 @@ def _reparsed(args, record, runner):
     with open(os.path.join(args.reparse, "series.json")) as f:
         series = json.load(f)
     record["device"], record["build"] = series["device"], series["build"]
+    record["condition"] = series.get("condition")  # a series retained before conditions were written has none
     record["ranOnHardware"] = series["device"].get("kind") == "physical"
     record["evidence"] = {series["class"]: args.reparse}
     samples, rejected = reparse(args.reparse, series["class"], runner)
@@ -774,6 +777,18 @@ def _reparsed(args, record, runner):
     return int(bool(rejected) or not samples)
 
 
+NO_IOS_SEED = ("perf.py ios has no seeded conversation yet: a Release build takes no fixture argument and its saved "
+               "state cannot be written from the Mac by this tool (README 'Conditions'). Measure with --conversation "
+               "as-installed --mac reachable|unreachable; that record states its condition and is never compared "
+               "with a benchmark")
+
+
+def _as_installed(args, build):
+    return condition.as_installed(args.mac, build.get("configuration"),
+                                  "perf.py ios seeds nothing: the app held whatever it held (--conversation as-installed); "
+                                  "the Mac's state is the operator's --mac")
+
+
 def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.sleep):
     """perf.py ios. Returns (record, failures)."""
     stamp = None
@@ -782,6 +797,12 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
             stamp = json.load(f)
     if args.expect_commit and (not stamp or not str(stamp.get("commit", "")).startswith(args.expect_commit) or stamp.get("dirty")):
         raise Refused(f"freshness mismatch: the stamp is {stamp and stamp.get('commit')} (dirty {stamp and stamp.get('dirty')}), not {args.expect_commit}")
+    measuring = not getattr(args, "reparse", None)
+    if measuring and getattr(args, "conversation", "fixture") != condition.AS_INSTALLED:
+        raise Refused(NO_IOS_SEED)
+    if measuring and getattr(args, "mac", None) not in condition.MAC_STATES:
+        raise Refused("--conversation as-installed needs --mac reachable or --mac unreachable: the record states the "
+                      "Mac's state even when it does not control the conversation")
     record = {"schema": perfcore.SCHEMA, "platform": "ios", "startedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "ranOnHardware": False, "metrics": {}, "phases": {}, "notMeasured": [],
               "route": {"name": "as installed", "detail": "whatever state the installed app holds"}}
@@ -797,6 +818,7 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
         record["build"] = {"bundle": BUNDLE, "commit": stamp and stamp.get("commit"), "dirty": stamp and stamp.get("dirty"),
                            "installedSha256": installed, "builtSha256": stamp and stamp.get("sha256"),
                            "configuration": build_configuration(container)}
+        record["condition"] = _as_installed(args, record["build"])
         if getattr(args, "xctrace", False):
             failures += _trace_classes(record, Simctl(args.simulator, runner), args, runner, popen, sleep)
         else:
@@ -828,6 +850,7 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
                            "builtSha256": stamp and stamp.get("sha256"),
                            "configuration": build_configuration(stamp and stamp.get("artifact")),
                            "note": "an iPhone's installed bundle cannot be read back; identity is the stamp of what was installed"}
+        record["condition"] = _as_installed(args, record["build"])
         record["ranOnHardware"] = True
         failures += _trace_classes(record, Devicectl(args.device, runner), args, runner, popen, sleep)
     record["notMeasured"].extend(ios_gaps(record["metrics"]))

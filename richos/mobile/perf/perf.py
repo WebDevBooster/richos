@@ -11,15 +11,24 @@
                                     cold launch and warm resume p95 against the start times already
                                     achieved (benchmarks.json); two records of one build (an iOS cold
                                     series and its warm series) are judged as one
-    perf.py benchmark-update RECORD.json... [--benchmark FILE] [--allow-slower REASON]
+    perf.py benchmark-update RECORD.json... [--benchmark FILE] [--allow-slower REASON] [--condition-declaration F]
                                     the only way a benchmark number changes; commit the file after
+    perf.py declare-condition RECORD.json... --fixture F --rows N --mac M --build B --seeded-by S
+                                    --evidence E --declared-by NAME [--out FILE]
+                                    the condition of records measured before records named one, computed
+                                    from the fixture and checked against each record
 
 On Android use it through `randroid emu perf [options]`, which supplies the adb, the serial it
 recorded and the stamp of the APK it installed; a physical phone is named explicitly with
 `--kind physical --serial <serial>` and is checked to be one.
 
-Every record `android`, `ios` and `merge` write is also compared with benchmarks.json: the result is
-the record's `benchmark`, and a slower build's `acceptance` reads REFUSED.
+Every record names its condition (condition.py): the seeded made-up conversation (fixture, rows,
+SHA-256), the Mac's state and the build type. `android` seeds that conversation by default
+(--conversation fixture; a release build through --seed-twin); `ios` has no seeding path yet and
+needs --conversation as-installed, whose records are never compared. Every record `android`, `ios`
+and `merge` write is also compared with benchmarks.json, but only with a benchmark taken under the
+same condition; anything else is NOT COMPARED ("different conditions"). The result is the record's
+`benchmark`, and a slower build's `acceptance` reads REFUSED.
 
 Exit 0 a record was written; 1 a phase failed (the record still says which and why); 2 usage;
 3 REFUSED: the installed build is not the stamped one, the stamp is not the expected commit, or
@@ -37,14 +46,18 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import benchmark  # noqa: E402
+import condition  # noqa: E402
 import perfcore  # noqa: E402
 from perfcore import Refused, Unmeasurable  # noqa: E402
+
+AS_INSTALLED = condition.AS_INSTALLED
 
 EXIT_SLOWER = 4
 EXIT_NOT_COMPARED = 5
@@ -130,6 +143,8 @@ def merge_records(parts):
         for key in ("kind", "model", "os"):
             if (r.get("device") or {}).get(key) != (first.get("device") or {}).get(key):
                 raise Refused(f"cannot merge: device {key} differs")
+        if not condition.same(r.get("condition"), first.get("condition")):
+            raise Refused(f"cannot merge: the parts were measured under {condition.DIFFERENT}")
     merged = json.loads(json.dumps(first))
     merged["metrics"], merged["phases"], merged["notMeasured"], merged["parts"] = {}, {}, [], []
     measured = set()
@@ -166,6 +181,9 @@ def merge_records(parts):
                                 "startedAt": r.get("startedAt"), "finishedAt": r.get("finishedAt"),
                                 "phases": r.get("phases"), "host": (r.get("device") or {}).get("host"),
                                 "conditions": r.get("conditions")})
+    checks = [r["condition"]["verified"] for r in parts if (r.get("condition") or {}).get("verified")]
+    if checks:  # the part whose cold series checked the screen; a failed check in any part stands
+        merged["condition"]["verified"] = next((c for c in checks if c.get("onScreen") is False), checks[0])
     merged["device"].pop("host", None)
     merged["build"]["commits"] = sorted({(r.get("build") or {}).get("commit") for r in parts})
     merged["startedAt"] = min(r.get("startedAt", "") for r in parts)
@@ -213,13 +231,22 @@ def judge(record, bench_path=None, log=None):
     return True
 
 
+def declarations(paths):
+    try:
+        return [condition.load_declaration(p) for p in paths or []]
+    except condition.ConditionError as e:
+        raise Refused(str(e))
+
+
 def cmd_compare(args):
-    records = []
+    records, conds = [], []
+    decls = declarations(args.condition_declaration)
     for path in args.records:
         with open(path) as f:
             records.append(json.load(f))
+        conds.append(benchmark.record_condition(records[-1], path, decls)[0])
     try:
-        result = benchmark.compare(records, benchmark.load(args.benchmark), args.benchmark)
+        result = benchmark.compare(records, benchmark.load(args.benchmark), args.benchmark, conds)
     except benchmark.NoBenchmarkFile as e:
         result = {"verdict": benchmark.VERDICT_NONE, "why": str(e), "metrics": {
             name: {"status": benchmark.NOT_COMPARED, "why": benchmark.NO_FILE} for name in benchmark.METRICS}}
@@ -237,12 +264,23 @@ def cmd_compare(args):
 def cmd_benchmark_update(args):
     path = benchmark.resolve(args.benchmark)
     bench = benchmark.load(path)
-    changes = benchmark.update(bench, args.records, allow_slower=args.allow_slower)
+    changes = benchmark.update(bench, args.records, allow_slower=args.allow_slower,
+                               declarations=declarations(args.condition_declaration))
     with open(path, "w") as f:
         f.write(benchmark.dump(bench))
     for line in changes:
         print(line)
     print(f"written: {path} (commit it: a benchmark changes only by a committed update)")
+    return 0
+
+
+def cmd_declare_condition(args):
+    try:
+        decl = condition.declare(args.fixture, args.rows, args.mac, args.build, args.seeded_by, args.evidence,
+                                 args.declared_by, args.date or now_iso()[:10], args.records, label=benchmark._display)
+    except condition.ConditionError as e:
+        raise Refused(str(e))
+    emit(decl, args.out)
     return 0
 
 
@@ -341,13 +379,17 @@ def metric(method, samples=None, budget=None, **extra):
     return m
 
 
-def android_identity(dev, stamp, kind):
-    import android
+def check_kind(dev, kind):
     qemu = dev.prop("ro.kernel.qemu") == "1" or dev.prop("ro.boot.qemu") == "1"
     if kind == "physical" and qemu:
         raise Refused(f"{dev.serial} is an emulator, not a physical phone")
     if kind == "emulator" and not qemu:
         raise Refused(f"{dev.serial} is a physical device; name it with --kind physical")
+
+
+def android_identity(dev, stamp, kind):
+    import android
+    check_kind(dev, kind)
     paths = [l.split(":", 1)[1] for l in dev.sh(f"pm path {android.PACKAGE}", check=False).split() if l.startswith("package:")]
     if not paths:
         raise Refused(f"{android.PACKAGE} is not installed on {dev.serial}")
@@ -390,7 +432,31 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     log = log or (lambda s: print(s, file=sys.stderr, flush=True))
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
                          touch=touch or lease_toucher(args.lease))
+    conversation = getattr(args, "conversation", "fixture")
+    mac = getattr(args, "mac", "unreachable")
+    twin = getattr(args, "seed_twin", None)
+    if conversation == "fixture" and twin:
+        if mac != "unreachable":
+            raise Refused("the seeded conversation's pairing names a host that never resolves: the Mac is unreachable "
+                          "by construction; --mac reachable needs the Debug build's bridge")
+        check_kind(dev, args.kind)  # before anything on the device changes
+        rows = args.rows or condition.FILE_DEFAULT_ROWS
+        with tempfile.TemporaryDirectory() as scratch:
+            twin_seed = android.seed_release(dev, condition.file_fixture(rows), twin, stamp.get("artifact"),
+                                             stamp.get("sha256"), scratch, log)
     build, device, uid = android_identity(dev, stamp, args.kind)
+    plan = None
+    if conversation == "fixture":
+        if twin:
+            plan = "twin"
+        elif not build["debuggable"]:
+            raise Refused("a release build is measured under the seeded condition only through its debuggable twin: "
+                          "--seed-twin <debug APK of the same commit, signed with the same key> (this replaces the app's "
+                          "saved state on the device), or --conversation as-installed, whose record is never compared")
+        elif not args.production:
+            plan = "bridge"
+        else:
+            plan = "run-as"
     if host is None and args.kind == "emulator":
         host = host_sampler()
     pace, waits = (None, [])
@@ -404,6 +470,8 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     if host:
         device["host"] = {"note": "an emulator's timings depend on the Mac running it; sampled at each phase", "samples": {}}
     only = set(args.only.split(",")) if args.only else None
+    if only is not None and plan:
+        only.add("seed")  # the condition is this run's own seeding, never an earlier run's
     failures = 0
 
     lost = []
@@ -451,23 +519,69 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
             bridge = False
             record["notMeasured"].append({"what": "seeded state, tap, typing and streaming",
                                           "why": f"no development bridge in this build ({e}); a release build needs a real pairing"})
+            if plan == "bridge":
+                plan = "run-as"  # a debuggable build without its bridge is seeded through its files
+        transport = "unreachable" if mac == "unreachable" else "accept"
+        configuration = build["configuration"]
+        network = ("scripted-unreachable" if bridge and transport == "unreachable" else "scripted-accepting" if bridge
+                   else "mac-unreachable" if plan in ("twin", "run-as") else args.network_condition)
         conditions = {"theme": args.theme, "systemNightModeBefore": night,
-                      "productionControls": args.production, "networkCondition": "scripted-unreachable" if bridge else args.network_condition}
-        if bridge:
-            seeded = phase("seed", lambda: m.seed(args.history, "unreachable"))
+                      "productionControls": args.production, "networkCondition": network}
+        rows, marker, cond = None, None, None
+        if plan == "bridge":
+            rows = args.rows or condition.BRIDGE_DEFAULT_ROWS
+            seeded = phase("seed", lambda: m.seed(rows, transport))
             if seeded:
                 conditions.update(seeded)
+                cond = condition.for_bridge(rows, android.history_frame(rows), mac, configuration)
+                marker = f"Synthetic message {rows} "
+        elif plan in ("twin", "run-as"):
+            if mac != "unreachable":
+                raise Refused("the seeded conversation's pairing names a host that never resolves: the Mac is unreachable "
+                              "by construction; --mac reachable needs the Debug build's bridge")
+            rows = args.rows or condition.FILE_DEFAULT_ROWS
+            if plan == "twin":
+                record["phases"]["seed"] = "measured"
+                how = (f"the debuggable twin (sha256 {twin_seed['twinSha256']}) was installed, the fixture written "
+                       "into files/core with run-as and read back, then the stamped release APK installed over it")
+            else:
+                def run_as():
+                    with tempfile.TemporaryDirectory() as scratch:
+                        return android.write_core_files(dev, condition.file_fixture(rows), scratch)
+                how = "the fixture written into the installed debuggable build's files/core with run-as and read back"
+                if phase("seed", run_as) is None:
+                    how = None
+            if how:
+                conditions.update({"fixture": condition.FILE_FIXTURE, "history": rows})
+                cond = condition.for_files(rows, configuration, how)
+                marker = condition.file_fixture_marker(rows)
+        else:
+            cond = condition.as_installed(
+                "unreachable" if args.network_condition in ("mac-unreachable", "phone-offline") else "reachable",
+                configuration, "--conversation as-installed: the app held whatever it held; the Mac's state is the "
+                               "operator's --network-condition")
+        if conversation == "fixture" and cond is None:
+            record["notMeasured"].append({"what": "the seeded condition",
+                                          "why": "seeding did not complete (see phases.seed); the record names no condition "
+                                                 "and is never compared"})
+        record["condition"] = cond
         record["conditions"] = conditions
-        record["route"] = {"name": "development fixture" if bridge else (args.route or "as installed"),
+        seeded_files = plan in ("twin", "run-as") and cond is not None
+        record["route"] = {"name": "development fixture" if bridge else "seeded fixture" if seeded_files
+                           else (args.route or "as installed"),
                            "detail": ("the debug build's scripted Mac inside the app: no network. Launch series run with the "
-                                      "scripted Mac UNREACHABLE (Sage T6: launch must not depend on the network); the live "
-                                      "spot check with it accepting") if bridge else "whatever state the installed app holds",
+                                      f"scripted Mac {'UNREACHABLE' if transport == 'unreachable' else 'ACCEPTING'} (Sage T6: "
+                                      "launch must not depend on the network); the live spot check with it accepting") if bridge
+                           else ("the seeded conversation's pairing names a host under .invalid, which never resolves: no "
+                                 "Mac is reachable") if seeded_files
+                           else "whatever state the installed app holds",
                            "persistence": ("the development world's document (DevBridge), written through the same "
                                            "RichCore.commit as production but not through the production JsonFile port")
                            if bridge else "production"}
-        newest = f"Synthetic message {args.history} " if bridge and args.history else None
 
-        cold = phase("cold", lambda: m.cold(args.cold, newest, physical=args.kind == "physical"))
+        cold = phase("cold", lambda: m.cold(args.cold, marker, physical=args.kind == "physical"))
+        if cold and cond is not None and cold.get("screenCheck") is not None:
+            cond["verified"] = {"row": marker, "onScreen": cold["screenCheck"]["newestMessageOnScreen"]}
         if cold:
             record["metrics"]["coldLaunch"] = metric(
                 ("System launchingActivity trace start to DisplayPresentTime of the frame carrying foreground-useful; "
@@ -482,7 +596,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                 try:
                     return m.cold(args.live_spot_check)
                 finally:
-                    m.transport("unreachable")
+                    m.transport(transport)
             spot = phase("cold-live", live)
             if spot:
                 record["metrics"]["coldLaunchLive"] = metric(
@@ -544,7 +658,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                     "one character per `input text` into the focused composer; /proc/<pid>/io write syscalls and bytes, "
                     "ftrace ext4/f2fs_sync_file_enter for the app's thread group (root), gfxinfo frames; per keystroke",
                     None, None, **typing)
-            cursor = (args.history or 0) + args.taps + 10
+            cursor = (rows or 0) + args.taps + 10
             stream = phase("streaming", lambda: m.streaming(args.stream_deltas, cursor)) if bridge else None
             if stream:
                 record["metrics"]["streamCost"] = metric(
@@ -678,7 +792,18 @@ def parse_args(argv):
     a.add_argument("--background-seconds", type=float, default=60.0)
     a.add_argument("--background-settle", type=float, default=5.0)
     a.add_argument("--settle", type=float, default=2.0)
-    a.add_argument("--history", type=int, default=40)
+    a.add_argument("--conversation", choices=("fixture", AS_INSTALLED), default="fixture",
+                   help="fixture (default): seed the made-up conversation and record the condition (condition.py); "
+                        "as-installed: measure whatever the app holds, recorded as uncontrolled and never compared")
+    a.add_argument("--rows", "--history", dest="rows", type=int, default=None,
+                   help=f"rows in the seeded conversation (default {condition.FILE_DEFAULT_ROWS} seeded into the app's files, "
+                        f"{condition.BRIDGE_DEFAULT_ROWS} through the Debug bridge: the counts the benchmarks were taken with)")
+    a.add_argument("--mac", choices=condition.MAC_STATES, default="unreachable",
+                   help="the Mac's state while measured (default unreachable; reachable only through the Debug bridge)")
+    a.add_argument("--seed-twin", metavar="DEBUG_APK",
+                   help="seed a release build through its debuggable twin (same commit, same signing key): UNINSTALLS the "
+                        "app, so its saved state on the device is replaced by the made-up conversation; the stamped "
+                        "release APK (the stamp's artifact) is installed over it")
     a.add_argument("--type-text", default="measuredtypingcost")
     a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")
@@ -703,6 +828,11 @@ def parse_args(argv):
                    help="an argument for the app's launches (a Debug fixture on a simulator; none on a phone)")
     i.add_argument("--background-seconds", type=float, default=60.0)
     i.add_argument("--background-settle", type=float, default=5.0)
+    i.add_argument("--conversation", choices=("fixture", AS_INSTALLED), default="fixture",
+                   help="fixture (default) is refused until an iOS seeding path exists (README 'Conditions'); "
+                        "as-installed measures whatever the app holds, recorded as uncontrolled and never compared")
+    i.add_argument("--mac", choices=condition.MAC_STATES,
+                   help="with --conversation as-installed: the Mac's state while measured, as the operator set it")
     i.add_argument("--benchmark", help="the benchmark file the record is judged against (default: the private benchmark file, see benchmark.py)")
     s = sub.add_parser("stamp", help="the identity of a build artifact")
     s.add_argument("--artifact", required=True)
@@ -719,11 +849,26 @@ def parse_args(argv):
     cp.add_argument("records", nargs="+", help="one record, or the cold and warm records of one build")
     cp.add_argument("--benchmark", help="default: the private benchmark file (see benchmark.py: $RICHOS_MOBILE_PERF_BENCHMARKS, else richos-hq/docs/mobile-perf/benchmarks.json)")
     cp.add_argument("--json", action="store_true", help="the whole comparison as JSON")
+    cp.add_argument("--condition-declaration", action="append", metavar="FILE",
+                    help="the condition of records measured before perf.py wrote one, for exactly the files it names by sha256")
     bu = sub.add_parser("benchmark-update", help="establish or raise benchmarks from sound records; commit the file after")
     bu.add_argument("records", nargs="+")
     bu.add_argument("--benchmark", help="default: the private benchmark file (see benchmark.py: $RICHOS_MOBILE_PERF_BENCHMARKS, else richos-hq/docs/mobile-perf/benchmarks.json)")
     bu.add_argument("--allow-slower", metavar="REASON",
                     help="let a slower series replace a benchmark; the reason is written beside the number")
+    bu.add_argument("--condition-declaration", action="append", metavar="FILE",
+                    help="the condition of records measured before perf.py wrote one, for exactly the files it names by sha256")
+    dc = sub.add_parser("declare-condition", help="state the condition of records measured before records named one")
+    dc.add_argument("records", nargs="+", help="the exact record files (named by sha256 in the declaration)")
+    dc.add_argument("--fixture", required=True, choices=(condition.FILE_FIXTURE, condition.BRIDGE_FIXTURE))
+    dc.add_argument("--rows", type=int, required=True)
+    dc.add_argument("--mac", required=True, choices=condition.MAC_STATES)
+    dc.add_argument("--build", required=True, choices=condition.BUILDS)
+    dc.add_argument("--seeded-by", required=True, help="how the conversation was put on the device")
+    dc.add_argument("--evidence", required=True, help="how the condition is known: the retained logs and scripts")
+    dc.add_argument("--declared-by", required=True)
+    dc.add_argument("--date", help="default today (UTC)")
+    dc.add_argument("--out", help="write the declaration here (default stdout); keep it private beside the benchmark file")
     return p.parse_args(argv)
 
 
@@ -752,6 +897,8 @@ def main(argv=None):
             return cmd_compare(args)
         if args.cmd == "benchmark-update":
             return cmd_benchmark_update(args)
+        if args.cmd == "declare-condition":
+            return cmd_declare_condition(args)
         if args.cmd == "android":
             record, failures = run_android(args)
         else:
