@@ -5799,13 +5799,16 @@
     },
     "ass-kicker/tests/guard-stated-actions.test.sh": {
       "source": "ass-kicker/tests/guard-stated-actions.test.sh",
-      "sha256": "f1e0fa6b3ad1f7a9c51bcdfdfd214db2d9cfae754449beb15ca29da37b8003fa",
-      "evidence": "All hook invocations use the explicit private entity or private unadopted repository. Entity configs are empty or contain literal flag overrides; transcripts and role Markdown are generated as data. Mirror fixtures exercise missing helpers; the real analyzer is otherwise invoked. No mutation harness is called here.",
+      "sha256": "e5b45319bd3f77e484a633523525612230f44f7bef1ac841f812fd7ebf15004f",
+      "evidence": "All hook invocations use the explicit private entity or private unadopted repository. Entity configs are empty or contain literal flag overrides; transcripts and role Markdown are generated as data. Mirror fixtures exercise missing helpers; the real analyzer is otherwise invoked. No mutation harness is called here. Case R29 runs the corpus replay tool on a generated one-session fixture directory with a sandbox --out path.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/hooks/guard-stated-actions.sh#hook",
           "fixture": true
+        },
+        {
+          "to": "ass-kicker/tests/record-claims.replay.py"
         }
       ],
       "literal_keys": {
@@ -5815,8 +5818,8 @@
     },
     "ass-kicker/tests/stated-actions.mutation.sh": {
       "source": "ass-kicker/tests/stated-actions.mutation.sh",
-      "sha256": "03fd8d372bbc3803c8170618e846fe2aed66b2542b4ac2dc1cd77a92e79121e7",
-      "evidence": "Control and finite source mutants execute the same fixed stated-actions test, which recreates private entity config. The one added transcript reader reads generated JSON only. Replacement operands are source data; helper copies are fixed.",
+      "sha256": "9016e80434abf5b7bdf63ec7b786d99ed9085b63039a511ec829ee45578d2b54",
+      "evidence": "Control and finite source mutants execute the same fixed stated-actions test, which recreates private entity config. The one added transcript reader reads generated JSON only. Replacement operands are source data; helper copies are fixed. The fixed helper copies include the corpus replay tool that the suite's case R29 runs.",
       "keys": [],
       "edges": [
         {
@@ -15430,6 +15433,17 @@
           "to": "scripts/lib/pause_protocol.py"
         }
       ]
+    },
+    "ass-kicker/tests/record-claims.replay.py": {
+      "source": "ass-kicker/tests/record-claims.replay.py",
+      "sha256": "900d555a773b19f2d9a21f3c39234e9be0c6d5396d0505ae02cf38e0f60ea432",
+      "evidence": "Reads every *.jsonl in the directory it is given (a fixture directory in the suite), writes each Stop-point span to its own temp directory and removes it, imports the fixed analyzer by path, prints counts on stdout and writes verdicts only to the --out path it is given. No command from a transcript is executed.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "ass-kicker/guard-stated-actions.py"
+        }
+      ]
     }
   },
   "units": {
@@ -15881,8 +15895,8 @@
       "evidence": "Every scoped section derives its sandbox inventory from the entire real hooks manifest before dispatch. All event changes remain observable, including future events. These source bindings cover the shared inventory builders and all currently qualified scoped execution closures.",
       "sources": {
         "ass-kicker/guard-stated-actions.py": "ec3b1600da8dbca4bb6d75f23486ba52c78ab8361d99c7eae5a6de40394ee6eb",
-        "ass-kicker/tests/guard-stated-actions.test.sh": "f1e0fa6b3ad1f7a9c51bcdfdfd214db2d9cfae754449beb15ca29da37b8003fa",
-        "ass-kicker/tests/stated-actions.mutation.sh": "03fd8d372bbc3803c8170618e846fe2aed66b2542b4ac2dc1cd77a92e79121e7",
+        "ass-kicker/tests/guard-stated-actions.test.sh": "e5b45319bd3f77e484a633523525612230f44f7bef1ac841f812fd7ebf15004f",
+        "ass-kicker/tests/stated-actions.mutation.sh": "9016e80434abf5b7bdf63ec7b786d99ed9085b63039a511ec829ee45578d2b54",
         "mega-lander/create-teammate-worktree.sh": "28b165ea46c36cde125e0214f0f7f98fa28e4219a14d74bde8488367b91c5a80",
         "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
         "mega-lander/tests/workspaces.test.py": "5b35dc48e74377ad92ea8ba7534fcd31397db77f1104f4fe7607a0e8f0b5b375",
@@ -16120,7 +16134,8 @@
         "scripts/lib/agent_hold.py": "90512881bea4b681b9ced8f4528613cdd82959d9c3fb4e2f97ad44477aeffeed",
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
-        "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3"
+        "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
+        "ass-kicker/tests/record-claims.replay.py": "900d555a773b19f2d9a21f3c39234e9be0c6d5396d0505ae02cf38e0f60ea432"
       }
     },
     "scripts/hooks/mechanical-findings.test.sh": {

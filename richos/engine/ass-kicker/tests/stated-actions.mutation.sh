@@ -72,7 +72,8 @@ build() {
     local dir="$1"
     mkdir -p "$dir/scripts/hooks" "$dir/scripts/lib" "$dir/ass-kicker/tests"
     cp "$ENGINE_ROOT/ass-kicker/guard-stated-actions.py" "$dir/ass-kicker/"
-    cp "$ENGINE_ROOT/ass-kicker/tests/guard-stated-actions.test.sh" "$dir/ass-kicker/tests/"
+    cp "$ENGINE_ROOT/ass-kicker/tests/guard-stated-actions.test.sh" \
+       "$ENGINE_ROOT/ass-kicker/tests/record-claims.replay.py" "$dir/ass-kicker/tests/"
     cp "$ENGINE_ROOT/scripts/hooks/guard-stated-actions.sh" \
        "$ENGINE_ROOT/scripts/hooks/turn-manifest.py" \
        "$ENGINE_ROOT/scripts/hooks/guard-idle-land.py" "$dir/scripts/hooks/"

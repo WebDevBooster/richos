@@ -591,6 +591,32 @@ else bad "R27. ecs only" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"; fi
 run_hook "$TR_ECS" "I've saved the missing end-of-turn record."
 [ "$RC" -eq 0 ] && ok "R28. an ECS checkpoint named as what it is ('end-of-turn record') PASSES" || bad "R28. ecs named" "rc=$RC err=$(printf '%s' "$ERR" | head -c 300)"
 
+# The corpus replay tool (ass-kicker/tests/record-claims.replay.py), run on a
+# one-session fixture: a memory-only write, a claim, then a turn that commits
+# a named record. Counts on stdout, verdicts in the private --out file.
+REPLAY_DIR="$SANDBOX/replay-corpus"; mkdir -p "$REPLAY_DIR"
+python3 - "$REPLAY_DIR/s1.jsonl" "$MEM" "$ENTITY" <<'PY'
+import json, sys
+out, mem, ent = sys.argv[1:4]
+rows = []
+def turn(pid, cmd, result, text):
+    rows.append({"type": "user", "promptId": pid, "cwd": ent, "message": {"content": "go"}})
+    rows.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t-" + pid, "name": "Bash", "input": {"command": cmd}}]}})
+    rows.append({"type": "user", "promptId": pid, "cwd": ent, "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t-" + pid, "content": result}]}})
+    rows.append({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}})
+turn("p1", "cd %s && cat > rule.md <<'EOF'\nx\nEOF" % mem, "ok", "Recorded as a standing rule.")
+turn("p2", "cd %s && echo y >> wiki/ceo-decisions.md && git commit -am r" % ent, "[main 9a8b7c6] r",
+     "Recorded in `wiki/ceo-decisions.md`, commit `9a8b7c6`.")
+open(out, "w").write("".join(json.dumps(r) + "\n" for r in rows))
+PY
+REPLAY_SUM="$(python3 "$ENGINE_ROOT/ass-kicker/tests/record-claims.replay.py" "$REPLAY_DIR" --out "$SANDBOX/replay-out.jsonl" 2>/dev/null)"
+if printf '%s' "$REPLAY_SUM" | grep -q '"claim_turns": 2' && printf '%s' "$REPLAY_SUM" | grep -q '"refused": 1' \
+   && printf '%s' "$REPLAY_SUM" | grep -q '"backed": 1' && grep -q '"private"' "$SANDBOX/replay-out.jsonl"; then
+    ok "R29. the corpus replay tool counts a refused memory-only claim and a backed committed one, verdicts to --out only"
+else bad "R29. replay tool" "sum=$REPLAY_SUM"; fi
+
 printf 'STATED_ACTIONS_ENFORCE=0\n' > "$ENTITY/orchestration.config"
 run_hook "$TR_MEM_BASH" "$R1"
 if [ "$RC" -eq 0 ] && printf '%s' "$ERR" | grep -q 'RECORDED WHERE'; then ok "R20. STATED_ACTIONS_ENFORCE=0: the hammer is printed and the turn ends"
