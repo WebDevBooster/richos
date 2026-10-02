@@ -25,6 +25,9 @@ actor LifecycleStream: EventStreamTransport {
     }
 
     static let hello = "id: 2\nevent: hello\ndata: {\"challenge\":\"c-hello\",\"thread_id\":\"thr_5c1e\",\"capabilities\":[\"text\"],\"messages\":[]}\n\n"
+    /// A row that came live after the `hello`, under the same cursor: a return resumes one before it.
+    /// (After a `hello` and nothing else, a return asks for a `hello`: `ReopenAfterHelloTests`.)
+    static let liveRow = "id: 2\nevent: message\ndata: {\"id\":\"turn_2:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":2,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"Here\",\"complete\":true}\n\n"
 
     func open(_ request: HTTPRequest, origin: String) async throws -> (response: HTTPResponse, bytes: AsyncThrowingStream<Data, Error>) {
         opened.append(request)
@@ -173,14 +176,14 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
     }
 
     @Test func warmReturnResumesTheLastLiveCursorWithoutBackgroundRequests() async throws {
-        let stream = LifecycleStream()
+        let stream = LifecycleStream([.open(chunks: [LifecycleStream.hello, LifecycleStream.liveRow])])
         let network = NetworkEffects(transport: LifecycleMac(), stream: stream,
                                      identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5))
         let host = try await host(network, state: try paired())
         _ = try await host.dispatch(.foregrounded(at: 1))
         #expect(await becomes { await stream.open == 1 })
-        // Wait until the hello has reached the sink before taking the checkpoint.
-        #expect(await becomes { (try? await host.currentState().voiceAvailability) == .unsupportedByMac })
+        // Wait until the live row has reached the sink before taking the checkpoint.
+        #expect(await becomes { (try? await host.currentState())?.messages.contains { $0.id == "turn_2:user" } == true })
         _ = try await host.dispatch(.backgrounded(at: 2))
         let count = await stream.opened.count
         #expect(await holds { await stream.opened.count == count })
@@ -278,7 +281,7 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
     @Test func aReconnectAnsweredWithOnlyTheMissedFramesIsConnected() async throws {
         let row = #"{"id":"turn_3:user","thread_id":"thr_5c1e","cursor":3,"role":"ceo","kind":"text","text":"On my way","complete":true}"#
         let stream = LifecycleStream([
-            .dropping(chunks: [LifecycleStream.hello]),
+            .dropping(chunks: [LifecycleStream.hello, LifecycleStream.liveRow]),
             .open(chunks: ["id: 3\nevent: message\ndata: \(row)\n\n"]),
         ])
         let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: PairedMemoryIdentityStore(), clock: FixedClock(ms: 5),

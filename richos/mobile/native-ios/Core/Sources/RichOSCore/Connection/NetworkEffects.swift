@@ -97,7 +97,7 @@ public actor NetworkEffects: EffectHandler {
 
     public nonisolated func handles(_ effect: Effect) -> Bool {
         switch effect {
-        case .pair, .confirmFingerprint, .checkMacConfirmation, .forgetIdentity, .deliver, .connect, .disconnect, .loadOlder,
+        case .pair, .confirmFingerprint, .checkMacConfirmation, .forgetIdentity, .deliver, .connect, .reconnect, .disconnect, .loadOlder,
              .requestNotifications, .unregisterNotifications, .deleteAttachments: return true
         default: return false
         }
@@ -216,6 +216,12 @@ public actor NetworkEffects: EffectHandler {
             // screen while on it). The owner skips what is left of its back-off; never a second owner.
             if let live { await live.wake(); return [] }
             await startLive(state)
+            return []
+        case .reconnect:
+            // The route changed: the owner replaces what it is doing, now. No owner means the app is
+            // not on screen (or its connect is still on its way, and will open on the new route):
+            // nothing is started here, so a route change can never open a stream off screen.
+            await live?.reconnect()
             return []
         case .disconnect:
             await stopLive()

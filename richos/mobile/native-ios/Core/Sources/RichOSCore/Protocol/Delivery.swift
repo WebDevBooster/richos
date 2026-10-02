@@ -65,6 +65,13 @@ public struct Courier: Sendable {
         public var duplicate: Bool
     }
 
+    /// The reason a refused or failed answer carries into the outbox. A 429 is named for what it is,
+    /// the Mac's own wait (`Retry-After`), so a return to the screen keeps it
+    /// (`ConversationReducer.resumeAfterReturn`); every other answer keeps the reference's word.
+    static func reason(for response: HTTPResponse) -> String {
+        response.status == 429 ? ConversationReducer.rateLimitedReason : APIClient.classify(response).reason.rawValue
+    }
+
     public func deliver(_ item: OutboxItem, at: Int64) async -> Result {
         let attempt = item.attempts + 1
         if let files = item.files, !files.isEmpty { return await deliverAttachments(item, attempt: attempt, at: at) }
@@ -107,7 +114,7 @@ public struct Courier: Sendable {
                     transcriptHash = hash.lowercased()
                 }
             } else {
-                reason = APIClient.classify(response).reason.rawValue
+                reason = Self.reason(for: response)
             }
         } catch {
             clientAction = ClientAction.transportFailed(attempt: attempt)
