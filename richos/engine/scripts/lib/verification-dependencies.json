@@ -14504,7 +14504,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/lib/native-work.py",
-          "sha256": "4c47080a3f1f988d785b3010b03eda455babd8db9416e4393625b1993cc69820",
+          "sha256": "0118ef29131cf3ef6215eb1ee5a4b4cbb36e3500fe739fb0452f713fadc3229b",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14547,7 +14547,7 @@
     },
     "scripts/lib/native-work.py#cpu-fixtures": {
       "source": "scripts/lib/native-work.py",
-      "sha256": "4c47080a3f1f988d785b3010b03eda455babd8db9416e4393625b1993cc69820",
+      "sha256": "0118ef29131cf3ef6215eb1ee5a4b4cbb36e3500fe739fb0452f713fadc3229b",
       "keys": [],
       "edges": [
         {
@@ -14555,9 +14555,12 @@
         },
         {
           "to": "scripts/lib/cpu_guard.py"
+        },
+        {
+          "to": "scripts/lib/cpu_policy.py"
         }
       ],
-      "evidence": "Source-bound CPU fixture uses capped/needs_compiler_lane/wait_for_headroom with a fake provider. run either refuses immediately or executes with sys.platform=linux and run_command patched. Real native build and Darwin reserve admission do not execute."
+      "evidence": "Source-bound CPU fixture uses capped/needs_compiler_lane/wait_for_headroom/allowance with a fake provider; allowance is pure arithmetic over cpu_policy.DEFAULT_MAX_CPU. run either refuses immediately, executes with sys.platform=linux and run_command patched, or (native-work.test.py CoresReachTheBuild) executes with sys.platform=darwin and wait_for_headroom, sharers, os.cpu_count, cpu_guard.healthy and run_command patched and a stub in sys.modules['reserve'], so reserve.py is neither imported nor sampled. Real native build and Darwin reserve admission do not execute."
     },
     "scripts/lib/testdevices.py#cpu-fixtures": {
       "source": "scripts/lib/testdevices.py",
