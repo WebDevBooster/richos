@@ -3111,7 +3111,7 @@
     },
     "scripts/hooks/guard-ci-turn-gate.test.sh": {
       "source": "scripts/hooks/guard-ci-turn-gate.test.sh",
-      "sha256": "81b4b1768229ff459610f41952c77f75a70a07e5bf4f082ba24c991454b33ec7",
+      "sha256": "cdfee30c1966fe2e73edd3d376e564408e981b436653ceb6cad3f0f963f1d825",
       "evidence": "Uses generated adopted repositories, transcript/state fixtures and a private gh adapter. Every hook call supplies the fixture root; direct analyzer import exercises parse_pushes only. No nested suite or mutation driver is invoked.",
       "keys": [],
       "edges": [
