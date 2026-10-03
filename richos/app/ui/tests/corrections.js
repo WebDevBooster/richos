@@ -431,6 +431,16 @@ async function main() {
   await run.check("8  he can read what is on record NOW, with no proposal and no confirmation", async () => {
     const page = await openDesk(browser);
     assert(await page.isHidden("#desk-loro-list .desk-record"), "nothing is shown until he asks");
+    // THE SCROLL POSITION OF THE PICTURE IS THIS TEST'S, NOT PLAYWRIGHT'S. The committed
+    // 5b-08 shows `.desk-body` scrolled to 101px (scrollHeight 740 - clientHeight 639, the
+    // end of the column before the record opens). Nothing in the app scrolls it: the 101px came
+    // from Playwright's pre-click scroll-into-view of the button, which probes showed
+    // (scroll event at ~800ms, before the click event) happens on an idle host and which did NOT
+    // happen in the nightly of 2026-10-03 (host ~90% CPU: 279170/1330000 px differ, scrollTop 0).
+    // So the position is set here, to the same 101px, and the click then has nothing to scroll.
+    await page.$eval(".desk-body", (el) => {
+      el.scrollTop = el.scrollHeight - el.clientHeight;
+    });
     await page.click("#desk-loro-list .desk-btn--show");
     await page.waitForSelector("#desk-loro-list .desk-record:not([hidden])");
     const shown = await page.textContent("#desk-loro-list .desk-record");
