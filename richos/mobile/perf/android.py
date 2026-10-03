@@ -146,6 +146,12 @@ def parse_input_events(trace, pid):
     return events
 
 
+# A start the phone's own report could not time (an OEM that leaves a frame out of framestats or never fills in its
+# present time) is rejected and one more start is run in its place, up to this many in a series; every judged
+# start is still timed, and a series that still falls short of its timed starts gets no verdict (§104).
+UNTIMED_RETRIES = 10
+
+
 def merge_frame_rows(*reads):
     """Framestats rows from several reads of one launch, each frame once (a later read of the same
     frame wins: its present time may have been filled in), in draw order."""
@@ -1009,7 +1015,9 @@ class Measure:
 
     def cold(self, trials, newest_text=None, physical=False):
         first, useful, rejected, details = [], [], [], []
-        for i in range(trials):
+        budget, i = trials, -1
+        while i + 1 < budget:
+            i += 1
             self.pace()
             self.d.sh(f"am force-stop {PACKAGE}")
             self.d.sleep(1.0)
@@ -1026,6 +1034,7 @@ class Measure:
                     rejected.append({"trial": i + 1, "why": str(error)})
                     self.log(f"cold {i + 1}/{trials}: REJECTED, {error}")
                     if len(rejected) >= 2 and not useful: break
+                    if budget < trials + UNTIMED_RETRIES: budget += 1  # the start was not timed: one more start takes its place
                 self.d.sleep(self.settle_s)
                 continue
             since = self.d.uptime_epoch()
@@ -1066,7 +1075,9 @@ class Measure:
         details = []
         self.foreground()
         self.d.sleep(self.settle_s)
-        for i in range(trials):
+        budget, i = trials, -1
+        while i + 1 < budget:
+            i += 1
             self.pace()
             pid = self.d.pid()
             since = self.d.uptime_epoch()
@@ -1080,6 +1091,7 @@ class Measure:
                     rejected.append({"trial": i + 1, "why": str(error)})
                     self.log(f"warm {i + 1}/{trials}: REJECTED, {error}")
                     if len(rejected) >= 2 and not samples: break
+                    if budget < trials + UNTIMED_RETRIES: budget += 1  # the start was not timed: one more start takes its place
                     continue
             else: launch = self.foreground()
             after = self.d.pid()

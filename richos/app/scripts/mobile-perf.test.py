@@ -295,6 +295,31 @@ def _():
     assert detail["usefulMs"] == 1100 and launch["launchState"] == "COLD", detail
 
 
+@case("A15 a start the phone's report could not time is replaced by one more start, so the series still holds every timed start")
+def _():
+    class Device:
+        def sh(self, command, **kw): return ""
+        def run(self, *args, **kw): return ""
+        def sleep(self, seconds): pass
+        def pid(self): return 42
+        def uptime_epoch(self): return "0"
+    measure = android.Measure(Device())
+    measure.foreground = lambda: {"launchState": "HOT", "totalMs": 100}
+    measure.home = lambda: None
+    calls = []
+    def traced():
+        calls.append(1)
+        if len(calls) in (2, 4): raise perfcore.Unmeasurable("OEM did not report a usable presentation timestamp")
+        return {"launchState": "HOT", "totalMs": 100}, {"usefulMs": 100.0 + len(calls)}
+    measure.traced_launch = traced
+    got = measure.warm(5, physical=True)
+    assert len(got["samples"]) == 5 and len(got["rejected"]) == 2 and len(calls) == 7, (got, len(calls))
+    calls.clear()
+    measure.traced_launch = lambda: (calls.append(1), (_ for _ in ()).throw(perfcore.Unmeasurable("nothing is ever timed")))[1]
+    stuck = measure.warm(5, physical=True)
+    assert stuck["samples"] == [] and len(calls) == 2, (stuck, len(calls))  # two untimed starts before any timed one end the series
+
+
 @case("A5 frame timing counts deadline misses and stalls of 100 ms or more")
 def _():
     rows = android.app_window(android.parse_framestats(fixture("gfxinfo-framestats-tap.txt")))["rows"]
