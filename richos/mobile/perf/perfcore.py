@@ -43,28 +43,28 @@ BUDGETS = {
 }
 
 # THE COLD-START STANDARD, the ONLY place its limits live (CEO 2026-10-03, richos-hq/wiki/ceo-decisions.md
-# §104, his words): "iPhone: the first 2-5 cold starts must be under 800 ms on the iPhone SE 2nd gen test
+# §104, his words): "iPhone: the first 2-5 cold starts must be under 800 ms on the test
 # phone. The test instantly fails if that's not the case. No need to wait for 20. If the test doesn't fail
 # after cold start 2-5, the average cold start time on the test iPhone must always be under 700 ms (among
-# the cold starts 2-20). Android: the first 2-5 cold starts must be under 1000 ms on the Honor X6b test
+# the cold starts 2-20). Android: the first 2-5 cold starts must be under 1000 ms on the Android test phone
 # phone ... the average cold start time on the test Android must always be under 900 ms (among the cold
 # starts 2-20)." Start 1 is not judged. `earlyMs` judges each of starts 2-5; `avgMs` judges the average of
 # starts 2-20. "Under" is strict: a start or average equal to its limit fails.
 COLD_STANDARD = {
-    "ios": {"earlyMs": 800, "avgMs": 700, "phone": "iPhone SE 2nd gen"},
-    "android": {"earlyMs": 1000, "avgMs": 900, "phone": "Honor X6b"},
+    "ios": {"earlyMs": 800, "avgMs": 700, "phone": "the iOS test phone"},
+    "android": {"earlyMs": 1000, "avgMs": 900, "phone": "the Android test phone"},
 }
 # THE WARM-START STANDARD (the CEO's addition, 2026-10-03, §104 addendum): "the same kind of margins as I've
 # given to cold start tests adjusted to the best measured warm start times". Per start = best measured warm
-# median x (800/582 iPhone, 1000/779 Honor); average = median x (700/582, 900/779).
-#   iPhone SE: UNSET. A 485.1 ms figure (will-enter-foreground to input-ready) was RETRACTED by the CEO
+# median x (800/582 iPhone, 1000/779 Android); average = median x (700/582, 900/779).
+#   the iOS test phone: UNSET. A 485.1 ms figure (will-enter-foreground to input-ready) was RETRACTED by the CEO
 #     (2026-10-03): it is not what a person sees. The placeholders fail loudly until he sets a number.
-#   Honor X6b: best warm median 105.57 ms (96 returns, /Volumes/E1TB/reports/richconnect-speed-20260924/
-#     honor-managed-launch-100.json): 135.5 / 122.0.
+#   the Android test phone: best warm median 105.57 ms (96 returns, /Volumes/E1TB/reports/richconnect-speed-20260924/
+#     android-managed-launch-100.json): 135.5 / 122.0.
 # A limit set to None makes a warm judgment RAISE LimitNotSet; it never passes or fails silently.
 WARM_STANDARD = {
-    "ios": {"earlyMs": None, "avgMs": None, "phone": "iPhone SE 2nd gen"},  # UNSET: the CEO's number
-    "android": {"earlyMs": 135.5, "avgMs": 122.0, "phone": "Honor X6b"},
+    "ios": {"earlyMs": None, "avgMs": None, "phone": "the iOS test phone"},  # UNSET: the CEO's number
+    "android": {"earlyMs": 135.5, "avgMs": 122.0, "phone": "the Android test phone"},
 }
 STANDARDS = {"cold": COLD_STANDARD, "warm": WARM_STANDARD}
 COLD_STARTS = 20          # a start test is 20 normal starts

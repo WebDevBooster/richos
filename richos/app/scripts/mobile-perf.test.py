@@ -2811,7 +2811,7 @@ def _():
 
 @case("K4 warm standard: same judge, limits are placeholders that fail loudly until the CEO sets them; with limits set it behaves as the cold one")
 def _():
-    # the Honor's warm limits are the CEO's (§104 addendum: 135.5 per start, 122.0 average); the iPhone's are retracted
+    # the Android test phone's warm limits are the CEO's (§104 addendum: 135.5 per start, 122.0 average); the iPhone's are retracted
     assert (perfcore.WARM_STANDARD["android"]["earlyMs"], perfcore.WARM_STANDARD["android"]["avgMs"]) == (135.5, 122.0)
     assert perfcore.warm_verdict("android", [0, 100, 140])["failedStart"] == 3
     assert perfcore.WARM_STANDARD["ios"]["earlyMs"] is None and perfcore.WARM_STANDARD["ios"]["avgMs"] is None
