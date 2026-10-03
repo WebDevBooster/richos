@@ -33,11 +33,18 @@ the pass line names it.
   shipgate.py check --platform android|ios --repo DIR --commit SHA   the build is that commit
 Exit 0 with one JSON object on stdout (ok, platform, the full commit, the measured commit, the PASS
 line), or exit 1 with one REFUSED line on stderr.
+
+  shipgate.py stamp --platform ios --checkout DIR --plist INFO_PLIST
+The built app's own record of its source (the freshness contract: every artifact carries its commit):
+writes STAMP_COMMIT (DIR's HEAD) and STAMP_DIRTY (true when DIR had uncommitted app code) into the
+app's Info.plist. The iPhone archive runs it (Release/platform.yml), and `testflight.ts upload` gates
+the commit the archive carries, refusing an archive with no stamp or a dirty one.
 """
 import argparse
 import json
 import os
 from pathlib import Path
+import plistlib
 import subprocess
 import sys
 
@@ -46,6 +53,9 @@ import perfcore  # noqa: E402
 import watch  # noqa: E402
 
 LABEL = {"android": "Android", "ios": "iPhone"}
+# The source stamp in a built app's Info.plist (`stamp`; read by Release/testflight.ts).
+STAMP_COMMIT = "RichOSSourceCommit"
+STAMP_DIRTY = "RichOSSourceDirty"
 
 
 class Refused(Exception):
@@ -165,6 +175,24 @@ def check(platform, repo, commit=None, checkout=False, home=watch.DEFAULT_HOME):
                      f"(same app code); {perfcore.standard_line('cold', cold)}; {perfcore.standard_line('warm', warm)}")}
 
 
+def stamp(platform, checkout, info_plist):
+    """Write the source commit and whether app code was uncommitted into a built app's Info.plist.
+    Returns the stamp. Raises Refused when the checkout cannot be read (the archive then fails)."""
+    repo = _git(checkout, "rev-parse", "--show-toplevel").strip()
+    sha = _commit(repo, "HEAD")
+    if not sha:
+        raise Refused(f"{repo} has no HEAD commit to stamp")
+    dirty = uncommitted_app_code(platform, repo)
+    path = Path(info_plist)
+    with path.open("rb") as f:
+        raw = f.read()
+    fmt = plistlib.FMT_BINARY if raw.startswith(b"bplist") else plistlib.FMT_XML
+    info = plistlib.loads(raw)
+    info[STAMP_COMMIT], info[STAMP_DIRTY] = sha, bool(dirty)
+    path.write_bytes(plistlib.dumps(info, fmt=fmt))
+    return {"commit": sha, "dirty": bool(dirty), "uncommittedAppCode": dirty[:20], "plist": str(path)}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="shipgate.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -174,7 +202,18 @@ def main(argv=None):
     where.add_argument("--checkout", help="the build is this checkout's working tree at HEAD")
     where.add_argument("--repo", help="a checkout holding --commit")
     c.add_argument("--commit", help="with --repo: the build's source commit")
+    s = sub.add_parser("stamp")
+    s.add_argument("--platform", required=True, choices=sorted(watch.APP_DIR))
+    s.add_argument("--checkout", required=True, help="the checkout the app is being built from")
+    s.add_argument("--plist", required=True, help="the built app's Info.plist")
     args = ap.parse_args(argv)
+    if args.cmd == "stamp":
+        try:
+            print(json.dumps(stamp(args.platform, args.checkout, args.plist)))
+        except (Refused, OSError, ValueError) as exc:
+            print(f"shipgate.py stamp: could not stamp the source commit: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if args.repo and not args.commit:
         ap.error("--repo needs --commit")
     try:

@@ -22,6 +22,7 @@ import {
   makeAppStoreToken,
   parseTestFlightArgs,
   parseTestFlightEnv,
+  readArchivedInfo,
   readTestFlightEnv,
   recordUpload,
   runRelease,
@@ -506,17 +507,18 @@ describe("speed gate (CEO §106)", () => {
   const COMMIT = "0123456789abcdef0123456789abcdef01234567";
   const REFUSAL = "REFUSED by the speed gate (CEO §106): iPhone build of 0123456789ab: no speed verdict file";
 
-  function harness(gatePasses: boolean) {
+  function harness(gatePasses: boolean, archived: unknown = { RichOSSourceCommit: COMMIT, RichOSSourceDirty: false }) {
     const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "ship-gate-"));
     const calls: string[] = [];
     const deps: ReleaseDeps = {
       gate: (where) => {
         calls.push(`gate ${where.join(" ")}`);
         if (!gatePasses) throw new Error(REFUSAL);
-        return COMMIT;
+        return where[where.indexOf("--commit") + 1] ?? "";
       },
       receipts: NodePath.join(directory, "uploads.json"),
       checkout: "/the/checkout",
+      readArchive: async (archive) => (calls.push(`archive ${archive}`), archived),
       readEnv: async () => {
         calls.push("credentials");
         return parseTestFlightEnv(internalOnlySource);
@@ -544,7 +546,7 @@ describe("speed gate (CEO §106)", () => {
     const { deps, calls, cleanup } = harness(false);
     try {
       await NodeAssert.rejects(runRelease(upload, deps), (e: Error) => e.message === REFUSAL);
-      NodeAssert.deepEqual(calls, ["gate --checkout /the/checkout"]);
+      NodeAssert.deepEqual(calls, ["archive /tmp/A.xcarchive", `gate --repo /the/checkout --commit ${COMMIT}`]);
       NodeAssert.equal(NodeFS.existsSync(deps.receipts), false);
     } finally {
       cleanup();
@@ -555,13 +557,71 @@ describe("speed gate (CEO §106)", () => {
     const { deps, calls, cleanup } = harness(true);
     try {
       await runRelease(upload, deps);
-      NodeAssert.deepEqual(calls, ["gate --checkout /the/checkout", "credentials", "upload", "verify", "export"]);
+      NodeAssert.deepEqual(calls, ["archive /tmp/A.xcarchive", `gate --repo /the/checkout --commit ${COMMIT}`,
+        "credentials", "upload", "verify", "export"]);
       NodeAssert.equal(uploadedCommit(deps.receipts, selection), COMMIT);
       calls.length = 0;
       await runRelease(publish, deps);
       NodeAssert.deepEqual(calls, [`gate --repo /the/checkout --commit ${COMMIT}`, "credentials", "publish"]);
     } finally {
       cleanup();
+    }
+  });
+
+  it("upload gates the commit the archive carries; an unstamped or dirty archive is refused before anything else", async () => {
+    const OTHER = "fedcba9876543210fedcba9876543210fedcba98";
+    const stamped = harness(true, { RichOSSourceCommit: OTHER, RichOSSourceDirty: false });
+    try {
+      await runRelease(upload, stamped.deps);
+      NodeAssert.equal(stamped.calls[1], `gate --repo /the/checkout --commit ${OTHER}`, "the archive's commit, not the checkout's HEAD");
+      NodeAssert.equal(uploadedCommit(stamped.deps.receipts, selection), OTHER);
+    } finally {
+      stamped.cleanup();
+    }
+    for (const [archived, words] of [
+      [{}, /carries no source commit/u],
+      [{ RichOSSourceCommit: "main", RichOSSourceDirty: false }, /carries no source commit/u],
+      [{ RichOSSourceCommit: COMMIT }, /uncommitted app code/u],
+      [{ RichOSSourceCommit: COMMIT, RichOSSourceDirty: true }, /uncommitted app code/u],
+    ] as const) {
+      const { deps, calls, cleanup } = harness(true, archived);
+      try {
+        await NodeAssert.rejects(runRelease(upload, deps), words);
+        NodeAssert.deepEqual(calls, ["archive /tmp/A.xcarchive"], JSON.stringify(archived));
+        NodeAssert.equal(NodeFS.existsSync(deps.receipts), false);
+      } finally {
+        cleanup();
+      }
+    }
+    // A gate that passes some other commit than the archive's is a refusal too.
+    const { deps, cleanup } = harness(true);
+    try {
+      deps.gate = () => OTHER;
+      await NodeAssert.rejects(runRelease(upload, deps), /not the archive's/u);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("the archive's stamp is read from the archived app's Info.plist", async () => {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "ship-gate-archive-"));
+    try {
+      const app = NodePath.join(directory, "A.xcarchive/Products/Applications/RichOSNative.app");
+      NodeFS.mkdirSync(app, { recursive: true });
+      NodeFS.writeFileSync(NodePath.join(app, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>RichOSSourceCommit</key><string>${COMMIT}</string><key>RichOSSourceDirty</key><false/></dict></plist>
+`);
+      const { deps, calls, cleanup } = harness(true);
+      try {
+        const real = parseTestFlightArgs(["upload", "--archive", NodePath.join(directory, "A.xcarchive"), "--export-options", "/tmp/E.plist"]);
+        if (real.command !== "upload") throw new Error("unexpected parse");
+        await runRelease(real, { ...deps, readArchive: readArchivedInfo });
+        NodeAssert.equal(calls[0], `gate --repo /the/checkout --commit ${COMMIT}`);
+      } finally {
+        cleanup();
+      }
+    } finally {
+      NodeFS.rmSync(directory, { recursive: true, force: true });
     }
   });
 

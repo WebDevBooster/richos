@@ -18,6 +18,8 @@ state (measured.json and the records it names). No phone, build, store or networ
       and Gradle never starts, a pass lets the build start, and no argument skips it
   R4  a bundle signed with ANOTHER key is gated the same way (Google ties the app to whichever key
       signs its first upload)
+  T1  `stamp`: the archived iPhone app's Info.plist gets the source commit and whether app code was
+      uncommitted (read back by testflight.ts upload, which gates that commit)
   F1  the stand-in verdict a test writes (lib/ship_gate_fixture.py, named by RICHOS_SHIP_GATE_VERDICTS)
       passes the real gate for the same app code, says it is a stand-in, and still refuses other app code
 """
@@ -185,6 +187,28 @@ class Gate(unittest.TestCase):
         for flag in ("--skip", "--force", "--allow-slow"):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 shipgate.main(["check", "--platform", "android", "--checkout", str(self.repo), flag])
+
+    def test_t1_stamp_writes_the_source_commit_and_uncommitted_app_code_into_the_built_app(self):
+        import plistlib
+        for fmt in (plistlib.FMT_BINARY, plistlib.FMT_XML):
+            plist = self.tmp / "Info.plist"
+            plist.write_bytes(plistlib.dumps({"CFBundleIdentifier": "dev.richos.connect"}, fmt=fmt))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(shipgate.main(["stamp", "--platform", "ios", "--checkout", str(self.repo),
+                                                "--plist", str(plist)]), 0)
+            info = plistlib.loads(plist.read_bytes())
+            self.assertEqual((info["RichOSSourceCommit"], info["RichOSSourceDirty"], info["CFBundleIdentifier"]),
+                             (self.measured, False, "dev.richos.connect"))
+            self.assertEqual(plist.read_bytes().startswith(b"bplist"), fmt == plistlib.FMT_BINARY, "format kept")
+        self.write(TEST_FILE["ios"], "a test, not app code\n")
+        shipgate.stamp("ios", self.repo, plist)
+        self.assertIs(plistlib.loads(plist.read_bytes())["RichOSSourceDirty"], False)
+        self.write(APP_FILE["ios"], "edited, not committed\n")
+        self.assertTrue(shipgate.stamp("ios", self.repo, plist)["dirty"])
+        self.assertIs(plistlib.loads(plist.read_bytes())["RichOSSourceDirty"], True)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(shipgate.main(["stamp", "--platform", "ios", "--checkout", str(self.tmp / "nowhere"),
+                                            "--plist", str(plist)]), 1)
 
     def test_f1_a_stand_in_verdict_passes_the_real_gate_only_for_the_same_app_code(self):
         stand_in = self.tmp / "stand-in"

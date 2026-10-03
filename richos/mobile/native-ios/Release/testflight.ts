@@ -23,7 +23,9 @@
 //      variables themselves, only from the file.
 //   5. The speed gate (CEO 2026-10-03, §106: nothing reaches users without passing the speed tests):
 //      upload and publish refuse without the phone speed watch's §104 PASS for the exact app code
-//      (speedGate, runRelease below). Upload records the commit it gated; publish gates that commit.
+//      (speedGate, runRelease below). Upload gates the commit the archive itself carries (stamped
+//      into the archived app's Info.plist by Release/platform.yml) and records it; publish gates
+//      that commit.
 // Nothing else is changed: no retries of writes, refusal of a second upload of an existing build,
 // app and group ownership checks before any write, the key written to a private temporary file
 // only for Xcode and removed after.
@@ -618,6 +620,9 @@ const RELEASE_DIR = import.meta.dirname;
 const SPEED_GATE = NodePath.resolve(RELEASE_DIR, "../../perf/shipgate.py");
 // Which commit each upload was made from, so publish gates the same code. Outside every checkout.
 export const UPLOAD_RECEIPTS = "/Volumes/E1TB/state/richos/ship-gate/testflight-uploads.json";
+// The source stamp the archive carries (the keys shipgate.py's `stamp` writes).
+export const STAMP_COMMIT = "RichOSSourceCommit";
+export const STAMP_DIRTY = "RichOSSourceDirty";
 
 type Spawn = typeof NodeChildProcess.spawnSync;
 
@@ -688,6 +693,7 @@ export type ReleaseDeps = {
   gate: (where: string[]) => string;
   receipts: string;
   checkout: string;
+  readArchive: (archive: string) => Promise<unknown>;
   readEnv: typeof readTestFlightEnv;
   client: (
     config: TestFlightConfig,
@@ -701,17 +707,47 @@ const RELEASE_DEPS: ReleaseDeps = {
   gate: (where) => speedGate(where),
   receipts: UPLOAD_RECEIPTS,
   checkout: RELEASE_DIR,
+  readArchive: readArchivedInfo,
   readEnv: readTestFlightEnv,
   client: createTestFlightClient,
   upload: uploadArchive,
   readNotes: (path) => NodeFSP.readFile(expandHome(path), "utf8"),
 };
 
+/// The archived app's Info.plist, where its source stamp is.
+export function readArchivedInfo(archive: string) {
+  return readPlist(NodePath.join(NodePath.resolve(expandHome(archive)), ARCHIVED_APP));
+}
+
+/// The commit an archive was built from, as the archive itself carries it (the freshness contract:
+/// every artifact carries its source commit). Release/platform.yml stamps it into the archived app's
+/// Info.plist (richos/mobile/perf/shipgate.py stamp). Refuses an archive with no stamp, or one built
+/// with uncommitted app code, which no speed measurement can cover.
+export function archiveSourceCommit(info: unknown, archive: string) {
+  const data = isRecord(info) ? info : {};
+  const commit = data[STAMP_COMMIT];
+  if (typeof commit !== "string" || !/^[0-9a-f]{40}$/u.test(commit)) {
+    throw new Error(
+      `REFUSED by the speed gate (CEO §106): iPhone archive ${archive} carries no source commit (${STAMP_COMMIT} in its app's Info.plist); archive it again from a checkout of this repository, whose project stamps it (Release/platform.yml).`,
+    );
+  }
+  if (data[STAMP_DIRTY] !== false) {
+    throw new Error(
+      `REFUSED by the speed gate (CEO §106): iPhone archive ${archive} was built from ${commit.slice(0, 12)} with uncommitted app code (${STAMP_DIRTY} is ${JSON.stringify(data[STAMP_DIRTY] ?? null)}); commit it, let the speed watch measure it, then archive again.`,
+    );
+  }
+  return commit;
+}
+
 /// One release command. Upload and publish ask the speed gate before credentials, network or Xcode.
 export async function runRelease(args: ReleaseArgs, deps: ReleaseDeps = RELEASE_DEPS) {
   if (args.command === "upload") {
-    // The archive is made from this checkout (README step 2): its HEAD, with no uncommitted app code.
-    const commit = deps.gate(["--checkout", deps.checkout]);
+    // The commit the archive carries, never this checkout's HEAD: the archive may be older or newer.
+    const stamped = archiveSourceCommit(await deps.readArchive(args.archive), args.archive);
+    const commit = deps.gate(["--repo", deps.checkout, "--commit", stamped]);
+    if (commit !== stamped) {
+      throw new Error(`REFUSED by the speed gate (CEO §106): iPhone: the gate passed ${commit}, not the archive's ${stamped}.`);
+    }
     const { config, privateKey } = await deps.readEnv(args.envFile);
     const client = deps.client(config, privateKey);
     await deps.upload(args.archive, args.exportOptions, config, privateKey, client.verifyUpload, (selection) =>
@@ -827,8 +863,10 @@ RICHOS_IOS_ASC_INTERNAL_GROUP_ID. Optional: RICHOS_IOS_ASC_PUBLIC_GROUP_ID (exte
 Only the Release RichOS app and the configured existing groups are supported.
 Publish does not upload, create testers, change signing, or expire other builds.
 Upload and publish are REFUSED without the phone speed watch's §104 PASS, cold and warm, for the
-exact app code (richos/mobile/perf/shipgate.py, CEO §106). Upload gates this checkout's HEAD, with no
-uncommitted app code, and records the commit; publish gates the commit its upload recorded.
+exact app code (richos/mobile/perf/shipgate.py, CEO §106). Upload gates the commit the archive
+carries (RichOSSourceCommit in the archived app's Info.plist, stamped when it is archived; an archive
+without it, or built with uncommitted app code, is refused) and records it; publish gates the commit
+its upload recorded.
 `);
     return;
   }
