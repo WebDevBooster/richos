@@ -62,7 +62,8 @@ export function hostView({ label, username, status, now }) {
 	const parts = [`<h1>RichConnect review access</h1>
 <p class="soft">${escape(label)} · review host ${escape(status.hostname)}</p>
 <p>This page is the Mac for your review. It gives your phone a pairing link and confirms the pairing, as RichOS does on a Mac. Everything on this review host is fictional, and every reply is simulated and labeled “Demo reply”. No AI is involved.</p>`];
-	if (status.notice && NOTICES[status.notice.kind]) {
+	// "Paired" is true only while a phone is paired; a reset leaves the old notice behind.
+	if (status.notice && NOTICES[status.notice.kind] && (status.notice.kind !== 'confirmed' || (status.paired && status.paired.active))) {
 		const [tone, sentence] = NOTICES[status.notice.kind];
 		parts.push(`<p class="${tone === 'warn' ? 'warn' : ''}" role="status">${escape(sentence)}</p>`);
 	}
