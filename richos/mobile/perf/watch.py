@@ -22,9 +22,10 @@ A land that touches nothing under richos/mobile/ starts nothing.
 
 WHAT A RUN DOES, per wired phone (Android and iPhone in parallel, each as soon as it is free), in
 its own clone of main's tip on the external SSD (never a worktree of the repository):
-  - skips a phone whose app cannot have changed: when every richos/mobile/ path changed since that
-    phone's last good run is under the OTHER app's directory (native-ios for Android,
-    native-android for the iPhone), the good run moves forward to this commit (`unchanged`).
+  - does not run a phone whose app code did not change (CEO 2026-10-03): when no path that builds into
+    that phone's app (is_app_code: its native-* directory minus tests, tooling, the headless CLI and
+    notes) changed since its last measurement, that measurement's samples are judged AGAIN against the
+    current limits and the phone is not touched (`unchanged`; a newly failing verdict is escalated).
   - waits until the phone has been quiet for QUIET_S (600 s): no process outside this run's own
     tree names the phone's serial or identifier or runs a phone tool (phone-android.py,
     phone-ios.py, hidden-send-try.py, devicectl, xctrace, an adb client). It never interrupts
@@ -118,8 +119,27 @@ DEFAULT_HOME = "/Volumes/E1TB/state/richos/phone-speed-watch"
 DEFAULT_SIGNING = f"{sys.executable} /Users/alex/ab/richos-hq/scripts/with-android-signing.py"
 IOS_STORE = Path("/Volumes/E1TB/caches/richos-native-ios/physical-store")
 SPAWN_GRACE_S = 120          # a request younger than this may still be starting its runner
-# A change only under the OTHER app's directory cannot change this app's build.
-OTHER_APP = {"android": "richos/mobile/native-ios/", "ios": "richos/mobile/native-android/"}
+# What a phone's app is built from, worked out from the build files (native-android/settings.gradle.kts
+# includes :core, :cli, :app; its core tests read ../conformance/vectors only at test time; native-ios/
+# project.yml builds App, DevBridge, the Core package, Release/platform.yml and the extensions). Nothing
+# outside these two directories is compiled into either app, so a path counts as that app's code when
+# it is under its directory and is not tooling or a test: the rest of the directory is the app.
+APP_DIR = {"android": "richos/mobile/native-android/", "ios": "richos/mobile/native-ios/"}
+NOT_APP_TOP = {"android": ("bin", "cli"),
+               "ios": ("bin", "docs", "PlatformTests", "TestSupport", "Tools", "UITests", "UnitTests")}
+NOT_APP_INNER = {"android": ("/src/test/", "/src/testDebug/"), "ios": ("/Tests/",)}
+
+
+def is_app_code(platform, path):
+    """True when `path` (repository-relative) can change `platform`'s app build. Tests, tooling, the
+    headless CLI and notes cannot; anything unrecognized under the app's directory counts (measure)."""
+    root = APP_DIR[platform]
+    if not path.startswith(root):
+        return False
+    rest = path[len(root):]
+    if rest.endswith(".md") or rest.split("/", 1)[0] in NOT_APP_TOP[platform]:
+        return False
+    return not any(marker in "/" + rest for marker in NOT_APP_INNER[platform])
 
 # The platform command lines' phone verbs (zach-opus-releaseonly1, andy-sonnet-twin1). The only way
 # a run reaches a phone. Each takes the phone, installs or measures, and exits 0 on success; `perf`
@@ -274,13 +294,32 @@ def good():
         return {}
 
 
-def set_good(platform, entry):
+def _set_entry(name, platform, entry):
     with _LEDGER_LOCK:
-        data = good()
+        try:
+            data = json.loads((home() / name).read_text())
+        except (OSError, ValueError):
+            data = {}
         data[platform] = entry
-        tmp = home() / "good.json.tmp"
+        tmp = home() / (name + ".tmp")
         tmp.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
-        os.replace(tmp, home() / "good.json")
+        os.replace(tmp, home() / name)
+
+
+def set_good(platform, entry):
+    _set_entry("good.json", platform, entry)
+
+
+def measured():
+    """Each phone's last JUDGED measurement (good or slower): commit, record, verdict."""
+    try:
+        return json.loads((home() / "measured.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def set_measured(platform, entry):
+    _set_entry("measured.json", platform, entry)
 
 
 @contextlib.contextmanager
@@ -636,11 +675,11 @@ def log_tail(log_path, lines=2):
     return " / ".join(line.strip()[:200] for line in text[-lines:])
 
 
-def prepare_checkout(repo, sha, log_path):
+def prepare_checkout(repo, sha, log_path, name="checkout"):
     """A plain clone on the external SSD at `sha`, reused between runs so builds stay warm; never a
     worktree of the repository, so no workspace registry or reaper ever sees it. --shared reads the
     repository's own objects, so every commit of main is already there."""
-    clone = home() / "checkout"
+    clone = home() / name
     if not (clone / ".git").exists():
         if run_logged(["git", "clone", "--quiet", "--shared", "--no-checkout", str(repo), str(clone)],
                       log_path).returncode:
@@ -802,13 +841,62 @@ def summary_line(result):
     return "; ".join(parts)
 
 
-def unchanged_since_good(repo, platform, base, sha):
-    """True when the last good run exists and every richos/mobile/ path changed since it is under the
-    other app's directory: this app's build is the same, so its start cannot have changed."""
-    if not base:
-        return False
-    paths = changed_paths(repo, base, sha)
-    return all(p.startswith(OTHER_APP[platform]) for p in paths)
+def last_measurement(repo, platform, tip):
+    """The phone's last judged measurement when its record is still on disk and its commit is an
+    ancestor of `tip`, else None (then the phone is measured)."""
+    entry = measured().get(platform)
+    if not entry and good().get(platform):
+        entry = {**good()[platform], "verdict": "good"}  # a state home from before measured.json
+    if not entry or not entry.get("record") or not Path(entry["record"]).is_file():
+        return None
+    if git(repo, "merge-base", "--is-ancestor", entry["commit"], tip, check=False).returncode:
+        return None
+    return entry
+
+
+def app_changed(repo, platform, base, sha):
+    """True when a path that can change `platform`'s app build changed in base..sha (CEO 2026-10-03:
+    a land that changed only limits, tests or tooling does not run the phone again)."""
+    return any(is_app_code(platform, p) for p in changed_paths(repo, base, sha))
+
+
+def judge_record(checkout, platform, out, log_path):
+    """Judge one record against the CURRENT limits (perf.py compare reads files only, never a phone).
+    Raises Unmeasured when it cannot be judged. Returns the pieces of the verdict."""
+    # The old p95 benchmark comparison is information only and decides nothing (CEO §104).
+    _, result = compare(checkout, out, log_path)
+    with open(out) as f:
+        data = json.load(f)
+    info = summary_line(result)
+    cold = cold_standard(platform, data)
+    if cold["verdict"] == "INCOMPLETE":
+        raise Unmeasured(f"the cold-start test gave no verdict: {cold['why']}; benchmark (information only): {info}")
+    try:
+        warm = warm_standard(data) if cold["verdict"] == "PASS" else None
+    except Unmeasured as exc:
+        raise Unmeasured(f"{exc}; {standard_line('cold', cold)}") from None
+    try:
+        blanks = blank_screen_problems(platform, data)
+    except Unmeasured as exc:
+        raise Unmeasured(f"{exc}; {standard_line('cold', cold)}") from None
+    failed = [standard_line(k, v) for k, v in (("cold", cold), ("warm", warm)) if v and v["verdict"] == "FAIL"]
+    return {"data": data, "info": info, "blanks": blanks, "failed": failed,
+            "verdict": "slower" if failed or blanks else "good",
+            "report": "; ".join(standard_line(k, v) for k, v in (("cold", cold), ("warm", warm)) if v)}
+
+
+def escalate_slower(repo, label, platform, sha, span, commits, judged, record_path, log_path, how):
+    failed, blanks, report = judged["failed"], judged["blanks"], judged["report"]
+    what = (("start FAILS the speed standard" + (" and a BLANK SCREEN" if blanks else "")) if failed
+            else "start shows a BLANK SCREEN")
+    escalate(repo, f"Phone speed: {label} {what} at main {sha[:12]}",
+             f"{label} {report}{'; ' + '; '.join(blanks) if blanks else ''}. Range {span}. "
+             f"Commits in it touching richos/mobile/: {' | '.join(commits) or 'none listed'}. Which of them "
+             f"{'slowed the start' if failed else 'put a blank screen on the start'}, and who fixes it?",
+             f"{how} The cold-start test (CEO 2026-10-03, §104: starts "
+             f"2-5 under the per-start limit, 2-20 average under the average limit) with the benchmark's fixed "
+             f"conversation. Benchmark p95 comparison (information only): {judged['info']}. "
+             f"Record: {record_path}; log: {log_path}.")
 
 
 def run_platform(repo, round_id, sha, platform, work, checkout):
@@ -825,11 +913,24 @@ def run_platform(repo, round_id, sha, platform, work, checkout):
     try:
         if isinstance(checkout, Exception):
             raise checkout
-        if unchanged_since_good(repo, platform, base, sha):
-            last = good()[platform]
-            outcome.update(verdict="unchanged", why=f"nothing under richos/mobile/ outside "
-                           f"{OTHER_APP[platform]} changed since the last good run ({base[:12]}); not measured")
-            set_good(platform, {**last, "commit": sha, "at": now(), "carriedFrom": base})
+        last = last_measurement(repo, platform, sha)
+        if last and not app_changed(repo, platform, last["commit"], sha):
+            # Nothing that builds into this phone's app changed since its last measurement: its start
+            # cannot have changed. The land's limits may have: judge those samples again, phone untouched.
+            judged = judge_record(checkout, platform, last["record"], log_path)
+            outcome.update(verdict="unchanged" if judged["verdict"] == "good" else "slower", record=last["record"],
+                           standard=judged["report"], compare=judged["info"],
+                           why=f"no {platform} app code changed since the last measurement ({last['commit'][:12]}); "
+                               f"its samples were judged again against the current limits, the phone not touched")
+            set_measured(platform, {**last, "commit": sha, "at": now(), "verdict": judged["verdict"],
+                                    "carriedFrom": last["commit"]})
+            if judged["verdict"] == "good":
+                set_good(platform, {"commit": sha, "at": now(), "record": last["record"],
+                                    "compare": judged["report"], "carriedFrom": last["commit"]})
+            elif last.get("verdict") != "slower":  # newly failing under the current limits; a repeat is not news
+                escalate_slower(repo, label, platform, sha, span, commits, judged, last["record"], log_path,
+                                "No phone run: no app code changed since the last measurement, so those "
+                                "samples were judged again against the current limits.")
             return outcome
         phone, idents = find_phone(platform, work)
         free, detail = wait_until_free(platform, idents)
@@ -848,39 +949,16 @@ def run_platform(repo, round_id, sha, platform, work, checkout):
         verb(platform, "perf", checkout, phone, extra, guard, log_path, record_out=out)
         if not Path(out).exists():
             raise Unmeasured(f"the perf verb wrote no record at {out}: {log_tail(log_path)}")
-        # The old p95 benchmark comparison is information only and decides nothing (CEO §104).
-        _, result = compare(checkout, out, log_path)
-        with open(out) as f:
-            data = json.load(f)
-        info = summary_line(result)
-        cold = cold_standard(platform, data)
-        if cold["verdict"] == "INCOMPLETE":
-            raise Unmeasured(f"the cold-start test gave no verdict: {cold['why']}; benchmark (information only): {info}")
-        try:
-            warm = warm_standard(data) if cold["verdict"] == "PASS" else None
-        except Unmeasured as exc:
-            raise Unmeasured(f"{exc}; {standard_line('cold', cold)}") from None
-        try:
-            blanks = blank_screen_problems(platform, data)
-        except Unmeasured as exc:
-            raise Unmeasured(f"{exc}; {standard_line('cold', cold)}") from None
-        failed = [standard_line(k, v) for k, v in (("cold", cold), ("warm", warm)) if v and v["verdict"] == "FAIL"]
-        verdict = "slower" if failed or blanks else "good"
-        report = "; ".join(standard_line(k, v) for k, v in (("cold", cold), ("warm", warm)) if v)
-        outcome.update(verdict=verdict, record=out, standard=report, compare=info,
-                       blankScreen=blank_screen_status(platform, data, blanks))
+        judged = judge_record(checkout, platform, out, log_path)
+        verdict = judged["verdict"]
+        outcome.update(verdict=verdict, record=out, standard=judged["report"], compare=judged["info"],
+                       blankScreen=blank_screen_status(platform, judged["data"], judged["blanks"]))
+        set_measured(platform, {"commit": sha, "at": now(), "record": out, "verdict": verdict})
         if verdict == "good":
-            set_good(platform, {"commit": sha, "at": now(), "record": out, "compare": report})
+            set_good(platform, {"commit": sha, "at": now(), "record": out, "compare": judged["report"]})
         else:
-            what = (("start FAILS the speed standard" + (" and a BLANK SCREEN" if blanks else "")) if failed
-                    else "start shows a BLANK SCREEN")
-            escalate(repo, f"Phone speed: {label} {what} at main {sha[:12]}",
-                     f"{label} {report}{'; ' + '; '.join(blanks) if blanks else ''}. Range {span}. "
-                     f"Commits in it touching richos/mobile/: {' | '.join(commits) or 'none listed'}. Which of them "
-                     f"{'slowed the start' if failed else 'put a blank screen on the start'}, and who fixes it?",
-                     f"The automatic run after the land measured the cold-start test (CEO 2026-10-03, §104: starts "
-                     f"2-5 under the per-start limit, 2-20 average under the average limit) with the benchmark's fixed "
-                     f"conversation. Benchmark p95 comparison (information only): {info}. Record: {out}; log: {log_path}.")
+            escalate_slower(repo, label, platform, sha, span, commits, judged, out, log_path,
+                            "The automatic run after the land measured it.")
     except Unmeasured as exc:
         kind = "refused" if isinstance(exc, Refused) else "unmeasured"
         outcome.update(verdict=kind, why=str(exc))
@@ -912,7 +990,7 @@ def prune_runs():
     runs = home() / "runs"
     if not runs.is_dir():
         return []
-    kept = {Path(g["record"]).parents[1].name for g in good().values() if g.get("record")}
+    kept = {Path(g["record"]).parents[1].name for g in [*good().values(), *measured().values()] if g.get("record")}
     rounds = sorted((p for p in runs.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
     removed = []
     for old in rounds[KEEP_ROUNDS:]:
