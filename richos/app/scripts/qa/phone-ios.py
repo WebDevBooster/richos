@@ -21,7 +21,11 @@
                                                    --prebuilt reuses the products the stamp names
                                                    (this checkout's earlier build, or a shared-store
                                                    entry's stamp.json) and refuses unless the app
-                                                   still hashes to STAMP.json (perf.py stamp)
+                                                   still hashes to STAMP.json (perf.py stamp).
+                                                   A list whose every step acts in Safari, Settings,
+                                                   SpringBoard or Tailscale (or sleeps, marks, opens a link,
+                                                   presses Home) runs with the test runner alone: RichConnect
+                                                   is not handed to the phone (summary `runnerOnly`)
     phone-ios.py approval --device UDID            will the next run ask the phone's owner to approve
                                                    UI automation? Asks nothing of the phone's screen.
     phone-ios.py wifi-restore --out DIR            read the phone's Wi-Fi switch in Settings; turn it on if
@@ -818,6 +822,17 @@ def approval(args):
     return emit(forecast(args.device, passcode=passcode_state(args.device)))
 
 
+# Steps that act on no app: a wait, a log mark, a link opened in Safari, the Home button.
+APPLESS = {"sleep", "mark", "open", "home"}
+
+
+def addresses_app(steps):
+    """Does any step act on RichConnect (a step with no "in" place, other than APPLESS)? A list that does not is run
+    with the test runner alone (RICHOS_PHYSICAL_RUNNER_ONLY, physical-device.mjs): xcodebuild is not handed
+    RichConnect's bundle, so the CEO's installed app is left as it is (CEO 2026-10-03: his app is his)."""
+    return any(s.get("do") not in APPLESS and s.get("in") not in PLACES for s in steps)
+
+
 def touches_wifi(steps):
     """Does the list act on Wi-Fi in iOS Settings (a step in Settings naming Wi-Fi)?"""
     return any(s.get("in") == "settings" and "wi-fi" in str(s.get("label", "")).replace("‑", "-").lower()
@@ -963,6 +978,11 @@ def _run(args):
         json.dump({"isolatedLab": "true", "steps": json.dumps(steps), "allowanceSeconds": str(args.allowance),
                    **({"screenRecording": "true"} if getattr(args, "screen_recording", False) else {})}, f)
     env = {**os.environ, "RICHOS_MOBILE_TEST_CONFIG": str(config)}
+    runner_only = not addresses_app(steps)
+    if runner_only:
+        env["RICHOS_PHYSICAL_RUNNER_ONLY"] = "1"
+    else:
+        env.pop("RICHOS_PHYSICAL_RUNNER_ONLY", None)
     if args.prebuilt:
         env["RICHOS_PHYSICAL_PREBUILT"] = "1"
         env["RICHOS_PHYSICAL_PRODUCTS"] = identity["products"]
@@ -1003,7 +1023,7 @@ def _run(args):
                "result": result, "testLog": str(log), "out": str(out),
                "attachments": str(attachments) if exported.returncode == 0 else None,
                "attachmentsError": None if exported.returncode == 0 else exported.stderr.strip()[-300:],
-               "build": build, "approvalForecast": ahead,
+               "build": build, "approvalForecast": ahead, "runnerOnly": runner_only,
                # The command's start on this Mac's clock to the first step's start on the phone's
                # clock (both set from network time), and the runner's wait for automation to be allowed.
                "secondsToFirstStep": round(first - started, 1) if isinstance(first, (int, float)) else None,

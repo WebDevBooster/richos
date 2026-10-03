@@ -793,6 +793,20 @@ def _():
         assert module.wifi_value(Path(tmp) / "read") is None
 
 
+@case("D31c a list that acts only in Safari, Settings or SpringBoard runs with the runner alone; one step on the app hands the app over as before")
+def _():
+    module = load_phone_ios()
+    safari = [{"do": "open", "url": "https://www.apple.com"}, {"do": "sleep", "seconds": 2},
+              {"do": "shot", "name": "s", "in": "safari", "screen": True}, {"do": "terminate", "in": "safari"},
+              {"do": "launch", "in": "settings"}, {"do": "mark", "label": "x"}, {"do": "home"}]
+    assert module.addresses_app(safari) is False
+    for app_step in ({"do": "launch"}, {"do": "tap", "id": "composer.send"}, {"do": "shot", "name": "app"},
+                     {"do": "state"}):
+        assert module.addresses_app(safari + [app_step]) is True, app_step
+    text = (REPO / "richos/mobile/native-ios/Tools/physical-device.mjs").read_text()
+    assert "env.RICHOS_PHYSICAL_RUNNER_ONLY === '1'" in text and "t.pop('UITargetAppPath')" in text
+
+
 # -- the commit check ---------------------------------------------------------------------------
 # Each planted line is what a change might add; the scan must name it. The literals carry the
 # exemption marker as a comment on THIS file's line, never inside the planted text.
