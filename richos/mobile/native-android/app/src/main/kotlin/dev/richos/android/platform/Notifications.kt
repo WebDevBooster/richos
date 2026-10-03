@@ -472,7 +472,8 @@ object Replies {
         // One notification per event, so one pending intent per event: PendingIntent identity ignores
         // extras, and a shared request code made every notification open the newest reply's references.
         val id = collapse?.hashCode() ?: 0
-        val open = openIntent(context, target)
+        // The words ride on the tap only when they are the reply's (not the generic line), so it can open on them.
+        val open = openIntent(context, target?.copy(text = text.takeIf { it != NotificationPreview.GENERIC }))
         val tap = open?.let { PendingIntent.getActivity(context, id, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(SMALL_ICON)

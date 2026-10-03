@@ -135,7 +135,7 @@ class RichCore private constructor(
         Action.AskMicrophone, Action.DismissMicrophoneCard -> voice(action)
         Action.TurnOnNotifications, is Action.NotificationsResult, Action.TurnOffNotifications, Action.DismissNotificationOffer,
         is Action.SetPreviews, is Action.OpenSheet, Action.CloseSheet, Action.ForgetPairing, Action.ConfirmForget,
-        Action.OpenSystemSettings, is Action.OpenedFromNotification, Action.ClearFocus, is Action.UpdatePolicy,
+        Action.OpenSystemSettings, is Action.OpenedFromNotification, is Action.ProvisionalReply, Action.ClearFocus, is Action.UpdatePolicy,
         Action.DismissUpdate, Action.OpenAppStore, Action.OpenSupport, Action.CheckForUpdates, Action.OpenPrivacyPolicy -> settings(action)
         is Action.PushToken -> pushToken(action)
         Action.LoadOlder -> loadOlder()
@@ -389,7 +389,7 @@ class RichCore private constructor(
             unsupported = h.protocolVersion != null && h.protocolVersion != 1L
             resnapshotRequested = unsupported
             val thread = h.threadId ?: s.selectedThreadId
-            val held = s.cache[thread].orEmpty()
+            val held = ProvisionalReply.retire(s.cache[thread].orEmpty(), h.messages)
             // A fresh snapshot covers only the newest page. Keep the contiguous loaded history
             // while the person is reading it, replacing overlapping rows with authoritative ones.
             val keepReading = thread == s.selectedThreadId && held.any { it.id == s.readingAnchor?.messageId }
@@ -408,7 +408,7 @@ class RichCore private constructor(
             )
         } ?: s
         "message" -> decode(Row.serializer(), frame.data)?.let { row ->
-            val held = s.cache[row.threadId].orEmpty()
+            val held = ProvisionalReply.retire(s.cache[row.threadId].orEmpty(), listOf(row))
             // A finished reply is final. A reconnect replays the last reply whole (its opening row,
             // deltas and completion share one frame id on the Mac, and `since` is inclusive), so
             // an arriving copy of a row held finished is that replay, never news (D02).
@@ -1221,6 +1221,11 @@ class RichCore private constructor(
                 focusMessageId = action.messageId
                 val thread = action.threadId?.takeIf { id -> session.threads.any { it.id == id } }
                 if (thread != null && thread != session.selectedThreadId) commit(session.copy(selectedThreadId = thread)) else emit()
+            }
+            is Action.ProvisionalReply -> {
+                val held = session.cache[action.threadId].orEmpty()
+                val known = session.threads.any { it.id == action.threadId } && held.none { ProvisionalReply.reference(it.id) == action.event || it.id == ProvisionalReply.id(action.event) }
+                if (known) commit(session.copy(cache = session.cache + (action.threadId to (held + ProvisionalReply.row(action.threadId, action.event, action.text, held))))) else emit()
             }
             Action.ClearFocus -> { focusMessageId = null; emit() }
             is Action.UpdatePolicy -> commit(session.copy(update = action.notice, voicePaused = action.voicePaused))

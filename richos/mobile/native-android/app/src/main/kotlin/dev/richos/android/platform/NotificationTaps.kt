@@ -6,6 +6,7 @@ import dev.richos.android.app.AppStore
 import dev.richos.android.core.Action
 import dev.richos.android.core.AppState
 import dev.richos.android.core.ConnectionReason
+import dev.richos.android.core.ProvisionalReply
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filterNotNull
@@ -20,18 +21,21 @@ import java.security.MessageDigest
  * the native iPhone's `NotificationTarget` (`native-ios/App/Platform/Shared/NotificationTarget.swift`),
  * rule for rule: strict shapes, and anything else is not a RichConnect notification and opens nothing.
  */
-data class NotificationTarget(val host: String?, val thread: String, val event: String) {
+data class NotificationTarget(val host: String?, val thread: String, val event: String, val text: String? = null) {
     /** The conversation this points at, once the app has its list. */
     fun threadId(state: AppState): String? = state.threads.firstOrNull { reference(it.id) == thread }?.id
 
     /** The reply this points at, when it is loaded in the selected conversation. */
-    fun messageId(state: AppState): String? = state.messages.lastOrNull { it.role == "rich" && reference(it.id) == event }?.id
+    fun messageId(state: AppState): String? =
+        state.messages.lastOrNull { it.role == "rich" && (reference(it.id) == event || it.id == ProvisionalReply.id(event)) }?.id
 
     /** The references ride on the tap's intent; nothing else from the message does. */
     fun into(intent: Intent): Intent = intent.apply {
         putExtra(EXTRA_THREAD, thread)
         putExtra(EXTRA_EVENT, event)
         host?.let { putExtra(EXTRA_HOST, it) }
+        // The words the notification already shows, so the tap can open on them (Sage row 6). Only on the tap, never in [extras].
+        text?.let { putExtra(EXTRA_TEXT, it) }
     }
 
     /** The same references as notification extras, so a posted reply says which reply it is (D04). */
@@ -45,6 +49,7 @@ data class NotificationTarget(val host: String?, val thread: String, val event: 
         const val EXTRA_HOST = "dev.richos.connect.reply.host"
         const val EXTRA_THREAD = "dev.richos.connect.reply.thread"
         const val EXTRA_EVENT = "dev.richos.connect.reply.event"
+        const val EXTRA_TEXT = "dev.richos.connect.reply.text"
 
         private val hex32 = Regex("^[a-f0-9]{32}$")
         private val hex64 = Regex("^[a-f0-9]{64}$")
@@ -59,6 +64,7 @@ data class NotificationTarget(val host: String?, val thread: String, val event: 
         fun fromIntent(intent: Intent?): NotificationTarget? {
             if (intent == null) return null
             return of(intent.getStringExtra(EXTRA_HOST), intent.getStringExtra(EXTRA_THREAD) ?: return null, intent.getStringExtra(EXTRA_EVENT))
+                ?.copy(text = intent.getStringExtra(EXTRA_TEXT)?.takeIf { it.isNotEmpty() })
         }
 
         /** From a posted notification's extras ([extras]); null for one that carries no reply. */
@@ -93,6 +99,8 @@ object NotificationTaps {
     sealed interface Step {
         data object Wait : Step
         data class Select(val threadId: String) : Step
+        /** The reply is not loaded: show the notification's own words at once, before any asking. */
+        data class ShowPreview(val threadId: String, val event: String, val text: String) : Step
         data object LoadOlder : Step
         data class Open(val messageId: String, val threadId: String) : Step
     }
@@ -108,13 +116,15 @@ object NotificationTaps {
         intent.removeExtra(NotificationTarget.EXTRA_HOST)
         intent.removeExtra(NotificationTarget.EXTRA_THREAD)
         intent.removeExtra(NotificationTarget.EXTRA_EVENT)
+        intent.removeExtra(NotificationTarget.EXTRA_TEXT)
         return scope.launch { route(store, target) }
     }
 
-    fun step(state: AppState, target: NotificationTarget, olderAsked: Int): Step {
+    fun step(state: AppState, target: NotificationTarget, olderAsked: Int, previewShown: Boolean = false): Step {
         val threadId = target.threadId(state) ?: return Step.Wait
         if (state.selectedThreadId != threadId) return Step.Select(threadId)
         target.messageId(state)?.let { return Step.Open(it, threadId) }
+        if (target.text != null && !previewShown) return Step.ShowPreview(threadId, target.event, target.text)
         // Only once the live stream has delivered the newest rows is "not loaded" a reason to look back.
         val live = state.connection.reason == ConnectionReason.CONNECTED
         return if (live && state.olderAvailable && !state.loadingOlder && olderAsked < OLDER_CHUNKS) Step.LoadOlder else Step.Wait
@@ -126,11 +136,17 @@ object NotificationTaps {
             var olderAsked = 0
             var selected: String? = null
             var lastOlderAt: Int? = null
+            var previewShown = false
             store.states.filterNotNull().first { state ->
-                when (val next = step(state, target, olderAsked)) {
+                when (val next = step(state, target, olderAsked, previewShown)) {
                     Step.Wait -> false
                     is Step.Select -> {
                         if (selected != next.threadId) { selected = next.threadId; store.dispatch(Action.SelectThread(next.threadId)) }
+                        false
+                    }
+                    is Step.ShowPreview -> {
+                        previewShown = true
+                        store.dispatch(Action.ProvisionalReply(next.threadId, next.event, next.text))
                         false
                     }
                     Step.LoadOlder -> {
