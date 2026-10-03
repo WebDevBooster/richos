@@ -24,3 +24,13 @@ assert.equal((await alerts.getAlertLog()).length, 3, 'durable log must keep dist
 await alerts.resetAlertThrottle();
 assert.equal(notifications.size, 0);
 console.log('PASS persistent incident deduplication, single notification and resolution');
+
+// Browser harnesses opt out of desktop surfaces, but incident detection remains live.
+store['richos.settings'] = { core: { notifyOnFailure: false, notifyOnStartStop: false, alertSound: false } };
+const beforeQuiet = creations;
+await alerts.raiseAlert({ ...incident, code: 'quiet-fixture-failure', sessionId: 'quiet-session' });
+assert.equal(creations, beforeQuiet, 'quiet profile must not post a desktop notification');
+assert.equal(notifications.size, 0);
+assert.equal((await alerts.getAlertLog()).at(-1).code, 'quiet-fixture-failure', 'quiet mode must still persist the detected incident');
+assert.ok(store['richos.callCapture.alertIncidents']['quiet-fixture-failure'], 'quiet incident still participates in recovery and deduplication');
+console.log('PASS quiet fixture keeps durable failure evidence without desktop notifications');
