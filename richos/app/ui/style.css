@@ -1987,6 +1987,16 @@ body.bp-narrow .first-run {
   padding-bottom: 8px;
 }
 
+/* A pin, archive or rename that could not be saved. `--attention` on `--paper-rail`:
+   dark #e09a55 on #0a101b 8.09:1, light #8c4a1b on #eae6dd 5.42:1 (text, 4.5:1 floor). */
+.nav-save-note {
+  margin: 0;
+  padding: 8px 2px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--attention);
+}
+
 /* ---- entity groups (§3.1) ------------------------------------------------------------- */
 
 .nav-group {

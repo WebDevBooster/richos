@@ -4760,16 +4760,16 @@ function openThreadMenu(row, anchor) {
     // so "rename back to what Rich called it" is always one step away.
     const next = window.prompt("Rename this thread", row.display_title);
     if (next === null) return;
-    await invokeQuiet("rename_thread", { threadId: row.id, title: next });
+    await saveNavChange("rename_thread", { threadId: row.id, title: next });
     await refreshNavigation();
     renderScopeHeader();
   });
   add(row.pinned ? "Unpin" : "Pin", async () => {
-    await invokeQuiet("set_thread_pinned", { threadId: row.id, pinned: !row.pinned });
+    await saveNavChange("set_thread_pinned", { threadId: row.id, pinned: !row.pinned });
     await refreshNavigation();
   });
   add(row.archived ? "Restore from archive" : "Archive", async () => {
-    await invokeQuiet("set_thread_archived", { threadId: row.id, archived: !row.archived });
+    await saveNavChange("set_thread_archived", { threadId: row.id, archived: !row.archived });
     await refreshNavigation();
   });
 
@@ -4784,6 +4784,25 @@ function openThreadMenu(row, anchor) {
 document.addEventListener("click", (e) => {
   if (!threadMenuEl.hidden && !threadMenuEl.contains(e.target)) closeThreadMenu();
 });
+
+// A pin, archive or rename that could not be saved is SAID, in the rail where he made it
+// (nav.rs `persist` refuses over an unreadable navigation file). A success clears the note.
+async function saveNavChange(cmd, args) {
+  const note = document.getElementById("nav-save-note");
+  try {
+    const out = await Bridge.invoke(cmd, args);
+    note.hidden = true;
+    note.textContent = "";
+    return out;
+  } catch (e) {
+    const text = typeof e === "string" ? e : e && e.message;
+    if (text) {
+      note.textContent = text.charAt(0).toUpperCase() + text.slice(1) + ".";
+      note.hidden = false;
+    }
+    return null;
+  }
+}
 
 async function invokeQuiet(cmd, args) {
   try {
