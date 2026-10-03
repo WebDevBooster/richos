@@ -44,6 +44,8 @@ const APP = 'Release-iphoneos/RichOSNative.app';
 export const CEO_BUNDLE = 'dev.richos.connect';
 export const TEST_BUNDLE = 'dev.richos.connect.perf';
 export const TEST_NAME = 'RichConnect Perf';
+// The test copy is signed without an App Group (its group is never registered for the team), so it names its own entitlements files.
+export const TEST_COPY_ENTITLEMENTS = ['RICHOS_APP_ENTITLEMENTS=RichOSNative.testcopy.entitlements', 'RICHOS_SHARE_ENTITLEMENTS=ShareExtension.testcopy.entitlements'];
 export function testCopyOnly(bundleId) {
   if (bundleId === CEO_BUNDLE) throw Error(`Refused: this is the CEO's own RichConnect (${CEO_BUNDLE}); he handles it himself. The device tools install only the test copy (${TEST_BUNDLE})`);
   if (bundleId !== TEST_BUNDLE) throw Error(`Refused: the bundle is ${bundleId}, not the test copy (${TEST_BUNDLE})`);
@@ -368,7 +370,7 @@ export async function main(args, env = process.env) {
       const base = ['-project', project, '-scheme', 'RichOSPhysical', '-configuration', 'Release',
         '-destination', `id=${settings.device}`, '-derivedDataPath', derived,
         `DEVELOPMENT_TEAM=${settings.team}`, 'CODE_SIGN_STYLE=Automatic', 'CODE_SIGN_IDENTITY=Apple Development',
-        'RICHOS_APS_ENVIRONMENT=development', `RICHOS_BUNDLE_ID=${TEST_BUNDLE}`, `RICHOS_APP_DISPLAY_NAME=${TEST_NAME}`, '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
+        'RICHOS_APS_ENVIRONMENT=development', `RICHOS_BUNDLE_ID=${TEST_BUNDLE}`, `RICHOS_APP_DISPLAY_NAME=${TEST_NAME}`, ...TEST_COPY_ENTITLEMENTS, '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
       // The limit starts when native-work admits the build (`admission: true`), never at the queue:
       // on 2026-10-02 the wait for the Mac's CPU line was 557 s of a 600 s limit counted from the
       // queue, and the Release build (one Swift job) was stopped mid-compile ("BUILD INTERRUPTED").

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { CEO_BUNDLE, KEEP, TEST_BUNDLE, allowanceSeconds, bundleIdOf, buildTree, testCopyOnly, configuration, deviceArgs, deviceToolSources, hardwareUdid, main, plan, prebuilt, prepareSpec, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
+import { CEO_BUNDLE, KEEP, TEST_BUNDLE, TEST_COPY_ENTITLEMENTS, allowanceSeconds, bundleIdOf, buildTree, testCopyOnly, configuration, deviceArgs, deviceToolSources, hardwareUdid, main, plan, prebuilt, prepareSpec, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
 
 test('only verify may reuse an earlier build, and only when asked', () => {
   assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'verify'), true);
@@ -35,6 +36,20 @@ test('the device tools build, install and verify only the test copy, never the C
   const key = { tree: 'a'.repeat(40), team: 'ABCDEFGHIJ', xcode: 'Xcode 26' };
   assert.notEqual(storeKey(key), storeKey({ ...key, bundle: CEO_BUNDLE }));
   assert.equal(storeKey(key), storeKey({ ...key, bundle: TEST_BUNDLE }));
+});
+
+test('the test copy is signed with entitlements that carry no App Group, and the CEO\'s files keep theirs', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const where = { 'RICHOS_APP_ENTITLEMENTS': 'Release', 'RICHOS_SHARE_ENTITLEMENTS': 'ShareExtension' };
+  for (const setting of TEST_COPY_ENTITLEMENTS) {
+    const [key, file] = setting.split('=');
+    const text = readFileSync(join(here, '..', where[key], file), 'utf8');
+    assert.doesNotMatch(text, /application-groups/);
+    assert.match(text, /keychain-access-groups/);
+  }
+  const yml = readFileSync(join(here, '..', 'Release/platform.yml'), 'utf8');
+  assert.match(yml, /RICHOS_APP_ENTITLEMENTS: RichOSNative\.entitlements/);
+  assert.match(yml, /RICHOS_SHARE_ENTITLEMENTS: ShareExtension\.entitlements/);
 });
 
 test('APNs registration must match actual signing regardless of Release optimization', () => {
