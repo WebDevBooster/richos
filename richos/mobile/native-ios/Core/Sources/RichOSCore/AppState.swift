@@ -505,6 +505,12 @@ public struct History: Codable, Equatable, Sendable {
     public var reachedBeginning = false
     /// `conn-cached`, `launch-cached`: showing saved history, not yet reconciled with the Mac.
     public var cached = false
+    /// Whether the out-of-reach line shows: saved history not yet reconciled AND the Mac has been
+    /// quiet long enough to be explained (`connectionNotice`, set after the quiet 3 s). Android's
+    /// `cachedWhileOffline`: `!hasConnected && notice != null`. A healthy start never shows it.
+    public func showsOutOfReachLine(connectionNotice: ConnectionNotice?) -> Bool {
+        cached && connectionNotice != nil
+    }
     public init(loadingOlder: Bool = false, reachedBeginning: Bool = false, cached: Bool = false) {
         self.loadingOlder = loadingOlder; self.reachedBeginning = reachedBeginning; self.cached = cached
     }

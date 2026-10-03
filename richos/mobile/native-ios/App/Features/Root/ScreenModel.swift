@@ -327,7 +327,7 @@ extension ScreenModel {
         }
         thread.loadingOlder = s.history.loadingOlder
         thread.reachedBeginning = s.history.reachedBeginning
-        thread.cached = s.history.cached
+        thread.cached = s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice)
         thread.following = s.following
         thread.readingAnchor = s.readingAnchor
         thread.focusedID = s.focusedMessageID

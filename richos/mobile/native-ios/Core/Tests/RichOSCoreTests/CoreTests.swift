@@ -529,6 +529,20 @@ let repositoryRoot: URL = {
         #expect(restored.history.cached)
         #expect(!Reducer.reduce(restored, .connected(at: 1)).state.history.cached)
     }
+
+    /// Android's `!hasConnected && notice != null`: a healthy start never shows the out-of-reach
+    /// line; it comes only after the quiet 3 s without the Mac, and goes when the Mac answers.
+    @Test func theOutOfReachLineWaitsForTheQuietPeriodLikeAndroid() throws {
+        var s = try AppState(restoring: try Fixture.named("conv-populated").state.persisted)
+        #expect(s.history.cached && !s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice))
+        s = Reducer.reduce(s, .foregrounded(at: 1_000)).state
+        s = Reducer.reduce(s, .tick(at: 3_999)).state
+        #expect(!s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice))
+        s = Reducer.reduce(s, .tick(at: 4_000)).state
+        #expect(s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice))
+        s = Reducer.reduce(s, .connected(at: 5_000)).state
+        #expect(!s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice))
+    }
 }
 
 /// A pretend platform: answers the microphone question and records what it was asked.
