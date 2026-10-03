@@ -80,6 +80,9 @@ if args[:2] == ["device", "perf"]:
     # 4 (slower). BLANK is the cold-start blank check's verdict in it (metrics.coldBlank, as
     # blankstart.metric writes it): pass, fail or none; Android runs it by default, the iPhone not yet.
     verdict, code, blank = (mode.split(":") + ["", ""])[:3]
+    slow = os.environ.get("FAKE_SLOW_COMMIT")  # a phone in good condition: only this commit's build is slow
+    if slow:
+        verdict = "slower" if args[args.index("--expect-commit") + 1] == slow else "good"
     blank = blank or ("pass" if platform == "android" else "none")
     record = {"fake": verdict, "metrics": {}, "phases": {}}
     # The speed standard (CEO 2026-10-03, §104) judges the cold series: "good" is 20 starts well under the
@@ -353,6 +356,38 @@ class Run(Base):
                       "the old p95 comparison is information only")
         self.assertEqual(json.loads((self.base / "home/good.json").read_text())["android"]["commit"], good_sha,
                          "a slower run never becomes the good run")
+
+    def slow_round(self, phone_is_slow):
+        """A good round, then an Android app change whose round fails the standard. With `phone_is_slow` every
+        build fails on the phone; otherwise only the new commit's build does. Returns (good sha, slow sha, escalation)."""
+        good_sha = self.git("rev-parse", "HEAD")
+        self.request()
+        self.run_round()
+        self.write("richos/mobile/native-android/App.kt", "slow\n")
+        slow_sha = self.commit("android: the change under test")
+        self.request()
+        self.log.unlink()
+        env = dict(self.env, FAKE_MODE_ANDROID="slower") if phone_is_slow else dict(self.env, FAKE_SLOW_COMMIT=slow_sha)
+        self.run_round(env=env)
+        [esc] = self.escalated()
+        return good_sha, slow_sha, esc
+
+    def test_W22_a_failure_the_last_good_build_does_not_share_is_a_code_regression(self):
+        good_sha, slow_sha, esc = self.slow_round(phone_is_slow=False)
+        self.assertIn("(a code regression)", esc["title"])
+        self.assertTrue(esc["question"].startswith("A CODE REGRESSION in "), esc["question"])
+        self.assertIn(f"{good_sha[:12]}..{slow_sha[:12]}", esc["question"])
+        self.assertIn("still passes", esc["question"])
+
+    def test_W23_a_failure_the_last_good_build_shares_is_the_phones_condition(self):
+        # CEO 2026-10-03: the watch named the code as the suspect; the last good build failed too (the phone).
+        good_sha, slow_sha, esc = self.slow_round(phone_is_slow=True)
+        self.assertIn("(the phone's condition, not the code)", esc["title"])
+        self.assertTrue(esc["question"].startswith(f"THE PHONE'S CONDITION, NOT THE CODE: the last good build ({good_sha[:12]})"))
+        self.assertIn(f"cli-android device perf --serial {SERIAL} --expect-commit {good_sha}", self.tools(),
+                      "the last good build was measured on the same phone")
+        self.assertIn(f"cli-android device install --serial {SERIAL} --expect-commit {slow_sha}", self.tools()[
+            self.tools().index(f"--expect-commit {good_sha} --cold"):], "the build under test went back on the phone")
 
     def test_W6b_the_warm_test_fails_and_its_unset_limits_are_loud(self):
         self.request()

@@ -885,12 +885,57 @@ def judge_record(checkout, platform, out, log_path):
             "report": "; ".join(standard_line(k, v) for k, v in (("cold", cold), ("warm", warm)) if v)}
 
 
-def escalate_slower(repo, label, platform, sha, span, commits, judged, record_path, log_path, how):
+def measure(platform, checkout, sha, phone, guard, log_path, work, tag=""):
+    """Install `sha`'s release build from `checkout` over the app and measure it; returns the record path."""
+    verb(platform, "install", checkout, phone, ["--expect-commit", sha], guard, log_path)
+    out = str(work / f"{platform}{tag}.json")
+    n = str(_pc().COLD_STARTS)  # a start test is 20 normal starts (§104); the p95 benchmark is information only
+    # The iPhone's judged cold start is the launch with nothing attached (`--launches`), never an Instruments one.
+    cold_args = ["--cold", "0", "--launches", n] if platform == "ios" else ["--cold", n]
+    extra = ["--expect-commit", sha, *cold_args, "--warm", n, "--evidence-dir", str(work / f"evidence{tag}"),
+             "--out", out]
+    if platform in BLANK_REQUIRED:
+        extra += ["--blank-starts", blank_starts()]  # perf.py's cold-blank phase (quint-opus-blank1)
+    verb(platform, "perf", checkout, phone, extra, guard, log_path, record_out=out)
+    if not Path(out).exists():
+        raise Unmeasured(f"the perf verb wrote no record at {out}: {log_tail(log_path)}")
+    return out
+
+
+def diagnose(repo, platform, base, sha, span, phone, guard, log_path, work, checkout):
+    """A round just FAILED this phone's standard. At once, on the same phone, measure the last good
+    build the same way: if it fails too the phone's condition is the cause, if it passes the code is.
+    Returns one sentence. The last good build comes from its own clone (the other phone's thread is
+    building in `checkout`), and the tip's build goes back on the phone afterwards."""
+    if not base:
+        return "NOT TOLD APART: no earlier good run of this phone is recorded to measure against."
+    try:
+        control_dir = prepare_checkout(repo, base, work / "control-checkout.log", name=f"control-{platform}")
+        out = measure(platform, control_dir, base, phone, guard, log_path, work, tag="-control")
+        control = judge_record(control_dir, platform, out, log_path)
+    except Unmeasured as exc:
+        return f"NOT TOLD APART: the last good build ({base[:12]}) could not be measured on this phone: {exc}"
+    finally:
+        with contextlib.suppress(Unmeasured):  # the phone goes back to the build under test
+            verb(platform, "install", checkout, phone, ["--expect-commit", sha], guard, log_path)
+    if control["verdict"] == "slower":
+        return (f"THE PHONE'S CONDITION, NOT THE CODE: the last good build ({base[:12]}) measured on this same "
+                f"phone just now also fails ({'; '.join(control['failed'] + control['blanks'])}).")
+    return (f"A CODE REGRESSION in {span}: the last good build ({base[:12]}) measured on this same phone just "
+            f"now still passes ({control['report']}).")
+
+
+def escalate_slower(repo, label, platform, sha, span, commits, judged, record_path, log_path, how, diagnosis=None):
     failed, blanks, report = judged["failed"], judged["blanks"], judged["report"]
     what = (("start FAILS the speed standard" + (" and a BLANK SCREEN" if blanks else "")) if failed
             else "start shows a BLANK SCREEN")
-    escalate(repo, f"Phone speed: {label} {what} at main {sha[:12]}",
-             f"{label} {report}{'; ' + '; '.join(blanks) if blanks else ''}. Range {span}. "
+    verdict_title = next((t for start, t in (("THE PHONE", " (the phone's condition, not the code)"),
+                                             ("A CODE REG", " (a code regression)"),
+                                             ("NOT TOLD", " (code or phone not told apart)"))
+                          if (diagnosis or "").startswith(start)), "")
+    escalate(repo, f"Phone speed: {label} {what} at main {sha[:12]}{verdict_title}",
+             f"{diagnosis + ' ' if diagnosis else ''}{label} {report}{'; ' + '; '.join(blanks) if blanks else ''}. "
+             f"Range {span}. "
              f"Commits in it touching richos/mobile/: {' | '.join(commits) or 'none listed'}. Which of them "
              f"{'slowed the start' if failed else 'put a blank screen on the start'}, and who fixes it?",
              f"{how} The cold-start test (CEO 2026-10-03, §104: starts "
@@ -938,17 +983,7 @@ def run_platform(repo, round_id, sha, platform, work, checkout):
             raise Unmeasured(f"the phone stayed busy for {max_wait_s()} s; still using it: "
                              + "; ".join(f"pid {pid}: {args}" for pid, args in detail[:3]))
         record("phone-free", round=round_id, platform=platform, waited=detail)
-        verb(platform, "install", checkout, phone, ["--expect-commit", sha], guard, log_path)
-        out = str(work / f"{platform}.json")
-        n = str(_pc().COLD_STARTS)  # a start test is 20 normal starts (§104); the p95 benchmark is information only
-        # The iPhone's judged cold start is the launch with nothing attached (`--launches`), never an Instruments one.
-        cold_args = ["--cold", "0", "--launches", n] if platform == "ios" else ["--cold", n]
-        extra = ["--expect-commit", sha, *cold_args, "--warm", n, "--evidence-dir", str(work / "evidence"), "--out", out]
-        if platform in BLANK_REQUIRED:
-            extra += ["--blank-starts", blank_starts()]  # perf.py's cold-blank phase (quint-opus-blank1)
-        verb(platform, "perf", checkout, phone, extra, guard, log_path, record_out=out)
-        if not Path(out).exists():
-            raise Unmeasured(f"the perf verb wrote no record at {out}: {log_tail(log_path)}")
+        out = measure(platform, checkout, sha, phone, guard, log_path, work)
         judged = judge_record(checkout, platform, out, log_path)
         verdict = judged["verdict"]
         outcome.update(verdict=verdict, record=out, standard=judged["report"], compare=judged["info"],
@@ -957,8 +992,12 @@ def run_platform(repo, round_id, sha, platform, work, checkout):
         if verdict == "good":
             set_good(platform, {"commit": sha, "at": now(), "record": out, "compare": judged["report"]})
         else:
+            # Tell the code from the phone at once, on the same phone (CEO 2026-10-03: a phone in a bad
+            # condition was first reported as a code regression, and a teammate spent 20 minutes finding out).
+            diagnosis = diagnose(repo, platform, base, sha, span, phone, guard, log_path, work, checkout)
+            outcome.update(diagnosis=diagnosis)
             escalate_slower(repo, label, platform, sha, span, commits, judged, out, log_path,
-                            "The automatic run after the land measured it.")
+                            "The automatic run after the land measured it.", diagnosis)
     except Unmeasured as exc:
         kind = "refused" if isinstance(exc, Refused) else "unmeasured"
         outcome.update(verdict=kind, why=str(exc))
