@@ -304,6 +304,17 @@ class Run(Base):
         p = self.watch("run", "--repo", str(self.repo))
         self.assertIn("nothing pending", p.stderr)
 
+    def test_W19_a_land_that_changes_the_watch_is_run_by_its_own_watch_code(self):
+        # The 2026-10-03 defect: a runner started before the standard landed judged later lands with old code.
+        self.write("richos/mobile/perf/watch.py",
+                   "import os, sys\nopen(os.environ['FAKE_LOG'], 'a').write('land-watch ' + ' '.join(sys.argv[1:]) + '\\n')\n")
+        self.commit("the watch changes")
+        self.request()
+        p = self.watch("run", "--repo", str(self.repo))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"land-watch run --repo {self.repo}", self.tools())
+        self.assertNotIn("cli-android device perf", self.tools(), "the old code measured nothing")
+
     def test_W17_the_android_install_and_perf_run_inside_the_signing_wrapper_and_the_iphone_does_not(self):
         # The 2026-10-02 run: randroid refused the unsigned Release APK, so the Android was never measured.
         self.request()
