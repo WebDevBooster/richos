@@ -23,8 +23,11 @@ code on that platform's test phone:
 
 It fails closed: a missing, unreadable or malformed verdict file, a missing record, a commit this
 repository does not have, or anything it cannot read refuses, naming the platform, the commit and
-what is missing or failing. There is no skip flag and no environment switch; the verdicts are read
-from the watch's fixed state directory.
+what is missing or failing. There is no skip flag. The verdicts are read from the watch's fixed state
+directory; the one exception is a test's STAND-IN verdict directory, named by RICHOS_SHIP_GATE_VERDICTS
+(the Android suite's throwaway-key bundle, richos/app/scripts/lib/ship_gate_fixture.py). A stand-in is
+judged by every rule above (a record for the same app code, passing cold and warm, committed code), and
+the pass line names it.
 
   shipgate.py check --platform android|ios --checkout DIR      the build is DIR's working tree (HEAD)
   shipgate.py check --platform android|ios --repo DIR --commit SHA   the build is that commit
@@ -33,6 +36,7 @@ line), or exit 1 with one REFUSED line on stderr.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -154,9 +158,11 @@ def check(platform, repo, commit=None, checkout=False, home=watch.DEFAULT_HOME):
         cold, warm = _judge_again(platform, data, name)
     except Refused as exc:
         raise Refused(f"{what}: {exc}") from None
+    stand_in = "" if str(home) == watch.DEFAULT_HOME else f" (STAND-IN verdicts from {home}, a test fixture)"
     return {"ok": True, "platform": platform, "commit": sha, "measured": measured, "record": name,
-            "line": (f"{what}: §104 PASS on the {LABEL[platform]} test phone, measured at {measured[:12]} (same "
-                     f"app code); {perfcore.standard_line('cold', cold)}; {perfcore.standard_line('warm', warm)}")}
+            "verdicts": str(home),
+            "line": (f"{what}: §104 PASS on the {LABEL[platform]} test phone{stand_in}, measured at {measured[:12]} "
+                     f"(same app code); {perfcore.standard_line('cold', cold)}; {perfcore.standard_line('warm', warm)}")}
 
 
 def main(argv=None):
@@ -172,7 +178,8 @@ def main(argv=None):
     if args.repo and not args.commit:
         ap.error("--repo needs --commit")
     try:
-        result = check(args.platform, args.checkout or args.repo, commit=args.commit, checkout=bool(args.checkout))
+        result = check(args.platform, args.checkout or args.repo, commit=args.commit, checkout=bool(args.checkout),
+                       home=os.environ.get("RICHOS_SHIP_GATE_VERDICTS") or watch.DEFAULT_HOME)
     except Refused as exc:
         print(f"REFUSED by the speed gate (CEO §106): {exc}", file=sys.stderr)
         return 1

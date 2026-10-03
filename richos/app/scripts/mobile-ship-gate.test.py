@@ -16,6 +16,10 @@ state (measured.json and the records it names). No phone, build, store or networ
       skip flag
   R1-R3  `randroid bundle` asks the gate before it builds: a refusal stops it with the gate's line
       and Gradle never starts, a pass lets the build start, and no argument skips it
+  R4  a bundle signed with ANOTHER key is gated the same way (Google ties the app to whichever key
+      signs its first upload)
+  F1  the stand-in verdict a test writes (lib/ship_gate_fixture.py, named by RICHOS_SHIP_GATE_VERDICTS)
+      passes the real gate for the same app code, says it is a stand-in, and still refuses other app code
 """
 import contextlib
 import io
@@ -26,11 +30,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = Path(__file__).resolve().parent
 PERF = HERE.parents[1] / "mobile/perf"
 sys.path.insert(0, str(PERF))
+sys.path.insert(0, str(HERE / "lib"))
 import shipgate  # noqa: E402
+import ship_gate_fixture  # noqa: E402
 
 APP_FILE = {"android": "richos/mobile/native-android/app/src/main/kotlin/Main.kt",
             "ios": "richos/mobile/native-ios/App/Main.swift"}
@@ -178,6 +185,32 @@ class Gate(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 shipgate.main(["check", "--platform", "android", "--checkout", str(self.repo), flag])
 
+    def test_f1_a_stand_in_verdict_passes_the_real_gate_only_for_the_same_app_code(self):
+        stand_in = self.tmp / "stand-in"
+        for platform in ("android", "ios"):
+            ship_gate_fixture.write(stand_in, platform, self.measured)
+
+        def gate(platform):
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                    unittest.mock.patch.dict(os.environ, {"RICHOS_SHIP_GATE_VERDICTS": str(stand_in)}):
+                code = shipgate.main(["check", "--platform", platform, "--checkout", str(self.repo)])
+            return code, out.getvalue(), err.getvalue()
+
+        for platform in ("android", "ios"):
+            code, out, err = gate(platform)
+            self.assertEqual(code, 0, err)
+            result = json.loads(out)
+            self.assertEqual((result["commit"], result["verdicts"]), (self.measured, str(stand_in)))
+            self.assertIn("STAND-IN verdicts", result["line"])
+        self.write(APP_FILE["android"], "two\n")
+        self.commit("app code changed")
+        code, _, err = gate("android")
+        self.assertEqual(code, 1)
+        self.assertIn("different app code", err)
+        with self.assertRaises(SystemExit):
+            ship_gate_fixture.write(ship_gate_fixture.WATCH_STATE, "android", self.measured)
+
 
 FAKE_GATE = """#!/usr/bin/env python3
 import os, sys
@@ -251,6 +284,13 @@ class RandroidBundle(unittest.TestCase):
         self.assertIn("gate check --platform android", log)
         self.assertIn(":app:bundleRelease", log)  # the stand-in Gradle then fails: "did not build"
         self.assertIn("did not build", p.stderr)
+
+    def test_r4_a_bundle_signed_with_another_key_is_gated_too(self):
+        p, log = self.bundle(RANDROID_UPLOAD_CERT_SHA256="AB:" * 31 + "AB")
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("REFUSED by the speed gate", p.stderr)
+        self.assertIn("gate check --platform android --checkout", log)
+        self.assertNotIn("gradle", log)
 
     def test_r3_no_flag_skips_it(self):
         p, log = self.bundle_args("--skip-speed")

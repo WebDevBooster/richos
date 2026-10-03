@@ -14,8 +14,8 @@
 #                                       as below; needs the upload key and the Firebase values in the
 #                                       environment (richos-hq with-android-signing.py and
 #                                       with-android-firebase.py) and a committed source tree.
-#                                       Signed with the committed upload key, it is REFUSED without the
-#                                       phone speed watch's §104 PASS for this exact app code
+#                                       Whatever key signs it, it is REFUSED without the phone speed
+#                                       watch's §104 PASS for this exact app code
 #                                       (richos/mobile/perf/shipgate.py, CEO §106); nothing skips that
 #   randroid verify-bundle <file.aab>   check a bundle: signed by the upload key only, permanent ID,
 #                                       base module only, development bridge absent (full dex dump),
@@ -750,11 +750,10 @@ speed_gate() {  # returns nonzero with the refusal in SPEED_REFUSAL
 # The signed bundle for Google Play. Refuses rather than produce a bundle that would upload and
 # be wrong: unsigned (no upload key), unable to receive notifications (no Firebase values), built
 # from uncommitted source (no commit identifies it), carrying a stale icon, or SLOWER THAN THE SPEED
-# STANDARD: any bundle signed with the committed upload key (the only one Play takes from us) is
-# refused without the speed gate's pass. The gate runs before the build when that key is the one
-# expected, and again on the finished bundle's actual signer, whatever the environment says; a
-# refused bundle is deleted. A bundle signed with another key (the suite's throwaway-key smoke test)
-# is not an upload of RichConnect and is not gated.
+# STANDARD: EVERY bundle is refused without the speed gate's pass, before anything builds, whatever key
+# signs it. Google ties the app to whichever key signs its first upload, so a bundle signed with any key
+# could be the one users get. (The Android suite's throwaway-key smoke test passes the gate with a
+# stand-in verdict, richos/app/scripts/lib/ship_gate_fixture.py.)
 bundle() {
   local allow_dirty=0
   [ "${1:-}" = "--allow-dirty" ] && allow_dirty=1
@@ -767,8 +766,8 @@ bundle() {
     dirty=true
   fi
   node "$HERE/release/make-app-icon.cjs" --check >&2 || fail "the launcher icon is stale; run node release/make-app-icon.cjs"
-  # The committed upload key is the one expected: refuse before minutes of building.
-  if [ -z "${RANDROID_UPLOAD_CERT_SHA256:-}" ]; then speed_gate || fail "$SPEED_REFUSAL"; fi
+  # Every bundle, whatever key signs it: refuse before minutes of building.
+  speed_gate || fail "$SPEED_REFUSAL"
   # Whole minutes from 2026-01-01T00:00Z to now (UTC): every later bundle has a higher code.
   local code
   code="$(python3 -c 'import time,calendar; print((int(time.time()) - calendar.timegm((2026,1,1,0,0,0))) // 60)')"
@@ -782,16 +781,7 @@ bundle() {
   file="$dir/RichConnect-$code.aab"
   cp "$built" "$file"
   if ! result="$(verify_bundle "$file" "$code")"; then printf '%s\n' "$result" >&2; fail "the bundle failed verification: $file"; fi
-  # Signed by the committed upload key, read from the file and never from the environment: gated.
-  local signer committed
-  signer="$(python3 -c 'import json,sys; print(" ".join(json.loads(sys.argv[1])["result"]["signer"]["sha256"]).upper())' "$result")" \
-    || { rm -f "$file" "$built"; fail "REFUSED: could not read the bundle's signer"; }
-  committed="$(tr -d ' \n' 2>/dev/null < "$HERE/release/upload-certificate.sha256" | tr '[:lower:]' '[:upper:]')" \
-    || committed=""  # unreadable: gated, never waved through
-  if [ -z "$committed" ] || [ "$signer" = "$committed" ]; then
-    speed_gate || { rm -f "$file" "$built"; fail "$SPEED_REFUSAL"; }
-  fi
-  python3 - "$result" "$sha" "$dirty" "$file" <<'PY'
+  python3 -"$result" "$sha" "$dirty" "$file" <<'PY'
 import json, sys
 result, sha, dirty, file = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3] == "true", sys.argv[4]
 r = result["result"]
