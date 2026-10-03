@@ -28,7 +28,8 @@ from the watch's fixed state directory.
 
   shipgate.py check --platform android|ios --checkout DIR      the build is DIR's working tree (HEAD)
   shipgate.py check --platform android|ios --repo DIR --commit SHA   the build is that commit
-Exit 0 and one PASS line on stdout, or exit 1 and one REFUSED line on stderr.
+Exit 0 with one JSON object on stdout (ok, platform, the full commit, the measured commit, the PASS
+line), or exit 1 with one REFUSED line on stderr.
 """
 import argparse
 import json
@@ -119,7 +120,8 @@ def _judge_again(platform, data, name):
 
 
 def check(platform, repo, commit=None, checkout=False, home=watch.DEFAULT_HOME):
-    """Return the PASS sentence, or raise Refused. `checkout`: the build is `repo`'s working tree at HEAD."""
+    """Return the PASS result (its "line" is the sentence), or raise Refused. `checkout`: the build is
+    `repo`'s working tree at HEAD."""
     if platform not in watch.APP_DIR:
         raise Refused(f"unknown platform {platform!r}")
     repo = _git(repo, "rev-parse", "--show-toplevel").strip()  # the app paths are repository-relative
@@ -152,8 +154,9 @@ def check(platform, repo, commit=None, checkout=False, home=watch.DEFAULT_HOME):
         cold, warm = _judge_again(platform, data, name)
     except Refused as exc:
         raise Refused(f"{what}: {exc}") from None
-    return (f"{what}: §104 PASS on the {LABEL[platform]} test phone, measured at {measured[:12]} (same app code); "
-            f"{perfcore.standard_line('cold', cold)}; {perfcore.standard_line('warm', warm)}")
+    return {"ok": True, "platform": platform, "commit": sha, "measured": measured, "record": name,
+            "line": (f"{what}: §104 PASS on the {LABEL[platform]} test phone, measured at {measured[:12]} (same "
+                     f"app code); {perfcore.standard_line('cold', cold)}; {perfcore.standard_line('warm', warm)}")}
 
 
 def main(argv=None):
@@ -169,7 +172,7 @@ def main(argv=None):
     if args.repo and not args.commit:
         ap.error("--repo needs --commit")
     try:
-        line = check(args.platform, args.checkout or args.repo, commit=args.commit, checkout=bool(args.checkout))
+        result = check(args.platform, args.checkout or args.repo, commit=args.commit, checkout=bool(args.checkout))
     except Refused as exc:
         print(f"REFUSED by the speed gate (CEO §106): {exc}", file=sys.stderr)
         return 1
@@ -177,7 +180,7 @@ def main(argv=None):
         print(f"REFUSED by the speed gate (CEO §106): {args.platform}: the gate itself failed: "
               f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
-    print(f"speed gate: {line}")
+    print(json.dumps(result))
     return 0
 
 

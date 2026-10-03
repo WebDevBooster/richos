@@ -135,21 +135,21 @@ class Gate(unittest.TestCase):
     def test_s4_pass_for_the_same_app_code(self):
         for platform in ("android", "ios"):
             self.verdict(platform)
-            line = shipgate.check(platform, self.repo, checkout=True, home=self.home)
-            self.assertIn("§104 PASS", line)
-            self.assertIn("cold PASS", line)
-            self.assertIn("warm PASS", line)
+            result = shipgate.check(platform, self.repo, checkout=True, home=self.home)
+            self.assertEqual((result["ok"], result["commit"], result["measured"]), (True, self.measured, self.measured))
+            for words in ("§104 PASS", "cold PASS", "warm PASS"):
+                self.assertIn(words, result["line"])
         # Only tests and tooling changed since the measurement: the same app code still passes.
         self.write(TEST_FILE["android"], "test two\n")
         self.write(TEST_FILE["ios"], "test two\n")
         self.write("richos/mobile/native-ios/bin/rios", "tool\n")
         later = self.commit("tests only")
         for platform in ("android", "ios"):
-            self.assertIn("§104 PASS", shipgate.check(platform, self.repo, checkout=True, home=self.home))
-            self.assertIn(later[:12], shipgate.check(platform, self.repo, commit=later, home=self.home))
+            self.assertEqual(shipgate.check(platform, self.repo, checkout=True, home=self.home)["commit"], later)
+            self.assertIn(later[:12], shipgate.check(platform, self.repo, commit=later, home=self.home)["line"])
         # Run from a subdirectory (randroid and testflight.ts pass their own folder): same answer.
         sub = self.repo / "richos/mobile/native-android"
-        self.assertIn("§104 PASS", shipgate.check("android", sub, checkout=True, home=self.home))
+        self.assertTrue(shipgate.check("android", sub, checkout=True, home=self.home)["ok"])
 
     def test_s5_uncommitted_app_code_or_missing_record_refuses(self):
         for platform in ("android", "ios"):
