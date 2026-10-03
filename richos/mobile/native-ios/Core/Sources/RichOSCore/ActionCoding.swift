@@ -136,7 +136,7 @@ extension Action: Codable {
         case "set-following": self = .setFollowing(try need(w.value, "value"))
         case "set-composer-focus": self = .setComposerFocus(try need(w.value, "value"))
         case "notification-open":
-            if let event = w.event, w.id == nil { self = .openedFromNotificationReference(event) } else {
+            if let event = w.event, w.id == nil { self = .openedFromNotificationReference(event, preview: w.text, at: w.at ?? 0) } else {
                 self = .openedFromNotification(messageID: try need(w.id, "id"))
             }
         case "share-take": self = .takeShare(try need(w.intake, "intake"), at: w.at ?? now)
@@ -248,7 +248,8 @@ extension Action: Codable {
         case .setFollowing(let v): w = Wire("set-following"); w.value = v
         case .setComposerFocus(let v): w = Wire("set-composer-focus"); w.value = v
         case .openedFromNotification(let id): w = Wire("notification-open"); w.id = id
-        case .openedFromNotificationReference(let event): w = Wire("notification-open"); w.event = event
+        case .openedFromNotificationReference(let event, let preview, let at):
+            w = Wire("notification-open"); w.event = event; w.text = preview; w.at = preview == nil ? nil : at
         case .takeShare(let intake, let at): w = Wire("share-take"); w.intake = intake; w.at = at
         case .clearFocus: w = Wire("notification-focused")
         case .hearReply(let id): w = Wire("reply-play"); w.id = id

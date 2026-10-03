@@ -134,7 +134,8 @@ struct RichOSNativeApp: App {
                         loaded.send(action)
                     } else if target.belongs(toHost: state.notifications.hostID, thread: state.mac?.threadID) {
                         // The reply is not loaded yet: the core fetches older history until it appears.
-                        loaded.send(.openedFromNotificationReference(target.event))
+                        loaded.send(.openedFromNotificationReference(target.event, preview: target.preview,
+                                                                     at: Int64(Date().timeIntervalSince1970 * 1000)))
                     }
                 }
                 PlatformEffects.permissionMirror().forEach { loaded.send($0) }

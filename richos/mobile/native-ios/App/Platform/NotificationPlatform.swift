@@ -85,7 +85,12 @@ final class NotificationPlatform: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let userInfo = response.notification.request.content.userInfo
-        if let target = NotificationTarget(userInfo: userInfo) {
+        if var target = NotificationTarget(userInfo: userInfo) {
+            // The reply's opening, opened here from the sealed preview with the key already on the
+            // phone: no network, and the conversation opens on it at once.
+            if let settings = try? PreviewKeyStore.shared.load(), settings.previews, let key = settings.key {
+                target.preview = try? NotificationPreview.decrypt(userInfo, key: key)
+            }
             // Kept for a cold launch: the store may not exist yet (the mailbox is consumed once it does).
             NotificationRouteMailbox.shared.put(target)
             Task { @MainActor in NotificationPlatform.shared.deliverPending() }
