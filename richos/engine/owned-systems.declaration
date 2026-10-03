@@ -184,6 +184,14 @@ evidence: (STALE|NO RECORD|behind|commit)
 timeout: 45
 why: The rule that staging must be current before the next product run has always been a paragraph, and a paragraph is a promise.
 
+id: secretalerts
+title: Open GitHub secret-scanning alerts on a governed repository
+check: python3 {engine}/scripts/owned-state-checks/secret-alerts.py
+unknown-exit: 2
+evidence: (OPEN SECRET ALERT|could not read)
+timeout: 60
+why: Two alerts (numbers 3 and 4, made-up test values) sat open on the public richos repository for 14 days, visible to every visitor, because nothing reported them (2026-10-03).
+
 id: unlanded
 title: Committed work stranded on a branch that never reached main
 jurisdiction: test -f {engine}/scripts/unlanded-branches-lint.sh

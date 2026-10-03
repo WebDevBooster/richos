@@ -7863,7 +7863,7 @@
     },
     "owned-systems.declaration#escalations": {
       "source": "owned-systems.declaration",
-      "sha256": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
+      "sha256": "22c6e921991e633148a8d191806d2647a471507ee8f7fbd478fb893a30a8b44a",
       "evidence": "The suite extracts only id: escalations. Reviewed row executes test -f on the fixed escalate wrapper and bash scripts/escalate.sh list. Full declaration hash invalidates a changed command or selected row.",
       "keys": [],
       "edges": [
@@ -10173,7 +10173,7 @@
     },
     "owned-systems.declaration#fixture-default": {
       "source": "owned-systems.declaration",
-      "sha256": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
+      "sha256": "22c6e921991e633148a8d191806d2647a471507ee8f7fbd478fb893a30a8b44a",
       "evidence": "All six literal command rows reviewed. Private fixture has no ECS executable. CI is offline, escalation and unlanded checks use fixed wrappers, staging reads the literal entity config and executable inventory only inspects registration paths.",
       "keys": [],
       "edges": [
@@ -16259,7 +16259,7 @@
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
         "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
-        "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
+        "owned-systems.declaration": "22c6e921991e633148a8d191806d2647a471507ee8f7fbd478fb893a30a8b44a",
         "scripts/ci-status.sh": "cdc53d28b1814b1e53d6fe9debf95b4a72d361a34e650da60f53ac19462ff3b6",
         "scripts/lib/ci-surface.py": "1f9db70f27901ad81502a653ef2bcf9e1a37a6cfde96ba4d69fe451bc38f23f4",
         "scripts/escalate.sh": "9f9de4d2efea2703c9e6fd0ff7f9c3479c5cb15fc6e0df7ec58ae4a8339616f0",
@@ -16906,7 +16906,7 @@
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
         "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
-        "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
+        "owned-systems.declaration": "22c6e921991e633148a8d191806d2647a471507ee8f7fbd478fb893a30a8b44a",
         "scripts/ci-status.sh": "cdc53d28b1814b1e53d6fe9debf95b4a72d361a34e650da60f53ac19462ff3b6",
         "scripts/lib/ci-surface.py": "1f9db70f27901ad81502a653ef2bcf9e1a37a6cfde96ba4d69fe451bc38f23f4",
         "scripts/escalate.sh": "9f9de4d2efea2703c9e6fd0ff7f9c3479c5cb15fc6e0df7ec58ae4a8339616f0",
@@ -17200,7 +17200,7 @@
         "scripts/owned-state.sh": "313a26b975baf1005c6a86beaa03cc7910481b9e1d6754d45a0e4206b5b001a0",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
-        "owned-systems.declaration": "53055602ea5dddb54a84be7d701a6a072c6b343d573a55af1783f9402d56edde",
+        "owned-systems.declaration": "22c6e921991e633148a8d191806d2647a471507ee8f7fbd478fb893a30a8b44a",
         "scripts/lib/mutation-harness.sh": "bf3eb527309787734b7717ea43717e211164c96ad6bfb07ff5944d9acc71f6bc",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/hooks/owned-state.test.sh": "543f28888f9c8524d6598e54526f9dcb25d853fc21a32cb5c57829dca1099b5a",
