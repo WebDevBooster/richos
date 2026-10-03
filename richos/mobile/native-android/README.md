@@ -130,7 +130,11 @@ version, signer) under `$RANDROID_CACHE/release/`, after verifying that exact fi
 rather than produce a bundle that would upload and be wrong: without the upload key (unsigned),
 without the Firebase values (no notifications), from uncommitted source under this folder (no
 commit identifies it; `--allow-dirty` makes a test bundle and the receipt says so), or with a stale
-launcher icon.
+launcher icon. **And it refuses any bundle signed with the committed upload key unless the phone speed
+watch has a §104 PASS, cold and warm, for this exact app code on the Android test phone**
+(`richos/mobile/perf/shipgate.py`, CEO 2026-10-03 §106: nothing reaches users without passing the
+speed tests). Uncommitted app code is refused too; there is no flag that skips it. A refused bundle is
+deleted.
 
 **What verification means** (`bundle` runs it; `bin/randroid verify-bundle <file.aab>` runs it on
 any file): every entry is signed, by exactly one signer, and that signer's SHA-256 is

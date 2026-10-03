@@ -14,6 +14,8 @@ state (measured.json and the records it names). No phone, build, store or networ
   S5  a checkout with uncommitted app code refuses; a missing record refuses
   S6  the command line: a refusal exits 1 with one REFUSED line naming the platform; there is no
       skip flag
+  R1-R3  `randroid bundle` asks the gate before it builds: a refusal stops it with the gate's line
+      and Gradle never starts, a pass lets the build start, and no argument skips it
 """
 import contextlib
 import io
@@ -175,6 +177,90 @@ class Gate(unittest.TestCase):
         for flag in ("--skip", "--force", "--allow-slow"):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 shipgate.main(["check", "--platform", "android", "--checkout", str(self.repo), flag])
+
+
+FAKE_GATE = """#!/usr/bin/env python3
+import os, sys
+open(os.environ["FAKE_LOG"], "a").write("gate " + " ".join(sys.argv[1:]) + "\\n")
+if os.environ.get("FAKE_GATE") != "pass":
+    print("REFUSED by the speed gate (CEO §106): Android build of 0123456789ab: no speed verdict file", file=sys.stderr)
+    sys.exit(1)
+print('{"ok": true}')
+"""
+FAKE_GRADLE = """#!/usr/bin/env python3
+import os, sys
+open(os.environ["FAKE_LOG"], "a").write("gradle " + " ".join(sys.argv[1:]) + "\\n")
+sys.exit(1)
+"""
+
+
+class RandroidBundle(unittest.TestCase):
+    """R1-R3: `randroid bundle` asks the gate before it builds, and stops on a refusal. The real randroid
+    runs in a throwaway copy of its folder beside a stand-in gate and a stand-in Gradle; nothing builds."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ship-gate-randroid-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
+        repo, self.log = self.tmp / "repo", self.tmp / "log"
+        git(self.tmp, "init", "-q", "-b", "main", str(repo))
+        here = repo / "richos/mobile/native-android"
+        files = {
+            "richos/mobile/native-android/bin/randroid": (PERF.parent / "native-android/bin/randroid").read_text(),
+            "richos/mobile/native-android/bin/apk-install.sh":
+                (PERF.parent / "native-android/bin/apk-install.sh").read_text(),  # randroid sources it
+            "richos/mobile/native-android/release/make-app-icon.cjs": "process.exit(0);\n",
+            "richos/mobile/native-android/release/upload-certificate.sha256":
+                (PERF.parent / "native-android/release/upload-certificate.sha256").read_text(),
+            "richos/mobile/perf/shipgate.py": FAKE_GATE,
+            "richos/engine/scripts/lib/native-work.py": FAKE_GRADLE,
+        }
+        for rel, text in files.items():
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(text)
+        (here / "bin/randroid").chmod(0o755)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "layout")
+        jdk = self.tmp / "jdk"
+        (jdk / "bin").mkdir(parents=True)
+        (jdk / "bin/java").write_text("#!/bin/sh\n")
+        (jdk / "bin/java").chmod(0o755)
+        (jdk / "release").write_text('JAVA_VERSION="21.0.1"\n')
+        self.randroid = here / "bin/randroid"
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "RANDROID_", "ORG_GRADLE"))}
+        self.env.update(GIT_CONFIG_GLOBAL=str(EMPTY_CONFIG), GIT_CONFIG_NOSYSTEM="1", FAKE_LOG=str(self.log),
+                        RANDROID_CACHE=str(self.tmp / "cache"), RANDROID_JAVA_HOME=str(jdk))
+        for key in ("storeFile", "storePassword", "keyAlias", "keyPassword"):
+            self.env[f"ORG_GRADLE_PROJECT_richos.upload.{key}"] = "x"
+        for key in ("projectId", "appId", "apiKey", "senderId"):
+            self.env[f"ORG_GRADLE_PROJECT_richos.firebase.{key}"] = "x"
+
+    def bundle(self, **env):
+        p = subprocess.run([str(self.randroid), "bundle"], env={**self.env, **env}, capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL)
+        return p, (self.log.read_text() if self.log.exists() else "")
+
+    def test_r1_a_refusal_stops_the_bundle_before_it_builds(self):
+        p, log = self.bundle()
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("REFUSED by the speed gate", p.stderr)
+        self.assertIn("gate check --platform android --checkout", log)
+        self.assertNotIn("gradle", log)
+
+    def test_r2_a_pass_lets_the_build_start(self):
+        p, log = self.bundle(FAKE_GATE="pass")
+        self.assertIn("gate check --platform android", log)
+        self.assertIn(":app:bundleRelease", log)  # the stand-in Gradle then fails: "did not build"
+        self.assertIn("did not build", p.stderr)
+
+    def test_r3_no_flag_skips_it(self):
+        p, log = self.bundle_args("--skip-speed")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertNotIn("gradle", log)
+
+    def bundle_args(self, *args):
+        p = subprocess.run([str(self.randroid), "bundle", *args], env=self.env, capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL)
+        return p, (self.log.read_text() if self.log.exists() else "")
 
 
 if __name__ == "__main__":

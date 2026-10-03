@@ -14658,7 +14658,7 @@
         {
           "root": "repository",
           "path": "richos/mobile/native-android/bin/randroid",
-          "sha256": "70a8b24450d4a3cfc66c222881639a60beceb7326db59c9ce8167981c1102aa2",
+          "sha256": "df8413f0a0c7a5a2fa262ec282344a324ea01076a20a7cd089f69ee48fcf0dd0",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
