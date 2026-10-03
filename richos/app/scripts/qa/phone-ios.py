@@ -1655,7 +1655,7 @@ def main(argv):
     la.add_argument("--device")
     la.add_argument("--detach", action="store_true",
                     help="return once iOS has opened the app (no console); the app stays open in front")
-    la.add_argument("app_args", nargs=argparse.REMAINDER)
+    la.add_argument("app_args", nargs="*")
     cl = sub.add_parser("close")
     cl.add_argument("bundle")
     cl.add_argument("--device", required=True)
@@ -1679,7 +1679,15 @@ def main(argv):
         if name in ("syslog", "battery"):
             # Unplugged (round 2 discharge windows): libimobiledevice's network mode, same pairing.
             s.add_argument("--network", action="store_true")
+    # `launch BUNDLE [options] [-- app args]`: only what follows `--` is the app's. A REMAINDER positional
+    # swallowed `--detach` written after the bundle, so the console stayed attached and the call never returned.
+    tail = []
+    if argv[:1] == ["launch"] and "--" in argv:
+        cut = argv.index("--")
+        argv, tail = argv[:cut], argv[cut:]
     args = parser.parse_args(argv)
+    if tail:
+        args.app_args = tail
     try:
         if args.command == "check":
             steps = load_steps(args.steps)
