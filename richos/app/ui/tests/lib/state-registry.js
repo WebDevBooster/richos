@@ -73,8 +73,8 @@ module.exports = [
   },
   {
     "s": "the navigation file could not be read, so it was left untouched and this change was not saved",
-    "c": "NOT-RENDERED",
-    "why": "The io::Error from NavStore::persist (nav.rs) over an unreadable navigation file, returned by the nav commands as Err(String). Every UI caller (rename_thread, set_thread_pinned, set_thread_archived in main.js) goes through invokeQuiet, which swallows the rejection and returns null; the next navigation_tree refresh shows what actually persisted. The string never reaches the DOM."
+    "c": "INFORMATIONAL",
+    "why": "The io::Error from NavStore::persist (nav.rs) over an unreadable navigation file, returned by rename_thread, set_thread_pinned and set_thread_archived as Err(String). main.js `saveNavChange` renders it, sentence-cased with a full stop, in `#nav-save-note` in the rail where he pinned, archived or renamed; the next successful change clears it. It states the outcome and asks nothing. tests/thread-switch.js checks it and its contrast in both themes."
   },
   {"s":"Manage reply notifications in the RichOS iPhone app under Settings.","c":"ACTIONABLE","control":"#phone-close","fixture":null,"why":"Native preferences are on the phone. This Mac view names their exact location and retains the close control, like the existing phone-side Web Push instructions. phone.js check 9d proves the native instruction excludes Safari installation."},
   // Native notification API states.

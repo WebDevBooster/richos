@@ -132,6 +132,40 @@ async function main() {
       assert(await page.locator("#conversation").isHidden(), "failed activation hides the cached pane");
       assertEqual(await page.evaluate(() => window.sentBindings.length), 1, "no send occurred against failed activation");
     });
+    await run.check("a pin that could not be saved is said in the rail, in both themes at 16px or more", async () => {
+      const text = "the navigation file could not be read, so it was left untouched and this change was not saved";
+      await page.evaluate(msg => {
+        const invoke = window.RichBridge.invoke.bind(window.RichBridge);
+        window.RichBridge.invoke = async (cmd, args) => {
+          if (cmd === "set_thread_pinned") throw msg;
+          return invoke(cmd, args);
+        };
+      }, text);
+      assert(await page.locator("#nav-save-note").isHidden(), "no note before a failure");
+      await page.hover('.nav-thread[data-thread-id="acme"]');
+      await page.click('.nav-thread[data-thread-id="acme"] + .nav-thread-more');
+      await page.locator("#thread-menu button", { hasText: /^Pin$/ }).click();
+      await page.waitForSelector("#nav-save-note:not([hidden])");
+      assertEqual(await page.locator("#nav-save-note").innerText(),
+        "The navigation file could not be read, so it was left untouched and this change was not saved.");
+      for (const theme of ["dark", "light"]) {
+        const m = await page.evaluate(async t => {
+          document.documentElement.dataset.theme = t;
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          await Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})));
+          const n = document.getElementById("nav-save-note");
+          const cs = getComputedStyle(n);
+          let rail = "rgba(0, 0, 0, 0)";
+          for (let e = n; e && rail === "rgba(0, 0, 0, 0)"; e = e.parentElement) rail = getComputedStyle(e).backgroundColor;
+          return { fg: cs.color, bg: rail, px: parseFloat(cs.fontSize) };
+        }, theme);
+        const lum = c => { const v = c.match(/[\d.]+/g).slice(0, 3).map(x => { x = x / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+        const a = lum(m.fg), b = lum(m.bg);
+        const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        assert(ratio >= 4.5, theme + " contrast " + ratio.toFixed(2) + " " + m.fg + " on " + m.bg);
+        assert(m.px >= 16, theme + " size " + m.px);
+      }
+    });
     await run.check("no browser errors", () => assertEqual(errors.length, 0, errors.join("\n")));
   } finally {
     await browser.close();
