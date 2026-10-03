@@ -192,6 +192,49 @@ def wifi_path(device):
                    "sync port): its Wi-Fi carries no traffic")
 
 
+def cable_internet(device):
+    """Does the phone reach the internet over the cable to this Mac (Internet Sharing)? (ok, one sentence).
+    Measured, never assumed: `phone-ios.py net` opens Safari once on the phone and reads its connections from
+    the phone's own log; this is true only when the phone's elected route is NOT its Wi-Fi and Safari completed
+    a connection. RICHOS_PHONE_NET_PROBE (a command printing that JSON on stdout) replaces it in tests."""
+    named = os.environ.get("RICHOS_PHONE_NET_PROBE")
+    scratch = None
+    try:
+        if named:
+            command = shlex.split(named)
+        else:
+            root = Path("/Volumes/E1TB/tmp/claude")
+            root.mkdir(parents=True, exist_ok=True)
+            scratch = tempfile.mkdtemp(prefix="phone-cable-", dir=str(root))
+            command = [sys.executable, str(PHONE_IOS), "net", "--device", device,
+                       "--out", str(Path(scratch) / "net.log"), "--seconds", "12"]
+        env = {**os.environ, "RICHOS_DEVICE_VERB": "rios"}
+        p = subprocess.run(command, capture_output=True, text=True, timeout=180, env=env)
+        internet = json.loads(p.stdout).get("internet") or {}
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return False, "the phone's internet over the cable could not be measured"
+    finally:
+        if scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
+    primary = internet.get("primary") or {}
+    if internet.get("reached") and primary and not primary.get("wifi"):
+        return True, (f"the phone reaches the internet over {primary.get('interface')} ({primary.get('address')}), "
+                      "the cable to this Mac, not its Wi-Fi")
+    return False, "the phone's internet over the cable was measured and it did not complete"
+
+
+def internet_path(device):
+    """The gate's measurement: the phone reaches the internet over Wi-Fi (wifi_path) or over the cable
+    (cable_internet). (ok, one sentence). The cable is measured only when the Wi-Fi gave no answer."""
+    ok, detail = wifi_path(device)
+    if ok:
+        return ok, detail
+    cable_ok, cable_detail = cable_internet(device)
+    if cable_ok:
+        return True, cable_detail
+    return False, detail + "; " + cable_detail
+
+
 def restart_and_wait(device, say):
     """Restart the phone (devicectl, a full reboot, waiting until it is connected again), then wait, with
     NO launches, until it is connected and its Wi-Fi carries traffic (wifi_path) or SETTLE_SECONDS pass.
@@ -207,7 +250,7 @@ def restart_and_wait(device, say):
     while True:
         ok, detail = check_ready(device)
         if ok:
-            ok, detail = wifi_path(device)
+            ok, detail = internet_path(device)
         if ok or time.monotonic() + SETTLE_STEP > deadline:
             break
         time.sleep(SETTLE_STEP)
@@ -220,7 +263,7 @@ def ensure_path(device, say):
     """Before anything opens an app on the phone: its Wi-Fi must carry traffic, or iOS cannot verify a
     development-signed app and shows "Unable to Verify App". A dead path gets ONE restart of the phone (no app is
     opened, so no dialog and no notification), then a wait until the path answers. (ok, detail, restarted)."""
-    ok, detail = wifi_path(device)
+    ok, detail = internet_path(device)
     if ok:
         return True, detail, False
     say(detail + "; restarting the phone once before anything is opened on it")

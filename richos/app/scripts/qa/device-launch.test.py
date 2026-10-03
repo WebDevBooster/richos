@@ -56,18 +56,29 @@ echo "3 packets transmitted, 0 packets received, 100.0% packet loss"; exit 2
 '''
 
 
+# The cable measurement (`phone-ios.py net`'s JSON) per $FAKE_CABLE: ok (internet over the cable, not Wi-Fi), none.
+FAKE_PROBE = r'''#!/bin/bash
+if [ "$FAKE_CABLE" = ok ]; then
+  echo '{"internet":{"reached":true,"primary":{"interface":"en2","address":"192.168.2.2","wifi":false,"leasedByThisMac":true}}}'
+else
+  echo '{"internet":{"reached":false,"tcpTimedOut":2,"primary":{"interface":"en2","address":"192.168.2.2","wifi":false}}}'
+fi
+'''
+
+
 class DeviceLaunch(unittest.TestCase):
-    def run_tool(self, argv, tunnel="connected", launches="ok", path="ok"):
+    def run_tool(self, argv, tunnel="connected", launches="ok", path="ok", cable="none"):
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp) / "bin"
             bin_dir.mkdir()
-            for name, body in (("xcrun", FAKE), ("dscacheutil", FAKE_DSCACHEUTIL), ("ping", FAKE_PING)):
+            for name, body in (("xcrun", FAKE), ("dscacheutil", FAKE_DSCACHEUTIL), ("ping", FAKE_PING), ("probe", FAKE_PROBE)):
                 (bin_dir / name).write_text(body)
                 (bin_dir / name).chmod(0o755)
             (Path(tmp) / "launches").touch()
             (Path(tmp) / "reboots").touch()
             env = {**os.environ, "RICHOS_XCRUN": str(bin_dir / "xcrun"), "RICHOS_DEVICE_VERB": "rios",
-                   "FAKE_DIR": tmp, "FAKE_TUNNEL": tunnel, "FAKE_LAUNCHES": launches, "FAKE_PATH": path,
+                   "FAKE_DIR": tmp, "FAKE_TUNNEL": tunnel, "FAKE_LAUNCHES": launches, "FAKE_PATH": path, "FAKE_CABLE": cable,
+                   "RICHOS_PHONE_NET_PROBE": str(bin_dir / "probe"),
                    "FAKE_HOSTNAME": "TESTPHONE" + phone_net.COREDEVICE_SUFFIX,
                    "PATH": f"{bin_dir}:{os.environ['PATH']}", "RICHOS_PHONE_REBOOT_SETTLE": "0",
                    "RICHOS_PHONE_REBOOT_STEP": "0", "PYTHONDONTWRITEBYTECODE": "1"}
@@ -77,8 +88,8 @@ class DeviceLaunch(unittest.TestCase):
             self.calls = calls.read_text() if calls.exists() else ""
             return p, count("launches"), count("reboots")
 
-    def run_launch(self, tunnel, launches, path="ok"):
-        return self.run_tool([str(TOOL), "launch", "--device", "PHONE", "dev.example.app"], tunnel, launches, path)
+    def run_launch(self, tunnel, launches, path="ok", cable="none"):
+        return self.run_tool([str(TOOL), "launch", "--device", "PHONE", "dev.example.app"], tunnel, launches, path, cable)
 
     def test_not_connected_does_nothing(self):
         p, launches, reboots = self.run_launch("disconnected", "ok")
@@ -116,6 +127,12 @@ class DeviceLaunch(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual((launches, reboots), (1, 1))
         self.assertIn("carries no traffic", p.stderr)
+
+    def test_dead_wifi_with_the_internet_over_the_cable_opens_the_app(self):
+        p, launches, reboots = self.run_launch("connected", "ok", path="dead", cable="ok")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((launches, reboots), (1, 0))
+        self.assertIn("the cable to this Mac", p.stderr)
 
     def test_dead_wifi_after_the_restart_opens_nothing(self):
         p, launches, reboots = self.run_launch("connected", "ok", path="dead")
