@@ -667,6 +667,30 @@ class StateKeeper:
         self.dir = None
         self.lost = None  # who agreed to lose the data, once saved without it
 
+    @classmethod
+    def from_kept(cls, dev, directory, log=lambda s: None, twin_apk=None, apksigner=None):
+        """The keeper of a copy a killed run left behind (base.apk and data.tar in `directory`), ready to restore()."""
+        import hashlib
+        import os
+        import tarfile
+        directory = os.path.abspath(directory)
+        keeper = cls(dev, root=os.path.dirname(directory), log=log, twin_apk=twin_apk, apksigner=apksigner)
+        keeper.dir = directory
+        keeper.apk = os.path.join(directory, "base.apk")
+        with open(keeper.apk, "rb") as f:
+            keeper.apk_sha = hashlib.sha256(f.read()).hexdigest()
+        tar = os.path.join(directory, "data.tar")
+        if os.path.isfile(tar):
+            keeper.tar = tar
+            keeper.manifest = {}
+            with tarfile.open(tar) as t:
+                for member in t.getmembers():
+                    if member.isfile():
+                        name = member.name if member.name.startswith("./") else "./" + member.name
+                        keeper.manifest[name] = hashlib.sha256(t.extractfile(member).read()).hexdigest()
+        keeper.saved = True
+        return keeper
+
     # -- reading the device -------------------------------------------------------------------
     def installed(self):
         """(path of the base APK on the phone, its sha256) or (None, None) when not installed."""

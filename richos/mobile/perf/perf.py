@@ -436,6 +436,20 @@ def android_identity(dev, stamp, kind):
     return build, device, int(uid.group(1)) if uid else None
 
 
+def restore_android_from(args, runner=None, sleep=None):
+    """A killed seeded run leaves its saved copy under perf-keep: put that build and data back (physical phones: only
+    through `randroid device`, like every other phone command)."""
+    import android
+    if os.environ.get("RICHOS_DEVICE_VERB") != "randroid":
+        raise Refused("a physical phone is restored only through `randroid device perf --restore-from DIR`")
+    log = lambda s: print(s, file=sys.stderr, flush=True)
+    dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
+                         touch=lease_toucher(args.lease))
+    keeper = android.StateKeeper.from_kept(dev, args.restore_from, log=log, twin_apk=getattr(args, "seed_twin", None),
+                                           apksigner=getattr(args, "apksigner", None))
+    return keeper.restore()
+
+
 def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None, popen=None):
     """The Android run. `runner`, `sleep`, `host` and `touch` are replaceable for the suite."""
     import android
@@ -885,6 +899,9 @@ def parse_args(argv):
     a.add_argument("--accept-state-loss", metavar="WHO",
                    help="only when the app's saved state cannot be copied off the phone (a release build with no twin to read "
                         "it through): the run is refused unless that state is already empty or WHO agreed to lose it; WHO is recorded")
+    a.add_argument("--restore-from", metavar="KEPT_DIR",
+                   help="put the saved build and data back from the copy a killed run kept (under perf-keep), measure nothing; "
+                        "run through `randroid device perf`, which supplies the twin")
     a.add_argument("--type-text", default="measuredtypingcost")
     a.add_argument("--stream-deltas", type=int, default=8)
     a.add_argument("--theme", choices=("device", "light", "dark"), default="device")
@@ -1012,6 +1029,13 @@ def main(argv=None):
         if args.cmd == "ios-restore":
             import ios
             print(json.dumps({"ok": True, **ios.restore_device(args.device, args.backup)}))
+            return 0
+        if args.cmd == "android" and getattr(args, "restore_from", None):
+            problems = restore_android_from(args)
+            print(json.dumps({"ok": not problems, "problems": problems}))
+            if problems:
+                print(not_restored_line(problems), file=sys.stderr, flush=True)  # the last line
+                return EXIT_NOT_RESTORED
             return 0
         if args.cmd == "android":
             record, failures = run_android(args)
