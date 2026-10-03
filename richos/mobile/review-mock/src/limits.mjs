@@ -50,9 +50,12 @@ export const EVICTION_GRACE_MS = 15 * 60 * 1000;
 export const UPLOAD_SECONDS = 300;
 export const MAX_RAW_NAME_BYTES = 1024;
 
-/** `phone/notifications.rs`: the apps whose push tokens a Mac forwards. */
-export const APNS_TOPICS = ['dev.richos.mobile.loop', 'dev.richos.mobile.integration', 'dev.richos.native.ios', 'dev.richos.connect'];
-export const FCM_APPS = ['dev.richos.native.android', 'dev.richos.connect'];
+/**
+ * `phone/notifications.rs`: the apps whose push tokens a Mac forwards. `dev.richos.connect.perf` is
+ * the team's TEST copy of RichConnect, which registers under its own ID on both phones.
+ */
+export const APNS_TOPICS = ['dev.richos.mobile.loop', 'dev.richos.mobile.integration', 'dev.richos.native.ios', 'dev.richos.connect', 'dev.richos.connect.perf'];
+export const FCM_APPS = ['dev.richos.native.android', 'dev.richos.connect', 'dev.richos.connect.perf'];
 /** `phone/notifications.rs` Desk: pending jobs expire after an hour; at most 100 are held. */
 export const PUSH_JOB_LIFETIME_MS = 3_600_000;
 export const PUSH_JOB_LIMIT = 100;

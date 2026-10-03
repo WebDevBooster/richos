@@ -60,7 +60,7 @@ async function connect(t, { admit = true } = {}) {
 	};
 	const control = connectClient({ origin: 'https://connect.example.com', identity, fetchImpl, now: () => time });
 	const binding = (id) => db.prepare('SELECT * FROM push_bindings WHERE host_id=?').bind(id).first();
-	return { db, identity, control, sent, binding, advance: (ms) => { time += ms; }, offline: (v) => { reachable = !v; } };
+	return { db, env, identity, control, sent, binding, advance: (ms) => { time += ms; }, offline: (v) => { reachable = !v; } };
 }
 
 function open(previewKey, threadRef, eventRef, envelope) {
@@ -117,6 +117,35 @@ test('an Android registration goes to FCM through the same path', async (t) => {
 	assert.equal(c.sent.fcm.length, 1);
 	assert.equal(c.sent.apns.length, 0);
 	assert.equal(c.sent.fcm[0].job.preview, null, 'no preview key, no preview');
+});
+
+test('the TEST copy dev.richos.connect.perf registers under its own ID on both phones, beside the real app', async (t) => {
+	// The Connect Worker's allowlists as the private profile now sets them (the Worker code is unchanged).
+	const lists = { APNS_TOPICS: 'dev.richos.mobile.integration,dev.richos.mobile.loop,dev.richos.connect,dev.richos.connect.perf', FCM_APPS: 'dev.richos.connect,dev.richos.connect.perf' };
+	const fcmToken = `${'d'.repeat(11)}:APA91b${'x-y_z'.repeat(28)}`;
+	for (const topic of ['dev.richos.connect.perf', 'dev.richos.connect']) {
+		for (const [platform, registration] of [['apns', { ...APNS, topic }], ['fcm', { platform: 'fcm', token: fcmToken, topic }]]) {
+			const c = await connect(t);
+			Object.assign(c.env, lists);
+			const { host, now } = makeHost({ push: { control: c.control } });
+			const phone = await pairedPhone(host);
+			const answer = await phone.signed('POST', '/api/pair', { native_push: registration });
+			assert.equal(answer.status, 200, `${topic} on ${platform}`);
+			assert.deepEqual(await answer.json(), { host_id: c.identity.id, registered: true });
+			assert.equal((await c.binding(c.identity.id)).topic, topic);
+			await phone.signed('POST', '/api/messages', text(`${platform}1`, 'Hello'));
+			now.advance(REPLY_DELAY_MS);
+			await host.alarm();
+			assert.equal(c.sent[platform].length, 1, `${topic} on ${platform} is notified`);
+			assert.equal(c.sent[platform][0].binding.topic, topic, 'delivered under its own ID');
+		}
+	}
+	const c = await connect(t);
+	Object.assign(c.env, lists);
+	const { host } = makeHost({ push: { control: c.control } });
+	const phone = await pairedPhone(host);
+	const other = await phone.signed('POST', '/api/pair', { native_push: { ...APNS, topic: 'dev.richos.connect.other' } });
+	assert.equal(other.status, 404, 'only the one test copy is added');
 });
 
 test('a review host that is not admitted is refused by the Worker; the phone is told to retry, not that it failed', async (t) => {
