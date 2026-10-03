@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The device tools' test copy (dev.richos.connect.perf): the app's entitlements without the App
+     Group, which Xcode's automatic signing cannot register for the team from the command line. -->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>$(RICHOS_APS_ENVIRONMENT)</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(RICHOS_KEYCHAIN_GROUP)</string>
+	</array>
+</dict>
+</plist>

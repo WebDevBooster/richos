@@ -31,6 +31,11 @@ settings:
     RICHOS_APP_DISPLAY_NAME: RichConnect
     RICHOS_APP_GROUP: group.$(RICHOS_BUNDLE_ID)
     RICHOS_KEYCHAIN_GROUP: $(RICHOS_BUNDLE_ID).shared
+    # The entitlements files by name, so the device tools' test copy (dev.richos.connect.perf) can name
+    # the two without an App Group: Xcode's automatic signing does not register group.<test id> for the
+    # team from the command line, so a profile with the group is never made (2026-10-03 build failure).
+    RICHOS_APP_ENTITLEMENTS: RichOSNative.entitlements
+    RICHOS_SHARE_ENTITLEMENTS: ShareExtension.entitlements
 
 targets:
   RichOSNative:
@@ -43,7 +48,7 @@ targets:
         # Custom keys the generated Info.plist cannot express (the App Group and Keychain group
         # names the extensions share); merged with the generated keys.
         INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/Release/App-Info.plist
-        CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/Release/RichOSNative.entitlements
+        CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/Release/$(RICHOS_APP_ENTITLEMENTS)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Purpose strings, American English (ceo-decisions §13). Each says what is used, when,
         # and where it goes, and nothing more (App Review 5.1.1(ii)). Drafts from
@@ -108,7 +113,7 @@ targets:
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/ShareExtension/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: RichConnect
-        CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/ShareExtension/ShareExtension.entitlements
+        CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/ShareExtension/$(RICHOS_SHARE_ENTITLEMENTS)
         SKIP_INSTALL: "YES"
         APPLICATION_EXTENSION_API_ONLY: "YES"
 
