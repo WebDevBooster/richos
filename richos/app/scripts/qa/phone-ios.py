@@ -30,6 +30,11 @@
     phone-ios.py reboot --device ID                restart the phone (devicectl), wait until it is back and
                                                    open RichConnect until iOS verifies it; the remedy when
                                                    `trust` fails (the phone has no passcode, CEO 2026-10-02)
+    phone-ios.py launch BUNDLE [--device ID] [-- app args]
+                                                   open an installed app by the one procedure: the phone must
+                                                   be connected and on Wi-Fi (else nothing happens), open once,
+                                                   refused -> restart the phone once, wait, open once more,
+                                                   refused again -> the exact error. Never a third launch.
     phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
     phone-ios.py summary DIR                       a finished `run` DIR read back: one row per step
                                                    (outcome, seconds, what it waited for, the audit's
@@ -1212,6 +1217,26 @@ def trust(args):
     return emit(report, 0 if result.get("state") == "ok" else 1)
 
 
+def launch_app(args):
+    """`rios device launch BUNDLE [-- app args]`: the one procedure for opening an installed app
+    (phone_net.launch_app): check connected and on Wi-Fi first, open once, on a trust refusal restart the
+    phone once, wait, open once more, else print the exact error. The app's console goes to stdout."""
+    sys.path.insert(0, str(ROOT / "richos/mobile"))
+    import phone_net
+    device = args.device or os.environ.get("RICHOS_IOS_DEVICE")
+    if not device:
+        return emit({"error": "name the phone: --device ID or RICHOS_IOS_DEVICE"}, 2)
+    rest = args.app_args[1:] if args.app_args[:1] == ["--"] else args.app_args
+    code, result = phone_net.launch_app(device, args.bundle, rest,
+                                        lambda line: print(line, file=sys.stderr, flush=True))
+    if result["state"] == "not-ready":
+        print(result["detail"], file=sys.stderr)
+    elif code:
+        print("iOS would not open " + args.bundle + ": " + result["detail"], file=sys.stderr)
+    print(json.dumps(result), file=sys.stderr)
+    return code
+
+
 def restart_phone(args):
     """`rios device reboot --device ID`: restart the phone through devicectl, wait until it is connected
     again, and open RichConnect until iOS verifies it (phone_net.reboot). Exit 0 when the app opens.
@@ -1367,6 +1392,10 @@ def main(argv):
     ps = sub.add_parser("pair-steps")
     ps.add_argument("config")
     ps.add_argument("--v2-hold", type=int, default=None)
+    la = sub.add_parser("launch")
+    la.add_argument("bundle")
+    la.add_argument("--device")
+    la.add_argument("app_args", nargs=argparse.REMAINDER)
     for name in ("procs", "apps", "lock", "battery", "syslog", "trust", "reboot"):
         s = sub.add_parser(name)
         s.add_argument("--device", required=True)
@@ -1410,7 +1439,7 @@ def main(argv):
                                     "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
                 "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore, "trust": trust,
-                "reboot": restart_phone}[args.command](args)
+                "reboot": restart_phone, "launch": launch_app}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error), **getattr(error, "extra", {})}, 2)
     except subprocess.TimeoutExpired as error:

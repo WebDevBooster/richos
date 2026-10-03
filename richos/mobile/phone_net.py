@@ -105,6 +105,107 @@ def launch_check(device, timeout=60):
         return {"state": "unknown", "detail": text[-300:]}
 
 
+def check_ready(device):
+    """Is the phone connected to this Mac and on Wi-Fi? (ok, one sentence). Reads only: no launch.
+    devicectl's tunnelState says connected; its transportType says how: 'localNetwork' is Wi-Fi. A cable
+    ('wired') proves the connection but devicectl does not report the phone's Wi-Fi, so RICHOS_PHONE_WIFI_CHECK
+    (a command, exit 0 = on Wi-Fi) decides there; without it a cable connection is accepted, and said so."""
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "details.json"
+        try:
+            _xcrun("devicectl", "device", "info", "details", "--device", device, "--json-output", str(target),
+                   timeout=60)
+            props = (json.loads(target.read_text()).get("result") or {}).get("connectionProperties") or {}
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return False, "the iPhone is not connected (devicectl did not answer)"
+    if props.get("tunnelState") != "connected":
+        return False, "the iPhone is not connected / not on Wi-Fi (devicectl: tunnel " + str(props.get("tunnelState")) + ")"
+    if props.get("transportType") == "localNetwork":
+        return True, "connected over Wi-Fi"
+    named = os.environ.get("RICHOS_PHONE_WIFI_CHECK")
+    if named:
+        if subprocess.run(shlex.split(named), capture_output=True).returncode == 0:
+            return True, "connected by cable; Wi-Fi confirmed by RICHOS_PHONE_WIFI_CHECK"
+        return False, "the iPhone is connected by cable but not on Wi-Fi"
+    return True, "connected by cable; devicectl does not report Wi-Fi, so it is not confirmed"
+
+
+def restart_and_wait(device, say):
+    """Restart the phone (devicectl, a full reboot, waiting until it is connected again), then wait, with
+    NO launches, until it is connected and on Wi-Fi or SETTLE_SECONDS pass. (ok, detail, seconds)."""
+    started = time.monotonic()
+    try:
+        p = _xcrun("devicectl", "device", "reboot", "--device", device, "--wait-for-device", timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"devicectl reboot did not answer ({type(error).__name__})", 0
+    if p.returncode != 0:
+        return False, "devicectl reboot failed: " + ((p.stderr or "") + (p.stdout or "")).strip()[-300:], 0
+    deadline = time.monotonic() + SETTLE_SECONDS
+    while True:
+        ok, detail = check_ready(device)
+        if ok or time.monotonic() + SETTLE_STEP > deadline:
+            break
+        time.sleep(SETTLE_STEP)
+    seconds = time.monotonic() - started
+    say(f"the phone restarted; after {seconds:.0f} s: {detail}")
+    return ok, detail, seconds
+
+
+def launch_app(device, bundle, app_args, say, out=None):
+    """`rios device launch`: the one procedure for opening an installed app (CEO 2026-10-02/03).
+    0. phone not connected / not on Wi-Fi: nothing happens (no launch, no reboot).
+    1. open the app once. 2. refused for want of verification: restart the phone once. 3. wait until it is
+    back, connected and on Wi-Fi. 4. open the app once more. 5. refused again: say exactly why.
+    Never more than two launches and one restart: every failed launch pops a notification on the phone.
+    Returns (exit code, {'launches', 'reboots', 'state', 'detail'}); the app's console goes to `out`."""
+    out = out or sys.stdout
+    result = {"launches": 0, "reboots": 0, "state": "unknown", "detail": ""}
+    ok, detail = check_ready(device)
+    if not ok:
+        result.update(state="not-ready", detail=detail)
+        return 2, result
+    say(detail)
+
+    def once():
+        result["launches"] += 1
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                p = subprocess.Popen([os.environ.get("RICHOS_XCRUN") or "xcrun", "devicectl", "device", "process",
+                                      "launch", "--device", device, "--terminate-existing", "--console",
+                                      "--json-output", str(Path(tmp) / "launch.json"), bundle, *app_args],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            except OSError as error:
+                return {"state": "unknown", "detail": f"devicectl did not start ({error})"}
+            lines = []
+            for line in p.stdout:
+                lines.append(line)
+                out.write(line)
+                out.flush()
+            code = p.wait()
+            text = "".join(lines).strip()
+            if code == 0:
+                return {"state": "ok", "detail": ""}
+            doc = Path(tmp) / "launch.json"
+            blob = text + " " + (doc.read_text() if doc.exists() else "")
+            return {"state": "untrusted" if UNTRUSTED.search(blob) else "failed", "detail": text[-600:]}
+
+    first = once()
+    result.update(state=first["state"], detail=first["detail"])
+    if first["state"] == "ok":
+        return 0, result
+    if first["state"] != "untrusted":
+        return 1, result
+    say("iOS refused to open the app (" + first["detail"].replace("\n", " ")[-200:] + "); restarting the phone once")
+    result["reboots"] += 1
+    ok, detail, _ = restart_and_wait(device, say)
+    if not ok:
+        result.update(state="not-ready", detail="after the restart: " + detail)
+        return 2, result
+    second = once()
+    result.update(state=second["state"], detail=second["detail"])
+    return (0 if second["state"] == "ok" else 1), result
+
+
 def reboot(device, say):
     """Restart the phone (devicectl, a full reboot, waiting until it is connected again), then open
     RichConnect until iOS verifies it or SETTLE_SECONDS pass. Returns the last launch_check result with
