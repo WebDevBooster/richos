@@ -2884,6 +2884,35 @@ def _():
         perfcore.WARM_STANDARD["ios"].update(saved)
 
 
+@case("K7 the warm series' mid-series timing read never terminates the app: devicectl sees no `process terminate` between returns (a stop would make the next return a relaunch)")
+def _():
+    calls = []
+
+    def fake_devicectl(cmd, **kw):
+        calls.append(list(cmd))
+        if "copy" in cmd and "from" in cmd:
+            dest = cmd[cmd.index("--destination") + 1]
+            os.makedirs(dest)
+            with open(os.path.join(dest, ios.TIMING_FILE), "w") as f:
+                f.write("")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    driver = types.SimpleNamespace(target="x", pid=lambda: 4242)  # the app is running throughout
+    state = ios.DeviceState(driver, runner=fake_devicectl, sleep=lambda s: None)
+    with tempfile.TemporaryDirectory() as tmp:
+        got = os.path.join(tmp, "got")
+        log_path = os.path.join(tmp, "log")
+        open(log_path, "w").close()
+        ios._read_launch_evidence(state, got, log_path, stop=False)
+        assert any("copy" in c and "from" in c for c in calls), calls
+        assert not any("terminate" in c for c in calls), f"the mid-series read stopped the app: {calls}"
+        calls.clear()
+        try:
+            ios._read_launch_evidence(state, got, log_path)  # the default (final) read still stops first
+        except ios.Unmeasurable:
+            pass  # the fake app never exits, so the stop gives up; what matters is that it asked
+        assert any("terminate" in c for c in calls), calls
+
+
 if __name__ == "__main__":
     total = sum(1 for line in open(__file__) if line.startswith("@case("))
     if failures:

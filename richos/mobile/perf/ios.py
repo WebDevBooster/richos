@@ -1091,10 +1091,13 @@ class DeviceState:
             self.sleep(1.0)
         raise Unmeasurable(f"the app was still running after {STOP_TRIES} terminate requests")
 
-    def read(self, dest):
+    def read(self, dest, stop=True):
         """Copy the state directory to `dest` (absent beforehand) and return its tree_manifest, or None
-        when the app has no state directory on the phone."""
-        self.stop()
+        when the app has no state directory on the phone. `stop=False` leaves the app running: a warm
+        series reads the timing file between returns and a terminated app would make the next return a
+        relaunch (the copy is a read; the app is only stopped first so it cannot write over a change)."""
+        if stop:
+            self.stop()
         p = self._devicectl("copy", "from", "--domain-type", "appDataContainer", "--domain-identifier", BUNDLE,
                             "--source", STATE_DIR, "--destination", dest)
         if p.returncode:
@@ -1556,11 +1559,11 @@ def launch_starts_ms(samples):
     return [None] + [s["requestToInputReadyMs"] for s in samples]
 
 
-def _read_launch_evidence(state, got, log_path):
+def _read_launch_evidence(state, got, log_path, stop=True):
     """The app's timing lines read off the phone and the phone's log so far: (events, log text)."""
     if os.path.isdir(got):
         shutil.rmtree(got, ignore_errors=True)
-    state.read(got)
+    state.read(got, stop=stop)
     with open(os.path.join(got, TIMING_FILE)) as f:
         text = f.read()
     for name in os.listdir(got):  # keep only the app's timing lines with the evidence
@@ -1737,7 +1740,7 @@ def _return_series(args, record, state, seed, scratch, hw, work, driver, popen, 
     error = None
 
     def read():
-        events, log_text = _read_launch_evidence(state, got, log_path)
+        events, log_text = _read_launch_evidence(state, got, log_path, stop=False)  # the process must survive
         return return_request_samples(events, log_text, year)[0]
 
     with open(log_path, "w") as log:
