@@ -8,6 +8,14 @@ public enum PairingWire {
     public static let platform = "ios"
     /// The permanent RichConnect APNs topic, also allowed by the Mac and Connect Worker.
     public static let apnsTopic = "dev.richos.connect"
+    /// The device tools' test copy registers under its own bundle ID, so the team can test notifications
+    /// without touching the CEO's app. Every other bundle ID (the store build, tests) keeps `apnsTopic`.
+    public static let testCopyTopic = "dev.richos.connect.perf"
+
+    /// The topic this running app registers: the test copy's own bundle ID, otherwise the permanent one.
+    public static func apnsTopic(forBundleID bundleID: String?) -> String {
+        bundleID == testCopyTopic ? testCopyTopic : apnsTopic
+    }
 
     static func json(_ value: String) -> String {
         let encoder = JSONEncoder()
@@ -48,9 +56,10 @@ public enum PairingWire {
     }
 
     /// Native push registration, APNs shape (contract §7.2; `platform` absent means APNs).
-    public static func pushRegistrationBody(tokenHex: String, sandbox: Bool, previewKey: Data?, previews: Bool) -> Data {
+    public static func pushRegistrationBody(tokenHex: String, sandbox: Bool, previewKey: Data?, previews: Bool,
+                                            topic: String = apnsTopic) -> Data {
         var fields = ["\"token\":\(json(tokenHex.lowercased()))", "\"environment\":\(json(sandbox ? "sandbox" : "production"))",
-                      "\"topic\":\(json(apnsTopic))"]
+                      "\"topic\":\(json(topic))"]
         if let previewKey { fields.append("\"preview_key\":\(json(Base64URL.encode(previewKey)))") }
         fields.append("\"previews\":\(previews)")
         return Data("{\"native_push\":{\(fields.joined(separator: ","))}}".utf8)

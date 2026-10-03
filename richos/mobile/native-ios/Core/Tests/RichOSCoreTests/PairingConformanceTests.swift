@@ -77,6 +77,15 @@ import Testing
         }
     }
 
+    @Test func theTestCopyRegistersItsOwnTopicAndTheStoreBuildKeepsTheOldOne() {
+        #expect(PairingWire.apnsTopic(forBundleID: "dev.richos.connect.perf") == "dev.richos.connect.perf")
+        #expect(PairingWire.apnsTopic(forBundleID: "dev.richos.connect") == "dev.richos.connect")
+        #expect(PairingWire.apnsTopic(forBundleID: nil) == "dev.richos.connect")
+        let body = PairingWire.pushRegistrationBody(tokenHex: "ab", sandbox: true, previewKey: nil, previews: true,
+                                                    topic: PairingWire.apnsTopic(forBundleID: "dev.richos.connect.perf"))
+        #expect(String(decoding: body, as: UTF8.self).contains("\"topic\":\"dev.richos.connect.perf\""))
+    }
+
     @Test func thePushAndReceiptBodiesAreTheSignedCorpusShapes() throws {
         let valid = try Corpus.cases(try Corpus.load("signing"), "valid")
         func body(_ name: String) throws -> Data {
