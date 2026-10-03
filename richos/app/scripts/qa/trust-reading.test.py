@@ -76,6 +76,10 @@ CABLE_TIMEOUT = T + ("MobileSafari(Network)[5] <Notice>: [C3.1.1 IPv4#d:443 fail
 RANK_CABLE = T + "configd[8] <Info>: 0. en2 serviceID=SVC-CABLE addr=192.168.2.2 rank=0x1000001"
 RANK_WIFI = T + "configd[8] <Info>: 1. en0 serviceID=SVC-WIFI addr=192.168.1.9 rank=0x1000002"
 ELECTED = T + "configd[8] <Info>: SVC-CABLE is still primary IPv4"
+PAGE_RESPONSE = T + ("MobileSafari(WebKit)[5] <Notice>: WebContent[6]: [webPageID=1, frameID=2, resourceID=3] "
+                     "WebResourceLoader::didReceiveResponse: (httpStatusCode=200)")
+PAGE_DONE = T + ("MobileSafari(WebKit)[5] <Notice>: 0x1 - [pageProxyID=1, webPageID=1, PID=6] "
+                 "WebPageProxy::didFinishLoadForFrame: frameID=2, isMainFrame=1")
 LINK = T + ("wifid[6]<Notice>: __WiFiLQAMgrLogStats(<redacted>:Stationary): InfraUptime:1926.4secs Channel: 44 "
             "Bandwidth: 80Mhz Rssi: -60 {-60 -67} Cca: 56 (S:0 O:2 I:53) Snr: 12 BcnPer: 26.5% (49, 60.9%) TxFrameCnt: 41")
 
@@ -127,6 +131,13 @@ class NetReading(unittest.TestCase):
         self.assertIn("over en2 (192.168.2.2), the cable to this Mac", v)
         self.assertIn("timed out", v)
         self.assertNotIn("Wi-Fi carries no traffic", v)
+
+    def test_safari_finishing_its_page_is_reached_and_other_processes_responses_are_not(self):
+        other = T + "cloudd(CFNetwork)[9] <Notice>: Task <A>.<1> received response, status 200 version 2"
+        self.assertEqual(phone_ios.net_reading([other])["statuses"], [])
+        self.assertFalse(phone_ios.net_reading([other])["reached"])
+        r = phone_ios.net_reading([PAGE_RESPONSE, PAGE_DONE])
+        self.assertEqual((r["statuses"], r["pageLoaded"], r["reached"]), ([200], 1, True))
 
     def test_a_wifi_primary_keeps_the_wifi_verdicts(self):
         elected_wifi = ELECTED.replace("SVC-CABLE", "SVC-WIFI")

@@ -1268,7 +1268,14 @@ def net_reading(lines, leases=""):
     address is in it, the phone's internet goes over the cable to this Mac. Pure: text in, a dict out (tested
     without a phone, qa/trust-reading.test.py)."""
     text = "\n".join(lines)
-    statuses = sorted({int(s) for s in re.findall(r"received response, status (\d{3})", text)})
+    browser_lines = "\n".join(l for l in lines if re.search(r" (?:%s)[\[(]" % "|".join(map(re.escape, BROWSER)), l))
+    # Safari's own word: its page's responses (CFNetwork's "received response" or WebKit's httpStatusCode) and
+    # whether the main frame finished or failed loading. Other processes' responses (cloudd, a widget) are not
+    # Safari loading a page, so a --raw capture does not count them.
+    statuses = sorted({int(s) for s in re.findall(r"received response, status (\d{3})|httpStatusCode=(\d{3})",
+                                                   browser_lines) for s in s if s})
+    loaded = len(re.findall(r"didFinishLoadForFrame: [^\n]*isMainFrame=1", browser_lines))
+    failed = len(re.findall(r"didFail(?:Provisional)?LoadForFrame[^\n]*isMainFrame=1", browser_lines))
     events = [(proc, peer, (re.search(r"interface: (\w+)", inside) or [None, None])[1], kind)
               for proc, peer, inside, kind in CONNECT_EVENT.findall(text)]
     connected = [e for e in events if e[0] in BROWSER and e[3] == "finish_connect"]
@@ -1282,8 +1289,9 @@ def net_reading(lines, leases=""):
         iface = re.search(r"interface: (\w+)", line)
         key = iface.group(1) if iface else "?"
         timed_via[key] = timed_via.get(key, 0) + 1
-    return {"reached": bool(statuses) or len(connected) > 0, "tcpConnected": len(connected),
+    return {"reached": bool(statuses) or loaded > 0 or len(connected) > 0, "tcpConnected": len(connected),
             "connectedVia": sorted({e[2] or "?" for e in connected}), "statuses": statuses,
+            "pageLoaded": loaded, "pageFailed": failed,
             "notInternet": others,
             "tcpTimedOut": sum(timed_via.values()), "timedOutVia": timed_via,
             "dnsStalls": len(re.findall(r"reported DNS stall symptom", text)),
