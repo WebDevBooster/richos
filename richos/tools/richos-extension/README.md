@@ -324,6 +324,24 @@ requesting access to the user's `Chromium Safe Storage` Keychain item. These
 profiles are for fixtures only. Do not reuse them for account sign-ins or apply
 that flag to a personal browser profile.
 
+Both automated browser harnesses always launch with `--mute-audio`, including
+headed runs. Chromium mutes sound sent to the output device for automated tests;
+the fixture media graphs, recording bytes and decoded audio assertions remain
+active. See [Chromium's switch definition](https://chromium.googlesource.com/chromium/src/+/main/media/base/media_switches.cc).
+
+Before opening fixture call tabs, the harnesses disable routine notifications,
+failure notifications and chimes in their disposable extension profiles. A
+notification guard rejects and counts unexpected notification attempts so a
+regression fails the suite without posting a banner to the host desktop. These
+suites assert zero attempts and zero remaining notifications. Failure detection,
+badges and durable incident logs remain active; `tests/alerts.mjs` independently
+checks notification dispatch, persistence and deduplication with a fake API.
+The tests do not change the installed extension or the Mac's volume/settings.
+
+The macOS test VM remains useful for actual notification UI/interaction tests.
+Moving these audio fixtures there alone would not silence them because guest
+audio can reach the host. See [the VM setup](../../../docs/testvm.md).
+
 For validating on a real call — including how to deliberately break each channel and watch the
 alarm fire — see [TEST-PROTOCOL.md](TEST-PROTOCOL.md).
 

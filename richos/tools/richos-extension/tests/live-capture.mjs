@@ -312,6 +312,8 @@ async function main() {
     `--load-extension=${EXT_DIR}`,
     `--disable-extensions-except=${EXT_DIR}`,
     '--remote-debugging-port=0',
+    // Mute only device output. Keep media graphs and recorded audio live.
+    '--mute-audio',
     '--no-first-run',
     '--no-default-browser-check',
     // This profile is disposable. Keep browser encryption away from the user's Keychain.
@@ -393,10 +395,22 @@ async function main() {
   await evaluate(
     cdp,
     swSession,
-    `(async () => { await chrome.storage.local.set({'richos.settings': {
+    `(async () => { globalThis.__richosTestNotificationAttempts = [];
+      // Never send fixture notifications to the user's desktop, even after a regression.
+      chrome.notifications.create = async (...args) => {
+        globalThis.__richosTestNotificationAttempts.push(args);
+        throw new Error('Desktop notification attempted by a quiet browser fixture');
+      };
+      await chrome.storage.local.set({'richos.settings': {
+        core: { notifyOnStartStop: false, notifyOnFailure: false, alertSound: false },
         callCapture: { micProcessing: false, chunkMs: 1000, maxSessionMinutes: 10,
                        autoStartMicCaptions: true, captureCaptions: true } } }); return 'ok'; })()`,
   );
+
+  const quietSettings = await evalJson(cdp, swSession,
+    `(async () => JSON.stringify((await chrome.storage.local.get('richos.settings'))['richos.settings'].core))()`);
+  check('disposable profile disables desktop notifications and chimes before calls',
+    quietSettings.notifyOnStartStop === false && quietSettings.notifyOnFailure === false && quietSettings.alertSound === false);
 
   // 4. Open the call tab.
   const { targetId: tabTargetId } = await cdp.send('Target.createTarget', { url: CALL_URL });
@@ -847,6 +861,10 @@ async function main() {
     consoleErrors.length === 0,
     consoleErrors.slice(0, 3).join(' | ') || 'clean',
   );
+
+  const desktopNotifications = await evalJson(cdp, swSession,
+    `(async () => JSON.stringify({ active: await chrome.notifications.getAll(), attempts: globalThis.__richosTestNotificationAttempts }))()`);
+  check('test run neither attempts nor leaves desktop notifications', Object.keys(desktopNotifications.active).length === 0 && desktopNotifications.attempts.length === 0, JSON.stringify(desktopNotifications));
 
   // Wrap up.
   const summary = {

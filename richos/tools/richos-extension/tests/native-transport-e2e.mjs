@@ -222,6 +222,8 @@ async function launchChrome(profileDir, downloadDir, httpsPort, extraArgs = []) 
   const args = [
     `--user-data-dir=${profileDir}`, `--load-extension=${EXT_DIR}`, `--disable-extensions-except=${EXT_DIR}`,
     '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',
+    // Mute only device output. The recorder and transcription still receive real audio.
+    '--mute-audio',
     // This profile is disposable. Keep browser encryption away from the user's Keychain.
     ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
     '--enable-logging=stderr', '--vmodule=native_message*=1',
@@ -258,9 +260,25 @@ async function findRichosSw(cdp) {
 }
 const getStatusExpr = `(async () => { try { return JSON.stringify(await globalThis.__richos.callCapture.getStatus()); } catch (e) { return JSON.stringify({ statusError: String(e && e.stack || e) }); } })()`;
 
-async function setFastSettings(cdp, swSession) {
-  await evaluate(cdp, swSession, `(async () => { await chrome.storage.local.set({'richos.settings': {
+async function setFastSettings(cdp, swSession, label) {
+  await evaluate(cdp, swSession, `(async () => { globalThis.__richosTestNotificationAttempts = [];
+      // Never send fixture notifications to the user's desktop, even after a regression.
+      chrome.notifications.create = async (...args) => {
+        globalThis.__richosTestNotificationAttempts.push(args);
+        throw new Error('Desktop notification attempted by a quiet browser fixture');
+      };
+      await chrome.storage.local.set({'richos.settings': {
+    core: { notifyOnStartStop: false, notifyOnFailure: false, alertSound: false },
     callCapture: { micProcessing: false, chunkMs: 1000, maxSessionMinutes: 10, autoStartMicCaptions: true, captureCaptions: true } } }); return 'ok'; })()`);
+  const quietSettings = await evalJson(cdp, swSession,
+    `(async () => JSON.stringify((await chrome.storage.local.get('richos.settings'))['richos.settings'].core))()`);
+  check(`${label}: disposable profile disables desktop notifications and chimes before calls`,
+    quietSettings.notifyOnStartStop === false && quietSettings.notifyOnFailure === false && quietSettings.alertSound === false);
+}
+async function checkNoDesktopNotifications(cdp, swSession, label) {
+  const notifications = await evalJson(cdp, swSession,
+    `(async () => JSON.stringify({ active: await chrome.notifications.getAll(), attempts: globalThis.__richosTestNotificationAttempts }))()`);
+  check(`${label}: test run neither attempts nor leaves desktop notifications`, Object.keys(notifications.active).length === 0 && notifications.attempts.length === 0, JSON.stringify(notifications));
 }
 async function openCallTab(cdp, httpsPort) {
   const CALL_URL = `https://meet.google.com:${httpsPort}/abc-defg-hij`;
@@ -329,7 +347,7 @@ async function runNativeLeg(workDir, speechB64) {
     throw new Error(`native host prerequisite: ${JSON.stringify(hostProbe)}`);
   }
 
-  await setFastSettings(cdp, swSession);
+  await setFastSettings(cdp, swSession, 'LEG1');
   const { tabTargetId, tabSession } = await openCallTab(cdp, httpsPort);
   await sleep(2500);
   check('LEG1: fixture call page is playing', /running/.test(String(await evaluate(cdp, tabSession, 'document.getElementById("s")?.textContent'))), '');
@@ -415,6 +433,7 @@ async function runNativeLeg(workDir, speechB64) {
 
   check('LEG1: the extension logged no errors and threw no uncaught exceptions', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | ') || 'clean');
 
+  await checkNoDesktopNotifications(cdp, swSession, 'LEG1');
   cdp.close(); chrome.kill('SIGTERM'); server.close(); await sleep(400);
   return { sessionId, transcript, finalAudioBytes, streamedBytes: streaming.streamedBytes, hostDir, zone: KEEP ? zone : null };
 }
@@ -437,7 +456,7 @@ async function runFallbackLeg(workDir, speechB64) {
   const { chrome, cdp } = await launchChrome(profileDir, downloadDir, httpsPort);
   const { swSession, extensionId } = await findRichosSw(cdp);
   await cdp.send('Runtime.enable', {}, swSession);
-  await setFastSettings(cdp, swSession);
+  await setFastSettings(cdp, swSession, 'LEG2');
   const { tabTargetId, tabSession } = await openCallTab(cdp, httpsPort);
   await sleep(2500);
 
@@ -473,6 +492,7 @@ async function runFallbackLeg(workDir, speechB64) {
     found.some((f) => /^richos-capture\/[^/]+\/audio-part-\d+\.webm$/.test(f)) && found.some((f) => /^richos-capture\/[^/]+\/session\.json$/.test(f)),
     found.join(', '));
 
+  await checkNoDesktopNotifications(cdp, swSession, 'LEG2');
   cdp.close(); chrome.kill('SIGTERM'); server.close(); await sleep(400);
 }
 
@@ -498,7 +518,7 @@ async function investigateTabArming(workDir) {
   const { chrome, cdp } = await launchChrome(profileDir, downloadDir, httpsPort, extraArgs);
   const { swSession } = await findRichosSw(cdp);
   await cdp.send('Runtime.enable', {}, swSession);
-  await setFastSettings(cdp, swSession);
+  await setFastSettings(cdp, swSession, 'INVESTIGATION');
   const { tabTargetId } = await openCallTab(cdp, httpsPort);
   await sleep(2500);
   const callTabId = (await evaluate(cdp, swSession,
@@ -513,6 +533,7 @@ async function investigateTabArming(workDir) {
     note('INVESTIGATION: no test switch auto-granted tabCapture', `refused: "${mint.error}". This is Chrome's trusted-gesture boundary — tabCapture.getMediaStreamId requires a real extension invocation (toolbar click / shortcut / context menu) for the target tab; it cannot be minted from the service worker or via CDP userGesture. The fake-media-UI flags only bypass the getUserMedia permission PROMPT, not the tabCapture invocation gate.`);
     note('INVESTIGATION: OS-level synthetic gesture (cliclick) not attempted headless', 'the toolbar action icon is not rendered/hit-testable in --headless=new, and its screen coordinates are unknown/unstable in a headed throwaway window; a trusted click on the action is what the boundary requires. Tab-arming is therefore left to a one-click manual / real-call confirmation (README TEST-PROTOCOL). The mic leg proves the transport; the tab leg is the SAME streaming code path once armed.');
   }
+  await checkNoDesktopNotifications(cdp, swSession, 'INVESTIGATION');
   cdp.close(); chrome.kill('SIGTERM'); server.close(); await sleep(400);
   return mint;
 }
