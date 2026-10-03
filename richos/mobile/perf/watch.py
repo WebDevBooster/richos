@@ -931,6 +931,17 @@ def prune_runs():
     return removed
 
 
+LOADED = Path(__file__).read_bytes()  # the watch code this process is running, as it was when it started
+
+
+def newer_watch(checkout):
+    """The land's own copy of this file when it differs from the code this runner loaded, else None."""
+    if isinstance(checkout, Exception):
+        return None
+    mine = Path(checkout) / "richos/mobile/perf/watch.py"
+    return mine if mine.is_file() and mine.read_bytes() != LOADED else None
+
+
 def cmd_run(args):
     repo = Path(args.repo).resolve()
     with run_lock(block=True):
@@ -949,6 +960,10 @@ def cmd_run(args):
                 checkout = prepare_checkout(repo, sha, work / "checkout.log")
             except Unmeasured as exc:
                 checkout = exc
+            newer = newer_watch(checkout)
+            if newer:  # a land is measured and judged by its own watch code, never an older runner's
+                say(f"this land changes the watch; continuing in {newer}")
+                os.execv(sys.executable, [sys.executable, str(newer), "run", "--repo", str(repo)])
             outcomes = []
             threads = [threading.Thread(target=lambda p=p: outcomes.append(
                 run_platform(repo, round_id, sha, p, work, checkout))) for p in platforms()]
