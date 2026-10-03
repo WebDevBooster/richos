@@ -9,11 +9,12 @@ way a person does, record the screen from before the tap, and judge the recordin
     metric(series, starts, method)                           the record's `coldBlank` metric
 
 Android. For each start: force-stop the app (a cold start), press Home twice (the launcher's first
-page), find the RichConnect icon in the launcher's own accessibility tree, start `screenrecord
+page), find the app's icon in the launcher's own accessibility tree, swiping pages or opening the app drawer
+when it is not on the first page (the test copy's label is "RichConnect Perf"), start `screenrecord
 --time-limit` on the phone as a process this module owns (it ends by itself), wait
 `STILL_BEFORE_TAP_S` so the recording opens on a still home screen, `input tap` the icon's center,
-let the recording end, pull it and delete it from the phone. The icon must be on the launcher's
-first page: the check refuses, with that sentence, rather than open the app any other way. The
+let the recording end, pull it and delete it from the phone. The check never opens the app any
+other way than that tap, and never asks anyone to move an icon. The
 recordings are kept beside the record (`<out>.evidence/cold-blank/`, on the external SSD with the
 rest of a physical run's evidence; never in a repository) or, with no `--out`, deleted after they
 are judged.
@@ -50,14 +51,61 @@ IPHONE_LEAD_S = 1.0             # each iPhone window opens this long before its 
                                 # still Home Screen before tapping; the window must open on it)
 
 
-def _icon(measure):
-    nodes = measure.dump_ui()
+PERF_LABEL = "RichConnect Perf"  # the test copy's launcher label (build.gradle.kts appLabel); the CEO's own app is LABEL
+MAX_PAGES = 8                    # launcher pages to swipe through before the app drawer
+
+
+def _label():
+    """The launcher label of the app under test: the test copy's, never the CEO's own app's."""
     import android
-    node = android.find_node(nodes, text=LABEL) or android.find_node(nodes, desc=LABEL)
-    if node is None or not node.get("bounds"):
-        raise Unmeasurable(f"the {LABEL} icon is not on the launcher's first page: put it there (this check opens the "
+    return LABEL if android.PACKAGE == "dev.richos.connect" else PERF_LABEL
+
+
+def _find(measure, label):
+    import android
+    nodes = measure.dump_ui()
+    node = android.find_node(nodes, text=label) or android.find_node(nodes, desc=label)
+    return node if node is not None and node.get("bounds") else None
+
+
+def _icon(measure):
+    """Where a person would tap the icon: on this launcher page, else swiped-to pages (left, then back to the
+    first page and right), else the app drawer (swipe up from the home screen)."""
+    import android
+    dev = measure.d
+    label = _label()
+    node = _find(measure, label)
+    for direction in ("left", "right"):
+        for _ in range(MAX_PAGES):
+            if node is not None:
+                return android.center(node)
+            _swipe(dev, direction)
+            dev.sleep(0.7)
+            node = _find(measure, label)
+        if node is None and direction == "left":
+            for _ in range(MAX_PAGES):   # back to where we started, then the other way
+                _swipe(dev, "right")
+                dev.sleep(0.4)
+    if node is None:
+        dev.sh("input keyevent KEYCODE_HOME")
+        dev.sleep(0.5)
+        _swipe(dev, "up")
+        dev.sleep(1.0)
+        node = _find(measure, label)
+    if node is None:
+        raise Unmeasurable(f"the {label} icon is on no launcher page and not in the app drawer (this check opens the "
                            "app only by tapping its icon, the way a person does)")
     return android.center(node)
+
+
+def _swipe(dev, direction):
+    """A finger swipe sized to this phone's screen (`wm size`): left/right between launcher pages, up for the drawer."""
+    import re
+    m = re.search(r"(\d+)x(\d+)", dev.sh("wm size", check=False) or "")
+    w, h = (int(m.group(1)), int(m.group(2))) if m else (1080, 2340)
+    lo, hi, mid, top, low = int(w * 0.15), int(w * 0.85), w // 2, int(h * 0.30), int(h * 0.80)
+    dev.sh({"left": f"input swipe {hi} {h // 2} {lo} {h // 2} 250", "right": f"input swipe {lo} {h // 2} {hi} {h // 2} 250",
+            "up": f"input swipe {mid} {low} {mid} {top} 250"}[direction])
 
 
 def android_cold_blank(measure, starts, evidence_dir=None, log=lambda s: None, popen=subprocess.Popen,
@@ -107,7 +155,7 @@ def android_cold_blank(measure, starts, evidence_dir=None, log=lambda s: None, p
             shutil.rmtree(out_dir, ignore_errors=True)
     series = blank.judge_series(results)
     return metric(series, results, method=(
-        "force-stop; Home twice; tap the RichConnect icon on the launcher's first page with `input tap` while "
+        "force-stop; Home twice; tap the app's icon (found by swiping launcher pages or opening the app drawer) with `input tap` while "
         f"`screenrecord --time-limit {record_s}` records from {STILL_BEFORE_TAP_S:.0f} s before the tap; each recording "
         "judged by richos/mobile/perf/blank.py (blank frames, the opening animation of a blank window, jumps), times "
         "from the home screen's first visible reaction to the tap"), kept=keep)
