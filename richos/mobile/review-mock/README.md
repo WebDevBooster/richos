@@ -1,7 +1,12 @@
 # RichConnect review host (hosted mock backend for App Review and Play review)
 
-**Built and unit-tested. Not deployed.** No cloud resource exists for it yet. The steps to deploy it
-are below. Someone with the Cloudflare login (the CEO or Codex) runs them.
+**Deployed 2026-10-03** as the Worker `richconnect-review` (version `e4ced97d`) in the Cloudflare
+account that runs the Connect Worker. Live names: access page `https://mobile-app-review.richos.dev/`,
+review hosts `apple-review.richos.dev` and `google-review.richos.dev` (two, not three: the Connect
+Worker had 8 of its 10 lifetime host records used, so the spare host was left out). `/healthz` answers
+`{"service":"richconnect-review","ready":true,"hosts":2,"push":true,"pairing_words":"v2"}`. Not yet
+done: the real-phone pairing test (check 2 below), the Android repeat, and an uptime monitor. The
+deployed `wrangler.toml` and all secrets live in `/Volumes/E1TB/state/richos/review-mock/`, outside Git.
 
 Apple and Google reviewers cannot pair RichConnect with a Mac, because they do not have one.
 This folder is the service they use instead. It is a Cloudflare Worker that plays the Mac for
@@ -119,6 +124,13 @@ monitoring). Its item 6, a reviewer Mac, is superseded by the CEO's choice of a 
 3. **How many review hosts.** The template has three: Apple, Google and a spare.
 4. **M5's route** (escalation above).
 
+**Settled 2026-10-03:** (1) zone `richos.dev`, in the Connect account (verified: the deploy created the
+custom domains there). (2) `SELECT count(*) FROM hosts` on the Connect D1 returned 8 of 10, so 2
+were left; both are now admitted in `allowed_hosts` and `HOST_CAPACITY` and `ENROLLMENT_OPEN` were
+not touched. (3) Two hosts, Apple and Google; a spare needs a Connect capacity decision first.
+(4) M5: `esc-20260924T003116Z-d1e843d0` is triaged RICH-DECIDES, not CEO, and the code already
+implements its `tailnet` shape, so it did not block the deploy. It remains unapproved.
+
 ## Deploy (for the CEO or Codex)
 
 Everything secret is created outside Git and handed to Cloudflare with `wrangler secret bulk`. The
@@ -233,8 +245,8 @@ and still arrives once. No app code is changed.
 > otherwise the same service a Mac provides: the same pairing, messages, voice, files and
 > notifications, and the app you are reviewing is the normal build.
 >
-> 1. On any computer or on this device, open https://<access name>/ and sign in: username
->    <apple username>, password <apple password>.
+> 1. On any computer or on this device, open https://mobile-app-review.richos.dev/ and sign in:
+>    username apple-review, password <apple password, from review-credentials.json>.
 > 2. Select "Get a pairing link". In RichConnect, scan the code, or copy the link on this device and
 >    paste it into the app's pairing link field.
 > 3. The app shows six words. Check that they match the page, then press They match in the app, then
@@ -249,5 +261,6 @@ and still arrives once. No app code is changed.
 > new link" on the page.
 
 **DRAFT. Google Play Console, App content, App access** ("All or some functionality is restricted";
-the instructions and credentials are the same with the Google username and password. Google asks
+the instructions are the same, with username `google-review` and its password from
+`review-credentials.json`. Google asks
 for English instructions and a static URL, and the access page is that URL).
