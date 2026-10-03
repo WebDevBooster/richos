@@ -482,7 +482,8 @@ class IPhone:
         self.env = {**os.environ, "PATH": f"{self.tmp / 'bin'}:{os.environ['PATH']}", "FAKE_IPHONE": str(self.file),
                     "RICHOS_PHONE_LOCK_DIR": str(self.tmp / "locks"), "PYTHONDONTWRITEBYTECODE": "1",
                     "RICHOS_IOS_DEVICE": "00000000-0000000000000000", "RICHOS_DEVICE_HOLDER": "net-test",
-                    "RICHOS_PHONE_REBOOT_SETTLE": "0", "RICHOS_PHONE_REBOOT_STEP": "0"}
+                    "RICHOS_PHONE_REBOOT_SETTLE": "0", "RICHOS_PHONE_REBOOT_STEP": "0",
+                    "RICHOS_PHONE_NET_PROBE": "echo {}"}
         self.env.pop("RICHOS_PHONE_NET_RESTORE", None)
 
     @property
