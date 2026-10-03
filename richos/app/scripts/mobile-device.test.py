@@ -597,7 +597,9 @@ def _():
         assert verb in text, verb
     # `trust` is the diagnosis of a refused check, so it runs without the check (which would refuse it).
     # `reboot` is the remedy the check itself applies, so it too runs without the check, holding the phone.
-    assert 'approval|procs|apps|lock|battery|syslog|trust|wifi-restore|reboot) exec "${HOLD[@]}"' in text
+    # `launch` opens the app on purpose: it holds the phone but runs its own Wi-Fi-first, launch-once procedure
+    # instead of the trust check, so it sits beside the read-only verbs on the HOLD line and is the only one there that launches.
+    assert 'approval|procs|apps|lock|battery|syslog|trust|wifi-restore|reboot|launch) exec "${HOLD[@]}"' in text
 
 
 def load_phone_ios():
