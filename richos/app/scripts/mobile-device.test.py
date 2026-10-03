@@ -732,6 +732,31 @@ def phone_run(module, fake, path, tmp):
             return None, None, error
 
 
+@case("D27b battery and syslog give libimobiledevice the hardware UDID, not the CoreDevice UUID rios passes")
+def _():
+    module = load_phone_ios()
+    core, hw = "AAAAAAAA-1111-2222-3333-444455556666", "0000FFFF-0123456789ABCDEF"
+    seen = []
+
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        out = "BatteryCurrentCapacity: 80\nBatteryIsCharging: true\n" if cmd[0] == "ideviceinfo" else ""
+        return subprocess.CompletedProcess(cmd, 0 if cmd[2] == hw else 1, out, "")
+
+    old_ids, old_run = module.device_ids, module.subprocess.run
+    module.device_ids = lambda d: {d.lower(), hw.lower()}
+    module.subprocess.run = fake_run
+    try:
+        args = type("A", (), {"device": core, "network": False})()
+        try:
+            module.battery(args)
+        except Exception:
+            pass
+    finally:
+        module.device_ids, module.subprocess.run = old_ids, old_run
+    assert seen and seen[0][:3] == ["ideviceinfo", "-u", hw], seen
+
+
 @case("D28 a list that switches Wi-Fi off and stops before switching it back: the run reads the switch and turns it on")
 def _():
     module = load_phone_ios()

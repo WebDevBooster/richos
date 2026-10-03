@@ -1100,8 +1100,17 @@ def lock(args):
                  "passcodeConfigured": passcode_state(args.device)})
 
 
+def libimobile_id(device):
+    """libimobiledevice (ideviceinfo, idevicesyslog) knows the phone only by its hardware UDID; `rios device`
+    hands every verb the CoreDevice UUID. A spelling with no hardware UDID is passed on as it is."""
+    try:
+        return hardware_udid(device)
+    except CannotAnswer:
+        return device
+
+
 def battery(args):
-    p = subprocess.run(["ideviceinfo", "-u", args.device, *(["-n"] if args.network else []), "-q", "com.apple.mobile.battery"],
+    p = subprocess.run(["ideviceinfo", "-u", libimobile_id(args.device), *(["-n"] if args.network else []), "-q", "com.apple.mobile.battery"],
                        capture_output=True, text=True, timeout=60)
     values = dict(line.split(": ", 1) for line in p.stdout.splitlines() if ": " in line)
     if p.returncode != 0 or "BatteryCurrentCapacity" not in values:
@@ -1546,7 +1555,7 @@ def syslog(args):
     out = Path(args.out)
     if not str(out.resolve()).startswith("/Volumes/E1TB/"):
         raise CannotAnswer("--out must be on /Volumes/E1TB")
-    relay = spawn_owned(["idevicesyslog", "-u", args.device, *(["-n"] if args.network else []), "--no-colors"],
+    relay = spawn_owned(["idevicesyslog", "-u", libimobile_id(args.device), *(["-n"] if args.network else []), "--no-colors"],
                              stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL, text=True, errors="replace")
     kept = total = 0
