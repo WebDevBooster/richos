@@ -30,6 +30,7 @@
     phone-ios.py reboot --device ID                restart the phone (devicectl), wait until its Wi-Fi
                                                    carries traffic, open RichConnect ONCE (never a loop);
                                                    the remedy when `trust` fails (no passcode, CEO 2026-10-02)
+    phone-ios.py close BUNDLE --device ID          end that app's running process: the Home Screen is in front
     phone-ios.py net --device ID --out FILE [--seconds S]
                                                    what the phone itself reaches: this Mac reaching its
                                                    Wi-Fi address, and Safari's internet connections read
@@ -1347,6 +1348,22 @@ def net(args):
                  "verdict": net_verdict(path_ok, internet), "log": str(out)}, 0 if ok else 1)
 
 
+def close_app(args):
+    """`rios device close BUNDLE --device ID`: end the app's running process(es) so the phone is left at its
+    Home Screen. Nothing is installed, removed or cleared; an app that is not running is said, exit 0."""
+    rows = devicectl(["device", "info", "processes"], args.device).get("runningProcesses", [])
+    apps = devicectl(["device", "info", "apps", "--bundle-id", args.bundle], args.device).get("apps", [])
+    path = str((apps[0] if apps else {}).get("url", "")).replace("file://", "").rstrip("/")
+    if not path:
+        raise CannotAnswer(f"{args.bundle} is not installed on the phone")
+    pids = [r.get("processIdentifier") for r in rows
+            if str(r.get("executable", "")).replace("file://", "").startswith(path + "/")]
+    for pid in pids:
+        subprocess.run(["xcrun", "devicectl", "device", "process", "terminate", "--device", args.device,
+                        "--pid", str(pid)], capture_output=True, timeout=30)
+    return emit({"bundle": args.bundle, "closed": pids})
+
+
 def launch_app(args):
     """`rios device launch BUNDLE [-- app args]`: the one procedure for opening an installed app
     (phone_net.launch_app): check connected and on Wi-Fi first, open once, on a trust refusal restart the
@@ -1529,6 +1546,9 @@ def main(argv):
     la.add_argument("--detach", action="store_true",
                     help="return once iOS has opened the app (no console); the app stays open in front")
     la.add_argument("app_args", nargs=argparse.REMAINDER)
+    cl = sub.add_parser("close")
+    cl.add_argument("bundle")
+    cl.add_argument("--device", required=True)
     for name in ("procs", "apps", "lock", "battery", "syslog", "trust", "reboot", "net"):
         s = sub.add_parser(name)
         s.add_argument("--device", required=True)
@@ -1575,7 +1595,7 @@ def main(argv):
                                     "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
                 "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore, "trust": trust,
-                "reboot": restart_phone, "launch": launch_app, "net": net}[args.command](args)
+                "reboot": restart_phone, "launch": launch_app, "net": net, "close": close_app}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error), **getattr(error, "extra", {})}, 2)
     except subprocess.TimeoutExpired as error:
