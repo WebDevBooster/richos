@@ -42,6 +42,93 @@ BUDGETS = {
                    "boundary": "zero app-driven recurring redraws and no recurring app timer without work due"},
 }
 
+# THE COLD-START STANDARD, the ONLY place its limits live (CEO 2026-10-03, richos-hq/wiki/ceo-decisions.md
+# §104, his words): "iPhone: the first 2-5 cold starts must be under 800 ms on the iPhone SE 2nd gen test
+# phone. The test instantly fails if that's not the case. No need to wait for 20. If the test doesn't fail
+# after cold start 2-5, the average cold start time on the test iPhone must always be under 700 ms (among
+# the cold starts 2-20). Android: the first 2-5 cold starts must be under 1000 ms on the Honor X6b test
+# phone ... the average cold start time on the test Android must always be under 900 ms (among the cold
+# starts 2-20)." Start 1 is not judged. `earlyMs` judges each of starts 2-5; `avgMs` judges the average of
+# starts 2-20. "Under" is strict: a start or average equal to its limit fails.
+COLD_STANDARD = {
+    "ios": {"earlyMs": 800, "avgMs": 700, "phone": "iPhone SE 2nd gen"},
+    "android": {"earlyMs": 1000, "avgMs": 900, "phone": "Honor X6b"},
+}
+# THE WARM-START STANDARD (the CEO's addition, 2026-10-03, §104 addendum): "the same kind of margins as I've
+# given to cold start tests adjusted to the best measured warm start times". Per start = best measured warm
+# median x (800/582 iPhone, 1000/779 Honor); average = median x (700/582, 900/779).
+#   iPhone SE: UNSET. A 485.1 ms figure (will-enter-foreground to input-ready) was RETRACTED by the CEO
+#     (2026-10-03): it is not what a person sees. The placeholders fail loudly until he sets a number.
+#   Honor X6b: best warm median 105.57 ms (96 returns, /Volumes/E1TB/reports/richconnect-speed-20260924/
+#     honor-managed-launch-100.json): 135.5 / 122.0.
+# A limit set to None makes a warm judgment RAISE LimitNotSet; it never passes or fails silently.
+WARM_STANDARD = {
+    "ios": {"earlyMs": None, "avgMs": None, "phone": "iPhone SE 2nd gen"},  # UNSET: the CEO's number
+    "android": {"earlyMs": 135.5, "avgMs": 122.0, "phone": "Honor X6b"},
+}
+STANDARDS = {"cold": COLD_STANDARD, "warm": WARM_STANDARD}
+COLD_STARTS = 20          # a start test is 20 normal starts
+COLD_EARLY_LAST = 5       # starts 2..5 are each judged against earlyMs, the run stops at the first over
+SOURCE_STANDARD = "CEO 2026-10-03, richos-hq/wiki/ceo-decisions.md §104"
+
+
+class LimitNotSet(Exception):
+    """A standard's limit is still a placeholder: the judgment refuses instead of guessing."""
+
+
+def cold_verdict(platform, starts_ms, total=COLD_STARTS):
+    return series_verdict("cold", platform, starts_ms, total)
+
+
+def warm_verdict(platform, starts_ms, total=COLD_STARTS):
+    return series_verdict("warm", platform, starts_ms, total)
+
+
+def series_verdict(kind, platform, starts_ms, total=COLD_STARTS):
+    """Judge a start series, kind "cold" or "warm". `starts_ms` is the start times in order, start 1 first
+    (start 1 is never judged; None marks a start with no time). Returns a dict: verdict FAIL (a start 2-5 at
+    or over the early limit, `stop` true: the run stops there; or the 2-`total` average at or over the
+    average limit), PASS (all `total` starts judged, average under), or INCOMPLETE (not enough starts yet and
+    nothing over: keep going when `stop` is false, never a pass). Raises LimitNotSet on a placeholder."""
+    lim = STANDARDS[kind][platform]
+    if lim["earlyMs"] is None or lim["avgMs"] is None:
+        raise LimitNotSet(f"the {kind}-start limits for {platform} are not set in perfcore.py: the CEO fills them in")
+    out = {"kind": kind, "platform": platform, "source": SOURCE_STANDARD,
+           "method": f"the {kind}-start standard (starts 2-5 each under the early limit, then the 2-{total} average under the average limit), judged from the series' own samples", "earlyLimitMs": lim["earlyMs"],
+           "averageLimitMs": lim["avgMs"], "startsMs": list(starts_ms), "stop": False}
+    for n, ms in enumerate(starts_ms, 1):
+        if n == 1 or n > COLD_EARLY_LAST or ms is None:
+            continue
+        if ms >= lim["earlyMs"]:
+            out.update(verdict="FAIL", stop=True, failedStart=n, failedMs=ms,
+                       why=f"{kind} start {n} took {ms} ms, not under {lim['earlyMs']} ms ({lim['phone']}); the run stops here")
+            return out
+    judged = starts_ms[1:total]
+    if len(starts_ms) < total or any(ms is None for ms in judged):
+        out.update(verdict="INCOMPLETE", why=f"{len([m for m in judged if m is not None])} of {total - 1} judged starts timed; no verdict")
+        return out
+    avg = sum(judged) / len(judged)
+    out["averageMs"] = round(avg, 1)
+    if avg >= lim["avgMs"]:
+        out.update(verdict="FAIL", why=f"the average of {kind} starts 2-{total} is {avg:.0f} ms, not under {lim['avgMs']} ms ({lim['phone']})")
+    else:
+        out.update(verdict="PASS", why=f"the average of {kind} starts 2-{total} is {avg:.0f} ms, under {lim['avgMs']} ms; starts 2-{COLD_EARLY_LAST} each under {lim['earlyMs']} ms")
+    return out
+
+
+def should_stop(kind, platform, starts_ms):
+    """True when the series so far already fails the early limit: no further start is made."""
+    return bool(series_verdict(kind, platform, starts_ms)["stop"])
+
+
+def cold_should_stop(platform, starts_ms):
+    return should_stop("cold", platform, starts_ms)
+
+
+def warm_should_stop(platform, starts_ms):
+    return should_stop("warm", platform, starts_ms)
+
+
 # PRD §8: "at least 100 trials per launch class and primary device configuration".
 PROTOCOL_TRIALS = 100
 

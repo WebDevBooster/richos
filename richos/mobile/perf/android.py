@@ -42,6 +42,7 @@ import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+import perfcore
 from perfcore import Refused, Unmeasurable
 
 PACKAGE = "dev.richos.connect"
@@ -970,6 +971,9 @@ class Measure:
                     if launch["launchState"] != "COLD": raise Unmeasurable("not a cold launch")
                     first.append(launch["totalMs"]); useful.append(detail["usefulMs"]); details.append(detail)
                     self.log(f"cold {i + 1}/{trials}: first frame {launch['totalMs']} ms, useful frame presented {detail['usefulMs']} ms")
+                    if perfcore.cold_should_stop("android", useful):  # §104: starts 2-5 over the limit end the run at once
+                        self.log(f"cold start {len(useful)} over the {perfcore.COLD_STANDARD['android']['earlyMs']} ms limit: stopping")
+                        break
                 except Unmeasurable as error:
                     rejected.append({"trial": i + 1, "why": str(error)})
                     self.log(f"cold {i + 1}/{trials}: REJECTED, {error}")
@@ -1044,6 +1048,13 @@ class Measure:
                 if detail: details.append(detail)
                 states_seen.append(state)
                 self.log(f"warm {i + 1}/{trials}: {samples[-1]} ms ({state})")
+                if physical:  # the warm standard: starts 2-5 over the limit end the run at once; unset limits judge later, loudly
+                    try:
+                        if perfcore.warm_should_stop("android", samples):
+                            self.log(f"warm start {len(samples)} over the limit: stopping")
+                            break
+                    except perfcore.LimitNotSet:
+                        pass
                 if state == "WARM" and destroyed is None:
                     events = self.d.run("logcat", "-b", "events", "-d", "-v", "epoch", "-T", since, check=False)
                     destroyed = [l.split("wm_destroy_activity: ", 1)[1].strip() for l in events.splitlines()
