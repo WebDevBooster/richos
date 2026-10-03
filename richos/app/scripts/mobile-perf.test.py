@@ -2837,9 +2837,9 @@ def _series(first, rest):
 
 @case("K1 cold standard (CEO 2026-10-03, §104): a slow start 3 fails AT start 3 and stops the series; start 1 is ignored; both phones' limits")
 def _():
-    for plat, early, avg in (("ios", 800, 700), ("android", 1000, 900)):
+    for plat, early, avg in (("ios", 800, 600), ("android", 1000, 900)):
         assert perfcore.COLD_STANDARD[plat]["earlyMs"] == early and perfcore.COLD_STANDARD[plat]["avgMs"] == avg
-        v = perfcore.cold_verdict(plat, [early * 5, early - 1, early])
+        v =perfcore.cold_verdict(plat, [early * 5, early - 1, early])
         assert v["verdict"] == "FAIL" and v["failedStart"] == 3 and v["failedMs"] == early and v["stop"], v
         assert "start 3" in v["why"] and f"{early} ms" in v["why"], v
         assert perfcore.cold_should_stop(plat, [100, 100, early])
@@ -2851,7 +2851,7 @@ def _():
 
 @case("K2 cold standard: starts 2-5 under the limit but a 2-20 average over it fails; a good series passes (iPhone and Android)")
 def _():
-    for plat, early, avg in (("ios", 800, 700), ("android", 1000, 900)):
+    for plat, early, avg in (("ios", 800, 600), ("android", 1000, 900)):
         slow_tail = _series(100, [avg - 100] * 4 + [early + 2000] * 15)  # 2-5 fine, 6-20 slow
         v = perfcore.cold_verdict(plat, slow_tail)
         assert v["verdict"] == "FAIL" and not v["stop"] and "average" in v["why"] and v["averageMs"] >= avg, v
@@ -2886,11 +2886,11 @@ def _():
 
 @case("K4 warm standard: the CEO's final limits (§104), same judge as the cold one")
 def _():
-    assert (perfcore.WARM_STANDARD["ios"]["earlyMs"], perfcore.WARM_STANDARD["ios"]["avgMs"]) == (818, 716)
+    assert (perfcore.WARM_STANDARD["ios"]["earlyMs"], perfcore.WARM_STANDARD["ios"]["avgMs"]) == (800, 700)
     assert (perfcore.WARM_STANDARD["android"]["earlyMs"], perfcore.WARM_STANDARD["android"]["avgMs"]) == (200, 150)
     assert perfcore.warm_verdict("android", [0, 100, 210])["failedStart"] == 3
     assert perfcore.warm_verdict("ios", [0, 100, 820])["failedStart"] == 3
-    assert perfcore.warm_verdict("ios", [0, 100, 800])["verdict"] == "INCOMPLETE"
+    assert perfcore.warm_verdict("ios", [0, 100, 799])["verdict"] == "INCOMPLETE"
     saved = {p: dict(v) for p, v in perfcore.WARM_STANDARD.items()}
     try:
         perfcore.WARM_STANDARD["ios"].update(earlyMs=None, avgMs=None)

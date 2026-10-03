@@ -50,19 +50,22 @@ BUDGETS = {
 # phone ... the average cold start time on the test Android must always be under 900 ms (among the cold
 # starts 2-20)." Start 1 is not judged. `earlyMs` judges each of starts 2-5; `avgMs` judges the average of
 # starts 2-20. "Under" is strict: a start or average equal to its limit fails.
+# The iOS cold average limit was then lowered from 700 to 600 ms (CEO 2026-10-03, §104, his words: "the 2-20
+# average cold start on the iPhone is under half a second which means we can reduce the test limit for that to
+# 600 ms"); the iOS per-start limit stays 800 ms. Android is unchanged.
 COLD_STANDARD = {
-    "ios": {"earlyMs": 800, "avgMs": 700, "phone": "the iOS test phone"},
+    "ios": {"earlyMs": 800, "avgMs": 600, "phone": "the iOS test phone"},
     "android": {"earlyMs": 1000, "avgMs": 900, "phone": "the Android test phone"},
 }
 # THE WARM-START STANDARD (the CEO's final limits, 2026-10-03, richos-hq/wiki/ceo-decisions.md §104).
-#   the iOS test phone: 818 ms per start (starts 2-5), 716 ms average. The whole return, the iOS opening
-#     animation included, measured the same way as the cold start; best warm median 595 ms times the cold
-#     margins (800/582 per start, 700/582 average).
+#   the iOS test phone: 800 ms per start (starts 2-5), 700 ms average. The whole return, the iOS opening
+#     animation included, measured the same way as the cold start. CEO 2026-10-03, §104, his words: "for the
+#     warm starts round down the limits from 818 to 800 and from 716 to 700 respectively."
 #   the Android test phone: 200 ms per start, 150 ms average, set by the CEO himself:
 #     "No need to go crazy. That's plenty good enough."
 # A limit set to None would make a warm judgment RAISE LimitNotSet; it never passes or fails silently.
 WARM_STANDARD = {
-    "ios": {"earlyMs": 818, "avgMs": 716, "phone": "the iOS test phone"},
+    "ios": {"earlyMs": 800, "avgMs": 700, "phone": "the iOS test phone"},
     "android": {"earlyMs": 200, "avgMs": 150, "phone": "the Android test phone"},
 }
 STANDARDS = {"cold": COLD_STANDARD, "warm": WARM_STANDARD}
