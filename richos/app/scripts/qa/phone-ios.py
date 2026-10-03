@@ -1271,19 +1271,23 @@ def wifi_link(text):
 
 
 def net_verdict(path_ok, internet):
-    """One sentence from the two readings. Pure (qa/trust-reading.test.py)."""
-    if path_ok and internet["reached"]:
-        return "the phone's Wi-Fi carries traffic: this Mac reaches it and it reaches the internet"
-    if path_ok:
-        return ("this Mac reaches the phone over Wi-Fi, but the phone's connections to the internet did not "
-                "complete" + (" (TCP timed out)" if internet["tcpTimedOut"] else ""))
+    """One sentence from the two readings, each claim only from what was measured: "reaches the internet" needs a
+    completed connection (or a response), "time out" needs a recorded timeout. Pure (qa/trust-reading.test.py)."""
+    timed_out = internet.get("tcpTimedOut")
     if internet["reached"]:
+        if path_ok:
+            return "the phone's Wi-Fi carries traffic: this Mac reaches it and it reaches the internet"
         return "the phone reaches the internet, but this Mac does not reach its Wi-Fi address"
-    if internet.get("noNetworkRoute") and not internet.get("tcpTimedOut"):
+    if internet.get("noNetworkRoute") and not timed_out:
         return ("the phone has no network at all: it is not joined to Wi-Fi (iOS: No network route), so this Mac "
                 "gets no answer from it and it reaches nothing")
-    return ("the phone is joined to Wi-Fi but its Wi-Fi carries no traffic: this Mac gets no answer from its "
-            "address and its own connections to the internet time out")
+    mac = ("this Mac reaches the phone over Wi-Fi" if path_ok
+           else "this Mac gets no answer from the phone's Wi-Fi address")
+    if timed_out:
+        return (f"{mac}, and the phone's own connections to the internet time out"
+                " (the phone's Wi-Fi carries no traffic)" if not path_ok else
+                f"{mac}, but the phone's connections to the internet did not complete (TCP timed out)")
+    return f"{mac}; the phone's internet was not measured (no connection completed or timed out in the window)"
 
 
 def _safari_load(device, udid, url, seconds):

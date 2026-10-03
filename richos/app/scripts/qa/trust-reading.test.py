@@ -46,6 +46,16 @@ class TrustReading(unittest.TestCase):
         r = phone_ios.trust_reading([REFUSED])
         self.assertEqual(r["cause"], "iOS refused the launch: Profile Needs Network Validation")
 
+    def test_no_measurement_is_never_a_claim_about_the_internet(self):
+        none = phone_ios.net_reading([])
+        self.assertEqual((none["tcpConnected"], none["tcpTimedOut"], none["reached"]), (0, 0, False))
+        for path_ok in (False, True):
+            v = phone_ios.net_verdict(path_ok, none)
+            self.assertIn("not measured", v)
+            self.assertNotIn("time out", v)
+            self.assertNotIn("reaches the internet", v)
+            self.assertNotIn("carries no traffic", v)
+
     def test_the_kept_lines_include_the_resolver_verdicts_and_not_other_resolver_noise(self):
         keep = phone_ios.TRUST_KEEP.search
         for line in (REFUSED, SENT, SERVER, UNANSWERED, STALL, TIMEOUT, VPN_OFF):
