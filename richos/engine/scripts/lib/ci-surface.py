@@ -811,6 +811,7 @@ class Api:
         # at once.
         self._lock = threading.Lock()
         self._memo = {}
+        self._inflight = {}
         try:
             os.makedirs(STATE_DIR, exist_ok=True)
         except Exception:
@@ -835,13 +836,31 @@ class Api:
         return any(k in s for k in self.TRANSIENT)
 
     def get(self, path):
+        # One pass asks each URL once, even when callers arrive together: the
+        # first caller installs an in-flight event, later callers wait on it.
         with self._lock:
             if path in self._memo:
                 self.coalesced += 1
                 return self._memo[path]
-        answer = self._get_uncoalesced(path)
+            ev = self._inflight.get(path)
+            if ev is None:
+                ev = self._inflight[path] = threading.Event()
+                owner = True
+            else:
+                owner = False
+        if not owner:
+            ev.wait()
+            with self._lock:
+                self.coalesced += 1
+                return self._memo[path]
+        try:
+            answer = self._get_uncoalesced(path)
+        except BaseException as exc:
+            answer = (None, self._fail("gh api %s raised %s" % (path, exc.__class__.__name__)))
         with self._lock:
             self._memo.setdefault(path, answer)
+            self._inflight.pop(path, None)
+        ev.set()
         return answer
 
     def _get_uncoalesced(self, path):

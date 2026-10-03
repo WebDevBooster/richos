@@ -1192,7 +1192,7 @@ impl ConfigStore {
     /// **1. It does not write at all over a file this build could not read.** `fs::write` here
     /// is where the CEO's preferences actually died: the read degraded to defaults and the
     /// first `set_*` made that permanent. Now an unreadable file is left alone for the whole
-    /// boot. The caller is told nothing went wrong because nothing did go wrong — the file is
+    /// boot. The caller is told it was NOT saved (an `Err`); the file is
     /// intact and [`ConfigStore::readable`] is how a surface asks.
     ///
     /// **2. It does not flatten a value it cannot represent.** A `theme` or `assertiveness`
@@ -1207,7 +1207,12 @@ impl ConfigStore {
     /// name, so there is no path by which this build invents one.
     fn persist(&self) -> io::Result<()> {
         if !self.readable {
-            return Ok(());
+            // Not written, and SAID: an `Ok` here told the caller "saved" about a change that
+            // is gone at the next launch (hunt part 1, finding 38).
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "the settings file could not be read, so it was left untouched and this change was not saved",
+            ));
         }
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
@@ -2389,11 +2394,11 @@ mod tests {
             "the one default that DELETES is never reconstructed from a guess"
         );
 
-        store.set_theme(Theme::Light).unwrap();
-        store.set_company_name("Anything").unwrap();
-        store.set_font_scale(120).unwrap();
-        store.set_assertiveness(Assertiveness::Balanced).unwrap();
-        store.set_raw_retention(RawRetention::FOREVER).unwrap();
+        assert!(store.set_theme(Theme::Light).is_err(), "an unwritten change is not reported as saved");
+        assert!(store.set_company_name("Anything").is_err());
+        assert!(store.set_font_scale(120).is_err());
+        assert!(store.set_assertiveness(Assertiveness::Balanced).is_err());
+        assert!(store.set_raw_retention(RawRetention::FOREVER).is_err());
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             original,
@@ -2429,7 +2434,7 @@ mod tests {
         std::fs::write(&path, original).unwrap();
         let mut store = ConfigStore::open(&path).unwrap();
         assert!(!store.readable());
-        store.set_font_scale(120).unwrap();
+        assert!(store.set_font_scale(120).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         let _ = std::fs::remove_file(&path);
     }
@@ -2466,7 +2471,7 @@ mod tests {
         let mut store = ConfigStore::open(&path).unwrap();
         assert!(!store.readable());
         assert_eq!(store.raw_retention(), RawRetention::FOREVER);
-        store.set_font_scale(120).unwrap();
+        assert!(store.set_font_scale(120).is_err(), "an unreadable store refuses the change, not 'saved'");
         assert_eq!(std::fs::read(&path).unwrap(), original);
         std::fs::remove_file(&path).unwrap();
     }
@@ -2480,7 +2485,7 @@ mod tests {
         assert!(!store.readable(), "a shape this build does not know is not read");
         assert!(store.unreadable_reason().unwrap().contains("99"), "and it names the version it found");
         assert_eq!(store.company_name(), None, "nothing is read out of a document it cannot understand");
-        store.set_company_name("Anything").unwrap();
+        assert!(store.set_company_name("Anything").is_err(), "an unreadable store refuses the change, not 'saved'");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original, "and nothing is written over it");
         let _ = std::fs::remove_file(&path);
     }

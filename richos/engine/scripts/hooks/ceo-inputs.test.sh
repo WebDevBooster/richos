@@ -510,6 +510,31 @@ say "stop hook, stood down" "$SOUT4"
 case "$SOUT4" in *"STOOD DOWN"*) ok "H4  the partner announces its own stand-down" ;;
                  *)              bad "H4  the partner announces its stand-down" "$SOUT4" ;; esac
 
+# --- P3-22: the commit holds the bytes the gates checked, not the live file ---
+P322_OUT="$(python3 - "$SRC_DIR/commit-ceo-inputs.py" <<'PYT' 2>&1
+import importlib.util, os, subprocess, sys, tempfile
+spec = importlib.util.spec_from_file_location("cci", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+d = tempfile.mkdtemp(prefix="p322.")
+def g(*a):
+    return subprocess.run(["git", "-C", d] + list(a), check=True, stdout=subprocess.PIPE,
+                          env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="webdevbooster@gmail.com",
+                                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="webdevbooster@gmail.com")).stdout
+g("init", "-q", "-b", "main")
+open(os.path.join(d, "seed.txt"), "w").write("seed\n")
+g("add", "seed.txt"); g("commit", "-q", "-m", "seed")
+f = os.path.join(d, "in.txt")
+open(f, "w").write("REPLACED AFTER THE SCAN\n")
+ok, res = m.commit(f, d, "s", "stamp", data=b"the checked bytes\n")
+got = g("show", "HEAD:in.txt").decode()
+print("OK" if ok and got == "the checked bytes\n" else "BAD ok=%s got=%r" % (ok, got))
+PYT
+)"
+case "$P322_OUT" in
+    *OK) ok "P3-22 the commit holds the bytes the gates checked, not the replaced live file" ;;
+    *)   bad "P3-22 the commit holds the bytes the gates checked" "$P322_OUT" ;;
+esac
+
 echo
 echo "==========================================="
 printf 'ceo-inputs.test.sh: %d passed, %d failed\n' "$PASS" "$FAIL"

@@ -172,8 +172,17 @@ esac
 
 # A worktree edit is always fine (manual worktrees live under .claude/worktrees/;
 # native isolation worktrees are a separate checkout path entirely). Allow explicitly.
+# P3-32: judged on the PHYSICAL path. A directory under .claude/worktrees that
+# is a symlink back into protected main is not a worktree.
+REAL_FILE_PATH="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$FILE_PATH" 2>/dev/null || printf '%s' "$FILE_PATH")"
 case "$FILE_PATH" in
-  */.claude/worktrees/*) exit 0 ;;
+  */.claude/worktrees/*)
+    case "$REAL_FILE_PATH" in
+      */.claude/worktrees/*) exit 0 ;;
+    esac
+    # Not a worktree after all: judge the physical target from here on.
+    FILE_PATH="$REAL_FILE_PATH"
+    ;;
 esac
 
 # --- GOVERNANCE: resolved from the FILE, not from the seat -----------------

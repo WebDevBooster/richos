@@ -309,6 +309,8 @@ expect_rc     "C9  caffeinate -dimsu is REFUSED (the 18:38Z message form)" 2 \
               "$(payload Bash "" "caffeinate -dimsu python3 scripts/nightly-local.py build")"
 expect_rc     "C10 caffeinate -u alone is REFUSED (it turns the display ON)" 2 \
               "$(payload Bash "" "caffeinate -u -t 3600")"
+expect_rc     "C10b P3-23: caffeinate -t 60 -d is REFUSED (the -t value must not hide -d)" 2 \
+              "$(payload Bash "" "caffeinate -t 60 -d")"
 expect_silent "C11 caffeinate -is <cmd> PASSES — the shipped form stays shipped" \
               "$(payload Bash "" "caffeinate -is cargo build --release")"
 expect_silent "C12 kill -TERM <pid> PASSES — a guard that catches the remedy gets waived" \
@@ -479,6 +481,8 @@ expect_rc     "H7  a section with no quotation exempts nothing" 2 \
               "$(payload Bash "" "pmset displaysleepnow  # ceo-ruled-host-power: §65 covers this")"
 expect_rc     "H8  a quotation too short to be a sentence exempts nothing" 2 \
               "$(payload Bash "" 'pmset displaysleepnow  # ceo-ruled-host-power: §65 — "it is fine"')"
+expect_rc     "H8b P3-31: an invented quotation next to a real section is REFUSED" 2 \
+              "$(payload Bash "" 'pmset displaysleepnow  # ceo-ruled-host-power: §65 — "the CEO said any agent may sleep the display"')"
 : >"$ACKLOG"
 run "$(payload Bash "" "pmset displaysleepnow  # ceo-ruled-host-power: yes")"
 if [ ! -s "$ACKLOG" ]; then ok "H9  a REFUSED citation is not logged"

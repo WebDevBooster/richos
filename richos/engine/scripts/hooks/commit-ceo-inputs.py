@@ -600,7 +600,7 @@ def detectors_only(stderr_text):
 INDEX_STALE = "INDEX-STALE: "
 
 
-def commit(path, repo, session, stamp):
+def commit(path, repo, session, stamp, data=None):
     """Commit one file, unmodified, via plumbing. (ok, sha_or_reason).
 
     (False, INDEX_STALE + ...) means the commit WAS made but the real index
@@ -619,7 +619,21 @@ def commit(path, repo, session, stamp):
                        "name" % (path, repo))
     mode = "100755" if os.access(path, os.X_OK) else "100644"
 
-    rc, blob, undecided = git(["hash-object", "-w", "--", path], repo)
+    if data is not None:
+        # P3-22: commit the BYTES THE GATES CHECKED, never a re-read of the live
+        # file, which can have been replaced since the scan.
+        try:
+            hr = subprocess.run(
+                ["git", "--no-optional-locks", "hash-object", "-w", "--stdin"],
+                cwd=repo, input=data, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, timeout=GIT_TIMEOUT_S,
+            )
+            rc, blob, undecided = (hr.returncode,
+                                   hr.stdout.decode("utf-8", "replace").strip(), "")
+        except Exception as exc:
+            rc, blob, undecided = (1, "", exc.__class__.__name__)
+    else:
+        rc, blob, undecided = git(["hash-object", "-w", "--", path], repo)
     if undecided or rc != 0 or not blob:
         return (False, "hash-object failed (%s)" % (undecided or "rc=%d" % rc))
 
@@ -1037,7 +1051,7 @@ def main():
                                 "why": "the land lease could not be taken, so nothing was committed (%s)"
                                        % detail})
                 continue
-        ok, result = commit(p, repo, session, stamp)
+        ok, result = commit(p, repo, session, stamp, data=body.encode("utf-8"))
         if lease == "acquired":
             release_lease(repo, engine_root)
         if ok:

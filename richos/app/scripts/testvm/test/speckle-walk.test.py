@@ -90,6 +90,19 @@ check('too few points fails even at a high ratio',
 check('points spread evenly (no lamp) fail on the ratio',
       walk.verdict({'top_third_isolated': 900, 'bottom_third_isolated': 400}, 500, 5.0)[0] is False)
 
+# R55: the walk's DEFAULT thresholds against the counts measured in the guest (nightly .34, three
+# identical runs). On the old default ratio of 5.0 both real themes failed.
+MP = getattr(walk, 'DEFAULT_MIN_POINTS', 500)
+MR = getattr(walk, 'DEFAULT_MIN_RATIO', 5.0)
+LIGHT = {'top_third_isolated': 23540, 'bottom_third_isolated': 10051}
+DARK = {'top_third_isolated': 14820, 'bottom_third_isolated': 4510}
+check('measured light frame passes the default thresholds', walk.verdict(LIGHT, MP, MR)[0] is True, (MP, MR))
+check('measured dark frame passes the default thresholds', walk.verdict(DARK, MP, MR)[0] is True, (MP, MR))
+check('a plain ground (0 points) fails the default thresholds',
+      walk.verdict({'top_third_isolated': 0, 'bottom_third_isolated': 0}, MP, MR)[0] is False)
+check('an evenly speckled ground with no lamp fails the default ratio',
+      walk.verdict({'top_third_isolated': 15000, 'bottom_third_isolated': 14500}, MP, MR)[0] is False)
+
 # No Apple Event to anything but System Events: the guest grants nothing else, and the first
 # version's Finder read died at the deadline before a single photograph (exit 124, twice).
 src = (HERE.parent / 'speckle-walk.py').read_text()

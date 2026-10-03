@@ -1075,6 +1075,12 @@ restore
 chmod -x "$ENGINE/scripts/hooks/scan-secrets.sh"
 banner
 expect_fraction "4a  SHORTFALL: a registered guard that is not executable drops the numerator only (${EXPECT_MINUS}/${EXPECT_N})" "${EXPECT_MINUS}/${EXPECT_N}"
+# 4a2 (hunt part 3, 29): the shortfall is said in words beside "ENFORCEMENT ACTIVE".
+if printf '%s' "$OUT" | grep -q 'enforcement is INCOMPLETE'; then
+    ok "4a2 a shortfall says in words that enforcement is INCOMPLETE"
+else
+    bad "4a2 a shortfall says in words that enforcement is INCOMPLETE" "banner carries only the fraction"
+fi
 restore
 
 mv "$ENGINE/scripts/hooks/scan-secrets.sh" "$SANDBOX/scan-secrets.parked"

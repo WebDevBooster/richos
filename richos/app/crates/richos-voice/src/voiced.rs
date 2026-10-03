@@ -9,7 +9,7 @@
 //! send, in the durable ledger, in the first ten seconds of a demo.
 //!
 //! **Text cannot be the defense.** `stt::is_meaningful` drops whisper's documented silence
-//! noise ("you", "thank you", "bye") and it is right to, but *"1, 2, 3, testing."* is
+//! noise ("thanks for watching", "please subscribe") and it is right to, but *"1, 2, 3, testing."* is
 //! indistinguishable **as text** from a sentence a person would really say. Any list long
 //! enough to catch it is long enough to swallow real speech. So the question has to be asked
 //! of the audio, and it has to be asked with no reference whatsoever to what whisper returned.

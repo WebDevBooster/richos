@@ -291,6 +291,7 @@ _DSP_RC=0
 _DSP_STDOUT_EMITTERS=0
 _DSP_STDOUT=""
 : > "$_DSP_WORK/failures"
+: > "$_DSP_WORK/emitters"
 _DSP_N=0
 for _dsp_m in $_DSP_MODULES; do
     _DSP_N=$((_DSP_N + 1))
@@ -323,6 +324,7 @@ for _dsp_m in $_DSP_MODULES; do
     if [ -s "$_dsp_slot.out" ]; then
         _DSP_STDOUT_EMITTERS=$((_DSP_STDOUT_EMITTERS + 1))
         _DSP_STDOUT="$_DSP_STDOUT$(cat "$_dsp_slot.out")"
+        printf '%s\n' "$_dsp_slot.out" >> "$_DSP_WORK/emitters"
     fi
 
     case "$_dsp_rc" in
@@ -337,9 +339,46 @@ done
 
 if [ -n "$_DSP_STDOUT" ]; then
     if [ "$_DSP_STDOUT_EMITTERS" -gt 1 ]; then
-        # Two JSON objects concatenated are not a JSON object. Say so instead of
-        # shipping an envelope the host will silently drop.
-        _DSP_STDOUT="$(printf '{"systemMessage":"%s"}\n' "dispatch-pretooluse.sh: ${_DSP_STDOUT_EMITTERS} rules in the ${_DSP_CHAIN_KEY} chain wrote to stdout on one call. Their outputs cannot be concatenated into one hook result and were NOT delivered. The rules themselves ran and their exit codes stand. Fix: give the chain a real merge, or take the stdout-emitting rule out of the chain.")"
+        # Two JSON objects concatenated are not a JSON object. Merge them into one
+        # (messages joined, additional context joined, other fields first-wins);
+        # if any of them is not an object, say so and quote what was dropped.
+        _DSP_MERGED="$(python3 - "$_DSP_WORK/emitters" "$_DSP_STDOUT_EMITTERS" "$_DSP_CHAIN_KEY" <<'PYCOLLIDE'
+import json, sys
+paths = [l for l in open(sys.argv[1]).read().splitlines() if l]
+n, chain = sys.argv[2], sys.argv[3]
+head = "dispatch-pretooluse.sh: %s rules in the %s chain wrote to stdout on one call; their outputs are merged here into one result. " % (n, chain)
+msgs, ctx, out, raws = [], [], {}, []
+try:
+    for p in paths:
+        raw = open(p).read()
+        raws.append(raw)
+        d = json.loads(raw)
+        if not isinstance(d, dict):
+            raise ValueError("not an object")
+        if d.get("systemMessage"):
+            msgs.append(str(d["systemMessage"]))
+        h = d.get("hookSpecificOutput")
+        if isinstance(h, dict):
+            if h.get("additionalContext"):
+                ctx.append(str(h["additionalContext"]))
+            out.setdefault("hookSpecificOutput", {k: v for k, v in h.items() if k != "additionalContext"})
+        for k, v in d.items():
+            if k not in ("systemMessage", "hookSpecificOutput"):
+                out.setdefault(k, v)
+except (ValueError, TypeError, OSError):
+    print(json.dumps({"systemMessage": head + "At least one was not a JSON object, so they could not be merged and were NOT delivered; the rules ran and their exit codes stand. Their raw output: " + " | ".join(r.strip() for r in raws)}))
+    sys.exit(0)
+out["systemMessage"] = head + "\n".join(msgs)
+if ctx:
+    out.setdefault("hookSpecificOutput", {})["additionalContext"] = "\n".join(ctx)
+print(json.dumps(out))
+PYCOLLIDE
+)" || _DSP_MERGED=""
+        if [ -n "$_DSP_MERGED" ]; then
+            _DSP_STDOUT="$_DSP_MERGED"
+        else
+            _DSP_STDOUT="$(printf '{"systemMessage":"%s"}\n' "dispatch-pretooluse.sh: ${_DSP_STDOUT_EMITTERS} rules in the ${_DSP_CHAIN_KEY} chain wrote to stdout on one call and the merge failed; their outputs were NOT delivered. The rules ran and their exit codes stand.")"
+        fi
     fi
 fi
 

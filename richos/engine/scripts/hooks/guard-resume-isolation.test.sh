@@ -83,6 +83,9 @@ mkdir -p "$TEAM_DIR"
 PRESENT_WT="$SANDBOX/repo/.claude/worktrees/agent-1111111111111111"
 GONE_WT="$SANDBOX/repo/.claude/worktrees/agent-2222222222222222"
 mkdir -p "$PRESENT_WT"   # exists on disk -> active
+printf 'gitdir: x\n' >"$PRESENT_WT/.git"   # a real worktree has a .git entry
+LEFT_WT="$SANDBOX/repo/.claude/worktrees/agent-3333333333333333"
+mkdir -p "$LEFT_WT"   # P3-24: leftover directory, no .git -> NOT active
 # GONE_WT intentionally NOT created -> landed + removed
 
 cat >"$TEAM_DIR/config.json" <<JSON
@@ -93,6 +96,7 @@ cat >"$TEAM_DIR/config.json" <<JSON
     { "agentId": "dev-live@session-feedface", "name": "dev-live", "cwd": "$PRESENT_WT" },
     { "agentId": "dev-inproc@session-feedface", "name": "dev-inproc", "cwd": "$SANDBOX/repo", "status": "running" },
     { "agentId": "dev-done@session-feedface", "name": "dev-done", "cwd": "$GONE_WT" },
+    { "agentId": "dev-left@session-feedface", "name": "dev-left", "cwd": "$LEFT_WT" },
     { "agentId": "qa-inproc@session-feedface", "name": "qa-inproc", "cwd": "$SANDBOX/repo", "status": "shutdown" },
     { "agentId": "amb-1@session-feedface", "name": "amb-one", "cwd": "$PRESENT_WT" },
     { "agentId": "amb-2@session-feedface", "name": "amb-two", "cwd": "$PRESENT_WT" }
@@ -176,6 +180,9 @@ done
 # (b) completed recipient — worktree landed + removed -> block
 run_case "completed: worktree-removed recipient -> block" 2 \
     "$(send_json 'dev-done' '"Please also update the tests."')"
+# (b1) P3-24: leftover worktree directory (no .git) does not make it active
+run_case "completed: leftover worktree directory recipient -> block" 2 \
+    "$(send_json 'dev-left' '"Please also update the tests."')"
 # (b2) completed recipient — in-process shutdown -> block
 run_case "completed: in-process shutdown recipient -> block" 2 \
     "$(send_json 'qa-inproc' '"One more thing to check."')"

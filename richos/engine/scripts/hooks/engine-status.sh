@@ -223,6 +223,12 @@ if [ -f "$_GI_LIB" ]; then
         done <<GI_EOF
 $_GI_ROWS
 GI_EOF
+        # A registered guard whose file is missing or not executable is not
+        # enforcing; the status word below comes from root resolution alone, so
+        # the shortfall is said in words next to it (hunt part 3, 29).
+        if [ "$GUARD_COUNT" -lt "$GUARD_EXPECTED" ]; then
+            GUARD_NOTE=" WARNING: ONLY ${GUARD_COUNT} OF ${GUARD_EXPECTED} registered guards are present and executable, so enforcement is INCOMPLETE; the missing guards enforce nothing. Run scripts/hooks/contract-integrity-probe.sh."
+        fi
     fi
 fi
 

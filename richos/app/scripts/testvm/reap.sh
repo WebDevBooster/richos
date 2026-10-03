@@ -53,7 +53,7 @@ while read -r name; do
   if [ "$name" = "$TESTVM_BASE_VM" ]; then KEPT+=("$name — the base template"); continue; fi
   # WALL 2: only VMs this harness made. A VM someone created by hand for their
   # own reasons is not ours to delete.
-  case "$name" in richos-test-*) ;; *) KEPT+=("$name — not created by this harness"); continue ;; esac
+  case "$name" in richos-test-*|walk-*|probes-*) ;; *) KEPT+=("$name — not created by this harness"); continue ;; esac
   # WALL 3: never a RUNNING VM. A running guest belongs to a live agent that is
   # mid-proof; killing it destroys work in progress and proves nothing.
   if vm_running "$name" 2>/dev/null; then KEPT+=("$name — RUNNING, an agent is using it"); continue; fi

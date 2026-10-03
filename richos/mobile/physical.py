@@ -429,7 +429,9 @@ CLI_FILES = {
     "richos/mobile/physical.py": "randroid device install: refuses a debuggable APK, installs with install -r",
     "richos/mobile/perf/android.py": "randroid device seed/perf: the debuggable twin installed with install -r and "
                                      "replaced by the release build in the same call",
-    "richos/mobile/perf/perf.py": "randroid device perf/seed and rios device perf; refuses a phone without them",
+    "richos/mobile/perf/bench/bench.py": "randroid device bench: installs and removes only its own empty benchmark "
+                                         "app (dev.richos.bench.empty); RichConnect is never touched",
+    "richos/mobile/perf/perf.py":"randroid device perf/seed and rios device perf; refuses a phone without them",
     "richos/mobile/native-ios/bin/rios": "the iPhone command line",
     "richos/mobile/native-ios/Tools/physical-device.mjs": "rios device: Release products only, never removed",
 }

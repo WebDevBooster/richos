@@ -266,8 +266,8 @@ ca_case "hyphenated descriptive" 2 0 'token = "verification-token-alpha"'
 # The price, stated rather than hidden. These are the shapes the opt-in also
 # waves through. A reviewer reading this suite sees the trade in the same place
 # as the benefit.
-ca_case "COST: all-alpha passphrase"  2 0 'password = "correcthorsebatterystaple"'
-ca_case "COST: all-digit long value"  2 0 'secret = "839201748392017483920174"'
+ca_case "P3-25: all-alpha passphrase is still blocked"  2 2 'password = "correcthorsebatterystaple"'
+ca_case "P3-25: all-digit long value is still blocked"  2 2 'secret = "839201748392017483920174"'
 
 # What the opt-in must NEVER touch. If any of these flipped, the setting would
 # be a hole, not a filter.

@@ -142,6 +142,14 @@ else
     bad "P9  the second run did not report an empty result" "$RUN2"
 fi
 
+# --- P12: P5-49 a CRLF ledger's size is its BYTES, not its decoded text -----
+printf 'a\r\nb\r\n' > "$SANDBOX/crlf.jsonl"
+SZ="$(python3 -c "
+import importlib.util,sys
+sp=importlib.util.spec_from_file_location('lp',sys.argv[1]); m=importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+print(m.read_lines(sys.argv[2])[1])" "$TOOL" "$SANDBOX/crlf.jsonl")"
+if [ "$SZ" = 6 ]; then ok "P12 a CRLF ledger is measured in bytes (6), so appended-row offsets are right"; else bad "P12 CRLF ledger size $SZ, expected 6"; fi
+
 rm -rf "$LIVE_TMP"
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
