@@ -460,8 +460,17 @@ device() {
         # This checkout's release build, signed with the upload key when it is in the environment
         # (richos-hq with-android-signing.py); then no configuration cache, which would hold it.
         # THE TEST COPY (dev.richos.connect.perf), never the CEO's own app: it installs beside his RichConnect.
-        if upload_key_present; then gradle -q --no-configuration-cache :app:assemblePerfCopy >&2 || fail "the test copy's APK did not build"
-        else gradle -q :app:assemblePerfCopy >&2 || fail "the test copy's APK did not build"; fi
+        # The copy carries Firebase's public identifiers too (CEO 2026-10-03: the test copies receive
+        # notifications under their own app ID), so a copy installed without the caller wrapping this
+        # command still has them: through richos-hq with-android-firebase.py when the environment
+        # lacks them. The copy registers under its own package (AppPorts: context.packageName).
+        local fb=() flags=()
+        if upload_key_present; then flags=(--no-configuration-cache); fi
+        if ! firebase_present && [ -f "$FIREBASE_WRAPPER" ]; then fb=(python3 "$FIREBASE_WRAPPER"); fi
+        if [ "${#fb[@]}" -gt 0 ]; then
+          need_java
+          "${fb[@]}" "${GRADLE[@]}" -q ${flags[@]+"${flags[@]}"} :app:assemblePerfCopy >&2 || fail "the test copy's APK did not build"
+        else gradle -q ${flags[@]+"${flags[@]}"} :app:assemblePerfCopy >&2 || fail "the test copy's APK did not build"; fi
         apk="$(built_apk perfCopy)" || fail "no test-copy APK recorded in output-metadata.json"
       fi
       case "$apk" in *-unsigned.apk)
@@ -585,6 +594,7 @@ sys.exit(0 if all(os.environ.get(prefix + k, "").strip() for k in keys) else 1)
 PY
 }
 upload_key_present() { env_has ORG_GRADLE_PROJECT_richos.upload. storeFile storePassword keyAlias keyPassword; }
+FIREBASE_WRAPPER="${RANDROID_FIREBASE_WRAPPER:-/Users/alex/ab/richos-hq/scripts/with-android-firebase.py}"
 firebase_present() { env_has ORG_GRADLE_PROJECT_richos.firebase. projectId appId apiKey senderId; }
 
 # The upload certificate's SHA-256, committed (it is public: Play Console shows it). A test may
