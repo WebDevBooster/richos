@@ -92,8 +92,9 @@ def parse_plus_duration(token):
     return minutes * 60000 + seconds * 1000 + ms
 
 
-def parse_fully_drawn(logcat, component=ACTIVITY):
+def parse_fully_drawn(logcat, component=None):
     """The last "Fully drawn <component>: +Ns" in a logcat read → milliseconds, or None."""
+    component = component or ACTIVITY  # read now: use_package() moves it, a default bound at import would not follow
     hits = re.findall(r"Fully drawn " + re.escape(component) + r"(?: for user \d+)?: (\+[0-9ms]+)", logcat)
     return parse_plus_duration(hits[-1]) if hits else None
 
@@ -136,7 +137,8 @@ def parse_framestats(text):
     return windows
 
 
-def app_window(windows, component=ACTIVITY):
+def app_window(windows, component=None):
+    component = component or ACTIVITY  # read now, so use_package() (the test copy) is followed
     for name, window in windows.items():
         if name.startswith(component):
             return window

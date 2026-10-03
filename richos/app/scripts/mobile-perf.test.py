@@ -209,6 +209,14 @@ def _():
     assert w["totalFrames"] == 18 and len(w["rows"]) == 19, (w["totalFrames"], len(w["rows"]))
     assert sum(1 for r in w["rows"] if android.frame_ok(r)) == 18
     raises(perfcore.Unmeasurable, android.app_window, {})
+    # The test copy runs under its own application ID: the window lookup must follow use_package().
+    saved = (android.PACKAGE, android.ACTIVITY, android.RECEIVER, android.MANIFEST)
+    try:
+        android.use_package("dev.richos.connect.perf")
+        found = android.app_window({"dev.richos.connect.perf/dev.richos.android.app.MainActivity": {"rows": []}})
+        assert found == {"rows": []}, found
+    finally:
+        android.PACKAGE, android.ACTIVITY, android.RECEIVER, android.MANIFEST = saved
 
 
 @case("A4 tap: the app's own input event to the frame carrying its id (79.6 ms), settled at 752.6 ms")

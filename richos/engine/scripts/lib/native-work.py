@@ -30,8 +30,10 @@ unregistered keeps it. That line had kept every JVM at one processor: a Gradle J
 four ran at 6.08 cores and was stopped (cpu-guard events.jsonl, pid 3022).
   - Gradle gets the grant: its daemon JVM's processors and --max-workers are
     gradle_processors(cores) = cores - JVM_OVERHEAD_CORES (at least 1), because a JVM runs
-    about two cores above its processor count in JIT and GC threads (measured 2026-10-02:
-    1 processor peaks at 1.2-2.3 cores, 4 at 6.08). Every other JVM (JAVA_TOOL_OPTIONS: the
+    up to four cores above its processor count in JIT and GC threads (measured: 1 processor
+    peaks at 1.2-2.3 cores, 4 at 6.08 on 2026-10-02, and a NEW 2-processor daemon at 5.72 on
+    2026-10-03, which the breaker stopped inside a 4-core grant, killing the speed watch's
+    test-copy build; cpu-guard events.jsonl, pid 42485). Every other JVM (JAVA_TOOL_OPTIONS: the
     Gradle client, test and worker JVMs) keeps JVM_CORES (1).
   - Cargo keeps at most PROCESS_CORES (2) jobs and release Swift/Xcode compiles 1 job, as
     before (not part of this change). Debug Swift and Xcode builds get the allowance.
@@ -56,7 +58,7 @@ from cpu_policy import DEFAULT_MAX_CPU
 
 CEO_HEADROOM_PERCENT = 20
 JVM_CORES = 1
-JVM_OVERHEAD_CORES = 2
+JVM_OVERHEAD_CORES = 4
 PROCESS_CORES = 2
 GRADLE_OVERRIDES = ('--max-workers', '-Dorg.gradle.workers.max', '-Dorg.gradle.jvmargs',
                     '-Dkotlin.daemon.jvm.options', '-Dorg.gradle.daemon')

@@ -179,10 +179,10 @@ class CoresReachTheBuild(unittest.TestCase):
         # count) and the per-process line stopped it. The build is now judged by its grant;
         # the daemon gets the grant less JVM_OVERHEAD_CORES so the whole tree stays inside it.
         gradle, env = self.admitted(['./gradlew', 'assembleRelease'], 0.0, 1)       # 6 cores
-        self.assertIn('--max-workers=4', gradle)
+        self.assertIn('--max-workers=2', gradle)
         self.assertIn('--no-parallel', gradle)
         self.assertIn('--daemon', gradle)
-        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=4 -Dfile.encoding=UTF-8', gradle)
+        self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=2 -Dfile.encoding=UTF-8', gradle)
         self.assertIn('-Dorg.gradle.daemon.registry.base=/registry', gradle)
         self.assertEqual(self.seen['release'], '/registry')
         self.assertTrue(env['JAVA_TOOL_OPTIONS'].endswith('-XX:ActiveProcessorCount=1'))
