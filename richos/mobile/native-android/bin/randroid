@@ -781,7 +781,7 @@ bundle() {
   file="$dir/RichConnect-$code.aab"
   cp "$built" "$file"
   if ! result="$(verify_bundle "$file" "$code")"; then printf '%s\n' "$result" >&2; fail "the bundle failed verification: $file"; fi
-  python3 -"$result" "$sha" "$dirty" "$file" <<'PY'
+  python3 - "$result" "$sha" "$dirty" "$file" <<'PY'
 import json, sys
 result, sha, dirty, file = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3] == "true", sys.argv[4]
 r = result["result"]
