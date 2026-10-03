@@ -31,11 +31,15 @@
                                                    carries traffic, open RichConnect ONCE (never a loop);
                                                    the remedy when `trust` fails (no passcode, CEO 2026-10-02)
     phone-ios.py close BUNDLE --device ID          end that app's running process: the Home Screen is in front
-    phone-ios.py net --device ID --out FILE [--seconds S]
+    phone-ios.py net --device ID --out FILE [--seconds S] [--url URL] [--raw]
                                                    what the phone itself reaches: this Mac reaching its
                                                    Wi-Fi address, and Safari's internet connections read
-                                                   from the phone's log, with its Wi-Fi link report; one
-                                                   verdict. Run it before any claim about the Wi-Fi
+                                                   from the phone's log (only Safari's own: devicectl's
+                                                   tunnel to this Mac is listed apart), the interface iOS
+                                                   elected for its internet (Wi-Fi, or the cable to this
+                                                   Mac when Internet Sharing leased it), with its Wi-Fi
+                                                   link report; one verdict. Run it before any claim
+                                                   about the Wi-Fi. --raw keeps every logged line
     phone-ios.py launch BUNDLE [--device ID] [-- app args]
                                                    open an installed app by the one procedure: the phone must
                                                    be connected and on Wi-Fi (else nothing happens), open once,
@@ -1243,21 +1247,72 @@ NET_URL = "http://captive.apple.com/hotspot-detect.html"
 NET_KEEP = re.compile(r" (?:MobileSafari|com\.apple\.WebKit\.Networking|mDNSResponder)[\[(]|"
                       r" wifid[\[(].*(?:LogStats|[Pp]ower|[Aa]ssociat|[Ll]ink (?:up|down)|AUTO-JOIN: Join |Joining network|4WayHS|4 ?-?way|EAPOL|"
                       r"[Dd]eauth|[Dd]isassoc|[Rr]eason|WPA|SAE|PMF|[Ll]inkDown|LinkChange)|"
-                      r" kernel[\[(].*(?:[Dd]eauth|[Dd]isassoc|[Rr]eason|4 ?-?way|EAPOL|[Ll]ink [Dd]own|[Ll]ink [Uu]p)")
+                      r" kernel[\[(].*(?:[Dd]eauth|[Dd]isassoc|[Rr]eason|4 ?-?way|EAPOL|[Ll]ink [Dd]own|[Ll]ink [Uu]p)|"
+                      r" configd\[.*(?:\d\. \w+ serviceID=\S+ addr=|primary IPv4|network changed)")
+# The processes a Safari load runs in. Only THEIR completed connections say the phone reached the internet: in the
+# same window devicectl's own services (mobile_storage_proxy, dtappserviced) connect to this Mac over the
+# developer tunnel (a utun interface), and on 2026-10-03 those four were the "tcpConnected: 4" of a phone
+# whose every internet connect timed out.
+BROWSER = ("MobileSafari", "com.apple.WebKit.Networking")
+CONNECT_EVENT = re.compile(r" ([^\s(\[]+)(?:\([^)]*\))?\[\d+\] <\w+>: \[C[\d.]+ (\S+) ([^\]]*)\] "
+                           r"event: flow:(finish_connect|failed_connect)")
+# configd's ranking of the phone's network services and its election: which interface carries the default route.
+SERVICE_RANK = re.compile(r"\d+\. (\w+) serviceID=(\S+) addr=(\S+) rank=")
+PRIMARY_V4 = re.compile(r"(\S+) is (?:still |the new )?primary IPv4")
+WIFI_INTERFACE = "en0"  # the iPhone's Wi-Fi
 
 
-def net_reading(lines):
-    """Safari's TCP connections in one window, read from the phone's log lines. Pure: lines in, a dict out
-    (tested without a phone, qa/trust-reading.test.py)."""
+def net_reading(lines, leases=""):
+    """Safari's TCP connections in one window, and which interface the phone sends its internet over, read from
+    the phone's log lines. `leases` is this Mac's DHCP lease file (Internet Sharing): when the phone's primary
+    address is in it, the phone's internet goes over the cable to this Mac. Pure: text in, a dict out (tested
+    without a phone, qa/trust-reading.test.py)."""
     text = "\n".join(lines)
-    statuses = sorted({int(s) for s in re.findall(r"received response, status (\d{3})", text)})
-    connected = len(re.findall(r"event: flow:finish_connect", text))
-    return {"reached": bool(statuses) or connected > 0, "tcpConnected": connected, "statuses": statuses,
-            "tcpTimedOut": len(re.findall(r"failed_connect @[\d.]+s, error Operation timed out", text)),
+    browser_lines = "\n".join(l for l in lines if re.search(r" (?:%s)[\[(]" % "|".join(map(re.escape, BROWSER)), l))
+    # Safari's own word: its page's responses (CFNetwork's "received response" or WebKit's httpStatusCode) and
+    # whether the main frame finished or failed loading. Other processes' responses (cloudd, a widget) are not
+    # Safari loading a page, so a --raw capture does not count them.
+    statuses = sorted({int(s) for s in re.findall(r"received response, status (\d{3})|httpStatusCode=(\d{3})",
+                                                   browser_lines) for s in s if s})
+    loaded = len(re.findall(r"didFinishLoadForFrame: [^\n]*isMainFrame=1", browser_lines))
+    failed = len(re.findall(r"didFail(?:Provisional)?LoadForFrame[^\n]*isMainFrame=1", browser_lines))
+    events = [(proc, peer, (re.search(r"interface: (\w+)", inside) or [None, None])[1], kind)
+              for proc, peer, inside, kind in CONNECT_EVENT.findall(text)]
+    connected = [e for e in events if e[0] in BROWSER and e[3] == "finish_connect"]
+    others = {}
+    for proc, _, iface, kind in events:
+        if proc not in BROWSER and kind == "finish_connect":
+            key = f"{proc} via {iface or '?'}"
+            others[key] = others.get(key, 0) + 1
+    timed_via = {}
+    for line in re.findall(r"[^\n]*event: flow:failed_connect @[\d.]+s, error Operation timed out", text):
+        iface = re.search(r"interface: (\w+)", line)
+        key = iface.group(1) if iface else "?"
+        timed_via[key] = timed_via.get(key, 0) + 1
+    return {"reached": bool(statuses) or loaded > 0 or len(connected) > 0, "tcpConnected": len(connected),
+            "connectedVia": sorted({e[2] or "?" for e in connected}), "statuses": statuses,
+            "pageLoaded": loaded, "pageFailed": failed,
+            "notInternet": others,
+            "tcpTimedOut": sum(timed_via.values()), "timedOutVia": timed_via,
             "dnsStalls": len(re.findall(r"reported DNS stall symptom", text)),
             "dnsServerUnanswered": len(re.findall(r"Penalizing unresponsive server", text)),
             "noNetworkRoute": len(re.findall(r"unsatisfied \(No network route\)", text)),
+            "primary": primary_route(text, leases),
             "wifiLink": wifi_link(text)}
+
+
+def primary_route(text, leases=""):
+    """The interface iOS last elected for IPv4 (configd), its address, and whether this Mac's Internet Sharing
+    leased that address (then the phone's internet runs over the cable to this Mac). None when configd said
+    nothing in the window."""
+    services = {sid: (iface, addr) for iface, sid, addr in SERVICE_RANK.findall(text)}
+    elected = PRIMARY_V4.findall(text)
+    if not elected or elected[-1] not in services:
+        return None
+    iface, addr = services[elected[-1]]
+    lease = re.search(r"ip_address=" + re.escape(addr) + r"\s", leases or "")
+    return {"interface": iface, "address": addr, "wifi": iface == WIFI_INTERFACE,
+            "leasedByThisMac": bool(lease)}
 
 
 def wifi_link(text):
@@ -1274,6 +1329,15 @@ def net_verdict(path_ok, internet):
     """One sentence from the two readings, each claim only from what was measured: "reaches the internet" needs a
     completed connection (or a response), "time out" needs a recorded timeout. Pure (qa/trust-reading.test.py)."""
     timed_out = internet.get("tcpTimedOut")
+    primary = internet.get("primary")
+    if primary and not primary["wifi"]:
+        where = ("the cable to this Mac (this Mac's Internet Sharing leased it that address)"
+                 if primary["leasedByThisMac"] else "an interface that is not its Wi-Fi")
+        outcome = ("and Safari reached the internet that way" if internet["reached"] else
+                   "and Safari's connections that way timed out" if timed_out else
+                   "and Safari's internet was not measured")
+        return (f"the phone sends its internet over {primary['interface']} ({primary['address']}), {where}, not its "
+                f"Wi-Fi, {outcome}")
     if internet["reached"]:
         if path_ok:
             return "the phone's Wi-Fi carries traffic: this Mac reaches it and it reaches the internet"
@@ -1290,8 +1354,9 @@ def net_verdict(path_ok, internet):
     return f"{mac}; the phone's internet was not measured (no connection completed or timed out in the window)"
 
 
-def _safari_load(device, udid, url, seconds):
-    """Open url in Safari on the phone once, keep its network log lines for `seconds`, close Safari."""
+def _safari_load(device, udid, url, seconds, keep_all=False):
+    """Open url in Safari on the phone once, keep its network log lines (every line with keep_all) for
+    `seconds`, close Safari."""
     import selectors
     relay = spawn_owned(["idevicesyslog", "-u", udid, "--no-colors"], stdout=subprocess.PIPE,
                         stderr=subprocess.DEVNULL, text=True, errors="replace")
@@ -1318,7 +1383,7 @@ def _safari_load(device, udid, url, seconds):
             line = relay.stdout.readline()
             if not line:
                 break
-            if NET_KEEP.search(line):
+            if keep_all or NET_KEEP.search(line):
                 kept.append(line.rstrip("\n"))
     finally:
         relay.terminate()
@@ -1344,8 +1409,12 @@ def net(args):
         raise CannotAnswer("--out must be on /Volumes/E1TB")
     udid = hardware_udid(args.device)
     path_ok, path_detail = phone_net.wifi_path(args.device)
-    opened, kept = _safari_load(args.device, udid, NET_URL, args.seconds)
-    internet = {"safariOpened": opened, **net_reading(kept)}
+    opened, kept = _safari_load(args.device, udid, args.url, args.seconds, args.raw)
+    try:
+        leases = Path("/var/db/dhcpd_leases").read_text(errors="replace")
+    except OSError:
+        leases = ""
+    internet = {"safariOpened": opened, **net_reading(kept, leases)}
     out.write_text("\n".join(kept) + "\n")
     ok = path_ok and internet["reached"]
     return emit({"wifiPath": {"ok": path_ok, "detail": path_detail}, "internet": internet,
@@ -1559,6 +1628,9 @@ def main(argv):
         if name == "net":
             s.add_argument("--out", required=True)
             s.add_argument("--seconds", type=float, default=15.0)
+            s.add_argument("--url", default=NET_URL)
+            s.add_argument("--raw", action="store_true",
+                           help="keep every line the phone logs in the window, not only the network ones")
         if name == "procs":
             s.add_argument("--name", default="RichOSNative")
         if name == "trust":

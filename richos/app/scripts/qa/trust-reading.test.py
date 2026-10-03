@@ -69,7 +69,18 @@ CONNECT_TIMEOUT = T + ("MobileSafari(Network)[5] <Notice>: [C1.1.2.1 IPv4#a:443 
 CONNECTED = T + "MobileSafari(Network)[5] <Notice>: [C2 IPv4#b:443 ready channel-flow ] event: flow:finish_connect @0.040s"
 NO_ROUTE = T + ("MobileSafari(Network)[5] <Notice>: [C1 Hostname#c:443 in_progress parent-flow (unsatisfied "
                 "(No network route))] event: flow:start_connect @0.001s")
-LINK = T + ("wifid[6] <Notice>: __WiFiLQAMgrLogStats(<redacted>:Stationary): InfraUptime:1926.4secs Channel: 44 "
+TUNNEL = T + ("mobile_storage_proxy(Network)[7] <Notice>: [C54 IPv6#a.1 ready socket-flow (satisfied (Path is "
+              "satisfied), viable, interface: utun4, scoped, ipv6)] event: flow:finish_connect @0.002s")
+CABLE_TIMEOUT = T + ("MobileSafari(Network)[5] <Notice>: [C3.1.1 IPv4#d:443 failed channel-flow (satisfied (Path is "
+                     "satisfied), viable, interface: en2, ipv4, dns)] event: flow:failed_connect @8.684s, error Operation timed out")
+RANK_CABLE = T + "configd[8] <Info>: 0. en2 serviceID=SVC-CABLE addr=192.168.2.2 rank=0x1000001"
+RANK_WIFI = T + "configd[8] <Info>: 1. en0 serviceID=SVC-WIFI addr=192.168.1.9 rank=0x1000002"
+ELECTED = T + "configd[8] <Info>: SVC-CABLE is still primary IPv4"
+PAGE_RESPONSE = T + ("MobileSafari(WebKit)[5] <Notice>: WebContent[6]: [webPageID=1, frameID=2, resourceID=3] "
+                     "WebResourceLoader::didReceiveResponse: (httpStatusCode=200)")
+PAGE_DONE = T + ("MobileSafari(WebKit)[5] <Notice>: 0x1 - [pageProxyID=1, webPageID=1, PID=6] "
+                 "WebPageProxy::didFinishLoadForFrame: frameID=2, isMainFrame=1")
+LINK = T + ("wifid[6]<Notice>: __WiFiLQAMgrLogStats(<redacted>:Stationary): InfraUptime:1926.4secs Channel: 44 "
             "Bandwidth: 80Mhz Rssi: -60 {-60 -67} Cca: 56 (S:0 O:2 I:53) Snr: 12 BcnPer: 26.5% (49, 60.9%) TxFrameCnt: 41")
 
 
@@ -98,9 +109,41 @@ class NetReading(unittest.TestCase):
 
     def test_the_kept_lines(self):
         keep = phone_ios.NET_KEEP.search
-        for line in (CONNECT_TIMEOUT, CONNECTED, NO_ROUTE, LINK, UNANSWERED):
+        for line in (CONNECT_TIMEOUT, CONNECTED, NO_ROUTE, LINK, UNANSWERED, RANK_CABLE, RANK_WIFI, ELECTED):
             self.assertTrue(keep(line), line)
         self.assertFalse(keep(T + "wifid[6] <Notice>: WiFiManagerGetUserAutoJoinState: user auto join state 1"))
+
+    def test_the_developer_tunnel_is_not_the_internet(self):
+        # 2026-10-03: devicectl's own services connected to this Mac over the developer tunnel while every
+        # internet connect timed out, and the old count called that "reached".
+        r = phone_ios.net_reading([TUNNEL, TUNNEL, CABLE_TIMEOUT])
+        self.assertFalse(r["reached"])
+        self.assertEqual(r["tcpConnected"], 0)
+        self.assertEqual(r["notInternet"], {"mobile_storage_proxy via utun4": 2})
+        self.assertEqual(r["timedOutVia"], {"en2": 1})
+
+    def test_the_primary_route_over_the_cable_is_named(self):
+        leases = "{\n\tname=phone\n\tip_address=192.168.2.2\n\tlease=0x1\n}\n"
+        r = phone_ios.net_reading([RANK_CABLE, RANK_WIFI, ELECTED, CABLE_TIMEOUT], leases)
+        self.assertEqual(r["primary"], {"interface": "en2", "address": "192.168.2.2", "wifi": False,
+                                        "leasedByThisMac": True})
+        v = phone_ios.net_verdict(False, r)
+        self.assertIn("over en2 (192.168.2.2), the cable to this Mac", v)
+        self.assertIn("timed out", v)
+        self.assertNotIn("Wi-Fi carries no traffic", v)
+
+    def test_safari_finishing_its_page_is_reached_and_other_processes_responses_are_not(self):
+        other = T + "cloudd(CFNetwork)[9] <Notice>: Task <A>.<1> received response, status 200 version 2"
+        self.assertEqual(phone_ios.net_reading([other])["statuses"], [])
+        self.assertFalse(phone_ios.net_reading([other])["reached"])
+        r = phone_ios.net_reading([PAGE_RESPONSE, PAGE_DONE])
+        self.assertEqual((r["statuses"], r["pageLoaded"], r["reached"]), ([200], 1, True))
+
+    def test_a_wifi_primary_keeps_the_wifi_verdicts(self):
+        elected_wifi = ELECTED.replace("SVC-CABLE", "SVC-WIFI")
+        r = phone_ios.net_reading([RANK_CABLE, RANK_WIFI, elected_wifi, CONNECTED])
+        self.assertEqual(r["primary"]["interface"], "en0")
+        self.assertIn("carries traffic", phone_ios.net_verdict(True, r))
 
 
 if __name__ == "__main__":
