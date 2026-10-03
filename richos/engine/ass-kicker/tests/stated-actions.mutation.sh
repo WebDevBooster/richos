@@ -312,8 +312,8 @@ mutant arm3-alerts-on-a-written-record "R10." "$P" \
     "a claim backed by a durable write is true; alerting because the reply did not recite a path or SHA is the refusal this alert replaced."
 
 mutant arm3-alerts-on-a-citation "R4." "$P" \
-    'ALERT_CODES = ("nothing", "private")' \
-    'ALERT_CODES = ("nothing", "private", "state")' \
+    'ALERT_CODES = ("nothing", "private", "rule")' \
+    'ALERT_CODES = ("nothing", "private", "rule", "state")' \
     "'it is written in the three places I read' cites an existing record; it is not a claim that this turn wrote one."
 
 mutant arm3-confession-is-a-claim "R30." "$P" \
