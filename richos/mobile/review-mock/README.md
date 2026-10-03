@@ -211,9 +211,11 @@ The registered suite is `richos/app/scripts/review-mock.test.sh`, so `proof-for.
   `409 awaiting_mac_confirmation` answer gracefully is **not** shown. From reading the code, both
   classifiers treat that answer as a retryable fault and resend the same bytes with their backoff
   (Android `native-android/core/.../protocol/MacApi.kt:193-200`, iOS
-  `native-ios/Core/Sources/RichOSCore/Protocol/APIClient.swift:162-179`). Neither app has the
-  awaiting state's own screen yet (Sage section 3.2), so until the page is pressed a phone shows
-  whatever it shows for a temporary fault.
+  `native-ios/Core/Sources/RichOSCore/Protocol/APIClient.swift:162-179`). Both apps have a screen
+  of their own for this wait: iOS shows "Almost there. Now press They match on your Mac"
+  (`App/Features/Pairing/Takeovers.swift:95`), and Android shows "ALMOST THERE / Now press They
+  match on your Mac". Real-phone reports: `richos-hq/docs/mobile-perf/2026-10-03-review-host-iphone-pairing.md`
+  and `...-android-pairing.md`.
 - **That Apple and Google accept a disclosed simulation.** The setup record says acceptance is not
   confirmed with either store.
 - **Real delivery.** The notification tests stop at the Connect Worker's sender boundary. Whether
@@ -249,8 +251,9 @@ and still arrives once. No app code is changed.
 >    username apple-review, password <apple password, from review-credentials.json>.
 > 2. Select "Get a pairing link". In RichConnect, scan the code, or copy the link on this device and
 >    paste it into the app's pairing link field.
-> 3. The app shows six words. Check that they match the page, then press They match in the app, then
->    refresh the page and press They match there.
+> 3. The app shows six words. Check that they match the page, then press They match in the app. The
+>    app then says "Almost there. Now press They match on your Mac." You have no Mac: "your Mac"
+>    means the access page. Refresh that page and press the They match button on it.
 > 4. Send a text message. A demo reply arrives in a few seconds. Hold the microphone button to send a
 >    voice message. Attach a photo or a file. Play a reply to hear a short chime, which stands in for
 >    the Mac's spoken reply.
