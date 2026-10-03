@@ -152,6 +152,7 @@ class Gate(unittest.TestCase):
         self.write(TEST_FILE["android"], "test two\n")
         self.write(TEST_FILE["ios"], "test two\n")
         self.write("richos/mobile/native-ios/bin/rios", "tool\n")
+        self.write("richos/mobile/native-ios/Release/testflight.ts", "release tool\n")
         later = self.commit("tests only")
         for platform in ("android", "ios"):
             self.assertEqual(shipgate.check(platform, self.repo, checkout=True, home=self.home)["commit"], later)

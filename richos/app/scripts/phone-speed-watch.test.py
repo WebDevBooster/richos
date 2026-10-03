@@ -561,6 +561,18 @@ class Run(Base):
         self.assertFalse(watch.is_app_code("android", i + "App/Home.swift"), "the other phone's app")
         self.assertFalse(watch.is_app_code("ios", "richos/mobile/perf/perfcore.py"))
 
+    def test_W22_only_what_the_iphone_build_uses_in_release_is_app_code(self):
+        # A change to the TestFlight tool alone must not make the phone measure again (and the ship gate,
+        # which uses the same rule, must not call it different app code).
+        r = "richos/mobile/native-ios/Release/"
+        for p in ("platform.yml", "App-Info.plist", "RichOSNative.entitlements", "RichOSNative.testcopy.entitlements",
+                  "AnythingNew.plist"):
+            self.assertTrue(watch.is_app_code("ios", r + p), p)
+        for p in ("testflight.ts", "testflight.test.ts", "README.md", "ExportOptions.plist", "check-release.sh",
+                  "platform-tests.sh", "simulator-tests.sh", "generate.sh", "make-app-icon.cjs",
+                  "third-party/T3-Code-LICENSE.txt"):
+            self.assertFalse(watch.is_app_code("ios", r + p), p)
+
 
 class Prune(unittest.TestCase):
     def test_W13_old_rounds_are_pruned_and_the_good_run_is_kept(self):
