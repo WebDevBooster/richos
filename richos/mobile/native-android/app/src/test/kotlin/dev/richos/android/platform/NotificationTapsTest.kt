@@ -13,6 +13,7 @@ import dev.richos.android.core.ConversationThread
 import dev.richos.android.core.Notifications
 import dev.richos.android.core.NotificationStatus
 import dev.richos.android.core.Ports
+import dev.richos.android.core.ProvisionalReply
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
@@ -115,6 +116,31 @@ class NotificationTapsTest {
         turnUntil { store.states.value?.focusMessageId == "r2" }
         assertEquals(t2, store.states.value?.selectedThreadId)
         assertEquals("r2", store.states.value?.focusMessageId)
+    }
+
+    @Test
+    fun `a tap whose reply is not on the phone opens on the notification's words at once, asks for nothing, and the stream's row replaces them`() {
+        val session = Session(
+            threads = listOf(ConversationThread(t1, "One")), selectedThreadId = t1, paired = true,
+            cache = mapOf(t1 to listOf(me("m1", t1))), notifications = Notifications(status = NotificationStatus.ON),
+        )
+        val store = AppStore(app.appScope)
+        store.open { RichCore.open(ports(session)) }
+        val tapped = NotificationTarget(null, ref(t1), ref("r7"), text = "The supplier accepted.")
+        // The Intent round trip carries the words; the stream is not connected, so nothing could be asked of the Mac.
+        val routed = onMainAsync { NotificationTaps.route(store, NotificationTarget.fromIntent(tapped.into(Intent()))!!, patienceMs = 5_000) }
+        assertTrue(await(routed))
+        turnUntil { store.states.value?.focusMessageId == ProvisionalReply.id(ref("r7")) }
+        val shown = store.states.value!!.messages.last()
+        assertEquals("The supplier accepted.", shown.text)
+        assertEquals("rich", shown.role)
+        assertFalse(store.states.value!!.loadingOlder)
+        // A cut-off preview says so.
+        assertTrue(ProvisionalReply.row(t1, ref("r8"), "x".repeat(240), emptyList()).text.endsWith("…"))
+        // The Mac's own row for that reply retires the provisional one.
+        val real = rich("r7", t1).copy(cursor = 2, text = "The supplier accepted the offer in full.")
+        val rows = ProvisionalReply.retire(listOf(me("m1", t1), ProvisionalReply.row(t1, ref("r7"), "x", listOf(me("m1", t1)))), listOf(real))
+        assertEquals(listOf("m1"), rows.map { it.id })
     }
 
     @Test

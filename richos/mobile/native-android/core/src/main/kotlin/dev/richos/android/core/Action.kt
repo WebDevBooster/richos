@@ -204,6 +204,10 @@ sealed interface Action {
     @Serializable @SerialName("opened-from-notification")
     data class OpenedFromNotification(val messageId: String, val threadId: String? = null) : Action
 
+    /** A tapped notification's own words, shown at once as a provisional reply until the stream's row replaces them. */
+    @Serializable @SerialName("provisional-reply")
+    data class ProvisionalReply(val threadId: String, val event: String, val text: String) : Action
+
     @Serializable @SerialName("clear-focus")
     data object ClearFocus : Action
 
