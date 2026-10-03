@@ -405,19 +405,13 @@ print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment'
   // `screenRecording: "true"` keeps XCTest's own recording of the phone's screen for the whole
   // session (recorded ON the phone by XCTest, as Xcode's test reports do; nothing on this Mac asks
   // for camera or screen access). Off by default: the runner's other sessions keep deleting it.
-  const prepare = `import sys,json,pathlib,plistlib
-root=pathlib.Path(sys.argv[1]); files=list(root.glob('RichOSPhysical_iphoneos*.xctestrun'))
-assert len(files)==1, 'Expected one physical test specification'
-x=plistlib.loads(files[0].read_bytes());t=x['RichOSNativeUITests']
-t['EnvironmentVariables']['RICHOS_PHYSICAL_CONFIG']=sys.stdin.read()
-t['OnlyTestIdentifiers']=['PhysicalDeviceTests/'+sys.argv[3]]
-if sys.argv[4]=='record':
-    t['PreferredScreenCaptureFormat']='screenRecording'; t['SystemAttachmentLifetime']='keepAlways'
-for k in ['TestHostPath','UITargetAppPath']: t[k]=t[k].replace('__TESTROOT__',str(root))
-t['DependentProductPaths']=[v.replace('__TESTROOT__',str(root)) for v in t.get('DependentProductPaths',[])]
-p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(plistlib.dumps(x))`;
-  execFileSync('python3', ['-c', prepare, products, spec, settings.test, config?.screenRecording === 'true' ? 'record' : ''],
-    { input: JSON.stringify(config), env });
+  // RUNNER ONLY (CEO 2026-10-03: "I will handle everything regarding my app myself"): a script whose every step
+  // acts in Safari, Settings or SpringBoard needs no app under test. xcodebuild refuses a UI test with no
+  // UITargetAppPath ("UITargetAppPath should be provided", measured 2026-10-03), so the runner itself is named the
+  // target: RichConnect's bundle is named nowhere, xcodebuild hands the phone the runner alone, and the installed
+  // RichConnect is not given its bundle again.
+  const runnerOnly = command === 'verify' && selection === 'script' && env.RICHOS_PHYSICAL_RUNNER_ONLY === '1';
+  prepareSpec({ products, spec, test: settings.test, record: config?.screenRecording === 'true', runnerOnly, config, env });
   const allowance = allowanceSeconds(config);
   try {
     const tested = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'test-without-building',
@@ -430,6 +424,28 @@ p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(pli
     if (summary.passedTests !== 1 || summary.failedTests !== 0 || summary.skippedTests !== 0 || summary.totalTestCount !== 1) throw Error(`Selected physical check not proved: ${result}`);
     return { passed: 1, result, log: build.log === null ? null : log, app, build };
   } finally { rmSync(spec, { force: true }); }
+}
+
+// The session's test specification: the runner's environment and paths rewritten, nothing else. Private config is
+// fed via stdin, never process arguments. With runnerOnly the app under test is named nowhere in it.
+export const PREPARE_XCTESTRUN = `import sys,json,pathlib,plistlib
+root=pathlib.Path(sys.argv[1]); files=list(root.glob('RichOSPhysical_iphoneos*.xctestrun'))
+assert len(files)==1, 'Expected one physical test specification'
+x=plistlib.loads(files[0].read_bytes());t=x['RichOSNativeUITests']
+t['EnvironmentVariables']['RICHOS_PHYSICAL_CONFIG']=sys.stdin.read()
+t['OnlyTestIdentifiers']=['PhysicalDeviceTests/'+sys.argv[3]]
+if sys.argv[4]=='record':
+    t['PreferredScreenCaptureFormat']='screenRecording'; t['SystemAttachmentLifetime']='keepAlways'
+for k in ['TestHostPath','UITargetAppPath']: t[k]=t[k].replace('__TESTROOT__',str(root))
+t['DependentProductPaths']=[v.replace('__TESTROOT__',str(root)) for v in t.get('DependentProductPaths',[])]
+if sys.argv[5]=='runner-only':
+    app=t['UITargetAppPath']; t['UITargetAppPath']=t['TestHostPath']
+    t['DependentProductPaths']=[v for v in t['DependentProductPaths'] if v!=app]
+    assert not any(v.endswith('/${APP.split('/').pop()}') for v in t['DependentProductPaths']), 'the app is still named'
+p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(plistlib.dumps(x))`;
+export function prepareSpec({ products, spec, test, record, runnerOnly, config, env }) {
+  execFileSync('python3', ['-c', PREPARE_XCTESTRUN, products, spec, test, record ? 'record' : '', runnerOnly ? 'runner-only' : ''],
+    { input: JSON.stringify(config), env });
 }
 
 // Every device tool, for the never-uninstall test: none of them may remove an app from the phone.

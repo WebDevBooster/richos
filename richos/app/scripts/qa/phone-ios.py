@@ -21,7 +21,11 @@
                                                    --prebuilt reuses the products the stamp names
                                                    (this checkout's earlier build, or a shared-store
                                                    entry's stamp.json) and refuses unless the app
-                                                   still hashes to STAMP.json (perf.py stamp)
+                                                   still hashes to STAMP.json (perf.py stamp).
+                                                   A list whose every step acts in Safari, Settings,
+                                                   SpringBoard or Tailscale (or sleeps, marks, opens a link,
+                                                   presses Home) runs with the test runner alone: RichConnect
+                                                   is not handed to the phone (summary `runnerOnly`)
     phone-ios.py approval --device UDID            will the next run ask the phone's owner to approve
                                                    UI automation? Asks nothing of the phone's screen.
     phone-ios.py wifi-restore --out DIR            read the phone's Wi-Fi switch in Settings; turn it on if
@@ -29,7 +33,9 @@
                                                    acted on Wi-Fi, however the list ended)
     phone-ios.py reboot --device ID                restart the phone (devicectl), wait until its Wi-Fi
                                                    carries traffic, open RichConnect ONCE (never a loop);
-                                                   the remedy when `trust` fails (no passcode, CEO 2026-10-02)
+                                                   the remedy when `trust` fails (no passcode, CEO 2026-10-02);
+                                                   RICHOS_PHONE_CHECK_APP=none opens no app (the CEO's own app
+                                                   is his, 2026-10-03): it waits for the phone's internet only
     phone-ios.py close BUNDLE --device ID          end that app's running process: the Home Screen is in front
     phone-ios.py net --device ID --out FILE [--seconds S] [--url URL] [--raw]
                                                    what the phone itself reaches: this Mac reaching its
@@ -816,6 +822,17 @@ def approval(args):
     return emit(forecast(args.device, passcode=passcode_state(args.device)))
 
 
+# Steps that act on no app: a wait, a log mark, a link opened in Safari, the Home button.
+APPLESS = {"sleep", "mark", "open", "home"}
+
+
+def addresses_app(steps):
+    """Does any step act on RichConnect (a step with no "in" place, other than APPLESS)? A list that does not is run
+    with the test runner alone (RICHOS_PHYSICAL_RUNNER_ONLY, physical-device.mjs): xcodebuild is not handed
+    RichConnect's bundle, so the CEO's installed app is left as it is (CEO 2026-10-03: his app is his)."""
+    return any(s.get("do") not in APPLESS and s.get("in") not in PLACES for s in steps)
+
+
 def touches_wifi(steps):
     """Does the list act on Wi-Fi in iOS Settings (a step in Settings naming Wi-Fi)?"""
     return any(s.get("in") == "settings" and "wi-fi" in str(s.get("label", "")).replace("‑", "-").lower()
@@ -832,25 +849,30 @@ def touches_wifi(steps):
 # is off. Steps as measured on the SE (iOS 26.3.1): the row says "Wi-Fi, <network>", its switch is
 # named "Wi‑Fi" with a non-breaking hyphen and reads "1" on, "0" off.
 WIFI_SWITCH = "Wi‑Fi"
+# The switch itself, by kind: on iOS 26.3.1 (measured on the SE 2026-10-03) the Wi-Fi page also carries a
+# StaticText labeled "Wi‑Fi" (non-breaking hyphen) ABOVE the switch, so the label alone matched that text: its
+# value read "" and a tap on it toggled nothing, and the restore reported success with the Wi-Fi untouched.
+WIFI_CONTROL = {"kind": "switch", "label": WIFI_SWITCH, "in": "settings", "timeout": 10}
 
 
 def wifi_steps(turn_on):
     steps = [{"do": "launch", "in": "settings"}, {"do": "tap", "label": "Wi-Fi", "in": "settings", "timeout": 10}]
     if turn_on:
-        steps += [{"do": "tap", "label": WIFI_SWITCH, "in": "settings", "timeout": 10}, {"do": "sleep", "seconds": 3}]
-    return steps + [{"do": "value", "label": WIFI_SWITCH, "in": "settings", "timeout": 10},
-                    {"do": "terminate", "in": "settings"}]
+        steps += [{"do": "tap", **WIFI_CONTROL}, {"do": "sleep", "seconds": 3}]
+    return steps + [{"do": "value", **WIFI_CONTROL}, {"do": "terminate", "in": "settings"}]
 
 
 def wifi_value(out):
-    """The Wi-Fi switch's value ('1' on, '0' off) a wifi_steps list read, or None."""
+    """The Wi-Fi switch's value ('1' on, '0' off) a wifi_steps list read, or None: anything else (an element that
+    is not the switch reads "") is not a reading."""
     try:
         rows = [json.loads(line) for line in (Path(out) / "steps.jsonl").read_text().splitlines() if line.strip()]
     except (OSError, ValueError):
         return None
     for row in rows:
         if row.get("do") == "value" and row.get("ok"):
-            return str((row.get("detail") or {}).get("value"))
+            value = str((row.get("detail") or {}).get("value"))
+            return value if value in ("0", "1") else None
     return None
 
 
@@ -877,7 +899,7 @@ def ensure_wifi_on(out_root):
                 result.update(before=value, after=value)
             if value is None:
                 result["error"] = ("the phone's Wi-Fi switch could not be read "
-                                   f"({summary.get('error') or summary.get('failed') or 'no value step'})")
+                                   f"({summary.get('error') or summary.get('failed') or 'no 0/1 reading from the switch'})")
                 break
         if result["before"] == "0" and not result["turnedOn"] and not result["error"]:
             result["error"] = "the phone's Wi-Fi switch was off and is still off after the tap"
@@ -956,6 +978,11 @@ def _run(args):
         json.dump({"isolatedLab": "true", "steps": json.dumps(steps), "allowanceSeconds": str(args.allowance),
                    **({"screenRecording": "true"} if getattr(args, "screen_recording", False) else {})}, f)
     env = {**os.environ, "RICHOS_MOBILE_TEST_CONFIG": str(config)}
+    runner_only = not addresses_app(steps)
+    if runner_only:
+        env["RICHOS_PHYSICAL_RUNNER_ONLY"] = "1"
+    else:
+        env.pop("RICHOS_PHYSICAL_RUNNER_ONLY", None)
     if args.prebuilt:
         env["RICHOS_PHYSICAL_PREBUILT"] = "1"
         env["RICHOS_PHYSICAL_PRODUCTS"] = identity["products"]
@@ -996,7 +1023,7 @@ def _run(args):
                "result": result, "testLog": str(log), "out": str(out),
                "attachments": str(attachments) if exported.returncode == 0 else None,
                "attachmentsError": None if exported.returncode == 0 else exported.stderr.strip()[-300:],
-               "build": build, "approvalForecast": ahead,
+               "build": build, "approvalForecast": ahead, "runnerOnly": runner_only,
                # The command's start on this Mac's clock to the first step's start on the phone's
                # clock (both set from network time), and the runner's wait for automation to be allowed.
                "secondsToFirstStep": round(first - started, 1) if isinstance(first, (int, float)) else None,
@@ -1470,11 +1497,12 @@ def launch_app(args):
 def restart_phone(args):
     """`rios device reboot --device ID`: restart the phone through devicectl, wait until it is connected
     again, and open RichConnect until iOS verifies it (phone_net.reboot). Exit 0 when the app opens.
+    With RICHOS_PHONE_CHECK_APP=none no app is opened: exit 0 when the phone is back and reaches the internet.
     Nothing is installed, removed or erased; the phone has no passcode, so it comes back usable."""
     sys.path.insert(0, str(ROOT / "richos/mobile"))
     import phone_net
     result = phone_net.reboot(args.device, lambda line: print(line, file=sys.stderr, flush=True))
-    return emit(result, 0 if result.get("state") == "ok" else 1)
+    return emit(result, 0 if result.get("state") in ("ok", "skipped") else 1)
 
 
 SYSLOG_KEEP = ("RichOSNative", "dev.richos.connect")

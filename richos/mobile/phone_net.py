@@ -78,13 +78,32 @@ def _xcrun(*args, timeout=60):
                           capture_output=True, text=True, timeout=timeout)
 
 
+# THE CEO'S OWN APP IS HIS (CEO, 2026-10-03: "I will handle everything regarding my app myself. You handle
+# everything about the fucking TEST app."). The checks below open an app to learn whether iOS will open a
+# development-signed one; RICHOS_PHONE_CHECK_APP names which, and `none` opens nothing at all: the check then
+# reports `skipped` (never `ok`, which would claim a verification that did not happen), and a restart waits
+# for the phone's internet without opening anything. Unset, it is the test copy; the CEO's own app is refused by name.
+NO_APP = "none"
+
+
+def check_app():
+    app = os.environ.get("RICHOS_PHONE_CHECK_APP") or PACKAGE
+    if app != NO_APP:
+        test_copy.refuse_ceo_app(app, "the phone's app check")
+    return app
+
+
 def launch_check(device, timeout=60):
-    """One launch of the app and its close: {'state': ok|untrusted|locked|unknown, 'detail': text}."""
+    """One launch of the app and its close: {'state': ok|untrusted|locked|unknown|skipped, 'detail': text}.
+    `skipped` when RICHOS_PHONE_CHECK_APP=none: nothing is opened."""
+    app = check_app()
+    if app == NO_APP:
+        return {"state": "skipped", "detail": "no app opened (RICHOS_PHONE_CHECK_APP=none)"}
     with tempfile.TemporaryDirectory() as tmp:
         target = Path(tmp) / "launch.json"
         try:
             p = _xcrun("devicectl", "device", "process", "launch", "--device", device, "--terminate-existing",
-                       "--json-output", str(target), PACKAGE, timeout=timeout)
+                       "--json-output", str(target), app, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as error:
             return {"state": "unknown", "detail": f"devicectl did not answer ({type(error).__name__})"}
         text = ((p.stderr or "") + (p.stdout or "")).strip()
@@ -354,7 +373,8 @@ def reboot(device, say):
         return {"state": "not-ready", "detail": "after the restart: " + detail, "rebooted": True,
                 "launchTries": 0, "totalSeconds": round(time.monotonic() - started)}
     result = launch_check(device)
-    return {**result, "rebooted": True, "backAfterSeconds": round(back), "launchTries": 1,
+    return {**result, "rebooted": True, "backAfterSeconds": round(back),
+            "launchTries": 0 if result["state"] == "skipped" else 1,
             "totalSeconds": round(time.monotonic() - started)}
 
 
@@ -379,7 +399,10 @@ def preflight(say, device=None):
             raise Unreachable(FIX + f" (after the restart: {result['state']}: {result['detail']})")
         say(f"after the restart the phone opens RichConnect ({result['totalSeconds']} s): the run goes on")
         return
-    if result["state"] != "ok":
+    if result["state"] == "skipped":
+        say(f"phone network check: the phone reaches the internet; {result['detail']}, so iOS's verification of an "
+            "app was not tried; the run goes on")
+    elif result["state"] != "ok":
         say(f"phone network check could not decide ({result['state']}: {result['detail']}); the run goes on")
 
 

@@ -23,7 +23,9 @@
 #                                     Wi-Fi first (else nothing happens), open once, refused -> restart
 #                                     the phone once, wait, open once more, else the exact error
 #       reboot --device ID            restart the phone (devicectl), wait until its Wi-Fi carries traffic,
-#                                     open RichConnect ONCE (the phone has no passcode: back usable on its own)
+#                                     open RichConnect ONCE (the phone has no passcode: back usable on its own);
+#                                     RICHOS_PHONE_CHECK_APP=none opens no app here or in the checks around
+#                                     verify/run/perf/hold (the CEO's own app is his, 2026-10-03)
 #       close BUNDLE --device ID      end that app's process, leaving the phone at its Home Screen
 #       net --device ID --out FILE    what the phone itself reaches, measured before any claim about its
 #                                     Wi-Fi: this Mac reaching its Wi-Fi address, and its own internet loads

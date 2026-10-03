@@ -489,6 +489,7 @@ class IPhone:
                     "RICHOS_PHONE_REBOOT_SETTLE": "0", "RICHOS_PHONE_REBOOT_STEP": "0",
                     "RICHOS_PHONE_NET_PROBE": "echo {}"}
         self.env.pop("RICHOS_PHONE_NET_RESTORE", None)
+        self.env.pop("RICHOS_PHONE_CHECK_APP", None)
 
     @property
     def reboots(self):
@@ -582,6 +583,29 @@ def _():
         assert "--terminate-existing" in calls and "dev.richos.connect" in calls and "process terminate" in calls and "--pid 4242" in calls, calls
 
 
+@case("D23b RICHOS_PHONE_CHECK_APP=none: the checks around a run and `reboot` open no app at all (the CEO's own app is his, 2026-10-03)")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        ph.env["RICHOS_PHONE_CHECK_APP"] = "none"
+        flag = Path(tmp) / "ran"
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
+        assert p.returncode == 0 and flag.exists(), (p.returncode, p.stderr)
+        assert ph.launches() == [] and "no app opened" in p.stderr, (ph.launches(), p.stderr)
+        env = {**ph.env, "RICHOS_DEVICE_VERB": "rios"}
+        p = subprocess.run([sys.executable, str(REPO / "richos/app/scripts/qa/phone-ios.py"), "reboot", "--device",
+                            "00000000-0000000000000000"], env=env, capture_output=True, text=True, timeout=120)
+        result = json.loads(p.stdout)
+        assert p.returncode == 0 and result["state"] == "skipped" and result["rebooted"] and result["launchTries"] == 0, \
+            (p.returncode, p.stdout, p.stderr)
+        assert ph.reboots == 1 and ph.launches() == [], (ph.reboots, ph.launches())
+        # Another bundle is opened instead of RichConnect when one is named.
+        ph.env["RICHOS_PHONE_CHECK_APP"] = "dev.richos.test.app"
+        p = ph.hold("pass")
+        assert p.returncode == 0 and ph.launches() and all("dev.richos.test.app" in c and "dev.richos.connect" not in c
+                                                              for c in ph.launches()), ph.launches()
+
+
 @case("D24 a run that leaves the phone's network off: it is checked again after the run and put back, and the run's exit stands")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
@@ -669,9 +693,13 @@ class FakeSettings:
                 rows.append({"i": i, "do": "mark", "ok": False, "error": "the list stopped here"})
                 failed = i
                 break
-            if step["do"] == "tap" and step.get("label") == self.module.WIFI_SWITCH and not self.stuck:
+            # iOS 26.3.1's Wi-Fi page (measured 2026-10-03): a StaticText labeled "Wi‑Fi" sits above the switch
+            # of the same label, so only a step naming the switch's kind reaches the switch; the label alone
+            # reaches the text, whose value is "" and whose tap toggles nothing.
+            on_switch = step.get("label") == self.module.WIFI_SWITCH and step.get("kind") == "switch"
+            if step["do"] == "tap" and on_switch and not self.stuck:
                 self.wifi = "0" if self.wifi == "1" else "1"
-            detail = {"value": self.wifi} if step["do"] == "value" else {}
+            detail = {"value": self.wifi if on_switch else ""} if step["do"] == "value" else {}
             rows.append({"i": i, "do": step["do"], "ok": True, "detail": detail})
         (out / "steps.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
         if self.raise_after_first and self.runs == 1:
@@ -682,7 +710,7 @@ class FakeSettings:
 def wifi_list(tmp, *tail):
     sw = "Wi‑Fi"
     steps = [{"do": "launch", "in": "settings"}, {"do": "tap", "label": "Wi-Fi", "in": "settings"},
-             {"do": "tap", "label": sw, "in": "settings"}, *tail]
+             {"do": "tap", "kind": "switch", "label": sw, "in": "settings"}, *tail]
     path = Path(tmp) / "list.json"
     path.write_text(json.dumps(steps))
     return path
@@ -733,7 +761,7 @@ def _():
     with tempfile.TemporaryDirectory() as tmp:
         sw = "Wi‑Fi"
         fake = FakeSettings(module)
-        code, summary, error = phone_run(module, fake, wifi_list(tmp, {"do": "tap", "label": sw, "in": "settings"}), tmp)
+        code, summary, error = phone_run(module, fake, wifi_list(tmp, {"do": "tap", "kind": "switch", "label": sw, "in": "settings"}), tmp)
         assert fake.wifi == "1" and summary["wifiRestore"]["turnedOn"] is False and summary["wifiRestore"]["error"] is None, summary
         assert fake.runs == 2 and code == 0, (fake.runs, code)   # the list and the read
         fake = FakeSettings(module)
@@ -751,6 +779,36 @@ def _():
         code, summary, error = phone_run(module, fake, wifi_list(tmp), tmp)
         assert summary["wifiRestore"]["error"] and "still off" in summary["wifiRestore"]["error"], summary
         assert code == 1 and summary["passed"] is False and "Wi-Fi could not be confirmed on" in summary["error"], (code, summary)
+
+
+@case("D31b the restore reads and taps the Wi-Fi SWITCH, not the text labeled Wi-Fi above it, and a reading that is not 0 or 1 is said, never taken as on")
+def _():
+    module = load_phone_ios()
+    assert all(s.get("kind") == "switch" for s in module.wifi_steps(True) if s.get("label") == module.WIFI_SWITCH), \
+        module.wifi_steps(True)
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeSettings(module, wifi="0")
+        with patch.object(module, "_run", fake):
+            result = module.ensure_wifi_on(Path(tmp) / "restore")
+        assert fake.wifi == "1" and result["before"] == "0" and result["turnedOn"] is True, (fake.wifi, result)
+        (Path(tmp) / "read").mkdir()
+        (Path(tmp) / "read" / "steps.jsonl").write_text(json.dumps({"do": "value", "ok": True, "detail": {"value": ""}}) + "\n")
+        assert module.wifi_value(Path(tmp) / "read") is None
+
+
+@case("D31c a list that acts only in Safari, Settings or SpringBoard runs with the runner alone; one step on the app hands the app over as before")
+def _():
+    module = load_phone_ios()
+    safari = [{"do": "open", "url": "https://www.apple.com"}, {"do": "sleep", "seconds": 2},
+              {"do": "shot", "name": "s", "in": "safari", "screen": True}, {"do": "terminate", "in": "safari"},
+              {"do": "launch", "in": "settings"}, {"do": "mark", "label": "x"}, {"do": "home"}]
+    assert module.addresses_app(safari) is False
+    for app_step in ({"do": "launch"}, {"do": "tap", "id": "composer.send"}, {"do": "shot", "name": "app"},
+                     {"do": "state"}):
+        assert module.addresses_app(safari + [app_step]) is True, app_step
+    text = (REPO / "richos/mobile/native-ios/Tools/physical-device.mjs").read_text()
+    assert "env.RICHOS_PHYSICAL_RUNNER_ONLY === '1'" in text and "t['UITargetAppPath']=t['TestHostPath']" in text
 
 
 # -- the commit check ---------------------------------------------------------------------------
