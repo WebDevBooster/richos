@@ -485,6 +485,7 @@ class IPhone:
                     "RICHOS_PHONE_REBOOT_SETTLE": "0", "RICHOS_PHONE_REBOOT_STEP": "0",
                     "RICHOS_PHONE_NET_PROBE": "echo {}"}
         self.env.pop("RICHOS_PHONE_NET_RESTORE", None)
+        self.env.pop("RICHOS_PHONE_CHECK_APP", None)
 
     @property
     def reboots(self):
@@ -576,6 +577,29 @@ def _():
         assert p.returncode == 0 and flag.exists(), (p.returncode, p.stderr)
         calls = Path(str(ph.file) + ".log").read_text()
         assert "--terminate-existing" in calls and "dev.richos.connect" in calls and "process terminate" in calls and "--pid 4242" in calls, calls
+
+
+@case("D23b RICHOS_PHONE_CHECK_APP=none: the checks around a run and `reboot` open no app at all (the CEO's own app is his, 2026-10-03)")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        ph.env["RICHOS_PHONE_CHECK_APP"] = "none"
+        flag = Path(tmp) / "ran"
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
+        assert p.returncode == 0 and flag.exists(), (p.returncode, p.stderr)
+        assert ph.launches() == [] and "no app opened" in p.stderr, (ph.launches(), p.stderr)
+        env = {**ph.env, "RICHOS_DEVICE_VERB": "rios"}
+        p = subprocess.run([sys.executable, str(REPO / "richos/app/scripts/qa/phone-ios.py"), "reboot", "--device",
+                            "00000000-0000000000000000"], env=env, capture_output=True, text=True, timeout=120)
+        result = json.loads(p.stdout)
+        assert p.returncode == 0 and result["state"] == "skipped" and result["rebooted"] and result["launchTries"] == 0, \
+            (p.returncode, p.stdout, p.stderr)
+        assert ph.reboots == 1 and ph.launches() == [], (ph.reboots, ph.launches())
+        # Another bundle is opened instead of RichConnect when one is named.
+        ph.env["RICHOS_PHONE_CHECK_APP"] = "dev.richos.test.app"
+        p = ph.hold("pass")
+        assert p.returncode == 0 and ph.launches() and all("dev.richos.test.app" in c and "dev.richos.connect" not in c
+                                                              for c in ph.launches()), ph.launches()
 
 
 @case("D24 a run that leaves the phone's network off: it is checked again after the run and put back, and the run's exit stands")

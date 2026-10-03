@@ -29,7 +29,9 @@
                                                    acted on Wi-Fi, however the list ended)
     phone-ios.py reboot --device ID                restart the phone (devicectl), wait until its Wi-Fi
                                                    carries traffic, open RichConnect ONCE (never a loop);
-                                                   the remedy when `trust` fails (no passcode, CEO 2026-10-02)
+                                                   the remedy when `trust` fails (no passcode, CEO 2026-10-02);
+                                                   RICHOS_PHONE_CHECK_APP=none opens no app (the CEO's own app
+                                                   is his, 2026-10-03): it waits for the phone's internet only
     phone-ios.py close BUNDLE --device ID          end that app's running process: the Home Screen is in front
     phone-ios.py net --device ID --out FILE [--seconds S] [--url URL] [--raw]
                                                    what the phone itself reaches: this Mac reaching its
@@ -1461,11 +1463,12 @@ def launch_app(args):
 def restart_phone(args):
     """`rios device reboot --device ID`: restart the phone through devicectl, wait until it is connected
     again, and open RichConnect until iOS verifies it (phone_net.reboot). Exit 0 when the app opens.
+    With RICHOS_PHONE_CHECK_APP=none no app is opened: exit 0 when the phone is back and reaches the internet.
     Nothing is installed, removed or erased; the phone has no passcode, so it comes back usable."""
     sys.path.insert(0, str(ROOT / "richos/mobile"))
     import phone_net
     result = phone_net.reboot(args.device, lambda line: print(line, file=sys.stderr, flush=True))
-    return emit(result, 0 if result.get("state") == "ok" else 1)
+    return emit(result, 0 if result.get("state") in ("ok", "skipped") else 1)
 
 
 SYSLOG_KEEP = ("RichOSNative", "dev.richos.connect")
