@@ -1278,6 +1278,9 @@ def net_verdict(path_ok, internet):
                 "complete" + (" (TCP timed out)" if internet["tcpTimedOut"] else ""))
     if internet["reached"]:
         return "the phone reaches the internet, but this Mac does not reach its Wi-Fi address"
+    if internet.get("noNetworkRoute") and not internet.get("tcpTimedOut"):
+        return ("the phone has no network at all: it is not joined to Wi-Fi (iOS: No network route), so this Mac "
+                "gets no answer from it and it reaches nothing")
     return ("the phone is joined to Wi-Fi but its Wi-Fi carries no traffic: this Mac gets no answer from its "
             "address and its own connections to the internet time out")
 

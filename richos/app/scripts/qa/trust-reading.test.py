@@ -84,6 +84,7 @@ class NetReading(unittest.TestCase):
         self.assertIn("carries no traffic", phone_ios.net_verdict(False, dead))
         self.assertIn("carries traffic", phone_ios.net_verdict(True, live))
         self.assertIn("did not complete", phone_ios.net_verdict(True, dead))
+        self.assertIn("not joined to Wi-Fi", phone_ios.net_verdict(False, phone_ios.net_reading([NO_ROUTE])))
 
     def test_the_kept_lines(self):
         keep = phone_ios.NET_KEEP.search
