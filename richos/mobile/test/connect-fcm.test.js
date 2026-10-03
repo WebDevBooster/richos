@@ -368,3 +368,76 @@ test('the managed artifact uploads connect/fcm.mjs, resolves every import and ca
     assert.throws(() => managedArtifact({ ...profile, fcm }), /FCM/, JSON.stringify(fcm));
   }
 });
+
+// The team's TEST copy of RichConnect pushes under its own ID (CEO, 2026-10-03). The Worker code is
+// unchanged: its allowlists are the APNS_TOPICS and FCM_APPS bindings the private profile produces.
+const REAL_APP = 'dev.richos.connect', TEST_COPY = 'dev.richos.connect.perf';
+const pushProfile = (topics, apps) => ({ accountId: 'a'.repeat(32), zoneId: 'b'.repeat(32), databaseId: crypto.randomUUID(), domain: 'example.com',
+  capacity: 10, push: { teamId: 'A123456789', sandboxKeyId: 'B123456789', productionKeyId: 'C123456789', topics }, fcm: { projectId: PROJECT, apps } });
+async function pushBindings(profile) {
+  const { managedArtifact } = await import('../cli/connect.mjs');
+  return Object.fromEntries(managedArtifact(profile).metadata.bindings.map(row => [row.name, row.text]));
+}
+
+test('the TEST copy dev.richos.connect.perf registers and is delivered under its own ID on APNs and FCM', async t => {
+  const { APNs } = await import('../service/connect/apns.mjs');
+  const bindings = await pushBindings(pushProfile(['dev.richos.mobile.integration', 'dev.richos.mobile.loop', REAL_APP, TEST_COPY], [REAL_APP, TEST_COPY]));
+  assert.equal(bindings.APNS_TOPICS, `dev.richos.mobile.integration,dev.richos.mobile.loop,${REAL_APP},${TEST_COPY}`);
+  assert.equal(bindings.FCM_APPS, `${REAL_APP},${TEST_COPY}`);
+  await assert.rejects(pushBindings(pushProfile([`${REAL_APP}.other`], [REAL_APP])), /push topics/, 'only the one test copy is added');
+  for (const topic of [TEST_COPY, REAL_APP]) {
+    // Through the real signed handler: each app's registration is stored and delivered under its own ID.
+    const ios = await service(t);
+    Object.assign(ios.env, { APNS_TOPICS: bindings.APNS_TOPICS, FCM_APPS: bindings.FCM_APPS });
+    assert.equal((await ios.call('PUT', '/v1/push/device', { ...ios.iphone, topic })).status, 200);
+    assert.equal((await ios.row()).topic, topic);
+    assert.equal((await ios.call('POST', '/v1/push/events', ios.event)).status, 202);
+    assert.equal(ios.apnsCalls.length, 1); assert.equal(ios.apnsCalls[0].binding.topic, topic);
+    const android = await service(t);
+    Object.assign(android.env, { APNS_TOPICS: bindings.APNS_TOPICS, FCM_APPS: bindings.FCM_APPS });
+    assert.equal((await android.call('PUT', '/v1/push/device', { ...android.android, topic })).status, 200);
+    assert.equal((await android.call('POST', '/v1/push/events', android.event)).status, 202);
+    assert.equal(android.g.state.sends.length, 1, `${topic} reaches FCM`);
+    assert.equal(android.g.state.sends[0].body.message.android.restricted_package_name, topic, 'FCM delivers only to that package');
+    // And Apple receives exactly that topic in the apns-topic header.
+    const requests = [];
+    const apns = new APNs({ APNS_TEAM_ID: 'A123456789', APNS_SANDBOX_KEY_ID: 'B123456789', APNS_SANDBOX_KEY: 'fixture', APNS_TOPICS: bindings.APNS_TOPICS },
+      { fetchImpl: async (url, options) => { requests.push({ url, options }); return new Response(null, { status: 200 }); } });
+    apns.token = async () => 'signed-fixture';
+    assert.deepEqual(await apns.send({ host_id: 'a'.repeat(32), token: 'd'.repeat(64), environment: 'sandbox', topic }, job(1790000000000)), { outcome: 'sent' });
+    assert.equal(requests[0].url, `https://api.sandbox.push.apple.com/3/device/${'d'.repeat(64)}`);
+    assert.equal(requests[0].options.headers['apns-topic'], topic);
+  }
+});
+
+test('the real app dev.richos.connect is byte for byte unchanged when the test copy is added', async () => {
+  const { APNs } = await import('../service/connect/apns.mjs');
+  const { FCM } = await import('../service/connect/fcm.mjs');
+  // The profile as deployed today still produces exactly today's bindings.
+  const today = await pushBindings(pushProfile(['dev.richos.mobile.integration', 'dev.richos.mobile.loop', REAL_APP], [REAL_APP]));
+  assert.equal(today.APNS_TOPICS, `dev.richos.mobile.integration,dev.richos.mobile.loop,${REAL_APP}`);
+  assert.equal(today.FCM_APPS, REAL_APP);
+  const widened = await pushBindings(pushProfile(['dev.richos.mobile.integration', 'dev.richos.mobile.loop', REAL_APP, TEST_COPY], [REAL_APP, TEST_COPY]));
+  // What Apple and Google receive for the real app is identical under both configurations.
+  const at = 1790000000000, preview = JSON.stringify({ v: 1, nonce: 'a'.repeat(16), body: 'b'.repeat(100) });
+  async function apnsRequest(topics) {
+    const seen = [];
+    const apns = new APNs({ APNS_TEAM_ID: 'A123456789', APNS_PRODUCTION_KEY_ID: 'C123456789', APNS_PRODUCTION_KEY: 'fixture', APNS_TOPICS: topics },
+      { fetchImpl: async (url, options) => { seen.push({ url, headers: options.headers, body: options.body }); return new Response(null, { status: 200 }); }, now: () => at });
+    apns.token = async () => 'signed-fixture';
+    assert.deepEqual(await apns.send({ host_id: 'a'.repeat(32), token: 'd'.repeat(64), environment: 'production', topic: REAL_APP }, job(at, { preview })), { outcome: 'sent' });
+    return seen;
+  }
+  async function fcmMessages(apps) {
+    const g = await google({ now: () => at });
+    const fcm = new FCM({ ...g.env, FCM_APPS: apps }, { fetchImpl: g.fetchImpl, now: () => at });
+    assert.deepEqual(await fcm.send({ ...binding, topic: REAL_APP }, job(at, { preview })), { outcome: 'sent' });
+    return g.state.sends.map(send => send.body);
+  }
+  const apnsBefore = await apnsRequest(today.APNS_TOPICS), apnsAfter = await apnsRequest(widened.APNS_TOPICS);
+  assert.equal(apnsBefore.length, 1); assert.equal(apnsBefore[0].headers['apns-topic'], REAL_APP);
+  assert.deepEqual(apnsAfter, apnsBefore);
+  const fcmBefore = await fcmMessages(today.FCM_APPS), fcmAfter = await fcmMessages(widened.FCM_APPS);
+  assert.equal(fcmBefore.length, 1); assert.equal(fcmBefore[0].message.android.restricted_package_name, REAL_APP);
+  assert.deepEqual(fcmAfter, fcmBefore);
+});

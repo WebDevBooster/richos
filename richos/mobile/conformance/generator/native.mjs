@@ -87,7 +87,7 @@ export async function fcm() {
 			fcm: '{"platform":"fcm","token":"<32..4096 of A-Z a-z 0-9 _ - :>","topic":"<Android application ID>","preview_key":"<base64url of 32 bytes>"?,"previews":bool?}',
 			apns: '{"token":"<lowercase hex 32..512>","environment":"sandbox"|"production","topic":"<bundle ID>","preview_key"?,"previews"?}  (platform absent or "apns")'
 		},
-		allowed_ids: { fcm: ['dev.richos.native.android', 'dev.richos.connect'], apns: ['dev.richos.mobile.loop', 'dev.richos.mobile.integration', 'dev.richos.native.ios', 'dev.richos.connect'] },
+		allowed_ids: { fcm: ['dev.richos.native.android', 'dev.richos.connect', 'dev.richos.connect.perf'], apns: ['dev.richos.mobile.loop', 'dev.richos.mobile.integration', 'dev.richos.native.ios', 'dev.richos.connect', 'dev.richos.connect.perf'] },
 		answers: [
 			{ status: 200, body: '{"host_id":"<32 lowercase hex>|null","registered":bool}', client_action: 'check host_id and that registered matches what was asked; keep host_id to validate incoming notifications' },
 			{ status: 404, body: '', client_action: 'the Mac refused the registration (a shape or ID it does not take, or no native-push-fcm on this Mac): do not retry the same body' },

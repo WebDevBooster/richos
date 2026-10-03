@@ -8,11 +8,13 @@ use std::path::{Path, PathBuf};
 /// **THE iOS APPS WHOSE APNs TOKENS THIS MAC FORWARDS.** The first two are the preserved app's;
 /// `dev.richos.native.ios` is the new native app's development ID (Rich's decision, 2026-09-22).
 /// `dev.richos.connect` is RichConnect's permanent identifier, also required in the
-/// Worker's private `APNS_TOPICS` configuration.
-pub const APNS_TOPICS: &[&str] = &["dev.richos.mobile.loop", "dev.richos.mobile.integration", "dev.richos.native.ios", "dev.richos.connect"];
+/// Worker's private `APNS_TOPICS` configuration. `dev.richos.connect.perf` is the team's TEST copy
+/// of RichConnect, which registers under its own ID (CEO, 2026-10-03).
+pub const APNS_TOPICS: &[&str] = &["dev.richos.mobile.loop", "dev.richos.mobile.integration", "dev.richos.native.ios", "dev.richos.connect", "dev.richos.connect.perf"];
 /// **THE ANDROID APPS WHOSE FCM TOKENS THIS MAC FORWARDS.** `dev.richos.native.android` is the
-/// native app's development application ID; `dev.richos.connect` is its permanent ID.
-pub const FCM_APPS: &[&str] = &["dev.richos.native.android", "dev.richos.connect"];
+/// native app's development application ID; `dev.richos.connect` is its permanent ID;
+/// `dev.richos.connect.perf` is the TEST copy's.
+pub const FCM_APPS: &[&str] = &["dev.richos.native.android", "dev.richos.connect", "dev.richos.connect.perf"];
 
 /// A native push registration, as the phone sends it inside `{"native_push": …}`.
 ///
@@ -363,6 +365,20 @@ mod tests {
         let stored=fcm.clone().normalized();assert_eq!(stored,fcm);
         assert!(!serde_json::to_string(&stored).unwrap().contains("environment"),"an FCM record carries no environment");
         let mut ios_as_fcm=fcm.clone();ios_as_fcm.topic="dev.richos.native.ios".into();assert!(!ios_as_fcm.validate());
+    }
+
+    /// The team's TEST copy of RichConnect (`dev.richos.connect.perf`) registers under its own ID on
+    /// both phones (CEO, 2026-10-03), and the real app's ID and every earlier entry keep their place.
+    #[test] fn the_test_copy_registers_under_its_own_id_and_the_real_app_is_unchanged() {
+        let (_,_,mut apns)=fixture();
+        for topic in ["dev.richos.connect","dev.richos.connect.perf"] {
+            apns.topic=topic.into();assert!(apns.validate(),"{topic} as an APNs topic");assert_eq!(apns.transport(),"apns");
+            let fcm:Registration=serde_json::from_value(json!({"platform":"fcm","token":fcm_shaped(),"topic":topic})).unwrap();
+            assert!(fcm.validate(),"{topic} as an FCM application id");assert_eq!(fcm.transport(),"fcm");
+        }
+        apns.topic="dev.richos.connect.other".into();assert!(!apns.validate(),"only the one test copy is added");
+        assert_eq!(&APNS_TOPICS[..4],["dev.richos.mobile.loop","dev.richos.mobile.integration","dev.richos.native.ios","dev.richos.connect"]);
+        assert_eq!(&FCM_APPS[..2],["dev.richos.native.android","dev.richos.connect"]);
     }
 
     #[test] fn fcm_registrations_reach_the_worker_marked_as_fcm_and_survive_restart() {

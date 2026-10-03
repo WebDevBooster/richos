@@ -1,6 +1,7 @@
 # RichConnect review host (hosted mock backend for App Review and Play review)
 
-**Deployed 2026-10-03** as the Worker `richconnect-review` (version `e4ced97d`) in the Cloudflare
+**Deployed 2026-10-03** as the Worker `richconnect-review` (version `4382d9c8`, which also accepts push
+registrations from the team's TEST copy `dev.richos.connect.perf` on both phones) in the Cloudflare
 account that runs the Connect Worker. Live names: access page `https://mobile-app-review.richos.dev/`,
 review hosts `apple-review.richos.dev` and `google-review.richos.dev` (two, not three: the Connect
 Worker had 8 of its 10 lifetime host records used, so the spare host was left out). `/healthz` answers

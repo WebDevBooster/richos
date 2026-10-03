@@ -11,13 +11,15 @@
   "allowed_ids": {
     "fcm": [
       "dev.richos.native.android",
-      "dev.richos.connect"
+      "dev.richos.connect",
+      "dev.richos.connect.perf"
     ],
     "apns": [
       "dev.richos.mobile.loop",
       "dev.richos.mobile.integration",
       "dev.richos.native.ios",
-      "dev.richos.connect"
+      "dev.richos.connect",
+      "dev.richos.connect.perf"
     ]
   },
   "answers": [
