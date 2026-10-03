@@ -106,7 +106,7 @@ if args[:2] == ["device", "perf"]:
 # with-android-signing.py stand-in: records that the command ran inside it, then runs the command.
 FAKE_SIGNING = """#!/usr/bin/env python3
 import os, sys
-open(os.environ["FAKE_LOG"], "a").write("signing-wrapper\\n")
+open(os.environ["FAKE_LOG"], "a").write("signing-wrapper " + " ".join(sys.argv[1:]) + "\\n")
 os.execvp(sys.argv[1], sys.argv[1:])
 """
 FAKE_PERF = """#!/usr/bin/env python3
@@ -319,11 +319,12 @@ class Run(Base):
         # The 2026-10-02 run: randroid refused the unsigned Release APK, so the Android was never measured.
         self.request()
         self.run_round()
-        lines = self.tools().splitlines()
+        # The two platforms run side by side into one log, so no line is promised to sit beside another:
+        # the wrapper records the command it wraps on its own line.
+        wrapped = [l for l in self.tools().splitlines() if l.startswith("signing-wrapper")]
         for verb in ("install", "perf"):  # perf builds the debuggable twin, which must carry the upload key too
-            at = next(i for i, l in enumerate(lines) if l.startswith(f"cli-android device {verb}"))
-            self.assertEqual(lines[at - 1], "signing-wrapper", (verb, lines))
-        self.assertEqual(lines.count("signing-wrapper"), 2, "the iPhone verbs never go through the Android key")
+            self.assertEqual(len([l for l in wrapped if f"android device {verb}" in l]), 1, (verb, wrapped))
+        self.assertEqual(len(wrapped), 2, ("the iPhone verbs never go through the Android key", wrapped))
 
     def test_W18_a_missing_signing_wrapper_is_a_run_that_could_not_measure(self):
         self.request()
