@@ -100,6 +100,11 @@ import tempfile
 import threading
 import time
 
+def _pc():
+    """perfcore, imported when a run judges (the trigger runs from a bare copy of this file)."""
+    import perfcore
+    return perfcore
+
 HERE = Path(__file__).resolve().parent
 MOBILE = "richos/mobile/"
 PLATFORMS = ("android", "ios")
@@ -750,6 +755,33 @@ def blank_screen_status(platform, record_data, problems):
             f"{len(cb.get('samplesMs') or [])} starts, limit {cb.get('limitMs')} ms")
 
 
+def cold_standard(platform, record_data):
+    """The cold-start test's verdict (CEO 2026-10-03, §104; limits only in perfcore.COLD_STANDARD), judged
+    from the record's own cold series. The iPhone's series has no start 1 in the record (it is the unjudged first
+    launch), the Android's has. Raises Unmeasured when the record has no cold series."""
+    samples = ((record_data.get("metrics") or {}).get("coldLaunch") or {}).get("samplesMs")
+    if not samples:
+        raise Unmeasured("the record has no cold-start series to judge (metrics.coldLaunch.samplesMs)")
+    starts = [None] + list(samples) if platform == "ios" else list(samples)
+    return _pc().cold_verdict(platform, starts)
+
+
+def warm_standard(record_data):
+    """The warm-start test's verdict as the perf run recorded it (perfcore.WARM_STANDARD). Its limits are
+    placeholders until the CEO fills them in: that is said loudly (Unmeasured), never a pass."""
+    ws = (record_data.get("metrics") or {}).get("warmStandard")
+    if not ws:
+        raise Unmeasured("the record has no warm-start verdict (metrics.warmStandard)")
+    if ws.get("verdict") == "LIMIT NOT SET":
+        raise Unmeasured(f"the warm-start standard cannot be judged: {ws.get('why')}")
+    return ws
+
+
+def standard_line(label, v):
+    times = ", ".join("-" if m is None else str(round(m)) for m in v.get("startsMs") or [])
+    return f"{label} {v['verdict']}: {v['why']} (starts, ms: {times})"
+
+
 def summary_line(result):
     parts = []
     for name in METRICS:
@@ -798,39 +830,48 @@ def run_platform(repo, round_id, sha, platform, work, checkout):
         record("phone-free", round=round_id, platform=platform, waited=detail)
         verb(platform, "install", checkout, phone, ["--expect-commit", sha], guard, log_path)
         out = str(work / f"{platform}.json")
-        n = str(trials())
-        extra = ["--expect-commit", sha, "--cold", n, "--warm", n, "--evidence-dir", str(work / "evidence"), "--out", out]
+        n = str(_pc().COLD_STARTS)  # a start test is 20 normal starts (§104); the p95 benchmark is information only
+        # The iPhone's judged cold start is the launch with nothing attached (`--launches`), never an Instruments one.
+        cold_args = ["--cold", "0", "--launches", n] if platform == "ios" else ["--cold", n]
+        extra = ["--expect-commit", sha, *cold_args, "--warm", n, "--evidence-dir", str(work / "evidence"), "--out", out]
         if platform in BLANK_REQUIRED:
             extra += ["--blank-starts", blank_starts()]  # perf.py's cold-blank phase (quint-opus-blank1)
         verb(platform, "perf", checkout, phone, extra, guard, log_path, record_out=out)
         if not Path(out).exists():
             raise Unmeasured(f"the perf verb wrote no record at {out}: {log_tail(log_path)}")
-        verdict, result = compare(checkout, out, log_path)
+        # The old p95 benchmark comparison is information only and decides nothing (CEO §104).
+        _, result = compare(checkout, out, log_path)
         with open(out) as f:
             data = json.load(f)
+        info = summary_line(result)
+        cold = cold_standard(platform, data)
+        if cold["verdict"] == "INCOMPLETE":
+            raise Unmeasured(f"the cold-start test gave no verdict: {cold['why']}; benchmark (information only): {info}")
+        try:
+            warm = warm_standard(data) if cold["verdict"] == "PASS" else None
+        except Unmeasured as exc:
+            raise Unmeasured(f"{exc}; {standard_line('cold', cold)}") from None
         try:
             blanks = blank_screen_problems(platform, data)
         except Unmeasured as exc:
-            raise Unmeasured(f"{exc}; speed: {summary_line(result)}") from None
-        speed = verdict
-        if blanks and verdict == "good":
-            verdict = "slower"
-        outcome.update(verdict=verdict, record=out, compare=summary_line(result),
+            raise Unmeasured(f"{exc}; {standard_line('cold', cold)}") from None
+        failed = [standard_line(k, v) for k, v in (("cold", cold), ("warm", warm)) if v and v["verdict"] == "FAIL"]
+        verdict = "slower" if failed or blanks else "good"
+        report = "; ".join(standard_line(k, v) for k, v in (("cold", cold), ("warm", warm)) if v)
+        outcome.update(verdict=verdict, record=out, standard=report, compare=info,
                        blankScreen=blank_screen_status(platform, data, blanks))
         if verdict == "good":
-            set_good(platform, {"commit": sha, "at": now(), "record": out, "compare": summary_line(result)})
-        elif verdict == "slower":
-            what = ("start SLOWER than the benchmark" + (" and a BLANK SCREEN" if blanks else "")
-                    if speed == "slower" else "start shows a BLANK SCREEN")
-            escalate(repo, f"Phone speed: {label} {what} at main {sha[:12]}",
-                     f"{label} {summary_line(result)}{'; ' + '; '.join(blanks) if blanks else ''}. Range {span}. "
-                     f"Commits in it touching richos/mobile/: {' | '.join(commits) or 'none listed'}. Which of them "
-                     f"{'slowed the start' if speed == 'slower' else 'put a blank screen on the start'}, and who fixes it?",
-                     f"The automatic run after the land measured {trials()} cold starts and {trials()} returns with "
-                     f"the benchmark's fixed conversation and ran perf.py compare. Record: {out}; log: {log_path}.")
+            set_good(platform, {"commit": sha, "at": now(), "record": out, "compare": report})
         else:
-            raise Unmeasured(f"the record could not be compared with the benchmark: {result.get('why')}"
-                             + (f"; and {'; '.join(blanks)}" if blanks else ""))
+            what = (("start FAILS the speed standard" + (" and a BLANK SCREEN" if blanks else "")) if failed
+                    else "start shows a BLANK SCREEN")
+            escalate(repo, f"Phone speed: {label} {what} at main {sha[:12]}",
+                     f"{label} {report}{'; ' + '; '.join(blanks) if blanks else ''}. Range {span}. "
+                     f"Commits in it touching richos/mobile/: {' | '.join(commits) or 'none listed'}. Which of them "
+                     f"{'slowed the start' if failed else 'put a blank screen on the start'}, and who fixes it?",
+                     f"The automatic run after the land measured the cold-start test (CEO 2026-10-03, §104: starts "
+                     f"2-5 under the per-start limit, 2-20 average under the average limit) with the benchmark's fixed "
+                     f"conversation. Benchmark p95 comparison (information only): {info}. Record: {out}; log: {log_path}.")
     except Unmeasured as exc:
         kind = "refused" if isinstance(exc, Refused) else "unmeasured"
         outcome.update(verdict=kind, why=str(exc))

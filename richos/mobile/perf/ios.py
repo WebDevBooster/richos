@@ -654,7 +654,7 @@ def _own_tmp(evidence):
 
 
 def trace_series(cls, driver, trials, evidence, runner=subprocess.run, popen=subprocess.Popen, sleep=time.sleep,
-                 seconds=10, away=2.0, app_args=()):
+                 seconds=10, away=2.0, app_args=(), stop=None):
     """`cold` or `warm` trials with Instruments, each trace retained under a unique directory.
     The first rejected trial (capture, export or join) stops the series; nothing is retried
     except the re-read of a trace whose exporter died (export_tables)."""
@@ -685,6 +685,8 @@ def trace_series(cls, driver, trials, evidence, runner=subprocess.run, popen=sub
                 with open(prefix + ".json", "w") as f:
                     json.dump(sample, f, indent=2)
                 samples.append(sample)
+                if stop is not None and stop([s["durationMs"] for s in samples]):
+                    break  # the standard's early limit: no further start is made
             except (Unmeasurable, ET.ParseError, ValueError, KeyError, subprocess.TimeoutExpired) as e:
                 rejection = {"trial": i + 1, "why": str(e), "evidence": prefix}
                 rejected.append(rejection)
@@ -756,12 +758,38 @@ def trace_metric(cls, samples, rejected, evidence):
             "exportAttempts": sum(s["exportAttempts"] for s in samples), "rejected": rejected, "evidence": evidence}
 
 
+# On an iPhone the cold start that is judged is the one with nothing attached (`--launches N`): it is
+# `coldLaunch`. The Instruments cold series adds the profiler's own launch (§102), so it is evidence only.
+TRACED_COLD = "coldLaunchTraced"
+TRACED_WARM = "warmResumeTraced"
+
+
+def metric_key(cls, device_kind):
+    """On an iPhone the Instruments series is a DIAGNOSTIC (`--trace-diagnostic`): its own keys, which nothing
+    compares and no standard judges (§104; a traced launch adds ~530 ms, §102). The judged series are the
+    untraced launches and returns (`--launches`, `--returns`; `--cold`/`--warm` on a phone mean those)."""
+    if device_kind == "physical":
+        return TRACED_COLD if cls == "cold" else TRACED_WARM
+    return KEYS[cls]
+
+
+def untraced_for_phone(args):
+    """On a physical iPhone `--cold N` and `--warm N` are the UNTRACED launch and return series; the Instruments
+    trace runs only with the separately named `--trace-diagnostic` and never produces a pass or fail."""
+    if not getattr(args, "device", None) or getattr(args, "trace_diagnostic", False):
+        return
+    args.launches = getattr(args, "launches", 0) or args.cold
+    args.returns = getattr(args, "returns", 0) or (getattr(args, "warm", 0) or 0)
+    args.cold, args.warm = 0, 0
+
+
 def _trace_classes(record, driver, args, runner, popen, sleep):
     """Each requested class in turn; the first rejected trial stops everything after it."""
     failures = 0
     for cls, trials in (("cold", args.cold), ("warm", getattr(args, "warm", 0) or 0)):
         if trials <= 0:
             continue
+        key = metric_key(cls, record["device"].get("kind"))
         samples, rejected, evidence = trace_series(cls, driver, trials, args.evidence_dir, runner, popen, sleep,
                                                    seconds=getattr(args, "trace_seconds", 10),
                                                    away=getattr(args, "away", 2.0),
@@ -771,9 +799,9 @@ def _trace_classes(record, driver, args, runner, popen, sleep):
                        "condition": record.get("condition")}, f, indent=2)
         record.setdefault("evidence", {})[cls] = evidence
         if samples:
-            record["metrics"][KEYS[cls]] = trace_metric(cls, samples, rejected, evidence)
+            record["metrics"][key] = trace_metric(cls, samples, rejected, evidence)
         else:
-            record["notMeasured"].append({"what": KEYS[cls], "why": rejected[0]["why"] if rejected else "no trial"})
+            record["notMeasured"].append({"what": key, "why": rejected[0]["why"] if rejected else "no trial"})
         record["phases"][cls] = (f"stopped at trial {rejected[0]['trial']}: {rejected[0]['why']}" if rejected
                                  else f"{len(samples)} trials")
         if rejected:
@@ -794,9 +822,9 @@ def _reparsed(args, record, runner):
     record["evidence"] = {series["class"]: args.reparse}
     samples, rejected = reparse(args.reparse, series["class"], runner)
     if samples:
-        record["metrics"][KEYS[series["class"]]] = trace_metric(series["class"], samples, rejected, args.reparse)
+        record["metrics"][metric_key(series["class"], series["device"].get("kind"))] = trace_metric(series["class"], samples, rejected, args.reparse)
     else:
-        record["notMeasured"].append({"what": KEYS[series["class"]], "why": rejected[0]["why"] if rejected else "no trace"})
+        record["notMeasured"].append({"what": metric_key(series["class"], series["device"].get("kind")), "why": rejected[0]["why"] if rejected else "no trace"})
     record["phases"][series["class"]] = f"reparsed {len(samples)} of {len(samples) + len(rejected)} retained traces"
     return int(bool(rejected) or not samples)
 
@@ -1063,10 +1091,13 @@ class DeviceState:
             self.sleep(1.0)
         raise Unmeasurable(f"the app was still running after {STOP_TRIES} terminate requests")
 
-    def read(self, dest):
+    def read(self, dest, stop=True):
         """Copy the state directory to `dest` (absent beforehand) and return its tree_manifest, or None
-        when the app has no state directory on the phone."""
-        self.stop()
+        when the app has no state directory on the phone. `stop=False` leaves the app running: a warm
+        series reads the timing file between returns and a terminated app would make the next return a
+        relaunch (the copy is a read; the app is only stopped first so it cannot write over a change)."""
+        if stop:
+            self.stop()
         p = self._devicectl("copy", "from", "--domain-type", "appDataContainer", "--domain-identifier", BUNDLE,
                             "--source", STATE_DIR, "--destination", dest)
         if p.returncode:
@@ -1449,6 +1480,309 @@ def _tap_series(args, record, state, seed, scratch, hw, work):
     return 0
 
 
+# Launch requests with nothing attached (`--launches N`): the iPhone's `coldLaunch` (CEO 2026-10-02: the speed
+# check judges what the user sees, never an Instruments-traced launch, which adds ~530 ms; §102). Its
+# clock was measured on 2026-10-02 (median 582 ms over 20 starts); the standard that judges it is
+# perfcore.COLD_STANDARD (§104).
+LAUNCH_DWELL_S = 4.0  # after a launch request: the app has started and written its lines
+HOME_SETTLE_S = 1.5   # after terminating the app in front: the Home Screen is back and still
+LAUNCH_REQUEST = re.compile(r'^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d\d:\d\d:\d\d\.\d+) SpringBoard\(FrontBoard\)\[\d+\] <\w+>: '
+                            r'\[FBSystemService\]\[0x[0-9a-fA-F]+\] Received request to open "' + re.escape(BUNDLE) + '"')
+APP_LOG_LINE = re.compile(r'^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d\d:\d\d:\d\d\.\d+) ' + re.escape(APP_EXECUTABLE)
+                          + r'(?:\([^)]*\))?\[(?P<pid>\d+)\]')
+LAUNCH_END = ("the app's own input-ready mark (the main run loop idle after the commit that made the saved viewport "
+              "and composer ready)")
+LAUNCH_METHOD = (
+    "No profiler and no UI test: the app in front is terminated, which leaves the Home Screen in front, then it "
+    "is opened from there with an ordinary launch request (devicectl process launch); start 1 is the first launch "
+    "and is not judged. Start: SpringBoard's 'Received request to open' for RichConnect, read from the phone's own "
+    "log (idevicesyslog). End: " + LAUNCH_END + ", written by the app (LaunchTiming.swift) on the same wall clock; "
+    "the join is checked per launch against the app's first log line and its kernel start time.")
+
+
+def syslog_wall_us(stamp, year):
+    """'Oct  2 23:04:02.637698' (the phone's log, its local time) -> epoch microseconds in this Mac's time zone."""
+    dt = datetime.datetime.strptime(f"{year} {' '.join(stamp.split())}", "%Y %b %d %H:%M:%S.%f")
+    return int(round(dt.timestamp() * 1e6))
+
+
+def launch_request_samples(events, log_text, year, skip=0):
+    """One sample per process the app logged after the first `skip` (the first, unjudged launch): the launch
+    request SpringBoard logged for it (exactly one in the 3 s before the kernel started it), and its marks.
+    Returns (samples, rejected)."""
+    requests, first_line = [], {}
+    for line in log_text.splitlines():
+        m = LAUNCH_REQUEST.match(line)
+        if m:
+            requests.append(syslog_wall_us(m["ts"], year))
+            continue
+        m = APP_LOG_LINE.match(line)
+        if m and int(m["pid"]) not in first_line:
+            first_line[int(m["pid"])] = syslog_wall_us(m["ts"], year)
+    samples, rejected = [], []
+    procs = [e for e in events if e["e"] == "process" and e.get("startUs", -1) > 0][skip:]
+    for n, p in enumerate(procs, 1):
+        start, pid = p["startUs"], p["pid"]
+        asked = [r for r in requests if start - 3_000_000 <= r <= start]
+        if len(asked) != 1:
+            rejected.append({"trial": n, "pid": pid, "why": f"{len(asked)} launch requests in the 3 s before the process started"})
+            continue
+        seen = first_line.get(pid)
+        if seen is None or not 0 <= seen - start <= 3_000_000:
+            rejected.append({"trial": n, "pid": pid, "why": "the phone's log and the app's clock do not join (its first "
+                                                            "log line is not within 3 s after its kernel start)"})
+            continue
+        ready = _first_event(events, "input-ready", pid=pid, after_us=start)
+        if ready is None:
+            rejected.append({"trial": n, "pid": pid, "why": "no input-ready line from the launched process"})
+            continue
+        samples.append({"trial": n, "pid": pid, "requestToProcessStartMs": _ms(asked[0], start),
+                        "processStartToMainMs": _ms(start, p["wallUs"]),
+                        "processStartToInputReadyMs": _ms(start, ready["wallUs"]),
+                        "requestToInputReadyMs": _ms(asked[0], ready["wallUs"])})
+    return samples, rejected
+
+
+def launch_metric(samples, rejected, evidence):
+    """The launch-request series as the iPhone's `coldLaunch`: the request to input-ready, per launch (starts 2..)."""
+    ms = [round(s["requestToInputReadyMs"], 3) for s in samples]
+    summary = perfcore.stats(ms)
+    phases = {name: perfcore.stats([round(s[name], 3) for s in samples])
+              for name in ("requestToProcessStartMs", "processStartToMainMs", "processStartToInputReadyMs")}
+    return {"method": LAUNCH_METHOD, "startBoundary": "SpringBoard's launch request", "endBoundary": LAUNCH_END,
+            "samplesMs": ms, "stats": summary, "budget": perfcore.compare("coldLaunch", summary), "phaseStatsMs": phases,
+            "rejected": rejected, "evidence": evidence}
+
+
+def launch_starts_ms(samples):
+    """The series for perfcore.cold_verdict: start 1 (the unjudged first launch) is None, then starts 2.."""
+    return [None] + [s["requestToInputReadyMs"] for s in samples]
+
+
+def _read_launch_evidence(state, got, log_path, stop=True):
+    """The app's timing lines read off the phone and the phone's log so far: (events, log text)."""
+    if os.path.isdir(got):
+        shutil.rmtree(got, ignore_errors=True)
+    state.read(got, stop=stop)
+    with open(os.path.join(got, TIMING_FILE)) as f:
+        text = f.read()
+    for name in os.listdir(got):  # keep only the app's timing lines with the evidence
+        if name != TIMING_FILE:
+            path = os.path.join(got, name)
+            shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
+    with open(log_path, errors="replace") as f:
+        return parse_timing(text), f.read()
+
+
+def run_launch_series(n, launch, stop_app, read, sleep, log=lambda text: None):
+    """The cold-start standard's series: `n` starts (start 1 unjudged), stopping at the first of starts 2-5 over
+    the iPhone limit (perfcore §104). `launch()` makes a launch request, `stop_app()` terminates the app,
+    `read()` returns the judged samples so far. Returns (stopped_early_verdict or None, error or None)."""
+    for start in range(1, n + 1):
+        if start > 1:
+            stop_app()
+            sleep(HOME_SETTLE_S)
+        launch()
+        sleep(LAUNCH_DWELL_S)
+        if 2 <= start <= perfcore.COLD_EARLY_LAST:
+            stop_app()
+            samples = read()
+            starts = launch_starts_ms(samples)
+            if len(starts) < start:
+                return None, f"cold start {start} gave no timing (rejected join); the series stops"
+            verdict = perfcore.cold_verdict("ios", starts, total=n)
+            if verdict["stop"]:
+                log(verdict["why"])
+                return verdict, None
+    return None, None
+
+
+def _launch_series(args, record, state, seed, scratch, hw, work, driver, popen, sleep):
+    """`--launches N` cold starts with nothing attached, the phone's log captured for their requests, then the
+    app's own lines read off the phone. The restore removes the timing marker and lines with the rest.
+    Returns the number of failures (0 or 1)."""
+    n = args.launches
+    timed = os.path.join(scratch, "launch-timed", "RichOS")
+    shutil.copytree(seed, timed)
+    open(os.path.join(timed, TIMING_MARKER), "w").close()
+    out_dir = os.path.join(work, "launches")
+    os.makedirs(out_dir)
+    log_path = os.path.join(out_dir, "phone.log")
+    got = os.path.join(out_dir, "after", "RichOS")
+    try:
+        state.put(timed, scratch)
+    except (Unmeasurable, subprocess.TimeoutExpired) as e:
+        record["phases"]["launches"] = f"failed: {e}"
+        record["notMeasured"].append({"what": "coldLaunch", "why": f"the timing marker could not be written: {e}"})
+        return 1
+    error = None
+    year = datetime.datetime.now().year
+
+    def read():
+        events, log_text = _read_launch_evidence(state, got, log_path)
+        return launch_request_samples(events, log_text, year, skip=1)[0]
+
+    with open(log_path, "w") as log:
+        reader = popen(["idevicesyslog", "-u", hw], stdout=log, stderr=subprocess.STDOUT, text=True)
+        try:
+            sleep(2.0)  # the relay is connected before the first request
+            _, error = run_launch_series(n, lambda: driver.launch(BUNDLE), state.stop, read, sleep)
+            state.stop()  # the phone is left at its Home Screen
+        except (Unmeasurable, subprocess.TimeoutExpired) as e:
+            error = f"the launches stopped: {e}"
+        finally:
+            if reader.poll() is None:  # only the reader this function started
+                reader.terminate()
+                reader.wait(timeout=30)
+    samples, rejected = [], []
+    try:
+        events, log_text = _read_launch_evidence(state, got, log_path)
+        samples, rejected = launch_request_samples(events, log_text, year, skip=1)
+    except (Unmeasurable, OSError, subprocess.TimeoutExpired) as e:
+        error = error or f"the app's timing lines could not be read: {e}"
+    if samples:
+        record["metrics"]["coldLaunch"] = launch_metric(samples, rejected, out_dir)
+        record["metrics"]["coldStandard"] = perfcore.cold_verdict("ios", launch_starts_ms(samples), total=n)
+    record["unprofiledLaunches"] = {"method": LAUNCH_METHOD, "evidence": out_dir, "requested": n,
+                                    "launches": samples, "rejected": rejected}
+    stopped = (record["metrics"].get("coldStandard") or {}).get("stop")
+    record["phases"]["launches"] = f"{len(samples) + 1} of {n} launches" + (f"; {error}" if error else "")
+    if error or (len(samples) + 1 < n and not stopped):
+        record["notMeasured"].append({"what": "coldLaunch", "why": record["phases"]["launches"]})
+        return 1
+    return 0 if not stopped else 1
+
+
+# Warm returns with nothing attached (`--returns N`, and `--warm N` on a phone): another app is put in front with
+# devicectl, then RichConnect is opened with `devicectl process launch` without terminating it (the process is
+# retained). The clock is the cold clock: SpringBoard's launch request (the phone's own log) to the app's own
+# input-ready mark. No test runner, no Instruments. (A will-enter-foreground start was retracted by the CEO
+# 2026-10-03: it is not what a person sees.) Start 1 is the first return and is not judged.
+OTHER_APP_BUNDLE = "com.apple.Preferences"
+RETURN_AWAY_S = 2.0
+RETURN_DWELL_S = 3.0
+WARM_METHOD = (
+    "No profiler and no UI test: another app (Settings) is put in front with devicectl, then RichConnect is opened "
+    "with `devicectl process launch` without terminating it; the process is the same one (a new process is "
+    "rejected). Start: SpringBoard's 'Received request to open' for RichConnect, from the phone's own log "
+    "(idevicesyslog). End: the app's own input-ready mark after that request (LaunchTiming.swift). Start 1 is the "
+    "first return and is not judged.")
+
+
+def return_request_samples(events, log_text, year, skip=1):
+    """One sample per launch request after the first (the setup launch) and after `skip` returns (the unjudged
+    first return): the app's input-ready after it, in the same process. Returns (samples, rejected)."""
+    requests = sorted(syslog_wall_us(m["ts"], year) for m in (LAUNCH_REQUEST.match(l) for l in log_text.splitlines()) if m)
+    returns = requests[1:]
+    samples, rejected = [], []
+    for n, req in enumerate(returns, 1):
+        end = returns[n] if n < len(returns) else float("inf")
+        if any(e["e"] == "process" and req <= e["wallUs"] < end for e in events):
+            rejected.append({"trial": n, "why": "a new process started: a relaunch, not a return"})
+            continue
+        ready = next((e for e in events if e["e"] == "input-ready" and req <= e["wallUs"] < end), None)
+        if ready is None:
+            rejected.append({"trial": n, "why": "no input-ready line from the retained process after the launch request"})
+            continue
+        ms = _ms(req, ready["wallUs"])
+        if not 0 < ms < 10_000:
+            rejected.append({"trial": n, "why": f"the phone's log and the app's clock do not join ({ms} ms)"})
+            continue
+        samples.append({"trial": n, "requestToInputReadyMs": ms})
+    return [s for s in samples if s["trial"] > skip], rejected
+
+
+def return_starts_ms(samples):
+    return [None] + [s["requestToInputReadyMs"] for s in samples]
+
+
+def run_return_series(n, background, launch, read, sleep, log=lambda text: None):
+    """`n` warm returns (return 1 unjudged), stopping at the first of returns 2-5 over the warm limit (§104; an
+    unset limit stops nothing). Returns (verdict that stopped it or None, error or None)."""
+    launch()  # the setup launch: the app is running
+    sleep(LAUNCH_DWELL_S)
+    for start in range(1, n + 1):
+        background()
+        sleep(RETURN_AWAY_S)
+        launch()
+        sleep(RETURN_DWELL_S)
+        if 2 <= start <= perfcore.COLD_EARLY_LAST:
+            starts = return_starts_ms(read())
+            if len(starts) < start:
+                return None, f"warm start {start} gave no timing (rejected); the series stops"
+            try:
+                verdict = perfcore.warm_verdict("ios", starts, total=n)
+            except perfcore.LimitNotSet:
+                continue
+            if verdict["stop"]:
+                log(verdict["why"])
+                return verdict, None
+    return None, None
+
+
+def _return_series(args, record, state, seed, scratch, hw, work, driver, popen, sleep):
+    """`--returns N` warm returns with nothing attached; the iPhone's warmResume and its standard verdict."""
+    n = args.returns
+    timed = os.path.join(scratch, "return-timed", "RichOS")
+    shutil.copytree(seed, timed)
+    open(os.path.join(timed, TIMING_MARKER), "w").close()
+    out_dir = os.path.join(work, "returns")
+    os.makedirs(out_dir)
+    log_path = os.path.join(out_dir, "phone.log")
+    got = os.path.join(out_dir, "after", "RichOS")
+    try:
+        state.put(timed, scratch)
+    except (Unmeasurable, subprocess.TimeoutExpired) as e:
+        record["phases"]["returns"] = f"failed: {e}"
+        record["notMeasured"].append({"what": "warmResume", "why": f"the timing marker could not be written: {e}"})
+        return 1
+    year = datetime.datetime.now().year
+    error = None
+
+    def read():
+        events, log_text = _read_launch_evidence(state, got, log_path, stop=False)  # the process must survive
+        return return_request_samples(events, log_text, year)[0]
+
+    with open(log_path, "w") as log:
+        reader = popen(["idevicesyslog", "-u", hw], stdout=log, stderr=subprocess.STDOUT, text=True)
+        try:
+            sleep(2.0)
+            _, error = run_return_series(n, lambda: driver.launch(OTHER_APP_BUNDLE), lambda: driver.launch(BUNDLE),
+                                         read, sleep)
+        except (Unmeasurable, subprocess.TimeoutExpired) as e:
+            error = f"the returns stopped: {e}"
+        finally:
+            if reader.poll() is None:
+                reader.terminate()
+                reader.wait(timeout=30)
+    samples, rejected = [], []
+    try:
+        events, log_text = _read_launch_evidence(state, got, log_path)
+        samples, rejected = return_request_samples(events, log_text, year)
+    except (Unmeasurable, OSError, subprocess.TimeoutExpired) as e:
+        error = error or f"the app's timing lines could not be read: {e}"
+    if samples:
+        ms = [round(s["requestToInputReadyMs"], 3) for s in samples]
+        summary = perfcore.stats(ms)
+        record["metrics"]["warmResume"] = {"method": WARM_METHOD, "samplesMs": ms, "stats": summary,
+                                           "budget": perfcore.compare("warmResume", summary), "rejected": rejected,
+                                           "evidence": out_dir}
+        record["metrics"]["warmStandard"] = _warm_standard(return_starts_ms(samples), n)
+    stopped = (record["metrics"].get("warmStandard") or {}).get("stop")
+    record["phases"]["returns"] = f"{len(samples) + 1} of {n} returns" + (f"; {error}" if error else "")
+    if error or (len(samples) + 1 < n and not stopped):
+        record["notMeasured"].append({"what": "warmResume", "why": record["phases"]["returns"]})
+        return 1
+    return 1 if stopped else 0
+
+
+def _warm_standard(starts_ms, total):
+    try:
+        return perfcore.warm_verdict("ios", starts_ms, total=total)
+    except perfcore.LimitNotSet as exc:
+        return {"verdict": "LIMIT NOT SET", "why": str(exc), "method": "the warm-start standard has placeholder limits"}
+
+
 SEEDED_BY_DEVICE = ("condition.py wrote Android's fixture files; `rios perf-seed` translated them through the app's own "
                     "core (EffectRunner .persist) into its saved state and loaded every row back; the app was terminated, "
                     "its saved-state directory on the iPhone (Library/Application Support/RichOS in its data container) "
@@ -1564,6 +1898,10 @@ def _seeded_device(args, record, driver, hw, stamp, runner, popen, sleep, rios):
                                "persistence": "production (the app's own Application Support/RichOS files)"}
             record["phases"]["seed"] = "measured"
             failures = _trace_classes(record, driver, args, runner, popen, sleep)
+            if getattr(args, "returns", 0):
+                failures += _return_series(args, record, state, seed, scratch, hw, work, driver, popen, sleep)
+            if getattr(args, "launches", 0):
+                failures += _launch_series(args, record, state, seed, scratch, hw, work, driver, popen, sleep)
             if getattr(args, "tap_launches", 0) or getattr(args, "tap_returns", 0):
                 failures += _tap_series(args, record, state, seed, scratch, hw, work)
             verified = device_screen_check(hw, os.environ["RICHOS_APPLE_TEAM"], args.stamp, marker,
@@ -1634,9 +1972,10 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
             stamp = json.load(f)
     if args.expect_commit and (not stamp or not str(stamp.get("commit", "")).startswith(args.expect_commit) or stamp.get("dirty")):
         raise Refused(f"freshness mismatch: the stamp is {stamp and stamp.get('commit')} (dirty {stamp and stamp.get('dirty')}), not {args.expect_commit}")
+    untraced_for_phone(args)  # a phone's --cold/--warm are the untraced series; the trace is --trace-diagnostic only
     measuring = not getattr(args, "reparse", None)
-    seeding = measuring and getattr(args, "conversation", "fixture") != condition.AS_INSTALLED
-    if (getattr(args, "tap_launches", 0) or getattr(args, "tap_returns", 0)) and not (seeding and getattr(args, "device", None)):
+    seeding =measuring and getattr(args, "conversation", "fixture") != condition.AS_INSTALLED
+    if (getattr(args, "launches", 0) or getattr(args, "returns", 0) or getattr(args, "tap_launches", 0) or getattr(args, "tap_returns", 0)) and not (seeding and getattr(args, "device", None)):
         raise Refused("--tap-launches and --tap-returns run on an iPhone with the seeded conversation: the app writes "
                       "its own times only while the seeded state carries the timing marker, and the restore removes it")
     if seeding and not args.simulator:

@@ -82,6 +82,15 @@ if args[:2] == ["device", "perf"]:
     verdict, code, blank = (mode.split(":") + ["", ""])[:3]
     blank = blank or ("pass" if platform == "android" else "none")
     record = {"fake": verdict, "metrics": {}, "phases": {}}
+    # The speed standard (CEO 2026-10-03, §104) judges the cold series: "good" is 20 starts well under the
+    # limits (start 1 slow, never judged); "slower" has a start 3 over them; the iPhone's record has no start 1.
+    cold = [500] * 20 if verdict != "slower" else [500, 500, 1500] + [500] * 17
+    cold[0] = 9000 if platform == "android" else cold[0]
+    record["metrics"]["coldLaunch"] = {"samplesMs": cold if platform == "android" else cold[1:]}
+    warm = os.environ.get("FAKE_WARM", "pass")
+    record["metrics"]["warmStandard"] = (
+        {"verdict": "LIMIT NOT SET", "why": "the warm-start limits are not set"} if warm == "unset" else
+        {"verdict": warm.upper(), "why": "fixture warm", "startsMs": [100, 100]})
     if blank == "none":
         record["phases"]["cold-blank"] = "NOT MEASURED: the RichConnect icon is not on the launcher's first page"
     else:
@@ -278,7 +287,9 @@ class Run(Base):
         self.assertEqual(good["ios"]["commit"], head)
         calls = self.tools()
         self.assertIn(f"cli-android device install --serial {SERIAL} --expect-commit {head}", calls)
-        self.assertIn(f"cli-ios device perf --device {IDENT} --expect-commit {head} --cold 3 --warm 3", calls)
+        self.assertIn(f"cli-ios device perf --device {IDENT} --expect-commit {head} --cold 0 --launches 20 --warm 20", calls)
+        self.assertIn(f"cli-android device perf --serial {SERIAL} --expect-commit {head} --cold 20 --warm 20", calls)
+        self.assertIn("cold PASS", [o for o in outcomes if o["platform"] == "ios"][0]["standard"])
         self.assertNotIn("real-adb install", calls, "the phone is reached only through the platform verbs")
         finished = [r for r in self.ledger() if r["event"] == "finished"]
         self.assertEqual(len(finished), 1)
@@ -297,12 +308,25 @@ class Run(Base):
         android = [o for o in outcomes if o["platform"] == "android"][-1]
         self.assertEqual(android["verdict"], "slower")
         [esc] = self.escalated()
-        self.assertIn("Android start SLOWER than the benchmark", esc["title"])
+        self.assertIn("Android start FAILS the speed standard", esc["title"])
         self.assertIn(f"{good_sha[:12]}..{slow_sha[:12]}", esc["question"])
         self.assertIn("the change that slowed it", esc["question"])
-        self.assertIn("coldLaunch p95 1400 ms (SLOWER, limit 1000 ms)", esc["question"])
+        self.assertIn("cold start 3 took 1500 ms, not under 1000 ms", esc["question"])
+        self.assertIn("coldLaunch p95 1400 ms (SLOWER, limit 1000 ms)", json.dumps(esc),
+                      "the old p95 comparison is information only")
         self.assertEqual(json.loads((self.base / "home/good.json").read_text())["android"]["commit"], good_sha,
                          "a slower run never becomes the good run")
+
+    def test_W6b_the_warm_test_fails_and_its_unset_limits_are_loud(self):
+        self.request()
+        outcomes = self.run_round(env=dict(self.env, FAKE_WARM="fail"))
+        self.assertEqual({o["platform"]: o["verdict"] for o in outcomes}, {"android": "slower", "ios": "slower"})
+        self.assertIn("warm FAIL", self.escalated()[0]["question"])
+        self.escalations.unlink()
+        self.request()
+        outcomes = self.run_round(env=dict(self.env, FAKE_WARM="unset"))
+        self.assertEqual({o["platform"]: o["verdict"] for o in outcomes[-2:]}, {"android": "unmeasured", "ios": "unmeasured"})
+        self.assertIn("warm-start limits are not set", outcomes[-1]["why"])
 
     def test_W7_a_verb_that_does_not_exist_yet_is_a_run_that_could_not_measure(self):
         self.request()
@@ -340,7 +364,7 @@ class Run(Base):
         self.assertEqual(ios["verdict"], "unmeasured", ios)
         self.assertIn("exited 6", ios["why"])
         titles = [e["title"] for e in self.escalated()]
-        self.assertTrue(any("Android start SLOWER than the benchmark" in t for t in titles), titles)
+        self.assertTrue(any("Android start FAILS the speed standard" in t for t in titles), titles)
         self.assertTrue(any("iPhone run COULD NOT MEASURE" in t for t in titles), titles)
 
     def test_W15_a_blank_screen_on_the_android_start_is_a_regression_even_at_good_speed(self):
@@ -374,7 +398,7 @@ class Run(Base):
         self.assertEqual(android["verdict"], "unmeasured", android)
         self.assertIn("blank-screen check gave no verdict", android["why"])
         self.assertIn("icon is not on the launcher's first page", android["why"])
-        self.assertIn("coldLaunch p95 900 ms", android["why"], "the speed it did measure is still said")
+        self.assertIn("cold PASS", android["why"], "the speed it did measure is still said")
         titles = [e["title"] for e in self.escalated()]
         self.assertTrue(any("Android run COULD NOT MEASURE" in t for t in titles), titles)
 

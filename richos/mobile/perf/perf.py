@@ -648,6 +648,8 @@ def measure_android(args, dev, stamp, keeper, host, log, popen=None):
                 "(MainActivity ReportDrawnWhen: first frame after the saved state is read); see conditions.networkCondition"),
                 cold["useful"], "coldLaunch", firstFrameMs=cold["first"], firstFrameStats=perfcore.stats(cold["first"]),
                 rejected=cold["rejected"], screenCheck=cold["screenCheck"], presentationSamples=cold.get("presentationSamples", []))
+        if cold and args.kind == "physical":  # §104: the cold-start standard, judged from the series (perfcore.COLD_STANDARD)
+            record["metrics"]["coldStandard"] = perfcore.cold_verdict("android", cold["useful"])
         if args.blank_starts and (runner is None or popen is not None):  # a scripted adb scripts its recorder too
             import blankstart  # the no-blank-screen check (CEO 2026-10-02): its own module, limit in blank.py
             cb = phase("cold-blank", lambda: blankstart.android_cold_blank(
@@ -701,6 +703,11 @@ def measure_android(args, dev, stamp, keeper, host, log, popen=None):
                 warm["samples"], "warmResume", sampleStates=warm["states"], launchStates=warm["launchStates"],
                 hotStats=perfcore.stats(hot), recreatedStats=perfcore.stats(recreated),
                 firstRecreation=warm["firstRecreation"], rejected=warm["rejected"], presentationSamples=warm.get("presentationSamples", []))
+            if args.kind == "physical":  # the warm standard (perfcore.WARM_STANDARD); an unset limit is said loudly
+                try:
+                    record["metrics"]["warmStandard"] = perfcore.warm_verdict("android", warm["samples"])
+                except perfcore.LimitNotSet as exc:
+                    record["metrics"]["warmStandard"] = {"verdict": "LIMIT NOT SET", "why": str(exc), "method": "the warm-start standard has placeholder limits"}
 
         if bridge or args.production:
             scroll = phase("scroll", lambda: m.scroll(args.swipes))
@@ -897,6 +904,16 @@ def parse_args(argv):
     i.add_argument("--warm", type=int, default=0, help="warm returns in the retained process (0 skips the class)")
     i.add_argument("--away", type=float, default=2.0, help="seconds with Settings in front before each return")
     i.add_argument("--trace-seconds", type=int, default=10, help="Instruments recording length per trial")
+    i.add_argument("--trace-diagnostic", action="store_true",
+                   help="iPhone: run the Instruments trace series as a DIAGNOSTIC (coldLaunchTraced/warmResumeTraced). "
+                        "Never judged, never compared, never a pass or fail; without it --cold/--warm on a phone are the untraced series")
+    i.add_argument("--returns", type=int, default=0,
+                   help="iPhone, seeded: warm returns with nothing attached (another app in front, then RichConnect "
+                        "opened with `devicectl process launch`, no terminate); the iPhone's warmResume (--warm N means this)")
+    i.add_argument("--launches", type=int, default=0,
+                   help="iPhone, seeded: the cold-start test, N starts with nothing attached (no profiler): terminate, "
+                        "an ordinary launch request; start 1 unjudged, stops at the first of starts 2-5 over the "
+                        "limit (perfcore.COLD_STANDARD, §104). This is the iPhone's coldLaunch")
     i.add_argument("--tap-launches", type=int, default=0,
                    help="iPhone, seeded: cold launches by a tap on the Home Screen icon with no profiler, timed by the "
                         "app's own clocks from the kernel's process start (record `unprofiled`, never compared)")

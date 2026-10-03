@@ -1188,7 +1188,7 @@ def _():
 def ios_args(**over):
     base = dict(simulator=None, device="test-device", reparse=None, stamp=None, expect_commit=None, cold=1, warm=0,
                 evidence_dir="unused", away=2.0, trace_seconds=10, app_arg=None, xctrace=False,
-                conversation="as-installed", mac="reachable")
+                conversation="as-installed", mac="reachable", trace_diagnostic=True)  # the traced path is the diagnostic one
     base.update(over)
     return types.SimpleNamespace(**base)
 
@@ -1211,7 +1211,8 @@ def _():
         with patch.object(ios, 'trace_series', return_value=([sample], [], d)):
             record, failed = ios.run_ios(ios_args(stamp=stamp, expect_commit="ccc"), runner=devicectl_listing)
         assert not failed and record['ranOnHardware'] is True and 'coldUsefulDraw' not in record['metrics']
-        metric = record['metrics']['coldLaunch']
+        assert 'coldLaunch' not in record['metrics'], "a traced run is a diagnostic: never the judged key"
+        metric = record['metrics']['coldLaunchTraced']
         assert metric['samplesMs'] == [653.0] and metric['budget']['budget'] == 1000 and metric['exportAttempts'] == 5
         assert metric['startBoundary'] == "Initializing - Process Creation" and "presented" in metric['endBoundary']
         assert record['acceptance']['verdict'] == 'NOT VERIFIED'
@@ -1235,7 +1236,7 @@ def _():
             json.dump({"class": "cold", "device": {"kind": "physical", "udid": "u", "model": "iPhone SE", "os": "iOS 26.3.1"},
                        "build": {"bundle": ios.BUNDLE, "commit": "c" * 40, "dirty": False, "configuration": "release"}}, f)
         record, failed = ios.run_ios(ios_args(device=None, reparse=d), runner=exporter)
-        assert not failed and record['metrics']['coldLaunch']['samplesMs'] == [653.0, 653.0]
+        assert not failed and record['metrics']['coldLaunchTraced']['samplesMs'] == [653.0, 653.0]
         assert record['device']['model'] == "iPhone SE" and record['ranOnHardware'] is True
         assert "not a release" not in " ".join(record['acceptance']['why'])
 
@@ -2523,7 +2524,7 @@ def run_phone(phone, tmp, trace=None, **over):
     the series launched it (and the app is running afterwards, as after a launch)."""
     from unittest.mock import patch
     seen = []
-    def series(cls, driver, trials, evidence, runner, popen, sleep, seconds=10, away=2.0, app_args=()):
+    def series(cls, driver, trials, evidence, runner, popen, sleep, seconds=10, away=2.0, app_args=(), stop=None):
         seen.append((cls, phone.now()))
         if trace:
             trace(cls)
@@ -2561,7 +2562,7 @@ def _():
         c = record["conditions"]
         assert c["savedStateRestored"] is True and c["ownStateBackup"]["entries"] == len(before) and c["seededState"]["entries"] == 2, c
         assert record["route"]["name"] == "seeded fixture" and record["ranOnHardware"] and not failed, failed
-        assert set(record["metrics"]) == {"coldLaunch", "warmResume"}
+        assert set(record["metrics"]) == {"coldLaunchTraced", "warmResumeTraced"}  # the diagnostic's keys: never judged
         assert phone.now() == before, phone.now()  # the phone's own state, empty directory and recording included
         assert len(phone.copies_to()) == 2  # the seed, then the restore: nothing else was written
         # both written through the parent, so the state directory is the app's own and it can save
@@ -2753,6 +2754,163 @@ def _():
                  dict(conversation="as-installed", mac="reachable")):
         args = ios_args(tap_launches=30, tap_returns=0, **over)
         assert "seeded conversation" in raises(perfcore.Refused, ios.run_ios, args, runner=lambda *a, **k: 1 / 0)
+
+
+def _series(first, rest):
+    return [first] + list(rest)
+
+
+@case("K1 cold standard (CEO 2026-10-03, §104): a slow start 3 fails AT start 3 and stops the series; start 1 is ignored; both phones' limits")
+def _():
+    for plat, early, avg in (("ios", 800, 700), ("android", 1000, 900)):
+        assert perfcore.COLD_STANDARD[plat]["earlyMs"] == early and perfcore.COLD_STANDARD[plat]["avgMs"] == avg
+        v = perfcore.cold_verdict(plat, [early * 5, early - 1, early])
+        assert v["verdict"] == "FAIL" and v["failedStart"] == 3 and v["failedMs"] == early and v["stop"], v
+        assert "start 3" in v["why"] and f"{early} ms" in v["why"], v
+        assert perfcore.cold_should_stop(plat, [100, 100, early])
+        assert not perfcore.cold_should_stop(plat, [early * 9, early - 1, early - 1]), "start 1 is never judged"
+        assert perfcore.cold_verdict(plat, [100, 100, 100])["verdict"] == "INCOMPLETE"
+        # a slow start 6 is past the per-start window: only the average sees it
+        assert not perfcore.cold_should_stop(plat, [100] * 5 + [early * 3])
+
+
+@case("K2 cold standard: starts 2-5 under the limit but a 2-20 average over it fails; a good series passes (iPhone and Android)")
+def _():
+    for plat, early, avg in (("ios", 800, 700), ("android", 1000, 900)):
+        slow_tail = _series(100, [avg - 100] * 4 + [early + 2000] * 15)  # 2-5 fine, 6-20 slow
+        v = perfcore.cold_verdict(plat, slow_tail)
+        assert v["verdict"] == "FAIL" and not v["stop"] and "average" in v["why"] and v["averageMs"] >= avg, v
+        good = perfcore.cold_verdict(plat, _series(5000, [avg - 150] * 19))
+        assert good["verdict"] == "PASS" and good["averageMs"] == avg - 150, good
+        edge = perfcore.cold_verdict(plat, _series(0, [avg] * 19))
+        assert edge["verdict"] == "FAIL", "an average equal to the limit is not under it"
+
+
+@case("K3 the iPhone's untraced series: start 1 is the unjudged first launch, a slow start 3 stops it after 3 launches")
+def _():
+    log = []
+    ms = {2: 500, 3: 900, 4: 400}
+    launched = []
+    state = {"n": 0}
+
+    def launch():
+        state["n"] += 1
+        launched.append(state["n"])
+
+    def read():
+        return [{"requestToInputReadyMs": ms[k]} for k in range(2, state["n"] + 1)]
+    verdict, error = ios.run_launch_series(20, launch, lambda: None, read, lambda s: None, log.append)
+    assert error is None and verdict["verdict"] == "FAIL" and verdict["failedStart"] == 3, (verdict, error)
+    assert launched == [1, 2, 3], f"no start after the failing one: {launched}"
+    state["n"] = 0
+    launched.clear()
+    ms = {k: 300 for k in range(2, 21)}
+    verdict, error = ios.run_launch_series(20, launch, lambda: None, read, lambda s: None)
+    assert verdict is None and error is None and launched == list(range(1, 21)), (verdict, error, launched)
+
+
+@case("K4 warm standard: same judge, limits are placeholders that fail loudly until the CEO sets them; with limits set it behaves as the cold one")
+def _():
+    # the Android test phone's warm limits are the CEO's (§104 addendum: 135.5 per start, 122.0 average); the iPhone's are retracted
+    assert (perfcore.WARM_STANDARD["android"]["earlyMs"], perfcore.WARM_STANDARD["android"]["avgMs"]) == (135.5, 122.0)
+    assert perfcore.warm_verdict("android", [0, 100, 140])["failedStart"] == 3
+    assert perfcore.WARM_STANDARD["ios"]["earlyMs"] is None and perfcore.WARM_STANDARD["ios"]["avgMs"] is None
+    raises(perfcore.LimitNotSet, perfcore.warm_verdict, "ios", [100] * 20)
+    raises(perfcore.LimitNotSet, perfcore.warm_should_stop, "ios", [100] * 3)
+    saved = {p: dict(v) for p, v in perfcore.WARM_STANDARD.items()}
+    try:
+        perfcore.WARM_STANDARD["ios"].update(earlyMs=800, avgMs=700)
+        perfcore.WARM_STANDARD["android"].update(earlyMs=1000, avgMs=900)
+        v = perfcore.warm_verdict("ios", [100, 100, 850])
+        assert v["verdict"] == "FAIL" and v["failedStart"] == 3 and v["stop"] and v["kind"] == "warm", v
+        assert perfcore.warm_verdict("android", _series(9000, [500] * 19))["verdict"] == "PASS"
+        assert perfcore.warm_verdict("android", _series(0, [100] * 4 + [1500] * 15))["verdict"] == "FAIL"
+    finally:
+        for p, v in saved.items():
+            perfcore.WARM_STANDARD[p].update(v)
+
+
+@case("K5 the judged series never comes from a traced run: a phone's --cold/--warm are the untraced series, the trace is --trace-diagnostic and carries only *Traced keys, no standard verdict")
+def _():
+    from unittest.mock import patch
+    plain = ios_args(trace_diagnostic=False, cold=20, warm=20)
+    ios.untraced_for_phone(plain)
+    assert (plain.cold, plain.warm, plain.launches, plain.returns) == (0, 0, 20, 20), plain
+    traced = ios_args(trace_diagnostic=True, cold=20, warm=20)
+    ios.untraced_for_phone(traced)
+    assert (traced.cold, traced.warm) == (20, 20) and not getattr(traced, "launches", 0), "the diagnostic keeps the trace"
+    assert ios.metric_key("cold", "physical") == "coldLaunchTraced" and ios.metric_key("warm", "physical") == "warmResumeTraced"
+    # no traced series is ever started without --trace-diagnostic, even when asked for cold and warm
+    with patch.object(ios, "trace_series", side_effect=AssertionError("a traced series was started")):
+        raises(perfcore.Refused, ios.run_ios, ios_args(trace_diagnostic=False, cold=20, warm=20), runner=devicectl_listing)
+    # and the speed check refuses a record whose only cold series is a traced one
+    import watch
+    traced_record = {"metrics": {"coldLaunchTraced": {"samplesMs": [1100] * 20}}}
+    raises(watch.Unmeasured, watch.cold_standard, "ios", traced_record)
+    raises(watch.Unmeasured, watch.warm_standard, {"metrics": {"warmResumeTraced": {"samplesMs": [500] * 20}}})
+
+
+@case("K6 the iPhone's untraced warm series: a slow return 3 stops it after 3 returns once its limit is set; unset limits stop nothing and say so; a relaunch is rejected")
+def _():
+    year = 2026
+    def stamp(sec):
+        return f"Oct  3 10:00:{sec:06.3f}"
+    request = lambda sec: f'{stamp(sec)} SpringBoard(FrontBoard)[1] <Notice>: [FBSystemService][0xabc] Received request to open "{ios.BUNDLE}"'
+    log = "\n".join(request(s) for s in (1, 10, 20, 30))
+    t = lambda sec: ios.syslog_wall_us(stamp(sec), year)
+    events = [{"e": "input-ready", "wallUs": t(11.4), "pid": 7}, {"e": "input-ready", "wallUs": t(21.0), "pid": 7},
+              {"e": "input-ready", "wallUs": t(30.6), "pid": 7}]
+    samples, rejected = ios.return_request_samples(events, log, year)  # returns 1..3; return 1 is unjudged
+    assert [round(s["requestToInputReadyMs"]) for s in samples] == [1000, 600] and not rejected, (samples, rejected)
+    relaunch = events + [{"e": "process", "wallUs": t(20.2), "startUs": t(20.1), "pid": 9}]
+    assert ios.return_request_samples(relaunch, log, year)[1][0]["why"].startswith("a new process started")
+    saved = dict(perfcore.WARM_STANDARD["ios"])
+    try:
+        # unset: nothing stops the series, and its verdict is the loud placeholder
+        ms = {2: 900, 3: 900, 4: 900}
+        state = {"n": 0, "launches": []}
+        def launch():
+            state["n"] += 1
+        def read():
+            return [{"requestToInputReadyMs": 900} for k in range(2, state["n"])]  # launch count = return number + 1
+        # n counts launches: the setup launch plus one per return
+        verdict, error = ios.run_return_series(6, lambda: None, launch, read, lambda s: None)
+        assert verdict is None and error is None and state["n"] == 7, state
+        perfcore.WARM_STANDARD["ios"].update(earlyMs=500.0, avgMs=400.0)
+        state["n"] = 0
+        verdict, error = ios.run_return_series(20, lambda: None, launch, read, lambda s: None)
+        assert verdict["failedStart"] == 2 and state["n"] == 3, (verdict, state)  # setup + returns 1 and 2, nothing after
+    finally:
+        perfcore.WARM_STANDARD["ios"].update(saved)
+
+
+@case("K7 the warm series' mid-series timing read never terminates the app: devicectl sees no `process terminate` between returns (a stop would make the next return a relaunch)")
+def _():
+    calls = []
+
+    def fake_devicectl(cmd, **kw):
+        calls.append(list(cmd))
+        if "copy" in cmd and "from" in cmd:
+            dest = cmd[cmd.index("--destination") + 1]
+            os.makedirs(dest)
+            with open(os.path.join(dest, ios.TIMING_FILE), "w") as f:
+                f.write("")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    driver = types.SimpleNamespace(target="x", pid=lambda: 4242)  # the app is running throughout
+    state = ios.DeviceState(driver, runner=fake_devicectl, sleep=lambda s: None)
+    with tempfile.TemporaryDirectory() as tmp:
+        got = os.path.join(tmp, "got")
+        log_path = os.path.join(tmp, "log")
+        open(log_path, "w").close()
+        ios._read_launch_evidence(state, got, log_path, stop=False)
+        assert any("copy" in c and "from" in c for c in calls), calls
+        assert not any("terminate" in c for c in calls), f"the mid-series read stopped the app: {calls}"
+        calls.clear()
+        try:
+            ios._read_launch_evidence(state, got, log_path)  # the default (final) read still stops first
+        except ios.Unmeasurable:
+            pass  # the fake app never exits, so the stop gives up; what matters is that it asked
+        assert any("terminate" in c for c in calls), calls
 
 
 if __name__ == "__main__":
