@@ -81,7 +81,7 @@
 # ---- the eight that read the whole shipped manifest ------------------------------------
 # Each of these requires `./lib/ui-sources` and walks every file it classifies: the state
 # inventory, the contrast sweep and the dialect pass are whole-surface gates by definition.
-affordances.js          @allui
+affordances.js          @allui richos/app/src-tauri/src/ richos/app/crates/
 appearance.js           @allui
 contrast.js             @allui richos/app/ui/tests/contrast-debt.json
 corrections.js          @allui richos/app/ui/tests/fixtures/loro-proposal.json richos/app/ui/tests/fixtures/loro-proposal-asked-again.json richos/app/ui/tests/fixtures/heard-candidate.json
