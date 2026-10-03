@@ -76,7 +76,10 @@ public enum Action: Equatable, Sendable {
     case openedFromNotification(messageID: String)
     /// A tapped notification for this Mac and conversation, by its reply's reference (SHA-256 hex of
     /// the id). Focuses the reply, fetching older history until it appears (contract §7.3 step 3).
-    case openedFromNotificationReference(String)
+    /// `preview` is the reply's opening text, opened from the notification on the phone (previews on),
+    /// and `at` the tap's time: the conversation then shows it at once as a provisional row, and the
+    /// stream's full reply replaces it, with no wait on the Mac.
+    case openedFromNotificationReference(String, preview: String? = nil, at: Int64 = 0)
     /// A share the Share extension saved, taken into the outbox with its own ids and commit bytes.
     case takeShare(SharedIntake, at: Int64)
     case clearFocus

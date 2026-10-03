@@ -17,6 +17,9 @@ struct NotificationTarget: Equatable, Sendable {
     var thread: String
     /// 64 lowercase hex: SHA-256 of the reply's message id.
     var event: String
+    /// The reply's opening text, opened on the phone from the sealed preview when the tap happens
+    /// (previews on and the key present); `nil` otherwise. Never part of the strict `userInfo` shape.
+    var preview: String?
 
     init?(userInfo: [AnyHashable: Any]) {
         guard let refs = userInfo["richos"] as? [String: Any], refs.count == 3,

@@ -286,7 +286,7 @@ public struct Fixture: Sendable {
     // MARK: 11 · launch
 
     static let launch: [Fixture] = [
-        Fixture(name: "launch-cached", state: paired(full: true) { $0.history.cached = true }),
+        Fixture(name: "launch-cached", state: paired(full: true) { $0.history.cached = true; $0.connectionNotice = .reconnecting }),
     ]
 }
 

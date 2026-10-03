@@ -529,6 +529,42 @@ let repositoryRoot: URL = {
         #expect(restored.history.cached)
         #expect(!Reducer.reduce(restored, .connected(at: 1)).state.history.cached)
     }
+
+    /// Tapping a reply notification whose reply is not on the phone opens on its preview at once,
+    /// with no "loading older" and no request to the Mac; the stream's reply then replaces it.
+    @Test func aReplyNotificationOpensOnItsPreviewWithoutAskingTheMac() throws {
+        let s0 = try AppState(restoring: try Fixture.named("conv-populated").state.persisted)
+        let id = "turn_new:text:0"
+        let ref = ConversationReducer.notificationReference(id)
+        let tapped = Reducer.reduce(s0, .openedFromNotificationReference(ref, preview: "Here is the plan", at: 9_000))
+        #expect(!tapped.effects.contains { if case .loadOlder = $0 { return true } else { return false } })
+        #expect(!tapped.state.history.loadingOlder)
+        let row = try #require(tapped.state.messages.first { $0.id.hasPrefix("notified:") })
+        #expect(row.author == .rich && row.text == "Here is the plan" && tapped.state.focusedMessageID == row.id)
+        // A preview at the sealed limit is only the start of the reply: the row says so.
+        let long = Reducer.reduce(s0, .openedFromNotificationReference(ref, preview: String(repeating: "a", count: 240), at: 9_000))
+        #expect(long.state.messages.first { $0.id.hasPrefix("notified:") }?.text.hasSuffix("…") == true)
+        // The stream's full reply replaces the provisional row.
+        let full = Message(id: id, author: .rich, text: "Here is the plan, in full.", sentAt: 9_500, cursor: 1_000_000)
+        let arrived = Reducer.reduce(tapped.state, .messagesArrived([full])).state
+        #expect(arrived.messages.filter { $0.author == .rich && $0.text.hasPrefix("Here is the plan") }.count == 1)
+        #expect(arrived.messages.contains { $0.id == id } && !arrived.messages.contains { $0.id.hasPrefix("notified:") }
+                && arrived.focusedMessageID == id && arrived.notifiedReply == nil)
+    }
+
+    /// Android's `!hasConnected && notice != null`: a healthy start never shows the out-of-reach
+    /// line; it comes only after the quiet 3 s without the Mac, and goes when the Mac answers.
+    @Test func theOutOfReachLineWaitsForTheQuietPeriodLikeAndroid() throws {
+        var s = try AppState(restoring: try Fixture.named("conv-populated").state.persisted)
+        #expect(s.history.cached && !s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice))
+        s = Reducer.reduce(s, .foregrounded(at: 1_000)).state
+        s = Reducer.reduce(s, .tick(at: 3_999)).state
+        #expect(!s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice))
+        s = Reducer.reduce(s, .tick(at: 4_000)).state
+        #expect(s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice))
+        s = Reducer.reduce(s, .connected(at: 5_000)).state
+        #expect(!s.history.showsOutOfReachLine(connectionNotice: s.connectionNotice))
+    }
 }
 
 /// A pretend platform: answers the microphone question and records what it was asked.

@@ -155,8 +155,19 @@ public enum ConversationReducer {
             s.notifiedReply = nil
             s.focusedMessageID = messageID
             s.following = true
-        case .openedFromNotificationReference(let reference):
+        case .openedFromNotificationReference(let reference, let preview, let at):
             s.notifiedReply = reference
+            if let preview, !preview.isEmpty, !s.messages.contains(where: { notificationReference($0.id) == reference }) {
+                // The tapped notification already carries the reply's opening: show it now, as the
+                // newest row, and let the stream's full reply replace it (`merge`). The preview is
+                // the reply's first `previewLimit` characters, so a full-length one ends in "…".
+                let id = provisionalPrefix + reference
+                if !s.messages.contains(where: { $0.id == id }) {
+                    let text = preview.count >= previewLimit ? preview + "…" : preview
+                    s.messages.append(Message(id: id, author: .rich, text: text, sentAt: at))
+                    s.messages = ordered(s.messages)
+                }
+            }
             seekNotified(&s, &effects, progressed: true)
         case .takeShare(let intake, let at):
             take(intake, &s, at: at, &effects)
@@ -256,6 +267,13 @@ public enum ConversationReducer {
             s.following = true
             return
         }
+        // A provisional row from the notification is on screen: no wait on older history. The
+        // stream's reply replaces it, and the next seek focuses that.
+        if s.messages.contains(where: { $0.id == provisionalPrefix + reference }) {
+            s.focusedMessageID = provisionalPrefix + reference
+            s.following = true
+            return
+        }
         guard progressed, s.pairing == .paired, !s.history.loadingOlder, !s.history.reachedBeginning else { return }
         s.history.loadingOlder = true
         effects.append(.loadOlder(before: s.messages.first?.id))
@@ -304,8 +322,16 @@ public enum ConversationReducer {
             }
         }
         reconcile(&s)
+        // The real reply has come: the notification's provisional row is done.
+        let real = Set(s.messages.filter { !$0.id.hasPrefix(provisionalPrefix) }.map { notificationReference($0.id) })
+        s.messages.removeAll { $0.id.hasPrefix(provisionalPrefix) && real.contains(String($0.id.dropFirst(provisionalPrefix.count))) }
         s.messages = ordered(s.messages)
     }
+
+    /// The id prefix of a reply shown from its notification before the stream has delivered it.
+    static let provisionalPrefix = "notified:"
+    /// How many characters of a reply the Mac seals into a notification (`NotificationPreview`).
+    static let previewLimit = 240
 
     /// The Mac's rows in history-cursor order; the phone's own bubbles (no cursor yet) after them in
     /// the order they were sent. Also the order a relaunch restores, so the screen does not rearrange
