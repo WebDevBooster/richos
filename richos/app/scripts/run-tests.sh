@@ -776,7 +776,13 @@ name_failures() {
   found="$(python3 "$KEEPER" names --log "$WORK/$idx.out" ${paths[@]+"${paths[@]}"} 2>&1 \
            | sed -n 's/^  FAILED TEST  //p')"
   if [ -z "$found" ]; then
-    found="$(sed -n 's/^  FAIL  //p' "$WORK/$idx.out" 2>/dev/null | head -20)"
+    # Indented or not: extension-native-browser.test.sh prints `FAIL  LEG1 ...` at column 0 (the
+    # nightly of 2026-10-03 said it "named nothing" over exactly that line).
+    found="$(sed -n 's/^[[:space:]]*FAIL  //p' "$WORK/$idx.out" 2>/dev/null | head -20)"
+  fi
+  if [ -z "$found" ]; then
+    # The suite's own tally, when it prints one but no FAIL line: "7 checks passed, 1 failed".
+    found="$(sed -n 's/^[[:space:]]*\([0-9][0-9]* checks passed, [1-9][0-9]* failed\).*/\1/p' "$WORK/$idx.out" 2>/dev/null | tail -1)"
   fi
   if [ -z "$found" ]; then
     found="$(python3 "$KEEPER" last-error "$WORK/$idx.out" 2>/dev/null | sed 's/^/(no test ran to fail) /')"

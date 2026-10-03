@@ -396,6 +396,35 @@ if has "$(tail -3 <<<"$out")" "c.test.sh: (no test ran to fail) TimeoutError: pr
   ok "R5 a suite that died before any test ran is named by its last error beside it in the summary"
 else bad "R5 a suite with no test is named by its last error" "$(tail -4 <<<"$out")"; fi
 
+# R7 — the nightly of 2026-10-03: extension-native-browser.test.sh printed `FAIL  LEG1 ...` at
+# column 0 and `7 checks passed, 1 failed`, and the summary said "failed and named nothing".
+make_box "$TMP/re"
+rm -f "$TMP/re/scripts/a.test.sh" "$TMP/re/scripts/b.test.sh"
+cat > "$TMP/re/scripts/c.test.sh" <<'SH'
+#!/usr/bin/env bash
+# run-tests: no-host-screen: fixture output only
+echo '=== LEG 1: native-messaging transport ==='
+echo 'FAIL  LEG1 ran to completion — Error: cdp timeout: Target.setDiscoverTargets'
+echo '7 checks passed, 1 failed'
+exit 1
+SH
+out="$(RUN_TESTS_RETRY=0 RUN_TESTS_RESULTS_STATE="$TMP/re/kept" bash "$TMP/re/scripts/run-tests.sh" 2>&1)"
+if has "$(tail -3 <<<"$out")" "c.test.sh: LEG1 ran to completion — Error: cdp timeout: Target.setDiscoverTargets" && ! has "$out" "named nothing"; then
+  ok "R7 an unindented FAIL line names the failed check in the summary, never 'named nothing'"
+else bad "R7 an unindented FAIL line is named" "$(tail -4 <<<"$out")"; fi
+
+# R7b — only the tally, no FAIL line: the tally is the name.
+cat > "$TMP/re/scripts/c.test.sh" <<'SH'
+#!/usr/bin/env bash
+# run-tests: no-host-screen: fixture output only
+echo '7 checks passed, 1 failed'
+exit 1
+SH
+out="$(RUN_TESTS_RETRY=0 RUN_TESTS_RESULTS_STATE="$TMP/re/kept" bash "$TMP/re/scripts/run-tests.sh" 2>&1)"
+if has "$(tail -3 <<<"$out")" "c.test.sh: 7 checks passed, 1 failed" && ! has "$out" "named nothing"; then
+  ok "R7b a suite that prints only its tally is named by the tally"
+else bad "R7b a tally-only suite is named" "$(tail -4 <<<"$out")"; fi
+
 # ------------------------------------------------------------------------------------------
 # P1: the incident through proof-run.py, as Rich runs it (--keep-going; both suites in the
 # gradle lane, one after the other). The host sample is stubbed so a busy Mac cannot turn this
