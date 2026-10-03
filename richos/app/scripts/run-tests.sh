@@ -1019,6 +1019,49 @@ TOTAL_CHECKS=0
 STARTED=()
 ELAPSED=()
 
+# A real failure (not a declared-gap exit 2) is retried once; RUN_TESTS_RETRY=0 turns it off.
+retryable() {  # retryable <exit code> <output>
+  [ "${RUN_TESTS_RETRY:-1}" != 0 ] || return 1
+  [ "$1" -ne 0 ] || return 1
+  [ "$1" -ne 2 ] && return 0
+  grep -q '^[[:space:]]*FAIL  ' <<<"$2"
+}
+
+# Run suite $1 once more, alone: the pool is drained first (nothing new launches while the printer
+# is here), the suite's results folder is fresh, and it runs in the foreground the same way
+# launch() runs it. Its first-run exit code is $2 and output $3. If it passes, the suite counts as
+# passed and says what the first run failed on; if it fails again, $idx.out holds BOTH runs so
+# name_failures and the refusal quote both.
+RETRY_OUT=""
+retry_alone() {
+  local idx="$1" first_code="$2" first_out="$3"
+  local t="${SUITES[$idx]}" rel="${REL[$idx]}" results code lease=() first_named
+  results="$(results_dir "$idx")"
+  first_named="$(printf '%s\n' "$first_out" | sed -n 's/^[[:space:]]*FAIL  //p' | head -3 | tr '\n' ';')"
+  echo "    run-tests.sh: $rel failed (exit $first_code${first_named:+; $first_named}); retrying it ONCE, alone (verification-retries.md)."
+  while [ "$(running_count)" -gt 0 ]; do sleep 0.5; done
+  rm -rf "$results"
+  if [ -n "${RICHOS_WORKER_TOKENS:-}" ]; then
+    lease=(python3 "${RICHOS_WORKER_TOKENS_TOOL:-$WORKER_TOOL}" run "$RICHOS_WORKER_TOKENS"
+           --free "$WORK/suite-free.lock" --)
+  fi
+  case "${RUNNER[$idx]}" in
+    vm:*) RICHOS_TEST_RESULTS_DIR="$results" ${lease[@]+"${lease[@]}"} "$DIR/testvm/run-suite.sh" "${RUNNER[$idx]#vm:}" "$t" > "$WORK/$idx.retry.out" 2>&1 && code=0 || code=$? ;;
+    *)    RICHOS_TEST_RESULTS_DIR="$results" ${lease[@]+"${lease[@]}"} bash "$t" > "$WORK/$idx.retry.out" 2>&1 && code=0 || code=$? ;;
+  esac
+  echo "$code" > "$WORK/$idx.rc"
+  date +%s > "$WORK/$idx.end"
+  RETRY_OUT="$(cat "$WORK/$idx.retry.out" 2>/dev/null)"
+  printf '%s\n' "$RETRY_OUT"
+  if [ "$code" -eq 0 ]; then
+    echo "    run-tests.sh: $rel PASSED on the retry, alone. First run: exit $first_code${first_named:+; $first_named}."
+    echo "    The suite is counted as passed; the first failure is recorded above and is load-sensitive until shown otherwise."
+  else
+    echo "    run-tests.sh: $rel FAILED AGAIN on the retry, alone (exit $code): first run exit $first_code, second run exit $code. Both are quoted below."
+    { printf '%s\n' "$first_out"; echo "--- retry, alone ---"; printf '%s\n' "$RETRY_OUT"; } > "$WORK/$idx.out"
+  fi
+}
+
 print_result() {
   local idx="$1"
   local rel="${REL[$idx]}"
@@ -1044,6 +1087,14 @@ print_result() {
   code="$(cat "$WORK/$idx.rc" 2>/dev/null || echo 1)"
   ELAPSED[$idx]=$(( $(cat "$WORK/$idx.end" 2>/dev/null || date +%s) - ${STARTED[$idx]:-0} ))
   printf '%s\n' "$out"
+  # A suite that failed is retried ONCE, alone, before this run counts it as failed
+  # (docs/development/verification-retries.md; the nightly of 2026-10-03 lost an attempt to a
+  # suite that failed with the host at 98% CPU and passed 26 of 26 alone minutes later).
+  if retryable "$code" "$out"; then
+    retry_alone "$idx" "$code" "$out"   # prints its own narration; sets RETRY_OUT, rewrites $idx.rc
+    out="$RETRY_OUT"
+    code="$(cat "$WORK/$idx.rc" 2>/dev/null || echo 1)"
+  fi
   # Each suite ends with "all N passed" or "N FAILED, M passed"; the count is read
   # off the suite's own output rather than asserted here, for the same reason the
   # inventory is not typed.

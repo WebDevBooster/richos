@@ -38,6 +38,9 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEEPER="$DIR/lib/test_results.py"
 TMP="$(mktemp -d -t test-results-test.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
+# The incident fixtures below hold a failing suite's FIRST run to account; a retry would rerun it
+# (and rewrite the shared folder the fixture replaces on purpose). R8/R8b turn the retry back on.
+export RUN_TESTS_RETRY=0
 unset RICHOS_TEST_RESULTS_ROOT RICHOS_TEST_RESULTS_DIR
 # The fixture harness has two suites, so a gap the calling build declares (the nightly's
 # script-suites gate declares front-door.test.sh) names a suite it does not have, and its
@@ -424,6 +427,43 @@ out="$(RUN_TESTS_RETRY=0 RUN_TESTS_RESULTS_STATE="$TMP/re/kept" bash "$TMP/re/sc
 if has "$(tail -3 <<<"$out")" "c.test.sh: 7 checks passed, 1 failed" && ! has "$out" "named nothing"; then
   ok "R7b a suite that prints only its tally is named by the tally"
 else bad "R7b a tally-only suite is named" "$(tail -4 <<<"$out")"; fi
+
+# R8 — a suite that fails under load and passes alone (the nightly of 2026-10-03, attempt 4): the
+# gate retries it ONCE, alone, and does not refuse the build; it says what the first run failed on.
+make_box "$TMP/rf"
+rm -f "$TMP/rf/scripts/a.test.sh" "$TMP/rf/scripts/b.test.sh"
+cat > "$TMP/rf/scripts/c.test.sh" <<SH
+#!/usr/bin/env bash
+# run-tests: no-host-screen: fixture output only
+echo x >> "$TMP/rf/runs"
+if [ "\$(wc -l < "$TMP/rf/runs" | tr -d ' ')" = 1 ]; then
+  echo 'FAIL  LEG1 ran to completion — Error: cdp timeout: Target.setDiscoverTargets'
+  exit 1
+fi
+echo '=== c tests: all 4 passed ==='
+SH
+out="$(RUN_TESTS_RETRY=1 RUN_TESTS_RESULTS_STATE="$TMP/rf/kept" bash "$TMP/rf/scripts/run-tests.sh" 2>&1)"; code=$?
+runs="$(wc -l < "$TMP/rf/runs" | tr -d ' ')"
+if [ "$code" = 0 ] && [ "$runs" = 2 ] && has "$out" "PASSED on the retry, alone" && has "$out" "cdp timeout: Target.setDiscoverTargets"; then
+  ok "R8 a suite that fails once and passes alone is retried once, passes, and says what the first run failed on"
+else bad "R8 a failed suite is retried once, alone" "exit $code, $runs run(s): $(tail -4 <<<"$out")"; fi
+
+# R8b — a suite that fails both times still refuses the run, and the refusal quotes both runs.
+make_box "$TMP/rg"
+rm -f "$TMP/rg/scripts/a.test.sh" "$TMP/rg/scripts/b.test.sh"
+cat > "$TMP/rg/scripts/c.test.sh" <<SH
+#!/usr/bin/env bash
+# run-tests: no-host-screen: fixture output only
+echo x >> "$TMP/rg/runs"
+echo "FAIL  run-\$(wc -l < "$TMP/rg/runs" | tr -d ' ') the check is really broken"
+exit 1
+SH
+out="$(RUN_TESTS_RETRY=1 RUN_TESTS_RESULTS_STATE="$TMP/rg/kept" bash "$TMP/rg/scripts/run-tests.sh" 2>&1)"; code=$?
+runs="$(wc -l < "$TMP/rg/runs" | tr -d ' ')"
+if [ "$code" = 1 ] && [ "$runs" = 2 ] && has "$(tail -6 <<<"$out")" "c.test.sh: run-1 the check is really broken" \
+   && has "$(tail -6 <<<"$out")" "c.test.sh: run-2 the check is really broken" && has "$out" "FAILED AGAIN on the retry"; then
+  ok "R8b a suite that fails twice refuses the run after exactly one retry, naming both runs"
+else bad "R8b a suite that fails twice quotes both runs" "exit $code, $runs run(s): $(tail -6 <<<"$out")"; fi
 
 # ------------------------------------------------------------------------------------------
 # P1: the incident through proof-run.py, as Rich runs it (--keep-going; both suites in the

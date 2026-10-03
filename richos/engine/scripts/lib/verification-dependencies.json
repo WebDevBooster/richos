@@ -14556,7 +14556,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/run-tests.sh",
-          "sha256": "5525b9b38dd1338fc0eef51ba047b40ffd8ec3d629c65f356da98c3928054aa2",
+          "sha256": "15fac1e4a8a0eb3cdcf02a94d7d7bf030f55728e29fa53541652077d12cfcf22",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
