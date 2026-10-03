@@ -122,6 +122,13 @@ class DeviceLaunch(unittest.TestCase):
         self.assertIn('"state": "ok"', p.stderr)
         self.assertNotIn("--console", self.calls)
 
+    def test_detach_after_the_bundle_is_the_flag_not_an_app_argument(self):
+        p, launches, reboots = self.run_tool([str(TOOL), "launch", "dev.example.app", "--device", "PHONE", "--detach"])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((launches, reboots), (1, 0))
+        self.assertNotIn("--console", self.calls)
+        self.assertNotIn("--detach", self.calls)
+
     def test_dead_wifi_is_restarted_before_the_first_open(self):
         p, launches, reboots = self.run_launch("connected", "ok", path="dead-then-ok")
         self.assertEqual(p.returncode, 0, p.stderr)
