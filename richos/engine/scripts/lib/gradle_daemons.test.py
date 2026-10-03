@@ -142,8 +142,8 @@ class WarmDaemon(unittest.TestCase):
         # The workspace's second build found the first one's daemon (red on main: 'started' twice).
         self.assertEqual([row[:2] for row in log], [['started', str(started)], ['reused', str(started)]])
         self.assertTrue(alive(started))
-        # 5 cores granted at 5 percent busy on 10 cpus; the daemon gets 5 - 2 processors and workers.
-        self.assertEqual(log[1][2], '--max-workers=3')
+        # 5 cores granted at 5 percent busy on 10 cpus; the daemon gets 5 - 4 processors and workers (at least 1).
+        self.assertEqual(log[1][2], '--max-workers=1')
         # Nothing else the builds left behind survived them.
         strays = [int(p) for p in self.log.with_name('strays').read_text().split()]
         self.assertEqual(len(strays), 2)
@@ -153,7 +153,7 @@ class WarmDaemon(unittest.TestCase):
         workspace = os.path.realpath(self.ws)
         record = gradle_daemons.load(workspace)
         self.assertEqual(list(record['daemons']), [str(started)])
-        self.assertEqual(record['daemons'][str(started)]['processors'], 3)
+        self.assertEqual(record['daemons'][str(started)]['processors'], 1)
         grant = {'cores': 5, 'group': workspace}
         self.assertIn((started, 'gradle daemon: ' + workspace, cpu_guard.NATIVE_ROLE, grant), self.registered)
         builds = [r for r in self.registered if r[1] == 'native build: gradlew']
@@ -228,11 +228,11 @@ class Decisions(unittest.TestCase):
         self.assertIn('-Dorg.gradle.jvmargs=-Xmx1536m -XX:ActiveProcessorCount=4 -Dfile.encoding=UTF-8', warm)
         self.assertIn('-Dorg.gradle.daemon.registry.base=/r', warm)
         self.assertIn('-Dorg.gradle.daemon.idletimeout=120000', warm)
-        self.assertEqual([N.gradle_processors(c) for c in (1, 2, 3, 4, 6)], [1, 1, 1, 2, 4])
+        self.assertEqual([N.gradle_processors(c) for c in (1, 2, 3, 4, 6)], [1, 1, 1, 1, 2])
         with patch.dict(os.environ, {'RICHOS_GRADLE_MAX_PROCESSORS': '1'}):
-            self.assertEqual([N.gradle_processors(c) for c in (1, 4, 6)], [1, 1, 1])
+            self.assertEqual([N.gradle_processors(c) for c in (1, 4, 6, 10)], [1, 1, 1, 1])
         with patch.dict(os.environ, {'RICHOS_GRADLE_MAX_PROCESSORS': '9'}):
-            self.assertEqual(N.gradle_processors(4), 2)          # a brake, never an accelerator
+            self.assertEqual(N.gradle_processors(6), 2)          # a brake, never an accelerator
 
 
 if __name__ == '__main__':
