@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { makeHost, clock, memoryStorage, Phone, freshKey } from './helpers.mjs';
 import { readConfig, inForbiddenZone } from '../src/config.mjs';
-import { handlePortal } from '../src/portal.mjs';
+import { handlePortal, hostView } from '../src/portal.mjs';
 import { hashPassword } from '../src/session.mjs';
 import { handle, ReviewHost } from '../src/worker.mjs';
 import { PALETTE, PAIRS, STYLE, SCRIPT } from '../src/pages.mjs';
@@ -287,3 +287,11 @@ test('a Durable Object builds one review host, even when its first requests arri
 });
 
 void clock; void makeHost; void freshKey;
+
+test('the Paired banner shows only while a phone is paired', () => {
+	const base = { label: 'Test', username: 'u', now: 0, push: { configured: false }, words: [] };
+	const unpaired = hostView({ ...base, status: { ...base, hostname: 'h', paired: null, pairing: null, notice: { kind: 'confirmed', at: 0 } } });
+	assert.ok(!unpaired.includes('Paired. RichConnect is now connected'));
+	const paired = hostView({ ...base, status: { ...base, hostname: 'h', paired: { name: 'P', active: true }, pairing: null, notice: { kind: 'confirmed', at: 0 } } });
+	assert.ok(paired.includes('Paired. RichConnect is now connected'));
+});
