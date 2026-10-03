@@ -23,9 +23,14 @@ import {
   parseTestFlightArgs,
   parseTestFlightEnv,
   readTestFlightEnv,
+  recordUpload,
+  runRelease,
+  speedGate,
+  uploadedCommit,
   validateUploadMetadata,
   withTemporaryPrivateKey,
 } from "./testflight.ts";
+import type { ReleaseDeps } from "./testflight.ts";
 
 const BUNDLE = "dev.richos.connect";
 const keys = NodeCrypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -491,5 +496,102 @@ describe("release command input", () => {
 
   it("never takes credentials from the command line", () => {
     NodeAssert.throws(() => parseTestFlightArgs(["status", "--build", "46", "--version", VERSION, "--key", "x"]));
+  });
+});
+
+// RichOS (CEO 2026-10-03, §106): nothing reaches users without passing the speed tests. The gate itself
+// (richos/mobile/perf/shipgate.py) is proven by richos/app/scripts/mobile-ship-gate.test.sh; these prove
+// that upload and publish ask it first and stop on its refusal, before credentials, network or Xcode.
+describe("speed gate (CEO §106)", () => {
+  const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+  const REFUSAL = "REFUSED by the speed gate (CEO §106): iPhone build of 0123456789ab: no speed verdict file";
+
+  function harness(gatePasses: boolean) {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "ship-gate-"));
+    const calls: string[] = [];
+    const deps: ReleaseDeps = {
+      gate: (where) => {
+        calls.push(`gate ${where.join(" ")}`);
+        if (!gatePasses) throw new Error(REFUSAL);
+        return COMMIT;
+      },
+      receipts: NodePath.join(directory, "uploads.json"),
+      checkout: "/the/checkout",
+      readEnv: async () => {
+        calls.push("credentials");
+        return parseTestFlightEnv(internalOnlySource);
+      },
+      client: () => ({
+        verifyUpload: async () => void calls.push("verify"),
+        status: async () => (calls.push("status"), {}) as never,
+        publish: async () => (calls.push("publish"), {}) as never,
+      }),
+      upload: async (_archive, _options, _config, _key, verify, beforeExport) => {
+        calls.push("upload");
+        await verify(selection);
+        beforeExport(selection);
+        calls.push("export");
+      },
+      readNotes: async () => "notes",
+    };
+    return { deps, calls, cleanup: () => NodeFS.rmSync(directory, { recursive: true, force: true }) };
+  }
+  const upload = parseTestFlightArgs(["upload", "--archive", "/tmp/A.xcarchive", "--export-options", "/tmp/E.plist"]);
+  const publish = parseTestFlightArgs(["publish", "--build", "46", "--version", VERSION, "--notes-file", "/tmp/n"]);
+  if (upload.command !== "upload" || publish.command !== "publish") throw new Error("unexpected parse");
+
+  it("upload is refused by the gate before credentials, App Store Connect or Xcode", async () => {
+    const { deps, calls, cleanup } = harness(false);
+    try {
+      await NodeAssert.rejects(runRelease(upload, deps), (e: Error) => e.message === REFUSAL);
+      NodeAssert.deepEqual(calls, ["gate --checkout /the/checkout"]);
+      NodeAssert.equal(NodeFS.existsSync(deps.receipts), false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("upload with the gate's pass records the commit, then publish gates that same commit", async () => {
+    const { deps, calls, cleanup } = harness(true);
+    try {
+      await runRelease(upload, deps);
+      NodeAssert.deepEqual(calls, ["gate --checkout /the/checkout", "credentials", "upload", "verify", "export"]);
+      NodeAssert.equal(uploadedCommit(deps.receipts, selection), COMMIT);
+      calls.length = 0;
+      await runRelease(publish, deps);
+      NodeAssert.deepEqual(calls, [`gate --repo /the/checkout --commit ${COMMIT}`, "credentials", "publish"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("publish of a build with no upload record is refused, and nothing is published", async () => {
+    const { deps, calls, cleanup } = harness(true);
+    try {
+      await NodeAssert.rejects(runRelease(publish, deps), /no record of the commit it was uploaded from/u);
+      NodeAssert.deepEqual(calls, []);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("publish is refused when the gate refuses the uploaded commit", async () => {
+    const { deps, calls, cleanup } = harness(false);
+    try {
+      recordUpload(deps.receipts, selection, COMMIT);
+      await NodeAssert.rejects(runRelease(publish, deps), (e: Error) => e.message === REFUSAL);
+      NodeAssert.deepEqual(calls, [`gate --repo /the/checkout --commit ${COMMIT}`]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("the gate fails closed: a refusal, a gate that cannot run and a pass without a commit all refuse", () => {
+    const answer = (status: number | null, stdout: string, stderr: string, error?: Error) =>
+      (() => ({ status, stdout, stderr, error, pid: 0, output: [], signal: null })) as never;
+    NodeAssert.throws(() => speedGate(["--checkout", "/x"], answer(1, "", `noise\n${REFUSAL}\n`)), (e: Error) => e.message === REFUSAL);
+    NodeAssert.throws(() => speedGate(["--checkout", "/x"], answer(null, "", "", new Error("spawn python3 ENOENT"))), /did not run \(spawn python3 ENOENT\)/u);
+    NodeAssert.throws(() => speedGate(["--checkout", "/x"], answer(0, '{"ok": true}', "")), /no passing commit/u);
+    NodeAssert.equal(speedGate(["--checkout", "/x"], answer(0, JSON.stringify({ ok: true, commit: COMMIT }), "")), COMMIT);
   });
 });

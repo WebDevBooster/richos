@@ -62,6 +62,15 @@ That is every suite `richos/app/scripts/phone-app-suites.tsv` names for iOS, inc
 phone apps share. Each of them also runs at a land whenever its own inputs change (A8 excepted).
 Nothing yet refuses an upload made without this run; it is a step, not a gate.
 
+**The speed test IS a gate** (CEO 2026-10-03, §106: nothing reaches users without passing the speed
+tests). `testflight.ts upload` refuses unless the phone speed watch has a §104 PASS, cold and warm, for
+this checkout's exact app code on the iPhone test phone, with no uncommitted app code
+(`richos/mobile/perf/shipgate.py`); it runs before credentials, App Store Connect or Xcode, and records
+the commit it uploaded (`/Volumes/E1TB/state/richos/ship-gate/testflight-uploads.json`).
+`testflight.ts publish` refuses a build with no such record and gates the recorded commit again, so a
+limit tightened since the upload still stops it. Make the archive from this same checkout. No flag
+skips the gate.
+
 1. Put the API key in a private file outside every checkout (the tool refuses one inside a git
    working tree, or with any mode but 600):
 
