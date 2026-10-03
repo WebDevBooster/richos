@@ -209,25 +209,29 @@ impl NavStore {
     }
 
     pub fn set_thread_pinned(&mut self, thread_id: &str, pinned: bool) -> std::io::Result<()> {
+        let before = self.state.pinned_threads.clone();
         set_membership(&mut self.state.pinned_threads, thread_id, pinned);
-        self.persist()
+        // A refused save leaves the list as saved, not as asked: the rail reads this state.
+        self.persist().inspect_err(|_| self.state.pinned_threads = before)
     }
 
     pub fn set_thread_archived(&mut self, thread_id: &str, archived: bool) -> std::io::Result<()> {
+        let before = self.state.archived_threads.clone();
         set_membership(&mut self.state.archived_threads, thread_id, archived);
-        self.persist()
+        self.persist().inspect_err(|_| self.state.archived_threads = before)
     }
 
     /// An empty/blank title CLEARS the override rather than storing a blank one, so the
     /// rail falls back to the ledger's real title instead of rendering a nameless row.
     pub fn rename_thread(&mut self, thread_id: &str, title: &str) -> std::io::Result<()> {
+        let before = self.state.renamed_threads.clone();
         let trimmed: String = title.trim().chars().take(TITLE_MAX_LEN).collect();
         if trimmed.is_empty() {
             self.state.renamed_threads.remove(thread_id);
         } else {
             self.state.renamed_threads.insert(thread_id.to_string(), trimmed);
         }
-        self.persist()
+        self.persist().inspect_err(|_| self.state.renamed_threads = before)
     }
 }
 
@@ -392,6 +396,9 @@ mod tests {
         assert!(store.set_thread_pinned("thr_a", true).is_err());
         assert!(store.set_thread_archived("thr_b", true).is_err());
         assert!(store.rename_thread("thr_a", "Something Else").is_err());
+        assert!(store.state().pinned_threads.is_empty(), "a refused pin is not shown as pinned");
+        assert!(store.state().archived_threads.is_empty(), "a refused archive is not shown as archived");
+        assert!(store.state().renamed_threads.is_empty(), "a refused rename is not shown as renamed");
         assert_eq!(
             std::fs::read(&path).unwrap(),
             original,
