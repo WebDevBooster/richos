@@ -2809,16 +2809,18 @@ def _():
     assert verdict is None and error is None and launched == list(range(1, 21)), (verdict, error, launched)
 
 
-@case("K4 warm standard: same judge, limits are placeholders that fail loudly until the CEO sets them; with limits set it behaves as the cold one")
+@case("K4 warm standard: the CEO's final limits (§104), same judge as the cold one")
 def _():
-    # the Android test phone's warm limits are the CEO's (§104 addendum: 135.5 per start, 122.0 average); the iPhone's are retracted
-    assert (perfcore.WARM_STANDARD["android"]["earlyMs"], perfcore.WARM_STANDARD["android"]["avgMs"]) == (135.5, 122.0)
-    assert perfcore.warm_verdict("android", [0, 100, 140])["failedStart"] == 3
-    assert perfcore.WARM_STANDARD["ios"]["earlyMs"] is None and perfcore.WARM_STANDARD["ios"]["avgMs"] is None
-    raises(perfcore.LimitNotSet, perfcore.warm_verdict, "ios", [100] * 20)
-    raises(perfcore.LimitNotSet, perfcore.warm_should_stop, "ios", [100] * 3)
+    assert (perfcore.WARM_STANDARD["ios"]["earlyMs"], perfcore.WARM_STANDARD["ios"]["avgMs"]) == (818, 716)
+    assert (perfcore.WARM_STANDARD["android"]["earlyMs"], perfcore.WARM_STANDARD["android"]["avgMs"]) == (200, 150)
+    assert perfcore.warm_verdict("android", [0, 100, 210])["failedStart"] == 3
+    assert perfcore.warm_verdict("ios", [0, 100, 820])["failedStart"] == 3
+    assert perfcore.warm_verdict("ios", [0, 100, 800])["verdict"] == "INCOMPLETE"
     saved = {p: dict(v) for p, v in perfcore.WARM_STANDARD.items()}
     try:
+        perfcore.WARM_STANDARD["ios"].update(earlyMs=None, avgMs=None)
+        raises(perfcore.LimitNotSet, perfcore.warm_verdict, "ios", [100] * 20)
+        raises(perfcore.LimitNotSet, perfcore.warm_should_stop, "ios", [100] * 3)
         perfcore.WARM_STANDARD["ios"].update(earlyMs=800, avgMs=700)
         perfcore.WARM_STANDARD["android"].update(earlyMs=1000, avgMs=900)
         v = perfcore.warm_verdict("ios", [100, 100, 850])
@@ -2850,7 +2852,7 @@ def _():
     raises(watch.Unmeasured, watch.warm_standard, {"metrics": {"warmResumeTraced": {"samplesMs": [500] * 20}}})
 
 
-@case("K6 the iPhone's untraced warm series: a slow return 3 stops it after 3 returns once its limit is set; unset limits stop nothing and say so; a relaunch is rejected")
+@case("K6 the iPhone's untraced warm series: a slow return stops it at once under a set limit; unset limits stop nothing and say so; a relaunch is rejected")
 def _():
     year = 2026
     def stamp(sec):
@@ -2867,6 +2869,7 @@ def _():
     saved = dict(perfcore.WARM_STANDARD["ios"])
     try:
         # unset: nothing stops the series, and its verdict is the loud placeholder
+        perfcore.WARM_STANDARD["ios"].update(earlyMs=None, avgMs=None)
         ms = {2: 900, 3: 900, 4: 900}
         state = {"n": 0, "launches": []}
         def launch():
