@@ -365,10 +365,14 @@ def hold(platform, phone, cmd, wait_s=0, holder=None, say=lambda s: print(s, fil
         say(f"the {phone_label(platform, phone)} is free after {waited} s; taken")
     write_record(record_path, record)
     net_check = net_check and platform == "ios"
+    # The phone the command names (`--device ID`, as perf and the speed watch pass it), else
+    # RICHOS_IOS_DEVICE: on 2026-10-03 every speed-watch run skipped this check ("names no phone").
+    named = [cmd[i + 1] for i in range(len(cmd) - 1) if cmd[i] == "--device"]
+    device = os.environ.get("RICHOS_IOS_DEVICE") or (named[0] if named else None)
     if net_check:
         import phone_net
         try:
-            phone_net.preflight(say)
+            phone_net.preflight(say, device)
         except phone_net.Unreachable as error:
             record.update(endedAt=now_iso(), exit=3, refused=str(error)[:300])
             write_record(record_path, record)
@@ -386,7 +390,7 @@ def hold(platform, phone, cmd, wait_s=0, holder=None, say=lambda s: print(s, fil
         for s, h in previous_handlers.items():
             signal.signal(s, h)
         if net_check:
-            left = phone_net.postflight(say)
+            left = phone_net.postflight(say, device)
         record.update(endedAt=now_iso(), exit=code)
         write_record(record_path, record)
         fcntl.flock(fd, fcntl.LOCK_UN)
