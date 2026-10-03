@@ -146,6 +146,16 @@ def parse_input_events(trace, pid):
     return events
 
 
+def merge_frame_rows(*reads):
+    """Framestats rows from several reads of one launch, each frame once (a later read of the same
+    frame wins: its present time may have been filled in), in draw order."""
+    merged = {}
+    for rows in reads:
+        for row in rows:
+            merged[(row.get("IntendedVsync"), row.get("DrawStart"))] = row
+    return sorted(merged.values(), key=lambda r: r.get("DrawStart") or 0)
+
+
 def useful_launch_frame(trace, rows, pid):
     """Join the system launch interval to the app's useful draw and its presented frame.
 
@@ -936,16 +946,30 @@ class Measure:
     def traced_launch(self):
         self.gfx_reset()
         launch = {}
-        def start(): launch.update(self.foreground())
+        snapshots = []
+        def snapshot():
+            # The phone's framestats ring is short (about 10 rows on the Honor): a launch followed by a
+            # burst of frames pushes the useful draw's own frame out before one late read. Read it while
+            # the frame is still there, and again as the app settles; the reads are merged.
+            try: snapshots.append(self.gfx()["rows"])
+            except Exception: pass
+        def start():
+            launch.update(self.foreground())
+            snapshot()
+            for _ in range(3):
+                self.d.sleep(0.4)
+                snapshot()
         error = None
         self.last_trace = ""
         self.last_launch_output = ""
         try: trace = self.atrace(["am", "view", "gfx"], start, 2.0)
         except Exception as failure:
             error, trace = failure, self.last_trace
-        try: window = self.gfx()
+        try:
+            window = self.gfx()
+            window = {**window, "rows": merge_frame_rows(*snapshots, window["rows"])}
         except Exception as failure:
-            window = {"rows": [], "error": str(failure)}
+            window = {"rows": merge_frame_rows(*snapshots), "error": str(failure)}
             error = error or failure
         pid = self.d.pid()
         self.launch_number += 1
