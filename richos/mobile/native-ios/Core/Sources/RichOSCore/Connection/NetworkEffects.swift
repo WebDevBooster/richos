@@ -76,7 +76,8 @@ public actor NetworkEffects: EffectHandler {
             return []
         }
         let key = await previewKey?(mac.origin, previews)
-        let body = PairingWire.pushRegistrationBody(tokenHex: token.hex, sandbox: token.sandbox, previewKey: key, previews: previews)
+        let body = PairingWire.pushRegistrationBody(tokenHex: token.hex, sandbox: token.sandbox, previewKey: key, previews: previews,
+                                                  topic: PairingWire.apnsTopic(forBundleID: Bundle.main.bundleIdentifier))
         guard let response = try? await api.signed("POST", "/api/pair", body: body, contentType: "application/json") else {
             return [.notificationsResult(.serviceUnavailable)]
         }
