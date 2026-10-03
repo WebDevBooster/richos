@@ -80,6 +80,9 @@ if args[:2] == ["device", "perf"]:
     # 4 (slower). BLANK is the cold-start blank check's verdict in it (metrics.coldBlank, as
     # blankstart.metric writes it): pass, fail or none; Android runs it by default, the iPhone not yet.
     verdict, code, blank = (mode.split(":") + ["", ""])[:3]
+    slow = os.environ.get("FAKE_SLOW_COMMIT")  # a phone in good condition: only this commit's build is slow
+    if slow:
+        verdict = "slower" if args[args.index("--expect-commit") + 1] == slow else "good"
     blank = blank or ("pass" if platform == "android" else "none")
     record = {"fake": verdict, "metrics": {}, "phases": {}}
     # The speed standard (CEO 2026-10-03, §104) judges the cold series: "good" is 20 starts well under the
@@ -354,12 +357,47 @@ class Run(Base):
         self.assertEqual(json.loads((self.base / "home/good.json").read_text())["android"]["commit"], good_sha,
                          "a slower run never becomes the good run")
 
+    def slow_round(self, phone_is_slow):
+        """A good round, then an Android app change whose round fails the standard. With `phone_is_slow` every
+        build fails on the phone; otherwise only the new commit's build does. Returns (good sha, slow sha, escalation)."""
+        good_sha = self.git("rev-parse", "HEAD")
+        self.request()
+        self.run_round()
+        self.write("richos/mobile/native-android/App.kt", "slow\n")
+        slow_sha = self.commit("android: the change under test")
+        self.request()
+        self.log.unlink()
+        env = dict(self.env, FAKE_MODE_ANDROID="slower") if phone_is_slow else dict(self.env, FAKE_SLOW_COMMIT=slow_sha)
+        self.run_round(env=env)
+        [esc] = self.escalated()
+        return good_sha, slow_sha, esc
+
+    def test_W22_a_failure_the_last_good_build_does_not_share_is_a_code_regression(self):
+        good_sha, slow_sha, esc = self.slow_round(phone_is_slow=False)
+        self.assertIn("(a code regression)", esc["title"])
+        self.assertTrue(esc["question"].startswith("A CODE REGRESSION in "), esc["question"])
+        self.assertIn(f"{good_sha[:12]}..{slow_sha[:12]}", esc["question"])
+        self.assertIn("still passes", esc["question"])
+
+    def test_W23_a_failure_the_last_good_build_shares_is_the_phones_condition(self):
+        # CEO 2026-10-03: the watch named the code as the suspect; the last good build failed too (the phone).
+        good_sha, slow_sha, esc = self.slow_round(phone_is_slow=True)
+        self.assertIn("(the phone's condition, not the code)", esc["title"])
+        self.assertTrue(esc["question"].startswith(f"THE PHONE'S CONDITION, NOT THE CODE: the last good build ({good_sha[:12]})"))
+        self.assertIn(f"cli-android device perf --serial {SERIAL} --expect-commit {good_sha}", self.tools(),
+                      "the last good build was measured on the same phone")
+        self.assertIn(f"cli-android device install --serial {SERIAL} --expect-commit {slow_sha}", self.tools()[
+            self.tools().index(f"--expect-commit {good_sha} --cold"):], "the build under test went back on the phone")
+
     def test_W6b_the_warm_test_fails_and_its_unset_limits_are_loud(self):
         self.request()
         outcomes = self.run_round(env=dict(self.env, FAKE_WARM="fail"))
         self.assertEqual({o["platform"]: o["verdict"] for o in outcomes}, {"android": "slower", "ios": "slower"})
         self.assertIn("warm FAIL", self.escalated()[0]["question"])
         self.escalations.unlink()
+        self.write("richos/mobile/native-android/App.kt", "changed\n")  # app code changed: the phones run again
+        self.write("richos/mobile/native-ios/App.swift", "changed\n")
+        self.commit("both apps change")
         self.request()
         outcomes = self.run_round(env=dict(self.env, FAKE_WARM="unset"))
         self.assertEqual({o["platform"]: o["verdict"] for o in outcomes[-2:]}, {"android": "unmeasured", "ios": "unmeasured"})
@@ -485,6 +523,43 @@ class Run(Base):
         self.assertNotIn("cli-android", self.tools())
         good = json.loads((self.base / "home/good.json").read_text())
         self.assertEqual(good["android"]["commit"], ios_sha, "the good run moves forward, so the next range is short")
+
+
+    def test_W20_a_land_changing_only_limits_tests_or_tooling_judges_the_old_samples_and_runs_no_phone(self):
+        # CEO 2026-10-03: "why does it need to be all re-tested again? Everything was just tested minutes ago?"
+        self.request()
+        self.run_round()
+        self.write("richos/mobile/native-ios/UITests/Start.swift", "a test\n")
+        self.write("richos/mobile/native-ios/Tools/physical-device.mjs", "tooling\n")
+        self.write("richos/mobile/native-android/app/src/test/StartTest.kt", "a test\n")
+        self.write("richos/mobile/native-android/bin/randroid", "tooling\n")
+        self.write("richos/mobile/perf/perfcore.py", "# limits\n")
+        sha = self.commit("tests, tooling and limits only")
+        self.log.unlink()
+        self.request()
+        outcomes = self.run_round()[-2:]
+        self.assertEqual({o["platform"]: o["verdict"] for o in outcomes}, {"android": "unchanged", "ios": "unchanged"})
+        for o in outcomes:
+            self.assertIn("judged again against the current limits", o["why"])
+        self.assertNotIn("cli-", self.tools(), "no phone was touched")
+        good = json.loads((self.base / "home/good.json").read_text())
+        self.assertEqual((good["android"]["commit"], good["ios"]["commit"]), (sha, sha))
+
+    def test_W21_which_paths_are_app_code(self):
+        a, i = "richos/mobile/native-android/", "richos/mobile/native-ios/"
+        for platform, root, app, other in (
+                ("android", a, ("app/src/main/Start.kt", "core/src/main/State.kt", "build.gradle.kts", "gradle/libs.versions.toml",
+                                "app/src/debug/Dev.kt"),
+                 ("bin/randroid", "cli/src/main/Cli.kt", "app/src/test/T.kt", "core/src/testDebug/T.kt", "README.md")),
+                ("ios", i, ("App/Features/Home.swift", "Core/Sources/X.swift", "project.yml", "Release/platform.yml",
+                            "ShareExtension/S.swift", "NotificationService/N.swift"),
+                 ("bin/rios", "Tools/x.mjs", "UITests/U.swift", "UnitTests/U.swift", "Core/Tests/T.swift", "docs/x.md"))):
+            for p in app:
+                self.assertTrue(watch.is_app_code(platform, root + p), p)
+            for p in other:
+                self.assertFalse(watch.is_app_code(platform, root + p), p)
+        self.assertFalse(watch.is_app_code("android", i + "App/Home.swift"), "the other phone's app")
+        self.assertFalse(watch.is_app_code("ios", "richos/mobile/perf/perfcore.py"))
 
 
 class Prune(unittest.TestCase):
