@@ -45,8 +45,13 @@ import sys
 import time
 from pathlib import Path
 
-PACKAGE = "dev.richos.connect"
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "perf"))
+import test_copy  # noqa: E402 — the test copy's identity and the refusal of the CEO's own app
+
+# Every command here that touches an Android phone works on the TEST COPY (dev.richos.connect.perf), installed beside
+# the CEO's own RichConnect; his own app is never installed, read, opened or replaced by the tools (test_copy.py).
+PACKAGE = test_copy.TEST_PACKAGE_ANDROID
 REPO = HERE.parents[1]
 # Set by the command line that owns physical phones (randroid / rios) for the tools it runs.
 VERB_ENV = "RICHOS_DEVICE_VERB"
@@ -161,8 +166,11 @@ def installed_sha(adb_path, serial):
 def install(adb_path, serial, apk, aapt2):
     """Release only, over the installed app, data kept, never an uninstall."""
     name, debuggable = apk_badging(aapt2, apk)
+    if name in test_copy.CEO_APP_IDS:
+        raise Refused(f"{apk} is {name}, the CEO's own RichConnect: he handles it himself. The tools install only the "
+                      f"test copy ({PACKAGE}; `randroid device install` builds it)")
     if name != PACKAGE:
-        raise Refused(f"{apk} is {name!r}, not RichConnect ({PACKAGE}); only RichConnect's release build goes on the phone")
+        raise Refused(f"{apk} is {name!r}, not the RichConnect test copy ({PACKAGE}); only its release build goes on the phone")
     if debuggable:
         raise Refused(f"{apk} is a DEBUGGABLE build (its manifest says so); {RULE}. Build the release APK "
                       "(`randroid build release`) and install that")

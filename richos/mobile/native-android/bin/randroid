@@ -456,9 +456,10 @@ device() {
       if [ -z "$apk" ]; then
         # This checkout's release build, signed with the upload key when it is in the environment
         # (richos-hq with-android-signing.py); then no configuration cache, which would hold it.
-        if upload_key_present; then gradle -q --no-configuration-cache :app:assembleRelease >&2 || fail "the release APK did not build"
-        else gradle -q :app:assembleRelease >&2 || fail "the release APK did not build"; fi
-        apk="$(built_apk release)" || fail "no release APK recorded in output-metadata.json"
+        # THE TEST COPY (dev.richos.connect.perf), never the CEO's own app: it installs beside his RichConnect.
+        if upload_key_present; then gradle -q --no-configuration-cache :app:assemblePerfCopy >&2 || fail "the test copy's APK did not build"
+        else gradle -q :app:assemblePerfCopy >&2 || fail "the test copy's APK did not build"; fi
+        apk="$(built_apk perfCopy)" || fail "no test-copy APK recorded in output-metadata.json"
       fi
       case "$apk" in *-unsigned.apk)
         fail "REFUSED: $apk is unsigned, and a phone installs only a signed APK. Run through richos-hq scripts/with-android-signing.py so the release build carries the upload key" 3 ;;
@@ -496,7 +497,7 @@ PY
            extra+=(--seed-twin "$twin") ;;
       esac
       case " $* " in *" --stamp "*) ;; *)
-        local rel; rel="$(built_apk release 2>/dev/null)" && [ -f "$rel.stamp.json" ] && extra+=(--stamp "$rel.stamp.json") ;;
+        local rel; rel="$(built_apk perfCopy 2>/dev/null)" && [ -f "$rel.stamp.json" ] && extra+=(--stamp "$rel.stamp.json") ;;
       esac
       exec "${hold[@]}" python3 "$perf" android --adb "$ADB" --serial "$serial" --kind physical --checkout "$HERE/../../.." \
         ${extra[@]+"${extra[@]}"} "$@" ;;
@@ -560,7 +561,7 @@ release_policy() {  # $1 = apk (binary, or a bundle's base as a proto APK); prin
 
 # The APK a release or debug build just wrote, named by AGP's own output-metadata.json (the name
 # changes with signing: app-release.apk signed, app-release-unsigned.apk not).
-built_apk() {  # $1 = debug | release
+built_apk() {  # $1 = debug | release | perfCopy | seedTwin
   python3 - "$OUT/app/outputs/apk/$1" <<'PY'
 import json, os, sys
 d = sys.argv[1]

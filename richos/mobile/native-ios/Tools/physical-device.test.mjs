@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { KEEP, allowanceSeconds, buildTree, configuration, deviceArgs, deviceToolSources, hardwareUdid, main, plan, prebuilt, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
+import { CEO_BUNDLE, KEEP, TEST_BUNDLE, allowanceSeconds, bundleIdOf, buildTree, testCopyOnly, configuration, deviceArgs, deviceToolSources, hardwareUdid, main, plan, prebuilt, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
 
 test('only verify may reuse an earlier build, and only when asked', () => {
   assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'verify'), true);
@@ -20,6 +20,20 @@ test('physical checks require a named device, team and single supported selectio
   assert.throws(() => configuration(env, 'verify', 'all'), /one named/);
   assert.throws(() => configuration(env, 'erase', 'recording'), /device build/);
   assert.equal(configuration(env, 'verify', 'recording').test, 'testActualMicrophonePreservesUnsentAudioAfterHomeAndTermination');
+});
+
+test('the device tools build, install and verify only the test copy, never the CEO\'s own RichConnect', () => {
+  assert.equal(TEST_BUNDLE, 'dev.richos.connect.perf');
+  assert.equal(testCopyOnly(TEST_BUNDLE), TEST_BUNDLE);
+  assert.throws(() => testCopyOnly(CEO_BUNDLE), /CEO's own RichConnect.*he handles it himself/);
+  assert.throws(() => testCopyOnly('com.example.other'), /not the test copy/);
+  // a built app's own Info.plist decides: the run is injected so no Xcode or phone is needed
+  assert.equal(bundleIdOf('/some/App.app', () => `${TEST_BUNDLE}\n`), TEST_BUNDLE);
+  assert.throws(() => testCopyOnly(bundleIdOf('/some/App.app', () => `${CEO_BUNDLE}\n`)), /CEO's own/);
+  // an entry stored before the test copy existed (the CEO's ID) is a different key, so it is never reused
+  const key = { tree: 'a'.repeat(40), team: 'ABCDEFGHIJ', xcode: 'Xcode 26' };
+  assert.notEqual(storeKey(key), storeKey({ ...key, bundle: CEO_BUNDLE }));
+  assert.equal(storeKey(key), storeKey({ ...key, bundle: TEST_BUNDLE }));
 });
 
 test('APNs registration must match actual signing regardless of Release optimization', () => {

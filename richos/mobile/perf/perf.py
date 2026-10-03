@@ -56,6 +56,7 @@ sys.path.insert(0, HERE)
 import benchmark  # noqa: E402
 import condition  # noqa: E402
 import perfcore  # noqa: E402
+import test_copy  # noqa: E402
 from perfcore import Refused, Unmeasurable  # noqa: E402
 
 AS_INSTALLED = condition.AS_INSTALLED
@@ -443,6 +444,7 @@ def restore_android_from(args, runner=None, sleep=None):
     if os.environ.get("RICHOS_DEVICE_VERB") != "randroid":
         raise Refused("a physical phone is restored only through `randroid device perf --restore-from DIR`")
     log = lambda s: print(s, file=sys.stderr, flush=True)
+    android.use_package(test_copy.TEST_PACKAGE_ANDROID)  # the test copy's own copy of its data, never the CEO's app
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
                          touch=lease_toucher(args.lease))
     keeper = android.StateKeeper.from_kept(dev, args.restore_from, log=log, twin_apk=getattr(args, "seed_twin", None),
@@ -460,6 +462,11 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None, 
     if args.kind == "physical" and os.environ.get("RICHOS_DEVICE_VERB") != "randroid":
         raise Refused("a physical phone is measured only through `randroid device perf` (or `randroid device "
                       "seed`), which checks that the build on it is the release build (CEO 2026-10-02)")
+    if args.kind == "physical":
+        # CEO 2026-10-03: his own RichConnect is his. A phone is measured only through the TEST COPY beside it.
+        android.use_package(test_copy.refuse_ceo_app(test_copy.TEST_PACKAGE_ANDROID))
+    else:
+        android.use_package(test_copy.CEO_APP_ANDROID)  # an emulator runs the app under its own ID
     stamp = load_stamp(args.stamp, args.expect_commit)
     log = log or (lambda s: print(s, file=sys.stderr, flush=True))
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,

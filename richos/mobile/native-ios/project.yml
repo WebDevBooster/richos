@@ -55,10 +55,13 @@ targets:
         product: RichOSFixtures
     settings:
       base:
-        # Permanent identifier approved by the CEO. The preserved app keeps its own identifier.
-        PRODUCT_BUNDLE_IDENTIFIER: dev.richos.connect
+        # Permanent identifier approved by the CEO: RICHOS_BUNDLE_ID (Release/platform.yml), which the extensions
+        # and the App Group derive from. Only the device tools' TEST COPY overrides it on the command line
+        # (RICHOS_BUNDLE_ID, RICHOS_APP_DISPLAY_NAME; Tools/physical-device.mjs), so the copy installs beside the
+        # CEO's own app. The preserved app keeps its own identifier.
+        PRODUCT_BUNDLE_IDENTIFIER: $(RICHOS_BUNDLE_ID)
         PRODUCT_NAME: RichOSNative
-        INFOPLIST_KEY_CFBundleDisplayName: RichConnect
+        INFOPLIST_KEY_CFBundleDisplayName: $(RICHOS_APP_DISPLAY_NAME)
         # The conversation's own frame from the tap (App/Features/Root/LaunchShell.swift), never iOS's
         # generated launch screen, which is an empty white (or black) window (the CEO, 2026-10-02).
         # native-ios-ui.test.sh refuses the generated one coming back.

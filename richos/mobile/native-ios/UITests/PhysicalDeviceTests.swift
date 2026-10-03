@@ -5,7 +5,9 @@ import XCTest
 /// development bridge or substituted microphone is used. Supply configuration only to
 /// the test runner, never to the app. The host runner must reject skipped selected tests.
 final class PhysicalDeviceTests: XCTestCase {
-    private let app = XCUIApplication(bundleIdentifier: "dev.richos.connect")
+    // The device tools install only the TEST COPY (Tools/physical-device.mjs TEST_BUNDLE), beside the CEO's own
+    // RichConnect (dev.richos.connect), which no automatic path touches.
+    private let app = XCUIApplication(bundleIdentifier: "dev.richos.connect.perf")
     private var config: [String: String] = [:]
 
     override func setUpWithError() throws {

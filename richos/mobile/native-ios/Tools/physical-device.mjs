@@ -36,6 +36,24 @@ export const DEFAULT_STORE = '/Volumes/E1TB/caches/richos-native-ios/physical-st
 // worker, the build lane, CPU headroom) has its own bound, device-runner's ADMISSION_LIMIT_MS.
 export const BUILD_LIMIT_MS = 600000;
 const APP = 'Release-iphoneos/RichOSNative.app';
+
+// THE TEST COPY ONLY. Everything this tool builds, installs, stamps or verifies is a separate copy of the Release app
+// under its own ID, installed beside the CEO's own RichConnect with its own data (richos/mobile/perf/test_copy.py is
+// the one definition; mobile-perf.test.py TC1 checks these values against it). The CEO handles his own app himself:
+// nothing here ever builds, installs or opens `dev.richos.connect`, and a bundle that carries that ID is refused.
+export const CEO_BUNDLE = 'dev.richos.connect';
+export const TEST_BUNDLE = 'dev.richos.connect.perf';
+export const TEST_NAME = 'RichConnect Perf';
+export function testCopyOnly(bundleId) {
+  if (bundleId === CEO_BUNDLE) throw Error(`Refused: this is the CEO's own RichConnect (${CEO_BUNDLE}); he handles it himself. The device tools install only the test copy (${TEST_BUNDLE})`);
+  if (bundleId !== TEST_BUNDLE) throw Error(`Refused: the bundle is ${bundleId}, not the test copy (${TEST_BUNDLE})`);
+  return bundleId;
+}
+// The bundle ID a built app declares (its Info.plist), read the way the signed bytes carry it.
+export function bundleIdOf(app, run = execFileSync) {
+  const out = run('python3', ['-c', 'import plistlib,sys,pathlib; print(plistlib.loads((pathlib.Path(sys.argv[1])/"Info.plist").read_bytes())["CFBundleIdentifier"])', app], { encoding: 'utf8' });
+  return String(out).trim();
+}
 const RUNNER = 'Release-iphoneos/RichOSNativeUITests-Runner.app';
 
 // A script may hold a timed background interval; its allowance is bounded, never open-ended.
@@ -136,10 +154,10 @@ export function prebuilt(env, command) {
 
 // One store entry per (committed source tree, signing team, Xcode). Anything that changes the
 // signed bytes is in the key; nothing else is, so the same tree in another checkout finds it.
-export function storeKey({ tree, team, xcode }) {
+export function storeKey({ tree, team, xcode, bundle = TEST_BUNDLE }) {
   if (!/^[0-9a-f]{40,64}$/.test(tree || '')) throw Error('storeKey needs the git tree id of the native-ios sources');
   if (!team || !xcode) throw Error('storeKey needs the signing team and the Xcode version');
-  return createHash('sha256').update(`${tree}\n${team}\n${xcode}`).digest('hex').slice(0, 24);
+  return createHash('sha256').update(`${tree}\n${team}\n${xcode}\n${bundle}`).digest('hex').slice(0, 24);
 }
 
 // Entries of native-ios that are not build inputs: tooling and prose beside the app. A change to
@@ -310,7 +328,7 @@ export async function main(args, env = process.env) {
   const stamp = Date.now();
   const log = join(cache, `${command}-${selection || 'app'}-${stamp}.log`);
   const result = join(cache, `${selection}-${stamp}.xcresult`);
-  const derived = join(cache, 'derived');
+  const derived = join(cache, 'derived-test-copy');
   const baseline = usb();
   const health = async () => {
     const current = usb();
@@ -332,6 +350,7 @@ export async function main(args, env = process.env) {
     const entry = stored(store, storeKey({ tree: head.tree, team: settings.team, xcode: xcodeVersion() }), hashTree);
     if (!entry) throw Error('Refused: this tree has no Release build in the store yet; run `rios device install` first');
     const app = join(entry.products, APP);
+    testCopyOnly(bundleIdOf(app));
     releaseOnly(app);
     const file = join(cache, `stamp-${head.tree.slice(0, 12)}.json`);
     writeFileSync(file, JSON.stringify({ artifact: app, sha256: entry.app, commit: parsed.expect || head.commit, tree: head.tree,
@@ -349,7 +368,7 @@ export async function main(args, env = process.env) {
       const base = ['-project', project, '-scheme', 'RichOSPhysical', '-configuration', 'Release',
         '-destination', `id=${settings.device}`, '-derivedDataPath', derived,
         `DEVELOPMENT_TEAM=${settings.team}`, 'CODE_SIGN_STYLE=Automatic', 'CODE_SIGN_IDENTITY=Apple Development',
-        'RICHOS_APS_ENVIRONMENT=development', '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
+        'RICHOS_APS_ENVIRONMENT=development', `RICHOS_BUNDLE_ID=${TEST_BUNDLE}`, `RICHOS_APP_DISPLAY_NAME=${TEST_NAME}`, '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
       // The limit starts when native-work admits the build (`admission: true`), never at the queue:
       // on 2026-10-02 the wait for the Mac's CPU line was 557 s of a 600 s limit counted from the
       // queue, and the Release build (one Swift job) was stopped mid-compile ("BUILD INTERRUPTED").
@@ -366,6 +385,7 @@ p=pathlib.Path(sys.argv[1]);info=plistlib.loads((p/'Info.plist').read_bytes())
 signed=plistlib.loads(subprocess.check_output(['codesign','-d','--entitlements',':-',str(p)],stderr=subprocess.DEVNULL))
 print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment')]))`, app], { encoding: 'utf8', env }));
   verifyPushEnvironment(...push);
+  testCopyOnly(bundleIdOf(app));  // before anything is installed or run: a build that carries the CEO's ID is refused
   build.configuration = releaseOnly(app).configuration;
   // A reused build wrote no build log; never name one that does not exist.
   if (!existsSync(log)) build.log = null;
