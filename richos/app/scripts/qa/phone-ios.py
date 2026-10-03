@@ -834,25 +834,30 @@ def touches_wifi(steps):
 # is off. Steps as measured on the SE (iOS 26.3.1): the row says "Wi-Fi, <network>", its switch is
 # named "Wi‑Fi" with a non-breaking hyphen and reads "1" on, "0" off.
 WIFI_SWITCH = "Wi‑Fi"
+# The switch itself, by kind: on iOS 26.3.1 (measured on the SE 2026-10-03) the Wi-Fi page also carries a
+# StaticText labeled "Wi‑Fi" (non-breaking hyphen) ABOVE the switch, so the label alone matched that text: its
+# value read "" and a tap on it toggled nothing, and the restore reported success with the Wi-Fi untouched.
+WIFI_CONTROL = {"kind": "switch", "label": WIFI_SWITCH, "in": "settings", "timeout": 10}
 
 
 def wifi_steps(turn_on):
     steps = [{"do": "launch", "in": "settings"}, {"do": "tap", "label": "Wi-Fi", "in": "settings", "timeout": 10}]
     if turn_on:
-        steps += [{"do": "tap", "label": WIFI_SWITCH, "in": "settings", "timeout": 10}, {"do": "sleep", "seconds": 3}]
-    return steps + [{"do": "value", "label": WIFI_SWITCH, "in": "settings", "timeout": 10},
-                    {"do": "terminate", "in": "settings"}]
+        steps += [{"do": "tap", **WIFI_CONTROL}, {"do": "sleep", "seconds": 3}]
+    return steps + [{"do": "value", **WIFI_CONTROL}, {"do": "terminate", "in": "settings"}]
 
 
 def wifi_value(out):
-    """The Wi-Fi switch's value ('1' on, '0' off) a wifi_steps list read, or None."""
+    """The Wi-Fi switch's value ('1' on, '0' off) a wifi_steps list read, or None: anything else (an element that
+    is not the switch reads "") is not a reading."""
     try:
         rows = [json.loads(line) for line in (Path(out) / "steps.jsonl").read_text().splitlines() if line.strip()]
     except (OSError, ValueError):
         return None
     for row in rows:
         if row.get("do") == "value" and row.get("ok"):
-            return str((row.get("detail") or {}).get("value"))
+            value = str((row.get("detail") or {}).get("value"))
+            return value if value in ("0", "1") else None
     return None
 
 
@@ -879,7 +884,7 @@ def ensure_wifi_on(out_root):
                 result.update(before=value, after=value)
             if value is None:
                 result["error"] = ("the phone's Wi-Fi switch could not be read "
-                                   f"({summary.get('error') or summary.get('failed') or 'no value step'})")
+                                   f"({summary.get('error') or summary.get('failed') or 'no 0/1 reading from the switch'})")
                 break
         if result["before"] == "0" and not result["turnedOn"] and not result["error"]:
             result["error"] = "the phone's Wi-Fi switch was off and is still off after the tap"

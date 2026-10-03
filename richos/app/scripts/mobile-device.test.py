@@ -689,9 +689,13 @@ class FakeSettings:
                 rows.append({"i": i, "do": "mark", "ok": False, "error": "the list stopped here"})
                 failed = i
                 break
-            if step["do"] == "tap" and step.get("label") == self.module.WIFI_SWITCH and not self.stuck:
+            # iOS 26.3.1's Wi-Fi page (measured 2026-10-03): a StaticText labeled "Wi‑Fi" sits above the switch
+            # of the same label, so only a step naming the switch's kind reaches the switch; the label alone
+            # reaches the text, whose value is "" and whose tap toggles nothing.
+            on_switch = step.get("label") == self.module.WIFI_SWITCH and step.get("kind") == "switch"
+            if step["do"] == "tap" and on_switch and not self.stuck:
                 self.wifi = "0" if self.wifi == "1" else "1"
-            detail = {"value": self.wifi} if step["do"] == "value" else {}
+            detail = {"value": self.wifi if on_switch else ""} if step["do"] == "value" else {}
             rows.append({"i": i, "do": step["do"], "ok": True, "detail": detail})
         (out / "steps.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
         if self.raise_after_first and self.runs == 1:
@@ -702,7 +706,7 @@ class FakeSettings:
 def wifi_list(tmp, *tail):
     sw = "Wi‑Fi"
     steps = [{"do": "launch", "in": "settings"}, {"do": "tap", "label": "Wi-Fi", "in": "settings"},
-             {"do": "tap", "label": sw, "in": "settings"}, *tail]
+             {"do": "tap", "kind": "switch", "label": sw, "in": "settings"}, *tail]
     path = Path(tmp) / "list.json"
     path.write_text(json.dumps(steps))
     return path
@@ -753,7 +757,7 @@ def _():
     with tempfile.TemporaryDirectory() as tmp:
         sw = "Wi‑Fi"
         fake = FakeSettings(module)
-        code, summary, error = phone_run(module, fake, wifi_list(tmp, {"do": "tap", "label": sw, "in": "settings"}), tmp)
+        code, summary, error = phone_run(module, fake, wifi_list(tmp, {"do": "tap", "kind": "switch", "label": sw, "in": "settings"}), tmp)
         assert fake.wifi == "1" and summary["wifiRestore"]["turnedOn"] is False and summary["wifiRestore"]["error"] is None, summary
         assert fake.runs == 2 and code == 0, (fake.runs, code)   # the list and the read
         fake = FakeSettings(module)
@@ -771,6 +775,22 @@ def _():
         code, summary, error = phone_run(module, fake, wifi_list(tmp), tmp)
         assert summary["wifiRestore"]["error"] and "still off" in summary["wifiRestore"]["error"], summary
         assert code == 1 and summary["passed"] is False and "Wi-Fi could not be confirmed on" in summary["error"], (code, summary)
+
+
+@case("D31b the restore reads and taps the Wi-Fi SWITCH, not the text labeled Wi-Fi above it, and a reading that is not 0 or 1 is said, never taken as on")
+def _():
+    module = load_phone_ios()
+    assert all(s.get("kind") == "switch" for s in module.wifi_steps(True) if s.get("label") == module.WIFI_SWITCH), \
+        module.wifi_steps(True)
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeSettings(module, wifi="0")
+        with patch.object(module, "_run", fake):
+            result = module.ensure_wifi_on(Path(tmp) / "restore")
+        assert fake.wifi == "1" and result["before"] == "0" and result["turnedOn"] is True, (fake.wifi, result)
+        (Path(tmp) / "read").mkdir()
+        (Path(tmp) / "read" / "steps.jsonl").write_text(json.dumps({"do": "value", "ok": True, "detail": {"value": ""}}) + "\n")
+        assert module.wifi_value(Path(tmp) / "read") is None
 
 
 # -- the commit check ---------------------------------------------------------------------------
