@@ -277,13 +277,21 @@ def _():
 class ScriptedPhone:
     """A Measure and Device for blankstart: a launcher with the RichConnect icon, adb commands kept."""
 
-    def __init__(self, icon=True):
-        self.calls, self.icon = [], icon
+    def __init__(self, icon=True, label="RichConnect", page=0):
+        self.calls, self.icon, self.label, self.icon_page, self.page = [], icon, label, page, 0
         self.d = self
         self.adb, self.serial = "/fake/adb", "PHONE1"
 
     def sh(self, command, check=True):
         self.calls.append(("sh", command))
+        if command == "input keyevent KEYCODE_HOME":
+            self.page = 0
+        elif command.startswith("input swipe"):
+            x1, x2 = (int(v) for v in command.split()[2:4:1][0:1] + command.split()[4:5])
+            assert 0 <= x1 <= 720 and 0 <= x2 <= 720, f"a swipe off the 720-wide screen: {command}"
+            self.page = self.page + 1 if x1 > x2 else max(0, self.page - 1)
+        elif command == "wm size":
+            return "Physical size: 720x1612"
         return ""
 
     def run(self, *args, check=True):
@@ -298,8 +306,8 @@ class ScriptedPhone:
 
     def dump_ui(self):
         nodes = [{"text": "Phone", "desc": "", "bounds": (0, 0, 100, 100)}]
-        if self.icon:
-            nodes.append({"text": "RichConnect", "desc": "", "bounds": (200, 1500, 300, 1600)})
+        if self.icon and self.page == self.icon_page:
+            nodes.append({"text": self.label, "desc": "", "bounds": (200, 1500, 300, 1600)})
         return nodes
 
 
@@ -335,11 +343,26 @@ def _():
     assert m["method"] and m["stats"]["n"] == 3 and len(judged) == 3
 
 
-@case("Android: no icon on the launcher's first page refuses with that sentence, and recordings without --out are deleted")
+@case("Android: the test copy's icon (RichConnect Perf) on a later launcher page is swiped to and tapped; the CEO's icon never is")
+def _():
+    import android
+    old = android.PACKAGE
+    android.use_package("dev.richos.connect.perf")
+    try:
+        phone = ScriptedPhone(label="RichConnect Perf", page=2)
+        assert blankstart._icon(phone) == (250, 1550) and phone.page == 2
+        ceo_only = ScriptedPhone(label="RichConnect")
+        msg = raises(perfcore.Unmeasurable, blankstart._icon, ceo_only)
+        assert "no launcher page" in msg, msg
+    finally:
+        android.use_package(old)
+
+
+@case("Android: no icon anywhere refuses, and recordings without --out are deleted")
 def _():
     msg = raises(perfcore.Unmeasurable, blankstart.android_cold_blank, ScriptedPhone(icon=False), 1, None, popen=Recorder,
                  analyze=lambda p: None)
-    assert "first page" in msg, msg
+    assert "no launcher page" in msg, msg
     kept = []
     m = blankstart.android_cold_blank(ScriptedPhone(), 1, None, popen=Recorder,
                                       analyze=lambda p: kept.append(p) or launch([(0.05, paint(WHITE)), (0.65, FINAL)]))
