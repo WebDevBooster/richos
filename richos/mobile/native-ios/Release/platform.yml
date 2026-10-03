@@ -27,6 +27,8 @@ settings:
     # PRODUCT_BUNDLE_IDENTIFIER in project.yml (the suite checks it): an extension's identifier
     # has to start with its app's. RichConnect uses the permanent identifier approved by the CEO.
     RICHOS_BUNDLE_ID: dev.richos.connect
+    # What the Home Screen shows. The device tools' test copy builds with "RichConnect Perf" beside the CEO's app.
+    RICHOS_APP_DISPLAY_NAME: RichConnect
     RICHOS_APP_GROUP: group.$(RICHOS_BUNDLE_ID)
     RICHOS_KEYCHAIN_GROUP: $(RICHOS_BUNDLE_ID).shared
 

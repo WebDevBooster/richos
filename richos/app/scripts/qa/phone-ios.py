@@ -1214,7 +1214,7 @@ def trust(args):
     except (CannotAnswer, OSError, subprocess.TimeoutExpired) as error:
         report["profiles"] = {"error": str(error)}
     installed = devicectl(["device", "info", "apps"], args.device).get("apps", [])
-    app = next((a for a in installed if a.get("bundleIdentifier") == "dev.richos.connect"), None)
+    app = next((a for a in installed if a.get("bundleIdentifier") == phone_net.PACKAGE), None)  # the test copy
     report["app"] = {"version": app.get("version"), "build": app.get("bundleVersion")} if app else None
     relay = spawn_owned(["idevicesyslog", "-u", udid, "--no-colors"], stdout=subprocess.PIPE,
                         stderr=subprocess.DEVNULL, text=True, errors="replace")
@@ -1451,6 +1451,12 @@ def net(args):
 def close_app(args):
     """`rios device close BUNDLE --device ID`: end the app's running process(es) so the phone is left at its
     Home Screen. Nothing is installed, removed or cleared; an app that is not running is said, exit 0."""
+    sys.path.insert(0, str(ROOT / "richos/mobile/perf"))
+    import test_copy
+    try:
+        test_copy.refuse_ceo_app(args.bundle, "`rios device close`")
+    except test_copy.CeoAppRefused as refused:
+        return emit({"error": str(refused)}, 2)
     rows = devicectl(["device", "info", "processes"], args.device).get("runningProcesses", [])
     apps = devicectl(["device", "info", "apps", "--bundle-id", args.bundle], args.device).get("apps", [])
     path = str((apps[0] if apps else {}).get("url", "")).replace("file://", "").rstrip("/")
@@ -1474,9 +1480,12 @@ def launch_app(args):
     if not device:
         return emit({"error": "name the phone: --device ID or RICHOS_IOS_DEVICE"}, 2)
     rest = args.app_args[1:] if args.app_args[:1] == ["--"] else args.app_args
-    code, result = phone_net.launch_app(device, args.bundle, rest,
-                                        lambda line: print(line, file=sys.stderr, flush=True),
-                                        console=not args.detach)
+    try:
+        code, result = phone_net.launch_app(device, args.bundle, rest,
+                                            lambda line: print(line, file=sys.stderr, flush=True),
+                                            console=not args.detach)
+    except phone_net.test_copy.CeoAppRefused as refused:  # the CEO's own app: nothing was asked of the phone
+        return emit({"error": str(refused)}, 2)
     if result["state"] == "not-ready":
         print(result["detail"], file=sys.stderr)
     elif code:

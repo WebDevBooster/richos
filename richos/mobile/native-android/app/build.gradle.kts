@@ -18,6 +18,8 @@ android {
     defaultConfig {
         // Permanent RichConnect application ID.
         applicationId = "dev.richos.connect"
+        // The name under the icon. Only the TEST COPY's build types change it, so the two apps are told apart.
+        manifestPlaceholders["appLabel"] = "RichConnect"
         // minSdk 29 / targetSdk 36: build plan §3.3 (system dark theme from 29; Google Play
         // requires target 36 for new apps and updates since 2026-08-31).
         minSdk = 29
@@ -81,6 +83,23 @@ android {
             isDebuggable = true
             matchingFallbacks += listOf("release")
             signingConfig = signingConfigs.findByName("upload")
+            // The twin of the TEST COPY below, never of the CEO's own app: the same suffix, so a replace-in-place
+            // takes it over the test copy and keeps the test copy's data.
+            applicationIdSuffix = ".perf"
+            manifestPlaceholders["appLabel"] = "RichConnect Perf"
+        }
+        // THE TEST COPY (CEO 2026-10-03: "I will handle everything regarding my app myself"). The release build's
+        // code (same source set, same R8 rules, same version, same upload key) under its own application ID
+        // `dev.richos.connect.perf` and its own name, installed BESIDE the CEO's own RichConnect with its own data.
+        // Every phone speed run (`randroid device install|perf|seed`, the speed watch) builds, installs and measures
+        // only this; none of them touches `dev.richos.connect` on a phone. richos/mobile/perf/test_copy.py is the one
+        // definition of the suffix; mobile-perf.test.py TC1 checks it against this file.
+        create("perfCopy") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.findByName("upload")
+            applicationIdSuffix = ".perf"
+            manifestPlaceholders["appLabel"] = "RichConnect Perf"
         }
     }
 

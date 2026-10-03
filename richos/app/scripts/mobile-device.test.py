@@ -95,7 +95,7 @@ sys.exit(1)
 FAKE_AAPT2 = r'''#!/usr/bin/env python3
 import sys
 data = open(sys.argv[-1], "rb").read()
-name = "dev.richos.other" if b"OTHER" in data else "dev.richos.connect"
+name = "dev.richos.other" if b"OTHER" in data else "dev.richos.connect" if b"CEOAPP" in data else "dev.richos.connect.perf"
 print("package: name='%s' versionCode='7' versionName='1.0.0'" % name)
 print("application-label:'RichConnect'")
 if b"DEBUGGABLE" in data:
@@ -194,7 +194,11 @@ def _():
         ph = Phone(tmp)
         other = ph.apk("other.apk", b"OTHER release")
         code, out = ph.randroid("device", "--serial", "PHONE1", "install", other)
-        assert code == 3 and "not RichConnect" in out and ph.calls == [], (code, out, ph.calls)
+        assert code == 3 and "not the RichConnect test copy" in out and ph.calls == [], (code, out, ph.calls)
+        # CEO 2026-10-03: his own app's APK is refused by name, before the phone is touched
+        own = ph.apk("ceo.apk", b"CEOAPP release")
+        code, out = ph.randroid("device", "--serial", "PHONE1", "install", own)
+        assert code == 3 and "CEO's own RichConnect" in out and "dev.richos.connect.perf" in out and ph.calls == [], (code, out, ph.calls)
 
 
 @case("D5 an emulator is refused by randroid device (emulators go through randroid emu); no serial is refused")

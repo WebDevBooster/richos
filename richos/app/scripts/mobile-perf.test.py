@@ -471,13 +471,13 @@ class FakeAdb:
                 self.debuggable = self.flags[self.installed]
             self.flags[self.installed] = self.debuggable
             self.contents.setdefault(self.installed, b"")
-        elif args[0] == "exec-out" and args[1:3] == ["run-as", "dev.richos.connect"] and args[3] == "tar":
+        elif args[0] == "exec-out" and args[1:3] == ["run-as", android.PACKAGE] and args[3] == "tar":
             if "tar-c" in self.fail:
                 return types.SimpleNamespace(returncode=1, stdout=b"", stderr=b"tar failed")
             return self.tar_bytes()
-        elif cmd and cmd.startswith("run-as dev.richos.connect"):
+        elif cmd and cmd.startswith(f"run-as {android.PACKAGE}"):
             if not self.debuggable:
-                return "run-as: package not debuggable: dev.richos.connect"
+                return f"run-as: package not debuggable: {android.PACKAGE}"
             rest = cmd.split(" ", 2)[2]
             if rest.startswith("cp "):
                 _, src, dst = rest.split()
@@ -528,7 +528,7 @@ class FakeAdb:
         elif cmd.startswith("getprop"):
             out = "x"
         elif cmd.startswith("pm path"):
-            out = "package:/data/app/~~x/dev.richos.connect/base.apk" if self.installed else ""
+            out = f"package:/data/app/~~x/{android.PACKAGE}/base.apk" if self.installed else ""
         elif cmd.startswith("sha256sum"):
             out = f"{self.installed}  /data/app/base.apk"
         elif cmd.startswith("dumpsys package"):
@@ -1841,6 +1841,11 @@ def _():
         assert installs[-1].endswith("base.apk"), installs  # the build found on the phone, put back from the saved copy
         assert record["savedState"]["restored"] is True and record["savedState"]["dataLostBy"] is None, record
         assert failures_ == 0 and record["build"]["configuration"] == "release", (failures_, record["phases"])
+        # CEO 2026-10-03: a physical phone is measured only through the TEST COPY; no command names his own app
+        import re as _re
+        assert record["build"]["package"] == "dev.richos.connect.perf", record["build"]
+        own_app = [c for c in fake.calls if _re.search(r"dev\.richos\.connect(?!\.perf)", c)]
+        assert not own_app, own_app
         cond = record["condition"]
         assert (cond["conversation"]["fixture"], cond["conversation"]["rows"], cond["mac"], cond["build"]) == \
             ("synthetic-conversation/1", 100, "unreachable", "release"), cond
@@ -2191,7 +2196,7 @@ def _():
         assert saved["restored"] is True and saved["apkSha256"] == SHA and saved["dataFiles"] == 2, saved
         assert fake.core == own and fake.installed == SHA and fake.contents[SHA] == apk, (sorted(fake.core), fake.installed)
         pulled = [i for i, c in enumerate(fake.calls) if c.startswith("pull ")]
-        tar_out = [i for i, c in enumerate(fake.calls) if c.startswith("exec-out run-as dev.richos.connect tar")]
+        tar_out = [i for i, c in enumerate(fake.calls) if c.startswith(f"exec-out run-as {android.PACKAGE} tar")]
         written = [i for i, c in enumerate(fake.calls) if c.startswith("push ") and "richos-perf-session" in c]
         assert pulled and tar_out and pulled[0] < written[0] and tar_out[0] < written[0], fake.calls  # saved before the first write
         assert not os.path.isdir(os.path.join(tmp, "keep")) or not os.listdir(os.path.join(tmp, "keep")), "private copy deleted after a verified restore"
@@ -2351,7 +2356,7 @@ def _():
     twin = gradle[gradle.index('create("seedTwin")'):]
     twin = twin[:twin.index("\n        }")]
     assert 'initWith(getByName("release"))' in twin and "isDebuggable = true" in twin, twin
-    assert 'signingConfigs.findByName("upload")' in twin and "applicationIdSuffix" not in twin, twin
+    assert 'signingConfigs.findByName("upload")' in twin and 'applicationIdSuffix = ".perf"' in twin, twin  # the twin of the TEST COPY
     cli = open(os.path.join(MOBILE, "native-android/bin/randroid")).read()
     assert '"notDebuggable": scan["debuggable"] is False' in cli and "ok = clean(r) and clean(b) and probe and ids and notdebug" in cli
     assert "REFUSED: the debuggable twin must carry the upload key" in cli and ":app:assembleSeedTwin" in cli
@@ -2468,6 +2473,12 @@ class FakePhone:
                 json.dump({"result": {"devices": [{"identifier": "test-device", "hardwareProperties": {
                     "marketingName": "Fixture iPhone", "udid": HW}, "deviceProperties": {"osVersionNumber": "26.0"}}]}}, f)
             return ok()
+        if cmd[:5] == ["xcrun", "devicectl", "device", "info", "apps"]:
+            assert arg("--bundle-id") == ios.TEST_BUNDLE, cmd  # only ever the test copy, never the CEO's app
+            with open(arg("--json-output"), "w") as f:
+                json.dump({"result": {"apps": [{"bundleIdentifier": ios.TEST_BUNDLE, "url": "file:///private/var/containers/"
+                                                "Bundle/Application/X/RichOSNative.app/"}]}}, f)
+            return ok()
         if cmd[:5] == ["xcrun", "devicectl", "device", "info", "processes"]:
             procs = [{"processIdentifier": 717, "executable": "file:///private/var/containers/Bundle/Application/X/"
                                                               "RichOSNative.app/RichOSNative"}] if self.running else []
@@ -2478,7 +2489,7 @@ class FakePhone:
             self.running = False
             return ok()
         if cmd[:5] == ["xcrun", "devicectl", "device", "info", "files"]:
-            assert arg("--domain-type") == "appDataContainer" and arg("--domain-identifier") == ios.BUNDLE, cmd
+            assert arg("--domain-type") == "appDataContainer" and arg("--domain-identifier") == ios.TEST_BUNDLE, cmd
             files = []
             for here, dirs, names in os.walk(self.container):
                 for name in dirs + names:
@@ -2490,7 +2501,7 @@ class FakePhone:
                 json.dump({"result": {"files": files}}, f)
             return ok()
         if cmd[:4] == ["xcrun", "devicectl", "device", "copy"]:
-            assert arg("--domain-type") == "appDataContainer" and arg("--domain-identifier") == ios.BUNDLE, cmd
+            assert arg("--domain-type") == "appDataContainer" and arg("--domain-identifier") == ios.TEST_BUNDLE, cmd
             if cmd[4] == "from":
                 assert arg("--source") == ios.STATE_DIR, cmd
                 if not os.path.isdir(self.state):
@@ -2618,6 +2629,9 @@ def _():
         assert set(record["metrics"]) == {"coldLaunchTraced", "warmResumeTraced"}  # the diagnostic's keys: never judged
         assert phone.now() == before, phone.now()  # the phone's own state, empty directory and recording included
         assert len(phone.copies_to()) == 2  # the seed, then the restore: nothing else was written
+        # CEO 2026-10-03: his own RichConnect is never touched; every command on the phone names only the test copy
+        assert not [c for c in phone.calls if ios.BUNDLE in c], [c for c in phone.calls if ios.BUNDLE in c]
+        assert record["build"]["bundle"] == ios.TEST_BUNDLE, record["build"]
         # both written through the parent, so the state directory is the app's own and it can save
         assert all(c[c.index("--destination") + 1] == STATE_PARENT for c in phone.copies_to()), phone.copies_to()
         assert ios.STATE_DIR not in phone.root_owned, phone.root_owned
@@ -2910,7 +2924,7 @@ def _():
     year = 2026
     def stamp(sec):
         return f"Oct  3 10:00:{sec:06.3f}"
-    request = lambda sec: f'{stamp(sec)} SpringBoard(FrontBoard)[1] <Notice>: [FBSystemService][0xabc] Received request to open "{ios.BUNDLE}"'
+    request = lambda sec: f'{stamp(sec)} SpringBoard(FrontBoard)[1] <Notice>: [FBSystemService][0xabc] Received request to open "{ios.TEST_BUNDLE}"'
     log = "\n".join(request(s) for s in (1, 10, 20, 30))
     t = lambda sec: ios.syslog_wall_us(stamp(sec), year)
     events = [{"e": "input-ready", "wallUs": t(11.4), "pid": 7}, {"e": "input-ready", "wallUs": t(21.0), "pid": 7},
@@ -2967,6 +2981,67 @@ def _():
         except ios.Unmeasurable:
             pass  # the fake app never exits, so the stop gives up; what matters is that it asked
         assert any("terminate" in c for c in calls), calls
+
+
+@case("TC1 the test copy's identity is one value everywhere it is written: test_copy.py, the iPhone build settings, the device tool, the UI-test runner, the Android build types")
+def _():
+    import test_copy
+    assert (test_copy.TEST_BUNDLE_IOS, test_copy.TEST_PACKAGE_ANDROID) == ("dev.richos.connect.perf",) * 2
+    assert test_copy.CEO_APP_IOS == "dev.richos.connect" == ios.BUNDLE and test_copy.TEST_DISPLAY_NAME == "RichConnect Perf"
+    mjs = open(os.path.join(MOBILE, "native-ios/Tools/physical-device.mjs")).read()
+    assert f"TEST_BUNDLE = '{test_copy.TEST_BUNDLE_IOS}'" in mjs and f"TEST_NAME = '{test_copy.TEST_DISPLAY_NAME}'" in mjs
+    assert f"CEO_BUNDLE = '{test_copy.CEO_APP_IOS}'" in mjs
+    assert "RICHOS_BUNDLE_ID=${TEST_BUNDLE}" in mjs and "RICHOS_APP_DISPLAY_NAME=${TEST_NAME}" in mjs
+    swift = open(os.path.join(MOBILE, "native-ios/UITests/PhysicalDeviceTests.swift")).read()
+    assert f'XCUIApplication(bundleIdentifier: "{test_copy.TEST_BUNDLE_IOS}")' in swift
+    project = open(os.path.join(MOBILE, "native-ios/project.yml")).read()
+    assert "PRODUCT_BUNDLE_IDENTIFIER: $(RICHOS_BUNDLE_ID)" in project and "$(RICHOS_APP_DISPLAY_NAME)" in project
+    platform = open(os.path.join(MOBILE, "native-ios/Release/platform.yml")).read()
+    assert f"RICHOS_BUNDLE_ID: {test_copy.CEO_APP_IOS}\n" in platform and "RICHOS_APP_DISPLAY_NAME: RichConnect\n" in platform
+    gradle = open(os.path.join(MOBILE, "native-android/app/build.gradle.kts")).read()
+    assert f'applicationId = "{test_copy.CEO_APP_ANDROID}"' in gradle
+    copy = gradle[gradle.index('create("perfCopy")'):]
+    copy = copy[:copy.index("\n        }")]
+    assert f'applicationIdSuffix = "{test_copy.TEST_SUFFIX}"' in copy and 'initWith(getByName("release"))' in copy, copy
+    assert "isDebuggable" not in copy and 'signingConfigs.findByName("upload")' in copy and test_copy.TEST_DISPLAY_NAME in copy
+    assert 'android:label="${appLabel}"' in open(os.path.join(MOBILE, "native-android/app/src/main/AndroidManifest.xml")).read()
+    rd = open(os.path.join(MOBILE, "native-android/bin/randroid")).read()
+    assert ":app:assemblePerfCopy" in rd and "built_apk perfCopy" in rd and ":app:assembleRelease >&2 || fail \"the release APK did not build\"" not in rd.split("device() {")[1].split("# --- the release check")[0]
+    import physical
+    assert physical.PACKAGE == test_copy.TEST_PACKAGE_ANDROID
+    import phone_net
+    assert phone_net.PACKAGE == test_copy.TEST_BUNDLE_IOS
+
+
+@case("TC2 every automatic path refuses the CEO's own app: a run's launch, `rios device launch|close`, the Android install, the device tool's bundle check")
+def _():
+    import test_copy
+    own = test_copy.CEO_APP_IOS
+    assert "CEO's own RichConnect" in raises(test_copy.CeoAppRefused, test_copy.refuse_ceo_app, own)
+    assert test_copy.refuse_ceo_app(test_copy.TEST_BUNDLE_IOS) == test_copy.TEST_BUNDLE_IOS
+    asked = []
+    drv = ios.Devicectl("test-device", runner=lambda cmd, **kw: asked.append(cmd))
+    raises(test_copy.CeoAppRefused, drv.launch, own)
+    assert asked == [], "refused before the phone was asked anything"
+    sys.path.insert(0, MOBILE)
+    import phone_net
+    raises(test_copy.CeoAppRefused, phone_net.launch_app, "test-device", own, [], lambda s: None)
+    import physical
+    from unittest.mock import patch
+    with patch.object(physical, "apk_badging", return_value=(own, False)), patch.object(physical, "adb", side_effect=AssertionError("adb was used")):
+        said = raises(physical.Refused, physical.install, "adb", "SER", "/x.apk", "aapt2")
+    assert "CEO's own RichConnect" in said and "dev.richos.connect.perf" in said, said
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("phone_ios_tc2", os.path.join(PERF, "..", "..", "app", "scripts", "qa", "phone-ios.py"))
+    phone_ios = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(phone_ios)
+    import contextlib, io as _io
+    for fn, args in ((phone_ios.close_app, types.SimpleNamespace(bundle=own, device="test-device")),
+                     (phone_ios.launch_app, types.SimpleNamespace(bundle=own, device="test-device", app_args=[], detach=False))):
+        out = _io.StringIO()
+        with contextlib.redirect_stdout(out), patch.object(phone_ios, "devicectl", side_effect=AssertionError("devicectl was used")):
+            code = fn(args)
+        assert code == 2 and "CEO's own RichConnect" in out.getvalue(), (fn.__name__, code, out.getvalue())
 
 
 if __name__ == "__main__":

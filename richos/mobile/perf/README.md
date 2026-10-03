@@ -583,3 +583,19 @@ python3 richos/mobile/perf/launchscreen.py                              # the la
 Recordings of a phone are private: `perf.py` keeps them beside the record (`<out>.evidence/cold-blank/`,
 on the external SSD) or deletes them after judging when there is no `--out`. The repository's tests
 build their frames synthetically.
+
+## The test copy: the CEO's own RichConnect is never touched (CEO 2026-10-03)
+
+Every automatic path on a phone (the speed watch, `rios device install|perf|verify|launch|close`, `randroid device
+install|perf|seed`, the net check that opens the app once) works on a separate **test copy** of the same release code,
+installed beside the CEO's own RichConnect under its own app ID, with its own data and its own name on the Home Screen
+("RichConnect Perf"). His own app (`dev.richos.connect`) is never installed, launched, stopped, backed up, restored or
+read by any of them, and each refuses that ID by name (`test_copy.py` is the one definition; TC1 and TC2 in
+`mobile-perf.test.py` prove it).
+
+| | iPhone | Android |
+|---|---|---|
+| Test copy ID | `dev.richos.connect.perf` | `dev.richos.connect.perf` |
+| Built as | `RICHOS_BUNDLE_ID` and `RICHOS_APP_DISPLAY_NAME` overridden on the `xcodebuild` command line (`Tools/physical-device.mjs`); the extensions, App Group and Keychain group follow | build type `perfCopy` (release code, `applicationIdSuffix`, upload key); its twin `seedTwin` carries the same suffix |
+| Needs that his app does not | a development provisioning profile for the new app ID, its two extensions and the App Group `group.dev.richos.connect.perf`, under the same team: the build already passes `-allowProvisioningUpdates`, so Xcode's automatic signing creates them on the first build if the Apple ID signed in to Xcode may; nothing in this repository can check that without building | nothing: the same upload key signs it |
+| Push | none (its topic is not registered); not needed, the speed test never pairs | none |
