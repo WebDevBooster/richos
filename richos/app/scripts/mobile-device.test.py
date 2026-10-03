@@ -906,6 +906,21 @@ def _():
     assert "python3 {PHYSICAL_CHECK} scan" not in land, "not the bare form proof-run refuses"
 
 
+@case("D14 the test copy's install builds through the Firebase wrapper, so the copy carries notification settings (CEO 2026-10-03)")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = Phone(tmp, sha="a" * 64)
+        seen = Path(tmp) / "wrapper.log"
+        wrapper = Path(tmp) / "with-android-firebase.py"
+        wrapper.write_text(f'import sys\nopen({str(seen)!r}, "a").write(" ".join(sys.argv[1:]) + "\\n")\n')
+        env = {"RANDROID_FIREBASE_WRAPPER": str(wrapper), "RANDROID_JAVA_HOME": "/Applications/Android Studio.app/Contents/jbr/Contents/Home"}
+        for key in ("projectId", "appId", "apiKey", "senderId"):
+            env["ORG_GRADLE_PROJECT_richos.firebase." + key] = ""
+        ph.randroid("device", "--serial", "PHONE1", "install", env=env)
+        assert seen.exists() and ":app:assemblePerfCopy" in seen.read_text(), "the copy was built without the Firebase wrapper"
+        assert touched(ph.calls) == [], ph.calls
+
+
 if __name__ == "__main__":
     if failures:
         print(f"mobile-device: {len(failures)} of {len(names)} FAILED: {', '.join(failures)}")
