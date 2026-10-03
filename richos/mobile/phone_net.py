@@ -130,9 +130,72 @@ def check_ready(device):
     return True, "connected by cable; devicectl does not report Wi-Fi, so it is not confirmed"
 
 
+# THE PHONE'S WI-FI CAN BE JOINED AND STILL CARRY NOTHING (measured 2026-10-03 02:30-02:45 local, the test
+# iPhone, on the phone itself and from this Mac): iOS said the Wi-Fi path was "satisfied" with link quality
+# "good" and the phone kept transmitting, yet the Mac's ARP for the phone's own Wi-Fi address stayed
+# incomplete and pings went unanswered, the phone's DNS queries got no answer, and its TCP connects to
+# internet addresses timed out (`rios device net`, `rios device trust`). devicectl still reached the phone
+# over the cable, so nothing on the Mac's side noticed. iOS cannot complete Apple's online check of a
+# development-signed app on such a phone, and that is the "Unable to Verify App" dialog. A restart rejoins
+# the Wi-Fi and the path carries traffic again. So "on Wi-Fi" is measured here as "this Mac reaches the
+# phone's own Wi-Fi address": the phone's address comes from its Bonjour name (answered over the cable too),
+# and one ping from the Mac must come back.
+COREDEVICE_SUFFIX = ".coredevice.local"   # devicectl's name for the phone
+BONJOUR_SUFFIX = ".local"                  # the same phone's Bonjour name
+
+
+def wifi_address(device):
+    """The phone's IPv4 address on the local network (not its cable link's 169.254 address), or None."""
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "details.json"
+        try:
+            _xcrun("devicectl", "device", "info", "details", "--device", device, "--json-output", str(target),
+                   timeout=60)
+            props = (json.loads(target.read_text()).get("result") or {}).get("connectionProperties") or {}
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return None
+    names = [n for n in props.get("localHostnames") or [] if n.endswith(COREDEVICE_SUFFIX)]
+    for name in names[:1]:
+        local = name[: -len(COREDEVICE_SUFFIX)] + BONJOUR_SUFFIX
+        try:
+            p = subprocess.run(["dscacheutil", "-q", "host", "-a", "name", local], capture_output=True, text=True,
+                               timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        for addr in re.findall(r"^ip_address: (\S+)$", p.stdout, re.M):
+            if not addr.startswith("169.254."):
+                return addr
+    return None
+
+
+def wifi_path(device):
+    """Does this Mac reach the phone's own Wi-Fi address? (ok, one sentence). Reads only: no launch."""
+    addr = wifi_address(device)
+    if not addr:
+        return False, "the phone's Wi-Fi address could not be found (its Bonjour name gave no local address)"
+    try:
+        p = subprocess.run(["ping", "-c", "3", "-i", "0.5", "-t", "5", addr], capture_output=True, text=True,
+                           timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return False, f"ping {addr} did not finish"
+    got = re.search(r"(\d+) packets received", p.stdout)
+    if p.returncode == 0 and got and int(got.group(1)) > 0:
+        return True, f"the phone's Wi-Fi address {addr} answers this Mac ({got.group(1)} of 3 pings)"
+    # A phone that ignores pings still answers its sync port (lockdownd, 62078) on its Wi-Fi address.
+    import socket
+    try:
+        with socket.create_connection((addr, 62078), timeout=3):
+            return True, f"the phone's Wi-Fi address {addr} answers this Mac (its sync port, no ping answer)"
+    except OSError:
+        pass
+    return False, (f"the phone's Wi-Fi address {addr} does not answer this Mac (0 of 3 pings, no answer on its "
+                   "sync port): its Wi-Fi carries no traffic")
+
+
 def restart_and_wait(device, say):
     """Restart the phone (devicectl, a full reboot, waiting until it is connected again), then wait, with
-    NO launches, until it is connected and on Wi-Fi or SETTLE_SECONDS pass. (ok, detail, seconds)."""
+    NO launches, until it is connected and its Wi-Fi carries traffic (wifi_path) or SETTLE_SECONDS pass.
+    (ok, detail, seconds)."""
     started = time.monotonic()
     try:
         p = _xcrun("devicectl", "device", "reboot", "--device", device, "--wait-for-device", timeout=600)
@@ -143,12 +206,26 @@ def restart_and_wait(device, say):
     deadline = time.monotonic() + SETTLE_SECONDS
     while True:
         ok, detail = check_ready(device)
+        if ok:
+            ok, detail = wifi_path(device)
         if ok or time.monotonic() + SETTLE_STEP > deadline:
             break
         time.sleep(SETTLE_STEP)
     seconds = time.monotonic() - started
     say(f"the phone restarted; after {seconds:.0f} s: {detail}")
     return ok, detail, seconds
+
+
+def ensure_path(device, say):
+    """Before anything opens an app on the phone: its Wi-Fi must carry traffic, or iOS cannot verify a
+    development-signed app and shows "Unable to Verify App". A dead path gets ONE restart of the phone (no app is
+    opened, so no dialog and no notification), then a wait until the path answers. (ok, detail, restarted)."""
+    ok, detail = wifi_path(device)
+    if ok:
+        return True, detail, False
+    say(detail + "; restarting the phone once before anything is opened on it")
+    ok, detail, _ = restart_and_wait(device, say)
+    return ok, detail, True
 
 
 def launch_app(device, bundle, app_args, say, out=None):
@@ -163,6 +240,14 @@ def launch_app(device, bundle, app_args, say, out=None):
     ok, detail = check_ready(device)
     if not ok:
         result.update(state="not-ready", detail=detail)
+        return 2, result
+    say(detail)
+    # Its Wi-Fi must carry traffic before the first open, or iOS refuses a development-signed app; a dead
+    # path is restarted here, with nothing opened, and that is this procedure's one restart.
+    ok, detail, restarted = ensure_path(device, say)
+    result["reboots"] += int(restarted)
+    if not ok:
+        result.update(state="not-ready", detail=("after the restart: " if restarted else "") + detail)
         return 2, result
     say(detail)
 
@@ -193,7 +278,7 @@ def launch_app(device, bundle, app_args, say, out=None):
     result.update(state=first["state"], detail=first["detail"])
     if first["state"] == "ok":
         return 0, result
-    if first["state"] != "untrusted":
+    if first["state"] != "untrusted" or result["reboots"]:
         return 1, result
     say("iOS refused to open the app (" + first["detail"].replace("\n", " ")[-200:] + "); restarting the phone once")
     result["reboots"] += 1
@@ -207,28 +292,19 @@ def launch_app(device, bundle, app_args, say, out=None):
 
 
 def reboot(device, say):
-    """Restart the phone (devicectl, a full reboot, waiting until it is connected again), then open
-    RichConnect until iOS verifies it or SETTLE_SECONDS pass. Returns the last launch_check result with
-    'rebooted' and the seconds it took. Nothing is installed, removed or erased; the app's data stays."""
+    """Restart the phone (devicectl, a full reboot), wait with no launches until its Wi-Fi carries traffic
+    (wifi_path), then open RichConnect ONCE so iOS verifies it while the phone can reach Apple (never a launch
+    loop: each refused launch puts a notification on the phone, CEO 2026-10-03). Returns that launch_check
+    result with 'rebooted' and the seconds it took. Nothing is installed, removed or erased."""
     started = time.monotonic()
-    try:
-        p = _xcrun("devicectl", "device", "reboot", "--device", device, "--wait-for-device", timeout=600)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return {"state": "unknown", "detail": f"devicectl reboot did not answer ({type(error).__name__})", "rebooted": False}
-    if p.returncode != 0:
-        return {"state": "unknown", "rebooted": False,
-                "detail": "devicectl reboot failed: " + ((p.stderr or "") + (p.stdout or "")).strip()[-300:]}
-    back = time.monotonic() - started
-    say(f"the phone restarted and is connected again after {back:.0f} s; opening RichConnect until iOS verifies it")
-    deadline = time.monotonic() + SETTLE_SECONDS
-    tries = 0
-    while True:
-        result = launch_check(device)
-        tries += 1
-        if result["state"] == "ok" or time.monotonic() + SETTLE_STEP > deadline:
-            break
-        time.sleep(SETTLE_STEP)
-    return {**result, "rebooted": True, "backAfterSeconds": round(back), "launchTries": tries,
+    ok, detail, back = restart_and_wait(device, say)
+    if not back:
+        return {"state": "unknown", "detail": detail, "rebooted": False}
+    if not ok:
+        return {"state": "not-ready", "detail": "after the restart: " + detail, "rebooted": True,
+                "launchTries": 0, "totalSeconds": round(time.monotonic() - started)}
+    result = launch_check(device)
+    return {**result, "rebooted": True, "backAfterSeconds": round(back), "launchTries": 1,
             "totalSeconds": round(time.monotonic() - started)}
 
 
@@ -239,7 +315,12 @@ def preflight(say, device=None):
     if not device:
         say("phone network check skipped: RICHOS_IOS_DEVICE names no phone")
         return
+    ok, detail, restarted = ensure_path(device, say)
+    if not ok:
+        raise Unreachable(FIX + f" (the phone's Wi-Fi: {detail})")
     result = launch_check(device)
+    if result["state"] == "untrusted" and restarted:
+        raise Unreachable(FIX + f" (after the restart: {result['state']}: {result['detail']})")
     if result["state"] == "untrusted":
         say("the phone cannot verify RichConnect with Apple; restarting it once (rios device reboot): "
             + result["detail"].replace("\n", " ")[-200:])
@@ -304,3 +385,23 @@ def postflight(say, device=None):
     except Exception as error:  # noqa: BLE001: the after-check never changes the run's own outcome by crashing
         say(f"phone network check after the run failed: {error}")
         return None
+
+
+def main(argv):
+    """`phone_net.py ensure --device ID` (what `rios device install` runs after every install, so the first open
+    can be verified): the phone's Wi-Fi carries traffic, after one restart of the phone if it did not.
+    Exit 0 when it does, 2 when it still does not. Only `rios device` starts it (physical.py)."""
+    if os.environ.get("RICHOS_DEVICE_VERB") != "rios":
+        print(json.dumps({"refused": "only `rios device ...` touches the iPhone"}))
+        return 3
+    if len(argv) != 3 or argv[0] != "ensure" or argv[1] != "--device":
+        print(json.dumps({"error": "phone_net.py ensure --device ID"}))
+        return 2
+    say = lambda line: print(line, file=sys.stderr, flush=True)
+    ok, detail, restarted = ensure_path(argv[2], say)
+    print(json.dumps({"wifiCarriesTraffic": ok, "restarted": restarted, "detail": detail}))
+    return 0 if ok else 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

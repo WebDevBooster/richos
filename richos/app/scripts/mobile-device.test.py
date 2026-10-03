@@ -440,11 +440,17 @@ if args[:4] == ["devicectl", "device", "process", "launch"]:
     sys.exit(0)
 if args[:4] == ["devicectl", "device", "process", "terminate"]:
     sys.exit(0)
+if args[:4] == ["devicectl", "device", "info", "details"]:
+    json.dump({"result": {"connectionProperties": {"tunnelState": "connected", "transportType": "wired",
+               "localHostnames": [state.get("hostname", "")]}}}, open(args[args.index("--json-output") + 1], "w"))
+    sys.exit(0)
 if args[:3] == ["devicectl", "device", "reboot"]:
     # A restart puts the network back only when the fake phone says it would (2026-10-02 it did).
     state["reboots"] = state.get("reboots", 0) + 1
     if state.get("reboot_fixes"):
         state["network"] = "on"
+    if state.get("reboot_fixes_wifi"):
+        state["wifi"] = "on"
     json.dump(state, open(state_path, "w"))
     sys.exit(0)
 print("unexpected xcrun call: " + " ".join(args), file=sys.stderr)
@@ -452,14 +458,27 @@ sys.exit(1)
 '''
 
 
+# The fake phone's Wi-Fi path, as this Mac sees it (phone_net.wifi_path): its address lookup answers with a
+# loopback address (the sync port refuses at once) and `ping` answers unless the fake phone's "wifi" is "dead".
+FAKE_DSCACHEUTIL = "#!/bin/sh\nprintf 'ip_address: 127.0.0.1\\n'\n"
+FAKE_PING = r'''#!/usr/bin/env python3
+import json, os, sys
+if json.load(open(os.environ["FAKE_IPHONE"])).get("wifi") == "dead":
+    print("3 packets transmitted, 0 packets received, 100.0% packet loss"); sys.exit(2)
+print("3 packets transmitted, 3 packets received, 0.0% packet loss")
+'''
+
+
 class IPhone:
     def __init__(self, tmp, network="on", launch_error=None):
         self.tmp = Path(tmp)
         (self.tmp / "bin").mkdir(exist_ok=True)
-        (self.tmp / "bin/xcrun").write_text(FAKE_XCRUN)
-        (self.tmp / "bin/xcrun").chmod(0o755)
+        for name, body in (("xcrun", FAKE_XCRUN), ("dscacheutil", FAKE_DSCACHEUTIL), ("ping", FAKE_PING)):
+            (self.tmp / "bin" / name).write_text(body)
+            (self.tmp / "bin" / name).chmod(0o755)
         self.file = self.tmp / "iphone.json"
-        self.set(network=network, launch_error=launch_error)
+        import phone_net
+        self.set(network=network, launch_error=launch_error, hostname="TESTPHONE" + phone_net.COREDEVICE_SUFFIX)
         self.env = {**os.environ, "PATH": f"{self.tmp / 'bin'}:{os.environ['PATH']}", "FAKE_IPHONE": str(self.file),
                     "RICHOS_PHONE_LOCK_DIR": str(self.tmp / "locks"), "PYTHONDONTWRITEBYTECODE": "1",
                     "RICHOS_IOS_DEVICE": "00000000-0000000000000000", "RICHOS_DEVICE_HOLDER": "net-test",
@@ -599,7 +618,24 @@ def _():
     # `reboot` is the remedy the check itself applies, so it too runs without the check, holding the phone.
     # `launch` opens the app on purpose: it holds the phone but runs its own Wi-Fi-first, launch-once procedure
     # instead of the trust check, so it sits beside the read-only verbs on the HOLD line and is the only one there that launches.
-    assert 'approval|procs|apps|lock|battery|syslog|trust|wifi-restore|reboot|launch) exec "${HOLD[@]}"' in text
+    assert 'approval|procs|apps|lock|battery|syslog|trust|net|wifi-restore|reboot|launch) exec "${HOLD[@]}"' in text
+
+
+@case("D27b a phone joined to Wi-Fi whose Wi-Fi carries no traffic is restarted once BEFORE anything is opened, so iOS never refuses the app for want of a network")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        ph.set(wifi="dead", reboot_fixes_wifi=True)
+        flag = Path(tmp) / "ran"
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
+        assert p.returncode == 0 and flag.exists(), (p.returncode, p.stderr)
+        assert ph.reboots == 1 and "carries no traffic" in p.stderr, (ph.reboots, p.stderr)
+        calls = Path(str(ph.file) + ".log").read_text().splitlines()
+        first_reboot = next(i for i, c in enumerate(calls) if " reboot " in f" {c} ")
+        assert not any(" process launch " in f" {c} " for c in calls[:first_reboot]), calls
+        ph.set(wifi="dead", reboot_fixes_wifi=False)
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).unlink()")
+        assert p.returncode == 3 and flag.exists() and ph.reboots == 2, (p.returncode, p.stderr)
 
 
 def load_phone_ios():

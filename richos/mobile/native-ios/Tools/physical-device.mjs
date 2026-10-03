@@ -101,6 +101,18 @@ export function hardwareUdid(device, devices) {
   throw Error('Refused: that iPhone is not in `xcrun devicectl list devices`; connect it with its cable and unlock it once');
 }
 
+// `phone_net.py ensure`: the phone's Wi-Fi carries traffic (one restart if not). Refuses when it still does not.
+export function phoneWifi(device, env, run = spawnSync) {
+  const checked = run('python3', ['-B', resolve(root, '../phone_net.py'), 'ensure', '--device', device],
+    { encoding: 'utf8', env, timeout: 900000, stdio: ['ignore', 'pipe', 'inherit'] });
+  let result = null;
+  try { result = JSON.parse((checked.stdout || '').trim().split('\n').pop()); } catch { /* said below */ }
+  if (checked.status !== 0 || !result?.wifiCarriesTraffic) {
+    throw Error(`Installed, but the iPhone's Wi-Fi carries no traffic, so iOS could not verify the app on its first open: ${result?.detail || (checked.stdout || '').trim() || 'phone_net.py ensure failed'}`);
+  }
+  return result;
+}
+
 function listedDevices() {
   const dir = mkdtempSync(join(tmpdir(), 'rios-devices-'));
   try {
@@ -361,7 +373,11 @@ print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment'
   if (command === 'install') {
     // Over the installed app: the bundle is replaced in place and the app's data kept; it is never removed.
     execFileSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', settings.device, app], { encoding: 'utf8', env, timeout: 600000 });
-    return { installed: app, build };
+    // The first open of the installed app is verified by iOS online (Apple's PPQ check for this team's
+    // development profile, PPQCheck true). A phone joined to Wi-Fi whose Wi-Fi carries no traffic refuses
+    // it: "Unable to Verify App". So every install ends with the phone's Wi-Fi proved to carry traffic,
+    // after one restart of the phone (no app opened) when it did not (richos/mobile/phone_net.py).
+    return { installed: app, build, wifi: phoneWifi(settings.device, env) };
   }
   const spec = join(cache, `physical-${stamp}.xctestrun`);
   // Rewrite only the runner's environment and paths. Private config is fed via stdin,
