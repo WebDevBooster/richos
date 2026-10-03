@@ -64,11 +64,29 @@ targets:
         # Connect does not ask on every upload. The account holder confirms the answer in App
         # Store Connect (approval research §2, "Export compliance").
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
+        # The source checkout, for the archive's source stamp below (expanded at generation).
+        RICHOS_SOURCE_ROOT: ${RICHOS_NATIVE_IOS_ROOT}
+        # The stamp reads the checkout's Git state, which a sandboxed script cannot; it is this
+        # target's only script.
+        ENABLE_USER_SCRIPT_SANDBOXING: "NO"
       configs:
         Debug:
           RICHOS_APS_ENVIRONMENT: development
         Release:
           RICHOS_APS_ENVIRONMENT: production
+    postBuildScripts:
+      # The freshness contract: an archive carries the commit it was built from. RichOSSourceCommit and
+      # RichOSSourceDirty go into the archived app's Info.plist (before it is signed), and
+      # `testflight.ts upload` gates that commit (CEO §106), refusing an archive without them or with
+      # uncommitted app code. Archives only (ACTION=install); every other build skips it.
+      - name: Stamp the source commit (archive only)
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
+        script: |
+          [ "$ACTION" = install ] || exit 0
+          exec python3 -B "$RICHOS_SOURCE_ROOT/../perf/shipgate.py" stamp --platform ios \
+            --checkout "$RICHOS_SOURCE_ROOT" --plist "$TARGET_BUILD_DIR/$INFOPLIST_PATH"
 
   # Decrypts the reply preview on the phone before the alert shows (PRD §5; the preserved app's
   # design, richos/mobile/ios/NotificationExtension/, ported, never modified).
