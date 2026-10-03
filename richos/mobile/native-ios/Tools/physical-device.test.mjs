@@ -263,7 +263,7 @@ test('the phone is handed to xcodebuild by its hardware UDID, whichever spelling
   assert.throws(() => hardwareUdid(core, []), /not in `xcrun devicectl list devices`/);
 });
 
-test('a runner-only script session names no app under test, so xcodebuild hands the phone the runner alone (CEO 2026-10-03: his app is his)', () => {
+test('a runner-only script session names the runner as its target and RichConnect nowhere, so xcodebuild hands the phone the runner alone (CEO 2026-10-03: his app is his)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'xctestrun-'));
   try {
     const plist = `import plistlib,sys
@@ -281,7 +281,7 @@ open(sys.argv[1],'wb').write(plistlib.dumps({'RichOSNativeUITests':t}))`;
     assert.ok(full.DependentProductPaths.some(p => p.endsWith('/RichOSNative.app')));
     prepareSpec({ products: dir, spec: join(dir, 'runner.xctestrun'), test: 'testScript', record: false, runnerOnly: true, config, env: process.env });
     const runner = read(join(dir, 'runner.xctestrun'));
-    assert.equal(runner.UITargetAppPath, undefined);
+    assert.equal(runner.UITargetAppPath, `${dir}/Release-iphoneos/RichOSNativeUITests-Runner.app`);
     assert.deepEqual(runner.DependentProductPaths, [`${dir}/Release-iphoneos/RichOSNativeUITests-Runner.app`]);
     assert.equal(runner.TestHostPath, `${dir}/Release-iphoneos/RichOSNativeUITests-Runner.app`);
     assert.deepEqual(runner.OnlyTestIdentifiers, ['PhysicalDeviceTests/testScript']);

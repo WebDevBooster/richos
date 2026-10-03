@@ -804,7 +804,7 @@ def _():
                      {"do": "state"}):
         assert module.addresses_app(safari + [app_step]) is True, app_step
     text = (REPO / "richos/mobile/native-ios/Tools/physical-device.mjs").read_text()
-    assert "env.RICHOS_PHYSICAL_RUNNER_ONLY === '1'" in text and "t.pop('UITargetAppPath')" in text
+    assert "env.RICHOS_PHYSICAL_RUNNER_ONLY === '1'" in text and "t['UITargetAppPath']=t['TestHostPath']" in text
 
 
 # -- the commit check ---------------------------------------------------------------------------

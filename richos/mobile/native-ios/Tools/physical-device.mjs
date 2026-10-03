@@ -386,8 +386,10 @@ print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment'
   // session (recorded ON the phone by XCTest, as Xcode's test reports do; nothing on this Mac asks
   // for camera or screen access). Off by default: the runner's other sessions keep deleting it.
   // RUNNER ONLY (CEO 2026-10-03: "I will handle everything regarding my app myself"): a script whose every step
-  // acts in Safari, Settings or SpringBoard needs no app under test, so the specification names none and
-  // xcodebuild hands the phone the test runner alone; the installed RichConnect is not given its bundle again.
+  // acts in Safari, Settings or SpringBoard needs no app under test. xcodebuild refuses a UI test with no
+  // UITargetAppPath ("UITargetAppPath should be provided", measured 2026-10-03), so the runner itself is named the
+  // target: RichConnect's bundle is named nowhere, xcodebuild hands the phone the runner alone, and the installed
+  // RichConnect is not given its bundle again.
   const runnerOnly = command === 'verify' && selection === 'script' && env.RICHOS_PHYSICAL_RUNNER_ONLY === '1';
   prepareSpec({ products, spec, test: settings.test, record: config?.screenRecording === 'true', runnerOnly, config, env });
   const allowance = allowanceSeconds(config);
@@ -417,7 +419,8 @@ if sys.argv[4]=='record':
 for k in ['TestHostPath','UITargetAppPath']: t[k]=t[k].replace('__TESTROOT__',str(root))
 t['DependentProductPaths']=[v.replace('__TESTROOT__',str(root)) for v in t.get('DependentProductPaths',[])]
 if sys.argv[5]=='runner-only':
-    app=t.pop('UITargetAppPath'); t['DependentProductPaths']=[v for v in t['DependentProductPaths'] if v!=app]
+    app=t['UITargetAppPath']; t['UITargetAppPath']=t['TestHostPath']
+    t['DependentProductPaths']=[v for v in t['DependentProductPaths'] if v!=app]
     assert not any(v.endswith('/${APP.split('/').pop()}') for v in t['DependentProductPaths']), 'the app is still named'
 p=pathlib.Path(sys.argv[2]);p.touch(mode=0o600,exist_ok=False);p.write_bytes(plistlib.dumps(x))`;
 export function prepareSpec({ products, spec, test, record, runnerOnly, config, env }) {
