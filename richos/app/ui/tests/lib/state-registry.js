@@ -71,6 +71,11 @@ module.exports = [
     "c": "NOT-RENDERED",
     "why": "Internal PhoneError from the outbound Web Push allowlist. The Mac logs this refusal; the phone receives the existing generic API error. It is not rendered as a CEO instruction or a desktop state."
   },
+  {
+    "s": "the navigation file could not be read, so it was left untouched and this change was not saved",
+    "c": "NOT-RENDERED",
+    "why": "The io::Error from NavStore::persist (nav.rs) over an unreadable navigation file, returned by the nav commands as Err(String). Every UI caller (rename_thread, set_thread_pinned, set_thread_archived in main.js) goes through invokeQuiet, which swallows the rejection and returns null; the next navigation_tree refresh shows what actually persisted. The string never reaches the DOM."
+  },
   {"s":"Manage reply notifications in the RichOS iPhone app under Settings.","c":"ACTIONABLE","control":"#phone-close","fixture":null,"why":"Native preferences are on the phone. This Mac view names their exact location and retains the close control, like the existing phone-side Web Push instructions. phone.js check 9d proves the native instruction excludes Safari installation."},
   // Native notification API states.
   {"s": "Invalid notification registration", "c": "UNREACHABLE", "why": "Defensive duplicate validation inside the native notification desk. The authenticated route rejects malformed registrations before calling it and the native adapter supplies fixed bundle/environment values."},
