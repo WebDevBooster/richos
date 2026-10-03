@@ -14652,7 +14652,7 @@
         {
           "root": "repository",
           "path": "richos/mobile/native-ios/bin/rios",
-          "sha256": "faec1a82ca0ab7e4d0247d54c8c9a3f1e5476e1d7e1f76b2181bfe76979eab32",
+          "sha256": "ef322b82d4302433308b1f22e4f06233e3fad8b836dd3fc441e8406f34a7a1a6",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {

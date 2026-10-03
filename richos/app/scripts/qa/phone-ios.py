@@ -27,9 +27,15 @@
     phone-ios.py wifi-restore --out DIR            read the phone's Wi-Fi switch in Settings; turn it on if
                                                    it is off (`run` does this itself after any list that
                                                    acted on Wi-Fi, however the list ended)
-    phone-ios.py reboot --device ID                restart the phone (devicectl), wait until it is back and
-                                                   open RichConnect until iOS verifies it; the remedy when
-                                                   `trust` fails (the phone has no passcode, CEO 2026-10-02)
+    phone-ios.py reboot --device ID                restart the phone (devicectl), wait until its Wi-Fi
+                                                   carries traffic, open RichConnect ONCE (never a loop);
+                                                   the remedy when `trust` fails (no passcode, CEO 2026-10-02)
+    phone-ios.py close BUNDLE --device ID          end that app's running process: the Home Screen is in front
+    phone-ios.py net --device ID --out FILE [--seconds S]
+                                                   what the phone itself reaches: this Mac reaching its
+                                                   Wi-Fi address, and Safari's internet connections read
+                                                   from the phone's log, with its Wi-Fi link report; one
+                                                   verdict. Run it before any claim about the Wi-Fi
     phone-ios.py launch BUNDLE [--device ID] [-- app args]
                                                    open an installed app by the one procedure: the phone must
                                                    be connected and on Wi-Fi (else nothing happens), open once,
@@ -466,6 +472,14 @@ def device_ids(device):
             except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):
                 pass
     return ids
+
+
+def hardware_udid(device):
+    """The hardware UDID (00008030-...) libimobiledevice and `log collect` need, from any spelling."""
+    for spelling in sorted(device_ids(device)):
+        if HARDWARE_UDID.match(spelling):
+            return spelling.upper()
+    raise CannotAnswer(f"no hardware UDID for {device} in `xcrun devicectl list devices`")
 
 
 def record_session(device, started, ended, log=None, session=None, error=None):
@@ -1217,6 +1231,139 @@ def trust(args):
     return emit(report, 0 if result.get("state") == "ok" else 1)
 
 
+# `rios device net`: what the phone itself can reach, measured, before anyone says anything about its "Wi-Fi"
+# (CEO 2026-10-03: check the internet connection before any claim about the Wi-Fi). Two readings:
+#   wifiPath  does this Mac reach the phone's own Wi-Fi address (phone_net.wifi_path: its Bonjour address,
+#             three pings from the Mac)? No answer means the phone's Wi-Fi carries no traffic at all.
+#   internet  Safari (a system app: no developer trust check, so it opens while RichConnect is refused)
+#             is opened once and closed again (the Home Screen is left in front); every TCP connection it
+#             makes to the internet in that window is read from the phone's own network log: completed, or
+#             timed out. Safari may load its open tab rather than NET_URL; any internet host serves.
+NET_URL = "http://captive.apple.com/hotspot-detect.html"
+NET_KEEP = re.compile(r" (?:MobileSafari|com\.apple\.WebKit\.Networking|mDNSResponder)[\[(]|"
+                      r" wifid[\[(].*(?:LogStats|[Pp]ower|[Aa]ssociat|[Ll]ink (?:up|down)|AUTO-JOIN: Join |Joining network|4WayHS|4 ?-?way|EAPOL|"
+                      r"[Dd]eauth|[Dd]isassoc|[Rr]eason|WPA|SAE|PMF|[Ll]inkDown|LinkChange)|"
+                      r" kernel[\[(].*(?:[Dd]eauth|[Dd]isassoc|[Rr]eason|4 ?-?way|EAPOL|[Ll]ink [Dd]own|[Ll]ink [Uu]p)")
+
+
+def net_reading(lines):
+    """Safari's TCP connections in one window, read from the phone's log lines. Pure: lines in, a dict out
+    (tested without a phone, qa/trust-reading.test.py)."""
+    text = "\n".join(lines)
+    statuses = sorted({int(s) for s in re.findall(r"received response, status (\d{3})", text)})
+    connected = len(re.findall(r"event: flow:finish_connect", text))
+    return {"reached": bool(statuses) or connected > 0, "tcpConnected": connected, "statuses": statuses,
+            "tcpTimedOut": len(re.findall(r"failed_connect @[\d.]+s, error Operation timed out", text)),
+            "dnsStalls": len(re.findall(r"reported DNS stall symptom", text)),
+            "dnsServerUnanswered": len(re.findall(r"Penalizing unresponsive server", text)),
+            "noNetworkRoute": len(re.findall(r"unsatisfied \(No network route\)", text)),
+            "wifiLink": wifi_link(text)}
+
+
+def wifi_link(text):
+    """The phone's own last Wi-Fi link report (wifid's LogStats line), or None when it wrote none."""
+    stats = re.findall(r"InfraUptime:([\d.]+)secs Channel: (\d+).*?Rssi: (-?\d+).*?Snr: (-?\d+) BcnPer: ([\d.]+)%", text)
+    if not stats:
+        return None
+    up, channel, rssi, snr, beacons = stats[-1]
+    return {"joinedSeconds": float(up), "channel": int(channel), "rssi": int(rssi), "snr": int(snr),
+            "beaconLossPercent": float(beacons)}
+
+
+def net_verdict(path_ok, internet):
+    """One sentence from the two readings. Pure (qa/trust-reading.test.py)."""
+    if path_ok and internet["reached"]:
+        return "the phone's Wi-Fi carries traffic: this Mac reaches it and it reaches the internet"
+    if path_ok:
+        return ("this Mac reaches the phone over Wi-Fi, but the phone's connections to the internet did not "
+                "complete" + (" (TCP timed out)" if internet["tcpTimedOut"] else ""))
+    if internet["reached"]:
+        return "the phone reaches the internet, but this Mac does not reach its Wi-Fi address"
+    if internet.get("noNetworkRoute") and not internet.get("tcpTimedOut"):
+        return ("the phone has no network at all: it is not joined to Wi-Fi (iOS: No network route), so this Mac "
+                "gets no answer from it and it reaches nothing")
+    return ("the phone is joined to Wi-Fi but its Wi-Fi carries no traffic: this Mac gets no answer from its "
+            "address and its own connections to the internet time out")
+
+
+def _safari_load(device, udid, url, seconds):
+    """Open url in Safari on the phone once, keep its network log lines for `seconds`, close Safari."""
+    import selectors
+    relay = spawn_owned(["idevicesyslog", "-u", udid, "--no-colors"], stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL, text=True, errors="replace")
+    kept, pid, opened = [], None, False
+    try:
+        time.sleep(1.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "launch.json"
+            p = subprocess.run(["xcrun", "devicectl", "device", "process", "launch", "--device", device,
+                                "--terminate-existing", "--payload-url", url, "--json-output", str(target),
+                                "com.apple.mobilesafari"], capture_output=True, text=True, timeout=60)
+            opened = p.returncode == 0
+            if opened and target.exists():
+                pid = ((json.loads(target.read_text()).get("result") or {}).get("process") or {}).get(
+                    "processIdentifier")
+        sel = selectors.DefaultSelector()
+        sel.register(relay.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if not sel.select(timeout=0.5):
+                if relay.poll() is not None:
+                    break
+                continue
+            line = relay.stdout.readline()
+            if not line:
+                break
+            if NET_KEEP.search(line):
+                kept.append(line.rstrip("\n"))
+    finally:
+        relay.terminate()
+        try:
+            relay.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            relay.kill()
+            relay.wait()
+        if pid:
+            subprocess.run(["xcrun", "devicectl", "device", "process", "terminate", "--device", device,
+                            "--pid", str(pid)], capture_output=True, timeout=30)
+    return opened, kept
+
+
+def net(args):
+    """`rios device net --device ID --out FILE`: the two readings and one verdict. Exit 0 when the phone's
+    Wi-Fi carries traffic both ways, 1 otherwise. The phone's kept log lines go to FILE (on /Volumes/E1TB).
+    Nothing is installed, removed or switched."""
+    sys.path.insert(0, str(ROOT / "richos/mobile"))
+    import phone_net
+    out = Path(args.out)
+    if not str(out.resolve()).startswith("/Volumes/E1TB/"):
+        raise CannotAnswer("--out must be on /Volumes/E1TB")
+    udid = hardware_udid(args.device)
+    path_ok, path_detail = phone_net.wifi_path(args.device)
+    opened, kept = _safari_load(args.device, udid, NET_URL, args.seconds)
+    internet = {"safariOpened": opened, **net_reading(kept)}
+    out.write_text("\n".join(kept) + "\n")
+    ok = path_ok and internet["reached"]
+    return emit({"wifiPath": {"ok": path_ok, "detail": path_detail}, "internet": internet,
+                 "verdict": net_verdict(path_ok, internet), "log": str(out)}, 0 if ok else 1)
+
+
+def close_app(args):
+    """`rios device close BUNDLE --device ID`: end the app's running process(es) so the phone is left at its
+    Home Screen. Nothing is installed, removed or cleared; an app that is not running is said, exit 0."""
+    rows = devicectl(["device", "info", "processes"], args.device).get("runningProcesses", [])
+    apps = devicectl(["device", "info", "apps", "--bundle-id", args.bundle], args.device).get("apps", [])
+    path = str((apps[0] if apps else {}).get("url", "")).replace("file://", "").rstrip("/")
+    if not path:
+        raise CannotAnswer(f"{args.bundle} is not installed on the phone")
+    pids = [r.get("processIdentifier") for r in rows
+            if str(r.get("executable", "")).replace("file://", "").startswith(path + "/")]
+    for pid in pids:
+        subprocess.run(["xcrun", "devicectl", "device", "process", "terminate", "--device", args.device,
+                        "--pid", str(pid)], capture_output=True, timeout=30)
+    return emit({"bundle": args.bundle, "closed": pids})
+
+
 def launch_app(args):
     """`rios device launch BUNDLE [-- app args]`: the one procedure for opening an installed app
     (phone_net.launch_app): check connected and on Wi-Fi first, open once, on a trust refusal restart the
@@ -1228,7 +1375,8 @@ def launch_app(args):
         return emit({"error": "name the phone: --device ID or RICHOS_IOS_DEVICE"}, 2)
     rest = args.app_args[1:] if args.app_args[:1] == ["--"] else args.app_args
     code, result = phone_net.launch_app(device, args.bundle, rest,
-                                        lambda line: print(line, file=sys.stderr, flush=True))
+                                        lambda line: print(line, file=sys.stderr, flush=True),
+                                        console=not args.detach)
     if result["state"] == "not-ready":
         print(result["detail"], file=sys.stderr)
     elif code:
@@ -1395,10 +1543,18 @@ def main(argv):
     la = sub.add_parser("launch")
     la.add_argument("bundle")
     la.add_argument("--device")
+    la.add_argument("--detach", action="store_true",
+                    help="return once iOS has opened the app (no console); the app stays open in front")
     la.add_argument("app_args", nargs=argparse.REMAINDER)
-    for name in ("procs", "apps", "lock", "battery", "syslog", "trust", "reboot"):
+    cl = sub.add_parser("close")
+    cl.add_argument("bundle")
+    cl.add_argument("--device", required=True)
+    for name in ("procs", "apps", "lock", "battery", "syslog", "trust", "reboot", "net"):
         s = sub.add_parser(name)
         s.add_argument("--device", required=True)
+        if name == "net":
+            s.add_argument("--out", required=True)
+            s.add_argument("--seconds", type=float, default=15.0)
         if name == "procs":
             s.add_argument("--name", default="RichOSNative")
         if name == "trust":
@@ -1439,7 +1595,7 @@ def main(argv):
                                     "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
                 "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore, "trust": trust,
-                "reboot": restart_phone, "launch": launch_app}[args.command](args)
+                "reboot": restart_phone, "launch": launch_app, "net": net, "close": close_app}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error), **getattr(error, "extra", {})}, 2)
     except subprocess.TimeoutExpired as error:

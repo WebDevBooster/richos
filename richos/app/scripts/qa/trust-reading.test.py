@@ -53,5 +53,45 @@ class TrustReading(unittest.TestCase):
         self.assertFalse(keep(T + "mDNSResponder[3] <Notice>: [Q(a, b)] Sent a previous IPv4 mDNS query over multicast"))
 
 
+# `rios device net`: Safari's TCP outcomes and the phone's own Wi-Fi link report, in the shapes iOS 26 logs them.
+CONNECT_TIMEOUT = T + ("MobileSafari(Network)[5] <Notice>: [C1.1.2.1 IPv4#a:443 failed channel-flow ] "
+                       "event: flow:failed_connect @8.876s, error Operation timed out")
+CONNECTED = T + "MobileSafari(Network)[5] <Notice>: [C2 IPv4#b:443 ready channel-flow ] event: flow:finish_connect @0.040s"
+NO_ROUTE = T + ("MobileSafari(Network)[5] <Notice>: [C1 Hostname#c:443 in_progress parent-flow (unsatisfied "
+                "(No network route))] event: flow:start_connect @0.001s")
+LINK = T + ("wifid[6] <Notice>: __WiFiLQAMgrLogStats(<redacted>:Stationary): InfraUptime:1926.4secs Channel: 44 "
+            "Bandwidth: 80Mhz Rssi: -60 {-60 -67} Cca: 56 (S:0 O:2 I:53) Snr: 12 BcnPer: 26.5% (49, 60.9%) TxFrameCnt: 41")
+
+
+class NetReading(unittest.TestCase):
+    def test_timed_out_connects_are_not_reached(self):
+        r = phone_ios.net_reading([CONNECT_TIMEOUT, UNANSWERED, LINK])
+        self.assertFalse(r["reached"])
+        self.assertEqual((r["tcpTimedOut"], r["dnsServerUnanswered"]), (1, 1))
+        self.assertEqual(r["wifiLink"], {"joinedSeconds": 1926.4, "channel": 44, "rssi": -60, "snr": 12,
+                                         "beaconLossPercent": 26.5})
+
+    def test_a_completed_connect_is_reached(self):
+        self.assertTrue(phone_ios.net_reading([CONNECT_TIMEOUT, CONNECTED])["reached"])
+
+    def test_no_route_is_counted(self):
+        r = phone_ios.net_reading([NO_ROUTE, NO_ROUTE])
+        self.assertEqual((r["noNetworkRoute"], r["reached"], r["wifiLink"]), (2, False, None))
+
+    def test_verdicts(self):
+        dead = phone_ios.net_reading([CONNECT_TIMEOUT])
+        live = phone_ios.net_reading([CONNECTED])
+        self.assertIn("carries no traffic", phone_ios.net_verdict(False, dead))
+        self.assertIn("carries traffic", phone_ios.net_verdict(True, live))
+        self.assertIn("did not complete", phone_ios.net_verdict(True, dead))
+        self.assertIn("not joined to Wi-Fi", phone_ios.net_verdict(False, phone_ios.net_reading([NO_ROUTE])))
+
+    def test_the_kept_lines(self):
+        keep = phone_ios.NET_KEEP.search
+        for line in (CONNECT_TIMEOUT, CONNECTED, NO_ROUTE, LINK, UNANSWERED):
+            self.assertTrue(keep(line), line)
+        self.assertFalse(keep(T + "wifid[6] <Notice>: WiFiManagerGetUserAutoJoinState: user auto join state 1"))
+
+
 if __name__ == "__main__":
     unittest.main()

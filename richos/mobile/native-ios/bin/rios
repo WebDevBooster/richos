@@ -22,8 +22,13 @@
 #       launch BUNDLE [-- args]       open ANY installed app by the one procedure: phone connected and on
 #                                     Wi-Fi first (else nothing happens), open once, refused -> restart
 #                                     the phone once, wait, open once more, else the exact error
-#       reboot --device ID            restart the phone (devicectl), wait for it, open RichConnect until
-#                                     iOS verifies it (the phone has no passcode: back usable on its own)
+#       reboot --device ID            restart the phone (devicectl), wait until its Wi-Fi carries traffic,
+#                                     open RichConnect ONCE (the phone has no passcode: back usable on its own)
+#       close BUNDLE --device ID      end that app's process, leaving the phone at its Home Screen
+#       net --device ID --out FILE    what the phone itself reaches, measured before any claim about its
+#                                     Wi-Fi: this Mac reaching its Wi-Fi address, and its own internet loads
+#     install, launch, and verify/run/perf/hold first prove the phone's Wi-Fi carries traffic (one restart
+#     with no app opened when it does not), so iOS can verify the app online (phone_net.py)
 #     verify, run, perf and hold check before and after that the phone can reach Apple (phone_net.py);
 #     when it cannot, they restart the phone once on their own and go on, or say why not
 #       status                        the iPhone's lock: free or held, and by whom
@@ -105,7 +110,7 @@ if [ "${1:-}" = "device" ]; then
       fi
       exec "${HOLDN[@]}" python3 "$HERE/../perf/perf.py" ios "$@" ;;
     run) exec "${HOLDN[@]}" python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
-    approval|procs|apps|lock|battery|syslog|trust|wifi-restore|reboot|launch) exec "${HOLD[@]}" python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
+    approval|procs|apps|lock|battery|syslog|trust|net|close|wifi-restore|reboot|launch) exec "${HOLD[@]}" python3 "$HERE/../../app/scripts/qa/phone-ios.py" "$@" ;;
     verify) exec "${HOLDN[@]}" node "$HERE/Tools/physical-device.mjs" "$@" ;;
     *) exec "${HOLD[@]}" node "$HERE/Tools/physical-device.mjs" "$@" ;;
   esac
