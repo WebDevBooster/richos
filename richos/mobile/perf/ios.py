@@ -34,9 +34,14 @@ import xml.etree.ElementTree as ET
 
 import condition
 import perfcore
+import test_copy
 from perfcore import Refused, Unmeasurable
 
+# Simulators run the app under its own ID. Every PHYSICAL iPhone run (the speed watch, `rios device perf`) works only on
+# the TEST COPY installed beside the CEO's own RichConnect, under its own ID and with its own data (test_copy.py);
+# the CEO's app (dev.richos.connect) is never installed, launched, stopped, backed up or restored by it.
 BUNDLE = "dev.richos.connect"
+TEST_BUNDLE = test_copy.TEST_BUNDLE_IOS
 SUBSYSTEM = "dev.richos.connect"
 USEFUL = "useful-content"
 FOREGROUND = "foreground-useful"
@@ -523,7 +528,7 @@ def build_configuration(artifact):
     return "release" if not present else None
 
 
-APP_EXECUTABLE = "RichOSNative"
+APP_EXECUTABLE = "RichOSNative"  # the test copy keeps the product name; its install path tells it from the CEO's app
 AWAY_APP = "com.apple.Preferences"  # brought to the front to background the app (no Home press over USB)
 RECORD = ["xcrun", "xctrace", "record", "--template", "App Launch", "--instrument", "os_signpost",
           "--instrument", "Frame Lifetimes"]
@@ -533,11 +538,30 @@ class Devicectl:
     """A physical iPhone through Xcode's devicectl. `process launch` without --terminate-existing
     activates an app that is already running (devicectl's documented default, --activate)."""
     kind = "physical"
+    bundle = TEST_BUNDLE
 
     def __init__(self, udid, runner=subprocess.run):
         self.target, self.runner = udid, runner
 
+    def install_path(self):
+        """Where the TEST COPY is installed on the phone (its install URL, by bundle ID). The CEO's own app has the same
+        executable name, so a process is the test copy's only by its path, never by its name."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "apps.json")
+            run(["xcrun", "devicectl", "device", "info", "apps", "--device", self.target, "--bundle-id", self.bundle,
+                 "--json-output", out], self.runner, timeout=60)
+            with open(out) as f:
+                data = json.load(f)
+        apps = (data.get("result") or {}).get("apps")
+        if not isinstance(apps, list):
+            raise Unmeasurable("devicectl's app list has no result.apps")
+        path = str((apps[0] if apps else {}).get("url") or "").replace("file://", "").rstrip("/")
+        if not path:
+            raise Unmeasurable(f"the test copy {self.bundle} is not installed on the phone (`rios device install` installs it)")
+        return path
+
     def pid(self):
+        path = self.install_path()
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "processes.json")
             run(["xcrun", "devicectl", "device", "info", "processes", "--device", self.target, "--json-output", out],
@@ -548,12 +572,13 @@ class Devicectl:
         if not isinstance(procs, list):
             raise Unmeasurable("devicectl's process list has no result.runningProcesses")
         found = [p.get("processIdentifier") for p in procs
-                 if f"/{APP_EXECUTABLE}.app/{APP_EXECUTABLE}" in str(p.get("executable") or "")]
+                 if str(p.get("executable") or "").replace("file://", "").startswith(path + "/")]
         if len(found) > 1:
-            raise Unmeasurable(f"{len(found)} {APP_EXECUTABLE} processes are running")
+            raise Unmeasurable(f"{len(found)} test-copy processes are running")
         return int(found[0]) if found else None
 
     def launch(self, bundle, *args):
+        test_copy.refuse_ceo_app(bundle, "a speed run")  # the CEO's own app is never opened by a run
         run(["xcrun", "devicectl", "device", "process", "launch", "--device", self.target, bundle, *args],
             self.runner, timeout=60)
 
@@ -562,6 +587,7 @@ class Simctl:
     """A leased, booted simulator (`--xctrace`): the same capture path, for dry runs of the tool.
     Simulator frame records are refused as presentation data (see presented_frame)."""
     kind = "simulator"
+    bundle = BUNDLE
 
     def __init__(self, udid, runner=subprocess.run):
         self.target, self.runner = udid, runner
@@ -587,6 +613,11 @@ def _capture(command, prefix, runner, timeout):
         raise Unmeasurable(f"capture failed ({result.returncode}); see {prefix}.log")
 
 
+def _bundle(driver):
+    """The app a driver opens: a phone's test copy, a simulator's own app."""
+    return getattr(driver, "bundle", BUNDLE)
+
+
 def _return_capture(driver, trace, prefix, seconds, away, app_args, runner, popen, sleep):
     """Attach a recording to the app's process while it is in front (a simulator dry run once
     failed to find a just-backgrounded process by pid), and once the recording reports that
@@ -594,7 +625,7 @@ def _return_capture(driver, trace, prefix, seconds, away, app_args, runner, pope
     process must be running afterwards."""
     pid = driver.pid()
     if pid is None:
-        driver.launch(BUNDLE, *app_args)
+        driver.launch(_bundle(driver), *app_args)
         sleep(3.0)
         pid = driver.pid()
         if pid is None:
@@ -621,7 +652,7 @@ def _return_capture(driver, trace, prefix, seconds, away, app_args, runner, pope
                 raise Unmeasurable("the recording never reported that tracing started")
             driver.launch(AWAY_APP)
             sleep(away)
-            driver.launch(BUNDLE)
+            driver.launch(_bundle(driver))
             code = recorder.wait(timeout=seconds + 120)
         finally:
             for owned in (waiter, recorder):  # only the processes this function started
@@ -674,7 +705,7 @@ def trace_series(cls, driver, trials, evidence, runner=subprocess.run, popen=sub
             try:
                 if cls == "cold":
                     _capture(RECORD + ["--device", driver.target, "--time-limit", f"{seconds}s", "--output", trace,
-                                       "--launch", "--", BUNDLE, *app_args], prefix, runner, seconds + 120)
+                                       "--launch", "--", _bundle(driver), *app_args], prefix, runner, seconds + 120)
                     tables, attempts = export_tables(trace, prefix, runner, sleep)
                     sample = launch_sample(tables)
                 else:
@@ -1052,7 +1083,7 @@ class DeviceState:
         """{relative path: (owner uid, mode)} of the app's data container, read with devicectl."""
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "files.json")
-            p = self._devicectl("info", "files", "--domain-type", "appDataContainer", "--domain-identifier", BUNDLE,
+            p = self._devicectl("info", "files", "--domain-type", "appDataContainer", "--domain-identifier", TEST_BUNDLE,
                                 "--json-output", out)
             try:
                 with open(out) as f:
@@ -1098,7 +1129,7 @@ class DeviceState:
         relaunch (the copy is a read; the app is only stopped first so it cannot write over a change)."""
         if stop:
             self.stop()
-        p = self._devicectl("copy", "from", "--domain-type", "appDataContainer", "--domain-identifier", BUNDLE,
+        p = self._devicectl("copy", "from", "--domain-type", "appDataContainer", "--domain-identifier", TEST_BUNDLE,
                             "--source", STATE_DIR, "--destination", dest)
         if p.returncode:
             said = (p.stderr or p.stdout or "").strip()
@@ -1123,7 +1154,7 @@ class DeviceState:
         tree = os.path.join(wrapper, os.path.basename(STATE_PARENT))
         try:
             shutil.copytree(source, os.path.join(tree, os.path.basename(STATE_DIR)))
-            p = self._devicectl("copy", "to", "--domain-type", "appDataContainer", "--domain-identifier", BUNDLE,
+            p = self._devicectl("copy", "to", "--domain-type", "appDataContainer", "--domain-identifier", TEST_BUNDLE,
                                 "--source", tree, "--destination", STATE_PARENT, "--remove-existing-content", "true")
         finally:
             shutil.rmtree(wrapper, ignore_errors=True)
@@ -1214,7 +1245,7 @@ def device_screen_check(hw, team, stamp_path, marker, out_dir, runner=subprocess
 # The app writes its launch and return lines only while this file is in its saved-state directory.
 TIMING_MARKER = "perf-launch-timing.on"
 TIMING_FILE = "perf-launch-timing.jsonl"
-ICON_LABEL = "RichConnect"
+ICON_LABEL = test_copy.TEST_DISPLAY_NAME  # the test copy's name on the Home Screen, beside the CEO's RichConnect
 TAP_SETTLE_S = 2.0   # after a terminate, before the tap
 TAP_DWELL_S = 4.0    # after a tap: the launch or return finishes and the app has written its lines
 # Where a return's probe touch lands: the middle of the transcript on an iPhone SE in portrait, where
@@ -1487,7 +1518,7 @@ def _tap_series(args, record, state, seed, scratch, hw, work):
 LAUNCH_DWELL_S = 4.0  # after a launch request: the app has started and written its lines
 HOME_SETTLE_S = 1.5   # after terminating the app in front: the Home Screen is back and still
 LAUNCH_REQUEST = re.compile(r'^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d\d:\d\d:\d\d\.\d+) SpringBoard\(FrontBoard\)\[\d+\] <\w+>: '
-                            r'\[FBSystemService\]\[0x[0-9a-fA-F]+\] Received request to open "' + re.escape(BUNDLE) + '"')
+                            r'\[FBSystemService\]\[0x[0-9a-fA-F]+\] Received request to open "' + re.escape(TEST_BUNDLE) + '"')
 APP_LOG_LINE = re.compile(r'^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d\d:\d\d:\d\d\.\d+) ' + re.escape(APP_EXECUTABLE)
                           + r'(?:\([^)]*\))?\[(?P<pid>\d+)\]')
 LAUNCH_END = ("the app's own input-ready mark (the main run loop idle after the commit that made the saved viewport "
@@ -1626,7 +1657,7 @@ def _launch_series(args, record, state, seed, scratch, hw, work, driver, popen, 
         reader = popen(["idevicesyslog", "-u", hw], stdout=log, stderr=subprocess.STDOUT, text=True)
         try:
             sleep(2.0)  # the relay is connected before the first request
-            _, error = run_launch_series(n, lambda: driver.launch(BUNDLE), state.stop, read, sleep)
+            _, error = run_launch_series(n, lambda: driver.launch(TEST_BUNDLE), state.stop, read, sleep)
             state.stop()  # the phone is left at its Home Screen
         except (Unmeasurable, subprocess.TimeoutExpired) as e:
             error = f"the launches stopped: {e}"
@@ -1747,7 +1778,7 @@ def _return_series(args, record, state, seed, scratch, hw, work, driver, popen, 
         reader = popen(["idevicesyslog", "-u", hw], stdout=log, stderr=subprocess.STDOUT, text=True)
         try:
             sleep(2.0)
-            _, error = run_return_series(n, lambda: driver.launch(OTHER_APP_BUNDLE), lambda: driver.launch(BUNDLE),
+            _, error = run_return_series(n, lambda: driver.launch(OTHER_APP_BUNDLE), lambda: driver.launch(TEST_BUNDLE),
                                          read, sleep)
         except (Unmeasurable, subprocess.TimeoutExpired) as e:
             error = f"the returns stopped: {e}"
@@ -1872,7 +1903,7 @@ def _seeded_device(args, record, driver, hw, stamp, runner, popen, sleep, rios):
             shutil.rmtree(work, ignore_errors=True)  # nothing was changed; no partial copy stays on the Mac
             raise
         with open(os.path.join(work, "backup", "manifest.json"), "w") as f:
-            json.dump({"device": args.device, "bundle": BUNDLE, "directory": STATE_DIR, "manifest": mine,
+            json.dump({"device": args.device, "bundle": TEST_BUNDLE, "directory": STATE_DIR, "manifest": mine,
                        "takenAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                        "restore": restore_hint}, f, indent=2)
         for sig in (signal.SIGTERM, signal.SIGHUP):
@@ -2017,7 +2048,7 @@ def run_ios(args, runner=subprocess.run, popen=subprocess.Popen, sleep=time.slee
             with open(out) as f:
                 listing = f.read()
         record["device"] = physical(listing, args.device)
-        record["build"] = {"bundle": BUNDLE, "commit": stamp and stamp.get("commit"), "dirty": stamp and stamp.get("dirty"),
+        record["build"] = {"bundle": TEST_BUNDLE, "commit": stamp and stamp.get("commit"), "dirty": stamp and stamp.get("dirty"),
                            "builtSha256": stamp and stamp.get("sha256"),
                            "configuration": build_configuration(stamp and stamp.get("artifact")),
                            "note": "an iPhone's installed bundle cannot be read back; identity is the stamp of what was installed"}

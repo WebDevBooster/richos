@@ -38,8 +38,12 @@ import tempfile
 import time
 from pathlib import Path
 
-PACKAGE = "dev.richos.connect"
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "perf"))
+import test_copy  # noqa: E402 — the test copy's identity and the refusal of the CEO's own app
+
+# The net check opens the TEST COPY once, never the CEO's own RichConnect (he handles that himself).
+PACKAGE = test_copy.TEST_BUNDLE_IOS
 PHONE_IOS = HERE.parent / "app/scripts/qa/phone-ios.py"
 # What devicectl (and the test log) say when iOS will not open a developer-signed app for want of its
 # online verification.
@@ -280,6 +284,7 @@ def launch_app(device, bundle, app_args, say, out=None, console=True):
     Returns (exit code, {'launches', 'reboots', 'state', 'detail'}); the app's console goes to `out` and the
     call returns when the app exits. console=False (`rios device launch --detach`) returns once iOS has opened
     the app, leaving it running in front."""
+    test_copy.refuse_ceo_app(bundle, "`rios device launch`")  # before anything is asked of the phone
     out = out or sys.stdout
     result = {"launches": 0, "reboots": 0, "state": "unknown", "detail": ""}
     ok, detail = check_ready(device)

@@ -48,6 +48,17 @@ from perfcore import Refused, Unmeasurable
 PACKAGE = "dev.richos.connect"
 ACTIVITY = f"{PACKAGE}/dev.richos.android.app.MainActivity"
 RECEIVER = f"{PACKAGE}/dev.richos.android.app.debug.DevBridgeReceiver"
+
+
+def use_package(package):
+    """Point every measurement in this module at `package`. A PHYSICAL phone is only ever measured through the TEST
+    COPY (test_copy.py, dev.richos.connect.perf), installed beside the CEO's own RichConnect; perf.py run_android
+    calls this for it. The class names stay the app's own (the Kotlin namespace is not the application ID)."""
+    global PACKAGE, ACTIVITY, RECEIVER, MANIFEST
+    PACKAGE = package
+    ACTIVITY = f"{PACKAGE}/dev.richos.android.app.MainActivity"
+    RECEIVER = f"{PACKAGE}/dev.richos.android.app.debug.DevBridgeReceiver"
+    MANIFEST = f"run-as {PACKAGE} sh -c 'find . -type f -exec sha256sum {{}} +'"
 TRACE_FILE = "/data/local/tmp/richos-perf-trace.txt"
 TRACEFS = "/sys/kernel/tracing"
 FSYNC_INSTANCE = f"{TRACEFS}/instances/richos-perf-fsync"
