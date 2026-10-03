@@ -115,6 +115,50 @@ def series_verdict(kind, platform, starts_ms, total=COLD_STARTS):
     return out
 
 
+class NoVerdict(Exception):
+    """A record has no cold or warm series to judge, or its limit is not set: the sentence says why."""
+
+
+def cold_standard(platform, record_data):
+    """The cold-start test's verdict (CEO 2026-10-03, §104), judged from the record's own cold series. The
+    iPhone's series has no start 1 in the record (it is the unjudged first launch), the Android's has.
+    Raises NoVerdict when the record has no cold series."""
+    samples = ((record_data.get("metrics") or {}).get("coldLaunch") or {}).get("samplesMs")
+    if not samples:
+        raise NoVerdict("the record has no cold-start series to judge (metrics.coldLaunch.samplesMs)")
+    starts = [None] + list(samples) if platform == "ios" else list(samples)
+    return cold_verdict(platform, starts)
+
+
+def warm_standard(record_data):
+    """The warm-start test's verdict as the perf run recorded it. Raises NoVerdict when there is none."""
+    ws = (record_data.get("metrics") or {}).get("warmStandard")
+    if not ws:
+        raise NoVerdict("the record has no warm-start verdict (metrics.warmStandard)")
+    if ws.get("verdict") == "LIMIT NOT SET":
+        raise NoVerdict(f"the warm-start standard cannot be judged: {ws.get('why')}")
+    return ws
+
+
+def standard_line(label, v):
+    times = ", ".join("-" if m is None else str(round(m)) for m in v.get("startsMs") or [])
+    return f"{label} {v['verdict']}: {v['why']} (starts, ms: {times})"
+
+
+def standard_report(platform, record_data):
+    """The two §104 verdict lines every perf run prints: PASS, FAIL, or no verdict with the exact reason."""
+    lines = []
+    for label, judge in (("cold", lambda: cold_standard(platform, record_data)),
+                         ("warm", lambda: warm_standard(record_data))):
+        try:
+            v = judge()
+        except (NoVerdict, LimitNotSet) as e:
+            lines.append(f"§104 {label}: no verdict: {e}")
+        else:
+            lines.append("§104 " + standard_line(label, v))
+    return lines
+
+
 def should_stop(kind, platform, starts_ms):
     """True when the series so far already fails the early limit: no further start is made."""
     return bool(series_verdict(kind, platform, starts_ms)["stop"])

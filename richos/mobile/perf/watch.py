@@ -772,30 +772,23 @@ def blank_screen_status(platform, record_data, problems):
 
 
 def cold_standard(platform, record_data):
-    """The cold-start test's verdict (CEO 2026-10-03, §104; limits only in perfcore.COLD_STANDARD), judged
-    from the record's own cold series. The iPhone's series has no start 1 in the record (it is the unjudged first
-    launch), the Android's has. Raises Unmeasured when the record has no cold series."""
-    samples = ((record_data.get("metrics") or {}).get("coldLaunch") or {}).get("samplesMs")
-    if not samples:
-        raise Unmeasured("the record has no cold-start series to judge (metrics.coldLaunch.samplesMs)")
-    starts = [None] + list(samples) if platform == "ios" else list(samples)
-    return _pc().cold_verdict(platform, starts)
+    """The cold-start verdict (the judge lives in perfcore.cold_standard, shared with `device perf`)."""
+    try:
+        return _pc().cold_standard(platform, record_data)
+    except _pc().NoVerdict as e:
+        raise Unmeasured(str(e)) from None
 
 
 def warm_standard(record_data):
-    """The warm-start test's verdict as the perf run recorded it (perfcore.WARM_STANDARD). Its limits are
-    placeholders until the CEO fills them in: that is said loudly (Unmeasured), never a pass."""
-    ws = (record_data.get("metrics") or {}).get("warmStandard")
-    if not ws:
-        raise Unmeasured("the record has no warm-start verdict (metrics.warmStandard)")
-    if ws.get("verdict") == "LIMIT NOT SET":
-        raise Unmeasured(f"the warm-start standard cannot be judged: {ws.get('why')}")
-    return ws
+    """The warm-start verdict as the perf run recorded it (the judge lives in perfcore.warm_standard)."""
+    try:
+        return _pc().warm_standard(record_data)
+    except _pc().NoVerdict as e:
+        raise Unmeasured(str(e)) from None
 
 
 def standard_line(label, v):
-    times = ", ".join("-" if m is None else str(round(m)) for m in v.get("startsMs") or [])
-    return f"{label} {v['verdict']}: {v['why']} (starts, ms: {times})"
+    return _pc().standard_line(label, v)
 
 
 def summary_line(result):

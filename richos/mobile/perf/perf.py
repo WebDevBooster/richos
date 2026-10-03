@@ -232,8 +232,9 @@ def judge(record, bench_path=None, log=None):
         result = benchmark.compare([record], benchmark.load(bench_path), bench_path)
     except Refused as e:
         result = {"verdict": benchmark.VERDICT_NONE, "why": str(e), "metrics": {}}
-        log(f"benchmark: NOT COMPARED: {e}")
+        log(f"benchmark: NOT COMPARED: {e} (information only, not the §104 verdict)")
     else:
+        log("benchmark comparison below is information only, not the §104 verdict")
         for line in benchmark.lines(result):
             log(f"benchmark: {line}")
     record["benchmark"] = result
@@ -538,7 +539,7 @@ def measure_android(args, dev, stamp, keeper, host, log, popen=None):
     if args.kind == "emulator" and args.lease and not runner:
         pace, waits = emulator_pacer(args.lease)
     m = android.Measure(dev, log=log, settle_s=args.settle, pace=pace,
-                        evidence_dir=(getattr(args, "evidence_dir", None) or str(args.out) + ".evidence")
+                        evidence_dir=(getattr(args, "evidence_dir", None) or default_evidence_dir(args.out))
                         if args.kind == "physical" and not runner else None)
     record = {"schema": perfcore.SCHEMA, "platform": "android", "startedAt": now_iso(),
               "tool": {"path": "richos/mobile/perf/perf.py", **perfcore.source_identity(REPO, ["richos/mobile/perf"])},
@@ -1006,6 +1007,12 @@ def parse_args(argv):
     return p.parse_args(argv)
 
 
+def default_evidence_dir(out):
+    """Where a physical run's traces go with no --evidence-dir: beside the record when it has a path, else a
+    scratch folder, never the working directory (a run with no --out once wrote `None.evidence` into the repository)."""
+    return str(out) + ".evidence" if out else tempfile.mkdtemp(prefix="richos-perf-evidence-")
+
+
 def emit(record, out):
     text = perfcore.dump(record)
     if out:
@@ -1049,6 +1056,8 @@ def main(argv=None):
         else:
             import ios
             record, failures = ios.run_ios(args)
+        for line in perfcore.standard_report(record.get("platform") or args.cmd, record):
+            print(line, file=sys.stderr, flush=True)
         slower = judge(record, args.benchmark)
         problems = perfcore.check_record(record)
         if problems:
