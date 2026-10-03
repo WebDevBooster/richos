@@ -228,13 +228,15 @@ def ensure_path(device, say):
     return ok, detail, True
 
 
-def launch_app(device, bundle, app_args, say, out=None):
+def launch_app(device, bundle, app_args, say, out=None, console=True):
     """`rios device launch`: the one procedure for opening an installed app (CEO 2026-10-02/03).
     0. phone not connected / not on Wi-Fi: nothing happens (no launch, no reboot).
     1. open the app once. 2. refused for want of verification: restart the phone once. 3. wait until it is
     back, connected and on Wi-Fi. 4. open the app once more. 5. refused again: say exactly why.
     Never more than two launches and one restart: every failed launch pops a notification on the phone.
-    Returns (exit code, {'launches', 'reboots', 'state', 'detail'}); the app's console goes to `out`."""
+    Returns (exit code, {'launches', 'reboots', 'state', 'detail'}); the app's console goes to `out` and the
+    call returns when the app exits. console=False (`rios device launch --detach`) returns once iOS has opened
+    the app, leaving it running in front."""
     out = out or sys.stdout
     result = {"launches": 0, "reboots": 0, "state": "unknown", "detail": ""}
     ok, detail = check_ready(device)
@@ -256,8 +258,8 @@ def launch_app(device, bundle, app_args, say, out=None):
         with tempfile.TemporaryDirectory() as tmp:
             try:
                 p = subprocess.Popen([os.environ.get("RICHOS_XCRUN") or "xcrun", "devicectl", "device", "process",
-                                      "launch", "--device", device, "--terminate-existing", "--console",
-                                      "--json-output", str(Path(tmp) / "launch.json"), bundle, *app_args],
+                                      "launch", "--device", device, "--terminate-existing",
+                                      *(["--console"] if console else []), "--json-output", str(Path(tmp) / "launch.json"), bundle, *app_args],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             except OSError as error:
                 return {"state": "unknown", "detail": f"devicectl did not start ({error})"}

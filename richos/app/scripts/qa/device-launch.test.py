@@ -31,6 +31,7 @@ case "$1 $2" in
     exit 0 ;;
   "device reboot") echo x >> "$d/reboots"; exit 0 ;;
   "device process")
+    echo "$@" >> "$d/calls"
     echo x >> "$d/launches"
     n=$(wc -l < "$d/launches" | tr -d ' ')
     answer=$(echo "$FAKE_LAUNCHES" | cut -d, -f"$n")
@@ -72,6 +73,8 @@ class DeviceLaunch(unittest.TestCase):
                    "RICHOS_PHONE_REBOOT_STEP": "0", "PYTHONDONTWRITEBYTECODE": "1"}
             p = subprocess.run([sys.executable, *argv], capture_output=True, text=True, env=env, timeout=60)
             count = lambda name: len((Path(tmp) / name).read_text().split())
+            calls = Path(tmp) / "calls"
+            self.calls = calls.read_text() if calls.exists() else ""
             return p, count("launches"), count("reboots")
 
     def run_launch(self, tunnel, launches, path="ok"):
@@ -88,6 +91,7 @@ class DeviceLaunch(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual((launches, reboots), (1, 0))
         self.assertIn("app console line", p.stdout)
+        self.assertIn("--console", self.calls)
 
     def test_refused_then_ok_reboots_once(self):
         p, launches, reboots = self.run_launch("connected", "no,ok")
@@ -99,6 +103,13 @@ class DeviceLaunch(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertEqual((launches, reboots), (2, 1))
         self.assertIn("not trusted", p.stderr)
+
+    def test_detach_opens_once_without_the_console(self):
+        p, launches, reboots = self.run_tool([str(TOOL), "launch", "--device", "PHONE", "--detach", "dev.example.app"])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((launches, reboots), (1, 0))
+        self.assertIn('"state": "ok"', p.stderr)
+        self.assertNotIn("--console", self.calls)
 
     def test_dead_wifi_is_restarted_before_the_first_open(self):
         p, launches, reboots = self.run_launch("connected", "ok", path="dead-then-ok")

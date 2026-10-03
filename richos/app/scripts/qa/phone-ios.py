@@ -1358,7 +1358,8 @@ def launch_app(args):
         return emit({"error": "name the phone: --device ID or RICHOS_IOS_DEVICE"}, 2)
     rest = args.app_args[1:] if args.app_args[:1] == ["--"] else args.app_args
     code, result = phone_net.launch_app(device, args.bundle, rest,
-                                        lambda line: print(line, file=sys.stderr, flush=True))
+                                        lambda line: print(line, file=sys.stderr, flush=True),
+                                        console=not args.detach)
     if result["state"] == "not-ready":
         print(result["detail"], file=sys.stderr)
     elif code:
@@ -1525,6 +1526,8 @@ def main(argv):
     la = sub.add_parser("launch")
     la.add_argument("bundle")
     la.add_argument("--device")
+    la.add_argument("--detach", action="store_true",
+                    help="return once iOS has opened the app (no console); the app stays open in front")
     la.add_argument("app_args", nargs=argparse.REMAINDER)
     for name in ("procs", "apps", "lock", "battery", "syslog", "trust", "reboot", "net"):
         s = sub.add_parser(name)
