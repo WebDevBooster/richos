@@ -141,8 +141,10 @@ if have_commit e7facc99; then
   # ONE browser suite, plus docs-claims.js: the land also changed a Rust source whose #[test]
   # count feeds app/README.md's crate total, and that document check weighs 0 s
   # (ui/tests/suite-weights.tsv). Still not the 19-minute run (K1 below says why it is here).
+  # affordances.js is here too since the land changed a Rust source its state inventory scrapes
+  # (R47 below): a Rust message nobody classified is what the nightly refused on 2026-10-03.
   UI_B="$(sed -n 's/^  cd richos\/app\/ui\/tests && node \(.*\.js\)$/\1/p' "$WORK/b.out" | LC_ALL=C sort | tr '\n' ' ')"
-  [ "$UI_B" = "docs-claims.js no-home-network.js " ] \
+  [ "$UI_B" = "affordances.js docs-claims.js no-home-network.js " ] \
     && ok "B4 a one-check UI change costs ONE suite (plus the sub-second document check), not the 19-minute run" \
     || bad "B4 a one-check UI change costs ONE suite" "got ${UI_B:-none}"
 else
@@ -566,6 +568,17 @@ elif [ -n "$R46_BAD" ]; then
   bad "R46 a shots-5 file selects only suites that name shots-5" "also selected:$R46_BAD"
 else
   ok "R46 a shots-5 file selects only suites that name shots-5, not shots-5b or shots-5c readers"
+fi
+
+# R47. affordances.js derives its states from the Rust command layer and crates as well as ui/
+# (RUST_ROOTS in ui/tests/lib/state-strings.js). A change to a Rust file that adds a message
+# must select it: bf304c664 added one in nav.rs, proof-for picked only docs-claims.js, and the
+# nightly refused the build.
+run_pf "$WORK/r47.out" --paths richos/app/src-tauri/src/nav.rs; R47_RC=$RC
+if grep -q 'node affordances.js' "$WORK/r47.out"; then
+  ok "R47 a Rust file the state inventory scrapes selects affordances.js"
+else
+  bad "R47 a Rust file the state inventory scrapes selects affordances.js" "exit $R47_RC: $(head -c 300 "$WORK/r47.out" | tr '\n' ' ')"
 fi
 
 echo
