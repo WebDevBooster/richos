@@ -146,6 +146,22 @@ def parse_input_events(trace, pid):
     return events
 
 
+# A start the phone's own report could not time (an OEM that leaves a frame out of framestats or never fills in its
+# present time) is rejected and one more start is run in its place, up to this many in a series; every judged
+# start is still timed, and a series that still falls short of its timed starts gets no verdict (§104).
+UNTIMED_RETRIES = 10
+
+
+def merge_frame_rows(*reads):
+    """Framestats rows from several reads of one launch, each frame once (a later read of the same
+    frame wins: its present time may have been filled in), in draw order."""
+    merged = {}
+    for rows in reads:
+        for row in rows:
+            merged[(row.get("IntendedVsync"), row.get("DrawStart"))] = row
+    return sorted(merged.values(), key=lambda r: r.get("DrawStart") or 0)
+
+
 def useful_launch_frame(trace, rows, pid):
     """Join the system launch interval to the app's useful draw and its presented frame.
 
@@ -657,6 +673,30 @@ class StateKeeper:
         self.dir = None
         self.lost = None  # who agreed to lose the data, once saved without it
 
+    @classmethod
+    def from_kept(cls, dev, directory, log=lambda s: None, twin_apk=None, apksigner=None):
+        """The keeper of a copy a killed run left behind (base.apk and data.tar in `directory`), ready to restore()."""
+        import hashlib
+        import os
+        import tarfile
+        directory = os.path.abspath(directory)
+        keeper = cls(dev, root=os.path.dirname(directory), log=log, twin_apk=twin_apk, apksigner=apksigner)
+        keeper.dir = directory
+        keeper.apk = os.path.join(directory, "base.apk")
+        with open(keeper.apk, "rb") as f:
+            keeper.apk_sha = hashlib.sha256(f.read()).hexdigest()
+        tar = os.path.join(directory, "data.tar")
+        if os.path.isfile(tar):
+            keeper.tar = tar
+            keeper.manifest = {}
+            with tarfile.open(tar) as t:
+                for member in t.getmembers():
+                    if member.isfile():
+                        name = member.name if member.name.startswith("./") else "./" + member.name
+                        keeper.manifest[name] = hashlib.sha256(t.extractfile(member).read()).hexdigest()
+        keeper.saved = True
+        return keeper
+
     # -- reading the device -------------------------------------------------------------------
     def installed(self):
         """(path of the base APK on the phone, its sha256) or (None, None) when not installed."""
@@ -936,16 +976,30 @@ class Measure:
     def traced_launch(self):
         self.gfx_reset()
         launch = {}
-        def start(): launch.update(self.foreground())
+        snapshots = []
+        def snapshot():
+            # The phone's framestats ring is short (about 10 rows on the Honor): a launch followed by a
+            # burst of frames pushes the useful draw's own frame out before one late read. Read it while
+            # the frame is still there, and again as the app settles; the reads are merged.
+            try: snapshots.append(self.gfx()["rows"])
+            except Exception: pass
+        def start():
+            launch.update(self.foreground())
+            snapshot()
+            for _ in range(3):
+                self.d.sleep(0.4)
+                snapshot()
         error = None
         self.last_trace = ""
         self.last_launch_output = ""
         try: trace = self.atrace(["am", "view", "gfx"], start, 2.0)
         except Exception as failure:
             error, trace = failure, self.last_trace
-        try: window = self.gfx()
+        try:
+            window = self.gfx()
+            window = {**window, "rows": merge_frame_rows(*snapshots, window["rows"])}
         except Exception as failure:
-            window = {"rows": [], "error": str(failure)}
+            window = {"rows": merge_frame_rows(*snapshots), "error": str(failure)}
             error = error or failure
         pid = self.d.pid()
         self.launch_number += 1
@@ -961,7 +1015,9 @@ class Measure:
 
     def cold(self, trials, newest_text=None, physical=False):
         first, useful, rejected, details = [], [], [], []
-        for i in range(trials):
+        budget, i = trials, -1
+        while i + 1 < budget:
+            i += 1
             self.pace()
             self.d.sh(f"am force-stop {PACKAGE}")
             self.d.sleep(1.0)
@@ -978,6 +1034,7 @@ class Measure:
                     rejected.append({"trial": i + 1, "why": str(error)})
                     self.log(f"cold {i + 1}/{trials}: REJECTED, {error}")
                     if len(rejected) >= 2 and not useful: break
+                    if budget < trials + UNTIMED_RETRIES: budget += 1  # the start was not timed: one more start takes its place
                 self.d.sleep(self.settle_s)
                 continue
             since = self.d.uptime_epoch()
@@ -1018,7 +1075,9 @@ class Measure:
         details = []
         self.foreground()
         self.d.sleep(self.settle_s)
-        for i in range(trials):
+        budget, i = trials, -1
+        while i + 1 < budget:
+            i += 1
             self.pace()
             pid = self.d.pid()
             since = self.d.uptime_epoch()
@@ -1032,6 +1091,7 @@ class Measure:
                     rejected.append({"trial": i + 1, "why": str(error)})
                     self.log(f"warm {i + 1}/{trials}: REJECTED, {error}")
                     if len(rejected) >= 2 and not samples: break
+                    if budget < trials + UNTIMED_RETRIES: budget += 1  # the start was not timed: one more start takes its place
                     continue
             else: launch = self.foreground()
             after = self.d.pid()

@@ -267,6 +267,59 @@ def _():
             assert file.read() == "captured trace"
 
 
+@case("A14 a launch whose useful frame left the phone's short framestats ring by the final read is still timed from the earlier read")
+def _():
+    trace = "\n".join([
+        " system-1 (1) [000] .... 10.000000: tracing_mark_write: S|1|launchingActivity#7|0",
+        " system-1 (1) [000] .... 10.500000: tracing_mark_write: I|1|launchingActivity#7:completed-cold:dev.richos.connect",
+        " app-42 (42) [000] .... 10.999999: tracing_mark_write: B|42|richconnect:foreground-useful",
+        " app-42 (42) [000] .... 11.000000: tracing_mark_write: C|42|richconnect:monotonic-ns|3000000000",
+        " app-42 (42) [000] .... 11.000001: tracing_mark_write: E|42",
+    ])
+    useful = {"Flags": 0, "IntendedVsync": 2_890_000_000, "DrawStart": 2_900_000_000, "SyncQueued": 3_050_000_000,
+              "FrameCompleted": 3_060_000_000, "DisplayPresentTime": 3_100_000_000}
+    late = [{"Flags": 0, "IntendedVsync": 8_000_000_000 + i, "DrawStart": 8_000_000_000 + i, "SyncQueued": 8_000_000_100 + i,
+             "FrameCompleted": 8_000_000_200 + i, "DisplayPresentTime": 8_000_000_300 + i} for i in range(10)]
+    class Device:
+        clock = 0.0
+        def sh(self, command, **kw):
+            return "Status: ok\nLaunchState: COLD\nTotalTime: 411\nWaitTime: 413\n" if command.startswith("am start") else ""
+        def run(self, *args, **kw): return trace
+        def sleep(self, seconds): self.clock += seconds
+        def pid(self): return 42
+    device = Device()
+    measure = android.Measure(device)
+    # the ring holds the useful frame only in the first second after the launch; after that, ten later frames
+    measure.gfx = lambda: {"rows": [useful] + late[:3] if device.clock < 1.0 else late}
+    launch, detail = measure.traced_launch()
+    assert detail["usefulMs"] == 1100 and launch["launchState"] == "COLD", detail
+
+
+@case("A15 a start the phone's report could not time is replaced by one more start, so the series still holds every timed start")
+def _():
+    class Device:
+        def sh(self, command, **kw): return ""
+        def run(self, *args, **kw): return ""
+        def sleep(self, seconds): pass
+        def pid(self): return 42
+        def uptime_epoch(self): return "0"
+    measure = android.Measure(Device())
+    measure.foreground = lambda: {"launchState": "HOT", "totalMs": 100}
+    measure.home = lambda: None
+    calls = []
+    def traced():
+        calls.append(1)
+        if len(calls) in (2, 4): raise perfcore.Unmeasurable("OEM did not report a usable presentation timestamp")
+        return {"launchState": "HOT", "totalMs": 100}, {"usefulMs": 100.0 + len(calls)}
+    measure.traced_launch = traced
+    got = measure.warm(5, physical=True)
+    assert len(got["samples"]) == 5 and len(got["rejected"]) == 2 and len(calls) == 7, (got, len(calls))
+    calls.clear()
+    measure.traced_launch = lambda: (calls.append(1), (_ for _ in ()).throw(perfcore.Unmeasurable("nothing is ever timed")))[1]
+    stuck = measure.warm(5, physical=True)
+    assert stuck["samples"] == [] and len(calls) == 2, (stuck, len(calls))  # two untimed starts before any timed one end the series
+
+
 @case("A5 frame timing counts deadline misses and stalls of 100 ms or more")
 def _():
     rows = android.app_window(android.parse_framestats(fixture("gfxinfo-framestats-tap.txt")))["rows"]
