@@ -2235,10 +2235,10 @@
     "engine ass-kicker/tests/guard-stated-actions.test.sh": {
       "review": "All supplied transcripts, role Markdown, literal entity switches and unadopted/missing-helper copies are private. Ambient team/roster and Stop recovery lookups are redirected by private HOME/config. The analyzer reads payload command strings as text and appends fixture verdicts; no send, spawn or operator transcript is invoked. Case R29 runs the corpus replay tool on a generated fixture directory. For a record claim (ARM 3) it also reads the fixture transcript's tool inputs and results, checks the named write targets for an enclosing .git, and runs a read-only git check-ignore inside the sandbox repositories; the memory-directory fixture is a sandbox path, never the operator's. Clock fields only label output records.",
       "sources": {
-        "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "644e8cc86ae961a5a126d116fd5e3604e6dbaefd5c3fc9176d394febc214fea9",
+        "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "097e7c8c80a6716c215b14d9b37011e14d6175a9769e9badc44b4718350f258c",
         "richos/engine/ass-kicker/tests/record-claims.replay.py": "094a016f81b059134abe4293ceef446032f0ddafe433042a49f53ac4d6f5b0cd",
         "richos/engine/scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
-        "richos/engine/ass-kicker/guard-stated-actions.py": "4cac3b0ff319b9f76a5f3475f04d2d8231d078f519184d10f38723d3ae3270c2",
+        "richos/engine/ass-kicker/guard-stated-actions.py": "10c7983c62979512e67c0e02dd52c0bcd4eee06579752937cd0906a78e7c285d",
         "richos/engine/scripts/hooks/guard-idle-land.py": "ee62a68e8008a3f4d9b52043d1ec4d288be90d04b56eeb7375a425b0e538afb1",
         "richos/engine/mega-lander/workspaces.py": "c82315d22f2a816da94000766f54b7442d718a9a5571b71c6d41245ce519e1b5",
         "richos/engine/scripts/hooks/turn-manifest.py": "e04420bc04a4910a3ee370a031e62b4ca6b6a52a8499cba824d6363fd732a8b1",
@@ -2363,11 +2363,11 @@
       "review": "Shared template/installer setup uses private HOME/config, generated Git history and literal settings. The scoped section executes its existing complete nested fixture/mutation coverage. All supplied transcripts, role Markdown, literal entity switches and unadopted/missing-helper copies are private. Ambient team/roster and Stop recovery lookups are redirected by private HOME/config. The analyzer reads payload command strings as text and appends fixture verdicts; no send, spawn or operator transcript is invoked. Case R29 runs the corpus replay tool on a generated fixture directory. For a record claim (ARM 3) it also reads the fixture transcript's tool inputs and results, checks the named write targets for an enclosing .git, and runs a read-only git check-ignore inside the sandbox repositories; the memory-directory fixture is a sandbox path, never the operator's. Clock fields only label output records.",
       "sources": {
         "richos/engine/scripts/hooks/contract-integrity.test.sh": "c8359b680fc35b18523a9abded3fb39b4e5acfdf13ebb99de6f59719eee288e3",
-        "richos/engine/ass-kicker/tests/stated-actions.mutation.sh": "80f74088499eed72e5349e2c36af809e1600be59ebbddc197344fb4943239ad0",
-        "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "644e8cc86ae961a5a126d116fd5e3604e6dbaefd5c3fc9176d394febc214fea9",
+        "richos/engine/ass-kicker/tests/stated-actions.mutation.sh": "3805f49c604e9ed14afdec1fa955b11edc639b2b798b4b229abc2d79c7779bf1",
+        "richos/engine/ass-kicker/tests/guard-stated-actions.test.sh": "097e7c8c80a6716c215b14d9b37011e14d6175a9769e9badc44b4718350f258c",
         "richos/engine/ass-kicker/tests/record-claims.replay.py": "094a016f81b059134abe4293ceef446032f0ddafe433042a49f53ac4d6f5b0cd",
         "richos/engine/scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
-        "richos/engine/ass-kicker/guard-stated-actions.py": "4cac3b0ff319b9f76a5f3475f04d2d8231d078f519184d10f38723d3ae3270c2",
+        "richos/engine/ass-kicker/guard-stated-actions.py": "10c7983c62979512e67c0e02dd52c0bcd4eee06579752937cd0906a78e7c285d",
         "richos/engine/scripts/hooks/guard-idle-land.py": "ee62a68e8008a3f4d9b52043d1ec4d288be90d04b56eeb7375a425b0e538afb1",
         "richos/engine/mega-lander/workspaces.py": "c82315d22f2a816da94000766f54b7442d718a9a5571b71c6d41245ce519e1b5",
         "richos/engine/scripts/hooks/turn-manifest.py": "e04420bc04a4910a3ee370a031e62b4ca6b6a52a8499cba824d6363fd732a8b1",

@@ -515,6 +515,11 @@ alerted 'only a private memory note' && ok "R7. a memory-only write with an unqu
 run_hook "$TR_MEM_WRITE" "Saved in my private notes: phone testing goes through the command line."
 silent && ok "R8. a memory-only write described as 'in my private notes' is SILENT" || bad "R8. private notes" "rc=$RC out=$OUT"
 
+# 2026-10-02 ~23:13Z: "private notes" turned the alert off for a RULE. A rule is
+# a line in CLAUDE.md or the decisions record, never a memory note.
+run_hook "$TR_MEM_WRITE" "I've saved the rule in my private notes."
+alerted 'CLAUDE.md' && ok "R8b. 2026-10-02: 'saved the rule in my private notes' with a memory-only write is ALERTED (a private note is not a rule)" || bad "R8b. rule in private notes" "rc=$RC out=$OUT"
+
 run_hook "$TR_REPO_COMMIT" "Recorded as a standing rule in \`wiki/ceo-decisions.md\` §100, commit \`cf7e16b7\`."
 silent && ok "R9. TRUE REPLY: written to a repository file, committed, path and the turn's own SHA named: SILENT" || bad "R9. true positive" "rc=$RC out=$OUT"
 

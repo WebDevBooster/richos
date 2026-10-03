@@ -845,6 +845,7 @@ def third_subject(sentence):
         return False
     return True
 PRIVATE_NOTES_RE = re.compile(r"\bprivate\s+(?:memory\s+)?notes?\b", re.I)
+RULE_NOUN_RE = re.compile(r"\b(?:rules?|rulings?|lessons?|doctrine|standing\s+(?:instruction|order)s?)\b", re.I)
 NOTES_POINTER_RE = re.compile(r"\b(?:in|to|into)\s+(?:my\s+|the\s+)?(?:notes|memory)\b", re.I)
 # From the corpus (ass-kicker/docs/stated-actions.corpus.md, ARM 3).
 CEO_ASKED_WHERE = ("13 times between 2026-09-08 and 2026-10-02, and the replay finds 90 turns "
@@ -1214,6 +1215,18 @@ def judge_record_claims(claims, writes, raw):
                 failing.append((sentence, "state", "it says the record already exists and names no "
                                                    "place for it: no path, no file, no section, no commit"))
             continue
+        # A RULE, lesson or standing instruction is never a private note
+        # (CEO 2026-10-02: "I've saved the rule in my private notes" ...
+        # followed by nothing): saying "private notes" does not excuse it when
+        # the turn's only writes are the memory directory. Memory holds no
+        # rules; a rule is a line in CLAUDE.md or the decisions record.
+        if memory and PRIVATE_NOTES_RE.search(sentence) and RULE_NOUN_RE.search(sentence) \
+                and not (durable or writes["committed"] or writes["record_script"]):
+            failing.append((sentence, "rule", "the reply says a rule or lesson was saved, and this turn "
+                                                 "wrote only %s. A private note is not a rule: put it in "
+                                                 "CLAUDE.md or richos-hq/wiki/ceo-decisions.md, committed, "
+                                                 "in this turn" % wrote()))
+            continue
         # Said plainly to be private, and it is: that is the truth, told.
         if (memory and PRIVATE_NOTES_RE.search(sentence)) or \
                 (writes.get("ecs") and ECS_NAMED_RE.search(sentence)):
@@ -1310,7 +1323,7 @@ def _arm3_log(payload, v):
         pass
 
 
-ALERT_CODES = ("nothing", "private")
+ALERT_CODES = ("nothing", "private", "rule")
 
 
 def unbacked_claims(v):
@@ -1333,13 +1346,20 @@ def arm3_alert_line(v):
     parts = []
     for sentence, code, _p in bad[:3]:
         one = " ".join(sentence.split())[:160]
-        if code == "private":
+        if code == "rule":
+            what = ("this turn wrote only a private memory note, and a rule is never a private note: "
+                    "memory holds no rules")
+            rule_tail = (". Lead: put the rule in CLAUDE.md or richos-hq/wiki/ceo-decisions.md, "
+                         "committed, in this turn")
+        elif code == "private":
             what = ("this turn wrote only a private memory note, and the reply never said "
                     "\"in my private notes\"")
         else:
             what = "this turn wrote NOTHING to any durable record"
         parts.append("the reply says: \"%s\" and %s" % (one.replace('"', "'"), what))
     more = " (+%d more)" % (len(bad) - 3) if len(bad) > 3 else ""
+    if any(c == "rule" for _s, c, _p in bad[:3]):
+        return "RECORD ALERT: " + " | ".join(parts) + more + rule_tail + "."
     return ("RECORD ALERT: " + " | ".join(parts) + more +
             ". Lead: write it to the record now (a repository file, committed), or say it was not recorded.")
 
