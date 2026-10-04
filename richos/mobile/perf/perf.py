@@ -448,6 +448,7 @@ def restore_android_from(args, runner=None, sleep=None):
     android.use_package(test_copy.TEST_PACKAGE_ANDROID)  # the test copy's own copy of its data, never the CEO's app
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
                          touch=lease_toucher(args.lease))
+    dev.restore_leftovers(log)
     keeper = android.StateKeeper.from_kept(dev, args.restore_from, log=log, twin_apk=getattr(args, "seed_twin", None),
                                            apksigner=getattr(args, "apksigner", None))
     return keeper.restore()
@@ -472,6 +473,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None, 
     log = log or (lambda s: print(s, file=sys.stderr, flush=True))
     dev = android.Device(args.adb, args.serial, runner=runner or subprocess.run, sleep=sleep or time.sleep,
                          touch=touch or lease_toucher(args.lease))
+    dev.restore_leftovers(log)
     if args.kind == "physical":
         # CEO 2026-10-02: only the release build goes on a physical phone and every test on one tests
         # it. Checked before anything is saved, seeded or measured, so a debuggable build is neither
@@ -587,7 +589,9 @@ def measure_android(args, dev, stamp, keeper, host, log, popen=None):
 
     night = dev.sh("cmd uimode night", check=False).strip()
     bridge = False
+    night_undo = [f"cmd uimode night {'yes' if 'yes' in night else 'auto' if 'auto' in night else 'no'}"]
     if args.theme != "device":
+        dev.begin_change("night", night_undo)  # on the Mac first: a killed run or a lost phone is still put back
         dev.sh(f"cmd uimode night {'yes' if args.theme == 'dark' else 'no'}", check=False)
         dev.sleep(args.settle)
     try:
@@ -799,8 +803,7 @@ def measure_android(args, dev, stamp, keeper, host, log, popen=None):
         if not lost:
             m.restore_root()
         if args.theme != "device" and not lost:
-            restore = "yes" if "yes" in night else ("auto" if "auto" in night else "no")
-            dev.sh(f"cmd uimode night {restore}", check=False)
+            dev.end_change("night", night_undo)  # a lost phone keeps its record: the next command puts it back
     if waits:
         record["device"].setdefault("host", {})["pacing"] = {
             "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used "

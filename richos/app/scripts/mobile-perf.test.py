@@ -21,6 +21,11 @@ PERF = os.path.abspath(os.path.join(HERE, "..", "..", "mobile", "perf"))
 FIX = os.path.join(PERF, "fixtures", "android")
 MOBILE = os.path.abspath(os.path.join(PERF, ".."))
 sys.path.insert(0, PERF)
+# What a run records before it changes a phone (phone_changes.py) lives in this suite's own directory, never ~.
+os.environ["RICHOS_PHONE_CHANGES_DIR"] = tempfile.mkdtemp(prefix="richos-phone-changes-test-")
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+atexit.register(shutil.rmtree, os.environ["RICHOS_PHONE_CHANGES_DIR"], True)
 
 import android  # noqa: E402
 import ios  # noqa: E402
@@ -263,6 +268,8 @@ def _():
                 return "Status: ok\nLaunchState: UNKNOWN (0)\n"
             return ""
         def run(self, *args, **kw): return "captured trace"
+        def begin_change(self, *a): pass
+        def end_change(self, *a): pass
         def sleep(self, seconds): pass
         def pid(self): return 42
     with tempfile.TemporaryDirectory(prefix="perf-launch-evidence-") as directory:
@@ -293,6 +300,8 @@ def _():
         def sh(self, command, **kw):
             return "Status: ok\nLaunchState: COLD\nTotalTime: 411\nWaitTime: 413\n" if command.startswith("am start") else ""
         def run(self, *args, **kw): return trace
+        def begin_change(self, *a): pass
+        def end_change(self, *a): pass
         def sleep(self, seconds): self.clock += seconds
         def pid(self): return 42
     device = Device()
@@ -3080,6 +3089,114 @@ def _():
         with contextlib.redirect_stdout(out), patch.object(phone_ios, "devicectl", side_effect=AssertionError("devicectl was used")):
             code = fn(args)
         assert code == 2 and "CEO's own RichConnect" in out.getvalue(), (fn.__name__, code, out.getvalue())
+
+
+class Killed(BaseException):
+    """A hard kill: nothing after it in the run executes, and the phone is not reachable afterwards."""
+
+
+def killing_runner(trigger):
+    """Answers everything with empty success until a command containing `trigger`, then the run is 'killed'."""
+    calls, state = [], {"dead": False}
+
+    def run(cmd, **kw):
+        if state["dead"] or trigger in " ".join(cmd):
+            state["dead"] = True
+            raise Killed()
+        calls.append(" ".join(cmd))
+        return types.SimpleNamespace(returncode=0, stdout="5911\n" if "pidof" in " ".join(cmd) else "", stderr="")
+    return run, calls
+
+
+def next_command_runner():
+    calls = []
+    return (lambda cmd, **kw: (calls.append(" ".join(cmd)), types.SimpleNamespace(returncode=0, stdout="", stderr=""))[1]), calls
+
+
+def restores_on_next_command(serial, kind, expect):
+    import phone_changes
+    assert [r["kind"] for r in phone_changes.pending(serial)] == [kind], phone_changes.pending(serial)
+    run, calls = next_command_runner()
+    android.Device("/fake/adb", serial, runner=run, sleep=lambda s: None).restore_leftovers()
+    assert any(expect in c for c in calls), calls
+    assert phone_changes.pending(serial) == []
+
+
+@case("C1 a run killed while the phone is 'unplugged' leaves a record; the next command resets the battery")
+def _():
+    import phone_changes
+    run, _calls = killing_runner("batterystats --reset")
+    measure = android.Measure(android.Device("/fake/adb", "PHONE-C1", runner=run, sleep=lambda s: None), log=quiet)
+    try:
+        measure.background(1, 0, 10192)
+    except Killed:
+        pass
+    assert [r["kind"] for r in phone_changes.pending("PHONE-C1")] == ["battery"]
+    restores_on_next_command("PHONE-C1", "battery", "dumpsys battery reset")
+
+
+@case("C2 a run killed with system tracing on leaves a record; the next command stops the trace")
+def _():
+    import phone_changes
+    run, _calls = killing_runner("atrace --async_start")
+    measure = android.Measure(android.Device("/fake/adb", "PHONE-C2", runner=run, sleep=lambda s: None), log=quiet)
+    try:
+        measure.atrace(["view"], lambda: None, 0)
+    except Killed:
+        pass
+    restores_on_next_command("PHONE-C2", "atrace", "atrace --async_stop")
+
+
+@case("C3 a run that forced night mode and lost the phone leaves a record; the next command puts the theme back")
+def _():
+    import phone_changes
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeAdb()
+        state = {"forced": False}
+
+        def runner(cmd, **kw):
+            text = " ".join(cmd)
+            if state["forced"]:
+                raise Killed()  # the phone is gone as soon as the theme was forced: nothing after it reaches it
+            if "cmd uimode night yes" in text:
+                state["forced"] = True
+            return fake(cmd, **kw)
+        try:
+            perf.run_android(android_args(tmp, theme="dark"), runner=runner, sleep=lambda s: None, log=quiet,
+                             host=lambda: {})
+        except Killed:
+            pass
+    left = [r for r in phone_changes.pending("emulator-5580") if r["kind"] == "night"]
+    assert left, phone_changes.pending()
+    run, calls = next_command_runner()
+    android.Device("/fake/adb", "emulator-5580", runner=run, sleep=lambda s: None).restore_leftovers()
+    assert any("cmd uimode night" in c for c in calls), calls
+    assert not [r for r in phone_changes.pending("emulator-5580") if r["kind"] == "night"]
+
+
+@case("C4 `observe --action sleep` is gone: a phone is never put to sleep")
+def _():
+    import importlib.util
+    from unittest.mock import patch
+    spec = importlib.util.spec_from_file_location("phone_android_c4", os.path.join(HERE, "qa", "phone-android.py"))
+    pa = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pa)
+    sent = []
+
+    class P:
+        def __init__(self, *a, **k): pass
+        def attached(self): return True
+        def sh(self, cmd, *a, **k): sent.append(cmd)
+
+    import contextlib, io as _io
+    out = _io.StringIO()
+    with patch.object(pa, "Phone", P), patch.object(pa.physical, "require_verb"), patch.object(pa.physical, "gate"), \
+            contextlib.redirect_stdout(out), tempfile.TemporaryDirectory() as tmp:
+        code = pa.main(["--serial", "S", "observe", "--package", "p", "--label", "l", "--out-dir", tmp,
+                        "--settle", "0", "--seconds", "0", "--action", "sleep"])
+    assert code != 0 and "never locked or put to sleep" in out.getvalue(), (code, out.getvalue())
+    assert not any("SLEEP" in c for c in sent), sent
+    assert "KEYCODE_SLEEP" not in open(os.path.join(HERE, "qa", "phone-android.py")).read().replace("KEYCODE_SLEEP\" is gone", "")
 
 
 if __name__ == "__main__":

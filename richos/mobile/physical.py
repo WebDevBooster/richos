@@ -50,6 +50,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "perf"))
+import phone_changes  # noqa: E402 — what a killed run left changed on a phone
 import test_copy  # noqa: E402 — the test copy's identity and the refusal of the CEO's own app
 
 # Every command here that touches an Android phone works on the TEST COPY (dev.richos.connect.perf), installed beside
@@ -88,6 +89,17 @@ def adb(adb_path, serial, *args, binary=False, timeout=120):
         raise CannotAnswer(f"no adb at {adb_path}")
     except subprocess.TimeoutExpired:
         raise CannotAnswer(f"adb {' '.join(args)[:80]} did not answer in {timeout} s")
+
+
+def put_back_leftovers(adb_path, serial):
+    """Every `randroid device` command first undoes what a killed perf run left on this phone (night mode, a
+    simulated unplug, system tracing; phone_changes.py). A phone that does not answer keeps its record."""
+    def one(command):
+        try:
+            return adb(adb_path, serial, "shell", command, timeout=30).returncode == 0
+        except CannotAnswer:
+            return False
+    return phone_changes.restore(serial, one, lambda s: print(s, file=sys.stderr, flush=True)) if serial else []
 
 
 PROBE = (f"getprop ro.kernel.qemu; getprop ro.boot.qemu; echo '--richos--'; "
@@ -903,6 +915,7 @@ def main(argv):
                 raise CannotAnswer("ios-app takes the app bundle's path")
             result = ios_app(a.value)
         else:
+            put_back_leftovers(a.adb, a.serial)
             if a.command == "android-build":
                 result = probe(a.adb, a.serial)
                 physical(result)

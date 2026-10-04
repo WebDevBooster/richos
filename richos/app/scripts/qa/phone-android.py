@@ -26,7 +26,7 @@
     phone-android.py --serial SERIAL state --package PKG [--out F] what PKG leaves running: see below
     phone-android.py compare BEFORE.json AFTER.json                what changed between two `state` records
     phone-android.py --serial SERIAL observe --package PKG --label L --out-dir DIR --settle S --seconds N
-                     [--action home|kill|force-stop|sleep|none]
+                     [--action home|kill|force-stop|none]
                                                                    one closure-matrix cell: do the action
                                                                    (none = the walker already did it through real
                                                                    controls), settle S s, read `state`, wait N s,
@@ -410,7 +410,9 @@ def main(argv):
             if not (a.package and a.label and a.out_dir and a.seconds is not None and a.settle is not None):
                 raise CannotAnswer("observe needs --package, --label, --out-dir, --settle and --seconds")
             actions = {"home": "input keyevent KEYCODE_HOME", "kill": f"am kill {a.package}",
-                       "force-stop": f"am force-stop {a.package}", "sleep": "input keyevent KEYCODE_SLEEP", "none": None}
+                       "force-stop": f"am force-stop {a.package}", "none": None}
+            if a.action == "sleep":
+                raise CannotAnswer("--action sleep is removed: a phone is never locked or put to sleep (CEO 2026-09-24)")
             if a.action not in actions:
                 raise CannotAnswer(f"--action must be one of {', '.join(actions)}")
             out = Path(a.out_dir)
