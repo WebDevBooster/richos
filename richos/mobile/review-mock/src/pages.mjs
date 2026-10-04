@@ -73,7 +73,9 @@ export async function pageHeaders() {
 		'content-type': 'text/html; charset=utf-8',
 		'cache-control': 'no-store',
 		'x-content-type-options': 'nosniff',
-		'referrer-policy': 'no-referrer',
+		// same-origin, not no-referrer: under no-referrer a browser sends `Origin: null` on a form POST,
+	// and the portal's forgery check (portal.mjs) refuses it. Other sites still get no referrer.
+	'referrer-policy': 'same-origin',
 		'x-frame-options': 'DENY',
 		'content-security-policy': await policy()
 	};
