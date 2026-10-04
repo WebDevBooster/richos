@@ -1623,7 +1623,7 @@
     },
     "scripts/hooks/host-display-power.mutation.sh": {
       "source": "scripts/hooks/host-display-power.mutation.sh",
-      "sha256": "e1a249a979fe8f42586e9f9944ab550d14375b04fb43ed198f2155800e5dea01",
+      "sha256": "75a7aad662b3a85ca8069f5f053c14b0991bb753976a44e190ea8fa40e500428",
       "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -1685,7 +1685,7 @@
     },
     "scripts/hooks/home-network-phone.mutation.sh": {
       "source": "scripts/hooks/home-network-phone.mutation.sh",
-      "sha256": "299a33f6df5d8ab85beeab7a2da5972ef199716d9e92182f29e5f8657106a4cc",
+      "sha256": "60f29ab46dbf8b6231ae6ca93890d90ce9a54d1e44e933a16e958f55259bc893",
       "evidence": "Finite guard-source mutations copy config and registration files as fixture transports, then execute the nested suite which creates its own entity settings. Pool and stopwatch run without sourcing the real config. Copied hook-registration files are not read by the nested suite. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -2031,7 +2031,7 @@
     },
     "scripts/hooks/reference-ledger.mutation.sh": {
       "source": "scripts/hooks/reference-ledger.mutation.sh",
-      "sha256": "bbb3ee4506cec57d887220ad43aac52da3d337ec43dba1abccffab0e9069f396",
+      "sha256": "84a84bd9a1e8c116106e9afa07ec4236079f819ec09d1dc8df95241af94c71ad",
       "evidence": "Thirteen literal replacements change the scanner, citation predicates or verdict. The copied orchestration file is an engine transport; the nested suite supplies freshly generated entity settings on every guard call. Copied library files not reached by that suite are not executed. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -2744,7 +2744,7 @@
     },
     "scripts/hooks/public-record-repo.mutation.sh": {
       "source": "scripts/hooks/public-record-repo.mutation.sh",
-      "sha256": "c669fa780b076ddd53f483d74f3df130dc7fc8b3ad521567eb882af87d5fa0da",
+      "sha256": "bd18d80d64d05868c5434c130f19091e2744f10b0e1418ff8b5b90a729e28d8a",
       "evidence": "Ten literal source-needle mutants copy the hook, test, libraries and config; only the named test executes. That test creates replacement entity settings before reading configuration. Copying the engine config does not add value dependencies. The scratch allocator is now sourced before copying; the caller never sources the transported config and passes only environment/default TTL, so this edge consumes no shipped config values.",
       "keys": [],
       "edges": [
@@ -4796,7 +4796,7 @@
     },
     "scripts/hooks/inflight-notify.mutation.sh": {
       "source": "scripts/hooks/inflight-notify.mutation.sh",
-      "sha256": "f6b5be7ab1bc4ed684b2f6b011bb58bced5bbb27e8974d262410671ae48ad3e5",
+      "sha256": "489a6f902fd58d5a5030e09659356ae06a18e99fcbb03bae066cc55ef786dc88",
       "evidence": "Finite literal source mutants copy the fixed inflight test and helpers, then rerun that test. The test constructs its own literal entity configuration. No production configuration is transported or sourced.",
       "keys": [],
       "edges": [
@@ -4816,7 +4816,7 @@
     },
     "scripts/hooks/guard-resume-isolation.mutation.sh": {
       "source": "scripts/hooks/guard-resume-isolation.mutation.sh",
-      "sha256": "9412888b69763091752d97010e075441fb5fb232ed8ab4557858a94757df9b14",
+      "sha256": "ae0e865ea78c02d7e6a24af2cf13fa7d26de2b2e0b9a1a6359ac9c7601c8bb1e",
       "evidence": "The callback copies the fixed resume suite and writes a new literal SESSION_TEAMS_DIR config before running it. The same test constructs its remaining private fixtures. Source substitution operands are data; only the copied fixed suite executes.",
       "keys": [],
       "edges": [
@@ -5516,7 +5516,7 @@
     },
     "scripts/hooks/interactive-prompt.mutation.sh": {
       "source": "scripts/hooks/interactive-prompt.mutation.sh",
-      "sha256": "1bb0a806036cd202ca66914fd09a429847e66e1fdf2b365a209a317de668876a",
+      "sha256": "3872e019a151c07a5d387e3128451954efcd34e4b3ac738bfc6282a430833e27",
       "evidence": "The finite stdin patches rewrite only copied guard/analyzer source. Each worker runs the fixed copied interactive-prompt test, retaining its config-presence dependency. Patch strings and payload command strings are data; no mutation imports config values.",
       "keys": [],
       "edges": [
@@ -5717,7 +5717,7 @@
     },
     "scripts/hooks/mechanical-findings.mutation.sh": {
       "source": "scripts/hooks/mechanical-findings.mutation.sh",
-      "sha256": "97603e4a262aebf057e1f55a00ca649bdf24517bfbd9fa3bfc9049c7210d221a",
+      "sha256": "822097cb9972738d9d39a91ab187d2475cfb4008f63c3c421e5ef9e7f1818a6d",
       "evidence": "The fixed control and finite mutants copy only named source and run the same mechanical-findings suite, which rebuilds private config and record fixtures. Mutations are literal replacements; none introduces another reader or program.",
       "keys": [],
       "edges": [
@@ -5867,7 +5867,7 @@
     },
     "ass-kicker/tests/stated-actions.mutation.sh": {
       "source": "ass-kicker/tests/stated-actions.mutation.sh",
-      "sha256": "3805f49c604e9ed14afdec1fa955b11edc639b2b798b4b229abc2d79c7779bf1",
+      "sha256": "f57acd316569167216b614003ccf39007890217930d0cfbff3aa2e02b556d6f9",
       "evidence": "Control and finite source mutants execute the same fixed stated-actions test, which recreates private entity config. The one added transcript reader reads generated JSON only. Replacement operands are source data; helper copies are fixed. The fixed helper copies include the corpus replay tool that the suite's case R29 runs.",
       "keys": [],
       "edges": [
@@ -5923,7 +5923,7 @@
     },
     "scripts/hooks/idle-land.mutation.sh": {
       "source": "scripts/hooks/idle-land.mutation.sh",
-      "sha256": "e3de8b289b5b99df8e534d1f1650f0aea78606b8d15f32b4b534bb64b1616cc6",
+      "sha256": "50afc330c98fe2813f880ee1e6c9532b8d91f98095e7cf68b1a90c3ead07623a",
       "evidence": "The finite mutations copy fixed guard, analyzer, test and root/notice helpers. The copied test recreates all entity configuration and Git records. The one added transcript read consumes a generated test file. No shipped config is transported.",
       "keys": [],
       "edges": [
@@ -16112,7 +16112,7 @@
       "sources": {
         "ass-kicker/guard-stated-actions.py": "10c7983c62979512e67c0e02dd52c0bcd4eee06579752937cd0906a78e7c285d",
         "ass-kicker/tests/guard-stated-actions.test.sh": "097e7c8c80a6716c215b14d9b37011e14d6175a9769e9badc44b4718350f258c",
-        "ass-kicker/tests/stated-actions.mutation.sh": "3805f49c604e9ed14afdec1fa955b11edc639b2b798b4b229abc2d79c7779bf1",
+        "ass-kicker/tests/stated-actions.mutation.sh": "f57acd316569167216b614003ccf39007890217930d0cfbff3aa2e02b556d6f9",
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
         "mega-lander/tests/workspaces.test.py": "3c98bc6cac1d63ad21f700d15ca354784ae1fde059332bbd825e647f7d4a503b",
@@ -16141,7 +16141,7 @@
         "scripts/hooks/guard-model-ceiling.mutation.sh": "d818ec3d20dbe6667aed4d67e464061559f8a1efbf47bba5dfbaea9a24c8d3b7",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/hooks/guard-model-ceiling.test.sh": "9e3f365b80479392d8ac4ce1039cab1ca2dc232113c8ee7fe54d620adc9c1930",
-        "scripts/hooks/guard-resume-isolation.mutation.sh": "9412888b69763091752d97010e075441fb5fb232ed8ab4557858a94757df9b14",
+        "scripts/hooks/guard-resume-isolation.mutation.sh": "ae0e865ea78c02d7e6a24af2cf13fa7d26de2b2e0b9a1a6359ac9c7601c8bb1e",
         "scripts/hooks/guard-resume-isolation.sh": "3995168d36694672fbb54a2256142f2a9ca553372c56d2c471d326bf91002a78",
         "scripts/hooks/guard-resume-isolation.test.sh": "7685716268af7a6ff7a0140400f71e4b26ef2a8109b2e49234a3ecf67942aa22",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
@@ -16157,12 +16157,12 @@
         "scripts/hooks/guard-worktree-removal.mutation.sh": "1721b57276b427d4c27f4ad6ba553d8613f16da62b73c71fbd17f0d0d6f0aa80",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "scripts/hooks/guard-worktree-removal.test.sh": "2b7b5c289305b351e5e5f911d5bc68f5e257e6242ed769f22db04190ff97fcba",
-        "scripts/hooks/idle-land.mutation.sh": "e3de8b289b5b99df8e534d1f1650f0aea78606b8d15f32b4b534bb64b1616cc6",
-        "scripts/hooks/inflight-notify.mutation.sh": "f6b5be7ab1bc4ed684b2f6b011bb58bced5bbb27e8974d262410671ae48ad3e5",
+        "scripts/hooks/idle-land.mutation.sh": "50afc330c98fe2813f880ee1e6c9532b8d91f98095e7cf68b1a90c3ead07623a",
+        "scripts/hooks/inflight-notify.mutation.sh": "489a6f902fd58d5a5030e09659356ae06a18e99fcbb03bae066cc55ef786dc88",
         "scripts/hooks/inflight-notify.test.sh": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
         "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
-        "scripts/hooks/interactive-prompt.mutation.sh": "1bb0a806036cd202ca66914fd09a429847e66e1fdf2b365a209a317de668876a",
-        "scripts/hooks/mechanical-findings.mutation.sh": "97603e4a262aebf057e1f55a00ca649bdf24517bfbd9fa3bfc9049c7210d221a",
+        "scripts/hooks/interactive-prompt.mutation.sh": "3872e019a151c07a5d387e3128451954efcd34e4b3ac738bfc6282a430833e27",
+        "scripts/hooks/mechanical-findings.mutation.sh": "822097cb9972738d9d39a91ab187d2475cfb4008f63c3c421e5ef9e7f1818a6d",
         "scripts/hooks/mechanical-findings.test.sh": "e23f188f029e21dec0e06c0758bb6912ede88002d366c5c3b331f3a0ca7a0397",
         "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
         "scripts/hooks/notice-inflight-sends.sh": "b5120d7d24070d1e306ed38fd96345bfee3c7d2538e1bde72c4bde155a4e0af4",

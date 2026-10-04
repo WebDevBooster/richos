@@ -171,6 +171,44 @@ else
     bad "H4b --boundary must not stop at a longer case" "stopped=$MUTANT_STOPPED rc=$MUTANT_RC"
 fi
 
+# W1/W2 — THE WITNESS IS READ LITERALLY (hunt part 3 v3, finding 27). When the
+# named line never appears the suite runs to its end and the harness reads the
+# want from the output. Read as a regex, `W1.` matches `FAIL  W10.unrelated`:
+# a different red was taken as the witness and the mutant called load-bearing.
+W1_BAD=""
+for f in "$SCRIPT_DIR"/*.mutation.sh "$ENGINE_ROOT"/ass-kicker/tests/*.mutation.sh; do
+    [ -f "$f" ] || continue
+    if grep -E '^[^#]*grep -q "FAIL  \$want"' "$f" >/dev/null; then
+        W1_BAD="$W1_BAD $(basename "$f")"
+    fi
+done
+if [ -z "$W1_BAD" ]; then
+    ok "W1  no mutation harness reads an unescaped want as a regex"
+else
+    bad "W1  no mutation harness reads an unescaped want as a regex" "regex witness in:$W1_BAD"
+fi
+
+# W2 — by execution: the actual interactive-prompt mutant body, its suite run
+# stubbed to fail at W10.unrelated (never at the wanted W1.), must not PASS.
+mkdir -p "$SCRATCH/w2"
+printf 'pass\n' >"$SCRATCH/w2/mutate.py"
+W2_BODY="$(python3 - "$SCRIPT_DIR/interactive-prompt.mutation.sh" <<'PY'
+import sys
+t = open(sys.argv[1]).read()
+print("_mutant_body() {" + t.split("_mutant_body() {", 1)[1].split("\n# mutant <name>", 1)[0])
+PY
+)"
+W2_OUT="$(bash -c "SANDBOX='$SCRATCH/w2'; ENGINE_ROOT='$ENGINE_ROOT'
+mutant_suite_run(){ printf '  FAIL  W10.unrelated\n' > \"\$1\"; MUTANT_STOPPED=0; MUTANT_RC=1; }
+$W2_BODY
+_mutant_body fixture W1. scripts/hooks/guard-interactive-prompt.sh fixture" </dev/null 2>&1)"
+W2_RC=$?
+if [ "$W2_RC" -ne 0 ] && ! printf '%s\n' "$W2_OUT" | grep -q '^ *PASS'; then
+    ok "W2  a red at W10.unrelated is not taken as the witness for W1. (rc=$W2_RC)"
+else
+    bad "W2  a red at W10.unrelated is not taken as the witness for W1." "rc=$W2_RC out=$(printf '%s' "$W2_OUT" | tr '\n' '|' | cut -c1-200)"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== mutation-focus-declared: $FAIL FAILED, $PASS passed ==="
