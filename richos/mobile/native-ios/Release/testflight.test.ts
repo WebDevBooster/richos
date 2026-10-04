@@ -29,6 +29,7 @@ import {
   speedGate,
   uploadedCommit,
   validateUploadMetadata,
+  walkGate,
   withTemporaryPrivateKey,
 } from "./testflight.ts";
 import type { ReleaseDeps } from "./testflight.ts";
@@ -506,8 +507,9 @@ describe("release command input", () => {
 describe("speed gate (CEO §106)", () => {
   const COMMIT = "0123456789abcdef0123456789abcdef01234567";
   const REFUSAL = "REFUSED by the speed gate (CEO §106): iPhone build of 0123456789ab: no speed verdict file";
+  const WALK_REFUSAL = "REFUSED by the review-walk gate (CEO §107): iPhone build of 0123456789ab: no review walk has run on this commit";
 
-  function harness(gatePasses: boolean, archived: unknown = { RichOSSourceCommit: COMMIT, RichOSSourceDirty: false }) {
+  function harness(gatePasses: boolean, archived: unknown = { RichOSSourceCommit: COMMIT, RichOSSourceDirty: false }, walkPasses = true) {
     const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "ship-gate-"));
     const calls: string[] = [];
     const deps: ReleaseDeps = {
@@ -515,6 +517,10 @@ describe("speed gate (CEO §106)", () => {
         calls.push(`gate ${where.join(" ")}`);
         if (!gatePasses) throw new Error(REFUSAL);
         return where[where.indexOf("--commit") + 1] ?? "";
+      },
+      walk: (commit) => {
+        calls.push(`walk ${commit}`);
+        if (!walkPasses) throw new Error(WALK_REFUSAL);
       },
       receipts: NodePath.join(directory, "uploads.json"),
       checkout: "/the/checkout",
@@ -558,7 +564,7 @@ describe("speed gate (CEO §106)", () => {
     try {
       await runRelease(upload, deps);
       NodeAssert.deepEqual(calls, ["archive /tmp/A.xcarchive", `gate --repo /the/checkout --commit ${COMMIT}`,
-        "credentials", "upload", "verify", "export"]);
+        `walk ${COMMIT}`, "credentials", "upload", "verify", "export"]);
       NodeAssert.equal(uploadedCommit(deps.receipts, selection), COMMIT);
       calls.length = 0;
       await runRelease(publish, deps);
@@ -644,6 +650,37 @@ describe("speed gate (CEO §106)", () => {
     } finally {
       cleanup();
     }
+  });
+
+  it("upload is refused by the review-walk gate (§107) for the archive's commit, before credentials, App Store Connect or Xcode", async () => {
+    const OTHER = "fedcba9876543210fedcba9876543210fedcba98";
+    const { deps, calls, cleanup } = harness(true, { RichOSSourceCommit: OTHER, RichOSSourceDirty: false }, false);
+    try {
+      await NodeAssert.rejects(runRelease(upload, deps), (e: Error) => e.message === WALK_REFUSAL);
+      NodeAssert.deepEqual(calls, ["archive /tmp/A.xcarchive", `gate --repo /the/checkout --commit ${OTHER}`, `walk ${OTHER}`]);
+      NodeAssert.equal(NodeFS.existsSync(deps.receipts), false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("the review-walk gate fails closed: its refusal, a gate that cannot run and a pass for other code all refuse", () => {
+    const OTHER = "fedcba9876543210fedcba9876543210fedcba98";
+    let argv: string[] = [];
+    const answer = (status: number | null, stdout: string, stderr: string, error?: Error) =>
+      ((_cmd: string, args: string[]) => ((argv = args), { status, stdout, stderr, error, pid: 0, output: [], signal: null })) as never;
+    NodeAssert.throws(() => walkGate(COMMIT, answer(1, "", `noise\n${WALK_REFUSAL}\n`)), (e: Error) => e.message === WALK_REFUSAL);
+    NodeAssert.deepEqual(argv.slice(1), ["check", "--platform", "ios", "--commit", COMMIT]);
+    NodeAssert.throws(() => walkGate(COMMIT, answer(null, "", "", new Error("spawn python3 ENOENT"))), /review-walk gate.*did not run \(spawn python3 ENOENT\)/u);
+    NodeAssert.throws(() => walkGate(COMMIT, answer(0, JSON.stringify({ ok: true, commit: OTHER }), "")), /no pass for this commit/u);
+    NodeAssert.throws(() => walkGate(COMMIT, answer(0, "not json", "")), /no pass for this commit/u);
+    walkGate(COMMIT, answer(0, JSON.stringify({ ok: true, commit: COMMIT }), ""));
+  });
+
+  it("the real review-walk gate refuses a commit no walk has run on, naming it", () => {
+    const never = "00000000000000000000000000000000000000aa";
+    NodeAssert.throws(() => walkGate(never), (e: Error) =>
+      e.message.startsWith("REFUSED by the review-walk gate (CEO §107): iPhone build of 000000000000: no review walk has run on this commit"));
   });
 
   it("the gate fails closed: a refusal, a gate that cannot run and a pass without a commit all refuse", () => {
