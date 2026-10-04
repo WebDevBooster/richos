@@ -189,7 +189,7 @@ internal object AttachCatalog {
             ScreenSpec("att-denied-photos", 17, "—", "Photos access denied (fallback)", Applies.Adapted("fallback only: Android's Photo Picker needs no permission")) { convo { copy(attach = AttachState(denied = Denied.PHOTOS)) } },
             ScreenSpec("att-mac-unsupported", 17, "—", "Mac can’t receive attachments") {
                 // Core's hello capabilities without "attachments" (phone/attachments.rs), and the + tapped.
-                convo { copy(app = app.copy(capabilities = listOf("text", "voice", "audio", "native-push")), attach = AttachState(macOffCard = true)) }
+                convo { copy(app = app.copy(capabilities = listOf("text", "voice", "native-push")), attach = AttachState(macOffCard = true)) }
             },
             ScreenSpec("share-unpaired", 17, "—", "Share before pairing") { convo { copy(share = ShareSheet(ShareKind.PHOTO, ShareStage.UNPAIRED, photos = photos("venue"))) } },
             ScreenSpec("share-too-large", 17, "—", "Share: too large") { convo { copy(share = ShareSheet(ShareKind.TOO_LARGE, file = Files.lease)) } },

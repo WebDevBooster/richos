@@ -21,6 +21,7 @@ import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxState
 import dev.richos.android.core.SentMessage
 import dev.richos.android.core.PairingPhase
+import dev.richos.android.core.ReplyAudioRule
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.protocol.Row
 import java.time.Instant
@@ -378,7 +379,11 @@ data class ScreenModel(
             replying = arriving && app.online && row.text.isEmpty(),
             streaming = arriving && app.online && row.text.isNotEmpty(),
             unfinished = arriving && !app.online,
-            audio = replyAudio[row.id] ?: if (rich && row.complete && row.hasAudio) ReplyAudio.READY else ReplyAudio.NONE,
+            // "Hear it" by the reference client's rule (`has_audio`, or the Mac offers `audio`); the
+            // reply being heard is core's, preparing then playing.
+            audio = replyAudio[row.id]
+                ?: app.replyPlayback?.takeIf { it.id == row.id }?.let { if (it.playing) ReplyAudio.PLAYING else ReplyAudio.PREPARING }
+                ?: if (ReplyAudioRule.hearable(row, app.capabilities)) ReplyAudio.READY else ReplyAudio.NONE,
             playProgress = playing?.takeIf { it.first == row.id }?.second ?: 0f,
             focused = row.id == focusedId,
         )

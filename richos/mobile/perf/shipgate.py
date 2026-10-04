@@ -27,7 +27,8 @@ what is missing or failing. There is no skip flag. The verdicts are read from th
 directory; the one exception is a test's STAND-IN verdict directory, named by RICHOS_SHIP_GATE_VERDICTS
 (the Android suite's throwaway-key bundle, richos/app/scripts/lib/ship_gate_fixture.py). A stand-in is
 judged by every rule above (a record for the same app code, passing cold and warm, committed code), and
-the pass line names it.
+the pass line names it. A stand-in may also name the one uncommitted tree it covers (coversTree, from
+tree_fingerprint): a merge gate bundles the merge's uncommitted tree; any other edit is still refused.
 
   shipgate.py check --platform android|ios --checkout DIR      the build is DIR's working tree (HEAD)
   shipgate.py check --platform android|ios --repo DIR --commit SHA   the build is that commit
@@ -82,6 +83,32 @@ def uncommitted_app_code(platform, repo):
     out = _git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames",
                "--", watch.APP_DIR[platform])
     return [entry[3:] for entry in out.split("\0") if entry and watch.is_app_code(platform, entry[3:])]
+
+
+def tree_fingerprint(platform, repo):
+    """A fingerprint of `platform`'s uncommitted app code: each path with the bytes it has now (or a
+    deletion mark). A test's stand-in verdict may declare the one dirty tree it covers by this value."""
+    import hashlib
+    repo = _git(repo, "rev-parse", "--show-toplevel").strip()
+    digest = hashlib.sha256()
+    for rel in sorted(uncommitted_app_code(platform, repo)):
+        path = Path(repo) / rel
+        body = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "deleted"
+        digest.update(f"{rel}\0{body}\0".encode())
+    return digest.hexdigest()
+
+
+def _stand_in_covers_tree(platform, repo, home):
+    """True only for a test's STAND-IN verdict directory whose entry names this exact dirty tree. The
+    speed watch's own directory never qualifies, whatever its entry says."""
+    if str(home) == watch.DEFAULT_HOME:
+        return False
+    try:
+        _, entry = _verdict_entry(platform, home)
+    except Refused:
+        return False
+    covers = entry.get("coversTree")
+    return isinstance(covers, str) and covers == tree_fingerprint(platform, repo)
 
 
 def app_code_differences(platform, repo, a, b):
@@ -149,7 +176,7 @@ def check(platform, repo, commit=None, checkout=False, home=watch.DEFAULT_HOME):
     try:
         if checkout:
             dirty = uncommitted_app_code(platform, repo)
-            if dirty:
+            if dirty and not _stand_in_covers_tree(platform, repo, home):
                 raise Refused(f"uncommitted app code matches no measured commit ({len(dirty)} paths: "
                               f"{', '.join(dirty[:5])}{', ...' if len(dirty) > 5 else ''}); commit it and let the "
                               f"speed watch measure it")

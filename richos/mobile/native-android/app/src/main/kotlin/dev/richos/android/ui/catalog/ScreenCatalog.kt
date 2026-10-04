@@ -5,6 +5,7 @@ import dev.richos.android.core.ConnectionReason
 import dev.richos.android.core.ConnectionState
 import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxState
+import dev.richos.android.core.ReplyAudioRule
 import dev.richos.android.core.Pairing
 import dev.richos.android.core.PairingPhase
 import dev.richos.android.core.RichCore
@@ -91,6 +92,9 @@ object ScreenCatalog {
         val doc = Fixtures.fixture(fixture)
         val connected = ConnectionState(reason = ConnectionReason.CONNECTED, hasConnected = true)
         val base = AppState.of(doc.session, doc.items, dueInMs = null, lastSend = null, connection = connected).copy(
+            // Round 12.1 draws "Hear it" under the replies it gives audio, not under every reply as a
+            // Mac offering `audio` gets: the frames' replies say it with their own `has_audio`.
+            capabilities = doc.session.capabilities - ReplyAudioRule.CAPABILITY,
             notifications = Notifications(status = CoreNotifications.ON),
             attachmentLimits = AttachCatalog.limits,
             microphone = Microphone.GRANTED,

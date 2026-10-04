@@ -131,6 +131,9 @@ fun UiEvent.toAction(): Action? = when (this) {
     is UiEvent.RecordingSend -> Action.SendKept(id)
     is UiEvent.RecordingDiscard -> Action.DiscardKept(id)
     UiEvent.RecordingPlay -> Action.PlayKept
+    // "Hear it" and its Stop under Rich's reply (core `ReplyAudio.kt`, `GET /api/audio`).
+    is UiEvent.HearReply -> Action.HearReply(messageId)
+    is UiEvent.StopReply -> Action.StopReply(messageId)
     UiEvent.NearOldest -> Action.LoadOlder
     // Settings, notifications, updates (core `Settings.kt`).
     UiEvent.OpenSettings -> Action.OpenSheet(Sheet.SETTINGS)
@@ -172,7 +175,8 @@ fun UiEvent.toAction(): Action? = when (this) {
 val NOT_YET_IN_CORE: List<String> = listOf(
     "(built: the voice gesture, kept recordings, notifications, settings sheet, updates — core 5351078e, c7207408)",
     "play a remote voice message or reply (platform audio)",
-    "play a voice message; hear / stop a reply",
+    "play a voice message",
+    "(built: hear / stop a reply — core ReplyAudio.kt)",
     "pairing surfaces core does not model: consent",
     "(built: pair with a link, words match / do not match, forget — core c2a1a20a; the scanner, the camera, the link sheet, pair again and the blocked-by-unsent choices — ui/pairing)",
     "show the waiting messages (from the forget refusal)",
