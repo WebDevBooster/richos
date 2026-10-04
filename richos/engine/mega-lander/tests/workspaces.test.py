@@ -3715,6 +3715,60 @@ class AutoLand_MergedAndEndedLandsOnItsOwn(Base):
         self.assertIn("uncommitted", item[0]["why"])
         self.assertTrue(os.path.isfile(os.path.join(cc, "build", "inflight.ack")))  # nothing moved
 
+    def test_an_ack_is_never_kept_and_the_reaper_deletes_a_kept_copy_after_7_days(self):
+        """§54 (2026-10-04): what the automatic land keeps goes away by itself.
+        An in-flight ack file (scripts/inflight-ack.sh writes it under
+        .claude/inflight-acks/) is not kept at all; anything else kept is
+        deleted by the scratch reaper once older than SCRATCH_KEPT_RETENTION_DAYS."""
+        with open(os.path.join(self.other, ".gitignore"), "a") as f:
+            f.write(".claude/\n")
+        run("git", "-C", self.other, "commit", "-q", "-am", "ignore .claude/")
+        os.makedirs(os.path.join(self.other, ".claude"))          # every real main checkout has one
+        cc = self.make_cc("zach-opus-kr")
+        aid, _npath = self.spawn("zach-opus-kr", cc=cc)
+        self.commit(cc)
+        os.makedirs(os.path.join(cc, ".claude", "inflight-acks"))
+        with open(os.path.join(cc, ".claude", "inflight-acks", "abc123abc123.zach-opus-kr.ack"), "w") as f:
+            f.write("ack of main at abc123\n")
+        os.makedirs(os.path.join(cc, "build"))
+        with open(os.path.join(cc, "build", "notes.txt"), "w") as f:
+            f.write("the only copy of the agent's notes\n")
+        self.finish(aid)
+        _merged, res = ws.merge_and_land("zach-opus-kr", self.sid)
+        self.assertTrue(res["landed"])
+        kept = res["kept_ignored"]
+        found = sorted(os.path.relpath(os.path.join(r, f), kept) for r, _d, fs in os.walk(kept) for f in fs)
+        self.assertEqual(len(found), 1, found)                    # the ack is not kept
+        self.assertTrue(found[0].endswith(os.path.join("build", "notes.txt")), found)
+        self.assertFalse(os.path.exists(cc))
+
+        spec = importlib.util.spec_from_file_location(
+            "scratch_reaper", os.path.join(HERE, "..", "..", "scripts", "lib", "scratch-reaper.py"))
+        reaper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reaper)
+        kept_dir = os.path.realpath(ws._p("kept"))
+
+        def sweep():
+            r = object.__new__(reaper.Reaper)
+            r.cfg = {"kept_dir": kept_dir, "kept_retention_days": 7}
+            r.entries, r.roots, r.scope, r.unattributed, r.now = [], [], None, 0, time.time()
+            r.scan_kept(reaper.Walls([kept_dir]))
+            # Only what this test planned: no test instances, devices, Docker or failure file.
+            r.collect_test_instances = lambda *_a: []
+            r.collect_test_devices = lambda *_a: []
+            r.prune_docker = lambda: []
+            r._record_failures = lambda *_a: None
+            r.apply(os.path.join(self.env.root, "reaper.log"))
+            return [(e.path, e.action) for e in r.entries]
+
+        real = os.path.realpath(kept)
+        self.assertEqual(sweep(), [(real, reaper.KEEP)])          # 0 days old: kept
+        self.assertTrue(os.path.isdir(kept))
+        old = time.time() - 8 * 86400
+        os.utime(kept, (old, old))
+        self.assertEqual(sweep(), [(real, reaper.DELETE)])        # 8 days old: deleted
+        self.assertFalse(os.path.exists(kept))
+
 
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,

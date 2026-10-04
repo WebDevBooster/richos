@@ -4779,8 +4779,9 @@ def _keep_ignored(rec, chain, deadline=None):
     """Move every ignored entry the land would refuse (one the main checkout
     lacks, not generated at creation, not declared regenerable) out of the
     work's workspaces into <state>/kept/<key>-<time>/<n>-<workspace>/<entry>,
-    and return that directory ("" when nothing was kept). Called only once
-    every branch and HEAD is proved to be in the integration branch.
+    and return that directory ("" when nothing was kept). In-flight ack files
+    are deleted instead, never kept. Called only once every branch and HEAD is
+    proved to be in the integration branch.
 
     Nothing moves while any workspace has uncommitted work or an entry that
     could not be read: _require_clean then refuses, naming them, exactly as
@@ -4799,7 +4800,14 @@ def _keep_ignored(rec, chain, deadline=None):
                 return ""
             label = "%d-%s" % (n, _key_segment(os.path.basename(p.rstrip("/"))))
             plan += [(r["key"], label, p, rel.rstrip("/")) for rel in ignored]
-    if not plan:
+    # IN-FLIGHT ACK FILES ARE NOT KEPT AT ALL (2026-10-04). They are the
+    # agent's receipts that it saw main move, and their durable copy is the
+    # ack ledger, so once the work is proved landed they are deleted, never
+    # moved. Everything else kept goes to <state>/kept/, which the scratch
+    # reaper empties after SCRATCH_KEPT_RETENTION_DAYS (§54).
+    acks = [x for x in plan if _is_ack(x[3])]
+    plan = [x for x in plan if not _is_ack(x[3])]
+    if not plan and not acks:
         return ""
     # A MOVE, NEVER A COPY: inside a gate's budget only a rename is bounded.
     # A workspace on another volume than the registry keeps the old answer
@@ -4812,7 +4820,23 @@ def _keep_ignored(rec, chain, deadline=None):
     except OSError:
         return ""
     root = _p("kept", "%s-%d" % (_key_segment(rec["key"]), int(now())))
-    moved = []
+    moved, dropped = [], []
+    # An entry that holds the ack directory (a `.claude/` the main checkout
+    # lacks) loses the acks first, so they are not kept inside it.
+    holders = [(p, _ACK_DIR) for _k, _l, p, rel in plan if _ACK_DIR.startswith(rel.rstrip("/") + "/")]
+    for p, rel in [(p, rel) for _k, _l, p, rel in acks] + holders:
+        src = os.path.join(p, rel)
+        if not os.path.lexists(src):
+            continue
+        try:
+            if os.path.isdir(src) and not os.path.islink(src):
+                shutil.rmtree(src)
+            else:
+                os.unlink(src)
+        except OSError as e:
+            raise SpecError("cannot land %s: the in-flight ack %s could not be deleted (%s)"
+                            % (rec["name"], src, e))
+        dropped.append(src)
     for key, label, p, rel in plan:
         where = label if key == rec["key"] else _key_segment(key) + "-" + label
         src, dst = os.path.join(p, rel), os.path.join(root, where, rel)
@@ -4826,8 +4850,19 @@ def _keep_ignored(rec, chain, deadline=None):
             raise SpecError("cannot land %s: the ignored entry %s could not be kept in %s (%s); "
                             "what was moved is there" % (rec["name"], os.path.join(p, rel), root, e))
         moved.append(os.path.join(p, rel))
-    event("kept-ignored", key=rec["key"], kept=root, entries=moved[:50], count=len(moved))
-    return root
+    event("kept-ignored", key=rec["key"], kept=root if moved else "", entries=moved[:50], count=len(moved),
+          acks_deleted=len(dropped))
+    return root if moved else ""
+
+
+# Where scripts/inflight-ack.sh writes an agent's ack files, relative to its
+# workspace: <workspace>/.claude/inflight-acks/<first-12-of-sha>.<name>.ack
+_ACK_DIR = ".claude/inflight-acks"
+
+
+def _is_ack(rel):
+    rel = rel.rstrip("/")
+    return rel == _ACK_DIR or rel.startswith(_ACK_DIR + "/")
 
 
 def _not_landed_message(rec, missing):
