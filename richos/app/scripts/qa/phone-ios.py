@@ -1430,6 +1430,11 @@ def net_reading(lines, leases=""):
             others[key] = others.get(key, 0) + 1
     timed_via = {}
     for line in re.findall(r"[^\n]*event: flow:failed_connect @[\d.]+s, error Operation timed out", text):
+        # Only Safari's own timeouts are the phone's internet timing out, the same filter as the completed
+        # connections above: a developer service's timeout over the tunnel is not (hunt part 2 v3, V06).
+        event = CONNECT_EVENT.search(line)
+        if not event or event.group(1) not in BROWSER:
+            continue
         iface = re.search(r"interface: (\w+)", line)
         key = iface.group(1) if iface else "?"
         timed_via[key] = timed_via.get(key, 0) + 1
@@ -1467,6 +1472,14 @@ def wifi_link(text):
     up, channel, rssi, snr, beacons = stats[-1]
     return {"joinedSeconds": float(up), "channel": int(channel), "rssi": int(rssi), "snr": int(snr),
             "beaconLossPercent": float(beacons)}
+
+
+def wifi_carries(path_ok, internet):
+    """The exit-0 claim of `net`: this Mac reaches the phone's Wi-Fi address, Safari reached the internet, and
+    that internet did not go out over another interface. A primary route iOS names as not its Wi-Fi (the cable, a
+    second interface) is never a Wi-Fi pass, whatever Safari reached that way (hunt part 2 v3, V06). Pure."""
+    primary = internet.get("primary")
+    return bool(path_ok and internet["reached"] and not (primary and not primary["wifi"]))
 
 
 def net_verdict(path_ok, internet):
@@ -1560,7 +1573,7 @@ def net(args):
         leases = ""
     internet = {"safariOpened": opened, **net_reading(kept, leases)}
     out.write_text("\n".join(kept) + "\n")
-    ok = path_ok and internet["reached"]
+    ok = wifi_carries(path_ok, internet)
     return emit({"wifiPath": {"ok": path_ok, "detail": path_detail}, "internet": internet,
                  "verdict": net_verdict(path_ok, internet), "log": str(out)}, 0 if ok else 1)
 
