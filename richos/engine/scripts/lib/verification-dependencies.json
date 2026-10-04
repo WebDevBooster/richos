@@ -915,7 +915,7 @@
     },
     "scripts/hooks/ceo-inputs.test.sh": {
       "source": "scripts/hooks/ceo-inputs.test.sh",
-      "sha256": "2909890315f8f7911aafb31f13d3bbab44e05be37666ff60ae11141174169112",
+      "sha256": "7454274624db5587714011e25b026f229cf6b2cfe573df547aa7a13b91ee6cc5",
       "evidence": "Every new_repo config is created from literal PROTECTED_PATHS and explicit opt-out settings. All normal/broken-wrapper and Stop calls pin RICHOS_ENTITY_ROOT to those private repositories. Even the outside-seat and unadopted target files are created inside this suite sandbox; it never copies the real config.",
       "keys": [],
       "edges": [
