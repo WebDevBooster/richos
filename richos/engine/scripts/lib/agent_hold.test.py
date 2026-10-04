@@ -1116,5 +1116,110 @@ class Interrupted(Base):
         self.assertTrue(wait_for(lambda: not self.state_of(self.sleeper.pid).startswith("T")))
 
 
+class HeldAgentMakesNoModelCalls(Base):
+    """A held worker must use no quota while it waits (the CEO, 2026-10-04).
+
+    The model is called once each time a tool call returns. On 2026-09-29 fifteen
+    held workers re-ran their wait at every STILL WAITING (every 270 s) and each
+    return read the worker's whole context: 44 model calls and 22.0 million
+    context tokens in 17 minutes of hold. This runs the agent's wait the way the
+    harness runs a subagent's Bash call (the PreToolUse[Bash] hooks registered in
+    hooks/hooks.json, every one awaited, then the command they leave) and counts
+    the returns while the agent is held. The wait's own bound is cut to 1 s, so
+    any wait that returns while held shows up within the hold.
+    """
+
+    ENGINE = HERE.parent.parent
+    HOLD_SECONDS = 4.0
+
+    def setUp(self):
+        super().setUp()
+        self.bound_before = os.environ.get("RICHOS_AGENT_HOLD_WAIT_SECONDS")
+        os.environ["RICHOS_AGENT_HOLD_WAIT_SECONDS"] = "1"
+
+    def tearDown(self):
+        if self.bound_before is None:
+            os.environ.pop("RICHOS_AGENT_HOLD_WAIT_SECONDS", None)
+        else:
+            os.environ["RICHOS_AGENT_HOLD_WAIT_SECONDS"] = self.bound_before
+        super().tearDown()
+
+    def hold_hooks(self):
+        """The registered PreToolUse[Bash] hooks that act on a held agent's call (the rewriter
+        and anything agent_hold.py runs); the guard dispatcher is left out, it decides nothing here."""
+        doc = json.loads((self.ENGINE / "hooks" / "hooks.json").read_text())
+        found = []
+        for group in doc["hooks"]["PreToolUse"]:
+            if group.get("matcher") != "Bash":
+                continue
+            for h in group["hooks"]:
+                if "shell-evidence" in h["command"] or "agent_hold.py" in h["command"]:
+                    found.append(h["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(self.ENGINE)))
+        self.assertTrue(found, "hooks.json registers the Bash rewriter")
+        return found
+
+    def tool_call(self, hooks, command, tuid):
+        """One Bash tool call: its hooks run together and are all awaited, then the command they leave runs."""
+        payload = self.payload(tuid)
+        payload["tool_input"] = {"command": command}
+        running = [subprocess.Popen(["/bin/sh", "-c", c], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, text=True, start_new_session=True) for c in hooks]
+        self.procs.extend(running)
+        final = command
+        for p in running:
+            out, _ = p.communicate(json.dumps(payload), timeout=60)
+            try:
+                got = json.loads(out) if out.strip() else {}
+            except ValueError:
+                got = {}
+            updated = (got.get("hookSpecificOutput") or {}).get("updatedInput") or {}
+            if isinstance(updated.get("command"), str):
+                final = updated["command"]
+        call = subprocess.Popen([SHELL, "-c", final], start_new_session=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True)
+        self.procs.append(call)
+        out, _ = call.communicate(timeout=60)
+        return out
+
+    def test_a_held_agent_makes_no_model_call_until_it_is_released(self):
+        import threading
+        hooks = self.hold_hooks()
+        agent_hold.hold(self.session, self.agent, "fixture")
+        first = self.tool_call(hooks, agent_hold.WAIT_COMMAND, "toolu_notice")
+        self.assertIn("WAIT: running work is held", first, "the first wait returns at once with the WAIT")
+
+        returns = []  # (monotonic time, output) of every return: one model call each
+
+        def agent():
+            for n in range(100):
+                out = self.tool_call(hooks, agent_hold.WAIT_COMMAND, "toolu_wait%d" % n)
+                returns.append((time.monotonic(), out))
+                if "RESUMED" in out:
+                    return
+
+        worker = threading.Thread(target=agent, daemon=True)
+        worker.start()
+        time.sleep(self.HOLD_SECONDS)
+        released_at = time.monotonic()
+        self.assertTrue(agent_hold.release(self.session, self.agent)["ok"])
+        worker.join(30)
+        self.assertFalse(worker.is_alive(), "the agent's wait returns once it is released")
+        during = [out.strip().splitlines()[0] for t, out in returns if t < released_at]
+        self.assertEqual(during, [], "model calls while held (each return of the wait is one)")
+        self.assertEqual(len(returns), 1, [out for _t, out in returns])
+        self.assertIn("RESUMED at", returns[0][1], "it carries on from where it was")
+
+    def test_the_gate_lets_every_other_call_through_at_once(self):
+        agent_hold.hold(self.session, self.agent, "fixture")
+        start = time.monotonic()
+        lead = dict(self.payload("toolu_lead"), tool_input={"command": agent_hold.WAIT_COMMAND})
+        lead.pop("agent_id")
+        other = dict(self.payload("toolu_other"), tool_input={"command": "git status"})
+        unnoticed = dict(self.payload("toolu_first"), tool_input={"command": agent_hold.WAIT_COMMAND})
+        for p in (lead, other, unnoticed, {"tool_name": "Read"}, None):
+            self.assertEqual(agent_hold.gate(p, poll=0.05), 0)
+        self.assertLess(time.monotonic() - start, 1.0, "nothing but a noticed held wait is held")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

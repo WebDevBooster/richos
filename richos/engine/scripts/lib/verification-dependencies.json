@@ -13827,12 +13827,18 @@
     },
     "scripts/lib/agent_hold.test.py": {
       "source": "scripts/lib/agent_hold.test.py",
-      "sha256": "a8e65437a2eb54ca6f008a26863c7bbe49cb1886431414b3d975cce3b49aa156",
-      "evidence": "Fixed Python fixture imports only the bound helper and standard library. Subprocess work/registry programs are literal strings in this source; no config-provided command or discovered test executes. Preserve the real helper closure conservatively.",
+      "sha256": "c057659b0a61caa98742dfbad150acae9c45eecb289212417ee342ca734bfd2c",
+      "evidence": "Fixed Python fixture imports only the bound helper and standard library. Subprocess work/registry programs are literal strings in this source; no config-provided command or discovered test executes. Preserve the real helper closure conservatively. Renewed 2026-10-04: HeldAgentMakesNoModelCalls reads hooks/hooks.json for the PreToolUse[Bash] hooks that act on a held agent's call (the rewriter) and runs them, then the command they leave.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/lib/agent_hold.py"
+        },
+        {
+          "to": "hooks/hooks.json#pre-stop-fixtures"
+        },
+        {
+          "to": "scripts/hooks/shell-evidence.sh"
         }
       ]
     },
