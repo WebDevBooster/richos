@@ -292,5 +292,34 @@ class P5_30_ShellWrittenScripts(Scratch):
         self.assertEqual(scripts[0]["events"], 3)
 
 
+class P5_32_LoginAlarmPlistIsNotAJob(Scratch):
+    """--installed answers whether launchd has the job, not whether a plist file exists.
+
+    Private HOME and a stub launchctl first on PATH: the real launchd is never asked."""
+
+    def installed(self, launchctl_rc):
+        home = os.path.join(self.tmp, "home")
+        agents = os.path.join(home, "Library", "LaunchAgents")
+        os.makedirs(agents)
+        with open(os.path.join(agents, "com.richos.login-alarm.plist"), "w") as fh:
+            fh.write("<plist/>\n")
+        stub = os.path.join(self.tmp, "bin")
+        os.makedirs(stub)
+        with open(os.path.join(stub, "launchctl"), "w") as fh:
+            fh.write("#!/bin/sh\nexit %d\n" % launchctl_rc)
+        os.chmod(os.path.join(stub, "launchctl"), 0o755)
+        env = {k: v for k, v in os.environ.items() if k != "RICHOS_LAUNCH_AGENTS_DIR"}
+        env.update(HOME=home, PATH=os.pathsep.join(
+            [stub, os.path.dirname(sys.executable), "/usr/bin", "/bin"]))
+        return subprocess.run(["bash", os.path.join(SCRIPTS, "login-alarm.sh"), "--installed"],
+                              env=env, capture_output=True, text=True, timeout=60).returncode
+
+    def test_plist_without_loaded_job_is_not_installed(self):
+        self.assertEqual(self.installed(1), 1)
+
+    def test_plist_with_loaded_job_is_installed(self):
+        self.assertEqual(self.installed(0), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

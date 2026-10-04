@@ -8081,7 +8081,7 @@
     },
     "scripts/login-alarm.sh#report": {
       "source": "scripts/login-alarm.sh",
-      "sha256": "4e1ab541da85a9bdb1330d1a033a3df30801effa8b1f6c85c86627f6b91fb278",
+      "sha256": "3622a29385a737ebd7937fcb20a21b279ba063b91433a2224bdf7d45942822ad",
       "evidence": "Quota calls --report, leaving MODE=run and executing only the adjacent Python library. Scheduling branches are not entered; no launchctl command executes. Full source binds those branches too.",
       "keys": [],
       "edges": [
@@ -11517,7 +11517,7 @@
     },
     "scripts/login-alarm.sh#suite-fixture": {
       "source": "scripts/login-alarm.sh",
-      "sha256": "4e1ab541da85a9bdb1330d1a033a3df30801effa8b1f6c85c86627f6b91fb278",
+      "sha256": "3622a29385a737ebd7937fcb20a21b279ba063b91433a2224bdf7d45942822ad",
       "evidence": "The suite exercises scan/report plus print-plist/install/installed. RICHOS_LAUNCH_AGENTS_DIR is always set to its sandbox, suppressing launchctl; plist text is output, never executed. The fixed Python sibling handles scans. Neither branch sources orchestration.config.",
       "keys": [],
       "edges": [
