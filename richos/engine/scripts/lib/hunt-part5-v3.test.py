@@ -65,5 +65,37 @@ class P5_08_UnreadManifestBlob(Scratch):
         self.assertEqual(self.scan([("fixture.txt", blob)]), "CLEAN\n")
 
 
+class P5_45_RedirectionOperands(Scratch):
+    """Reading or writing a guard file is not running it (hook_enforced_on_surface)."""
+
+    def enforced(self, command):
+        surface = os.path.join(self.tmp, "hooks.json")
+        with open(surface, "w") as fh:
+            json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+                {"type": "command", "command": command}]}]}}, fh)
+        out = subprocess.run(["bash", "-c", '. "$1"; hook_enforced_on_surface "$2" guard-ghost.sh',
+                              "_", os.path.join(HERE, "registered-hooks.sh"), surface],
+                             capture_output=True, text=True, timeout=60)
+        return out.returncode
+
+    def test_direct_execution_is_enforced(self):
+        self.assertEqual(self.enforced("bash scripts/hooks/guard-ghost.sh"), 0)
+
+    def test_input_redirection_is_not_enforced(self):
+        self.assertEqual(self.enforced("cat < scripts/hooks/guard-ghost.sh"), 1)
+
+    def test_output_redirection_is_not_enforced(self):
+        self.assertEqual(self.enforced("echo x > scripts/hooks/guard-ghost.sh"), 1)
+
+    def test_python_inline_code_is_not_enforced(self):
+        self.assertEqual(self.enforced("python3 -c scripts/hooks/guard-ghost.sh"), 1)
+
+    def test_env_option_argument_does_not_hide_the_program(self):
+        self.assertEqual(self.enforced("env -u UNUSED bash scripts/hooks/guard-ghost.sh"), 0)
+
+    def test_redirect_after_a_real_run_still_enforced(self):
+        self.assertEqual(self.enforced("bash scripts/hooks/guard-ghost.sh 2>/dev/null"), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
