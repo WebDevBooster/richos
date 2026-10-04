@@ -250,6 +250,33 @@ test('at most four streams at once, as on the Mac', async () => {
 	await host.forget();
 });
 
+// App Review rehearsal row 10 (2026-10-04): a message queued offline stayed "Waiting to send" under
+// "Reconnecting..." for minutes after the connection came back, against this host. The Mac never refuses a
+// phone's new stream for the phone's OWN older ones: `phone/device.rs` `claim_stream` ends that device's older
+// streams and returns their slots before the cap is counted ("a phone opens one stream per process, so a newer
+// one means the older belongs to a process that is gone"). This host counts every registered stream and ends
+// none (`openStream`), so a phone whose earlier streams are still registered here (it left the network without
+// closing them, or earlier app processes) is answered 429 on every reconnect: the app keeps "Reconnecting..."
+// and its outbox waits. Marked todo, so it is reported failing without failing the suite: the fix is held for
+// the CEO's approval (esc-20261004T094345Z-661022c1). The fix also replaces the test above, whose "as on the
+// Mac" is the same device opening a fifth stream, which the Mac allows.
+test('the paired phone, back after leaving its old streams open, gets a stream: its newer stream ends its older ones, as on the Mac', {
+	todo: 'FAILS today: host.mjs openStream answers 429 (fix awaits CEO approval)'
+}, async () => {
+	const { host } = makeHost();
+	const phone = await pairedPhone(host);
+	const stale = [];
+	for (let i = 0; i < MAX_STREAMS; i++) stale.push(await phone.events('thread_id=thr_review_welcome'));
+	assert.ok(stale.every((r) => r.status === 200));
+	const back = await phone.events('thread_id=thr_review_welcome');
+	try {
+		assert.equal(back.status, 200, 'the paired phone was refused a stream while only its own older streams held the slots');
+	} finally {
+		for (const r of [...stale, back]) await r.body?.cancel().catch(() => {});
+		await host.forget();
+	}
+});
+
 test('a large body is refused unread unless it comes from the paired, active phone with a live challenge (Sage F3)', async () => {
 	const { host } = makeHost();
 	const phone = new Phone(host);
