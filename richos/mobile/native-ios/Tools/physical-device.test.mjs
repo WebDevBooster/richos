@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { CEO_BUNDLE, KEEP, TEST_BUNDLE, TEST_COPY_ENTITLEMENTS, allowanceSeconds, bundleIdOf, buildTree, testCopyOnly, configuration, deviceArgs, deviceToolSources, hardwareUdid, main, plan, prebuilt, prepareSpec, prune, releaseOnly, resolveProducts, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
+import { ADHOC_SUFFIXES, CEO_BUNDLE, KEEP, TEST_BUNDLE, TEST_COPY_ENTITLEMENTS, adhocExportOptions, allowanceSeconds, bundleIdOf, buildTree, testCopyOnly, configuration, deviceArgs, deviceToolSources, hardwareUdid, main, plan, prebuilt, prepareSpec, prune, releaseOnly, resolveProducts, pushMode, sameTree, storeKey, verifyPushEnvironment } from './physical-device.mjs';
 
 test('only verify may reuse an earlier build, and only when asked', () => {
   assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'verify'), true);
@@ -361,4 +361,27 @@ test('every UI-test session on the phone ends with AutomationModeUI ended, howev
   const sessions = source.match(/'test-without-building'/g) || [];
   assert.equal(sessions.length, 1, 'one place starts a UI-test session');
   assert.match(source, /endedSession\(\(\) => runDeviceProcess\('python3', \['-B', native, '--', 'xcodebuild', 'test-without-building'/);
+});
+
+test('install --push production: only on install, only production', () => {
+  assert.equal(deviceArgs(['install', '--push', 'production'], env).push, 'production');
+  assert.deepEqual(deviceArgs(['install', '--push', 'production'], env).args, ['install']);
+  assert.equal(deviceArgs(['install'], env).push, null);
+  assert.equal(pushMode('install', null), null);
+  assert.equal(pushMode('install', 'production'), 'production');
+  assert.throws(() => pushMode('verify', 'production'), /only for `device install`/);
+  assert.throws(() => pushMode('install', 'development'), /only production/);
+});
+
+test('the ad hoc export signs the test copy and both extensions with their named profiles, manually', () => {
+  const profiles = Object.fromEntries(ADHOC_SUFFIXES.map(s => [TEST_BUNDLE + s, { name: `RichOS ad hoc ${TEST_BUNDLE}${s}` }]));
+  const options = adhocExportOptions('ABCDEFGHIJ', profiles);
+  assert.equal(options.method, 'release-testing');
+  assert.equal(options.signingStyle, 'manual');
+  assert.equal(options.signingCertificate, 'Apple Distribution');
+  assert.equal(options.teamID, 'ABCDEFGHIJ');
+  assert.deepEqual(Object.keys(options.provisioningProfiles), [TEST_BUNDLE, `${TEST_BUNDLE}.notification-service`, `${TEST_BUNDLE}.share`]);
+  assert.ok(!Object.keys(options.provisioningProfiles).includes(CEO_BUNDLE));
+  delete profiles[`${TEST_BUNDLE}.share`];
+  assert.throws(() => adhocExportOptions('ABCDEFGHIJ', profiles), /no ad hoc profile for dev.richos.connect.perf.share/);
 });

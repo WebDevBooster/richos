@@ -97,13 +97,41 @@ export function releaseOnly(app, run = spawnSync) {
 // RICHOS_IOS_DEVICE) and `--expect-commit SHA` refuses unless the products are that commit's.
 export function deviceArgs(args, env) {
   const rest = [];
-  let device = env.RICHOS_IOS_DEVICE, expect = null;
+  let device = env.RICHOS_IOS_DEVICE, expect = null, push = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--device') device = args[++i];
     else if (args[i] === '--expect-commit') expect = args[++i];
+    else if (args[i] === '--push') push = args[++i];
     else rest.push(args[i]);
   }
-  return { args: rest, env: { ...env, RICHOS_IOS_DEVICE: device }, expect };
+  return { args: rest, env: { ...env, RICHOS_IOS_DEVICE: device }, expect, push };
+}
+
+// `install --push production`: the test copy signed the way a store build is, so its push token is a
+// PRODUCTION one (CEO 2026-10-04: a reviewer closes the app and waits for the reply's notification, and that
+// path had never been seen working). Every other build here is development-signed, whose token is a
+// sandbox one. The archive is the store's own recipe (Release/README.md: archive with Apple Development,
+// then the export re-signs); the export is ad hoc, with the profiles Tools/adhoc-signing.ts keeps through
+// the App Store Connect API, because only an ad hoc profile installs on a test phone and carries production push.
+export function pushMode(command, push) {
+  if (push === null || push === undefined) return null;
+  if (command !== 'install') throw Error('--push is only for `device install`');
+  if (push !== 'production') throw Error('--push takes only production (every other install is development-signed already)');
+  return push;
+}
+
+export const ADHOC_SUFFIXES = ['', '.notification-service', '.share'];
+
+// The export options for the ad hoc export: manual signing with the named profile of each bundle the app carries.
+export function adhocExportOptions(team, profiles) {
+  const map = {};
+  for (const suffix of ADHOC_SUFFIXES) {
+    const id = TEST_BUNDLE + suffix;
+    if (!profiles[id]?.name) throw Error(`no ad hoc profile for ${id}`);
+    map[id] = profiles[id].name;
+  }
+  return { method: 'release-testing', signingStyle: 'manual', signingCertificate: 'Apple Distribution', teamID: team,
+    provisioningProfiles: map, thinning: '<none>', destination: 'export', manageAppVersionAndBuildNumber: false };
 }
 
 // xcodebuild's `-destination id=` knows a phone only by its hardware UDID (8-16 hex); devicectl,
@@ -305,6 +333,7 @@ export async function main(args, env = process.env) {
   env = parsed.env;
   const [command, selection] = parsed.args;
   const settings = configuration(env, command, selection);
+  const pushTarget = pushMode(command, parsed.push);
   if (command !== 'stamp') settings.device = hardwareUdid(settings.device, listedDevices());
   const cache = join(env.RICHOS_NATIVE_IOS_CACHE, 'physical');
   mkdirSync(cache, { recursive: true });
@@ -359,6 +388,7 @@ export async function main(args, env = process.env) {
       builtFrom: entry.commit, dirty: false, paths: ['richos/mobile/native-ios'], stampedAt: new Date().toISOString() }, null, 1));
     return { stamp: file };
   }
+  if (pushTarget) return installProduction({ settings, env, cache, native, health, log, head: source() });
   const resolved = await resolveProducts({ command, env, team: settings.team, derived, store }, {
     source,
     xcode: xcodeVersion,
@@ -428,6 +458,64 @@ print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment'
     if (summary.passedTests !== 1 || summary.failedTests !== 0 || summary.skippedTests !== 0 || summary.totalTestCount !== 1) throw Error(`Selected physical check not proved: ${result}`);
     return { passed: 1, result, log: build.log === null ? null : log, app, build, automationUI: tested.automationUI };
   } finally { rmSync(spec, { force: true }); }
+}
+
+// The archive, the ad hoc export and the install of `install --push production`. Built each time from this
+// checkout (an archive is not a store entry: the store holds development-signed products and their runner).
+// The same refusals as every install: the test copy only, the Release build only, and the push environment
+// the app registers equal to the one it is signed for, here `production`.
+async function installProduction({ settings, env, cache, native, health, log, head }) {
+  const work = join(cache, 'adhoc');
+  const profiles = join(work, 'profiles');
+  const archive = join(work, 'RichOSNative.xcarchive');
+  const exported = join(work, 'export');
+  for (const path of [archive, exported]) rmSync(path, { recursive: true, force: true });
+  mkdirSync(profiles, { recursive: true });
+  // 1. The App IDs, Push Notifications, the distribution certificate, the phone and the profiles (App Store Connect API).
+  const signing = spawnSync('node', ['--no-warnings', join(root, 'Tools/adhoc-signing.ts'), '--bundle', TEST_BUNDLE,
+    '--device', settings.device, '--team', settings.team, '--out', profiles], { encoding: 'utf8', env, timeout: 300000 });
+  let signed = null;
+  try { signed = JSON.parse((signing.stdout || '').trim().split('\n').pop()); } catch { /* said below */ }
+  if (signing.status !== 0 || !signed?.ok) {
+    let why = (signing.stderr || signing.stdout || '').trim();
+    try { why = JSON.parse(why.split('\n').pop()).error || why; } catch { /* the raw text */ }
+    throw Error(`Ad hoc signing through App Store Connect failed: ${why || `exit ${signing.status}`}`);
+  }
+  // 2. The archive: the store's recipe, with the test copy's identity and production push.
+  const project = execFileSync(join(root, 'Release/generate.sh'), [join(cache, 'project')], { encoding: 'utf8', env }).trim();
+  const archived = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'archive', '-project', project,
+    '-scheme', 'RichOSNative', '-configuration', 'Release', '-destination', 'generic/platform=iOS', '-archivePath', archive,
+    '-derivedDataPath', join(cache, 'derived-adhoc'), `DEVELOPMENT_TEAM=${settings.team}`, 'CODE_SIGN_STYLE=Automatic',
+    'CODE_SIGN_IDENTITY=Apple Development', 'RICHOS_APS_ENVIRONMENT=production', `RICHOS_BUNDLE_ID=${TEST_BUNDLE}`,
+    `RICHOS_APP_DISPLAY_NAME=${TEST_NAME}`, ...TEST_COPY_ENTITLEMENTS, '-allowProvisioningUpdates'],
+  { log, env, health, timeoutMs: BUILD_LIMIT_MS, admission: true });
+  if (archived.status !== 0) throw Error(`Archive failed: ${log}`);
+  // 3. The ad hoc export, re-signed with Apple Distribution and the three profiles.
+  const options = join(work, 'ExportOptions.plist');
+  execFileSync('python3', ['-c', 'import json,plistlib,sys; open(sys.argv[1],"wb").write(plistlib.dumps(json.loads(sys.stdin.read())))', options],
+    { input: JSON.stringify(adhocExportOptions(settings.team, signed.result.profiles)) });
+  const exportLog = log.replace('.log', '-export.log');
+  const exporting = spawnSync('xcodebuild', ['-exportArchive', '-archivePath', archive, '-exportPath', exported,
+    '-exportOptionsPlist', options], { encoding: 'utf8', env, timeout: 600000 });
+  writeFileSync(exportLog, (exporting.stdout || '') + (exporting.stderr || ''));
+  const ipa = existsSync(exported) ? readdirSync(exported).find(name => name.endsWith('.ipa')) : undefined;
+  if (exporting.status !== 0 || !ipa) throw Error(`Ad hoc export failed: ${exportLog}`);
+  const unpacked = join(exported, 'unpacked');
+  execFileSync('ditto', ['-x', '-k', join(exported, ipa), unpacked]);
+  const app = join(unpacked, 'Payload/RichOSNative.app');
+  // 4. The refusals, before the phone is touched.
+  testCopyOnly(bundleIdOf(app));
+  const configuration = releaseOnly(app).configuration;
+  const push = JSON.parse(execFileSync('python3', ['-c', `import json,plistlib,pathlib,subprocess,sys
+p=pathlib.Path(sys.argv[1]);info=plistlib.loads((p/'Info.plist').read_bytes())
+signed=plistlib.loads(subprocess.check_output(['codesign','-d','--entitlements',':-',str(p)],stderr=subprocess.DEVNULL))
+print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment'),info.get('RichOSSourceCommit'),info.get('RichOSSourceDirty')]))`, app], { encoding: 'utf8', env }));
+  verifyPushEnvironment(push[0], push[1]);
+  if (push[1] !== 'production') throw Error(`The export is signed for ${push[1]} push, not production`);
+  // 5. Over the installed test copy, data kept; then the phone's Wi-Fi proved, as every install ends.
+  execFileSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', settings.device, app], { encoding: 'utf8', env, timeout: 600000 });
+  return { installed: app, push: push[1], configuration, sourceCommit: push[2] ?? head.commit, sourceDirty: push[3] ?? head.dirty,
+    ipa: join(exported, ipa), archive, log, exportLog, signing: signed.result, wifi: phoneWifi(settings.device, env) };
 }
 
 // THE STUCK INPUT CLIENT (2026-10-04). A UI-test session on the iPhone leaves iOS's AutomationModeUI holding
