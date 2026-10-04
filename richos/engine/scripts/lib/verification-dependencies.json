@@ -3007,7 +3007,7 @@
     },
     "scripts/hooks/guard-unresolved-claims.py": {
       "source": "scripts/hooks/guard-unresolved-claims.py",
-      "sha256": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
+      "sha256": "9159e2947c3fd004f033cd67fd7e0218c416933684fad3a596c6a95d4a719189",
       "evidence": "Standard-library transcript/claim predicate invokes only Git queries plus two fixed imports: workspaces.integration_for and unlanded-branches.sweep. The latter extra-repository setting is an environment value inherited from the sourcing wrapper.",
       "keys": [
         "UNLANDED_BRANCHES_EXTRA_REPOS"
@@ -16147,7 +16147,7 @@
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
         "scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
-        "scripts/hooks/guard-unresolved-claims.py": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
+        "scripts/hooks/guard-unresolved-claims.py": "9159e2947c3fd004f033cd67fd7e0218c416933684fad3a596c6a95d4a719189",
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
         "scripts/hooks/guard-unresolved-claims.test.sh": "58b9f2700b0be075e1ef95af1f4988e5a2989fdb3923144b105e6e23b3eceb81",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
@@ -16956,7 +16956,7 @@
         "scripts/hooks/guard-stop-live-work.sh": "5cd71abf69697f041f48560ab09d6e7f7f4b2324761916b07b589569ff7dd17e",
         "scripts/lib/stop-live-work.py": "d39269d911e9456fd0bbce45b95e67919c36dd4b7ecb96c58b3e4a8bd262532a",
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
-        "scripts/hooks/guard-unresolved-claims.py": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
+        "scripts/hooks/guard-unresolved-claims.py": "9159e2947c3fd004f033cd67fd7e0218c416933684fad3a596c6a95d4a719189",
         "scripts/hooks/guard-workflow-ban.sh": "2b93395b9ef6e99b03221e0dcf7682b926f366dbb7884c3889c00384cf550ade",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
@@ -17135,7 +17135,7 @@
         "mega-lander/workspaces.py": "0454485eebdb249824931dc1fd363ecabf8fa915530dcb2d63bacf2c94cdd450",
         "mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
-        "scripts/hooks/guard-unresolved-claims.py": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
+        "scripts/hooks/guard-unresolved-claims.py": "9159e2947c3fd004f033cd67fd7e0218c416933684fad3a596c6a95d4a719189",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",

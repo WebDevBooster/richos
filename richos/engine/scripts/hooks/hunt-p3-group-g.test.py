@@ -64,6 +64,16 @@ class GroupG(unittest.TestCase):
         blob = git("rev-parse", "HEAD:f.txt")
         found = claims.resolve_shas([commit, blob], [repo])
         self.assertEqual(found, {commit})
+        # v3 re-check: an annotated tag wrapping that blob is not a commit
+        # either; an annotated tag of the commit still is.
+        git("-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "blob-tag",
+            "-m", "a tag pointing to a blob", blob)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "commit-tag",
+            "-m", "a tag pointing to the commit", commit)
+        blob_tag = git("rev-parse", "blob-tag")
+        commit_tag = git("rev-parse", "commit-tag")
+        found = claims.resolve_shas([blob_tag, commit_tag], [repo])
+        self.assertEqual(found, {commit_tag})
 
     def test_p3_21_other_sessions_roles_do_not_count_here(self):
         claims = load("claims2", HOOKS / "guard-unresolved-claims.py")
@@ -127,6 +137,7 @@ class GroupG(unittest.TestCase):
         fenced = "Example only, no answer needed:\n```\nQUESTION FOR YOU:\nWhich first?\n```\n"
         self.assertIsNone(run(fenced))
         self.assertIsNone(run("> QUESTION FOR YOU:\n> Which first?"))
+
 
 
 if __name__ == "__main__":
