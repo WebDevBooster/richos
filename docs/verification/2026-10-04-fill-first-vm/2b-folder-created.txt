@@ -1,0 +1,11 @@
+/Users/admin/testvm/walk-6c752180867f/home/Library/Application Support/com.richos.app/claude-accounts:
+total 0
+drwxr-xr-x   3 admin  staff   96  4 Oct 18:55 .
+drwxr-xr-x  16 admin  staff  512  4 Oct 18:55 ..
+drwxr-xr-x   2 admin  staff   64  4 Oct 18:55 2
+
+/Users/admin/testvm/walk-6c752180867f/home/Library/Application Support/com.richos.app/claude-accounts/2:
+total 0
+drwxr-xr-x  2 admin  staff  64  4 Oct 18:55 .
+drwxr-xr-x  3 admin  staff  96  4 Oct 18:55 ..
+{"accounts":[{"id":"1","label":"Account 1"},{"id":"2","label":"Work","folder":"/Users/admin/testvm/walk-6c752180867f/home/Library/Application Support/com.richos.app/claude-accounts/2"}],"inUse":"1","atThreshold":"pause","limitedUntil":{}}
