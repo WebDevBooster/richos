@@ -14,7 +14,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { appSteps, nextStep, STEPS, APP_STEPS } from './review-walk.mjs';
+import { appSteps, nextStep, resetHost, STEPS, APP_STEPS } from './review-walk.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const native = dirname(here);
@@ -68,4 +68,48 @@ test('a bad commit is refused before anything is leased, built or signed in', ()
 	const help = spawnSync(process.execPath, [join(here, 'review-walk.mjs'), '--help'], { encoding: 'utf8' });
 	assert.equal(help.status, 0);
 	assert.match(help.stdout, /rios review-walk --commit <sha>/u);
+});
+
+// A stub of the review host's access page: a sign-in form, then the host with or without a phone.
+function stubAccessPage({ signedIn, paired, refuseSignIn = false, resetWorks = true }) {
+	const site = { signedIn, paired, typed: {}, signOuts: 0, signIns: 0, resets: 0 };
+	const text = () => !site.signedIn ? 'Sign in\nUsername\nPassword'
+		: `Signed in as apple-review\n${site.paired ? 'Paired\n' : 'Get a pairing link\n'}`;
+	return {
+		site,
+		goto: async () => {},
+		fill: async (selector, value) => { site.typed[selector] = value; },
+		click: async () => {
+			if (!refuseSignIn && site.typed['input[name=username]'] === 'apple-review' && site.typed['input[name=password]'] === 'pw') { site.signedIn = true; site.signIns += 1; }
+		},
+		locator: (selector) => ({
+			innerText: async () => text(),
+			count: async () => (selector === '#reset' && site.signedIn && site.paired ? 1 : 0),
+			check: async () => {},
+			first() { return this; },
+			waitFor: async () => {}
+		}),
+		getByRole: (_role, { name }) => ({
+			click: async () => {
+				if (name === 'Reset this review host') { site.resets += 1; if (resetWorks) site.paired = false; }
+				if (name === 'Sign out') { site.signedIn = false; site.signOuts += 1; }
+			}
+		})
+	};
+}
+const creds = { access: 'https://access.example/', username: 'apple-review', password: 'pw', host: 'apple-review.example' };
+
+test('the reset signs in again when the access page\'s sign-in has expired, and leaves the host unpaired', async () => {
+	const page = stubAccessPage({ signedIn: false, paired: true });
+	await resetHost(page, creds);
+	assert.equal(page.site.paired, false, 'the host is still paired');
+	assert.equal(page.site.signOuts, 1);
+});
+
+test('the reset fails, naming what is wrong, when the host still shows a phone or sign-in is refused', async () => {
+	const stuck = stubAccessPage({ signedIn: false, paired: true, resetWorks: false });
+	await assert.rejects(resetHost(stuck, creds), /still shows a phone after the reset/u);
+	const refused = stubAccessPage({ signedIn: false, paired: true, refuseSignIn: true });
+	await assert.rejects(resetHost(refused, creds), /signing in again failed/u);
+	assert.equal(refused.site.paired, true);
 });

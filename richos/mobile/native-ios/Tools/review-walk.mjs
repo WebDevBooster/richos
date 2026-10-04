@@ -206,7 +206,7 @@ async function walk(sha) {
 	const steps = [];
 	const pass = (name, detail = '') => { steps.push({ name, ok: true, detail }); log(`PASS ${name}${detail ? ` (${detail})` : ''}`); };
 	let host = '';
-	let access = '';
+	let creds = null;
 	// Only once this walk has taken the host (a fresh link on an empty host) does it reset it: a phone
 	// found there at the start is someone else's.
 	let ours = false;
@@ -216,9 +216,8 @@ async function walk(sha) {
 	let app = null;
 	let failure = null;
 	try {
-		const creds = credentials();
+		creds = credentials();
 		host = creds.host;
-		access = creds.access;
 		// The simulator: the machine's one prepared iPhone 16 Pro, leased to this process.
 		const guard = run('python3', [join(ENGINE_LIB, 'cpu_guard.py'), 'check-ios']);
 		if (guard.code !== 0) throw new StepFailed(STEPS.build, `the Mac refused a simulator now: ${(guard.out + guard.err).trim().slice(0, 300)}`);
@@ -311,7 +310,7 @@ async function walk(sha) {
 		// 7. Reset, so the real reviewer finds the host unpaired: always, whatever happened above.
 		if (page && ours) {
 			try {
-				await resetHost(page, access);
+				await resetHost(page, creds);
 				if (!failure) pass(STEPS.reset, `${host} unpaired`);
 			} catch (error) {
 				const detail = `${error?.message ?? error}`.slice(0, 300);
@@ -340,20 +339,34 @@ function nextStep(steps) {
 	return order[steps.length] ?? STEPS.reset;
 }
 
-/** Unpairs the review host from its page: Reset for a paired phone, They do not match for a waiting
- * one; then checks that the page offers a pairing link again and signs out. */
-async function resetHost(page, access) {
-	await page.goto(access);
+/** Opens the access page, signing in again with the review credentials when its sign-in has expired;
+ * returns the page's text. */
+async function openSignedIn(page, creds) {
+	await page.goto(creds.access);
 	let body = await pageText(page);
-	if (!body.includes('Signed in as')) throw new Error('the access page signed the walk out before the reset');
+	if (!body.includes('Signed in as')) {
+		await page.fill('input[name=username]', creds.username);
+		await page.fill('input[name=password]', creds.password);
+		await page.click('button[type=submit]');
+		await page.locator('h2, p.warn, h1:has-text("Not allowed")').first().waitFor({ timeout: 20_000 });
+		body = await pageText(page);
+		if (!body.includes(`Signed in as ${creds.username}`)) throw new Error(`the access page's sign-in expired and signing in again failed: ${body.split('\n').find((l) => l.trim()) ?? ''}`.slice(0, 300));
+	}
+	return body;
+}
+
+/** Unpairs the review host from its page: Reset for a paired phone, They do not match for a waiting
+ * one; then reads the page back, fails unless the host shows no phone and offers a pairing link
+ * again, and signs out. The page's sign-in may have expired by now: it signs in again first. */
+async function resetHost(page, creds) {
+	let body = await openSignedIn(page, creds);
 	if (await page.locator('#reset').count()) {
 		await page.locator('#reset').check();
 		await page.getByRole('button', { name: 'Reset this review host' }).click();
 	} else if (body.includes('A phone reached this review host')) {
 		await page.getByRole('button', { name: 'They do not match' }).click();
 	}
-	await page.goto(access);
-	body = await pageText(page);
+	body = await openSignedIn(page, creds);
 	if (/\nPaired\n/u.test(`\n${body}\n`) || body.includes('A phone reached this review host')) throw new Error('the page still shows a phone after the reset');
 	if (!/Get a (pairing|new) link/u.test(body)) throw new Error('the page offers no pairing link after the reset');
 	await page.getByRole('button', { name: 'Sign out' }).click();
@@ -382,7 +395,7 @@ async function main() {
 	}
 }
 
-export { appSteps, nextStep, STEPS, APP_STEPS };
+export { appSteps, nextStep, resetHost, STEPS, APP_STEPS };
 
 if (import.meta.main) {
 	main().catch((error) => {
