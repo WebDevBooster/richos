@@ -5,8 +5,9 @@
 # data (phone_guard.py). Fake phones and a fake land in throwaway Git repositories: nothing builds,
 # boots, opens a window or reaches a phone.
 # run-tests: no-host-screen: throwaway Git repositories and stand-in tools only; no phone, emulator, simulator or window
-# run-tests: inputs richos/mobile/perf/watch.py richos/mobile/perf/phone_guard.py richos/app/scripts/autocheck/autocheck.py richos/app/scripts/autocheck/shim.sh richos/app/scripts/autocheck/install.sh richos/app/scripts/phone-speed-watch.test.sh richos/app/scripts/phone-speed-watch.test.py
-# run-tests: covers richos/mobile/perf/watch.py richos/mobile/perf/phone_guard.py
+# run-tests: inputs richos/mobile/perf/watch.py richos/mobile/perf/phone_guard.py richos/app/scripts/autocheck/autocheck.py richos/app/scripts/autocheck/shim.sh richos/app/scripts/autocheck/install.sh richos/app/scripts/phone-speed-watch.test.sh richos/app/scripts/phone-speed-watch.test.py richos/mobile/perf/test_recheck.py
+# run-tests: covers richos/mobile/perf/watch.py richos/mobile/perf/phone_guard.py richos/mobile/perf/test_recheck.py
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHONDONTWRITEBYTECODE=1 python3 "$here/phone-speed-watch.test.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$here/../../mobile/perf/test_recheck.py"
