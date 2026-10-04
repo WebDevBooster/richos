@@ -930,6 +930,22 @@ def diagnose(repo, platform, base, sha, span, phone, guard, log_path, work, chec
             f"now still passes ({control['report']}).")
 
 
+def second_look(platform, sha, phone, idents, guard, log_path, work, checkout):
+    """Measure the tip once more on the same phone, waiting for the phone as the first measurement did.
+    Returns ("good", judged), ("slower", judged) or ("busy", why): never a guess on one measurement."""
+    try:
+        free, detail = wait_until_free(platform, idents)
+        if not free:
+            return "busy", (f"still busy after {max_wait_s()} s: "
+                            + "; ".join(f"pid {pid}: {args}" for pid, args in detail[:3]))
+        out = measure(platform, checkout, sha, phone, guard, log_path, work, tag="-again")
+        again = judge_record(checkout, platform, out, log_path)
+    except Unmeasured as exc:
+        return "busy", f"the second measurement could not be made: {exc}"
+    again["record"] = out
+    return ("good" if again["verdict"] == "good" else "slower"), again
+
+
 def escalate_slower(repo, label, platform, sha, span, commits, judged, record_path, log_path, how, diagnosis=None):
     failed, blanks, report = judged["failed"], judged["blanks"], judged["report"]
     what = (("start FAILS the speed standard" + (" and a BLANK SCREEN" if blanks else "")) if failed
@@ -1000,6 +1016,27 @@ def run_platform(repo, round_id, sha, platform, work, checkout):
             # Tell the code from the phone at once, on the same phone (CEO 2026-10-03: a phone in a bad
             # condition was first reported as a code regression, and a teammate spent 20 minutes finding out).
             diagnosis = diagnose(repo, platform, base, sha, span, phone, guard, log_path, work, checkout)
+            if diagnosis.startswith("A CODE REG"):
+                # One failure with a passing control is not yet a code regression (CEO 2026-10-04: a phone busy
+                # for one run was reported as one again): measure main once more on the same phone.
+                look, again = second_look(platform, sha, phone, idents, guard, log_path, work, checkout)
+                if look == "good":
+                    outcome.update(verdict="good", record=again["record"], standard=again["report"],
+                                   compare=again["info"], firstFailure=judged["report"],
+                                   blankScreen=blank_screen_status(platform, again["data"], again["blanks"]),
+                                   diagnosis="THE PHONE'S CONDITION, NOT THE CODE: main passed when measured again "
+                                             "straight after; the first failure is recorded as the phone's condition.")
+                    set_measured(platform, {"commit": sha, "at": now(), "record": again["record"],
+                                            "verdict": "good", "firstFailure": judged["report"],
+                                            "firstRecord": out})
+                    set_good(platform, {"commit": sha, "at": now(), "record": again["record"],
+                                        "compare": again["report"]})
+                    return outcome  # no escalation
+                if look == "busy":
+                    diagnosis = (f"NOT TOLD APART: could not tell: the phone was busy when main was to be "
+                                 f"measured again ({again}); main failed once and the last good build passed.")
+                else:
+                    diagnosis += " Main was measured again straight after and failed again."
             outcome.update(diagnosis=diagnosis)
             escalate_slower(repo, label, platform, sha, span, commits, judged, out, log_path,
                             "The automatic run after the land measured it.", diagnosis)
