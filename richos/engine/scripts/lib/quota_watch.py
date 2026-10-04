@@ -149,6 +149,57 @@ separate processes:
   resolution is one poll; two polls means a check he ordered has been missed,
   and the measured rise is not a guarantee). See outage_verdict().
 
+HIGH SPEED (ruling §108, 2026-10-04, richos-hq 1d027daa and addendum 56f17efd).
+His words: "The 93% rule is sufficient for regular work. But when the token
+consumption velocity increases a lot, we need to start checking the remaining
+quota every 2 minutes (instead of 5) and then also re-calculate the estimate
+for when the workers must be paused etc." And: "Rich must give the user an
+alert when such a crazy high token consumption velocity is detected".
+
+  WHAT HAPPENED, 2026-09-29, the lead's transcript (session 30e3850f; the
+  watcher's own polls.log for it was pruned after two days): 7% at 18:29:11Z,
+  15 Fable hunters started about 18:31Z, 91% at 18:50:15Z, the watcher's poll
+  read 98% at 18:53:10Z (its first wake, so its 18:48:10Z poll read under 93),
+  the lead sent the pause to all 15 by 18:53:54Z (44 s), and 100% at 18:54:16Z.
+  About 20 points per 5 minutes: one 5-minute check covered the whole 7-point
+  margin above 93%.
+
+  THE SPEED (recent_speed): the rise between this window's get_usage readings
+  over the latest stretch of at least one 5-minute poll, or the rise since the
+  previous reading when that is faster and at least one fast poll back, so a
+  measured JUMP moves the pause point at once (his third addendum). Never over
+  less: a reading moves in whole points.
+
+  "A LOT" (fast_speed): the speed at which his rule at a 5-minute check stops
+  being enough, the points from the threshold to 100% used up within one check
+  plus the hold (HOLD_SECONDS): (100 - 93) / (300 + 60) s, 5.8 points per 5
+  minutes. Checked against every logged pair of consecutive get_usage polls in
+  the lead transcripts of 2026-09-26 to 2026-09-28 (sessions c11805a4 and
+  356e9552, 69 pairs): normal work peaks at 3.8 points per 5 minutes
+  (2026-09-26 07:04:46Z 6% to 07:10:01Z 10%), 4.8 with one point of reading
+  resolution, and 67 of the 69 pairs are at or under 1. The 15-worker run was
+  about 20.
+
+  AT HIGH SPEED: QUOTA-FAST wakes the lead once per window, the first time it
+  is measured, with the speed and the time the window would be used up, so the
+  CEO can be told. Polls come every FAST_POLL_SECONDS (60: his "every 2
+  minutes ... Use every minute instead if that causes no problems", and the
+  measured cost of a read, at the constant). And the pause message
+  (QUOTA-THRESHOLD, marked EARLY) comes as soon as the reading plus the speed
+  over the next check and the hold reaches 100% (early_wake), below 93% if it
+  must. The 20-minute rule near the reset still applies.
+
+  A RISE EXPECTED: when EXPECT_SPAWNS of the session's working teammates were
+  registered in the last EXPECT_SECONDS (the workspace registry's
+  registered_at), polls come every FAST_POLL_SECONDS before anything is
+  measured. No alert: nothing has been detected yet.
+
+  BACK TO NORMAL (his fourth addendum): the speed is measured afresh at every
+  poll, so once it is under the high-speed line and no rise is expected, polls
+  return to 300 s and the pause point to the threshold. The speed, the last
+  reading and the recent teammate count are in poller.json; --alive prints
+  them.
+
 EXIT CODES
   --once    0 below the threshold, 1 at or above it (pause), 2 unknown,
             3 at or above it with the reset less than 20 minutes away (no
@@ -192,6 +243,12 @@ RULING = "ruling §87, richos-hq/wiki/ceo-decisions.md"
 RULE_UPDATE = ("Updated 2026-09-25: at or above the threshold, do not pause when the reset is less than "
                "20 minutes away (exactly 20 minutes still pauses), and a hold already in place is released "
                "inside that window, keeping the same agent. Polling stays every 5 minutes at every usage level.")
+# Ruling §108 and its addendum (2026-10-04). Not a quotation either.
+FAST_RULE = ("Updated 2026-10-04 (ruling §108): when usage speeds up a lot, the watcher alerts the lead at once "
+             "(QUOTA-FAST, for the CEO), checks every minute, and wakes the lead with the pause message early "
+             "enough that the hold lands before 100%, re-estimated at once from a measured jump. When many "
+             "teammates have just started, it checks every minute before any rise is measured. At normal speed "
+             "nothing changes: every 5 minutes, and the threshold.")
 
 # His "every 5 minutes". The environment override exists for the test suite
 # only, which cannot wait five minutes per case.
@@ -205,6 +262,40 @@ POLL_SECONDS = 300
 # LESS than this far away; exactly this far still pauses. The same seconds
 # release a hold already in place. The desktop app's RESET_EXEMPTION_MS.
 RESET_EXEMPTION_SECONDS = 20 * 60
+
+# RULING §108 (2026-10-04; the module docstring, "HIGH SPEED", says why). When
+# usage speeds up a lot, or a big rise is expected: a check every minute
+# instead of every 5 (his words: "every 2 minutes ... Use every minute instead
+# if that causes no problems"). Measured 2026-10-04 on this 10-core Mac: one
+# get_usage read is 3.1 s, about 10 CPU-seconds and 395 MB for those seconds,
+# so a read a minute is about 0.17 of a core while it lasts, and no quota.
+FAST_POLL_SECONDS = 60
+# A big rise is EXPECTED when this many of the session's working teammates were
+# registered within EXPECT_SECONDS. From the workspace registry, 2026-10-04:
+# 18 of 20 sessions (992 registrations) never registered more than 7 in any 5
+# minutes; the 15 Fable workers of 2026-09-29 were 15, and 2026-09-30 16:37Z
+# (session 212ab083) 13.
+EXPECT_SPAWNS = 10
+EXPECT_SECONDS = 300
+# ... and the lead is woken early enough that the hold lands before 100%. How
+# long a hold takes to land once the lead is woken, measured on 2026-09-29: the
+# wake at 18:53:10Z to the last of 15 pause messages at 18:53:54Z is 44 s,
+# rounded up to a minute.
+HOLD_SECONDS = 60
+
+
+def speed_settings(a):
+    """Fill in the §108 check interval and hold time from a.poll where the
+    caller did not set them, and return a. Both scale down with an accelerated
+    poll (seconds long, in the suites), so fixtures' fast rises keep their
+    meaning; production is 60 and 60. main() and poll_loop() both call it, so a
+    caller that builds its own arguments (the weekly suite, the replay) never
+    meets a missing one; values a caller set are kept."""
+    if getattr(a, "fast_poll", None) is None:
+        a.fast_poll = min(a.poll, FAST_POLL_SECONDS)
+    if getattr(a, "hold", None) is None:
+        a.hold = min(HOLD_SECONDS, a.poll // 5)
+    return a
 
 # WAKE THE LEAD BEFORE THE READING TURNS ONE POLL OLD (2026-09-25, measured).
 # The lead read 91% at 07:57Z and 95% at 08:07Z: the pause fired at 95, not 93.
@@ -246,7 +337,7 @@ FIVE_HOUR_SECONDS = 5 * 3600
 STATE_KEEP_SECONDS = 2 * 86400
 POLLS_LOG_MAX = 1024 * 1024
 # The kinds a --until-reset run still wakes for.
-UNTIL_RESET_KINDS = ("RELEASE", "RESET", "WEEKLY-THRESHOLD", "WEEKLY-RELEASE", "CANNOT-WATCH")
+UNTIL_RESET_KINDS = ("RELEASE", "RESET", "WEEKLY-THRESHOLD", "WEEKLY-RELEASE", "CANNOT-WATCH", "FAST")
 
 
 def _last_line(fh):
@@ -618,7 +709,8 @@ def workers(engine_root):
     Read-only: finished_state() over the recorded facts. A record the platform
     ended without a hook (a stopped agent) may still read as working here; the
     registry's own pending() reconciles that, and this watcher never writes."""
-    out = {"known": False, "why": "", "session": "", "working": [], "quota_paused": [], "weekly_paused": [], "other_paused": []}
+    out = {"known": False, "why": "", "session": "", "working": [], "quota_paused": [], "weekly_paused": [], "other_paused": [],
+           "registered": []}
     ws, why = _load_registry(engine_root)
     if ws is None:
         out["why"] = why
@@ -642,6 +734,9 @@ def workers(engine_root):
                  out["weekly_paused"] if until.startswith("the weekly quota reset") else out["other_paused"]).append(name)
             else:
                 out["working"].append(name)
+                at = _parse_reset(rec.get("registered_at"))
+                if at:
+                    out["registered"].append(at)
         out["known"] = True
     except Exception as e:  # noqa: BLE001
         out["why"] = "the workspace registry could not be read (%s)" % e.__class__.__name__
@@ -725,6 +820,7 @@ def mode_status(a, now):
     print("THE 93%% QUOTA RULE (%s)" % RULING)
     print("  his words : %s" % HIS_WORDS)
     print("  update    : %s" % RULE_UPDATE)
+    print("  speed     : %s" % FAST_RULE)
     if a.threshold is None:
         print("  threshold : UNKNOWN: %s is %s in %s" % (CONFIG_KEY, a.threshold_problem, a.config or "(no config)"))
     else:
@@ -763,9 +859,11 @@ def mode_status(a, now):
 KEEPS_POLLING = "  The watcher keeps polling every 5 minutes; nothing needs starting again."
 
 
-def _emit_threshold(a, r, now, w):
+def _emit_threshold(a, r, now, w, early=""):
     print("QUOTA-THRESHOLD %s%%" % fmt_pct(r["used"]))
     print("  %s" % describe(r, a.threshold, now))
+    if early:
+        print("  %s" % early)
     if r["age"] is not None and r["age"] > a.stale:
         print("  The reading is stale, so this is a FLOOR: usage is at least %s%% now (it only grows inside a"
               " window)." % fmt_pct(r["used"]))
@@ -907,6 +1005,79 @@ def fastest_rise(history, reading):
         if at > began and reading.get("used"):
             rate = max(rate, reading["used"] / float(at - began))
     return rate
+
+
+def recent_speed(history, span, jump):
+    """Percentage points per second between this window's get_usage readings,
+    None until it can be measured. The rise over the latest stretch of at least
+    `span` seconds (one 5-minute poll), or, when it is faster, the rise since
+    the previous reading if that is at least `jump` seconds (one fast poll)
+    back: a measured JUMP counts at once (§108), not averaged over 5 minutes.
+    Nothing shorter is used: a reading moves in whole points, and one point
+    over 88 s already reads as 3.4 points per 5 minutes (2026-09-27 18:08:37Z
+    to 18:10:05Z, 46% to 47%)."""
+    if len(history) < 2:
+        return None
+    t1, u1 = history[-1]
+    rates = []
+    t0, u0 = history[-2]
+    if t1 - t0 >= jump:
+        rates.append(max(0.0, (u1 - u0) / float(t1 - t0)))
+    for t0, u0 in reversed(history[:-1]):
+        if t1 - t0 >= span:
+            rates.append(max(0.0, (u1 - u0) / float(t1 - t0)))
+            break
+    return max(rates) if rates else None
+
+
+def expected_rise(w, now):
+    """How many of this session's working teammates were registered in the
+    last EXPECT_SECONDS: a big rise is expected from EXPECT_SPAWNS (§108)."""
+    return sum(1 for t in w.get("registered", []) if now - t <= EXPECT_SECONDS)
+
+
+def fast_speed(a):
+    """Points per second from which usage counts as HIGH SPEED (ruling §108):
+    the speed at which his rule at a 5-minute check stops being enough, because
+    the points between the threshold and 100% are used up within one check plus
+    the time the hold takes to land. 93% gives 7 points in 360 s, 5.8 points per
+    5 minutes (the module docstring has the readings it was checked against)."""
+    return (100.0 - a.threshold) / float(a.poll + a.hold)
+
+
+def early_wake(a, used, speed):
+    """At high speed: True when waiting for the next fast check would let
+    usage reach 100% before the hold lands, so the lead must be woken now."""
+    return used + speed * (a.fast_poll + a.hold) >= 100
+
+
+def per5(rate):
+    return rate * 300
+
+
+def _early_text(a, r, speed, now):
+    full = now + int((100 - r["used"]) / speed) if speed > 0 else now
+    return ("EARLY, AT HIGH SPEED (ruling §108, richos-hq/wiki/ceo-decisions.md): usage is rising %.1f points per"
+            " 5 minutes (high speed is %.1f or more). At that speed the window reaches 100%% at about %s, before"
+            " the next check (%d s) plus the minute a hold takes to land, so the pause is due now, below the"
+            " %s%% threshold." % (per5(speed), per5(fast_speed(a)), _hms(full), a.fast_poll, fmt_pct(a.threshold)))
+
+
+def _emit_fast(a, r, speed, now, w):
+    """The §108 addendum: the moment high speed is first measured in a window,
+    the lead is told, separately from and before any pause message, so the CEO
+    can be told."""
+    full = now + int((100 - r["used"]) / speed) if speed > 0 else now
+    print("QUOTA-FAST: usage is rising %.1f points per 5 minutes; high speed is %.1f or more"
+          % (per5(speed), per5(fast_speed(a))))
+    print("  At that speed the five-hour window is used up at about %s, in %s (now %s%%, resets %s)."
+          % (_hms(full), span(full - now), fmt_pct(r["used"]), hhmm(r["resets_at"])))
+    print("  TELL THE CEO: the ruling's addendum (§108, richos-hq/wiki/ceo-decisions.md) says the user is alerted"
+          " when usage is this fast.")
+    print("  %s" % worker_line(w))
+    print("  This is an alert, not the pause. The watcher now checks every %d s and wakes you with the pause"
+          " message as soon as the measured speed would carry the window to 100%% before the next check plus"
+          " the minute a hold takes to land." % a.fast_poll)
 
 
 def outage_verdict(a, reading, history, now):
@@ -1065,11 +1236,12 @@ class Out:
             self.events.write(text)
             self.events.flush()
 
-    def beat(self, now, a):
+    def beat(self, now, a, extra=None):
         if self.sd:
             hb = _read_json(os.path.join(self.sd, "poller.json"))
             if hb.get("pid") == os.getpid():
                 hb["last_poll"] = now
+                hb.update(extra or {})
                 _write_json(os.path.join(self.sd, "poller.json"), hb)
 
 
@@ -1109,6 +1281,7 @@ def poll_loop(a, out, alive=None):
     # does (hunt part 5, P5-15): once the failures span one poll's worth of time, the
     # lead is told the watcher is blind, once per episode. A completed poll ends the episode.
     health = {"first": None, "woken": False, "count": 0}
+    speed_settings(a)
     with contextlib.redirect_stdout(out):
         while True:
             try:
@@ -1147,6 +1320,7 @@ def _poll_loop(a, out, alive, health=None):
     last_gu = None               # the last get_usage reading: {"used", "resets_at", "taken", "why"}
     history = []                 # (taken, used) get_usage readings in the current window
     outage = None                # {"at": first failure, "fallback_why"} while get_usage fails
+    fast_alerted = None          # the window whose high speed was announced (QUOTA-FAST, once)
     first = True
     print("quota-watch: polling every %d s; threshold %s%%%s" % (
         a.poll, fmt_pct(a.threshold), "; waking only at the release and the reset" if a.until_reset else ""),
@@ -1159,7 +1333,6 @@ def _poll_loop(a, out, alive, health=None):
         reset_status = quota_weekly.reset_tick(a.engine_root)
         r = read_source(a, now)
         w = workers(a.engine_root)
-        out.beat(now, a)
         retry = False
         asked_refresh = False
         if r.get("source") == "get_usage":
@@ -1187,6 +1360,24 @@ def _poll_loop(a, out, alive, health=None):
                                  "age": float(now - last_gu["taken"]), "ended": False,
                                  "source": "get_usage at %s" % _hms(last_gu["taken"])})
                     r = kept
+        # RULING §108: the speed, measured from this window's get_usage readings.
+        speed = recent_speed(history, a.poll, a.fast_poll) if r.get("source") == "get_usage" else None
+        fast = speed is not None and speed >= fast_speed(a)
+        # ... and a big rise EXPECTED (many teammates just started) checks
+        # every minute before any rise is measured. Back at normal speed with
+        # nothing expected, everything is as before: 5 minutes, and 93%.
+        spawned = expected_rise(w, now)
+        expected = spawned >= EXPECT_SPAWNS
+        out.beat(now, a, {"interval": a.fast_poll if fast or expected else a.poll, "fast_from": per5(fast_speed(a)),
+                          "spawned_recently": spawned,
+                          "speed": None if speed is None else per5(speed),
+                          "reading": {"used": r["used"], "at": now, "source": r.get("source")}
+                          if r["state"] == "ok" else None})
+        if fast and r["state"] == "ok" and not r["ended"] and not same_window(fast_alerted, r["resets_at"]):
+            # The §108 addendum: alert the lead the moment high speed is first
+            # measured in this window, before and apart from any pause message.
+            out.wake("FAST", _capture(_emit_fast, a, r, speed, now, w), now)
+            fast_alerted = r["resets_at"]
         weekly_text = io.StringIO()
         with contextlib.redirect_stdout(weekly_text):
             weekly_blocked, weekly_event = quota_weekly.handle(a, r, now, w, reset_status,
@@ -1237,6 +1428,19 @@ def _poll_loop(a, out, alive, health=None):
         print("%s  %s" % (_dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime("%H:%M:%SZ"),
                           describe(r, a.threshold, now) + ("  [UNKNOWN: %s]" % why if verdict == "unknown" and r["state"] == "ok" else "")),
               flush=True)
+        early = ""
+        if expected and not fast:
+            print("  RISE EXPECTED: %d teammates started in the last %d s (%d or more); checking every %d s"
+                  % (spawned, EXPECT_SECONDS, EXPECT_SPAWNS, a.fast_poll), flush=True)
+        if fast:
+            print("  HIGH SPEED: %.1f points per 5 minutes (%.1f or more); checking every %d s"
+                  % (per5(speed), per5(fast_speed(a)), a.fast_poll), flush=True)
+            if verdict == "below" and early_wake(a, r["used"], speed):
+                if in_last_twenty(r["resets_at"], now):
+                    print("  at this speed the pause is due, but the reset is less than 20 minutes away: no pause",
+                          flush=True)
+                else:
+                    verdict, early = "at-or-above", _early_text(a, r, speed, now)
         # A get_usage OUTAGE: it answered earlier in this window and fails now.
         # Its last reading, or the status-line file when that is fresher, is
         # the reading; the 2026-09-25 status-line rules (wake to refresh before
@@ -1253,7 +1457,7 @@ def _poll_loop(a, out, alive, health=None):
                 else:
                     told = threshold_named.get(window_end)
                     if told is None or (w["known"] and not set(w["working"]) <= told):
-                        out.wake("THRESHOLD", _capture(_emit_threshold, a, r, now, w), now)
+                        out.wake("THRESHOLD", _capture(_emit_threshold, a, r, now, w, early), now)
                         threshold_named[window_end] = set(w["working"]) if w["known"] else set()
                     else:
                         print("  at or above the threshold; the lead was told for this window at the first crossing",
@@ -1308,9 +1512,9 @@ def _poll_loop(a, out, alive, health=None):
                         asked_refresh = True
                 else:
                     refresh_in = at - r["age"]
-        sleep_for = a.poll
+        sleep_for = a.fast_poll if fast or expected else a.poll
         if window_end is not None:
-            sleep_for = max(1, min(a.poll, window_end - now))
+            sleep_for = max(1, min(sleep_for, window_end - now))
             # Wake at the first second inside the last 20 minutes, where a
             # hold releases, rather than up to one poll late.
             to_release = window_end - now - (RESET_EXEMPTION_SECONDS - 1)
@@ -1665,7 +1869,21 @@ def mode_alive(a):
         return 2
     last = hb.get("last_poll")
     print("quota-watch: poller pid %s, polling every %s s; last poll %s" % (
-        hb.get("pid"), hb.get("poll"), ("%s, %s ago" % (_hms(last), span(now - last))) if last else "not yet"))
+        hb.get("pid"), hb.get("interval") or hb.get("poll"),
+        ("%s, %s ago" % (_hms(last), span(now - last))) if last else "not yet"))
+    rd = hb.get("reading")
+    if isinstance(rd, dict):
+        print("  last reading: %s%% of the five-hour window at %s via %s" % (
+            fmt_pct(rd.get("used")), _hms(rd.get("at") or 0), rd.get("source")))
+    sp, fast_from = hb.get("speed"), hb.get("fast_from")
+    if sp is None:
+        print("  measured speed: not yet (it needs two get_usage readings one poll apart in this window)")
+    elif fast_from is not None:
+        print("  measured speed: %.1f points per 5 minutes, %s (high speed is %.1f or more, ruling §108)" % (
+            sp, "HIGH" if sp >= fast_from else "normal", fast_from))
+    if hb.get("spawned_recently"):
+        print("  teammates started in the last %d s: %d (a big rise is expected from %d)" % (
+            EXPECT_SECONDS, hb["spawned_recently"], EXPECT_SPAWNS))
     if monitor:
         print("  wake-ups reach you through the plugin monitor (pid %s)" % _read_json(os.path.join(sd, "monitor.json")).get("pid"))
         return 0
@@ -1686,7 +1904,8 @@ def mode_notice(a, now):
         return 0
     lines = ["=== THE 93%% QUOTA RULE applies to this session (%s) ===" % RULING,
              "  His words: %s" % HIS_WORDS,
-             "  %s" % RULE_UPDATE]
+             "  %s" % RULE_UPDATE,
+             "  %s" % FAST_RULE]
     if a.threshold is None:
         lines.append("  THE WATCHER CANNOT RUN HERE: %s is %s in %s. Declare it there, e.g. %s=93."
                      % (CONFIG_KEY, a.threshold_problem, a.config or "(no orchestration.config)", CONFIG_KEY))
@@ -1751,6 +1970,8 @@ def main(argv):
     a.payload = default_payload_path()
     a.poll = _env_int("QUOTA_WATCH_POLL_SECONDS", POLL_SECONDS)
     a.stale = _env_int("QUOTA_WATCH_STALE_SECONDS", a.poll)
+    a.fast_poll = a.hold = None
+    speed_settings(a)  # ruling §108
     a.threshold_raw = (a.threshold_raw or "").strip()
     a.threshold, a.threshold_problem = parse_threshold(a.threshold_raw)
     a.engine_root = a.engine_root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
