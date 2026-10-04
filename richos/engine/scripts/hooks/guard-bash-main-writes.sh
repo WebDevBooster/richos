@@ -222,6 +222,12 @@ def classify_relative_hit():
         return 'cwd-main-relative'
     return None
 
+def cwd_in_protected():
+    # The call RUNS INSIDE a protected tree of the main checkout (cwd is
+    # ROOT/<tree>/...) and moves nowhere first: every relative operand then
+    # lands in that tree, whatever its spelling (hunt part 3 v3, finding 41).
+    return bool(cwd) and is_abs_protected(cwd) and not re.search(r'(?:^|[;&|(]\s*)(?:cd|pushd)\s', cmd)
+
 def check_targets(tokens):
     for raw in tokens:
         tok = raw.strip('\'\"')
@@ -233,6 +239,8 @@ def check_targets(tokens):
             cat = classify_relative_hit()
             if cat:
                 return cat
+        if not tok.startswith(('/', '-', '~')) and cwd_in_protected():
+            return 'cwd-in-protected:' + tok[:120]
     return None
 
 # 1) write-verb clauses — only THAT verb's own argument list (up to the next

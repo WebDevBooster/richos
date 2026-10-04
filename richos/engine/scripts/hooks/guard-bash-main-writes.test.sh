@@ -153,6 +153,14 @@ run_case "P3-39 still blocks: touch in \$(...)"        2 "$(json_cmd "echo \$(to
 run_case "P3-39 still blocks: git rm of a protected path" 2 "$(json_cmd "git rm $FIRST_PROTECTED/x" "$ROOT")"
 run_case "P3-39 still blocks: unclosed quote falls back"  2 "$(json_cmd "touch $ROOT/$FIRST_PROTECTED/x; echo it's" "$ROOT")"
 
+# --- Hunt part 3 v3, finding 41: a relative write made FROM INSIDE a protected
+# directory of the main checkout lands in it, the same as its absolute spelling.
+run_case "P3-41: cwd inside protected + touch file"        2 "$(json_cmd "touch file" "$ROOT/$FIRST_PROTECTED")"
+run_case "P3-41: cwd deeper inside protected + redirect"    2 "$(json_cmd "echo hi > out.txt" "$ROOT/$FIRST_PROTECTED/sub")"
+run_case "P3-41 allowed: read from inside protected"        0 "$(json_cmd "cat file" "$ROOT/$FIRST_PROTECTED")"
+run_case "P3-41 allowed: absolute scratch write from inside" 0 "$(json_cmd "rm -rf /tmp/scratch/x" "$ROOT/$FIRST_PROTECTED")"
+run_case "P3-41 allowed: cd to scratch first"               0 "$(json_cmd "cd /tmp/scratch && touch file" "$ROOT/$FIRST_PROTECTED")"
+
 # --- cp/rsync only READ their sources: the destination alone decides ---
 run_case "cp OUT of protected abs into scratch"  0 "$(json_cmd "cp $ROOT/$FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
 run_case "cp OUT of protected rel into scratch"  0 "$(json_cmd "cp -r $FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
