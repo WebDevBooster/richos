@@ -97,5 +97,43 @@ class P5_45_RedirectionOperands(Scratch):
         self.assertEqual(self.enforced("bash scripts/hooks/guard-ghost.sh 2>/dev/null"), 0)
 
 
+class P5_57_UnrelatedReadIsNotTheRegister(unittest.TestCase):
+    """A program that names the register but reads another file did not read the register."""
+
+    REG = "/repo/docs/failure-types.md"
+    REL = "docs/failure-types.md"
+    BASE = "failure-types.md"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ft = load("failure_type", os.path.join(HERE, "failure-type.py"))
+
+    def credited(self, cmd):
+        return self.ft.bash_reads_register(cmd, self.REG, self.REL, self.BASE)
+
+    def test_print_name_then_open_other_file(self):
+        self.assertFalse(self.credited(
+            """python3 -c "print('failure-types.md');open('other-file').read()" """))
+
+    def test_printed_open_text_is_not_a_read(self):
+        self.assertFalse(self.credited("""python3 -c "print('open(failure-types.md)')" """))
+
+    def test_writing_the_register_is_not_reading_it(self):
+        self.assertFalse(self.credited("""python3 -c "open('failure-types.md', 'w').write('x')" """))
+
+    def test_python_open_of_register_is_credited(self):
+        self.assertTrue(self.credited("""python3 -c "open('failure-types.md').read()" """))
+
+    def test_pathlib_read_of_register_is_credited(self):
+        self.assertTrue(self.credited(
+            """python3 -c "from pathlib import Path; print(Path('docs/failure-types.md').read_text())" """))
+
+    def test_perl_open_of_register_is_credited(self):
+        self.assertTrue(self.credited("""perl -e 'open(my $f, "<", "failure-types.md"); print <$f>'"""))
+
+    def test_cat_of_register_is_credited(self):
+        self.assertTrue(self.credited("cat failure-types.md"))
+
+
 if __name__ == "__main__":
     unittest.main()

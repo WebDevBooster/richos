@@ -4639,7 +4639,7 @@
     },
     "scripts/lib/failure-type.py": {
       "source": "scripts/lib/failure-type.py",
-      "sha256": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
+      "sha256": "07f32badc99e40cbe174f70b01e25d8584ae1ac5f9eb59442b4a86c9238ef079",
       "evidence": "Complete reviewed analyzer reads supplied register/transcript/corpus and fixed Git metadata; payload commands are inspected as strings, never executed. Configuration reaches it only as explicit RICHOS_FT_* wrapper arguments. The fixed left-off import uses just its human classifiers.",
       "keys": [],
       "edges": [
@@ -16239,7 +16239,7 @@
         "scripts/hooks/detect-nonnative-worktree.sh": "11fe1d4301e448a709fa0117b1b7df797f3dc7750233d275f09b4d749a150dee",
         "scripts/hooks/dispatch-pretooluse.sh": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",
-        "scripts/lib/failure-type.py": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
+        "scripts/lib/failure-type.py": "07f32badc99e40cbe174f70b01e25d8584ae1ac5f9eb59442b4a86c9238ef079",
         "scripts/lib/left-off.py": "d68bc6626419957868a39f4967476af07eb31ba869e5fe87a91c8d3a2a7762b4",
         "scripts/hooks/failure-type.test.sh": "59a268fcbfbe1b56b60e69d59753352931ab690010a7a97041345639881d6459",
         "scripts/hooks/failure-type.mutation.sh": "b9bc6705e29fd7b055c3c94e90aaceb978c404693e22ed4888bf3bc20134122f",
@@ -16892,7 +16892,7 @@
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
-        "scripts/lib/failure-type.py": "695771ae33e120bbb2808878b9c75c9e3cd0ad6dbaa47834507722bce9d320c2",
+        "scripts/lib/failure-type.py": "07f32badc99e40cbe174f70b01e25d8584ae1ac5f9eb59442b4a86c9238ef079",
         "scripts/lib/left-off.py": "d68bc6626419957868a39f4967476af07eb31ba869e5fe87a91c8d3a2a7762b4",
         "scripts/hooks/failure-type.test.sh": "59a268fcbfbe1b56b60e69d59753352931ab690010a7a97041345639881d6459",
         "scripts/hooks/failure-type-lookup.sh": "8e77ae84f95d79e11fd2f168a2fbb39c5f9548a8eec3ffcd0af5e4496e8cffd1",

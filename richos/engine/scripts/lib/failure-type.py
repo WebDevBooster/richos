@@ -647,10 +647,28 @@ def bash_reads_register(cmd, reg_path, rel, base):
         for a in files:
             if path_matches_register(a, reg_path, rel, base):
                 return True
-        if program is not None and _READ_CALL.search(program) and (
-                base in program or any(path_matches_register(a, reg_path, rel, base) for a in rest)):
+        if program is not None and (
+                any(path_matches_register(p, reg_path, rel, base) for p in _read_targets(program))
+                or (_READ_CALL.search(program)
+                    and any(path_matches_register(a, reg_path, rel, base) for a in rest))):
             return True
     return False
+
+
+# Hunt P5-57 (v3): the register's name anywhere in a program that reads SOMETHING
+# credited `print('failure-types.md'); open('other-file')`. Only a literal path
+# that is itself the argument of a read call counts as the program reading it.
+_READ_TARGET = [
+    re.compile(r"""(?<![\w.])open\s*\(\s*[rbuf]*(['"])(?P<p>[^'"]+)\1(?!\s*,\s*[rbuf]*['"][^'"]*[wax])"""),
+    re.compile(r"""\bPath\s*\(\s*[rbuf]*(['"])(?P<p>[^'"]+)\1\s*\)\s*\.\s*(?:read_text|read_bytes|open|readlines)\b"""),
+    re.compile(r"""\b(?:File|IO)\.(?:read|open|foreach|readlines)\s*\(?\s*(['"])(?P<p>[^'"]+)\1"""),
+    re.compile(r"""\bfs\.read\w*\s*\(\s*(['"])(?P<p>[^'"]+)\1"""),
+    re.compile(r"""(?<![\w.])open\s*\(?\s*(?:my\s+)?[$\w]+\s*,\s*(?:(['"])<\1\s*,\s*)?(['"])<?\s*(?P<p>[^'"]+)\2"""),
+]
+
+
+def _read_targets(program):
+    return [m.group("p").strip() for rx in _READ_TARGET for m in rx.finditer(program)]
 
 
 # An interpreter's one-line program READS a file only when it calls something that
