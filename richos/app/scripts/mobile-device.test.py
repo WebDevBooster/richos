@@ -550,7 +550,7 @@ def _():
         assert "devicectl device reboot --device 00000000-0000000000000000 --wait-for-device" in calls, calls
 
 
-@case("D22c rios device reboot: restarts the phone through devicectl, waits for it, opens the app; exit 0 only when iOS opens it")
+@case("D22c rios device reboot: restarts the phone through devicectl and waits for it; it opens NO app, whatever the app check says (CEO 2026-10-04)")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
         ph = IPhone(tmp, network="off")
@@ -561,15 +561,18 @@ def _():
                            env=env, capture_output=True, text=True, timeout=120)
         result = json.loads(p.stdout)
         assert p.returncode == 0 and result["state"] == "ok" and result["rebooted"] and ph.reboots == 1, (p.returncode, p.stdout, p.stderr)
+        assert ph.launches() == [] and result["launchTries"] == 0, (ph.launches(), result)
+        # Even a phone that would refuse the app: reboot never asks it to open anything.
         ph.set(network="off", reboot_fixes=False)
         p = subprocess.run([sys.executable, str(script), "reboot", "--device", "00000000-0000000000000000"],
                            env=env, capture_output=True, text=True, timeout=120)
-        assert p.returncode == 1 and json.loads(p.stdout)["state"] == "untrusted", (p.returncode, p.stdout)
+        assert ph.launches() == [], ph.launches()
         # Without the rios verb it touches nothing.
         env.pop("RICHOS_DEVICE_VERB")
+        reboots_before = ph.reboots
         p = subprocess.run([sys.executable, str(script), "reboot", "--device", "00000000-0000000000000000"],
                            env=env, capture_output=True, text=True, timeout=120)
-        assert p.returncode == 3 and ph.reboots == 2, (p.returncode, ph.reboots)
+        assert p.returncode == 3 and ph.reboots == reboots_before, (p.returncode, ph.reboots)
 
 
 @case("D23 the phone is online: the app is opened once and closed again before the run, and the run goes on")
@@ -583,7 +586,7 @@ def _():
         assert "--terminate-existing" in calls and "dev.richos.connect" in calls and "process terminate" in calls and "--pid 4242" in calls, calls
 
 
-@case("D23b RICHOS_PHONE_CHECK_APP=none: the checks around a run and `reboot` open no app at all (the CEO's own app is his, 2026-10-03)")
+@case("D23b RICHOS_PHONE_CHECK_APP=none: the checks around a run open no app at all (the CEO's own app is his, 2026-10-03)")
 def _():
     with tempfile.TemporaryDirectory() as tmp:
         ph = IPhone(tmp)
@@ -596,7 +599,7 @@ def _():
         p = subprocess.run([sys.executable, str(REPO / "richos/app/scripts/qa/phone-ios.py"), "reboot", "--device",
                             "00000000-0000000000000000"], env=env, capture_output=True, text=True, timeout=120)
         result = json.loads(p.stdout)
-        assert p.returncode == 0 and result["state"] == "skipped" and result["rebooted"] and result["launchTries"] == 0, \
+        assert p.returncode == 0 and result["state"] == "ok" and result["rebooted"] and result["launchTries"] == 0, \
             (p.returncode, p.stdout, p.stderr)
         assert ph.reboots == 1 and ph.launches() == [], (ph.reboots, ph.launches())
         # Another bundle is opened instead of RichConnect when one is named.

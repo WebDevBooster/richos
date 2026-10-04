@@ -361,10 +361,10 @@ def launch_app(device, bundle, app_args, say, out=None, console=True):
 
 
 def reboot(device, say):
-    """Restart the phone (devicectl, a full reboot), wait with no launches until its Wi-Fi carries traffic
-    (wifi_path), then open RichConnect ONCE so iOS verifies it while the phone can reach Apple (never a launch
-    loop: each refused launch puts a notification on the phone, CEO 2026-10-03). Returns that launch_check
-    result with 'rebooted' and the seconds it took. Nothing is installed, removed or erased."""
+    """Restart the phone (devicectl, a full reboot) and wait until it is back and its Wi-Fi carries traffic
+    (wifi_path). Opens NO app, ever: after a restart RichConnect shows nothing (CEO 2026-10-04). Returns
+    state `ok` when the phone is back and reaches the internet, with 'rebooted' and the seconds it took.
+    Nothing is installed, removed or erased."""
     started = time.monotonic()
     ok, detail, back = restart_and_wait(device, say)
     if not back:
@@ -372,10 +372,8 @@ def reboot(device, say):
     if not ok:
         return {"state": "not-ready", "detail": "after the restart: " + detail, "rebooted": True,
                 "launchTries": 0, "totalSeconds": round(time.monotonic() - started)}
-    result = launch_check(device)
-    return {**result, "rebooted": True, "backAfterSeconds": round(back),
-            "launchTries": 0 if result["state"] == "skipped" else 1,
-            "totalSeconds": round(time.monotonic() - started)}
+    return {"state": "ok", "detail": detail, "rebooted": True, "backAfterSeconds": round(back),
+            "launchTries": 0, "totalSeconds": round(time.monotonic() - started)}
 
 
 def preflight(say, device=None):
@@ -397,6 +395,11 @@ def preflight(say, device=None):
         result = reboot(device, say)
         if result["state"] != "ok":
             raise Unreachable(FIX + f" (after the restart: {result['state']}: {result['detail']})")
+        back_after = result["totalSeconds"]
+        result = launch_check(device)  # this procedure's one open after the restart; `reboot` opens nothing
+        if result["state"] != "ok" and result["state"] != "skipped":
+            raise Unreachable(FIX + f" (after the restart: {result['state']}: {result['detail']})")
+        result["totalSeconds"] = back_after
         say(f"after the restart the phone opens RichConnect ({result['totalSeconds']} s): the run goes on")
         return
     if result["state"] == "skipped":

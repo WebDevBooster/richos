@@ -4,8 +4,8 @@
 Connected check first (not connected: 0 launches, 0 reboots); the phone's Wi-Fi must carry traffic before
 the first open (a dead path is restarted once with nothing opened, so iOS never shows "Unable to Verify App"
 for want of a network); open once; a trust refusal restarts the phone once, waits, opens once more; refused
-twice exits non-zero; never a third launch and never a second restart. `rios device reboot` opens the app
-once after the restart, never in a loop. `phone_net.py ensure` (run by `rios device install`) restarts a
+twice exits non-zero; never a third launch and never a second restart. `rios device reboot` only restarts
+the phone and waits for it: it never opens the app. `phone_net.py ensure` (run by `rios device install`) restarts a
 dead path once."""
 import os
 import subprocess
@@ -152,10 +152,10 @@ class DeviceLaunch(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertEqual((launches, reboots), (1, 1))
 
-    def test_reboot_opens_the_app_once_never_in_a_loop(self):
+    def test_reboot_never_opens_the_app(self):
         p, launches, reboots = self.run_tool([str(TOOL), "reboot", "--device", "PHONE"], launches="no,no,no,ok")
-        self.assertNotEqual(p.returncode, 0)
-        self.assertEqual((launches, reboots), (1, 1))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((launches, reboots), (0, 1))
 
     def test_reboot_into_a_dead_wifi_opens_nothing(self):
         p, launches, reboots = self.run_tool([str(TOOL), "reboot", "--device", "PHONE"], path="dead")

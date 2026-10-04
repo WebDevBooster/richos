@@ -39,11 +39,10 @@
                                                    it back on. `run` refuses a list that presses the Wi-Fi
                                                    switch for the same reason. Put it back with wifi-on and
                                                    check with `rios device net`
-    phone-ios.py reboot --device ID                restart the phone (devicectl), wait until its Wi-Fi
-                                                   carries traffic, open RichConnect ONCE (never a loop);
-                                                   the remedy when `trust` fails (no passcode, CEO 2026-10-02);
-                                                   RICHOS_PHONE_CHECK_APP=none opens no app (the CEO's own app
-                                                   is his, 2026-10-03): it waits for the phone's internet only
+    phone-ios.py reboot --device ID                restart the phone (devicectl) and wait until it is back and
+                                                   its Wi-Fi carries traffic; it opens NO app, ever (CEO
+                                                   2026-10-04). The remedy when `trust` fails (no passcode,
+                                                   CEO 2026-10-02); opening an app is `launch`'s one procedure
     phone-ios.py close BUNDLE --device ID          end that app's running process: the Home Screen is in front
     phone-ios.py net --device ID --out FILE [--seconds S] [--url URL] [--raw]
                                                    what the phone itself reaches: this Mac reaching its
@@ -1337,8 +1336,8 @@ def trust(args):
     elif result.get("state") == "untrusted":
         # The fix the automation applies on its own (CEO 2026-10-02): the phone has no passcode, so a
         # restart brings it back usable, and on 2026-10-02 a restart cleared the DNS that did not answer.
-        report["remedy"] = (f"rios device reboot --device {args.device}: restarts the phone and opens RichConnect "
-                            "until iOS verifies it; rios device run, verify, perf and hold do this once on their own "
+        report["remedy"] = (f"rios device reboot --device {args.device}: restarts the phone and waits for it "
+                            "(it opens no app; `rios device launch` opens one once afterwards); rios device run, verify, perf and hold do this once on their own "
                             "before they give up")
     report["log"] = {"out": str(out), "lines": len(kept)}
     return emit(report, 0 if result.get("state") == "ok" else 1)
@@ -1577,9 +1576,10 @@ def launch_app(args):
 
 
 def restart_phone(args):
-    """`rios device reboot --device ID`: restart the phone through devicectl, wait until it is connected
-    again, and open RichConnect until iOS verifies it (phone_net.reboot). Exit 0 when the app opens.
-    With RICHOS_PHONE_CHECK_APP=none no app is opened: exit 0 when the phone is back and reaches the internet.
+    """`rios device reboot --device ID`: restart the phone through devicectl and wait until it is connected
+    again and reaches the internet (phone_net.reboot). It opens NO app, ever (CEO 2026-10-04: RichConnect
+    shows nothing after a reboot). Exit 0 when the phone is back and online. Opening an app that iOS will
+    not verify is `rios device launch`'s one procedure, not this verb's.
     Nothing is installed, removed or erased; the phone has no passcode, so it comes back usable."""
     sys.path.insert(0, str(ROOT / "richos/mobile"))
     import phone_net
