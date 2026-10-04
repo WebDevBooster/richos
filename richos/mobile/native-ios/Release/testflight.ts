@@ -807,6 +807,23 @@ export function createTestFlightClient(
     return text(resource(response.data, "builds").attributes.version, "selected build number");
   }
 
+  /// Selects an already processed (VALID) build on the version being prepared. Changes nothing else.
+  async function selectBuild(versionId: string, selection: BuildSelection) {
+    const response = record(await request(`/v1/builds?${buildQuery(selection)}`), "builds response");
+    const builds = items(response.data, "builds");
+    if (builds.length !== 1) {
+      throw new Error(`Expected one RichOS build ${selection.version} (${selection.build}); found ${builds.length}.`);
+    }
+    const build = resource(builds[0], "builds");
+    if (build.attributes.processingState !== "VALID") {
+      throw new Error(`Build ${selection.build} is ${String(build.attributes.processingState)}, not VALID; nothing was selected.`);
+    }
+    await request(`/v1/appStoreVersions/${encodeURIComponent(versionId)}/relationships/build`, "PATCH", {
+      data: { type: "builds", id: build.id },
+    });
+    return { buildId: build.id, selected: await selectedBuild(versionId) };
+  }
+
   /// Sends the version to App Review: one review submission holding this version, then submitted. Only
   /// `submit` (runRelease) calls it, after every refusal has had its chance. Writes are never retried.
   async function submitForReview(versionId: string) {
@@ -906,7 +923,7 @@ export function createTestFlightClient(
     return { version, locale, displayType, files, remote, problems: compareScreenshots(files, remote) };
   }
 
-  return { status, publish, verifyUpload, screenshots, readListing, setListingText, selectedBuild, submitForReview };
+  return { status, publish, verifyUpload, screenshots, readListing, setListingText, selectedBuild, selectBuild, submitForReview };
 }
 
 export function validateUploadMetadata(infoPlist: unknown, exportOptions: unknown, bundleId: string) {
@@ -1255,6 +1272,15 @@ export async function runRelease(args: ReleaseArgs, deps: ReleaseDeps = RELEASE_
     const result = await need(deps.client(config, privateKey).screenshots, "screenshots")(expandHome(args.dir), args.version);
     return { config, result };
   }
+  if (args.command === "select-build") {
+    // Selects the processed build on the record's version; sends nothing to review.
+    const listing = deps.readRecord(args.record);
+    const { config, privateKey } = await deps.readEnv(args.envFile);
+    const client = deps.client(config, privateKey);
+    const live = await need(client.readListing, "readListing")(listing.version, listing.locale);
+    const selection = validateBuildSelection({ build: args.build, version: listing.version });
+    return { config, result: { ...(await need(client.selectBuild, "selectBuild")(live.versionId, selection)), selection } };
+  }
   if (args.command === "check-listing" || args.command === "apply-listing" || args.command === "submit") {
     // The record is read first: a missing or malformed record refuses before credentials or network.
     const listing = deps.readRecord(args.record);
@@ -1325,7 +1351,7 @@ export function parseTestFlightArgs(args: string[]) {
   });
   if (values.help) return { command: "help" as const };
   const command = positionals[0];
-  const commands = ["status", "publish", "upload", "screenshots", "check-listing", "apply-listing", "submit"] as const;
+  const commands = ["status", "publish", "upload", "screenshots", "check-listing", "apply-listing", "submit", "select-build"] as const;
   if (positionals.length !== 1 || !commands.includes(command as never)) {
     throw new Error(`Choose ${commands.join(", ")}. Use --help for usage.`);
   }
@@ -1333,6 +1359,12 @@ export function parseTestFlightArgs(args: string[]) {
     values["env-file"] ??
     process.env.RICHOS_IOS_TESTFLIGHT_ENV_FILE ??
     NodePath.join(NodeOS.homedir(), ".config/richos/testflight.env");
+  if (command === "select-build") {
+    if (values.version || values.archive || values["export-options"] || values["notes-file"] || values.dir) {
+      throw new Error("select-build takes only --record, --build and --env-file.");
+    }
+    return { command, envFile, record: text(values.record, "--record"), build: text(values.build, "--build") };
+  }
   if (command === "check-listing" || command === "apply-listing" || command === "submit") {
     // The version, the text and the screenshots all come from the record; nothing else is accepted, and
     // there is no option that skips a check.
@@ -1400,6 +1432,7 @@ async function main() {
   node Release/testflight.ts upload --archive /path/to/RichOSNative.xcarchive --export-options Release/ExportOptions.plist
   node Release/testflight.ts check-listing --record /path/to/listing-state.json   (exit 1, every mismatch by field, unless the live listing is the record)
   node Release/testflight.ts apply-listing --record /path/to/listing-state.json   (sets the listing from the record, then check-listing; never submits)
+  node Release/testflight.ts select-build --record /path/to/listing-state.json --build 1   (selects that processed build on the record's version; never submits)
   node Release/testflight.ts submit --record /path/to/listing-state.json          (the only way to send a version to App Review)
 
 The listing record is the private record repository's docs/operations/*-listing-state.json: name,
@@ -1460,6 +1493,12 @@ Release/check_device_family.py passes the archive (iPhone-only device family, ic
         `Submitted ${check.listing.version} (${check.build.build}), commit ${check.commit}, to App Review: submission ${check.submission.submissionId} is ${check.submission.state}.\n`,
       );
     }
+    return;
+  }
+  if (args.command === "select-build") {
+    const done = outcome.result as { selection: BuildSelection; buildId: string; selected?: string };
+    if (done.selected !== done.selection.build) throw new Error(`Read-back shows build ${done.selected ?? "none"} selected, not ${done.selection.build}.`);
+    process.stdout.write(`Selected build ${done.selection.version} (${done.selected}), id ${done.buildId}; read back from App Store Connect.\n`);
     return;
   }
   if (args.command === "screenshots") {

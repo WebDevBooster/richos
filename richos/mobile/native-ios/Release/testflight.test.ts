@@ -986,6 +986,29 @@ describe("listing record, check-listing and submit (CEO 2026-10-04)", () => {
     }
   });
 
+  it("selectBuild patches only the version's build relationship, and only for a VALID build", async () => {
+    const writes: string[] = [];
+    let state = "VALID";
+    const client = createTestFlightClient(config, keys.privateKey, async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.pathname === "/v1/builds") {
+        return Response.json({ data: [{ type: "builds", id: "b-1", attributes: { version: "1", processingState: state } }] });
+      }
+      if (method === "GET" && url.pathname === "/v1/appStoreVersions/version-1/build") {
+        return Response.json({ data: { type: "builds", id: "b-1", attributes: { version: "1" } } });
+      }
+      writes.push(`${method} ${url.pathname} ${String(init?.body)}`);
+      return new Response(null, { status: 204 });
+    });
+    const selection = { build: "1", version: "1.0.0" };
+    NodeAssert.deepEqual(await client.selectBuild("version-1", selection), { buildId: "b-1", selected: "1" });
+    NodeAssert.deepEqual(writes, ['PATCH /v1/appStoreVersions/version-1/relationships/build {"data":{"type":"builds","id":"b-1"}}']);
+    state = "PROCESSING";
+    await NodeAssert.rejects(client.selectBuild("version-1", selection), /not VALID/u);
+    NodeAssert.equal(writes.length, 1);
+  });
+
   it("submitForReview creates one review submission holding the version, then submits it; selectedBuild reads no build as none", async () => {
     const writes: string[] = [];
     let buildData: unknown = null;
