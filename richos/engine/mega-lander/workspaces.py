@@ -1682,7 +1682,7 @@ def register_spawn(payload, entity, dry=False):
             raise SpecError("continues: %s is ambiguous; name its exact registered key" % c)
         continuation_keys.append(match[0]["key"])
         _require_clean(load_agent(match[0]["key"]), "continue it (its workspaces are deleted when the new "
-                       "agent starts, point 7)")
+                       "agent starts, point 7)", record=not dry)
 
     ident = identity_for(sid)
     if not ident:
@@ -2798,7 +2798,7 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
             it = _item(rec, why, cache, me)
             if auto and not _past(deadline):
                 try:
-                    _require_landed(rec, _chain(rec), "", deadline)
+                    _require_landed(rec, _chain(rec), "", deadline, record=False)
                     it["would_land"] = True
                 except Deadline:
                     _deferred(report, rec)
@@ -3371,21 +3371,26 @@ def _is_regenerable(rel, patterns):
     return False
 
 
-def _minus_regenerable(rec, w, ignored):
-    """`ignored` without what the repository declares regenerable (V2-02)."""
+def _minus_regenerable(rec, w, ignored, record=True):
+    """`ignored` without what the repository declares regenerable (V2-02).
+
+    `record=False` for a question (hunt part 4 v3, V3-06): a dry status or a
+    dry spawn check proves eligibility through this same helper, and its
+    `regenerable-not-preserved` event made every status query write cleanup
+    history although nothing was cleaned up."""
     if not ignored:
         return ignored
     pats = _regenerable_patterns(rec, w.get("repo") or "")
     if not pats:
         return ignored
     kept = [rel for rel in ignored if not _is_regenerable(rel, pats)]
-    if len(kept) != len(ignored):
+    if record and len(kept) != len(ignored):
         event("regenerable-not-preserved", key=rec.get("key"), path=w.get("path"),
               entries=[rel for rel in ignored if rel not in kept][:50])
     return kept
 
 
-def _require_clean(rec, doing, ignored_ok="", deadline=None):
+def _require_clean(rec, doing, ignored_ok="", deadline=None, record=True):
     """Refuses uncommitted work. Returns the paths it proved to be partial-
     cleanup residue whose every file is preserved (`_landed_residue`): the one
     kind of workspace directory that legitimately has no readable HEAD."""
@@ -3403,7 +3408,7 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
                     preserved.append(w["path"])
             dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
             ignored = _minus_generated(w, ignored, deadline)
-            ignored = _minus_regenerable(rec, w, ignored)
+            ignored = _minus_regenerable(rec, w, ignored, record)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
                     w["path"], len(dirty), "y" if len(dirty) == 1 else "ies", ", ".join(dirty[:5])))
@@ -4816,11 +4821,12 @@ def merge_and_land(ref, me="", message=""):
     return merged, land(rec["key"], me, keep_ignored=True)
 
 
-def _require_landed(rec, chain, ignored_ok="", deadline=None):
-    """Read current work after writers stop, including on a deletion retry."""
+def _require_landed(rec, chain, ignored_ok="", deadline=None, record=True):
+    """Read current work after writers stop, including on a deletion retry.
+    `record=False`: asked by a dry question, which writes nothing (V3-06)."""
     preserved = set()
     for r in chain:
-        preserved.update(_require_clean(r, "land %s" % r["name"], ignored_ok, deadline) or [])
+        preserved.update(_require_clean(r, "land %s" % r["name"], ignored_ok, deadline, record) or [])
     missing = _not_in_integration(rec, chain, preserved, deadline)
     if missing:
         raise SpecError(_not_landed_message(rec, missing))

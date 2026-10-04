@@ -3909,6 +3909,39 @@ class HuntV3_04_AReopenedLandingIsNotReportedLanded(Base):
         self.assertEqual(swept, [], "the scratch was swept after a landing that was withdrawn")
 
 
+class HuntV3_06_AStatusQueryWritesNoCleanupHistory(Base):
+    """Hunt part 4 v3, V3-06: the dry status proved eligibility through the
+    V2-02 regenerable-output helper, which appended a
+    `regenerable-not-preserved` event at every query although nothing was
+    cleaned up."""
+
+    def test_v3_06_status_appends_nothing_to_the_event_history(self):
+        import contextlib
+        import io
+        with open(os.path.join(self.other, ".gitignore"), "a") as f:
+            f.write("#regenerable: build/\n")
+        run("git", "-C", self.other, "commit", "-qam", "declare regenerable output")
+        name = "zach-opus-v3status"
+        path = self.make_cc(name)
+        aid, _n = self.spawn(name, path, native=False)
+        os.makedirs(os.path.join(path, "build"))
+        with open(os.path.join(path, "build", "output.bin"), "wb") as f:
+            f.write(b"generated fixture output")
+        self.finish(aid)
+        events = ws._p("events.jsonl")
+        before = open(events).read() if os.path.exists(events) else ""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ws._print_status(self.sid, self.entity)
+        after = open(events).read() if os.path.exists(events) else ""
+        self.assertIn("LANDABLE " + name, out.getvalue())
+        self.assertEqual(after[len(before):], "", "a status query wrote history")
+        self.assertTrue(os.path.isfile(os.path.join(path, "build", "output.bin")))
+        # The real land still records what it did not preserve.
+        ws.land(name, self.sid)
+        self.assertIn('"regenerable-not-preserved"', open(events).read())
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a
