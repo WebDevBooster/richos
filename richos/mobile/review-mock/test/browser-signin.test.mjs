@@ -10,30 +10,15 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { locateWrangler, startLocalReview } from '../dev/local.mjs';
+import { locatePlaywright } from '../dev/playwright.mjs';
 import { hashPassword } from '../src/session.mjs';
 import { b64url } from '../src/codec.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const ACCESS = 'review.example.com';
 const HOST = 'review-a.example.com';
-
-/** The Playwright package: RICHOS_PLAYWRIGHT_DIR, this checkout's UI harness, or the main checkout's. */
-function locatePlaywright(env = process.env) {
-	const candidates = [];
-	if (env.RICHOS_PLAYWRIGHT_DIR) candidates.push(env.RICHOS_PLAYWRIGHT_DIR);
-	const repo = resolve(here, '..', '..', '..');
-	candidates.push(join(repo, 'app', 'ui', 'tests', 'node_modules', 'playwright'));
-	try {
-		const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: here, encoding: 'utf8' }).trim();
-		candidates.push(join(dirname(common), 'richos', 'app', 'ui', 'tests', 'node_modules', 'playwright'));
-	} catch { /* not in a checkout */ }
-	return candidates.find((c) => existsSync(join(c, 'package.json'))) || null;
-}
 
 async function until(read, ms = 15_000) {
 	for (const end = Date.now() + ms; Date.now() < end;) {

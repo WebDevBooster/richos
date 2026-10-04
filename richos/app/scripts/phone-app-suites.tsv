@@ -41,3 +41,4 @@ mobile-blank.test.sh	ios,android	the phone apps' no-blank-screen checks (richos/
 review-mock.test.sh	ios,android	the hosted mock backend App Store and Google Play reviewers pair the phone apps' store builds with
 native-ios-lab-phone.test.sh	ios	the iPhone lab helper (lab-phone), a Swift package built against the native iPhone app core; nothing it builds ships in the Mac app
 native-android-build-timing.test.sh	android	the Android release build timing tool (richos/mobile/native-android/bin/build-timing.py), run against a stand-in randroid; covers only that file
+review-walk.test.sh	ios	the native iPhone app review walk: its XCTest, Node harness and rios review-walk command; nothing it covers ships in the Mac app

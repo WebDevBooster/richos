@@ -26,6 +26,10 @@
 //      (speedGate, runRelease below). Upload gates the commit the archive itself carries (stamped
 //      into the archived app's Info.plist by Release/platform.yml) and records it; publish gates
 //      that commit.
+//   6. The review-walk gate (CEO 2026-10-04, §107: the CEO is never the first tester): upload also
+//      refuses unless the automated walk of exactly what Apple's reviewer does passed on the archive's
+//      stamped commit (walkGate below; richos/mobile/perf/reviewwalk.py, written by `rios review-walk`).
+//      A build that never reaches App Store Connect can never be selected for review there.
 // Nothing else is changed: no retries of writes, refusal of a second upload of an existing build,
 // app and group ownership checks before any write, the key written to a private temporary file
 // only for Xcode and removed after.
@@ -618,6 +622,7 @@ async function uploadArchive(
 // and warm, for that exact app code on the iPhone test phone. It fails closed and nothing skips it.
 const RELEASE_DIR = import.meta.dirname;
 const SPEED_GATE = NodePath.resolve(RELEASE_DIR, "../../perf/shipgate.py");
+const WALK_GATE = NodePath.resolve(RELEASE_DIR, "../../perf/reviewwalk.py");
 // Which commit each upload was made from, so publish gates the same code. Outside every checkout.
 export const UPLOAD_RECEIPTS = "/Volumes/E1TB/state/richos/ship-gate/testflight-uploads.json";
 // The source stamp the archive carries (the keys shipgate.py's `stamp` writes).
@@ -651,6 +656,54 @@ export function speedGate(where: string[], spawn: Spawn = NodeChildProcess.spawn
     throw new Error("REFUSED by the speed gate (CEO §106): iPhone: the gate gave no passing commit.");
   }
   return commit;
+}
+
+/// RichOS addition (CEO 2026-10-04, §107: the CEO is never the first tester). Passes only when the
+/// automated walk of exactly what Apple's reviewer does (`rios review-walk --commit SHA`) passed on that
+/// exact commit, as its record says (richos/mobile/perf/reviewwalk.py). Fails closed; nothing skips it.
+export function walkGate(commit: string, spawn: Spawn = NodeChildProcess.spawnSync) {
+  const run = spawn("python3", [WALK_GATE, "check", "--platform", "ios", "--commit", commit], {
+    encoding: "utf8",
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const refusal = String(run.stderr ?? "").trim().split("\n").pop();
+  if (run.status !== 0) {
+    throw new Error(
+      refusal ||
+        `REFUSED by the review-walk gate (CEO §107): iPhone build of ${commit.slice(0, 12)}: the gate did not run (${run.error?.message ?? `exit ${run.status}`}).`,
+    );
+  }
+  let passed: unknown;
+  try {
+    const result = JSON.parse(String(run.stdout));
+    passed = result.ok === true ? result.commit : undefined;
+  } catch {
+    passed = undefined;
+  }
+  if (passed !== commit) {
+    throw new Error(
+      `REFUSED by the review-walk gate (CEO §107): iPhone build of ${commit.slice(0, 12)}: the gate gave no pass for this commit.`,
+    );
+  }
+}
+
+/// RichOS addition: refuses an archive App Store Connect would reject for its device family, icons or
+/// orientations (Release/check_device_family.py; build 1 was rejected on 2026-10-04 with 90023/90474).
+/// Runs on the archive itself, before anything contacts Apple. Fails closed.
+export function deviceFamilyCheck(archive: string, spawn: Spawn = NodeChildProcess.spawnSync) {
+  const path = NodePath.resolve(expandHome(archive));
+  const run = spawn("python3", [NodePath.join(RELEASE_DIR, "check_device_family.py"), path], {
+    encoding: "utf8",
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (run.status !== 0) {
+    const lines = `${run.stdout ?? ""}\n${run.stderr ?? ""}`.split("\n").filter((line) => /FAIL|Error|error/u.test(line));
+    throw new Error(
+      `REFUSED by the device-family check: iPhone archive ${archive} would be rejected by App Store Connect: ${lines.slice(0, 5).join("; ") || run.error?.message || `exit ${run.status}`}.`,
+    );
+  }
 }
 
 function receiptKey(selection: BuildSelection) {
@@ -691,6 +744,8 @@ type ReleaseArgs = Exclude<ReturnType<typeof parseTestFlightArgs>, { command: "h
 
 export type ReleaseDeps = {
   gate: (where: string[]) => string;
+  walk: (commit: string) => void;
+  deviceFamily: (archive: string) => void;
   receipts: string;
   checkout: string;
   readArchive: (archive: string) => Promise<unknown>;
@@ -705,6 +760,8 @@ export type ReleaseDeps = {
 
 const RELEASE_DEPS: ReleaseDeps = {
   gate: (where) => speedGate(where),
+  walk: (commit) => walkGate(commit),
+  deviceFamily: (archive) => deviceFamilyCheck(archive),
   receipts: UPLOAD_RECEIPTS,
   checkout: RELEASE_DIR,
   readArchive: readArchivedInfo,
@@ -739,7 +796,8 @@ export function archiveSourceCommit(info: unknown, archive: string) {
   return commit;
 }
 
-/// One release command. Upload and publish ask the speed gate before credentials, network or Xcode.
+/// One release command. Upload and publish ask the speed gate before credentials, network or Xcode;
+/// upload also asks the review-walk gate.
 export async function runRelease(args: ReleaseArgs, deps: ReleaseDeps = RELEASE_DEPS) {
   if (args.command === "upload") {
     // The commit the archive carries, never this checkout's HEAD: the archive may be older or newer.
@@ -748,6 +806,10 @@ export async function runRelease(args: ReleaseArgs, deps: ReleaseDeps = RELEASE_
     if (commit !== stamped) {
       throw new Error(`REFUSED by the speed gate (CEO §106): iPhone: the gate passed ${commit}, not the archive's ${stamped}.`);
     }
+    // The reviewer walk on that same commit (§107), before credentials, network or Xcode.
+    deps.walk(stamped);
+    // What App Store Connect would reject on processing: device family, icons, orientations.
+    deps.deviceFamily(args.archive);
     const { config, privateKey } = await deps.readEnv(args.envFile);
     const client = deps.client(config, privateKey);
     await deps.upload(args.archive, args.exportOptions, config, privateKey, client.verifyUpload, (selection) =>
@@ -866,7 +928,9 @@ Upload and publish are REFUSED without the phone speed watch's §104 PASS, cold 
 exact app code (richos/mobile/perf/shipgate.py, CEO §106). Upload gates the commit the archive
 carries (RichOSSourceCommit in the archived app's Info.plist, stamped when it is archived; an archive
 without it, or built with uncommitted app code, is refused) and records it; publish gates the commit
-its upload recorded.
+its upload recorded. Upload is also REFUSED unless the automated walk of exactly what Apple's
+reviewer does passed on the archive's commit (rios review-walk --commit SHA; CEO §107), and unless
+Release/check_device_family.py passes the archive (iPhone-only device family, icons, orientations).
 `);
     return;
   }

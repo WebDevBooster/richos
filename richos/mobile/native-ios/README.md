@@ -50,6 +50,18 @@ the empty conversation).
 `voice-interrupted`, `voice-mic-denied`, `revoked`) carry their own checks and run identically headless and in the
 simulator (`sim verify` requires byte-identical results).
 
+## The App Review walk (CEO §107)
+
+`bin/rios review-walk --commit <sha>` does what the review notes tell Apple's reviewer to do, on the
+Release app built from exactly that commit in a leased simulator, against the live review service
+(`../review-mock/README.md`): sign in on the access page in headless Chromium, get a pairing link,
+paste it into the app, compare the six words, press They match in the app and on the page, send a
+message and see its "Demo reply", then reset the review host. It writes
+`/Volumes/E1TB/state/richos/review-walk/ios/<sha>.json` (`../perf/reviewwalk.py`), pass or fail, and
+`Release/testflight.ts upload` refuses an archive whose stamped commit has no passing record. The app's
+half is `UITests/ReviewWalkTests.swift`, which skips unless the walk runs it; the driver is
+`Tools/review-walk.mjs`. A phone already on the review host is never removed: the walk refuses.
+
 ## Physical iPhone checks
 
 `bin/rios device build` builds the `RichOSPhysical` Release scheme with development
