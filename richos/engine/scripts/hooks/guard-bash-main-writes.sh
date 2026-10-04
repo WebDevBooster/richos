@@ -266,10 +266,106 @@ def write_targets(verb, toks):
         return dest
     return plain[-1:]  # the last operand is the destination
 
-for vm in VERB_CLAUSE.finditer(cmd):
-    hit = check_targets(write_targets(vm.group(1), re.findall(r'\S+', vm.group('args'))))
+# The verb must be the COMMAND WORD of a statement, after VAR=value words,
+# wrappers (sudo, env, xargs ...) and keywords (do, then ...), or the
+# subcommand of git (git rm, git mv). A verb that is only an ARGUMENT
+# (printf '%s' touch FILE) or sits in a COMMENT (true # touch FILE) writes
+# nothing (hunt part 3, finding 39). Text the shell cannot split (an unclosed
+# quote) falls back to the verb anywhere, as before.
+import shlex
+Q1, Q2, BS, BT = chr(39), chr(34), chr(92), chr(96)
+WRAPPERS = {'sudo': ('-u', '-g', '-C', '-D', '-h', '-p', '-R', '-T', '-U'),
+            'env': ('-u', '-C', '-S', '--unset', '--chdir'),
+            'xargs': ('-n', '-I', '-L', '-P', '-s', '-d', '-E', '-a'),
+            'nice': ('-n',), 'command': (), 'exec': (), 'nohup': (), 'time': (), 'builtin': ()}
+KEYWORDS = ('!', '{', '}', 'then', 'do', 'else', 'elif', 'if', 'while', 'until')
+ASSIGN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+
+def strip_comments(text):
+    # A # that begins a word, outside quotes, starts a comment to end of line.
+    out, q, i = [], '', 0
+    while i < len(text):
+        c = text[i]
+        if q:
+            if c == q:
+                q = ''
+            elif c == BS and q == Q2 and i + 1 < len(text):
+                out.append(c); i += 1; c = text[i]
+        elif c == BS and i + 1 < len(text):
+            out.append(c); i += 1; c = text[i]
+        elif c in (Q1, Q2):
+            q = c
+        elif c == '#' and (i == 0 or text[i - 1] in ' \t\n;&|()'):
+            j = text.find('\n', i)
+            if j < 0:
+                break
+            i = j
+            continue
+        out.append(c); i += 1
+    return ''.join(out)
+
+def statements(text):
+    lex = shlex.shlex(strip_comments(text).replace('\n', ' ; '), posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    lex.commenters = ''
+    stmt, skip = [], False
+    for tok in lex:
+        if tok and all(c in '();&|<>' for c in tok):
+            if '<' in tok or '>' in tok:
+                skip = True   # a redirection: its target is checked in 2), not an operand
+                continue
+            if stmt:
+                yield stmt
+            stmt = []
+            continue
+        if skip:
+            skip = False
+            continue
+        stmt.append(tok)
+    if stmt:
+        yield stmt
+
+def verb_and_args(stmt):
+    k = 0
+    while k < len(stmt):
+        t = stmt[k].lstrip(BT)
+        if t in KEYWORDS or ASSIGN.match(t):
+            k += 1
+            continue
+        base = os.path.basename(t)
+        if base in WRAPPERS:
+            valued = WRAPPERS[base]
+            k += 1
+            while k < len(stmt) and (stmt[k].startswith('-') or ASSIGN.match(stmt[k]) or stmt[k - 1] in valued):
+                k += 1
+            continue
+        break
+    if k >= len(stmt):
+        return None, []
+    word = os.path.basename(stmt[k].lstrip(BT))
+    rest = stmt[k + 1:]
+    if word == 'git':
+        i = 0
+        while i < len(rest) and rest[i].startswith('-'):
+            i += 2 if rest[i] in ('-C', '-c', '--git-dir', '--work-tree') else 1
+        if i < len(rest) and rest[i] in ('rm', 'mv'):
+            return rest[i], rest[i + 1:]
+        return None, []
+    return word, rest
+
+try:
+    clauses = []
+    for st in statements(cmd):
+        verb, args = verb_and_args(st)
+        if verb in ('mkdir', 'cp', 'mv', 'rm', 'tee', 'touch', 'rsync'):
+            clauses.append((verb, args))
+except ValueError:
+    clauses = [(vm.group(1), re.findall(r'\S+', vm.group('args'))) for vm in VERB_CLAUSE.finditer(cmd)]
+for verb, args in clauses:
+    hit = check_targets(write_targets(verb, args))
     if hit:
         print('BLOCK ' + hit); raise SystemExit
+
 
 # 2) real write-redirection (> / >>) — only the redirect's OWN target token is
 #    checked. fd-duplication (2>&1, >&2, N>&M) creates no file, so it is never
