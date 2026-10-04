@@ -14062,7 +14062,7 @@
     },
     "mega-lander/tests/workspace-pause-hold.test.sh": {
       "source": "mega-lander/tests/workspace-pause-hold.test.sh",
-      "sha256": "df2ac10e2875c8ceed03e8240fbbafaae3f72cccd04aa23ccce4ef03b5ee41b9",
+      "sha256": "59cbcf4d73dcddeb3a161742aa6b4242c5729cdc41cf079b95baa7a7f550eb23",
       "evidence": "Fixed private Git/process fixture with copied real config. Retain actual isolation/model and lifecycle cleanup keys. Generated shell-evidence prefix invokes bound agent_hold; all body/worker/supervisor/WAIT programs are source-bound. No hook inventory execution.",
       "keys": [],
       "edges": [
