@@ -6915,6 +6915,26 @@ body.home-open {
 
 /* Weekly reset approval is separate from the five-hour pause policy. */
 .quota-reset-offers { border-top: 1px solid var(--line-soft); margin-top: 24px; padding-top: 20px; }
+/* Fill-first: several Claude accounts. Text uses the panel's existing ink tokens only. */
+.quota-accounts { margin: 14px 0 0; }
+.quota-heading-actions { display: flex; gap: 10px; align-items: flex-start; }
+.quota-accounts-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.quota-accounts h3 { margin: 0; }
+.quota-accounts .quota-message, .quota-account-rows, .quota-account-add { margin-top: 8px; }
+#quota-account-feedback:empty { display: none; }
+.quota-account-rows { padding: 0; margin: 0 0 10px; list-style: none; }
+.quota-account-row { display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--line-soft); padding: 8px 0; font-size: 1rem; }
+.quota-account-text { min-width: 0; flex: 1; }
+.quota-account-text > * { display: block; }
+.quota-account-in-use { margin-left: 0; }
+.quota-account-add { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.quota-account-label { display: flex; flex-direction: column; gap: 4px; font-size: 1rem; color: var(--ink); }
+.quota-account-label input { padding: 4px 8px; border: 1px solid var(--line-control); border-radius: 6px; font: inherit; color: var(--ink); background: var(--card); }
+.quota-at-threshold { border: 0; padding: 0; margin: 14px 0 0; font-size: 1rem; color: var(--ink); }
+.quota-at-threshold legend { padding: 0; margin-bottom: 6px; font-weight: 600; }
+.quota-at-threshold label { display: block; padding: 3px 0; }
+/* The radios are non-text indicators: the panel's gold (3:1 probed by quota.js) and its ink. */
+.quota-at-threshold input { accent-color: var(--gold); color: var(--ink); font: inherit; margin-right: 6px; }
 .quota-reset-offers h3 { font-size: 1.125rem; margin: 0 0 8px; }
 .quota-reset-offers h4 { font-size: 1rem; margin: 0 0 8px; }
 .quota-reset-offers p { font-size: 1rem; line-height: 1.5; margin: 8px 0; overflow-wrap: anywhere; }

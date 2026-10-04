@@ -19,7 +19,7 @@ pub(super) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> io::Resu
     serde_json::from_slice(&bytes).map_err(io::Error::other)
 }
 
-fn admission(state: &Path, now: u64) -> Admission {
+pub(super) fn admission(state: &Path, now: u64) -> Admission {
     let Ok(view) = read_json::<View>(&state.join("claude-quota.json")) else {
         return Admission::Unknown;
     };
@@ -29,6 +29,12 @@ fn admission(state: &Path, now: u64) -> Admission {
         .parent()
         .and_then(|p| read_json::<Policy>(&p.join("claude-quota-policy.json")).ok())
         .unwrap_or(view.policy);
+    // **Every account exhausted** (fill-first, Frank's finding 2): held until the soonest
+    // reset among them, whatever the pause switch says, because there is no account left for
+    // the work to run on. Never set with one account.
+    if let Some(until) = view.held_until.filter(|t| *t > now) {
+        return Admission::Held { resets_at: until };
+    }
     if !policy.enabled {
         return Admission::Disabled;
     }
@@ -40,6 +46,8 @@ fn admission(state: &Path, now: u64) -> Admission {
         checked_at: view.checked_at,
         retry_at: view.retry_at,
         error: view.message.map(|_| ReadError::Failed),
+        speeds: view.speeds,
+        ..Default::default()
     }
     .view(policy, now)
     .admission
@@ -65,6 +73,15 @@ fn wait(
         .is_some_and(|id| !id.is_empty());
     if !worker && payload["tool_name"] != "Agent" {
         return Ok(());
+    }
+    // **An agent dispatch is a rise to expect** (fill-first, plan §15 answer 10): one line per
+    // dispatch, counted by the quota service, which switches to the fast interval when several
+    // arrive within a minute. Best effort: a failed note never holds or refuses the tool.
+    if payload["tool_name"] == "Agent" {
+        use std::io::Write as _;
+        if let Ok(mut log) = fs::OpenOptions::new().create(true).append(true).open(state.join(super::DISPATCH_LOG)) {
+            drop(writeln!(log, "{}", crate::util::now_millis()));
+        }
     }
     let started = Instant::now();
     let mut observation: Option<super::holds::Guard> = None;

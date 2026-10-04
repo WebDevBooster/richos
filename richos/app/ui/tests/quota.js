@@ -237,13 +237,35 @@ async function main() {
       ["stale", {...quota, state: "stale", checkedAt: now - 3600000}],
       ["refresh-failed", {...quota, state: "stale", retryAt: now + 600000, message: "Could not refresh Claude Code quota."}],
       ["unavailable", {state: "unavailable", windows: [], checkedAt: null, message: "No current Claude Code reading."}],
+      // Fill-first (plan richos-hq 2026-10-04 §15): two accounts, Switch chosen, fast use
+      // with both check points recalculated (answer 10), one account not read yet.
+      ["two-accounts", {...quota, refreshIntervalMs: 60000, actAt: {five_hour: 92, seven_day: 96}, atThreshold: "switch", accounts: [
+        {id: "1", label: "Account 1", inUse: false, windows: quota.windows.slice(0, 2), checkedAt: now, exhaustedUntil: null, message: null},
+        {id: "2", label: "Work", inUse: true, windows: [{...quota.windows[0], usedPercent: 12}, {...quota.windows[1], usedPercent: 40}], checkedAt: now, exhaustedUntil: null, message: null},
+        {id: "3", label: "Spare", inUse: false, windows: [], checkedAt: null, exhaustedUntil: null, message: null}]}],
     ];
     for (const [name, fixture] of variants) {
       await page.evaluate(f => { window.__RICHOS_MOCK_PRESET__.quota = f; }, fixture);
       await page.click("#quota-close"); await page.click("#set-btn"); await page.click("#set-quota-open");
       await page.waitForTimeout(150);
       if (name === "unavailable") assert((await page.locator("#quota-hold-status").innerText()).includes("Waiting for a current reading"));
-      assert(await page.evaluate(() => { const p = document.querySelector(".quota-body"); return p.scrollHeight <= p.clientHeight + 1 && p.scrollWidth <= p.clientWidth; }), name + " fits");
+      if (name === "two-accounts") {
+        assertEqual(await page.locator(".quota-account-row strong").allTextContents(), ["Account 1", "Work", "Spare"]);
+        assertEqual(await page.locator(".quota-account-row.is-in-use strong").allTextContents(), ["Work"], "In use marks the account in use");
+        assert(await page.locator('input[name="quota-at-threshold"][value="switch"]').isChecked(), "the saved setting is shown");
+        assert((await page.locator("#quota-checkpoints").innerText()).includes("acts at 92% of the five-hour window and 96% of the weekly window"));
+        assertEqual(await page.locator(".quota-account-row").nth(0).locator("button").allTextContents(), [], "Account 1 has no Remove");
+        assertEqual(await page.locator(".quota-account-row").nth(2).locator("button").allTextContents(), ["Sign in", "Remove"]);
+      }
+      // Several accounts add a row each, so that state may scroll vertically (never sideways),
+      // and every one of its controls must then be reachable by scrolling. Every single-account
+      // state, which is today's panel, still fits without scrolling.
+      if (name === "two-accounts") {
+        assert(await page.evaluate(() => { const p = document.querySelector(".quota-body"); return p.scrollWidth <= p.clientWidth; }), name + " never scrolls sideways");
+        for (const control of await page.locator(".quota-account-row button, input[name=quota-at-threshold], #quota-account-start").all()) {
+          await control.scrollIntoViewIfNeeded(); assert(await control.isVisible(), name + " control reachable");
+        }
+      } else assert(await page.evaluate(() => { const p = document.querySelector(".quota-body"); return p.scrollHeight <= p.clientHeight + 1 && p.scrollWidth <= p.clientWidth; }), name + " fits");
       const failures = await page.evaluate(() => {
         const C = window.__contrastMath, failures = [];
         const root = document.querySelector(".quota-panel");

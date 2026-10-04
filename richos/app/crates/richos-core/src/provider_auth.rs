@@ -29,9 +29,16 @@ impl AuthView {
 /// Read only the boolean needed for readiness. Never retain provider output,
 /// account identifiers, subscription details or diagnostic stderr.
 pub fn status(bin: &Path) -> AuthView {
+    status_in(bin, None)
+}
+
+/// [`status`] for one Claude Code configuration folder (fill-first: an added account). `None`
+/// is Account 1, the folder the app's own environment names.
+pub fn status_in(bin: &Path, folder: Option<&Path>) -> AuthView {
     let mut command = Command::new(bin);
     command.args(["auth", "status", "--json"]).env_remove("CLAUDECODE")
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    if let Some(folder) = folder { command.env("CLAUDE_CONFIG_DIR", folder); }
     OwnedChild::configure(&mut command);
     let Ok(mut raw) = command.spawn() else { return AuthView::new(AuthState::Unavailable); };
     let mut stdout = raw.stdout.take().unwrap();
@@ -56,17 +63,43 @@ pub fn status(bin: &Path) -> AuthView {
     AuthView::new(match answer { Some(true) if exit.is_some_and(|s| s.success()) => AuthState::Connected, Some(false) => AuthState::SignedOut, _ => AuthState::Failed })
 }
 
+/// **Sign an added account's folder out** (fill-first's Remove): the stock
+/// `claude auth logout` under that folder, bounded like [`status_in`]. RichOS never touches the
+/// credential itself; the binary removes its own. Best effort: the folder is deleted next.
+pub fn logout_in(bin: &Path, folder: &Path) {
+    let mut command = Command::new(bin);
+    command.args(["auth", "logout"]).env_remove("CLAUDECODE").env("CLAUDE_CONFIG_DIR", folder)
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    OwnedChild::configure(&mut command);
+    let Ok(raw) = command.spawn() else { return };
+    let mut child = OwnedChild::new(raw);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            _ => { drop(child.kill()); drop(child.wait()); return; }
+        }
+    }
+}
+
 pub struct ProviderAuth {
     login: Option<(OwnedChild, Instant)>,
     view: AuthView,
+    /// `None`: Account 1 (unchanged). `Some`: an added account's folder (fill-first).
+    folder: Option<std::path::PathBuf>,
 }
 impl Default for ProviderAuth {
-    fn default() -> Self { Self { login: None, view: AuthView::new(AuthState::SignedOut) } }
+    fn default() -> Self { Self { login: None, view: AuthView::new(AuthState::SignedOut), folder: None } }
 }
 impl ProviderAuth {
+    /// The same sign-in, for an added account's own Claude Code folder.
+    pub fn for_folder(folder: std::path::PathBuf) -> Self {
+        Self { folder: Some(folder), ..Self::default() }
+    }
     pub fn refresh(&mut self, bin: &Path) -> AuthView {
         if self.login.is_some() { return self.poll(bin); }
-        self.view = status(bin);
+        self.view = status_in(bin, self.folder.as_deref());
         self.view.clone()
     }
     pub fn start(&mut self, bin: &Path, console: bool) -> AuthView {
@@ -74,6 +107,7 @@ impl ProviderAuth {
         let mut command = Command::new(bin);
         command.args(["auth", "login", if console { "--console" } else { "--claudeai" }])
             .env_remove("CLAUDECODE").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        if let Some(folder) = &self.folder { command.env("CLAUDE_CONFIG_DIR", folder); }
         OwnedChild::configure(&mut command);
         match command.spawn() {
             Ok(child) => {
@@ -92,7 +126,7 @@ impl ProviderAuth {
         };
         if finished {
             self.login = None; // Retire owned login processes before checking credentials.
-            self.view = status(bin);
+            self.view = status_in(bin, self.folder.as_deref());
             if self.view.state == AuthState::SignedOut { self.view = AuthView::new(AuthState::Failed); }
         }
         self.view.clone()

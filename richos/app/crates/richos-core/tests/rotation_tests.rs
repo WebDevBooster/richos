@@ -1087,3 +1087,191 @@ fn phone_answer_provenance_survives_a_lease_crash_without_changing_product_reten
         }
     }
 }
+
+// ============================================================================
+// Fill-first: several Claude accounts (plan richos-hq 2026-10-04 §15, ruling §108)
+// ============================================================================
+
+/// A lease that says which account it runs under and what usage its child streamed, the two
+/// things `NativeCognition` reports on the real wire. `fail_with` makes its turn end the way a
+/// usage-limit refusal does (`native.rs`, `usage_limit_signal`).
+struct AccountLease {
+    session_id: String,
+    account: String,
+    streamed: Arc<Mutex<Option<richos_core::quota::StreamedReading>>>,
+    fail_with: Option<String>,
+    prompts: Arc<Mutex<Vec<(String, String)>>>,
+}
+impl Cognition for AccountLease {
+    fn session_id(&self) -> &str { &self.session_id }
+    fn account(&self) -> Option<&str> { Some(&self.account) }
+    fn streamed_usage(&self) -> Option<richos_core::quota::StreamedReading> { self.streamed.lock().unwrap().clone() }
+    fn reprime(&mut self, _: &str, _: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> { Ok(()) }
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        self.prompts.lock().unwrap().push((self.account.clone(), text.to_string()));
+        if let Some(error) = &self.fail_with {
+            on_item(TurnItem::Text { seq: 0, text: "Partial answer before the limit" });
+            return Err(CognitionError::Protocol(error.clone()));
+        }
+        on_item(TurnItem::Text { seq: 0, text: &format!("answered on account {}", self.account) });
+        Ok("end_turn".into())
+    }
+}
+
+/// The lease factory the desktop shell is, reduced to the fill-first part: every lease is
+/// spawned under the account the quota service says is in use (`main.rs`, `spawn_chat`).
+struct AccountFactory {
+    quota: Arc<richos_core::quota::Service>,
+    spawned: Arc<Mutex<Vec<String>>>,
+    streamed: Arc<Mutex<Option<richos_core::quota::StreamedReading>>>,
+    prompts: Arc<Mutex<Vec<(String, String)>>>,
+}
+impl LeaseFactory for AccountFactory {
+    fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
+        let account = self.quota.lease_account().id;
+        let mut spawned = self.spawned.lock().unwrap();
+        spawned.push(account.clone());
+        Ok(Box::new(AccountLease {
+            session_id: format!("sess-account-{account}-{}", spawned.len()),
+            account,
+            streamed: self.streamed.clone(),
+            fail_with: None,
+            prompts: self.prompts.clone(),
+        }))
+    }
+    fn quota(&self) -> Option<Arc<richos_core::quota::Service>> { Some(self.quota.clone()) }
+}
+
+/// A quota service with Account 1 and "Work", both read once by a fake `claude` (the
+/// `quota/probe.rs` style): Account 1's five-hour window at `one_five`%, Work's at 5%.
+fn two_accounts(tag: &str, one_five: f64) -> (std::path::PathBuf, Arc<richos_core::quota::Service>) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("richos-fill-first-{tag}-{}-{}", std::process::id(), richos_core::util::now_millis()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let quota = Arc::new(richos_core::quota::Service::open(&dir).unwrap());
+    quota.accounts.add("Work").unwrap();
+    let bin = dir.join("claude-fixture");
+    std::fs::write(&bin, format!(r#"#!/usr/bin/env python3
+import json, os, sys
+folder = os.environ.get("CLAUDE_CONFIG_DIR", "")
+five = 5 if "claude-accounts" in folder else {one_five}
+for line in sys.stdin:
+    v = json.loads(line)
+    payload = {{}} if v["request"]["subtype"] == "initialize" else {{"rate_limits_available": True, "rate_limits": {{
+        "five_hour": {{"utilization": five, "resets_at": "2099-01-01T00:00:00Z"}},
+        "seven_day": {{"utilization": 40, "resets_at": "2099-01-05T00:00:00Z"}}}}}}
+    print(json.dumps({{"type": "control_response", "response": {{"subtype": "success", "request_id": v["request_id"], "response": payload}}}}), flush=True)
+"#)).unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o700)).unwrap();
+    quota.refresh(&bin, true);
+    (dir, quota)
+}
+
+/// 2099-01-01T00:00:00Z, the fake's five-hour reset, in ms — so a streamed reading is the same
+/// window as the probe's.
+const FIVE_HOUR_RESET: u64 = 4_070_908_800_000;
+fn streamed_five_hour(used: f64, at: u64) -> richos_core::quota::StreamedReading {
+    (vec![richos_core::quota::Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: used,
+        resets_at: Some(FIVE_HOUR_RESET), duration_ms: 5 * 3_600_000 }], at)
+}
+
+/// **A turn that starts at 93% runs under the next account** (the CEO's correction and
+/// ruling §108; setting on Switch). The probe read Account 1 at 60%; then the lease's OWN
+/// streamed reading says 93%, newer than the probe. Before the next turn the spine decides on
+/// that freshest reading, rotates at the boundary, and the turn is answered under Work. One
+/// line in the conversation says so.
+#[test]
+fn a_turn_that_starts_at_93_percent_runs_under_the_next_account() {
+    let (dir, quota) = two_accounts("boundary", 60.);
+    quota.set_at_threshold(richos_core::claude_accounts::AtThreshold::Switch).unwrap();
+    assert_eq!(quota.lease_account().id, "1", "60% has room: Account 1 stays");
+    let (path, ledger) = tmp_ledger("fill-first-boundary");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
+    let streamed = Arc::new(Mutex::new(Some(streamed_five_hour(93., richos_core::util::now_millis() + 1_000))));
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let spawned = Arc::new(Mutex::new(Vec::new()));
+    spine.attach_lease(Box::new(AccountLease { session_id: "sess-account-1".into(), account: "1".into(),
+        streamed: streamed.clone(), fail_with: None, prompts: prompts.clone() }));
+    spine.set_lease_factory(Box::new(AccountFactory { quota: quota.clone(), spawned: spawned.clone(),
+        streamed: Arc::new(Mutex::new(None)), prompts: prompts.clone() }));
+
+    spine.submit_prompt("What is on my plate?", Source::Text).unwrap();
+
+    assert_eq!(*spawned.lock().unwrap(), vec!["2".to_string()], "the successor was spawned under Work");
+    assert_eq!(spine.last_rotation_reason(), Some(richos_core::spine::ACCOUNT_SWITCH));
+    let his: Vec<_> = prompts.lock().unwrap().iter().filter(|(_, text)| text == "What is on my plate?").cloned().collect();
+    assert_eq!(his, vec![("2".to_string(), "What is on my plate?".to_string())], "his turn ran ONLY under Work");
+    let msgs = spine.messages(&thread).unwrap();
+    assert!(msgs.iter().any(|m| m.text == "Switched to Work: Account 1 is at 93% of its five-hour limit."), "{msgs:?}");
+    assert!(msgs.iter().any(|m| m.text == "answered on account 2"));
+    drop(std::fs::remove_file(&path));
+    drop(std::fs::remove_dir_all(dir));
+}
+
+/// **The backstop, only for one turn that by itself used up what remained.** The lease on
+/// Account 1 is refused mid-turn with the error `native.rs` writes for any of the three real
+/// signals. The account is marked gone, Work is put in use, and his prompt is re-served on a
+/// fresh lease under Work: one clean exchange, the failed turn superseded and kept on disk.
+#[test]
+fn a_turn_cut_by_a_usage_limit_is_re_served_under_the_next_account() {
+    let (dir, quota) = two_accounts("backstop", 40.);
+    let (path, ledger) = tmp_ledger("fill-first-backstop");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let spawned = Arc::new(Mutex::new(Vec::new()));
+    let refusal = richos_core::claude_accounts::usage_limit_error(Some(4_070_908_800_000), "[\"You've hit your session limit\"]");
+    spine.attach_lease(Box::new(AccountLease { session_id: "sess-account-1".into(), account: "1".into(),
+        streamed: Arc::new(Mutex::new(None)), fail_with: Some(refusal), prompts: prompts.clone() }));
+    spine.set_lease_factory(Box::new(AccountFactory { quota: quota.clone(), spawned: spawned.clone(),
+        streamed: Arc::new(Mutex::new(None)), prompts: prompts.clone() }));
+
+    spine.submit_prompt("Draft the board update", Source::Text).unwrap();
+
+    assert_eq!(quota.lease_account().id, "2");
+    assert_eq!(*spawned.lock().unwrap(), vec!["2".to_string()]);
+    assert_eq!(spine.last_rotation_reason(), Some(richos_core::spine::ACCOUNT_EXHAUSTED));
+    let msgs = spine.messages(&thread).unwrap();
+    let exchange: Vec<_> = msgs.iter().filter(|m| !m.text.starts_with("Switched to")).map(|m| m.text.as_str()).collect();
+    assert_eq!(exchange, vec!["Draft the board update", "answered on account 2"], "one clean exchange");
+    assert!(msgs.iter().any(|m| m.text == "Switched to Work: Account 1 reached a usage limit."));
+    let failed = spine.ledger().turns().iter().find(|t| t.state == TurnState::Interrupted).cloned().expect("kept on disk");
+    assert!(failed.superseded_by.is_some());
+    drop(std::fs::remove_file(&path));
+    drop(std::fs::remove_dir_all(dir));
+}
+
+/// **Plan §15 answer 9: the alert, once, when very high speed is first detected.** The lease
+/// streams its five-hour window at 50%, then 54% a minute later (4 points a minute, the speed
+/// the 2026-09-29 run measured: fast), then 58% another minute later (still fast). Exactly one
+/// alert reaches the conversation, and it says what the speed is; the next fast reading adds
+/// none. In that run the first alarm came at 98%; here it comes at the second reading.
+#[test]
+fn a_fast_burn_alerts_once_when_the_high_speed_is_first_detected() {
+    let (dir, quota) = two_accounts("alert", 50.);
+    let (path, ledger) = tmp_ledger("fill-first-alert");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
+    let start = richos_core::util::now_millis() + 1_000;
+    let streamed = Arc::new(Mutex::new(Some(streamed_five_hour(50., start))));
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    spine.attach_lease(Box::new(AccountLease { session_id: "sess-account-1".into(), account: "1".into(),
+        streamed: streamed.clone(), fail_with: None, prompts: prompts.clone() }));
+    spine.set_lease_factory(Box::new(AccountFactory { quota: quota.clone(), spawned: Arc::new(Mutex::new(Vec::new())),
+        streamed: Arc::new(Mutex::new(None)), prompts }));
+    let alerts = |spine: &richos_core::spine::Spine| spine.messages(&thread).unwrap().iter()
+        .filter(|m| m.text.starts_with("Claude usage is very fast")).map(|m| m.text.clone()).collect::<Vec<_>>();
+
+    spine.submit_prompt("one", Source::Text).unwrap();
+    assert!(alerts(&spine).is_empty(), "one reading is no speed");
+    *streamed.lock().unwrap() = Some(streamed_five_hour(54., start + 60_000));
+    spine.submit_prompt("two", Source::Text).unwrap();
+    assert_eq!(alerts(&spine), vec!["Claude usage is very fast right now: Account 1's five-hour limit is filling about 4% a minute and is at 54%. RichOS now checks every minute and acts before it reaches 100%.".to_string()]);
+    assert_eq!(quota.view().refresh_interval_ms, richos_core::quota::FAST_REFRESH_INTERVAL_MS);
+    *streamed.lock().unwrap() = Some(streamed_five_hour(58., start + 120_000));
+    spine.submit_prompt("three", Source::Text).unwrap();
+    assert_eq!(alerts(&spine).len(), 1, "still fast: no second alert");
+    drop(std::fs::remove_file(&path));
+    drop(std::fs::remove_dir_all(dir));
+}

@@ -462,6 +462,11 @@ impl LeaseFactory for EngineLeaseFactory {
         }))
     }
 
+    /// Fill-first: the spine reads the accounts and the freshest readings through this.
+    fn quota(&self) -> Option<Arc<richos_core::quota::Service>> {
+        Some(self.quota.clone())
+    }
+
     /// **The second lease** — the background-work spec §2.1's work lease, in this same
     /// process, owned by the work host.
     ///
@@ -533,9 +538,12 @@ impl LeaseFactory for EngineLeaseFactory {
         profile.scope_to(binding).map_err(|e| CognitionError::Io(e.to_string()))?;
         profile.install_quota_gate(&executable).map_err(|e| CognitionError::Io(e.to_string()))?;
         profile.permissions = self.permissions.clone();
+        // Fill-first: the work lease runs under the Claude account in use now.
+        profile.claude_account = Some(self.quota.lease_account());
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
+        self.quota.lease_started(); // Several at once: an expected rise (fill-first).
         let cog = richos_core::native::NativeCognition::start_work_lease(&bin, &doctrine, &skills, &executable, bridge, profile)?;
         Ok(Box::new(cog))
     }
@@ -602,9 +610,12 @@ impl EngineLeaseFactory {
         profile.install_quota_gate(&executable).map_err(|e| CognitionError::Io(e.to_string()))?;
         profile.permissions = self.permissions.clone();
         profile.operator_desk = self.operator_desk.clone();
+        // Fill-first: the conversation lease runs under the Claude account in use now.
+        profile.claude_account = Some(self.quota.lease_account());
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
+        self.quota.lease_started(); // Several at once: an expected rise (fill-first).
         let cog = NativeCognition::start_with_engine(&bin, &doctrine, &skills, &executable, bridge, profile, control)?;
         Ok(Box::new(cog))
     }
@@ -644,6 +655,8 @@ struct AppState {
     /// like the decision itself.
     can_come_back: bool,
     provider_auth: Mutex<richos_core::provider_auth::ProviderAuth>,
+    /// Fill-first: the sign-in of an added Claude account, while it runs (account id, login).
+    account_auth: Mutex<Option<(String, richos_core::provider_auth::ProviderAuth)>>,
     /// **The thread whose front desk this launch has already asked to be made ready** — the
     /// CEO's §55, and the one-shot that keeps it to one attempt per thread opened.
     ///
@@ -2922,6 +2935,7 @@ fn main() {
             // enforces five-minute polling, with reset deadlines and error backoff.
             let quota_weak = Arc::downgrade(&quota);
             let quota_bin = claude_bin_cell.clone();
+            let quota_app = app.handle().clone();
             std::thread::spawn(move || {
                 let mut wait = std::time::Duration::ZERO;
                 loop {
@@ -2931,6 +2945,15 @@ fn main() {
                     let bin = quota_bin.lock().unwrap().clone();
                     quota.run_approved_weekly_reset(&bin);
                     quota.refresh(&bin, force);
+                    // **Fill-first's notices, the moment they are read** (plan §15 answer 9:
+                    // the high-speed alert "at once, in the conversation"). Only when no turn
+                    // holds the spine: a running turn says them at its own end instead
+                    // (`Spine::raise_quota_notices`), and this never waits on one.
+                    if let Some(state) = quota_app.try_state::<AppState>() {
+                        if let Ok(mut spine) = state.spine.try_lock() {
+                            spine.raise_quota_notices(None);
+                        }
+                    }
                     wait = std::time::Duration::from_secs(1);
                 }
             });
@@ -3345,6 +3368,7 @@ fn main() {
                 // answers waiting to disagree.
                 can_come_back: activation.presentation == activation::Presentation::Regular,
                 provider_auth: Mutex::new(Default::default()),
+                account_auth: Mutex::new(None),
                 front_desk_primed_for: Mutex::new(None),
                 reader: spine.reader(),
                 spine: Mutex::new(spine),
@@ -3486,6 +3510,11 @@ fn main() {
             claude_quota,
             claude_quota_activity,
             set_claude_quota_policy,
+            claude_account_add,
+            claude_account_sign_in,
+            claude_account_sign_in_poll,
+            claude_account_remove,
+            set_claude_at_threshold,
             approve_claude_reset,
             revoke_claude_reset,
             phone_status,
@@ -5248,6 +5277,71 @@ fn revoke_claude_reset(state: State<AppState>) -> Result<richos_core::quota::res
 #[tauri::command(async)]
 fn set_claude_quota_policy(state: State<AppState>, policy: richos_core::quota::Policy) -> Result<richos_core::quota::View, String> {
     state.quota.set_policy(policy).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------------------
+// FILL-FIRST: SEVERAL CLAUDE ACCOUNTS (richos-hq docs/plans/2026-10-04-multi-subscription-
+// fill-first.md, §15). One Claude Code folder per account; each signed in with the stock
+// `claude auth login` under its folder. RichOS never sees a credential.
+// ---------------------------------------------------------------------------------------
+
+/// **Add account**: a new, empty Claude Code folder, and the stock browser sign-in started
+/// for it at once (the browser opens; the account's row reads it on the next refresh).
+#[tauri::command(async)]
+fn claude_account_add(state: State<AppState>, label: String) -> Result<richos_core::quota::View, String> {
+    let view = state.quota.add_account(&label).map_err(|e| e.to_string())?;
+    if let Some(added) = state.quota.accounts.list().last().cloned() {
+        if let Some(folder) = added.folder {
+            let bin = resolve_claude_bin();
+            let mut auth = richos_core::provider_auth::ProviderAuth::for_folder(folder);
+            auth.start(&bin, false);
+            *state.account_auth.lock().unwrap() = Some((added.id, auth));
+        }
+    }
+    Ok(view)
+}
+
+/// Sign an added account in again (its row's "Sign in").
+#[tauri::command(async)]
+fn claude_account_sign_in(state: State<AppState>, id: String) -> Result<richos_core::provider_auth::AuthView, String> {
+    let folder = state.quota.accounts.folder(&id).ok_or("Account 1 signs in from the main sign-in.")?;
+    let bin = resolve_claude_bin();
+    let mut auth = richos_core::provider_auth::ProviderAuth::for_folder(folder);
+    let view = auth.start(&bin, false);
+    *state.account_auth.lock().unwrap() = Some((id, auth));
+    Ok(view)
+}
+
+/// The added account's sign-in, while it runs. `None` when none is running. When it ends, the
+/// accounts are read again at once.
+#[tauri::command(async)]
+fn claude_account_sign_in_poll(state: State<AppState>) -> Option<(String, richos_core::provider_auth::AuthView)> {
+    let bin = resolve_claude_bin();
+    let mut slot = state.account_auth.lock().unwrap();
+    let (id, auth) = slot.as_mut()?;
+    let view = auth.poll(&bin);
+    let answer = (id.clone(), view.clone());
+    if view.state != richos_core::provider_auth::AuthState::Connecting {
+        *slot = None;
+        state.quota.request_refresh();
+    }
+    Some(answer)
+}
+
+/// **Remove** an added account: its folder signed out with the stock `claude auth logout`,
+/// then deleted. Account 1 is the user's own Claude Code sign-in and is never removed here.
+#[tauri::command(async)]
+fn claude_account_remove(state: State<AppState>, id: String) -> Result<richos_core::quota::View, String> {
+    if let Some(folder) = state.quota.accounts.folder(&id) {
+        richos_core::provider_auth::logout_in(&resolve_claude_bin(), &folder);
+    }
+    state.quota.remove_account(&id).map_err(|e| e.to_string())
+}
+
+/// The one setting (his answer 2): at 93% of the five-hour window, Pause or Switch.
+#[tauri::command(async)]
+fn set_claude_at_threshold(state: State<AppState>, value: richos_core::claude_accounts::AtThreshold) -> Result<richos_core::quota::View, String> {
+    state.quota.set_at_threshold(value).map_err(|e| e.to_string())
 }
 
 /// What this machine is missing, and what the sheet should say about it.

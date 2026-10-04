@@ -1,0 +1,6 @@
+1791140056 quota probe CLAUDE_CONFIG_DIR=/Users/admin/testvm/walk-6c752180867f/home/.claude
+1791140091 conversation lease CLAUDE_CONFIG_DIR=/Users/admin/testvm/walk-6c752180867f/home/.claude
+1791140091 conversation lease CLAUDE_CONFIG_DIR=/Users/admin/testvm/walk-6c752180867f/home/.claude
+1791140147 quota probe CLAUDE_CONFIG_DIR=/Users/admin/testvm/walk-6c752180867f/home/Library/Application Support/com.richos.app/claude-accounts/2
+1791140211 conversation lease CLAUDE_CONFIG_DIR=/Users/admin/testvm/walk-6c752180867f/home/Library/Application Support/com.richos.app/claude-accounts/2
+1791140211 conversation lease CLAUDE_CONFIG_DIR=/Users/admin/testvm/walk-6c752180867f/home/Library/Application Support/com.richos.app/claude-accounts/2

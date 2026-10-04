@@ -40,7 +40,7 @@ struct Connection {
     next: u64,
 }
 impl Connection {
-    fn start(bin: &Path, cwd: &Path, control: &Control) -> Result<Self, ReadError> {
+    fn start(bin: &Path, cwd: &Path, control: &Control, folder: Option<&Path>) -> Result<Self, ReadError> {
         if control.stopped() {
             return Err(ReadError::Failed);
         }
@@ -60,7 +60,12 @@ impl Connection {
                 "--mcp-config",
                 "{\"mcpServers\":{}}",
             ])
-            .env_remove("CLAUDECODE")
+            .env_remove("CLAUDECODE");
+        // An added account reads under its own Claude Code folder (fill-first).
+        if let Some(folder) = folder {
+            command.env("CLAUDE_CONFIG_DIR", folder);
+        }
+        command
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -146,11 +151,21 @@ pub struct ClaudeSource {
     connection: Option<Connection>,
     binary: PathBuf,
     control: std::sync::Arc<Control>,
+    /// `None`: Account 1, the folder the app's own environment names (unchanged).
+    folder: Option<PathBuf>,
 }
 impl ClaudeSource {
     pub(super) fn controlled(control: std::sync::Arc<Control>) -> Self {
         Self {
             control,
+            ..Self::default()
+        }
+    }
+    /// An added account's reader: the same control-only child, under that account's folder.
+    pub(super) fn for_folder(control: std::sync::Arc<Control>, folder: PathBuf) -> Self {
+        Self {
+            control,
+            folder: Some(folder),
             ..Self::default()
         }
     }
@@ -162,7 +177,7 @@ impl Source for ClaudeSource {
             self.binary = bin.to_path_buf();
         }
         if self.connection.is_none() {
-            self.connection = Some(Connection::start(bin, cwd, &self.control)?);
+            self.connection = Some(Connection::start(bin, cwd, &self.control, self.folder.as_deref())?);
         }
         let result = self
             .connection

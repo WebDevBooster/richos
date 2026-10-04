@@ -458,6 +458,23 @@ const HANDOFF_ASK: &str = "You are about to hand this conversation's background 
     were about to do next, and anything you had decided not to do and why. No preamble, and \
     nothing you are only guessing at.";
 
+/// Added to [`HANDOFF_ASK`] when the hand-over is in the MIDDLE of an assignment (fill-first
+/// between continuation turns): the next turn may need a file only the outgoing back end
+/// knows the name of — a background command's output is *"in the file named when it
+/// started"* ([`COMMAND_ENDED_TAIL`]).
+const HANDOFF_ASK_MID_RUN: &str = "You are in the middle of an assignment, and the fresh \
+    connection carries it on from the next step: give the full path of every file that next \
+    step needs, such as where a command you started writes its output.";
+
+/// How a successor that takes an assignment over part-way is told so, and what it does next.
+const MID_RUN_HANDOVER_OPENING: &str = "You are the standing background worker for one of the \
+    CEO's conversations, and this connection is taking over from the previous one in the \
+    middle of an assignment, because the Claude account the previous one ran under is being \
+    left before its limit. The assignment is yours now, part-way through: what its earlier \
+    turns did is done, and none of it is to be started again.\n";
+const MID_RUN_HANDOVER_CLOSING: &str = "\nThe next message continues this assignment from where \
+    it is, on the same seat. Carry it on from there, as its brief says.\n";
+
 /// The bound on that answer, so one back end's verbosity cannot become the next one's
 /// priming. Roughly five sentences of prose.
 const HANDOFF_BUDGET_CHARS: usize = 1500;
@@ -583,6 +600,10 @@ pub const QUOTA_WAIT_AFTER_START: [&str; 2] = [
 /// **What the row says while his answer waits for a back end that could not take it yet**
 /// (the work-path design D4), in the design's words.
 pub const ANSWER_RETRY_DETAIL: &str = "Your answer is saved. The back end couldn't take it yet, so I'm trying again.";
+
+/// The row's detail while a run cut by a usage limit starts again under the next Claude
+/// account (fill-first, plan §15 answer 3).
+pub const LIMIT_SWITCH_DETAIL: &str = "A Claude usage limit stopped this run. Starting it again on your next Claude account.";
 
 /// What he is told when two runs of this launch could not get his answer taken (design D4).
 const ANSWER_NOT_TAKEN: &str = "The back end did not take your answer, after two tries.";
@@ -1219,6 +1240,9 @@ impl WorkHost {
         //     the command's output is.
         if !reporting {
             self.renew_if_repositories_changed(backend, binding);
+            // 0c. Fill-first: this back end's account must be left (its freshest reading and
+            //     measured speed, `claude_accounts.rs`) — move it now, at this boundary.
+            self.renew_if_account_changed(backend, binding);
         }
 
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
@@ -1460,8 +1484,12 @@ impl WorkHost {
         // that came back, in bytes (`spine.rs:2114-2118`). It is an undercount — by 2.3× to
         // 40.6×, measured (`spine.rs:138-143`) — which is exactly why it is the FALLBACK
         // and the adapter's own `usage_update` is what actually decides below.
-        let mut chars = prompt.len();
-        let mut measured: Option<crate::machinery::ContextUsage> = None;
+        //
+        // Cells, so a run that moves to another Claude account between two of its turns can
+        // start the successor's count at zero (`switch_account_between_turns`): what the old
+        // session consumed is not the new one's.
+        let chars = std::cell::Cell::new(prompt.len());
+        let measured: std::cell::Cell<Option<crate::machinery::ContextUsage>> = std::cell::Cell::new(None);
         // **THE ANSWER TO A QUESTION, KEPT — the CEO's ruling §58, 2026-09-18.**
         //
         // The back end's assistant text has always come past this closure and has only ever
@@ -1534,7 +1562,7 @@ impl WorkHost {
                 }
                 match item {
                 TurnItem::Text { text, .. } => {
-                    chars += text.len();
+                    chars.set(chars.get() + text.len());
                     // Bounded while it accumulates, not only at the end: a back end that
                     // streamed a hundred megabytes would otherwise hold all of it before
                     // anything trimmed it. 64 KiB is eight times the answer cap, so no
@@ -1548,7 +1576,7 @@ impl WorkHost {
                     // same as `spine.rs:2034`. The back end's own machinery is not
                     // otherwise journalled: its turns are never rendered.
                     if let Some(usage) = record.context_usage() {
-                        measured = Some(usage);
+                        measured.set(Some(usage));
                     }
                 }
                 }
@@ -1728,6 +1756,18 @@ impl WorkHost {
             };
             let mut asked_again = 0usize;
             loop {
+                // **FILL-FIRST BEFORE EVERY CONTINUATION TURN**, not only before the run (step
+                // 0c): a long run whose account crosses its check point between two of its turns
+                // moves to the account in use HERE, with the assignment carried across, and this
+                // continuation is sent there. The run goes on; it is not started again. The limit
+                // backstop below stays for one turn that by itself uses up what remained.
+                let context = || {
+                    format!("{prompt}\n\nWhat you had said on it so far:\n{}", assignment::sanitize_answer(&answer))
+                };
+                if self.switch_account_between_turns(backend, binding, record, &work, context) {
+                    chars.set(continuation.len());
+                    measured.set(None);
+                }
                 let mut items = 0usize;
                 let mut said = String::new();
                 outcome = {
@@ -1762,8 +1802,8 @@ impl WorkHost {
         }
         {
             let mut inner = backend.inner.lock().unwrap();
-            inner.context_chars += chars;
-            if let Some(usage) = measured {
+            inner.context_chars += chars.get();
+            if let Some(usage) = measured.take() {
                 inner.context_usage = Some(usage);
             }
         }
@@ -1842,6 +1882,42 @@ impl WorkHost {
                 eprintln!("[richos] work: RichOS is closing; his answer stays saved for the next launch");
             }
             return;
+        }
+        // ===================================================================================
+        // CUT BY A USAGE LIMIT: STARTED AGAIN UNDER THE NEXT ACCOUNT (plan §15 answer 3)
+        // ===================================================================================
+        //
+        // *"Work cut off by a limit continues on the next account, background work included."*
+        // The switch normally happens before the turn (step 0c before the run, and before every
+        // continuation turn inside it, `switch_account_between_turns`); this is the one turn
+        // that by itself used up what remained. The account is marked gone and, when another has room,
+        // the corpse is retired and the assignment is scheduled again: its next lease is spawned
+        // under the account now in use. Bounded by construction — every pass marks one more
+        // account gone — and with no account left it falls through to the failure arms below,
+        // exactly as with one account. His Stop and a quit outrank it.
+        if let Err(why) = &outcome {
+            let limit = (!stopped).then(|| crate::claude_accounts::parse_usage_limit(&why.to_string())).flatten();
+            let account = backend.lease.lock().unwrap().as_ref().and_then(|l| l.account().map(str::to_string));
+            let quota = self.quota.lock().unwrap().clone();
+            if let (Some(resets_at), Some(account), Some(quota)) = (limit, account, quota) {
+                if quota.limit_reached(&account, resets_at) == crate::claude_accounts::AfterLimit::Continue {
+                    eprintln!("[richos] work: a usage limit cut this run; starting it again on the next Claude account");
+                    *backend.lease.lock().unwrap() = None;
+                    {
+                        let mut inner = backend.inner.lock().unwrap();
+                        inner.lease_session = None;
+                        inner.context_chars = 0;
+                        inner.context_usage = None;
+                    }
+                    advance(AssignmentState::Blocked, LIMIT_SWITCH_DETAIL);
+                    let latest = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id)
+                        .unwrap_or_else(|_| record.clone());
+                    if !self.schedule(binding, latest, resumed) {
+                        eprintln!("[richos] work: RichOS is closing; the assignment continues at the next launch");
+                    }
+                    return;
+                }
+            }
         }
         // **ITS COMMAND OUTLIVED THE WAIT: WATCHED, NOT SETTLED** ([`Watched`]). He already has
         // the back end's words (step 3c raised them), the row says the command is running, and
@@ -2901,16 +2977,35 @@ impl WorkHost {
     }
 
     fn rotate(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, reason: &str) -> Result<(), String> {
+        self.rotate_carrying(backend, binding, reason, None)
+    }
+
+    /// [`Self::rotate`], and with `carrying` the one difference a rotation INSIDE a run needs
+    /// (fill-first between continuation turns, [`Self::switch_account_between_turns`]): the
+    /// assignment in progress goes across with its context. The successor is told it is taking
+    /// the assignment over part-way (`carrying.1`: its brief and what it has said so far, on
+    /// top of the register and the outgoing back end's own handoff), and is bound to the same
+    /// seat and grant BEFORE the swap, so a successor that cannot take the assignment is
+    /// dropped and the incumbent keeps it. After the swap his Stop reaches the successor (the
+    /// cancel handle moves with it), and the incumbent's grant is revoked as it retires.
+    fn rotate_carrying(
+        self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, reason: &str,
+        carrying: Option<(&WorkAssignment, &str)>,
+    ) -> Result<(), String> {
         // Step 1 — the handoff, asked of the OUTGOING back end. One cheap internal turn,
         // never rendered, and BEST EFFORT: a failure here is not fatal, because the
         // register below is the floor. `prompt_context_only` is the no-tools path
         // (`cognition.rs`), so this ask cannot take an action; its standing grant is closed
         // at this point anyway, since grants live and die with an assignment (§5.4).
+        let ask = match carrying {
+            Some(_) => format!("{HANDOFF_ASK} {HANDOFF_ASK_MID_RUN}"),
+            None => HANDOFF_ASK.to_string(),
+        };
         let mut handoff = String::new();
         {
             let mut lease = backend.lease.lock().unwrap();
             if let Some(lease) = lease.as_mut() {
-                let said = lease.prompt_context_only(HANDOFF_ASK, &mut |item: TurnItem| {
+                let said = lease.prompt_context_only(&ask, &mut |item: TurnItem| {
                     if let TurnItem::Text { text, .. } = item {
                         // Bounded on the way in: a back end that answered with an essay
                         // must not turn the successor's priming into one.
@@ -2935,13 +3030,19 @@ impl WorkHost {
             .map_err(|e| e.to_string())?;
         // Step 3 — the payload: the durable register, compacted, plus the handoff if the
         // outgoing back end managed one.
-        let payload = self.handover_payload(binding, &handoff);
+        let payload = self.handover_payload_with(binding, &handoff, carrying.map(|(_, context)| context));
         if let Err(why) = fresh.reprime(&payload, &mut |_item: TurnItem| {}) {
             // The successor is dropped unused; the incumbent keeps working. A back end
             // that could not be primed must never take an assignment, because an unprimed
             // one would carry on without knowing what it is carrying.
             return Err(why.to_string());
         }
+        // Mid-run: the successor takes the assignment's seat and grant before it takes the
+        // chair. A refusal drops it unused, and the incumbent, still bound, keeps the run.
+        if let Some((work, _)) = carrying {
+            fresh.bind_work_assignment(work).map_err(|why| why.to_string())?;
+        }
+        let cancel = carrying.and_then(|_| fresh.cancel_handle());
         // Step 4 — the swap, and the accounting reset. The usage belongs to the session
         // that consumed it; a successor that inherited the count would rotate itself on its
         // first assignment (`spine.rs:249-256` makes the same point about a parked desk).
@@ -2957,12 +3058,24 @@ impl WorkHost {
         inner.rotations += 1;
         inner.last_rotation_reason = Some(reason.to_string());
         inner.lease_repositories = repositories;
+        if carrying.is_some() {
+            inner.cancel = cancel;
+        }
         // **The incumbent ends with NO lock held** (reap gap C6): its teardown is now a SIGTERM
         // and its supervisor's reap, bounded at `owned_process::SUPERVISED_BOUND`, and nothing
         // else on this back end should wait behind it.
         drop(inner);
         drop(lease);
-        drop(retired);
+        if let Some(mut retired) = retired {
+            // Mid-run, the assignment's grant on the incumbent goes with it (§5.4): the
+            // successor holds its own, bound above.
+            if carrying.is_some() {
+                if let Err(error) = retired.revoke_work_assignment() {
+                    eprintln!("[richos] work: the retired back end's grant could not be revoked: {error}");
+                }
+            }
+            drop(retired);
+        }
         Ok(())
     }
 
@@ -2973,12 +3086,25 @@ impl WorkHost {
     /// outgoing back end managed to say anything. No identifiers travel: the back end is
     /// given the CEO's own words for each open assignment and its state, which is what it
     /// needs to carry on, and ids are the app's (`desktop-work.md:42-43`).
-    fn handover_payload(&self, binding: &ThreadBinding, handoff: &str) -> String {
-        let mut payload = String::from(
-            "You are the standing background worker for one of the CEO's conversations, and \
-             this connection is taking over from the previous one. Nothing is running on you \
-             yet.\n",
-        );
+    ///
+    /// With `carrying`, the assignment a mid-run switch hands over part-way
+    /// ([`Self::rotate_carrying`]): its brief and what it has said so far, and that the next
+    /// message continues it. Without `carrying` the text is the between-assignments payload,
+    /// unchanged.
+    fn handover_payload_with(&self, binding: &ThreadBinding, handoff: &str, carrying: Option<&str>) -> String {
+        let mut payload = String::from(match carrying {
+            None => {
+                "You are the standing background worker for one of the CEO's conversations, and \
+                 this connection is taking over from the previous one. Nothing is running on you \
+                 yet.\n"
+            }
+            Some(_) => MID_RUN_HANDOVER_OPENING,
+        });
+        if let Some(context) = carrying {
+            payload.push_str("\nThe assignment you are carrying on, as the previous connection was given it:\n");
+            payload.push_str(context.trim());
+            payload.push('\n');
+        }
         match assignment::read_all(&self.state, &binding.entity_id().to_string(), binding.thread_id()) {
             Ok(rows) => {
                 let open: Vec<&Assignment> = rows.iter().filter(|row| row.state.is_open()).collect();
@@ -3010,10 +3136,13 @@ impl WorkHost {
         // own brief tells it to make: *"So, yes, always land on its own."* The successor now
         // takes its orders from that brief (`brief_for`), which says to land the reviewed
         // result and never to claim a land it did not make.
-        payload.push_str(
-            "\nWait for the assignment you are given, and carry it out as the brief it comes \
-             with says.\n",
-        );
+        payload.push_str(match carrying {
+            None => {
+                "\nWait for the assignment you are given, and carry it out as the brief it comes \
+                 with says.\n"
+            }
+            Some(_) => MID_RUN_HANDOVER_CLOSING,
+        });
         payload
     }
 
@@ -3151,6 +3280,85 @@ impl WorkHost {
         if let Err(why) = self.rotate(backend, binding, REPOSITORIES_CHANGED) {
             eprintln!("[richos] back end: not renewed for the newly connected repository ({why})");
         }
+    }
+
+    /// **FILL-FIRST AT AN ASSIGNMENT BOUNDARY** — `run_one` step 0c (plan §15 answers 3 and
+    /// 6-8). The back end's own streamed reading goes to the quota service, which decides on
+    /// the freshest readings and measured speed whether its account must be left; if the
+    /// account in use is now another one, the back end is renewed under it here, with nothing
+    /// live — a rotation like any other ([`Self::rotate`]). The same rule as a repository
+    /// change: a command the back end started and may still be running defers it, because
+    /// retiring the lease would end that command.
+    fn renew_if_account_changed(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding) {
+        if !self.account_switch_due(backend) {
+            return;
+        }
+        if let Err(why) = self.rotate(backend, binding, crate::spine::ACCOUNT_SWITCH) {
+            eprintln!("[richos] back end: not moved to the next Claude account ({why})");
+        }
+    }
+
+    /// **Must this back end leave its Claude account now?** The check before every turn, the
+    /// conversation's (`spine.rs`'s `account_switch_due`) for background work: the lease's own
+    /// streamed reading goes to the quota service, which decides on the freshest readings and
+    /// measured speed (`claude_accounts.rs`) and answers which account is in use. `false` when
+    /// it is still this lease's, when the lease cannot say its account, or when a command it
+    /// started may still be running — retiring the lease would end that command, so the
+    /// switch waits for the next boundary (and the limit backstop covers the gap).
+    fn account_switch_due(&self, backend: &Arc<Backend>) -> bool {
+        let Some(quota) = self.quota.lock().unwrap().clone() else { return false };
+        let (account, streamed, commands) = {
+            let lease = backend.lease.lock().unwrap();
+            let Some(lease) = lease.as_ref() else { return false };
+            let Some(account) = lease.account() else { return false };
+            (account.to_string(), lease.streamed_usage(), lease.running_commands())
+        };
+        if quota.before_turn(&account, streamed) == account {
+            return false;
+        }
+        if matches!(commands, Some(crate::lease_commands::CommandReading::Running(_) | crate::lease_commands::CommandReading::Unreadable)) {
+            eprintln!("[richos] back end: its Claude account is to be left; renewal deferred while a command it started may still be running");
+            return false;
+        }
+        true
+    }
+
+    /// **FILL-FIRST BETWEEN THE CONTINUATION TURNS OF ONE RUN** (plan §15 answers 3 and 6-8;
+    /// the CEO, 2026-10-04: *"How can 'work cut off by a limit' happen if THE WHOLE ... JOB OF
+    /// THIS ENTIRE ... FEATURE IS TO PREVENT THAT FROM HAPPENING????"*). `run_one` calls this
+    /// before every continuation turn, as the conversation checks before every turn: a long
+    /// run whose account crosses its check point moves to the account in use at the next
+    /// boundary, with the assignment carried across ([`Self::rotate_carrying`]), and the run
+    /// goes on there. It is not started again. Never inside a turn (continuity §3.1): between
+    /// two turns of a run nothing is live on the lease — its helpers were witnessed ending
+    /// (step 3b) and a command still running defers the switch ([`Self::account_switch_due`]).
+    ///
+    /// `true` when the run is now on a new lease. A switch that fails leaves the run on the
+    /// incumbent, still bound, and the limit backstop covers a turn that then runs out.
+    fn switch_account_between_turns(
+        self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment,
+        work: &WorkAssignment, context: impl FnOnce() -> String,
+    ) -> bool {
+        if !self.account_switch_due(backend) {
+            return false;
+        }
+        let context = context();
+        if let Err(why) = self.rotate_carrying(backend, binding, crate::spine::ACCOUNT_SWITCH, Some((work, &context))) {
+            eprintln!("[richos] work: this run stays on its Claude account for now; the move to the next one failed ({why})");
+            return false;
+        }
+        eprintln!("[richos] work: this run moved to the next Claude account between two of its turns and carries on there");
+        // What a relaunch reconciles against is the session the run is on now (spec §6.1).
+        let session = backend.inner.lock().unwrap().lease_session.clone();
+        if let Some(session) = session {
+            let pins = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id)
+                .map(|row| row.repository_pins)
+                .unwrap_or_else(|_| record.repository_pins.clone());
+            if let Err(error) = assignment::note_start(&self.state, &record.entity_id, &record.thread_id, &record.id, &session, pins) {
+                eprintln!("[richos] work: the run's new connection was not recorded: {error}");
+            }
+        }
+        true
     }
 
     fn raise(self: &Arc<Self>, record: &Assignment, kind: NoticeKind, text: &str) {
@@ -4001,6 +4209,24 @@ mod tests {
         unrun: Arc<Mutex<VecDeque<String>>>,
         /// The next work turns fail before streaming, one per turn (a dead lease, `Closed`).
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        /// Fill-first: the account this lease was spawned under, and the shared script.
+        account: Option<String>,
+        fill: Arc<Mutex<FillFirst>>,
+    }
+
+    /// **Fill-first's knobs for the fake back end.** With a quota service set, every lease is
+    /// spawned under the account it says is in use (as `main.rs`'s `spawn_work` does), and a
+    /// lease on `limited` has its work turns refused the way `native.rs` reports a usage limit.
+    #[derive(Default)]
+    struct FillFirst {
+        quota: Option<Arc<crate::quota::Service>>,
+        limited: Option<String>,
+        spawned: Vec<String>,
+        /// What a lease on each account streams as its own usage reading (the real lease's
+        /// `rate_limit_event`, `native.rs`), by account id.
+        streamed: std::collections::BTreeMap<String, crate::quota::StreamedReading>,
+        /// The account each work turn was sent under, in order.
+        turns: Vec<Option<String>>,
     }
 
     impl Drop for WorkLease {
@@ -4033,8 +4259,19 @@ mod tests {
             on(TurnItem::Text { seq: 0, text: &self.handoff_reply });
             Ok("end_turn".to_string())
         }
+        fn account(&self) -> Option<&str> {
+            self.account.as_deref()
+        }
+        fn streamed_usage(&self) -> Option<crate::quota::StreamedReading> {
+            self.account.as_ref().and_then(|account| self.fill.lock().unwrap().streamed.get(account).cloned())
+        }
         fn prompt(&mut self, _text: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
             self.work_prompts.lock().unwrap().push(_text.to_string());
+            self.fill.lock().unwrap().turns.push(self.account.clone());
+            if self.account.is_some() && self.account == self.fill.lock().unwrap().limited {
+                return Err(CognitionError::Protocol(crate::claude_accounts::usage_limit_error(
+                    None, "[\"You've hit your session limit\"]")));
+            }
             if let Some(why) = self.turn_error.lock().unwrap().clone() {
                 return Err(CognitionError::Protocol(why));
             }
@@ -4219,6 +4456,7 @@ mod tests {
         first_item_gate: Arc<StartGate>,
         unrun: Arc<Mutex<VecDeque<String>>>,
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        fill: Arc<Mutex<FillFirst>>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -4237,7 +4475,15 @@ mod tests {
                 return Err(CognitionError::Protocol("no second connection could be opened".into()));
             }
             let n = self.spawns.fetch_add(1, Ordering::SeqCst);
+            let account = {
+                let mut fill = self.fill.lock().unwrap();
+                let account = fill.quota.as_ref().map(|quota| quota.lease_account().id);
+                if let Some(account) = &account { fill.spawned.push(account.clone()); }
+                account
+            };
             Ok(Box::new(WorkLease {
+                account,
+                fill: self.fill.clone(),
                 // The FIRST back end keeps the name every other test in this file already
                 // uses; a rotated successor is visibly a different session, which is what
                 // makes a rotation observable rather than inferred.
@@ -4310,6 +4556,7 @@ mod tests {
         first_item_gate: Arc<StartGate>,
         unrun: Arc<Mutex<VecDeque<String>>>,
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        fill: Arc<Mutex<FillFirst>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -4351,7 +4598,9 @@ mod tests {
         let fail_next = Arc::new(Mutex::new(VecDeque::new()));
         let broken = Arc::new(AtomicBool::new(false));
         let attempts = Arc::new(AtomicUsize::new(0));
+        let fill = Arc::new(Mutex::new(FillFirst::default()));
         let factory = WorkFactory {
+            fill: fill.clone(),
             broken: broken.clone(),
             attempts: attempts.clone(),
             silent: silent.clone(),
@@ -4386,7 +4635,7 @@ mod tests {
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
             work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies,
-            silent, first_item_gate, unrun, fail_next, broken, attempts }
+            silent, first_item_gate, unrun, fail_next, broken, attempts, fill }
     }
 
     /// **A second lease factory over the SAME scripted state as `h`'s** — every knob and every
@@ -4394,6 +4643,7 @@ mod tests {
     /// (design §4.1 tests 2 and 3), or a host with a different notifier.
     fn factory_over(h: &Harness, step_ms: u64) -> WorkFactory {
         WorkFactory {
+            fill: h.fill.clone(),
             broken: h.broken.clone(),
             attempts: h.attempts.clone(),
             start_gate: h.start_gate.clone(),
@@ -4864,6 +5114,150 @@ mod tests {
         assert_eq!(h.spawns.load(Ordering::SeqCst), 1);
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **Plan §15 answer 3: background work cut by a limit continues on the next account.**
+    /// Two accounts, both read by the fake `claude` (Account 1 at 40%, Work at 5%). The back
+    /// end is spawned under Account 1, whose work turn is refused for a usage limit (the error
+    /// `native.rs` writes for the three real signals). The run is started again, on a NEW lease
+    /// spawned under Work, which takes the work: the cut run raises nothing to him.
+    #[test]
+    #[cfg(unix)]
+    fn a_background_lease_cut_by_a_usage_limit_is_started_again_under_the_next_account() {
+        let h = harness(5);
+        let quota = Arc::new(crate::quota::Service::open(&h.root).unwrap());
+        let work = quota.accounts.add("Work").unwrap();
+        let bin = crate::quota::tests::fake_claude(&h.root);
+        crate::quota::tests::usage(&h.root.join("usage-1.json"), 40., 40., "2099-01-05T00:00:00Z");
+        crate::quota::tests::usage(&work.folder.clone().unwrap().join("usage.json"), 5., 10., "2099-01-06T00:00:00Z");
+        quota.refresh(&bin, true);
+        {
+            let mut fill = h.fill.lock().unwrap();
+            fill.quota = Some(quota.clone());
+            fill.limited = Some("1".into());
+        }
+        h.host.set_quota(quota.clone());
+        h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        // Two runs: the one the limit cut, and the one started again under Work.
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(30)), "the run never finished");
+        assert_eq!(h.fill.lock().unwrap().spawned, vec!["1".to_string(), "2".to_string()],
+            "the second lease was spawned under the next account");
+        assert_eq!(quota.lease_account().id, "2");
+        assert!(h.work_prompts.lock().unwrap().len() >= 2, "the work was sent again");
+        // The row's last word is the SECOND run's, on the successor; the cut run said nothing
+        // to him at all. (How the second run settles is this harness's own business: with no
+        // worker receipts it reports that nothing was landed, as every harness run does.)
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.work_session.as_deref(), Some("work-session-rotated-1"), "{row:?}");
+        assert!(!row.detail.contains("usage limit"), "{}", row.detail);
+        let told = h.notices.0.lock().unwrap().clone();
+        assert_eq!(told.len(), 1, "only the second run's ending reached him: {told:?}");
+        assert!(told.iter().all(|(_, n)| !n.text.contains("usage limit")), "{told:?}");
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **The CEO, 2026-10-04: *"How can 'work cut off by a limit' happen if THE WHOLE ... JOB
+    /// OF THIS ENTIRE ... FEATURE IS TO PREVENT THAT FROM HAPPENING????"*** — his case is
+    /// background work: a long run of several turns on one back end.
+    ///
+    /// One run, three turns on one seat: the brief (it starts `npm test`), a continuation
+    /// reporting it (which starts `npm run e2e`), and a continuation reporting that. Between
+    /// the two continuation turns Account 1 crosses its check point — its lease streams 93% of
+    /// the five-hour window, setting on Switch — and would refuse its next turn for a usage
+    /// limit (the wall). The second continuation must be sent on a lease spawned under Work,
+    /// primed with the assignment, bound to the same seat, and the run must end on its report:
+    /// never cut off, never started again.
+    ///
+    /// RED at `d837b5204`: the account is read once per run (step 0c), so the second
+    /// continuation goes to Account 1, is refused, and the backstop starts the run again.
+    #[test]
+    #[cfg(unix)]
+    fn a_long_background_run_moves_to_the_next_account_between_two_continuation_turns_and_carries_on() {
+        use crate::cognition::ObligationState;
+        const STARTED: &str = "I've started the unit tests. I'll tell you when they finish.";
+        const SECOND: &str = "The unit tests passed. I've started the end-to-end suite now.";
+        const FINISHED: &str = "The end-to-end suite has finished: all 48 scenarios passed.";
+        const HANDOFF: &str = "The end-to-end suite writes its output to /fictional/project/e2e.log.";
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        *h.handoff_reply.lock().unwrap() = HANDOFF.into();
+        h.replies.lock().unwrap().extend([STARTED.to_string(), SECOND.to_string(), FINISHED.to_string()]);
+        h.start_in_turn.lock().unwrap().extend([
+            vec![background_command("bunit", "npm test")],
+            vec![background_command("be2e", "npm run e2e")],
+        ]);
+        // Two accounts, read by the fake `claude`: Account 1 at 60% of its five-hour window,
+        // Work at 5%. Account 1 is in use.
+        let quota = Arc::new(crate::quota::Service::open(&h.root).unwrap());
+        let work = quota.accounts.add("Work").unwrap();
+        let bin = crate::quota::tests::fake_claude(&h.root);
+        crate::quota::tests::usage(&h.root.join("usage-1.json"), 60., 40., "2099-01-05T00:00:00Z");
+        crate::quota::tests::usage(&work.folder.clone().unwrap().join("usage.json"), 5., 10., "2099-01-06T00:00:00Z");
+        quota.refresh(&bin, true);
+        quota.set_at_threshold(crate::claude_accounts::AtThreshold::Switch).unwrap();
+        assert_eq!(quota.lease_account().id, "1");
+        h.fill.lock().unwrap().quota = Some(quota.clone());
+        h.host.set_quota(quota.clone());
+        h.host.start();
+        let job = h.host
+            .register(&h.binding, &Registration { title: "run both test suites and tell me how they end".into(), ..registration(&h) })
+            .unwrap();
+
+        // ---- turn 1, the brief, and turn 2, the first continuation: both on Account 1 ------
+        assert_eq!(until_notices(&h, 1)[0].text, STARTED);
+        background_command_ends(&h, "bunit", false);
+        assert_eq!(until_notices(&h, 2)[1].text, SECOND);
+        assert_eq!(h.fill.lock().unwrap().turns, vec![Some("1".to_string()); 2]);
+
+        // ---- between two continuation turns, Account 1 crosses its check point ------------
+        // 2099-01-01T00:00:00Z, the fake's five-hour reset, so it is the same window.
+        let crossed = (vec![crate::quota::Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: 93.,
+            resets_at: Some(4_070_908_800_000), duration_ms: 5 * 3_600_000 }], crate::util::now_millis() + 1_000);
+        {
+            let mut fill = h.fill.lock().unwrap();
+            fill.streamed.insert("1".into(), crossed);
+            fill.limited = Some("1".into());
+        }
+        background_command_ends(&h, "be2e", false);
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the run never finished");
+
+        // ---- the second continuation ran on Work, on a successor that carries the job ------
+        let fill = h.fill.lock().unwrap();
+        assert_eq!(fill.spawned, vec!["1".to_string(), "2".to_string()], "the successor was spawned under Work");
+        assert_eq!(fill.turns, vec![Some("1".to_string()), Some("1".to_string()), Some("2".to_string())],
+            "the second continuation turn ran ONLY under Work");
+        drop(fill);
+        assert_eq!(quota.lease_account().id, "2");
+        assert_eq!(h.host.rotations("thread-one"), (1, Some(crate::spine::ACCOUNT_SWITCH.to_string())));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 3, "never started again: {prompts:?}");
+        assert_eq!(prompts.iter().filter(|p| p.contains("Original request (verbatim)")).count(), 1, "the brief was sent once");
+        assert!(prompts[2].contains("npm run e2e") && prompts[2].starts_with(COMMAND_ENDED_HEAD), "{}", prompts[2]);
+        let handoffs = h.handoffs.lock().unwrap().clone();
+        assert_eq!(handoffs.len(), 1);
+        assert!(handoffs[0].contains(HANDOFF_ASK_MID_RUN), "{}", handoffs[0]);
+        let primed = h.reprimes.lock().unwrap().clone();
+        assert_eq!(primed.len(), 1);
+        assert!(primed[0].starts_with(MID_RUN_HANDOVER_OPENING), "{}", primed[0]);
+        for carried in ["run both test suites and tell me how they end", "Original request (verbatim)", SECOND, HANDOFF] {
+            assert!(primed[0].contains(carried), "the successor was not told {carried:?}: {}", primed[0]);
+        }
+        let bound = h.bound.lock().unwrap().clone();
+        assert_eq!(bound.len(), 2, "the successor took the same seat");
+        assert_eq!(bound[0], bound[1]);
+        // ---- and the run ended on its report, on the successor ------------------------------
+        let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert!(row.was_answered(), "{:?}: {}", row.state, row.detail);
+        assert_eq!(row.work_session.as_deref(), Some("work-session-rotated-1"), "{row:?}");
+        let notices = until_notices(&h, 3);
+        let said: Vec<&str> = notices.iter().map(|n| n.text.as_str()).collect();
+        assert_eq!(said, vec![STARTED, SECOND, FINISHED], "never cut off: {notices:?}");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
     }
 
     #[test]

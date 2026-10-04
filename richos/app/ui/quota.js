@@ -10,7 +10,8 @@
     <header class="quota-heading"><div><p class="quota-eyebrow">Settings · Technical view</p>
       <h2 id="quota-title">Claude Code quota</h2>
       <p class="quota-lede">Your Claude Code allowance, shared across apps and sessions.</p></div>
-      <button id="quota-close" type="button" aria-label="Close Claude Code quota">×</button></header>
+      <div class="quota-heading-actions"><button id="quota-account-start" class="quota-btn" type="button">Add account</button>
+      <button id="quota-close" type="button" aria-label="Close Claude Code quota">×</button></div></header>
     <div class="quota-body"><div class="quota-windows-col">
       <div class="quota-toolbar"><span id="quota-freshness">Loading quota…</span>
         <div class="quota-toolbar-actions"><button id="quota-usage-open" class="quota-btn" type="button" title="claude.ai/new#settings/usage">Open Claude Usage</button>
@@ -32,6 +33,21 @@
           <p id="quota-validation" role="status" hidden></p>
         </div></div>
       <p id="quota-save-status" role="status" aria-live="polite" hidden></p>
+      <section id="quota-accounts" class="quota-accounts" aria-labelledby="quota-accounts-title" hidden>
+        <h3 id="quota-accounts-title">Claude accounts</h3>
+        <p id="quota-held-all" class="quota-message" role="status" hidden></p>
+        <ul id="quota-account-rows" class="quota-account-rows" hidden></ul>
+        <div id="quota-account-new" class="quota-account-add" hidden><label class="quota-account-label"><span>Label for the new account</span>
+          <input id="quota-account-label" type="text" maxlength="40"></label>
+          <button id="quota-account-add" class="quota-btn quota-btn-primary" type="button">Add and sign in</button>
+          <button id="quota-account-cancel" class="quota-btn" type="button">Cancel</button></div>
+        <p id="quota-account-feedback" class="quota-muted" role="status" aria-live="polite"></p>
+      </section>
+      <fieldset id="quota-at-threshold" class="quota-at-threshold" hidden>
+        <legend>When the five-hour window reaches 93%</legend>
+        <label><input type="radio" name="quota-at-threshold" value="pause"> Pause Rich’s agents</label>
+        <label><input type="radio" name="quota-at-threshold" value="switch"> Switch to the next account</label>
+      </fieldset>
       <div id="quota-status-card" class="quota-status-card">
         <h4 id="quota-hold-status">Loading pause status…</h4>
         <p id="quota-hold-detail"></p><ul id="quota-held" aria-label="Observed pauses"></ul>
@@ -40,7 +56,7 @@
       </div>
       <div class="quota-boundary"><p><b>A pause keeps context and work.</b> Agents finish their step, then wait.</p>
         <p>Weekly 99% pauses until allowance returns or an approved free reset succeeds. No weekly 20-minute exception.</p>
-        <p>Checks at app and session start, then every 5 minutes.</p></div>
+        <p id="quota-checkpoints">Checks at app and session start, then every 5 minutes.</p></div>
     </form></div></section>`;
   document.body.appendChild(sheet);
   const field = id => sheet.querySelector("#" + id);
@@ -80,10 +96,12 @@
       bar.appendChild(marker);
     }
     if (hero) {
+      // The five-hour check point: the threshold, or lower while usage is fast (answer 10).
+      const at = Math.floor(view.actAt?.five_hour ?? view.policy.pausePercent);
       const threshold = node("span", "quota-pause-line" + (view.policy.enabled ? "" : " is-off"));
-      threshold.style.left = view.policy.pausePercent + "%";
-      if (view.policy.pausePercent < 35) threshold.classList.add("is-left");
-      threshold.append(node("i", ""), node("span", "", `${view.policy.enabled ? "pause at" : "pause off ·"} ${view.policy.pausePercent}%`));
+      threshold.style.left = at + "%";
+      if (at < 35) threshold.classList.add("is-left");
+      threshold.append(node("i", ""), node("span", "", `${view.policy.enabled ? "pause at" : "pause off ·"} ${at}%`));
       bar.appendChild(threshold);
     }
     chart.appendChild(bar);
@@ -242,6 +260,119 @@
       if (!sheet.hidden) (field("quota-reset-revoke") || field("quota-reset-confirm") || field("quota-reset-offers").querySelector("button"))?.focus();
     }
   }
+  // ---- Fill-first: several Claude accounts (plan richos-hq 2026-10-04 §15) -------------------
+  // One row per account: the user's label only (his answer 4), five-hour and weekly use, the
+  // weekly reset, and "In use". Account 1 is always there, so one subscription reads as today.
+  let accountBusy = false, signInTimer = null;
+  const pct = n => `${Math.round(n)}%`;
+  const accountRows = () => view?.accounts || [];
+  function accountSummary(row) {
+    const five = row.windows.find(w => w.id === "five_hour"), week = row.windows.find(w => w.id === "seven_day");
+    // Past its check point (or refused by a limit): its figures, and when it can be used again.
+    const resting = row.exhaustedUntil > Date.now() ? ` · usable again ${stamp(row.exhaustedUntil, true)}` : "";
+    if (!five && !week) return resting ? `Usage limit reached${resting}` : row.message || (row.checkedAt ? "No allowance reported." : "Not read yet. Sign in, then refresh.");
+    const parts = [];
+    if (five) parts.push(`Five-hour ${pct(five.usedPercent)}`);
+    if (week) parts.push(`Weekly ${pct(week.usedPercent)}${week.resetsAt && !resting ? " · resets " + stamp(week.resetsAt, true) : ""}`);
+    return parts.join(" · ") + resting;
+  }
+  function renderAccounts() {
+    const rows = accountRows(), list = field("quota-account-rows");
+    list.replaceChildren();
+    for (const row of rows) {
+      const item = node("li", "quota-account-row" + (row.inUse ? " is-in-use" : ""));
+      const text = node("div", "quota-account-text");
+      text.append(node("strong", "", row.label), node("span", "quota-muted", accountSummary(row)));
+      item.appendChild(text);
+      if (row.inUse) item.appendChild(node("span", "quota-tag quota-account-in-use", "In use"));
+      if (row.id !== "1") {
+        if (!row.windows.length) {
+          const signIn = node("button", "quota-btn", "Sign in"); signIn.type = "button"; signIn.disabled = accountBusy;
+          signIn.setAttribute("aria-label", `Sign in to ${row.label}`);
+          signIn.addEventListener("click", () => accountSignIn(row.id));
+          item.appendChild(signIn);
+        }
+        const remove = node("button", "quota-btn", "Remove"); remove.type = "button"; remove.disabled = accountBusy;
+        remove.setAttribute("aria-label", `Remove ${row.label}`);
+        remove.addEventListener("click", () => accountRemove(row.id));
+        item.appendChild(remove);
+      }
+      list.appendChild(item);
+    }
+    const several = (view?.accounts?.length || 0) > 1;
+    // One account reads as today: the windows below ARE Account 1, so no rows are drawn and
+    // the section stays closed until he adds one (the toolbar's Add account opens it).
+    list.hidden = !several;
+    const feedback = field("quota-account-feedback").textContent;
+    field("quota-accounts").hidden = !several && field("quota-account-new").hidden && !feedback && !(view?.heldUntil > Date.now());
+    field("quota-account-add").disabled = accountBusy;
+    field("quota-account-start").disabled = accountBusy;
+    field("quota-at-threshold").hidden = !several;
+    for (const radio of sheet.querySelectorAll('input[name="quota-at-threshold"]')) {
+      radio.checked = radio.value === (view?.atThreshold || "pause");
+      radio.disabled = accountBusy || saving;
+    }
+    const held = field("quota-held-all");
+    held.hidden = !(view?.heldUntil > Date.now());
+    held.textContent = held.hidden ? "" : `Every account has reached its limit. Work continues after ${stamp(view.heldUntil, true)}.`;
+    // The two check points, recalculated from the measured speed (answer 10); the normal
+    // 93% and 99% again once the speed is back down (answer 11).
+    const fast = view?.refreshIntervalMs && view.refreshIntervalMs < 5 * 60000;
+    const five = view?.actAt?.five_hour ?? view?.policy?.pausePercent ?? 93, week = view?.actAt?.seven_day ?? 99;
+    // At normal speed and the normal points the sentence is today's, word for word.
+    const normal = !fast && Math.floor(five) === (view?.policy?.pausePercent ?? 93) && Math.floor(week) === 99;
+    field("quota-checkpoints").textContent = normal
+      ? "Checks at app and session start, then every 5 minutes."
+      : `Usage is fast, so RichOS checks every minute and acts at ${Math.floor(five)}% of the five-hour window and ${Math.floor(week)}% of the weekly window.`;
+  }
+  async function accountCall(command, args, done) {
+    if (accountBusy) return;
+    accountBusy = true; field("quota-account-feedback").textContent = ""; render();
+    try { const next = await bridge.invoke(command, args); if (next && next.windows) view = next; if (done) done(next); }
+    catch (error) { field("quota-account-feedback").textContent = typeof error === "string" ? error : "That change could not be made. Nothing changed."; }
+    finally { accountBusy = false; if (!sheet.hidden) render(); }
+  }
+  function watchSignIn() {
+    clearInterval(signInTimer);
+    signInTimer = setInterval(async () => {
+      let answer = null;
+      try { answer = await bridge.invoke("claude_account_sign_in_poll", {}); } catch (_) {}
+      if (!answer || answer[1]?.state !== "connecting") {
+        clearInterval(signInTimer); signInTimer = null;
+        if (answer) field("quota-account-feedback").textContent = answer[1]?.state === "connected" ? "Signed in. Reading its allowance…" : (answer[1]?.message || "");
+        refresh(true);
+      }
+    }, 2000);
+  }
+  function accountAdd() {
+    const label = field("quota-account-label").value;
+    accountCall("claude_account_add", { label }, () => {
+      field("quota-account-label").value = "";
+      field("quota-account-new").hidden = true;
+      field("quota-account-feedback").textContent = "Account added. Finish the sign-in in your browser.";
+      watchSignIn();
+    });
+  }
+  function accountSignIn(id) {
+    accountCall("claude_account_sign_in", { id }, () => {
+      field("quota-account-feedback").textContent = "Finish the sign-in in your browser.";
+      watchSignIn();
+    });
+  }
+  function accountRemove(id) {
+    accountCall("claude_account_remove", { id }, () => { field("quota-account-feedback").textContent = "Account removed."; });
+  }
+  field("quota-account-add").addEventListener("click", accountAdd);
+  field("quota-account-start").addEventListener("click", () => {
+    field("quota-account-new").hidden = false; field("quota-account-feedback").textContent = ""; field("quota-accounts").hidden = false; field("quota-account-label").focus();
+  });
+  field("quota-account-cancel").addEventListener("click", () => {
+    field("quota-account-new").hidden = true; field("quota-account-label").value = ""; render(); field("quota-account-start").focus();
+  });
+  for (const radio of sheet.querySelectorAll('input[name="quota-at-threshold"]')) {
+    radio.addEventListener("change", () => radio.checked && accountCall("set_claude_at_threshold", { value: radio.value }));
+  }
+
   function render() {
     paintMenu();
     field("quota-refresh").disabled = busy || saving || !!(view?.retryAt > Date.now());
@@ -251,6 +382,7 @@
     field("quota-freshness").textContent = age ? `${stale() ? "Stale · last reading" : "Checked"} ${age} · every ${view.refreshIntervalMs / 60000} min` : "No current reading";
     field("quota-message").textContent = (view.message || "") + (view.retryAt > now ? ` Next refresh available in ${duration(view.retryAt - now)}.` : "");
     field("quota-message").hidden = !field("quota-message").textContent;
+    renderAccounts();
     renderWindows();
     renderResets();
     field("quota-enabled").setAttribute("aria-checked", String(view.policy.enabled));

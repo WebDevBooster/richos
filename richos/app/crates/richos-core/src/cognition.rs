@@ -77,6 +77,13 @@ pub trait LeaseFactory: Send {
         None
     }
 
+    /// **Fill-first** (`claude_accounts.rs`): the quota service that knows the accounts, the
+    /// account in use and the freshest readings. `None` — the default — means this factory
+    /// spawns every lease under the one account it has, and nothing is ever switched.
+    fn quota(&self) -> Option<Arc<crate::quota::Service>> {
+        None
+    }
+
     /// Spawn the SECOND lease — the background-work spec's work lease (§2.1).
     ///
     /// **It is a separate method rather than an argument, because the two leases differ in
@@ -207,6 +214,13 @@ pub struct CommandEnded {
 pub trait Cognition: Send {
     /// A stable identifier for the backing session (for the ledger's rotation record).
     fn session_id(&self) -> &str;
+
+    /// **Fill-first: the Claude account this lease runs under** (`claude_accounts.rs`). `None`
+    /// for a lease that cannot say, which is never rotated for an account switch.
+    fn account(&self) -> Option<&str> { None }
+    /// The latest usage reading this lease's own child streamed (`rate_limit_event`), and when.
+    /// Read before every turn so the switch decision uses the freshest figure there is.
+    fn streamed_usage(&self) -> Option<crate::quota::StreamedReading> { None }
 
     /// Scoped operational sessions cannot be reused for another thread.
     fn requires_thread_isolation(&self) -> bool { false }
