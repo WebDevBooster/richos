@@ -1,9 +1,9 @@
 {
   "version": "1.0.0",
   "build": "2",
-  "appId": null,
+  "appId": "6818948353",
   "policyURL": "https://updates.richos.ceo/v1/policy",
-  "supportURL": null,
+  "supportURL": "https://richos.ceo/support",
   "metrics": false,
   "universalHosts": []
 }

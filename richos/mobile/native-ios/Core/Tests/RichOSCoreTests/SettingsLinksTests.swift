@@ -43,9 +43,9 @@ import Testing
         #expect(AppLinks.appStore.absoluteString == "https://apps.apple.com/app/id\(AppLinks.appStoreID)")
     }
 
-    @Test func thePlaceholdersAreNamedUntilTheCEOFillsThem() {
-        // A release check refuses a build while this is not empty; today all three are stand-ins.
-        #expect(Set(AppLinks.placeholders) == ["privacyPolicy", "support", "appStoreID"])
+    @Test func releaseDestinationsHaveNoPlaceholders() {
+        #expect(AppLinks.placeholders.isEmpty)
+        #expect(AppLinks.appStoreID.contains { $0 != "0" })
     }
 
     @Test func theCommandLineNamesTheNewRows() throws {
