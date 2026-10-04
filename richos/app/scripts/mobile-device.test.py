@@ -543,6 +543,17 @@ if args[:4] == ["devicectl", "device", "process", "launch"]:
     json.dump({"result": {"process": {"processIdentifier": 4242}}}, open(args[args.index("--json-output") + 1], "w"))
     sys.exit(0)
 if args[:4] == ["devicectl", "device", "process", "terminate"]:
+    # The fake phone's processes ("procs": [[pid, path]]); only SIGKILL (--kill) ends AutomationModeUI, as measured.
+    pid = int(args[args.index("--pid") + 1])
+    if "--kill" in args and not state.get("ignores_kill"):
+        state["procs"] = [p for p in state.get("procs", []) if p[0] != pid]
+        json.dump(state, open(state_path, "w"))
+    sys.exit(0)
+if args[:4] == ["devicectl", "device", "info", "processes"]:
+    if state.get("procs_error"):
+        print(state["procs_error"], file=sys.stderr); sys.exit(1)
+    rows = [{"processIdentifier": p[0], "executable": "file://" + p[1]} for p in state.get("procs", [])]
+    json.dump({"result": {"runningProcesses": rows}}, open(args[args.index("--json-output") + 1], "w"))
     sys.exit(0)
 if args[:4] == ["devicectl", "device", "info", "details"]:
     json.dump({"result": {"connectionProperties": {"tunnelState": "connected", "transportType": "wired",
@@ -768,6 +779,71 @@ def _():
         ph.set(wifi="dead", reboot_fixes_wifi=False)
         p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).unlink()")
         assert p.returncode == 3 and flag.exists() and ph.reboots == 2, (p.returncode, p.stderr)
+
+
+AUTOMATION_UI = "/System/Library/PrivateFrameworks/AutomationMode.framework/AutomationModeUI.app/AutomationModeUI"
+OTHER_PROCS = [[455, "/private/var/containers/Bundle/Application/X/RichOSNative.app/RichOSNative"],
+               [553, "/usr/libexec/testmanagerd"],
+               [71, "/usr/libexec/backboardd"]]
+
+
+def terminations(ph):
+    log = Path(str(ph.file) + ".log")
+    return [c for c in (log.read_text().splitlines() if log.exists() else []) if " process terminate " in f" {c} "]
+
+
+@case("D35 ios-automation-end: iOS's AutomationModeUI (which keeps one stuck input client per UI-test session, 2026-10-04) is ended with SIGKILL and nothing else on the phone is touched; still running afterwards is an error")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        ph.set(procs=OTHER_PROCS + [[555, AUTOMATION_UI]])
+        run = lambda env: subprocess.run([sys.executable, str(PHYSICAL), "ios-automation-end", "--device",
+                                          "00000000-0000000000000000"], env=env, capture_output=True, text=True, timeout=60)
+        p = run({**ph.env, "RICHOS_DEVICE_VERB": "rios"})
+        assert p.returncode == 0 and json.loads(p.stdout)["result"] == {"ended": [555]}, (p.returncode, p.stdout, p.stderr)
+        assert terminations(ph) == ["devicectl device process terminate --pid 555 --kill --device 00000000-0000000000000000 "
+                                    "--json-output " + terminations(ph)[0].split("--json-output ")[1]], terminations(ph)
+        assert sorted(p[0] for p in json.loads(ph.file.read_text())["procs"]) == [71, 455, 553]
+        # Not running: nothing is ended, and that is fine.
+        p = run({**ph.env, "RICHOS_DEVICE_VERB": "rios"})
+        assert p.returncode == 0 and json.loads(p.stdout)["result"] == {"ended": []} and len(terminations(ph)) == 1
+        # It survives SIGKILL: an error naming it, never a silent pass.
+        ph.set(procs=OTHER_PROCS + [[556, AUTOMATION_UI]], ignores_kill=True)
+        p = run({**ph.env, "RICHOS_DEVICE_VERB": "rios"})
+        assert p.returncode == 2 and "pid 556" in p.stderr and "still running" in p.stderr, (p.returncode, p.stderr)
+        # Only through `rios device`.
+        p = run(ph.env)
+        assert p.returncode == 3 and "rios device" in p.stderr, (p.returncode, p.stderr)
+
+
+@case("D35b every hold of the iPhone ends AutomationModeUI before its command (a run killed outright left it) and after it, however the command ended, and keeps the command's exit")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        ph.set(procs=OTHER_PROCS + [[555, AUTOMATION_UI]])   # left by an earlier session nobody ended
+        seen = Path(tmp) / "seen.json"
+        # The command records what it found on the phone, starts a UI-test session (AutomationModeUI comes back) and fails.
+        body = (f"import json; p={str(ph.file)!r}; s=json.load(open(p)); open({str(seen)!r}, 'w').write(json.dumps(s['procs'])); "
+                f"s['procs'].append([600, {AUTOMATION_UI!r}]); json.dump(s, open(p, 'w')); raise SystemExit(7)")
+        p = ph.hold(body)
+        assert p.returncode == 7, (p.returncode, p.stderr)
+        assert [555, AUTOMATION_UI] not in json.loads(seen.read_text()), "the command ran on a phone still holding the stuck clients"
+        assert [t.split("--pid ")[1].split()[0] for t in terminations(ph) if "--kill" in t] == ["555", "600"], terminations(ph)
+        assert all(p[1] != AUTOMATION_UI for p in json.loads(ph.file.read_text())["procs"])
+        assert "before the run: ended iOS's AutomationModeUI (pid 555)" in p.stderr and "after the run: ended" in p.stderr, p.stderr
+
+
+@case("D35c the hold cannot read the phone's processes: the run is refused before it starts (it could be timing a clogged phone), and the phone is released")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = IPhone(tmp)
+        ph.set(procs_error="ERROR: The operation couldn't be completed.")
+        flag = Path(tmp) / "ran"
+        p = ph.hold(f"import pathlib; pathlib.Path({str(flag)!r}).write_text('x')")
+        assert p.returncode == 3 and not flag.exists() and "stuck input clients" in p.stderr, (p.returncode, p.stderr)
+        st = json.loads(subprocess.run([sys.executable, str(PHYSICAL), "status", "--platform", "ios", "--phone", "iphone"],
+                                       env=ph.env, capture_output=True, text=True).stdout)["result"]
+        assert st["state"] == "free", st
 
 
 def load_phone_ios():

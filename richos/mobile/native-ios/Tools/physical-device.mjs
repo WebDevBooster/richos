@@ -13,7 +13,7 @@
 // cache as before and is never published.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -415,17 +415,54 @@ print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment'
   const runnerOnly = command === 'verify' && selection === 'script' && env.RICHOS_PHYSICAL_RUNNER_ONLY === '1';
   prepareSpec({ products, spec, test: settings.test, record: config?.screenRecording === 'true', runnerOnly, config, env });
   const allowance = allowanceSeconds(config);
+  const testLog = log.replace('.log', '-test.log');
   try {
-    const tested = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'test-without-building',
+    const tested = await endedSession(() => runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'test-without-building',
       '-xctestrun', spec, '-destination', `id=${settings.device}`, '-resultBundlePath', result,
       '-test-timeouts-enabled', 'YES', '-maximum-test-execution-time-allowance', String(allowance)],
-    { log: log.replace('.log', '-test.log'), env, health, timeoutMs: (allowance + 60) * 1000, admission: true });
+    { log: testLog, env, health, timeoutMs: (allowance + 60) * 1000, admission: true }),
+    () => endAutomationUI(settings.device, env, testLog));
     if (tested.status !== 0) throw Error(`Physical check failed: ${result}. No retry attempted.`);
     const summary = JSON.parse(execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', result, '--format', 'json'], { encoding: 'utf8', env }));
     writeFileSync(result + '.summary.json', JSON.stringify(summary, null, 2));
     if (summary.passedTests !== 1 || summary.failedTests !== 0 || summary.skippedTests !== 0 || summary.totalTestCount !== 1) throw Error(`Selected physical check not proved: ${result}`);
-    return { passed: 1, result, log: build.log === null ? null : log, app, build };
+    return { passed: 1, result, log: build.log === null ? null : log, app, build, automationUI: tested.automationUI };
   } finally { rmSync(spec, { force: true }); }
+}
+
+// THE STUCK INPUT CLIENT (2026-10-04). A UI-test session on the iPhone leaves iOS's AutomationModeUI holding
+// one input connection it never reads again, even when xcodebuild ends normally; they pile up until the phone
+// stutters (23 on 2026-10-04, failing the speed check). Ending AutomationModeUI removes all of them; iOS starts
+// it again for the next session (measured; richos/mobile/physical.py "the input client"). So the session ends,
+// however it ends (passed, failed, timed out, interrupted), and then AutomationModeUI is ended. When that
+// cannot be done the check fails even if the session passed: what follows on the phone (a timed series)
+// would run on a clogged phone, and that must never be reported as slow code.
+export async function endedSession(session, end) {
+  let outcome, failure, ended, endFailure;
+  try { outcome = await session(); } catch (error) { failure = error; }
+  try { ended = end(); } catch (error) { endFailure = error; }
+  if (failure) {
+    if (endFailure) failure.message += `; and after it: ${endFailure.message}`;
+    throw failure;
+  }
+  if (endFailure) throw endFailure;
+  return { ...outcome, automationUI: ended };
+}
+
+// `physical.py ios-automation-end`: the one place that ends AutomationModeUI. The line goes into the session's log.
+export function endAutomationUI(device, env, log = null, run = spawnSync) {
+  const done = run('python3', ['-B', physicalTool, 'ios-automation-end', '--device', device],
+    { encoding: 'utf8', env, timeout: 300000 });
+  let parsed = null;
+  try { parsed = JSON.parse((done.status === 0 ? done.stdout : done.stderr) || ''); } catch { /* said below */ }
+  if (done.status !== 0 || !parsed?.ok) {
+    const why = parsed?.error || parsed?.refused || (done.stderr || done.stdout || '').trim() || `exit ${done.status}`;
+    const line = `After the UI-test session, iOS's AutomationModeUI could not be ended: ${why}. It keeps one stuck input client per session until the phone restarts`;
+    if (log) appendFileSync(log, `\n${line}\n`);
+    throw Error(line);
+  }
+  if (log) appendFileSync(log, `\nAfter the UI-test session: AutomationModeUI ${parsed.result.ended.length ? `ended (pid ${parsed.result.ended.join(', ')}), and with it its stuck input clients` : 'was not running'}\n`);
+  return parsed.result;
 }
 
 // The session's test specification: the runner's environment and paths rewritten, nothing else. Private config is

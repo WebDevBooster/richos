@@ -316,3 +316,49 @@ open(sys.argv[1],'wb').write(plistlib.dumps({'RichOSNativeUITests':t}))`;
     assert.deepEqual(runner.OnlyTestIdentifiers, ['PhysicalDeviceTests/testScript']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// 2026-10-04: every UI-test session left iOS's AutomationModeUI holding one stuck input client; 23 of them made
+// the test iPhone stutter and fail the speed check. Each session now ends with AutomationModeUI ended, however
+// the session itself ended, and a session after which it could not be ended does not pass.
+test('every UI-test session on the phone ends with AutomationModeUI ended, however it ends, and fails when it cannot be', async () => {
+  const mod = await import('./physical-device.mjs');
+  assert.equal(typeof mod.endedSession, 'function', 'the session end exists');
+  assert.equal(typeof mod.endAutomationUI, 'function', 'the AutomationModeUI end exists');
+  let ends = 0;
+  const end = () => { ends += 1; return { ended: [555] }; };
+  // passed
+  assert.deepEqual(await mod.endedSession(async () => ({ status: 0, signal: null }), end), { status: 0, signal: null, automationUI: { ended: [555] } });
+  // failed (xcodebuild exit 65): still ended, and the status is the caller's to judge
+  assert.equal((await mod.endedSession(async () => ({ status: 65 }), end)).status, 65);
+  // timed out or interrupted (runDeviceProcess rejects): still ended, and the session's own error stands
+  await assert.rejects(mod.endedSession(async () => { throw Error('Device test exceeded its time limit'); }, end), /exceeded its time limit/);
+  await assert.rejects(mod.endedSession(async () => { throw Error('Device test interrupted'); }, end), /interrupted/);
+  assert.equal(ends, 4, 'AutomationModeUI is ended after every one of the four sessions');
+  // a passed session after which AutomationModeUI could not be ended does not pass
+  const cannot = () => { throw Error("iOS's AutomationModeUI could not be ended: still running"); };
+  await assert.rejects(mod.endedSession(async () => ({ status: 0 }), cannot), /could not be ended/);
+  await assert.rejects(mod.endedSession(async () => { throw Error('Device test interrupted'); }, cannot), /interrupted; and after it: .*could not be ended/);
+
+  // The one place that ends it is physical.py ios-automation-end, and its line goes into the session's log.
+  const dir = mkdtempSync(join(tmpdir(), 'automation-end-'));
+  try {
+    const log = join(dir, 'test.log');
+    writeFileSync(log, '');
+    const calls = [];
+    const ok = (cmd, args) => { calls.push([cmd, ...args]); return { status: 0, stdout: JSON.stringify({ ok: true, result: { ended: [555] } }), stderr: '' }; };
+    assert.deepEqual(mod.endAutomationUI('00008030-000A1234', {}, log, ok), { ended: [555] });
+    assert.equal(calls[0][0], 'python3');
+    assert.ok(calls[0][2].endsWith('/richos/mobile/physical.py'), calls[0][2]);
+    assert.deepEqual(calls[0].slice(3), ['ios-automation-end', '--device', '00008030-000A1234']);
+    assert.match(readFileSync(log, 'utf8'), /AutomationModeUI ended \(pid 555\)/);
+    const refused = () => ({ status: 2, stdout: '', stderr: JSON.stringify({ ok: false, error: 'AutomationModeUI (pid 555) is still running after SIGKILL' }) });
+    assert.throws(() => mod.endAutomationUI('00008030-000A1234', {}, log, refused), /could not be ended: AutomationModeUI \(pid 555\) is still running/);
+    assert.match(readFileSync(log, 'utf8'), /could not be ended/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+
+  // main's one UI-test session (xcodebuild test-without-building) runs inside endedSession.
+  const source = readFileSync(fileURLToPath(new URL('./physical-device.mjs', import.meta.url)), 'utf8');
+  const sessions = source.match(/'test-without-building'/g) || [];
+  assert.equal(sessions.length, 1, 'one place starts a UI-test session');
+  assert.match(source, /endedSession\(\(\) => runDeviceProcess\('python3', \['-B', native, '--', 'xcodebuild', 'test-without-building'/);
+});
