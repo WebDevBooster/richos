@@ -18,6 +18,50 @@ pub mod reset_transport;
 pub mod reset_tools;
 
 pub const REFRESH_INTERVAL_MS: u64 = 5 * 60_000;
+
+/// **When usage speeds up a lot, the quota is checked every 2 minutes instead of 5** (the
+/// CEO's ruling §108, 2026-10-04: 15 parallel Fable workers took the five-hour window past the
+/// 93% pause to 100% between two five-minute checks).
+pub const FAST_REFRESH_INTERVAL_MS: u64 = 2 * 60_000;
+
+/// **"Speeds up a lot", as a number:** a window gaining 5 percentage points or more per
+/// five-minute check, i.e. 1 point a minute. That is 3x the even pace of a five-hour window
+/// (100 points / 300 minutes = 0.33 a minute) and it is the speed at which one ordinary check
+/// interval eats most of the 7 points between the 93% rule and the wall. The episode §108
+/// names went 93 -> 100 inside one check: at least 7 points in 5 minutes = 1.4 a minute.
+pub const FAST_POINTS_PER_CHECK: f64 = 5.0;
+
+/// The shortest gap two readings of one window must have before a speed is taken from them.
+/// Turn-by-turn streamed readings can be seconds apart, and a speed from a 2-second gap is noise.
+const SPEED_MIN_GAP_MS: u64 = 30_000;
+
+/// One account's freshest reading: its windows and each window's measured speed.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Reading {
+    pub windows: Vec<Window>,
+    /// Window id -> percentage points per millisecond, from the last two readings of that
+    /// same window (same reset time). Absent until two readings far enough apart exist.
+    pub speeds: BTreeMap<String, f64>,
+}
+impl Reading {
+    /// Is usage fast enough to check every 2 minutes (§108)?
+    pub fn fast(&self) -> bool {
+        self.speeds.values().any(|s| s * REFRESH_INTERVAL_MS as f64 >= FAST_POINTS_PER_CHECK)
+    }
+    /// The gap to the next check: 2 minutes when fast, 5 otherwise.
+    pub fn interval(&self) -> u64 {
+        if self.fast() { FAST_REFRESH_INTERVAL_MS } else { REFRESH_INTERVAL_MS }
+    }
+    /// What this window will read at the next check, at its measured speed.
+    pub fn projected(&self, window: &Window) -> f64 {
+        window.used_percent + self.speeds.get(&window.id).copied().unwrap_or(0.) * self.interval() as f64
+    }
+    /// **Act now?** At the threshold at normal speed; EARLIER when the measured speed would
+    /// carry the window to 100% before the next check could act (§108: never at 100%).
+    pub fn reaches(&self, window: &Window, threshold: f64) -> bool {
+        window.used_percent >= threshold || self.projected(window) >= 100.
+    }
+}
 pub const RESET_EXEMPTION_MS: u64 = 20 * 60_000;
 pub const BACKOFF_MS: u64 = 600_000;
 
@@ -107,6 +151,11 @@ pub struct View {
     /// The setting for the five-hour threshold: Pause (default) or Switch.
     #[serde(default)]
     pub at_threshold: crate::claude_accounts::AtThreshold,
+    /// Each window's measured speed, percentage points per millisecond (§108). Published so
+    /// the separate-process gate projects exactly as this process does; `refreshIntervalMs`
+    /// above reads 120000 while it is fast.
+    #[serde(default)]
+    pub speeds: BTreeMap<String, f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -226,19 +275,68 @@ struct Snapshot {
     checked_at: Option<u64>,
     retry_at: Option<u64>,
     error: Option<ReadError>,
+    /// Each window's measured speed (§108), kept across readings of the same window.
+    speeds: BTreeMap<String, f64>,
+    /// Each window's speed base: the reading the next speed is measured from.
+    bases: BTreeMap<String, SpeedBase>,
 }
+
+/// One window's reading as a speed base: used percent, its reset time, and when it was read.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SpeedBase { used: f64, resets_at: Option<u64>, at: u64 }
+
 impl Snapshot {
+    /// Measure each window's speed against its base, a reading of the SAME window (same reset
+    /// time) at least `SPEED_MIN_GAP_MS` earlier. A new window starts again with no speed.
+    fn measure(&mut self, windows: &[Window], observed: u64) {
+        for window in windows {
+            let fresh = SpeedBase { used: window.used_percent, resets_at: window.resets_at, at: observed };
+            match self.bases.get(&window.id).copied() {
+                Some(base) if base.resets_at == window.resets_at => {
+                    if observed >= base.at + SPEED_MIN_GAP_MS {
+                        let gained = (window.used_percent - base.used).max(0.);
+                        self.speeds.insert(window.id.clone(), gained / (observed - base.at) as f64);
+                        self.bases.insert(window.id.clone(), fresh);
+                    }
+                }
+                _ => {
+                    self.speeds.remove(&window.id);
+                    self.bases.insert(window.id.clone(), fresh);
+                }
+            }
+        }
+    }
+    fn reading(&self) -> Reading {
+        Reading { windows: self.windows.clone(), speeds: self.speeds.clone() }
+    }
     fn accept(&mut self, mut windows: Vec<Window>, observed: u64) {
+        self.measure(&windows, observed);
         // Missing weekly data is not evidence that a known weekly hold ended.
         let missing_held_weekly = (!windows.iter().any(|w| w.id == "seven_day"))
             .then(|| self.windows.iter().find(|w| w.id == "seven_day"
                 && w.used_percent >= resets::WEEKLY_THRESHOLD).cloned()).flatten();
         let error = missing_held_weekly.as_ref().map(|_| ReadError::Malformed);
         if let Some(previous) = missing_held_weekly { windows.push(previous); }
-        *self = Self { windows, checked_at: Some(observed), retry_at: None, error };
+        let speeds = std::mem::take(&mut self.speeds);
+        let bases = std::mem::take(&mut self.bases);
+        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases };
+    }
+    /// **A reading the lease itself streamed** (`rate_limit_event`), merged window by window
+    /// over the probe's. It never clears a probe error or its backoff; it only adds what it saw.
+    fn observe(&mut self, windows: &[Window], observed: u64) {
+        if self.checked_at.is_some_and(|t| observed <= t) { return; }
+        self.measure(windows, observed);
+        for window in windows {
+            match self.windows.iter_mut().find(|w| w.id == window.id) {
+                Some(existing) => *existing = window.clone(),
+                None => self.windows.push(window.clone()),
+            }
+        }
+        self.checked_at = Some(observed);
     }
     fn view(&self, policy: Policy, now: u64) -> View {
-        let interval = REFRESH_INTERVAL_MS;
+        let reading = self.reading();
+        let interval = reading.interval();
         let expired = self
             .windows
             .iter()
@@ -260,26 +358,33 @@ impl Snapshot {
         } else if self.checked_at.is_none_or(|t| t > now) {
             Admission::Unknown
         } else if let Some(until) = self.windows.iter()
-            .filter(|w| w.id == "seven_day" && w.used_percent >= resets::WEEKLY_THRESHOLD)
+            .filter(|w| w.id == "seven_day" && reading.reaches(w, resets::WEEKLY_THRESHOLD))
             .filter_map(|w| w.resets_at.filter(|t| *t > now)).max() {
             // Weekly exhaustion never inherits the five-hour 20-minute exception.
             // An approval is not allowance: hold until a fresh post-reset reading.
             Admission::Held { resets_at: until }
         } else if self.windows.iter().any(|w| w.id == "seven_day"
-            && w.used_percent >= resets::WEEKLY_THRESHOLD) {
+            && reading.reaches(w, resets::WEEKLY_THRESHOLD)) {
             Admission::Unknown // Expired or unreadable weekly reset needs a new reading.
         } else {
+            // §108: at normal speed the 93% rule exactly as before; at a measured fast speed
+            // the pause comes EARLIER, when the next check would already find 100%. The
+            // 20-minute exception still lets work continue near a reset, but only when the
+            // measured speed would not carry the window to 100% before that reset.
+            let speed = |w: &Window| reading.speeds.get(&w.id).copied().unwrap_or(0.);
             match self.windows.iter().find(|w| w.id == "five_hour") {
                 Some(w)
-                    if w.used_percent >= f64::from(policy.pause_percent)
+                    if reading.reaches(w, f64::from(policy.pause_percent))
                         && w.resets_at
-                            .is_some_and(|t| t > now && t - now < RESET_EXEMPTION_MS) =>
+                            .is_some_and(|t| t > now && t - now < RESET_EXEMPTION_MS
+                                && (speed(w) == 0.
+                                    || w.used_percent + speed(w) * ((t - now) as f64) < 100.)) =>
                 {
                     Admission::Ready
                 }
                 // Within the same window, a stale above-threshold value still proves a hold.
                 Some(w)
-                    if w.used_percent >= f64::from(policy.pause_percent)
+                    if reading.reaches(w, f64::from(policy.pause_percent))
                         && w.resets_at.is_some_and(|t| t > now) =>
                 {
                     Admission::Held {
@@ -310,6 +415,7 @@ impl Snapshot {
             accounts: Vec::new(),
             held_until: None,
             at_threshold: Default::default(),
+            speeds: self.speeds.clone(),
         }
     }
 }
@@ -333,8 +439,6 @@ pub struct Service {
     /// are Account 1's, exactly as before; every added account has its own pair here.
     pub accounts: std::sync::Arc<crate::claude_accounts::Accounts>,
     extra: Mutex<BTreeMap<String, AccountReader>>,
-    /// The freshest reading a lease streamed for its account (`rate_limit_event`), and when.
-    stream: Mutex<BTreeMap<String, StreamedReading>>,
 }
 
 /// An added account's own probe and its last reading.
@@ -399,7 +503,6 @@ impl Service {
             refresh_wake: std::sync::Condvar::new(),
             accounts: std::sync::Arc::new(crate::claude_accounts::Accounts::open(data_dir)?),
             extra: Mutex::new(BTreeMap::new()),
-            stream: Mutex::new(BTreeMap::new()),
         };
         service.publish()?;
         Ok(service)
@@ -452,8 +555,8 @@ impl Service {
                     self.extra.lock().unwrap().get(&account.id).map(|(_, s)| s.view(policy.clone(), now))
                         .unwrap_or_else(|| Snapshot::default().view(policy.clone(), now))
                 };
-                let exhausted = crate::claude_accounts::exhausted(
-                    readings.get(&account.id).map(Vec::as_slice).unwrap_or(&[]), view.at_threshold,
+                let exhausted = crate::claude_accounts::gone(
+                    readings.get(&account.id).unwrap_or(&Reading::default()), view.at_threshold,
                     policy.pause_percent, self.accounts.limited_until(&account.id), now);
                 crate::claude_accounts::AccountView {
                     in_use: account.id == in_use.id,
@@ -473,44 +576,39 @@ impl Service {
         view
     }
 
-    /// Every account's freshest windows: the probe's, overlaid by the lease's own streamed
-    /// `rate_limit_event` reading wherever that is newer.
-    fn readings(&self) -> BTreeMap<String, Vec<Window>> {
+    /// Every account's freshest reading (probe and streamed, merged in its snapshot), with
+    /// each window's measured speed. Only accounts that have been read appear.
+    fn readings(&self) -> BTreeMap<String, Reading> {
         let mut readings = BTreeMap::new();
         {
             let one = self.snapshot.lock().unwrap();
             if one.checked_at.is_some() {
-                readings.insert(crate::claude_accounts::ACCOUNT_ONE.to_string(), (one.windows.clone(), one.checked_at));
+                readings.insert(crate::claude_accounts::ACCOUNT_ONE.to_string(), one.reading());
             }
         }
         for (id, (_, snapshot)) in self.extra.lock().unwrap().iter() {
             if snapshot.checked_at.is_some() {
-                readings.insert(id.clone(), (snapshot.windows.clone(), snapshot.checked_at));
+                readings.insert(id.clone(), snapshot.reading());
             }
         }
-        for (id, (windows, observed)) in self.stream.lock().unwrap().iter() {
-            let entry = readings.entry(id.clone()).or_insert_with(|| (Vec::new(), None));
-            if entry.1.is_none_or(|probe| *observed >= probe) {
-                for window in windows {
-                    match entry.0.iter_mut().find(|w| w.id == window.id) {
-                        Some(existing) => *existing = window.clone(),
-                        None => entry.0.push(window.clone()),
-                    }
-                }
-            }
-        }
-        readings.into_iter().map(|(id, (windows, _))| (id, windows)).collect()
+        readings
     }
 
-    /// **Before EVERY turn** (the CEO's correction, 2026-10-04): record the reading the lease
-    /// on `account` streamed, if any, decide on the freshest readings whether the account in
-    /// use must be left, and return the account that is in use now. The caller rotates its
-    /// lease when that is not `account`; this is a turn boundary, so rotating is legal.
-    pub fn before_turn(&self, account: &str, streamed: Option<(Vec<Window>, u64)>) -> String {
-        if let Some(reading) = streamed {
-            self.stream.lock().unwrap().insert(account.to_string(), reading);
+    /// **Before EVERY turn** (the CEO's correction, 2026-10-04): merge the reading the lease
+    /// on `account` streamed, if any (it is fresher than the five-minute probe), decide on the
+    /// freshest readings whether the account in use must be left, and return the account that
+    /// is in use now. The caller rotates its lease when that is not `account`; this is a turn
+    /// boundary, so rotating is legal.
+    pub fn before_turn(&self, account: &str, streamed: Option<StreamedReading>) -> String {
+        if let Some((windows, observed)) = streamed {
+            if account == crate::claude_accounts::ACCOUNT_ONE {
+                self.snapshot.lock().unwrap().observe(&windows, observed);
+            } else if let Some((_, snapshot)) = self.extra.lock().unwrap().get_mut(account) {
+                snapshot.observe(&windows, observed);
+            }
         }
         self.decide();
+        let _best_effort = self.publish();
         self.accounts.in_use().id
     }
 
@@ -549,7 +647,6 @@ impl Service {
     pub fn remove_account(&self, id: &str) -> io::Result<View> {
         self.accounts.remove(id)?;
         self.extra.lock().unwrap().remove(id);
-        self.stream.lock().unwrap().remove(id);
         let _best_effort = self.publish();
         Ok(self.view())
     }
@@ -908,6 +1005,69 @@ pub(crate) mod tests {
             Err(ReadError::Malformed)
         );
     }
+    // ---- §108: the speed of use -------------------------------------------------------
+
+    fn five_hour_at(used: f64) -> Vec<Window> {
+        snapshot(used, 3 * 3_600_000).windows
+    }
+
+    /// **§108: when usage speeds up a lot, the quota is checked every 2 minutes instead of 5.**
+    /// "A lot" is 5 points or more per five-minute check (1 point a minute, 3x a five-hour
+    /// window's even pace). 50% -> 51% in one minute is exactly that; 50% -> 50.2% is not.
+    #[test]
+    fn fast_usage_is_checked_every_two_minutes_and_normal_usage_every_five() {
+        let mut fast = Snapshot::default();
+        fast.accept(five_hour_at(50.), NOW);
+        fast.accept(five_hour_at(51.), NOW + 60_000);
+        let view = fast.view(policy(), NOW + 60_000);
+        assert_eq!(view.refresh_interval_ms, FAST_REFRESH_INTERVAL_MS);
+        assert_eq!(view.next_check_at, Some(NOW + 60_000 + 2 * 60_000));
+        assert_eq!(view.state, State::Fresh);
+
+        let mut normal = Snapshot::default();
+        normal.accept(five_hour_at(50.), NOW);
+        normal.accept(five_hour_at(50.2), NOW + 60_000);
+        let view = normal.view(policy(), NOW + 60_000);
+        assert_eq!(view.refresh_interval_ms, REFRESH_INTERVAL_MS);
+        assert_eq!(view.next_check_at, Some(NOW + 60_000 + 5 * 60_000));
+        // A reading of a NEW window (another reset time) starts again with no speed.
+        normal.accept(snapshot(1., 5 * 3_600_000).windows, NOW + 120_000);
+        assert!(normal.speeds.is_empty());
+    }
+
+    /// **§108's case: 15 parallel Fable workers.** The five-hour window gains 6 points a
+    /// minute. At 87% the next check (2 minutes away, because this is fast) would read
+    /// 87 + 12 = 99%: under 100, so work continues and that check comes before the wall. At 89%
+    /// it would read 101%, so the pause comes NOW, at 89%, before the 93% line — and the
+    /// separate-process gate, reading the published file, agrees. At normal speed nothing
+    /// changes: 92.9% is still Ready.
+    #[test]
+    fn a_fast_five_hour_burn_pauses_before_93_percent_so_the_next_check_stays_under_100() {
+        let mut s = Snapshot::default();
+        s.accept(five_hour_at(81.), NOW);
+        s.accept(five_hour_at(87.), NOW + 60_000);
+        let reading = s.reading();
+        assert!(reading.fast());
+        assert!(reading.projected(&s.windows[0]) < 100.);
+        assert_eq!(s.view(policy(), NOW + 60_000).admission, Admission::Ready);
+        // 20 s later: too soon for a new speed, so 6 points a minute still stands.
+        s.accept(five_hour_at(89.), NOW + 80_000);
+        assert!(s.reading().projected(&s.windows[0]) >= 100.);
+        assert!(matches!(s.view(policy(), NOW + 80_000).admission, Admission::Held { .. }), "paused at 89%, before 93%");
+        // The published file carries the speed, so the gate decides the same.
+        let dir = Scratch::new();
+        let published = s.view(policy(), NOW + 80_000);
+        let state = dir.path().join("engine-state");
+        atomic_write(&state.join("claude-quota.json"), &published).unwrap();
+        atomic_write(&dir.path().join("claude-quota-policy.json"), &policy()).unwrap();
+        assert!(matches!(gate::admission(&state, NOW + 80_000), Admission::Held { .. }));
+        // Normal speed: the 93% rule exactly as before.
+        let mut calm = Snapshot::default();
+        calm.accept(five_hour_at(92.8), NOW);
+        calm.accept(five_hour_at(92.9), NOW + 60_000);
+        assert_eq!(calm.view(policy(), NOW + 60_000).admission, Admission::Ready);
+    }
+
     // ---- fill-first: several accounts, read by fake `claude` scripts -------------------
 
     /// A fake `claude` that answers `get_usage` with the figures in `usage.json` of the
@@ -963,7 +1123,7 @@ for line in sys.stdin:
         assert_eq!(view.windows[0].used_percent, 10., "the published reading is the account in use");
         assert!(view.accounts[1].in_use && !view.accounts[0].in_use);
         assert_eq!(service.accounts.take_notice().as_deref(),
-            Some("Switched to Work: Account 1 reached 93% of its five-hour limit."));
+            Some("Switched to Work: Account 1 is at 93% of its five-hour limit."));
         let published: View = gate::read_json(&root.path().join("engine-state/claude-quota.json")).unwrap();
         assert_eq!(published.windows[0].used_percent, 10.);
     }

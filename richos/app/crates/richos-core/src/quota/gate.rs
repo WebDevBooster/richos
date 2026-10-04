@@ -46,6 +46,8 @@ pub(super) fn admission(state: &Path, now: u64) -> Admission {
         checked_at: view.checked_at,
         retry_at: view.retry_at,
         error: view.message.map(|_| ReadError::Failed),
+        speeds: view.speeds,
+        ..Default::default()
     }
     .view(policy, now)
     .admission

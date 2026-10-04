@@ -12,25 +12,25 @@
 //!   so a lease on it inherits the app's environment exactly as before, and a user with one
 //!   subscription sees no change.
 //! - **Staying is fill-first:** the account in use stays in use until it must be left.
-//! - **Left BEFORE the wall, never at it** (the CEO's correction, 2026-10-04: preventing a
-//!   cut-off is the whole job of this feature). An account is left at a turn boundary while it
-//!   still has room: at the pause threshold (93% by default) of its weekly window, and at the
-//!   same threshold of its five-hour window when the setting is Switch (his answer 2). The
-//!   freshest reading is used: the `rate_limit_event` the lease itself streamed, when it is
-//!   newer than the five-minute probe.
+//! - **Left BEFORE the wall, never at it** (plan §15 answers 6-8; ruling §108). An account is
+//!   left at a turn boundary, checked before EVERY turn from the freshest reading (the
+//!   `rate_limit_event` the lease itself streamed when that is newer than the probe):
+//!   - at normal speed, at **99% of its weekly window** (`resets::WEEKLY_THRESHOLD`), and at
+//!     the pause threshold (**93%**) of its five-hour window when the setting is Switch (his
+//!     answer 2; with Pause the five-hour window holds the workers exactly as before);
+//!   - when usage speeds up a lot, EARLIER: whenever the measured speed would carry a window
+//!     to 100% before the next check, which is then 2 minutes away instead of 5
+//!     (`quota::Reading`).
 //! - **Choosing the next** (his answer 1): the one whose weekly window resets soonest, among
 //!   accounts with room. No list-order option and no setting for it.
-//! - **Exhausted** is the wall itself: weekly at 99% (`resets::WEEKLY_THRESHOLD`, the existing
-//!   weekly hold), the five-hour threshold with Switch, or a refusal by a usage limit (the
-//!   mid-turn backstop). When the account in use must be left and no other account is below
-//!   the threshold, it stays in use until it is exhausted; only then does an account that is
-//!   above the threshold but not exhausted take over; and only when every account is exhausted
-//!   is work held, until the soonest reset among them (Frank's finding 2).
+//! - **All accounts gone:** work is held until the soonest reset among them (Frank's
+//!   finding 2). A usage-limit refusal inside a turn (the backstop, for one turn that by itself
+//!   uses up what remained) marks its account gone until its reset.
 //!
 //! This file decides and records; it spawns nothing. The quota service and the turn boundaries
 //! call [`Accounts::evaluate`]; the lease factory reads [`Accounts::in_use`]; the spine and the
 //! work host call [`Accounts::limit_reached`] when a lease is cut by a limit anyway.
-use crate::quota::Window;
+use crate::quota::{Reading, Window};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -106,41 +106,37 @@ pub struct AccountView {
     pub message: Option<String>,
 }
 
-/// Why an account is being left, for the one-line notice.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why an account is being left, for the one-line notice, with the figure it was read at.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Gone {
-    Weekly,
-    FiveHour,
+    Weekly(f64),
+    FiveHour(f64),
     Limit,
 }
 
-/// Must the account in use be LEFT at this boundary, and until when? At `pause_percent` of
-/// either window (five-hour only with Switch), or after a usage-limit refusal.
-pub fn leave(windows: &[Window], at_threshold: AtThreshold, pause_percent: u8, limited_until: Option<u64>, now: u64) -> Option<(Gone, u64)> {
-    reached(windows, at_threshold, pause_percent, f64::from(pause_percent), limited_until, now)
-}
-
-/// Is the account at the wall? Weekly at 99% (the existing weekly hold's threshold), the
-/// five-hour threshold with Switch, or a usage-limit refusal that has not reset.
-pub fn exhausted(windows: &[Window], at_threshold: AtThreshold, pause_percent: u8, limited_until: Option<u64>, now: u64) -> Option<(Gone, u64)> {
-    reached(windows, at_threshold, pause_percent, crate::quota::resets::WEEKLY_THRESHOLD, limited_until, now)
-}
-
-fn reached(windows: &[Window], at_threshold: AtThreshold, pause_percent: u8, weekly_at: f64, limited_until: Option<u64>, now: u64) -> Option<(Gone, u64)> {
+/// **Must this account be left (or, with no account left, held), and until when?**
+/// - weekly at 99% at normal speed (§108), or EARLIER when its measured speed would carry it
+///   to 100% before the next check (`Reading::reaches`);
+/// - with the setting on Switch, the five-hour window at the pause threshold (93%), or
+///   earlier by the same projection;
+/// - a usage-limit refusal that has not reset (the backstop).
+pub fn gone(reading: &Reading, at_threshold: AtThreshold, pause_percent: u8, limited_until: Option<u64>, now: u64) -> Option<(Gone, u64)> {
     if let Some(until) = limited_until.filter(|t| *t > now) {
         return Some((Gone::Limit, until));
     }
-    if let Some(weekly) = windows.iter().find(|w| w.id == "seven_day" && w.used_percent >= weekly_at) {
+    if let Some(weekly) = reading.windows.iter().find(|w| w.id == "seven_day"
+        && reading.reaches(w, crate::quota::resets::WEEKLY_THRESHOLD)) {
         match weekly.resets_at {
-            Some(t) if t > now => return Some((Gone::Weekly, t)),
+            Some(t) if t > now => return Some((Gone::Weekly(weekly.used_percent), t)),
             Some(_) => {}
-            None => return Some((Gone::Weekly, now + crate::quota::REFRESH_INTERVAL_MS)),
+            None => return Some((Gone::Weekly(weekly.used_percent), now + crate::quota::REFRESH_INTERVAL_MS)),
         }
     }
     if at_threshold == AtThreshold::Switch {
-        if let Some(five) = windows.iter().find(|w| w.id == "five_hour" && w.used_percent >= f64::from(pause_percent)) {
+        if let Some(five) = reading.windows.iter().find(|w| w.id == "five_hour"
+            && reading.reaches(w, f64::from(pause_percent))) {
             if let Some(t) = five.resets_at.filter(|t| *t > now) {
-                return Some((Gone::FiveHour, t));
+                return Some((Gone::FiveHour(five.used_percent), t));
             }
         }
     }
@@ -148,15 +144,15 @@ fn reached(windows: &[Window], at_threshold: AtThreshold, pause_percent: u8, wee
 }
 
 /// The weekly reset of an account with room, for the "soonest first" order.
-fn weekly_reset(windows: &[Window]) -> u64 {
-    windows.iter().find(|w| w.id == "seven_day").and_then(|w| w.resets_at).unwrap_or(u64::MAX)
+fn weekly_reset(reading: &Reading) -> u64 {
+    reading.windows.iter().find(|w| w.id == "seven_day").and_then(|w| w.resets_at).unwrap_or(u64::MAX)
 }
 
 /// **His answer 1:** among the candidates (accounts with room), the one whose weekly window
 /// resets soonest. Ties keep list order.
-pub fn next_account<'a>(candidates: impl IntoIterator<Item = (&'a str, &'a [Window])>) -> Option<&'a str> {
+pub fn next_account<'a>(candidates: impl IntoIterator<Item = (&'a str, &'a Reading)>) -> Option<&'a str> {
     candidates.into_iter().enumerate()
-        .min_by_key(|(order, (_, windows))| (weekly_reset(windows), *order))
+        .min_by_key(|(order, (_, reading))| (weekly_reset(reading), *order))
         .map(|(_, (id, _))| id)
 }
 
@@ -283,7 +279,7 @@ impl Accounts {
         Ok(())
     }
 
-    fn switch_to(&self, state: &mut Stored, to: &str, why: Gone, pause_percent: u8) -> io::Result<()> {
+    fn switch_to(&self, state: &mut Stored, to: &str, why: Gone) -> io::Result<()> {
         let from = state.accounts.iter().find(|a| a.id == state.in_use).map(|a| a.label.clone()).unwrap_or_default();
         let to_label = state.accounts.iter().find(|a| a.id == to).map(|a| a.label.clone()).unwrap_or_default();
         let mut next = state.clone();
@@ -291,8 +287,8 @@ impl Accounts {
         self.save(&next)?;
         *state = next;
         let reason = match why {
-            Gone::Weekly => format!("reached {pause_percent}% of its weekly limit"),
-            Gone::FiveHour => format!("reached {pause_percent}% of its five-hour limit"),
+            Gone::Weekly(used) => format!("is at {}% of its weekly limit", used.floor()),
+            Gone::FiveHour(used) => format!("is at {}% of its five-hour limit", used.floor()),
             Gone::Limit => "reached a usage limit".to_string(),
         };
         *self.notice.lock().unwrap() = Some(format!("Switched to {to_label}: {from} {reason}."));
@@ -304,37 +300,31 @@ impl Accounts {
     /// probe. Returns whether the account in use changed. Running leases are NOT touched here:
     /// each one rotates at its own next turn boundary, because rotation never happens inside a
     /// turn (`spine.rs`).
-    pub fn evaluate(&self, readings: &BTreeMap<String, Vec<Window>>, pause_percent: u8, now: u64) -> io::Result<bool> {
+    pub fn evaluate(&self, readings: &BTreeMap<String, Reading>, pause_percent: u8, now: u64) -> io::Result<bool> {
         let mut state = self.state.lock().unwrap();
         if state.accounts.len() < 2 { return Ok(false); }
         let current = state.in_use.clone();
         let at = state.at_threshold;
         let limited: BTreeMap<String, u64> = state.limited_until.clone();
         let limit = |id: &str| limited.get(id).copied();
-        let empty = Vec::new();
+        let empty = Reading::default();
         let mine = readings.get(&current).unwrap_or(&empty);
-        let Some((why, _)) = leave(mine, at, pause_percent, limit(&current), now) else { return Ok(false) };
-        let others: Vec<(&str, &[Window])> = state.accounts.iter().filter(|a| a.id != current)
-            .filter_map(|a| readings.get(&a.id).map(|w| (a.id.as_str(), w.as_slice()))).collect();
-        let mut next = next_account(others.iter().copied()
-            .filter(|(id, w)| leave(w, at, pause_percent, limit(id), now).is_none()));
-        // Nobody below the threshold: stay until the wall, then take anyone not at it.
-        if next.is_none() && exhausted(mine, at, pause_percent, limit(&current), now).is_some() {
-            next = next_account(others.iter().copied()
-                .filter(|(id, w)| exhausted(w, at, pause_percent, limit(id), now).is_none()));
-        }
+        let Some((why, _)) = gone(mine, at, pause_percent, limit(&current), now) else { return Ok(false) };
+        let next = next_account(state.accounts.iter().filter(|a| a.id != current)
+            .filter_map(|a| readings.get(&a.id).map(|r| (a.id.as_str(), r)))
+            .filter(|(id, r)| gone(r, at, pause_percent, limit(id), now).is_none()));
         let Some(next) = next.map(str::to_string) else { return Ok(false) };
-        self.switch_to(&mut state, &next, why, pause_percent)?;
+        self.switch_to(&mut state, &next, why)?;
         Ok(true)
     }
 
     /// **The backstop.** A lease on `account` was refused by a usage limit inside a turn. The
-    /// account is marked exhausted until `resets_at` (or, when the refusal did not say, until
-    /// the latest reset of its full windows), and the next account with room is put in use.
-    pub fn limit_reached(&self, account: &str, resets_at: Option<u64>, readings: &BTreeMap<String, Vec<Window>>, pause_percent: u8, now: u64) -> io::Result<AfterLimit> {
+    /// account is marked gone until `resets_at` (or, when the refusal did not say, until the
+    /// latest reset of its full windows), and the next account with room is put in use.
+    pub fn limit_reached(&self, account: &str, resets_at: Option<u64>, readings: &BTreeMap<String, Reading>, pause_percent: u8, now: u64) -> io::Result<AfterLimit> {
         {
             let mut state = self.state.lock().unwrap();
-            let until = resets_at.filter(|t| *t > now).or_else(|| readings.get(account).and_then(|w| w.iter()
+            let until = resets_at.filter(|t| *t > now).or_else(|| readings.get(account).and_then(|r| r.windows.iter()
                 .filter(|w| w.used_percent >= crate::quota::resets::WEEKLY_THRESHOLD)
                 .filter_map(|w| w.resets_at).filter(|t| *t > now).max()))
                 .unwrap_or(now + UNKNOWN_RESET_MS);
@@ -350,19 +340,20 @@ impl Accounts {
         Ok(if self.evaluate(readings, pause_percent, now)? { AfterLimit::Continue } else { AfterLimit::NoRoom })
     }
 
-    /// **All accounts exhausted** (Frank's finding 2): held until the soonest reset across
-    /// them. `None` with one account, so a user with one subscription sees no change.
-    pub fn held_until(&self, readings: &BTreeMap<String, Vec<Window>>, pause_percent: u8, now: u64) -> Option<u64> {
+    /// **All accounts gone** (Frank's finding 2): held until the soonest reset across them.
+    /// `None` with one account, so a user with one subscription sees no change.
+    pub fn held_until(&self, readings: &BTreeMap<String, Reading>, pause_percent: u8, now: u64) -> Option<u64> {
         let state = self.state.lock().unwrap();
         if state.accounts.len() < 2 { return None; }
         let mut soonest: Option<u64> = None;
+        let empty = Reading::default();
         for account in &state.accounts {
-            let windows = readings.get(&account.id);
-            match exhausted(windows.map(Vec::as_slice).unwrap_or(&[]), state.at_threshold, pause_percent,
+            let reading = readings.get(&account.id);
+            match gone(reading.unwrap_or(&empty), state.at_threshold, pause_percent,
                 state.limited_until.get(&account.id).copied(), now) {
                 Some((_, until)) => soonest = Some(soonest.map_or(until, |s| s.min(until))),
-                // An account with a reading that is not at the wall: work can run.
-                None if windows.is_some() => return None,
+                // An account with a reading and room: work can run.
+                None if reading.is_some() => return None,
                 // No reading: unknown, never counted as room.
                 None => {}
             }
@@ -381,36 +372,83 @@ pub(crate) mod tests {
 
     pub const NOW: u64 = 1_000_000_000_000;
     const HOUR: u64 = 3_600_000;
-    pub fn windows(five: f64, five_reset: u64, weekly: f64, weekly_reset: u64) -> Vec<Window> {
-        vec![
+    pub fn reading(five: f64, five_reset: u64, weekly: f64, weekly_reset: u64) -> Reading {
+        Reading { windows: vec![
             Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: five, resets_at: Some(NOW + five_reset), duration_ms: 5 * HOUR },
             Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: weekly, resets_at: Some(NOW + weekly_reset), duration_ms: 168 * HOUR },
-        ]
+        ], speeds: BTreeMap::new() }
+    }
+    fn two_accounts() -> (Scratch, Accounts) {
+        let dir = Scratch::new();
+        let accounts = Accounts::open(dir.path()).unwrap();
+        accounts.add("Work").unwrap();
+        (dir, accounts)
+    }
+    fn readings(one: Reading, two: Reading) -> BTreeMap<String, Reading> {
+        [("1".to_string(), one), ("2".to_string(), two)].into_iter().collect()
     }
 
-    /// **His answer 1.** Account 1's weekly window is at 93%. Of the two with room, "Personal"
+    /// **His answer 1.** Account 1's weekly window is at 99%. Of the two with room, "Personal"
     /// (id 3) has its week end in one day and "Work" (id 2) in six, so Personal is next even
     /// though Work comes first in the list. "Spare" (id 4) has its week end soonest of all,
-    /// but it is at 95%, so it has no room.
+    /// but it is at 99.5%, so it has no room.
     #[test]
     fn the_next_account_is_the_one_whose_weekly_window_resets_soonest_among_those_with_room() {
         let dir = Scratch::new();
         let accounts = Accounts::open(dir.path()).unwrap();
         for label in ["Work", "Personal", "Spare"] { accounts.add(label).unwrap(); }
-        let readings: BTreeMap<String, Vec<Window>> = [
-            ("1", windows(40., HOUR, 93., 2 * 24 * HOUR)),
-            ("2", windows(0., HOUR, 10., 6 * 24 * HOUR)),
-            ("3", windows(0., HOUR, 50., 24 * HOUR)),
-            ("4", windows(0., HOUR, 95., 3 * HOUR)),
-        ].into_iter().map(|(id, w)| (id.to_string(), w)).collect();
+        let readings: BTreeMap<String, Reading> = [
+            ("1", reading(40., HOUR, 99., 2 * 24 * HOUR)),
+            ("2", reading(0., HOUR, 10., 6 * 24 * HOUR)),
+            ("3", reading(0., HOUR, 50., 24 * HOUR)),
+            ("4", reading(0., HOUR, 99.5, 3 * HOUR)),
+        ].into_iter().map(|(id, r)| (id.to_string(), r)).collect();
         assert!(accounts.evaluate(&readings, 93, NOW).unwrap());
         assert_eq!(accounts.in_use().id, "3");
-        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal: Account 1 reached 93% of its weekly limit."));
+        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal: Account 1 is at 99% of its weekly limit."));
         // Staying is fill-first: Personal has room, so nothing moves, even though Work is
         // earlier in the list.
         assert!(!accounts.evaluate(&readings, 93, NOW).unwrap());
         assert_eq!(accounts.in_use().id, "3");
         // The choice survives a restart.
         assert_eq!(Accounts::open(dir.path()).unwrap().in_use().id, "3");
+    }
+
+    /// **§108, normal speed:** the weekly switch point is 99%. At 98.9% nothing moves; at 99%
+    /// the next account takes over. A slow, steady speed (the weekly window's own even pace,
+    /// 100 points a week) does not move it earlier.
+    #[test]
+    fn at_normal_speed_the_weekly_switch_happens_at_99_percent() {
+        let (_dir, accounts) = two_accounts();
+        let mut slow = reading(10., HOUR, 98.9, 24 * HOUR);
+        slow.speeds.insert("seven_day".into(), 100. / (168. * HOUR as f64));
+        assert!(!slow.fast());
+        assert!(!accounts.evaluate(&readings(slow.clone(), reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
+        assert_eq!(accounts.in_use().id, "1", "98.9% at normal speed stays");
+        slow.windows[1].used_percent = 99.;
+        assert!(accounts.evaluate(&readings(slow, reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
+        assert_eq!(accounts.in_use().id, "2", "99% at normal speed switches");
+    }
+
+    /// **§108 addendum (plan answer 8), a fast burn on the WEEKLY window:** 15 parallel
+    /// workers gaining 1.5 points a minute. At 96% that is fast (7.5 points per five-minute
+    /// check, over the 5-point line), so the next check is 2 minutes away and would read
+    /// 96 + 1.5 x 2 = 99%: under 100, so it waits. At 97.1% the next check would read
+    /// 97.1 + 3 = 100.1%, so it switches NOW, before 99% and before the wall. The projected use
+    /// at the next check after the decision to stay is always under 100%.
+    #[test]
+    fn a_fast_weekly_burn_switches_before_99_percent_so_the_next_check_stays_under_100() {
+        let (_dir, accounts) = two_accounts();
+        let per_ms = 1.5 / 60_000.;
+        let mut fast = reading(10., HOUR, 96., 24 * HOUR);
+        fast.speeds.insert("seven_day".into(), per_ms);
+        assert!(fast.fast());
+        assert_eq!(fast.interval(), crate::quota::FAST_REFRESH_INTERVAL_MS);
+        assert!(!accounts.evaluate(&readings(fast.clone(), reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
+        assert!(fast.projected(&fast.windows[1]) < 100., "staying is safe only if the next check is under 100%");
+        fast.windows[1].used_percent = 97.1;
+        assert!(fast.projected(&fast.windows[1]) >= 100.);
+        assert!(accounts.evaluate(&readings(fast, reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
+        assert_eq!(accounts.in_use().id, "2", "switched at 97.1%, before 99%");
     }
 }
