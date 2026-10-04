@@ -294,6 +294,13 @@ def cmd_retry(work, previous, i, runner=subprocess.run):
     listed = enumerated(work / ("tests-%d.json" % i))
     asked = [a.strip() for f in sorted(work.glob("shard-*.args")) for a in f.read_text().splitlines() if a.strip()]
     raw = {norm(t): t for t in within(asked, listed)}
+    # The unit bundle is Swift Testing, which never passes through XCTestCase: its run is attributed to
+    # this build by the stamped BuildStampTests probe, so a unit selection always carries that control.
+    probe_id = "RichOSNativeTests/BuildStampTests/testTheBundleCarriesItsBuildStamp"
+    if any(t.startswith("RichOSNativeTests/") for t in raw):
+        for t in listed:
+            if norm(t) == probe_id:
+                raw[probe_id] = t
     expected = sorted(raw)
     if not expected:
         print("native-ios-ui: FAIL: the selection (%s) matched 0 tests; 0 of what was asked will run" % ", ".join(asked))
@@ -627,8 +634,9 @@ def selftest():
         # --only RichOSNativeTests/Suite: Xcode 26.3 also lists the whole UI bundle; only the suite's cases run.
         rc = retry(listed, ["-only-testing:RichOSNativeTests/Suite"])
         args = (work / "retry-0.args").read_text().split()
-        check(rc == 0 and args == ["-only-testing:RichOSNativeTests/Suite/case()"]
-              and (work / "expected-0.txt").read_text().split() == ["RichOSNativeTests/Suite/case"],
+        check(rc == 0 and sorted(args) == sorted(["-only-testing:RichOSNativeTests/Suite/case()",
+                  "-only-testing:RichOSNativeTests/BuildStampTests/testTheBundleCarriesItsBuildStamp()"])
+              and "RichOSNativeUITests/A/testX" not in (work / "expected-0.txt").read_text(),
               "--only RichOSNativeTests/<Suite> plans only that suite's cases, not the UI bundle")
         check(retry([], ["-only-testing:RichOSNativeUITests/A/testX()"]) == 1
               and "matched 0 tests; 0 of what was asked will run" in said.getvalue(), "an empty enumeration is a FAILURE with the count")
