@@ -1,3 +1,4 @@
+import RichOSCore
 import SwiftUI
 
 /// WHAT THE PHONE SHOWS FROM THE TAP UNTIL THE CONVERSATION IS DRAWN.
@@ -34,5 +35,47 @@ struct LaunchShellView: View {
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
+    }
+}
+
+/// THE WINDOW UNTIL THE SAVED STATE IS READ, AND NEVER LONGER THAN `quietAfter` ON THE LOGO.
+///
+/// The CEO's rule (richos-hq §105): nothing the first screen shows waits on anything. The saved
+/// conversation's read (`Boot`) is local and normally lands before the first frame or just after it, so
+/// the launch picture (`LaunchShellView`) continues straight into the conversation. When the read has
+/// not landed within `quietAfter` (counted from the app's first line, `Boot.quietBudget`), the
+/// conversation's own screen appears in its quiet state (`ScreenModel.quiet`: the ground, the header,
+/// the composer, nothing in between) and the conversation fills it in when the read lands, because
+/// the app then swaps this view for `RootView`. Never a spinner, never a blank frame (§100).
+///
+/// The quiet screen takes no touches: there is no store yet to send them to, and a store made before
+/// the read lands could write an empty state over the saved one. It is a still picture for VoiceOver too.
+///
+/// Battery: one bounded sleep, started once while this view is on screen and canceled when it leaves;
+/// nothing repeats.
+struct LaunchRoot: View {
+    enum Stage: Equatable { case logo, quiet }
+
+    let quietAfter: Duration
+    /// Told each stage as it appears (the launch log; a test's recorder).
+    var shown: (Stage) -> Void = { _ in }
+
+    @Environment(\.colorScheme) private var scheme
+    @State private var quiet = false
+
+    var body: some View {
+        if quiet {
+            ScreenView(model: .quiet(scheme == .light ? .light : .dark), send: { _ in })
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .onAppear { shown(.quiet) }
+        } else {
+            LaunchShellView()
+                .onAppear { shown(.logo) }
+                .task {
+                    do { try await Task.sleep(for: quietAfter) } catch { return }
+                    quiet = true
+                }
+        }
     }
 }

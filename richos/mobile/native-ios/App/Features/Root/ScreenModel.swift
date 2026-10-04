@@ -29,6 +29,17 @@ struct ScreenModel: Equatable, Sendable {
     /// Photos and files (round-12 `attachments.html`): the menu, the tray, the viewer, from the core's
     /// `attachMenuOpen` and `pendingAttachments`.
     var attach = Attach()
+    /// The conversation's screen while the saved conversation is still being read at launch
+    /// (`LaunchRoot`): its ground, header and composer, with no messages and no first-minute hello yet.
+    var quiet = false
+
+    /// The conversation's screen in its quiet state, in the phone's appearance (`LaunchRoot`).
+    static func quiet(_ appearance: Appearance) -> ScreenModel {
+        var model = ScreenModel()
+        model.appearance = appearance
+        model.quiet = true
+        return model
+    }
 
     // MARK: Parts
 
