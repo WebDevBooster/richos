@@ -652,6 +652,28 @@ if [ -n "$ACK_ARG" ]; then
                     ACK_SOURCE="$_cr_path"
                     if grep -qE "^#{1,6}[[:space:]]+(§|[Ss]ection[[:space:]]+)?${ACK_CITE}([^0-9]|$)" "$_cr_path" 2>/dev/null; then
                         ACK_STATE="verified"
+                        # P3-31 (v3): the quotation must be IN that section's
+                        # body, not merely next to a real section number. The
+                        # same check guard-host-display-power.sh makes.
+                        if ! python3 - "$_cr_path" "$ACK_CITE" "$ACK_QUOTE" <<'PYQ' 2>/dev/null
+import re, sys
+path, cite, quote = sys.argv[1:4]
+norm = lambda t: re.sub(r"\s+", " ", t.replace("“", '"').replace("”", '"').replace("’", "'")).strip()
+head = re.compile(r"^#{1,6}\s+(?:§|[Ss]ection\s+)?" + re.escape(cite) + r"(?:[^0-9]|$)")
+body, on = [], False
+for line in open(path, encoding="utf-8", errors="replace"):
+    if head.match(line):
+        on = True
+        continue
+    if on and re.match(r"^#{1,6}\s", line):
+        break
+    if on:
+        body.append(line)
+sys.exit(0 if norm(quote) in norm("".join(body)) else 1)
+PYQ
+                        then
+                            ACK_STATE="quote-absent"
+                        fi
                         break
                     fi
                     ACK_STATE="absent"
@@ -659,6 +681,9 @@ if [ -n "$ACK_ARG" ]; then
 $CR_SOURCES
 CR_EOF
             fi
+        fi
+        if [ "$ACK_STATE" = "quote-absent" ]; then
+            ACK_WHY="the quotation is NOT in the text of §${ACK_CITE} in ${ACK_SOURCE}. Quote his words from that section, verbatim."
         fi
         if [ "$ACK_STATE" = "absent" ]; then
             ACK_WHY="§${ACK_CITE} is NOT in ${ACK_SOURCE}. That is the exact failure this gate exists for: on 2026-09-19 a brief asserted '§61 keeps both' and §61 rules the opposite. Open the file and cite a section that is in it."

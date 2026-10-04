@@ -1663,7 +1663,7 @@
     },
     "scripts/hooks/guard-no-home-network-phone.sh": {
       "source": "scripts/hooks/guard-no-home-network-phone.sh",
-      "sha256": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
+      "sha256": "b717ada819776abafca071ffe9f65ea2c959bf563ddb8fc6e506f376819b65ac",
       "evidence": "Sources the resolved entity config for the guard switch. Root/adoption, seat-jurisdiction and unevaluated-payload helpers run; citation resolution uses ceo-ruled. Embedded Python classifies payload strings and never executes their commands.",
       "keys": [
         "HOME_NETWORK_PHONE_GUARD"
@@ -1710,7 +1710,7 @@
     },
     "scripts/hooks/guard-no-home-network-phone.test.sh": {
       "source": "scripts/hooks/guard-no-home-network-phone.test.sh",
-      "sha256": "2936a13cd755b431e3f574417fee0dc973dd353ab1ced54952530907f154c904",
+      "sha256": "4d1da97d8d1d4fc01e1a709d404bd839674e7f40faa46c5fbf61253276a6ed48",
       "evidence": "Creates a private entity orchestration.config and a private ruling repository. Every hook invocation resolves that entity, its off-switch variant or an explicitly unadopted directory. Missing-resolver fixture refuses before config. Nested mutations recreate the same private settings; literal historical commands remain payload data.",
       "keys": [],
       "edges": [
@@ -6748,7 +6748,7 @@
     },
     "scripts/hooks/guard-no-home-network-phone.sh#benign-bash": {
       "source": "scripts/hooks/guard-no-home-network-phone.sh",
-      "sha256": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
+      "sha256": "b717ada819776abafca071ffe9f65ea2c959bf563ddb8fc6e506f376819b65ac",
       "evidence": "Fixed dispatcher D21 payload: Bash echo hello with cwd pointing to a new non-Git engine fixture. Only bootstrap and the rejecting/not-applicable classifier path run. Source config reads before classification are retained. No commit, publication scan, remote CI, lease or live operator predicate is reached.",
       "keys": [
         "HOME_NETWORK_PHONE_GUARD"
@@ -16275,7 +16275,7 @@
         "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
         "scripts/lib/named-persons.py": "3392076d89530f9a120fea16eaba9fa6053f577ae836023c691b5f0eb011c871",
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
-        "scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
+        "scripts/hooks/guard-no-home-network-phone.sh": "b717ada819776abafca071ffe9f65ea2c959bf563ddb8fc6e506f376819b65ac",
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
         "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",
@@ -16561,7 +16561,7 @@
         "scripts/hooks/guard-named-persons-commands.sh": "56891e30dde5774e5430c9459cee10dc61bb683888f76917219d97c9e9cce825",
         "scripts/lib/named-persons.sh": "2c28d15414eed56676bd2c5588d66fe88f30c03dfb78e5e2752ffc5de17fffc3",
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
-        "scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
+        "scripts/hooks/guard-no-home-network-phone.sh": "b717ada819776abafca071ffe9f65ea2c959bf563ddb8fc6e506f376819b65ac",
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
         "scripts/hooks/guard-public-record-repo.sh": "49a6e6c29e59a604b4d91e847e1e6d6060035f41f703bc95ffc8275778fec3d7",
@@ -16793,7 +16793,7 @@
         "scripts/hooks/guard-named-persons-writes.sh": "95095c3eee1ac1f3f7f156dfc2fcb0b039868c63c1d10d45d043fdd7d86ad3ce",
         "scripts/lib/named-persons.py": "3392076d89530f9a120fea16eaba9fa6053f577ae836023c691b5f0eb011c871",
         "scripts/hooks/guard-dialect.sh": "4310360774e98410d6e35208d46346575b5ffa7046905b17deecedd9453c67c5",
-        "scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
+        "scripts/hooks/guard-no-home-network-phone.sh": "b717ada819776abafca071ffe9f65ea2c959bf563ddb8fc6e506f376819b65ac",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
@@ -16922,7 +16922,7 @@
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
-        "scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
+        "scripts/hooks/guard-no-home-network-phone.sh": "b717ada819776abafca071ffe9f65ea2c959bf563ddb8fc6e506f376819b65ac",
         "scripts/hooks/guard-operator-claim.sh": "06ded03dc7f1dc6825df5e952619dcaae26c24f0bcda7ba017c935ed20c5663b",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
         "scripts/lib/owned-systems.py": "f07b79f4608753f0a622bf9c8ddba78f3058e2b1a20d4b75106e028fd81c11f9",

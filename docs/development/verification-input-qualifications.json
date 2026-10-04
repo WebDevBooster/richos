@@ -284,7 +284,7 @@
       "sources": {
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
         "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
-        "richos/engine/scripts/hooks/guard-no-home-network-phone.test.sh": "2936a13cd755b431e3f574417fee0dc973dd353ab1ced54952530907f154c904",
+        "richos/engine/scripts/hooks/guard-no-home-network-phone.test.sh": "4d1da97d8d1d4fc01e1a709d404bd839674e7f40faa46c5fbf61253276a6ed48",
         "richos/engine/scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "richos/engine/scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "richos/engine/scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
@@ -293,7 +293,7 @@
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "richos/engine/scripts/lib/seat-jurisdiction.sh": "5a6c42a590bfb510dcab37039bb540c370d4aff731fd33211baf7bfe45c24fff",
         "richos/engine/scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
-        "richos/engine/scripts/hooks/guard-no-home-network-phone.sh": "c6ba35017f9314196ad319beb41ec8ed5dd4a5626e7c48602affec02c416553f",
+        "richos/engine/scripts/hooks/guard-no-home-network-phone.sh": "b717ada819776abafca071ffe9f65ea2c959bf563ddb8fc6e506f376819b65ac",
         "richos/engine/scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
         "richos/engine/scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
         "richos/engine/scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
