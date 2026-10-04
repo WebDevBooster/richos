@@ -510,6 +510,17 @@ do {
     check(guarded.prefix(120).contains("title: \"Check for updates\""), "row 7: the Check for updates row is drawn only when it is shown")
 }
 
+// App Review rehearsal 2026-10-04 rows 13 and 15: the consent screen says what the privacy policy
+// says (not kept by us; Cloudflare carries the messages), and Settings has no web-app footer.
+do {
+    let takeovers = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Pairing/Takeovers.swift", encoding: .utf8)) ?? ""
+    let consent = takeovers.components(separatedBy: "struct ConsentRows").dropFirst().first ?? ""
+    check(!consent.contains("stored nowhere"), "row 13: the consent screen no longer says stored nowhere")
+    check(consent.contains("not kept by us") && consent.contains("Cloudflare"), "row 13: it says not kept by us and names Cloudflare")
+    let overlays = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Settings/Overlays.swift", encoding: .utf8)) ?? "unreadable"
+    check(!overlays.contains("web app"), "row 15: Settings says nothing about a web app")
+}
+
 // I02 (native acceptance r1): the out-of-reach line is no longer a row under the header's fade; it is
 // pinned below the header in full ink on the floating surface, computed here in both themes.
 do {

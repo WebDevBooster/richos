@@ -213,11 +213,8 @@ struct SettingsSheet: View {
                 }
                 .buttonStyle(PressScale(scale: 0.98))
                 .accessibilityIdentifier("settings.forget")
-                Text("Moving from the web app? Send its pending messages before replacing that pairing.")
-                    .type(Typography.read.lineHeight(1.4))
-                    .foregroundStyle(palette.inkSoft)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4).padding(.top, 6).padding(.bottom, 14)
+                // The space below the last row that the removed footer kept (rehearsal row 15).
+                .padding(.bottom, 14)
             }
             .padding(.horizontal, 20)
         }

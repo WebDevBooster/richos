@@ -372,7 +372,9 @@ struct ConsentRows: View {
         VStack(alignment: .leading, spacing: 14) {
             row(.mac, "What you type or say goes to your Mac.", "Your conversation lives there, not on our servers.")
             row(.spark, "Rich (powered by your AI provider) writes the reply there.", "So, all the AI work happens on your Mac.")
-            row(.cloud, "Our connection service just moves the messages between your Mac and your phone.", "Encrypted on the way, stored nowhere.")
+            // As https://richos.ceo/privacy says it (App Review rehearsal 2026-10-04, row 13; Apple 5.1.2(i)).
+            row(.cloud, "Our connection service just moves the messages between your Mac and your phone.",
+                "Encrypted on the way, not kept by us. Cloudflare’s network carries them and can process them in transit.")
         }
     }
 
