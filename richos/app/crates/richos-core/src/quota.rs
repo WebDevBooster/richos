@@ -327,8 +327,15 @@ impl Snapshot {
     fn measure(&mut self, windows: &[Window], observed: u64) {
         for window in windows {
             let fresh = SpeedBase { used: window.used_percent, resets_at: window.resets_at, at: observed };
+            // The SAME window when the reset times agree within a minute: the probe reports
+            // an ISO time and the stream whole seconds, so exact equality would treat one
+            // window read two ways as two windows and never measure a speed across them.
+            let same = |a: Option<u64>, b: Option<u64>| match (a, b) {
+                (Some(a), Some(b)) => a.abs_diff(b) < 60_000,
+                (a, b) => a == b,
+            };
             match self.bases.get(&window.id).copied() {
-                Some(base) if base.resets_at == window.resets_at => {
+                Some(base) if same(base.resets_at, window.resets_at) => {
                     if observed >= base.at + SPEED_MIN_GAP_MS {
                         let gained = (window.used_percent - base.used).max(0.);
                         self.speeds.insert(window.id.clone(), gained / (observed - base.at) as f64);
@@ -1208,6 +1215,25 @@ pub(crate) mod tests {
         atomic_write(&state.join("claude-quota.json"), &view).unwrap();
         atomic_write(&dir.path().join("claude-quota-policy.json"), &policy()).unwrap();
         assert!(matches!(gate::admission(&state, NOW + 60_000), Admission::Held { .. }));
+    }
+
+    /// **One window read two ways is still one window.** The probe's reset time is an ISO
+    /// string and the stream's whole seconds, so the same window can differ by a fraction of
+    /// a second; a speed must still be measured across them (it was never measured across a
+    /// probe and a streamed reading before this tolerance, found on the guest walk).
+    #[test]
+    fn a_probe_reading_and_a_streamed_reading_of_one_window_measure_a_speed() {
+        let mut s = Snapshot::default();
+        s.accept(five_hour_at(50.), NOW);
+        let mut streamed = five_hour_at(54.);
+        streamed[0].resets_at = streamed[0].resets_at.map(|t| t + 400);
+        s.observe(&streamed, NOW + 60_000);
+        assert!(s.reading().fast(), "4 points in a minute across probe and stream: {:?}", s.speeds);
+        // A genuinely new window (an hour later) is not the same one.
+        let mut next = five_hour_at(1.);
+        next[0].resets_at = next[0].resets_at.map(|t| t + 3_600_000);
+        s.observe(&next, NOW + 120_000);
+        assert!(s.speeds.is_empty());
     }
 
     /// **Plan §15 answer 10, point 3: a measured jump moves BOTH check points at once**, and the

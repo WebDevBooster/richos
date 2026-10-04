@@ -268,12 +268,13 @@
   const accountRows = () => view?.accounts || [];
   function accountSummary(row) {
     const five = row.windows.find(w => w.id === "five_hour"), week = row.windows.find(w => w.id === "seven_day");
-    if (row.exhaustedUntil > Date.now()) return `Limit reached · available again ${stamp(row.exhaustedUntil, true)}`;
-    if (!five && !week) return row.message || (row.checkedAt ? "No allowance reported." : "Not read yet. Sign in, then refresh.");
+    // Past its check point (or refused by a limit): its figures, and when it can be used again.
+    const resting = row.exhaustedUntil > Date.now() ? ` · usable again ${stamp(row.exhaustedUntil, true)}` : "";
+    if (!five && !week) return resting ? `Usage limit reached${resting}` : row.message || (row.checkedAt ? "No allowance reported." : "Not read yet. Sign in, then refresh.");
     const parts = [];
     if (five) parts.push(`Five-hour ${pct(five.usedPercent)}`);
-    if (week) parts.push(`Weekly ${pct(week.usedPercent)}${week.resetsAt ? " · resets " + stamp(week.resetsAt, true) : ""}`);
-    return parts.join(" · ");
+    if (week) parts.push(`Weekly ${pct(week.usedPercent)}${week.resetsAt && !resting ? " · resets " + stamp(week.resetsAt, true) : ""}`);
+    return parts.join(" · ") + resting;
   }
   function renderAccounts() {
     const rows = accountRows(), list = field("quota-account-rows");
