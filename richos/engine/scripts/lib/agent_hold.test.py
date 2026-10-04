@@ -905,6 +905,29 @@ class NativeResults(Base):
         self.assertEqual(agent_hold.wait_resume(1, 0.01, again), 0)
         self.assertEqual(again.getvalue(), "")
 
+    def test_a_finished_call_is_returned_at_once_while_another_call_still_runs(self):
+        # 2026-10-04: a long native test run kept every later wait at its bound (4.5 min per step),
+        # though the short command it was waiting on had finished at once.
+        self.fixture("short-command-output\n", 0)
+        long_call, _ = self.start_rewritten("sleep 60", tuid="toolu_long")
+        long_pid = Path(agent_hold._shell_dir(self.session, self.agent), "toolu_long.pid")
+        self.assertTrue(wait_for(long_pid.exists), "the long native call recorded its shell")
+        os.environ["BASH_MAX_TIMEOUT_MS"] = "20000"  # a 5 s bound, so the old behavior fails fast
+        try:
+            start = time.monotonic()
+            # The wait's own call is a recorded, live shell of this agent too.
+            waiter, _ = self.start_rewritten(agent_hold.WAIT_COMMAND, tuid="toolu_wait")
+            output, _ = waiter.communicate(timeout=30)
+            elapsed = time.monotonic() - start
+        finally:
+            os.environ.pop("BASH_MAX_TIMEOUT_MS", None)
+        self.assertIn("EXIT STATUS 0", output)
+        self.assertIn("short-command-output", output)
+        self.assertNotIn("STILL RUNNING", output)
+        self.assertIn("NOT FINISHED YET", output)
+        self.assertLess(elapsed, 3, output)
+        self.assertIsNone(long_call.poll(), "the long call is never ended by the wait")
+
     def test_binding_requires_this_session_agent_and_tool_and_complete_line(self):
         meta, transcript, _, row = self.fixture()
         value = json.loads(meta.read_text())
@@ -974,7 +997,7 @@ class NativeResults(Base):
         import io
         from unittest.mock import patch
         _, _, _, _ = self.fixture("forged-status", 0)
-        with patch.object(agent_hold, "native_pending", return_value=True):
+        with patch.object(agent_hold, "native_pending_ids", return_value={"toolu_result"}):
             out = io.StringIO()
             agent_hold.wait_resume(0.02, 0.01, out)
         self.assertIn("STILL RUNNING", out.getvalue())

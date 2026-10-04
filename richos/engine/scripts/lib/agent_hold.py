@@ -65,7 +65,11 @@ wait stays inside the same run until release, returning at most every 270 s to
 retain the prompt cache. Native task completion retains the original output and
 exit status. The wait binds the exact tool result in this agent's transcript to
 the host's output file and returns its output/status, so no extra Read is needed
-for ordinary results. A nonzero task makes that wait nonzero too. A missing
+for ordinary results. A finished call's result is returned as soon as it is
+ready, even while another of the agent's calls is still running; that call is
+named as not finished and a later wait returns it (2026-10-04: one long test
+run held every later wait at its bound, about 4.5 min per step).
+A nonzero task makes that wait nonzero too. A missing
 native result is explicitly unavailable, never inferred to be successful.
 
 A held agent's new Bash calls are denied by the hook. The mark helper checks the
@@ -1048,11 +1052,13 @@ def _collect(stem, rec, deadline, poll, out):
     return True
 
 
-def native_pending(session, agent):
+def native_pending_ids(session, agent):
+    """Tool ids of this agent's native calls whose shell is still running or still starting.
+
+    Only mode "native" counts: the wait's own call is "exempt" and never waits on itself."""
     table = snapshot()
-    if any(c["mode"] == "native" and not table[c["pid"]]["stat"].startswith("Z")
-           for c in calls(session, agent, table)):
-        return True
+    pending = {c["tid"] for c in calls(session, agent, table)
+               if c["mode"] == "native" and not table[c["pid"]]["stat"].startswith("Z")}
     # The native tool can return its task id before the shell has started.
     # Do not let a subsequent wait race through that startup interval. A refused
     # call never writes its PID, so this grace is bounded rather than indefinite.
@@ -1064,9 +1070,40 @@ def native_pending(session, agent):
                 meta = _read_json(stem + ".json") or {}
                 if (meta.get("mode") == "native" and not os.path.exists(stem + ".pid")
                         and 0 <= time.time() - float(meta.get("at", 0)) < 10):
-                    return True
+                    pending.add(name[:-5])
     except OSError:
         pass
+    return pending
+
+
+def native_pending(session, agent):
+    return bool(native_pending_ids(session, agent))
+
+
+def _native_uncollected(session, agent):
+    """[(path, meta)] of this agent's native calls whose result is not delivered yet, oldest first."""
+    directory = _shell_dir(session, agent)
+    try:
+        records = [(os.path.join(directory, n), _read_json(os.path.join(directory, n)) or {})
+                   for n in os.listdir(directory) if n.endswith(".json")]
+    except OSError:
+        return []
+    return sorted([(p, m) for p, m in records if m.get("mode") == "native" and not m.get("result_collected")],
+                  key=lambda row: row[1].get("at", 0))
+
+
+def _native_ready(session, agent, pending):
+    """True when a finished, uncollected native call's result can be delivered now.
+
+    A long call still running never keeps a finished call's result waiting."""
+    for _path, meta in _native_uncollected(session, agent):
+        if meta.get("tool_use_id") in pending or not meta.get("result_source"):
+            continue
+        try:
+            if native_result(meta) is not None:
+                return True
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
     return False
 
 
@@ -1153,17 +1190,16 @@ def native_result(meta):
     return code, body, binding["task"]
 
 
-def collect_native(session, agent, deadline, out):
-    """Return native results in the wait call, retaining ownership after delivery."""
-    directory = _shell_dir(session, agent)
-    try:
-        records = [(os.path.join(directory, n), _read_json(os.path.join(directory, n)) or {})
-                   for n in os.listdir(directory) if n.endswith(".json")]
-    except OSError:
-        return 0
+def collect_native(session, agent, deadline, out, pending=frozenset()):
+    """Return native results in the wait call, retaining ownership after delivery.
+
+    A call in `pending` is still running: it is named, never collected, and a later wait returns it."""
     result_code = 0
-    for path, meta in sorted(records, key=lambda row: row[1].get("at", 0)):
-        if meta.get("mode") != "native" or meta.get("result_collected"):
+    for path, meta in _native_uncollected(session, agent):
+        if meta.get("tool_use_id") in pending:
+            what = (meta.get("command") or "").strip().splitlines()
+            out.write("NOT FINISHED YET: tool %s%s is still running; a later wait returns its output and "
+                      "exit status.\n" % (meta.get("tool_use_id"), " (%s)" % what[0][:120] if what else ""))
             continue
         if not meta.get("result_source"):
             out.write("NATIVE RESULT UNAVAILABLE for %s: this older or non-host call has no transcript binding. "
@@ -1246,8 +1282,12 @@ def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
         _write_json(notice_path, dict(notice, resumed=True))
     # Native tasks keep their output/status in the harness. Keep this agent's
     # run active while it waits, but return as soon as a new hold appears so a
-    # queued SendMessage can be delivered at this tool boundary.
-    while native_pending(session, agent):
+    # queued SendMessage can be delivered at this tool boundary, and as soon as
+    # any finished call's result is ready, even while another call still runs.
+    while True:
+        pending = native_pending_ids(session, agent)
+        if not pending or _native_ready(session, agent, pending):
+            break
         if os.path.exists(path):
             notice_hold(session, agent)
             out.write("WAIT: running work is held. " + HOW_TO_WAIT + "\n")
@@ -1259,7 +1299,7 @@ def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):
     for stem, rec in _detached_calls(session, agent):
         if not _collect(stem, rec, deadline, min(poll, 0.5), out):
             break
-    return collect_native(session, agent, deadline, out)
+    return collect_native(session, agent, deadline, out, pending)
 
 
 def release(session_id, agent_id):
