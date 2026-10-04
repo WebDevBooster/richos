@@ -10,6 +10,23 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Fixed — a held agent makes no model call while it waits (2026-10-04)
+
+- **What used quota during a hold.** The wait a held agent runs returned STILL WAITING
+  every 270 s, and every return is a model call that reads the agent's whole context. On
+  2026-09-29, from the WAIT (18:53:27) to the end of the session (19:11:11), fifteen held
+  Fable workers made 44 such calls and read 22.0 million context tokens; the lead made no
+  call after 18:54:44.
+- **The fix.** The Bash rewriter (`shell-evidence.py`) first runs `agent_hold.gate()`,
+  which holds a held agent's wait call before it starts, from the second wait of that
+  hold until the release. The first wait still returns at once so the WAIT message
+  reaches the agent. On release the call runs and prints RESUMED, and the agent
+  carries on from where it was. The rewriter's hook timeout is now 86400 s (hooks.json
+  and the engine's own settings); the rewrite itself keeps its 5 s bound.
+- **The test.** `agent_hold.test.py` `HeldAgentMakesNoModelCalls` runs the wait through the
+  registered hooks and counts its returns while held: one on the code before this fix,
+  none after it.
+
 ### Added — one writer at cut-over: the owner line, its two refusals, and a record committer (2026-09-28)
 
 - **The owner line.** A record's `.row-currency` may carry
