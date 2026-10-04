@@ -6,8 +6,8 @@
 # exists in the app, and a bad commit is refused before anything is leased or built. The walk itself
 # is proven by running it on the commit; `testflight.ts upload` refuses without its pass.
 # run-tests: no-host-screen: Node and grep over source files only; no simulator, browser, phone or network
-# run-tests: inputs richos/app/scripts/review-walk.test.sh richos/mobile/native-ios/Tools/review-walk.mjs richos/mobile/native-ios/Tools/review-walk.test.mjs richos/mobile/native-ios/UITests/ReviewWalkTests.swift richos/mobile/native-ios/App
-# run-tests: covers richos/mobile/native-ios/Tools/review-walk.mjs richos/mobile/native-ios/Tools/review-walk.test.mjs richos/mobile/native-ios/UITests/ReviewWalkTests.swift
+# run-tests: inputs richos/app/scripts/review-walk.test.sh richos/mobile/native-ios/Tools/review-walk.mjs richos/mobile/native-ios/Tools/review-walk.test.mjs richos/mobile/native-ios/Tools/review-portal.mjs richos/mobile/native-ios/UITests/ReviewWalkTests.swift richos/mobile/native-ios/App
+# run-tests: covers richos/mobile/native-ios/Tools/review-walk.mjs richos/mobile/native-ios/Tools/review-walk.test.mjs richos/mobile/native-ios/Tools/review-portal.mjs richos/mobile/native-ios/UITests/ReviewWalkTests.swift
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 node --test "$here/../../mobile/native-ios/Tools/review-walk.test.mjs"

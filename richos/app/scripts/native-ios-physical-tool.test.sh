@@ -7,8 +7,8 @@
 # only on a physical iPhone, and on a simulator they skip. Their proof is a physical run, recorded
 # privately in richos-hq (e.g. docs/verification/2026-09-24-native-acceptance-r1-iphone/).
 # run-tests: no-host-screen: node unit tests only; nothing is drawn, captured or pressed
-# run-tests: inputs richos/app/scripts/native-ios-physical-tool.test.sh richos/mobile/native-ios/Tools/physical-device.mjs richos/mobile/native-ios/Tools/physical-device.test.mjs richos/mobile/physical.py richos/mobile/perf/ios.py
-# run-tests: covers richos/mobile/native-ios/Tools/physical-device.mjs richos/mobile/native-ios/Tools/physical-device.test.mjs
+# run-tests: inputs richos/app/scripts/native-ios-physical-tool.test.sh richos/mobile/native-ios/Tools/physical-device.mjs richos/mobile/native-ios/Tools/physical-device.test.mjs richos/mobile/native-ios/Tools/adhoc-signing.ts richos/mobile/native-ios/Tools/adhoc-signing.test.ts richos/mobile/native-ios/Release/testflight.ts richos/mobile/physical.py richos/mobile/perf/ios.py
+# run-tests: covers richos/mobile/native-ios/Tools/physical-device.mjs richos/mobile/native-ios/Tools/physical-device.test.mjs richos/mobile/native-ios/Tools/adhoc-signing.ts richos/mobile/native-ios/Tools/adhoc-signing.test.ts
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../../.." && pwd)"
@@ -17,7 +17,7 @@ if ! command -v node >/dev/null 2>&1; then
   echo "  NOT RUN  native-ios-physical-tool: node is unavailable"
   exit 2
 fi
-if node --test "$ROOT/richos/mobile/native-ios/Tools/physical-device.test.mjs"; then
+if node --no-warnings --test "$ROOT/richos/mobile/native-ios/Tools/physical-device.test.mjs" "$ROOT/richos/mobile/native-ios/Tools/adhoc-signing.test.ts"; then
   echo "=== native-ios-physical-tool: passed ==="
 else
   echo "=== native-ios-physical-tool: FAILED ==="

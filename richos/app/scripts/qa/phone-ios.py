@@ -6,7 +6,7 @@
                                                    step times and the --allowance it needs; `run` refuses
                                                    a list its allowance cannot hold (XCUITest stops there
                                                    and every later step, shot and tree is lost)
-    phone-ios.py run STEPS.json --out DIR [--allowance S] [--prebuilt --stamp STAMP.json]
+    phone-ios.py run STEPS.json --out DIR [--allowance S] [--prebuilt --stamp STAMP.json] [--as-installed]
                  [--approval-announced] [--screen-recording]
                                                    run the steps through XCUITest on the phone
                                                    (`rios device verify script`), then write
@@ -25,7 +25,10 @@
                                                    A list whose every step acts in Safari, Settings,
                                                    SpringBoard or Tailscale (or sleeps, marks, opens a link,
                                                    presses Home) runs with the test runner alone: RichConnect
-                                                   is not handed to the phone (summary `runnerOnly`)
+                                                   is not handed to the phone (summary `runnerOnly`).
+                                                   --as-installed does the same for a list that acts on the
+                                                   test copy: the one already on the phone is used as it is
+                                                   (a `rios device install --push production` build)
     phone-ios.py approval --device UDID            will the next run ask the phone's owner to approve
                                                    UI automation? Asks nothing of the phone's screen.
     phone-ios.py wifi-restore --out DIR            read the phone's Wi-Fi switch in Settings; turn it on if
@@ -843,6 +846,12 @@ def addresses_app(steps):
     return any(s.get("do") not in APPLESS and s.get("in") not in PLACES for s in steps)
 
 
+def runner_only_for(steps, as_installed=False):
+    """Is the test runner alone handed to the phone? Yes for a list that acts on no app, and for any list run
+    --as-installed (the test copy on the phone, e.g. a production-push build, is used as it is)."""
+    return bool(as_installed) or not addresses_app(steps)
+
+
 def touches_wifi(steps):
     """Does the list act on Wi-Fi in iOS Settings (a step in Settings naming Wi-Fi)?"""
     return any(s.get("in") == "settings" and "wi-fi" in str(s.get("label", "")).replace("‑", "-").lower()
@@ -1053,7 +1062,13 @@ def _run(args):
         json.dump({"isolatedLab": "true", "steps": json.dumps(steps), "allowanceSeconds": str(args.allowance),
                    **({"screenRecording": "true"} if getattr(args, "screen_recording", False) else {})}, f)
     env = {**os.environ, "RICHOS_MOBILE_TEST_CONFIG": str(config)}
-    runner_only = not addresses_app(steps)
+    # --as-installed: the steps act on the test copy as it is installed (a production-push build, which the
+    # development-signed products here would replace), so the runner alone goes to the phone, as for a list
+    # that acts on no app. The runner finds the app by its bundle ID (PhysicalDeviceTests `app`).
+    as_installed = bool(getattr(args, "as_installed", False))
+    if as_installed and args.prebuilt:
+        raise CannotAnswer("--as-installed hands the phone no app, so --prebuilt has nothing to reuse")
+    runner_only = runner_only_for(steps, as_installed)
     if runner_only:
         env["RICHOS_PHYSICAL_RUNNER_ONLY"] = "1"
     else:
@@ -1098,7 +1113,7 @@ def _run(args):
                "result": result, "testLog": str(log), "out": str(out),
                "attachments": str(attachments) if exported.returncode == 0 else None,
                "attachmentsError": None if exported.returncode == 0 else exported.stderr.strip()[-300:],
-               "build": build, "approvalForecast": ahead, "runnerOnly": runner_only,
+               "build": build, "approvalForecast": ahead, "runnerOnly": runner_only, "asInstalled": as_installed,
                # The command's start on this Mac's clock to the first step's start on the phone's
                # clock (both set from network time), and the runner's wait for automation to be allowed.
                "secondsToFirstStep": round(first - started, 1) if isinstance(first, (int, float)) else None,
@@ -1730,6 +1745,9 @@ def main(argv):
     r.add_argument("--screen-recording", action="store_true",
                    help="keep XCTest's recording of the phone's screen for the whole session (recorded on the "
                         "phone); the summary names it under screenRecordings, and its absence fails the run")
+    r.add_argument("--as-installed", action="store_true",
+                   help="act on the test copy already installed (e.g. by `rios device install --push production`): "
+                        "the test runner alone is handed to the phone, never an app, so that build stays as it is")
     sub.add_parser("wifi-restore").add_argument("--out", required=True)
     sub.add_parser("wifi-on").add_argument("--out", required=True)
     wo = sub.add_parser("wifi-off")

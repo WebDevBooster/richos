@@ -16,6 +16,10 @@
 #                                     (CEO 2026-10-02); nothing uninstalls or wipes an app.
 #       build | install               the Release products (built once per committed tree); install
 #                                     puts them over the installed app (devicectl), data kept
+#       install --push production     the test copy archived as a store build and exported ad hoc
+#                                     (Tools/adhoc-signing.ts keeps its profiles through the App Store
+#                                     Connect API), so its push token is a PRODUCTION one; over the
+#                                     installed test copy, data kept. Walk it with `run --as-installed`
 #       verify <check>                one XCUITest check against the Release app (Tools/physical-device.mjs)
 #       perf --device UDID ...        cold launch and warm return on the phone (perf.py ios)
 #       run|approval|procs|apps|lock|battery|syslog ...   the walk and its reads (qa/phone-ios.py)

@@ -15,6 +15,7 @@ import * as os from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appSteps, nextStep, resetHost, STEPS, APP_STEPS } from './review-walk.mjs';
+import { act, phoneState } from './review-portal.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const native = dirname(here);
@@ -112,4 +113,19 @@ test('the reset fails, naming what is wrong, when the host still shows a phone o
 	const refused = stubAccessPage({ signedIn: false, paired: true, refuseSignIn: true });
 	await assert.rejects(resetHost(refused, creds), /signing in again failed/u);
 	assert.equal(refused.site.paired, true);
+});
+
+// review-portal.mjs: the page's half of a walk on a real phone (`rios device run --as-installed`).
+test('the access page\'s phone is read as none, waiting or paired', () => {
+	assert.equal(phoneState('Signed in as apple-review\nGet a pairing link'), 'none');
+	assert.equal(phoneState('A phone reached this review host\nchimney magnet'), 'waiting');
+	assert.equal(phoneState('Review host\nPaired\nRemove this phone'), 'paired');
+});
+
+test('the portal never takes a host that already has a phone, and writes a link only on the external SSD', async () => {
+	const creds = { access: 'https://example.invalid/', username: 'apple-review', password: 'x', host: 'apple-review.example.invalid' };
+	const page = { goto: async () => {}, locator: () => ({ innerText: async () => 'Signed in as apple-review\nPaired\n' }) };
+	await assert.rejects(act('link', { out: '/Volumes/E1TB/x/link' }, page, creds), /already has a phone \(paired\)/);
+	await assert.rejects(act('link', { out: '/tmp/link' }, page, creds), /on \/Volumes\/E1TB/);
+	await assert.rejects(act('press', {}, page, creds), /no phone is waiting/);
 });
