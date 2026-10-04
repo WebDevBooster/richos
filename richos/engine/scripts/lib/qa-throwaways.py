@@ -116,14 +116,48 @@ def _blocks(row):
     return content if isinstance(content, list) else []
 
 
+def _sha(text):
+    return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+
+
+_HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def _bash_sig(lines, i, start):
+    """The content signature of a shell write whose content is in the command, else None.
+
+    Hunt P5-30 (v3): only Write events carried content, so two shell-written
+    scripts of the same basename always folded into one. Content is known when
+    `cat`/`tee` writes a heredoc (signed like a Write of that body) or when
+    `printf`/`echo` writes a literal straight into the file. A write fed from
+    another file or a decoder (`cat a > b`, `base64 -d > x.py`) stays unknown,
+    so the transfer of an existing helper is still a copy."""
+    line = lines[i]
+    hd = _HEREDOC_RE.search(line)
+    if hd:
+        if not re.match(r"\s*(?:cat|tee)\b", line):
+            return None
+        body = []
+        for later in lines[i + 1:]:
+            if later.strip() == hd.group(2):
+                return _sha("\n".join(body) + "\n")
+            body.append(later)
+        return None
+    head = line[:start].strip()
+    if re.match(r"(?:printf|echo)\s", head) and not re.search(r"[|<`]|\$\(", head):
+        return _sha(head)
+    return None
+
+
 def _bash_targets(command):
-    """Every script path this shell command WRITES. Order preserved."""
+    """Every (script path, content signature or None) this shell command WRITES. Order preserved."""
     out = []
-    for line in command.split("\n"):
+    lines = command.split("\n")
+    for i, line in enumerate(lines):
         for m in REDIRECT_RE.finditer(line):
-            out.append(m.group(2))
+            out.append((m.group(2), _bash_sig(lines, i, m.start())))
         for m in TEE_RE.finditer(line):
-            out.append(m.group(2))
+            out.append((m.group(2), _bash_sig(lines, i, m.start())))
     return out
 
 
@@ -172,8 +206,8 @@ def scan(path):
                             if isinstance(body, str) else None
                         events.append({"path": p, "how": "Write", "row": rows, "sig": sig})
                 elif name == "Bash":
-                    for p in _bash_targets(str(ti.get("command") or "")):
-                        events.append({"path": p, "how": "Bash", "row": rows})
+                    for p, sig in _bash_targets(str(ti.get("command") or "")):
+                        events.append({"path": p, "how": "Bash", "row": rows, "sig": sig})
     if rows and not parsed:
         raise CannotAnswer("%s has %d lines and not one of them is a transcript row — this is not a transcript"
                            % (path, rows))
@@ -202,14 +236,17 @@ def classify(events):
         # Hunt P5-30: a same-named script is a copy only when its content is not known to
         # differ; two Writes of different content are two scripts.
         sig = ev.get("sig")
-        rec = next((r for r in scripts if r["basename"] == base
-                    and (sig is None or r["sig"] is None or sig == r["sig"])), None)
+        # v3: a write to a path the script already has is a REWRITE of it, whatever
+        # the content; only a same-named file at another path is judged by content.
+        rec = next((r for r in scripts if p == r["path"] or p in r["copies"]), None) or \
+            next((r for r in scripts if r["basename"] == base
+                  and (sig is None or r["sig"] is None or sig == r["sig"])), None)
         if rec is None:
             rec = {"basename": base, "path": p, "events": 0, "rows": [], "copies": [],
                    "sig": sig}
             scripts.append(rec)
-        elif rec["sig"] is None:
-            rec["sig"] = sig
+        elif rec["sig"] is None or (p == rec["path"] and sig is not None):
+            rec["sig"] = sig  # the script's content is now what was last written to it
         rec["events"] += 1
         rec["rows"].append(ev["row"])
         if p != rec["path"] and p not in rec["copies"]:

@@ -251,5 +251,46 @@ class P5_29_UnknownTranscriptType(Scratch):
         self.assertEqual((events, rows), ([], 2))
 
 
+def bash_row(cmd):
+    return {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}]}}
+
+
+class P5_30_ShellWrittenScripts(Scratch):
+    """Different shell-written contents at different paths are two scripts, not a copy."""
+
+    def setUp(self):
+        super().setUp()
+        self.qt = load("qa_throwaways_p5v3b", os.path.join(HERE, "qa-throwaways.py"))
+
+    def count(self, rows):
+        events, _ = self.qt.scan(transcript(self.tmp, rows))
+        scripts, _ = self.qt.classify(events)
+        return scripts
+
+    def test_two_printf_writes_of_different_content_are_two_scripts(self):
+        scripts = self.count([bash_row("printf 'print(1)' > /one/analyze.py"),
+                              bash_row("printf 'print(2)' > /two/analyze.py")])
+        self.assertEqual(len(scripts), 2)
+
+    def test_two_heredoc_writes_of_different_content_are_two_scripts(self):
+        scripts = self.count([bash_row("cat > /one/analyze.py <<'EOF'\nprint(1)\nEOF"),
+                              bash_row("cat > /two/analyze.py <<'EOF'\nprint(2)\nEOF")])
+        self.assertEqual(len(scripts), 2)
+
+    def test_transfer_from_a_decoder_is_still_a_copy(self):
+        scripts = self.count([bash_row("cat > /one/analyze.py <<'EOF'\nprint(1)\nEOF"),
+                              bash_row("echo cHJpbnQoMSkK | base64 -d > /guest/analyze.py")])
+        self.assertEqual(len(scripts), 1)
+        self.assertEqual(scripts[0]["copies"], ["/guest/analyze.py"])
+
+    def test_rewrites_of_one_path_are_one_script(self):
+        scripts = self.count([bash_row("printf 'a' > /s/send.sh"),
+                              bash_row("printf 'b' > /s/send.sh"),
+                              bash_row("printf 'c' > /s/send.sh")])
+        self.assertEqual(len(scripts), 1)
+        self.assertEqual(scripts[0]["events"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()
