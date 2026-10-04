@@ -117,10 +117,15 @@ pub enum Gone {
 /// **Must this account be left (or, with no account left, held), and until when?**
 /// - weekly at 99% at normal speed (§108), or EARLIER when its measured speed would carry it
 ///   to 100% before the next check (`Reading::reaches`);
-/// - with the setting on Switch, the five-hour window at the pause threshold (93%), or
-///   earlier by the same projection;
+/// - with the setting on Switch AND the automatic switch on (`pause` is `Some(threshold)`),
+///   the five-hour window at the pause threshold (93%), or earlier by the same projection;
 /// - a usage-limit refusal that has not reset (the backstop).
-pub fn gone(reading: &Reading, at_threshold: AtThreshold, pause_percent: u8, limited_until: Option<u64>, now: u64) -> Option<(Gone, u64)> {
+///
+/// `pause` is `None` while the automatic pause-or-switch is off. Round 16 (the design the CEO
+/// chose for this panel, 2026-10-04) makes that one switch the subject of the sentence whose
+/// verb is Pause or Switch: off, *"nothing happens at 93%; the line is only drawn"*, and only
+/// the weekly 99% switch still happens (richos-hq `design/mockups/rounds/round-16/NOTES.md`).
+pub fn gone(reading: &Reading, at_threshold: AtThreshold, pause: Option<u8>, limited_until: Option<u64>, now: u64) -> Option<(Gone, u64)> {
     if let Some(until) = limited_until.filter(|t| *t > now) {
         return Some((Gone::Limit, until));
     }
@@ -132,7 +137,7 @@ pub fn gone(reading: &Reading, at_threshold: AtThreshold, pause_percent: u8, lim
             None => return Some((Gone::Weekly(weekly.used_percent), now + crate::quota::REFRESH_INTERVAL_MS)),
         }
     }
-    if at_threshold == AtThreshold::Switch {
+    if let (AtThreshold::Switch, Some(pause_percent)) = (at_threshold, pause) {
         if let Some(five) = reading.windows.iter().find(|w| w.id == "five_hour"
             && reading.reaches(w, f64::from(pause_percent))) {
             if let Some(t) = five.resets_at.filter(|t| *t > now) {
@@ -300,7 +305,7 @@ impl Accounts {
     /// probe. Returns whether the account in use changed. Running leases are NOT touched here:
     /// each one rotates at its own next turn boundary, because rotation never happens inside a
     /// turn (`spine.rs`).
-    pub fn evaluate(&self, readings: &BTreeMap<String, Reading>, pause_percent: u8, now: u64) -> io::Result<bool> {
+    pub fn evaluate(&self, readings: &BTreeMap<String, Reading>, pause: Option<u8>, now: u64) -> io::Result<bool> {
         let mut state = self.state.lock().unwrap();
         if state.accounts.len() < 2 { return Ok(false); }
         let current = state.in_use.clone();
@@ -309,10 +314,10 @@ impl Accounts {
         let limit = |id: &str| limited.get(id).copied();
         let empty = Reading::default();
         let mine = readings.get(&current).unwrap_or(&empty);
-        let Some((why, _)) = gone(mine, at, pause_percent, limit(&current), now) else { return Ok(false) };
+        let Some((why, _)) = gone(mine, at, pause, limit(&current), now) else { return Ok(false) };
         let next = next_account(state.accounts.iter().filter(|a| a.id != current)
             .filter_map(|a| readings.get(&a.id).map(|r| (a.id.as_str(), r)))
-            .filter(|(id, r)| gone(r, at, pause_percent, limit(id), now).is_none()));
+            .filter(|(id, r)| gone(r, at, pause, limit(id), now).is_none()));
         let Some(next) = next.map(str::to_string) else { return Ok(false) };
         self.switch_to(&mut state, &next, why)?;
         Ok(true)
@@ -321,7 +326,7 @@ impl Accounts {
     /// **The backstop.** A lease on `account` was refused by a usage limit inside a turn. The
     /// account is marked gone until `resets_at` (or, when the refusal did not say, until the
     /// latest reset of its full windows), and the next account with room is put in use.
-    pub fn limit_reached(&self, account: &str, resets_at: Option<u64>, readings: &BTreeMap<String, Reading>, pause_percent: u8, now: u64) -> io::Result<AfterLimit> {
+    pub fn limit_reached(&self, account: &str, resets_at: Option<u64>, readings: &BTreeMap<String, Reading>, pause: Option<u8>, now: u64) -> io::Result<AfterLimit> {
         {
             let mut state = self.state.lock().unwrap();
             let until = resets_at.filter(|t| *t > now).or_else(|| readings.get(account).and_then(|r| r.windows.iter()
@@ -337,19 +342,19 @@ impl Accounts {
                 return Ok(AfterLimit::Continue);
             }
         }
-        Ok(if self.evaluate(readings, pause_percent, now)? { AfterLimit::Continue } else { AfterLimit::NoRoom })
+        Ok(if self.evaluate(readings, pause, now)? { AfterLimit::Continue } else { AfterLimit::NoRoom })
     }
 
     /// **All accounts gone** (Frank's finding 2): held until the soonest reset across them.
     /// `None` with one account, so a user with one subscription sees no change.
-    pub fn held_until(&self, readings: &BTreeMap<String, Reading>, pause_percent: u8, now: u64) -> Option<u64> {
+    pub fn held_until(&self, readings: &BTreeMap<String, Reading>, pause: Option<u8>, now: u64) -> Option<u64> {
         let state = self.state.lock().unwrap();
         if state.accounts.len() < 2 { return None; }
         let mut soonest: Option<u64> = None;
         let empty = Reading::default();
         for account in &state.accounts {
             let reading = readings.get(&account.id);
-            match gone(reading.unwrap_or(&empty), state.at_threshold, pause_percent,
+            match gone(reading.unwrap_or(&empty), state.at_threshold, pause,
                 state.limited_until.get(&account.id).copied(), now) {
                 Some((_, until)) => soonest = Some(soonest.map_or(until, |s| s.min(until))),
                 // An account with a reading and room: work can run.
@@ -403,15 +408,35 @@ pub(crate) mod tests {
             ("3", reading(0., HOUR, 50., 24 * HOUR)),
             ("4", reading(0., HOUR, 99.5, 3 * HOUR)),
         ].into_iter().map(|(id, r)| (id.to_string(), r)).collect();
-        assert!(accounts.evaluate(&readings, 93, NOW).unwrap());
+        assert!(accounts.evaluate(&readings, Some(93), NOW).unwrap());
         assert_eq!(accounts.in_use().id, "3");
         assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal: Account 1 is at 99% of its weekly limit."));
         // Staying is fill-first: Personal has room, so nothing moves, even though Work is
         // earlier in the list.
-        assert!(!accounts.evaluate(&readings, 93, NOW).unwrap());
+        assert!(!accounts.evaluate(&readings, Some(93), NOW).unwrap());
         assert_eq!(accounts.in_use().id, "3");
         // The choice survives a restart.
         assert_eq!(Accounts::open(dir.path()).unwrap().in_use().id, "3");
+    }
+
+    /// **Round 16: the one switch is the subject of the sentence.** Switch chosen, Account 1's
+    /// five-hour window at 95%: with the automatic switch off nothing happens at the line (it
+    /// is only drawn); on, the next account takes over. The weekly 99% switch happens either
+    /// way, because that is what a second account is for.
+    #[test]
+    fn with_the_switch_off_nothing_happens_at_the_five_hour_line_but_the_weekly_switch_still_does() {
+        let (_dir, accounts) = two_accounts();
+        accounts.set_at_threshold(AtThreshold::Switch).unwrap();
+        let past_line = readings(reading(95., HOUR, 30., 48 * HOUR), reading(5., HOUR, 5., 72 * HOUR));
+        assert!(!accounts.evaluate(&past_line, None, NOW).unwrap(), "off: the five-hour line is only drawn");
+        assert_eq!(accounts.in_use().id, "1");
+        assert_eq!(accounts.held_until(&past_line, None, NOW), None, "off: Account 1 is not counted as gone");
+        assert!(accounts.evaluate(&past_line, Some(93), NOW).unwrap(), "on: Switch moves at the line");
+        assert_eq!(accounts.in_use().id, "2");
+        let (_dir, accounts) = two_accounts();
+        let weekly = readings(reading(10., HOUR, 99., 48 * HOUR), reading(5., HOUR, 5., 72 * HOUR));
+        assert!(accounts.evaluate(&weekly, None, NOW).unwrap(), "off: the weekly 99% switch still happens");
+        assert_eq!(accounts.in_use().id, "2");
     }
 
     /// **§108, normal speed:** the weekly switch point is 99%. At 98.9% nothing moves; at 99%
@@ -423,10 +448,10 @@ pub(crate) mod tests {
         let mut slow = reading(10., HOUR, 98.9, 24 * HOUR);
         slow.speeds.insert("seven_day".into(), 100. / (168. * HOUR as f64));
         assert!(!slow.fast());
-        assert!(!accounts.evaluate(&readings(slow.clone(), reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
+        assert!(!accounts.evaluate(&readings(slow.clone(), reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
         assert_eq!(accounts.in_use().id, "1", "98.9% at normal speed stays");
         slow.windows[1].used_percent = 99.;
-        assert!(accounts.evaluate(&readings(slow, reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
+        assert!(accounts.evaluate(&readings(slow, reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
         assert_eq!(accounts.in_use().id, "2", "99% at normal speed switches");
     }
 
@@ -447,10 +472,10 @@ pub(crate) mod tests {
         assert!(fast.fast());
         assert_eq!(fast.interval(), crate::quota::FAST_REFRESH_INTERVAL_MS);
         assert!((fast.act_point(&fast.windows[1], 99.) - 96.).abs() < 1e-9);
-        assert!(!accounts.evaluate(&readings(fast.clone(), reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
+        assert!(!accounts.evaluate(&readings(fast.clone(), reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
         assert!(fast.projected(&fast.windows[1]) < 100., "staying is safe only if the next check is under 100%");
         fast.windows[1].used_percent = 96.;
-        assert!(accounts.evaluate(&readings(fast, reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
+        assert!(accounts.evaluate(&readings(fast, reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
         assert_eq!(accounts.in_use().id, "2", "switched at 96%, before 99%");
     }
 }

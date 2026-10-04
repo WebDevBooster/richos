@@ -1183,6 +1183,7 @@ fn streamed_five_hour(used: f64, at: u64) -> richos_core::quota::StreamedReading
 #[test]
 fn a_turn_that_starts_at_93_percent_runs_under_the_next_account() {
     let (dir, quota) = two_accounts("boundary", 60.);
+    quota.set_policy(richos_core::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
     quota.set_at_threshold(richos_core::claude_accounts::AtThreshold::Switch).unwrap();
     assert_eq!(quota.lease_account().id, "1", "60% has room: Account 1 stays");
     let (path, ledger) = tmp_ledger("fill-first-boundary");

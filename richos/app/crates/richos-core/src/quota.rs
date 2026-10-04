@@ -120,6 +120,11 @@ impl Default for Policy {
     }
 }
 impl Policy {
+    /// The five-hour line while the automatic pause-or-switch is on; `None` while it is off
+    /// (`claude_accounts::gone`: off, nothing happens at the line).
+    pub fn line(&self) -> Option<u8> {
+        self.enabled.then_some(self.pause_percent)
+    }
     pub fn validate(&self) -> Result<(), &'static str> {
         if !(1..=99).contains(&self.pause_percent) {
             return Err("Choose a pause threshold from 1% to 99% used.");
@@ -625,7 +630,7 @@ impl Service {
                 };
                 let exhausted = crate::claude_accounts::gone(
                     readings.get(&account.id).unwrap_or(&Reading::default()), view.at_threshold,
-                    policy.pause_percent, self.accounts.limited_until(&account.id), now);
+                    policy.line(), self.accounts.limited_until(&account.id), now);
                 crate::claude_accounts::AccountView {
                     in_use: account.id == in_use.id,
                     id: account.id,
@@ -636,7 +641,7 @@ impl Service {
                     message: account_view.message,
                 }
             }).collect();
-            view.held_until = self.accounts.held_until(&readings, policy.pause_percent, now);
+            view.held_until = self.accounts.held_until(&readings, policy.line(), now);
             if let Some(until) = view.held_until {
                 view.admission = Admission::Held { resets_at: until };
             }
@@ -750,7 +755,7 @@ impl Service {
     }
 
     fn decide(&self) {
-        let pause = self.policy.lock().unwrap().pause_percent;
+        let pause = self.policy.lock().unwrap().line();
         match self.accounts.evaluate(&self.readings(), pause, crate::util::now_millis()) {
             Ok(true) => {
                 if let Err(error) = self.publish() { eprintln!("[richos] quota snapshot: {error}"); }
@@ -762,7 +767,7 @@ impl Service {
 
     /// **The backstop**: a turn on `account` was refused by a usage limit anyway.
     pub fn limit_reached(&self, account: &str, resets_at: Option<u64>) -> crate::claude_accounts::AfterLimit {
-        let pause = self.policy.lock().unwrap().pause_percent;
+        let pause = self.policy.lock().unwrap().line();
         let outcome = self.accounts.limit_reached(account, resets_at, &self.readings(), pause, crate::util::now_millis())
             .unwrap_or(crate::claude_accounts::AfterLimit::NoRoom);
         if let Err(error) = self.publish() { eprintln!("[richos] quota snapshot: {error}"); }
@@ -839,6 +844,9 @@ impl Service {
         atomic_write(&self.policy_path, &policy)?;
         *current = policy;
         drop(current);
+        // Turning the automatic switch on with Switch chosen past the line moves now, as the
+        // setting itself does (`set_at_threshold`).
+        self.decide();
         if let Err(error) = self.publish() {
             eprintln!("[richos] quota snapshot: {error}");
         }
@@ -1341,6 +1349,7 @@ for line in sys.stdin:
         let work = service.accounts.add("Work").unwrap();
         usage(&root.path().join("usage-1.json"), 93., 40., "2099-01-05T00:00:00Z");
         usage(&work.folder.clone().unwrap().join("usage.json"), 10., 20., "2099-01-06T00:00:00Z");
+        service.set_policy(policy()).unwrap();
         let view = service.refresh(&bin, true);
         assert_eq!(view.at_threshold, crate::claude_accounts::AtThreshold::Pause, "Pause is the default");
         assert_eq!(service.accounts.in_use().id, "1", "Pause never switches");
