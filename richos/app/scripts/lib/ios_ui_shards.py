@@ -298,9 +298,8 @@ def cmd_retry(work, previous, i, runner=subprocess.run):
     # this build by the stamped BuildStampTests probe, so a unit selection always carries that control.
     probe_id = "RichOSNativeTests/BuildStampTests/testTheBundleCarriesItsBuildStamp"
     if any(t.startswith("RichOSNativeTests/") for t in raw):
-        for t in listed:
-            if norm(t) == probe_id:
-                raw[probe_id] = t
+        # Not in the enumeration of a one-suite selection, so it is named, with the () Xcode matches by.
+        raw[probe_id] = next((t for t in listed if norm(t) == probe_id), probe_id + "()")
     expected = sorted(raw)
     if not expected:
         print("native-ios-ui: FAIL: the selection (%s) matched 0 tests; 0 of what was asked will run" % ", ".join(asked))
