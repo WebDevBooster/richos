@@ -1267,9 +1267,11 @@ UNPROFILED_METHOD = (
 
 # The test iPhone keeps RichConnect on its Home Screen's page 2 of 2 (read from SpringBoard's tree,
 # 2026-10-02). Home from the Home Screen shows page 1, so Home then one swipe left shows page 2 whichever
-# page was showing; the list ends with Home twice, back on page 1. Nothing on the Home Screen is moved.
+# page was showing. Every series starts on that page and the tap series ends on it (the launch animation from
+# page 1 runs 100-130 ms longer than from the icon's page). Nothing on the Home Screen is moved.
 HOME_ICONS = "Home screen icons"
 ICON_PAGE_SWIPES = 1
+ICON_PAGE = ICON_PAGE_SWIPES + 1  # Home shows page 1; each swipe left is one page on
 
 
 def _to_icon_page():
@@ -1294,7 +1296,7 @@ def tap_steps(launches, returns, away, offsets=PROBE_OFFSETS_S, point=PROBE_POIN
                      {"do": "tapThen", "in": "springboard", "label": ICON_LABEL, "timeout": 10,
                       "after": offsets[(n - 1) % len(offsets)], "at": list(point)},
                      {"do": "sleep", "seconds": TAP_DWELL_S}])
-    return steps + [{"do": "home"}, {"do": "sleep", "seconds": 1}, {"do": "home"}]
+    return steps + _to_icon_page()  # the phone is left on the icon's page, not page 1
 
 
 def parse_timing(text):
@@ -1423,9 +1425,6 @@ def device_tap_series(hw, team, stamp_path, launches, returns, away, out_dir, ru
     """The tap launches and returns through the stamped build's runner. Returns (rows, summary-or-error)."""
     os.makedirs(out_dir, exist_ok=True)
     steps = tap_steps(launches, returns, away)
-    steps_path = os.path.join(out_dir, "steps.json")
-    with open(steps_path, "w") as f:
-        json.dump(steps, f)
     # phone-ios.py's measured medians: terminate 1.08, home 0.46, swipe 2.69, tap 2.0 s (tapThen 4.0, unmeasured).
     to_page = 0.46 + 1 + ICON_PAGE_SWIPES * (2.69 + 1)
     expected = (launches * (1.08 + TAP_SETTLE_S + to_page + 2.0 + TAP_DWELL_S)
@@ -1433,6 +1432,27 @@ def device_tap_series(hw, team, stamp_path, launches, returns, away, out_dir, ru
     if expected * 1.25 > TAP_ALLOWANCE_MAX_S:
         return [], (f"{launches} launches and {returns} returns need about {int(expected)} s, more than one runner "
                     f"session's {TAP_ALLOWANCE_MAX_S} s; run fewer")
+    return device_run_steps(hw, team, stamp_path, steps, out_dir, runner, screen_recording)
+
+
+def set_icon_page(hw, team, stamp_path, out_dir, runner=subprocess.run):
+    """Bring the Home Screen to the page that holds the test app's icon (the tap series' own steps), before a
+    series that launches without a tap. Returns (what was done, error or None)."""
+    rows, error = device_run_steps(hw, team, stamp_path, _to_icon_page(), out_dir, runner)
+    ok = bool(rows) and all(r.get("ok") for r in rows)
+    page = {"page": ICON_PAGE, "setBy": f"Home, then {ICON_PAGE_SWIPES} swipe left on '{HOME_ICONS}'",
+            "stepsOk": ok, "evidence": out_dir}
+    if not error and not ok:
+        error = "the steps that bring the Home Screen to the icon's page did not all succeed"
+    return page, error
+
+
+def device_run_steps(hw, team, stamp_path, steps, out_dir, runner=subprocess.run, screen_recording=False):
+    """The steps through the stamped build's UI-test runner. Returns (rows, error or None)."""
+    os.makedirs(out_dir, exist_ok=True)
+    steps_path = os.path.join(out_dir, "steps.json")
+    with open(steps_path, "w") as f:
+        json.dump(steps, f)
     # The largest allowance, as the on-screen check asks: the device runner's limit also counts the wait
     # for native-work's CPU admission before the session starts.
     allowance = TAP_ALLOWANCE_MAX_S
@@ -1469,6 +1489,8 @@ def _tap_series(args, record, state, seed, scratch, hw, work):
     shutil.copytree(seed, timed)
     open(os.path.join(timed, TIMING_MARKER), "w").close()
     out_dir = os.path.join(work, "taps")
+    record["conditions"].setdefault("homePage", {})["taps"] = {
+        "page": ICON_PAGE, "setBy": "every tap is preceded by Home and the swipe to the icon's page; the list ends on it"}
     try:
         state.put(timed, scratch)
     except (Unmeasurable, subprocess.TimeoutExpired) as e:
@@ -1930,9 +1952,15 @@ def _seeded_device(args, record, driver, hw, stamp, runner, popen, sleep, rios):
             record["phases"]["seed"] = "measured"
             failures = _trace_classes(record, driver, args, runner, popen, sleep)
             if getattr(args, "returns", 0):
-                failures += _return_series(args, record, state, seed, scratch, hw, work, driver, popen, sleep)
+                if _home_page(record, hw, work, args, runner, "returns"):
+                    failures += _return_series(args, record, state, seed, scratch, hw, work, driver, popen, sleep)
+                else:
+                    failures += 1
             if getattr(args, "launches", 0):
-                failures += _launch_series(args, record, state, seed, scratch, hw, work, driver, popen, sleep)
+                if _home_page(record, hw, work, args, runner, "launches"):
+                    failures += _launch_series(args, record, state, seed, scratch, hw, work, driver, popen, sleep)
+                else:
+                    failures += 1
             if getattr(args, "tap_launches", 0) or getattr(args, "tap_returns", 0):
                 failures += _tap_series(args, record, state, seed, scratch, hw, work)
             verified = device_screen_check(hw, os.environ["RICHOS_APPLE_TEAM"], args.stamp, marker,
@@ -1955,6 +1983,21 @@ def _seeded_device(args, record, driver, hw, stamp, runner, popen, sleep, rios):
         for sig, handler in previous.items():
             signal.signal(sig, handler)
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _home_page(record, hw, work, args, runner, series):
+    """Before a launch series: the Home Screen is brought to the icon's page and the page is written into the
+    run's conditions, so a change of page shows in the record. False (the series is not run) when it could not
+    be set: a series on an unknown page measures a different launch animation."""
+    page, error = set_icon_page(hw, os.environ["RICHOS_APPLE_TEAM"], args.stamp, os.path.join(work, f"home-page-{series}"),
+                                runner)
+    record["conditions"].setdefault("homePage", {})[series] = page
+    if error:
+        page["error"] = error
+        record["phases"][series] = f"not run: the Home Screen could not be brought to the icon's page: {error}"
+        record["notMeasured"].append({"what": series, "why": record["phases"][series]})
+        return False
+    return True
 
 
 def restore_device(device, backup_dir, runner=subprocess.run, sleep=time.sleep):

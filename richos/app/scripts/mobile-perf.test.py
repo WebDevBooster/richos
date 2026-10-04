@@ -2765,6 +2765,36 @@ def timing_line(e, pid, wall_s, **extra):
     return json.dumps({"e": e, "pid": pid, "wallUs": int(round(wall_s * 1e6)), "uptime": wall_s - 1000.0, **extra})
 
 
+@case("C15b Home page: the tap series ends on the icon's page, and a launch series on a phone first brings the Home "
+      "Screen to that page, records it in the conditions, and does not run when the page cannot be set")
+def _():
+    from unittest.mock import patch
+    # the tap list used to end with Home twice (page 1: the slow launch animation for whatever ran next)
+    steps = ios.tap_steps(1, 1, 2.0)
+    assert steps[-len(ios._to_icon_page()):] == ios._to_icon_page(), steps[-6:]
+    assert steps[-1]["do"] == "sleep" and steps[-2]["do"] == "swipe" and steps[-2]["direction"] == "left", steps[-4:]
+    order = []
+    def fake_set(hw, team, stamp, out, runner=None):
+        order.append("page")
+        return {"page": ios.ICON_PAGE, "setBy": "x", "stepsOk": True, "evidence": out}, None
+    def fake_launches(*a, **k):
+        order.append("launches")
+        return 0
+    with tempfile.TemporaryDirectory() as tmp:
+        with patch.object(ios, "set_icon_page", fake_set), patch.object(ios, "_launch_series", fake_launches):
+            record, failed, _ = run_phone(FakePhone(tmp), tmp, cold=0, warm=0, launches=3)
+        assert order == ["page", "launches"], order
+        assert record["conditions"]["homePage"]["launches"]["page"] == ios.ICON_PAGE, record["conditions"]
+    order.clear()
+    with tempfile.TemporaryDirectory() as tmp:
+        def refuse(hw, team, stamp, out, runner=None):
+            return {"page": ios.ICON_PAGE, "stepsOk": False, "evidence": out}, "no runner"
+        with patch.object(ios, "set_icon_page", refuse), patch.object(ios, "_launch_series", fake_launches):
+            record, failed, _ = run_phone(FakePhone(tmp), tmp, cold=0, warm=0, launches=3)
+        assert order == [] and failed, (order, failed)
+        assert any("icon's page" in g["why"] for g in record["notMeasured"]), record["notMeasured"]
+
+
 @case("C16 unprofiled taps: the step list passes phone-ios.py's own validation; the runner's tap times and the app's "
       "own lines join into launch and return samples; a launch with no input-ready, two processes after one tap and a "
       "relaunch during a return are rejected; a probe touch before activation is reported so; refused off a seeded iPhone")
