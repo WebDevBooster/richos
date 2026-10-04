@@ -1119,6 +1119,13 @@ def _run(args):
                "secondsToFirstStep": round(first - started, 1) if isinstance(first, (int, float)) else None,
                "automationEnableWaitSeconds": session and session["enableWaitSeconds"],
                "passcodeConfigured": session and session["passcodeConfigured"]}
+    # A list that keeps a shot, tree or audit asked for those files; when their export fails they are not
+    # in the output offered as evidence, so the run is not a pass (hunt part 2 v3, N07: the recording option
+    # had this guard, an ordinary shot did not).
+    if exported.returncode != 0 and any(s.get("do") in KEEPS_SCREEN for s in steps):
+        summary["passed"] = False
+        summary["error"] = ("the requested shots, trees or audits could not be exported from the result bundle: "
+                            + (summary["attachmentsError"] or f"xcresulttool exit {exported.returncode}"))
     if getattr(args, "screen_recording", False):
         summary["screenRecordings"] = screen_recordings(attachments) if exported.returncode == 0 else []
         if not summary["screenRecordings"]:
