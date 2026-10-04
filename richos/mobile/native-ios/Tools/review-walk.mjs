@@ -395,7 +395,7 @@ async function main() {
 	}
 }
 
-export { appSteps, nextStep, resetHost, STEPS, APP_STEPS };
+export { appSteps, credentials, nextStep, openSignedIn, pageText, resetHost, STEPS, APP_STEPS };
 
 if (import.meta.main) {
 	main().catch((error) => {
