@@ -1209,6 +1209,60 @@ fn a_turn_that_starts_at_93_percent_runs_under_the_next_account() {
     drop(std::fs::remove_dir_all(dir));
 }
 
+/// **Hunt part 1 v3, finding 50: a switch happens only at a boundary where nothing is
+/// running.** Retiring a lease ends the tool commands it started (`lease_commands.rs`), so
+/// the conversation, like the work host (`work_host.rs`, `account_switch_due`), does not
+/// leave its account while its lease reports a command running or cannot say. The turn runs
+/// on the account it is on (the limit backstop covers it); the switch happens at the first
+/// boundary after the command ends.
+#[test]
+fn an_account_switch_waits_for_a_command_the_conversation_started() {
+    use richos_core::lease_commands::CommandReading;
+    struct Busy { lease: AccountLease, commands: Arc<Mutex<Option<CommandReading>>> }
+    impl Cognition for Busy {
+        fn session_id(&self) -> &str { self.lease.session_id() }
+        fn account(&self) -> Option<&str> { self.lease.account() }
+        fn streamed_usage(&self) -> Option<richos_core::quota::StreamedReading> { self.lease.streamed_usage() }
+        fn running_commands(&self) -> Option<CommandReading> { *self.commands.lock().unwrap() }
+        fn reprime(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> { self.lease.reprime(text, on_item) }
+        fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> { self.lease.prompt(text, on_item) }
+    }
+    let (dir, quota) = two_accounts("switch-waits", 60.);
+    quota.set_at_threshold(richos_core::claude_accounts::AtThreshold::Switch).unwrap();
+    let (path, ledger) = tmp_ledger("fill-first-switch-waits");
+    let mut spine = support::spine(ledger);
+    spine.create_thread("General", &femcboost()).unwrap();
+    let streamed = Arc::new(Mutex::new(Some(streamed_five_hour(93., richos_core::util::now_millis() + 1_000))));
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let spawned = Arc::new(Mutex::new(Vec::new()));
+    let commands = Arc::new(Mutex::new(Some(CommandReading::Running(1))));
+    spine.attach_lease(Box::new(Busy {
+        lease: AccountLease { session_id: "sess-account-1".into(), account: "1".into(),
+            streamed: streamed.clone(), fail_with: None, prompts: prompts.clone() },
+        commands: commands.clone(),
+    }));
+    spine.set_lease_factory(Box::new(AccountFactory { quota: quota.clone(), spawned: spawned.clone(),
+        streamed: Arc::new(Mutex::new(None)), prompts: prompts.clone() }));
+
+    spine.submit_prompt("Is the build done?", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "an account switch retired a lease with a command running");
+    assert!(spawned.lock().unwrap().is_empty());
+    *commands.lock().unwrap() = Some(CommandReading::Unreadable);
+    spine.submit_prompt("And now?", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 0, "an unreadable state was read as nothing running");
+
+    *commands.lock().unwrap() = Some(CommandReading::Clear);
+    spine.submit_prompt("It finished", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 1, "the switch never happened once the command ended");
+    assert_eq!(spine.last_rotation_reason(), Some(richos_core::spine::ACCOUNT_SWITCH));
+    assert_eq!(*spawned.lock().unwrap(), vec!["2".to_string()]);
+    let ran: Vec<_> = prompts.lock().unwrap().iter().filter(|(_, t)| !t.is_empty()).cloned().collect();
+    assert!(ran.contains(&("1".to_string(), "Is the build done?".to_string())), "{ran:?}");
+    assert!(ran.contains(&("2".to_string(), "It finished".to_string())), "{ran:?}");
+    drop(std::fs::remove_file(&path));
+    drop(std::fs::remove_dir_all(dir));
+}
+
 /// **The backstop, only for one turn that by itself used up what remained.** The lease on
 /// Account 1 is refused mid-turn with the error `native.rs` writes for any of the three real
 /// signals. The account is marked gone, Work is put in use, and his prompt is re-served on a
