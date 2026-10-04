@@ -3770,6 +3770,33 @@ class AutoLand_MergedAndEndedLandsOnItsOwn(Base):
         self.assertFalse(os.path.exists(kept))
 
 
+class HuntV3_01_ARecordWithoutItsWorkspacesIsDamaged(Base):
+    """Hunt part 4 v3, V3-01: a keyed record that had lost its `workspaces`
+    list passed the V2-04 check, the sweep read it as owning nothing, made its
+    live workspace an orphan, stopped the worker's process and deleted it."""
+
+    def test_v3_01_a_sweep_never_cleans_up_a_live_worker_whose_record_lost_its_workspaces(self):
+        name = "zach-opus-v3record"
+        _aid, path = self.spawn(name)
+        rec = self.rec(name)
+        self.assertFalse(ws.finished_state(rec)[0])
+        sleeper = subprocess.Popen(["sleep", "300"], cwd=path)
+        self.env.procs.append(sleeper)
+        self.assertIn(sleeper.pid, ws.processes_in([path]))
+        rec.pop("workspaces")
+        with open(ws.agent_path(rec["key"]), "w") as f:
+            json.dump(rec, f)
+        with patch.object(ws, "stop_containers", return_value={}), \
+                patch.object(ws, "stop_test_instances", return_value={}):
+            items = ws.pending(self.sid, self.entity, scan=True)
+        time.sleep(0.3)
+        self.assertIsNone(sleeper.poll(), "the sweep stopped a live worker's process")
+        self.assertTrue(os.path.isdir(path), "the sweep deleted a live worker's workspace")
+        self.assertFalse([r for r in ws.all_agents() if r.get("orphan")])
+        self.assertEqual(len([i for i in items if i.get("damaged")]), 1, items)
+        self.assertEqual([p for p, _w in ws.damaged_records()], [ws.agent_path(rec["key"])])
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a

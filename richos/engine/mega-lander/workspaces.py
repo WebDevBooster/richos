@@ -1017,6 +1017,14 @@ def damaged_records(include_done=True):
                 continue
             if not isinstance(v, dict) or not v.get("key"):
                 out.append((path, "it is not a registry record (no key)"))
+            # A KEYED RECORD WITHOUT ITS WORKSPACE LIST IS DAMAGED TOO (hunt
+            # part 4 v3, V3-01). Every record new_record() writes carries the
+            # list, so one without it has lost the very facts that say which
+            # workspaces it owns; read as "none", the sweep made its live
+            # workspace an orphan and the automatic land deleted it.
+            elif not isinstance(v.get("workspaces"), list) or \
+                    not all(isinstance(w, dict) for w in v["workspaces"]):
+                out.append((path, "its workspace list is missing or not a list of workspaces"))
     return out
 
 
