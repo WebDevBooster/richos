@@ -32,6 +32,8 @@
 #        SILENT: its name, last commit, last transcript write, what to do
 #   T02  not repeated
 #   T03  it writes its transcript: cleared after two looks, once
+#   L01-L03  slow steps: three agent_hold.py wait steps 4.5 min apart are told once (name,
+#        median, slowest command, since); 10-min run-tests.sh steps are exempt; clears once
 #   T04  a long honest run (transcript written 5 min ago, no commit for an
 #        hour), a paused teammate and a finished one: none is SILENT
 #   E01  THE 2026-10-01 INCIDENT: a teammate of this session raises a proceeding,
@@ -364,6 +366,46 @@ check "T04  a long honest run, a paused teammate and a finished one are not SILE
     "$( has "$T01OUT" "[SILENT] lima-opus-q1" && ! has "$T01OUT" "mike-opus-r1" && ! has "$T01OUT" "november-opus-p1" \
         && ! has "$T01OUT" "oscar-opus-e1"; echo $?)" \
     "out=$T01OUT"
+
+# --- L: slow steps (2026-10-04, isaac-opus-logo1: every step cost ~4.5 minutes) ----
+write_steps() { # <agent-id> <command> <result-text> <step-seconds> <count>: steps ending now-60, spaced 5 min
+    python3 - "$RICHOS_PROJECTS_DIR/fixture-project/$SID/subagents/agent-$1.jsonl" "$2" "$3" "$4" "$5" <<'PY'
+import datetime, json, sys, time
+path, cmd, text, step, n = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4]), int(sys.argv[5])
+def iso(t):
+    return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+end = time.time() - 60
+rows = []
+for i in range(n):
+    t1 = end - (n - 1 - i) * (step + 30)
+    t0 = t1 - step
+    uid = "toolu_%d" % i
+    rows.append({"type": "assistant", "timestamp": iso(t0), "message": {"content": [
+        {"type": "tool_use", "id": uid, "name": "Bash", "input": {"command": cmd}}]}})
+    rows.append({"type": "user", "timestamp": iso(t1), "message": {"content": [
+        {"type": "tool_result", "tool_use_id": uid, "content": text}]}})
+with open(path, "w") as fh:
+    for r in rows:
+        fh.write(json.dumps(r) + "\n")
+PY
+}
+new_registry l; new_state l
+add_agent papa-opus-w1 a0000000000fixw "$SID" 3600 100 50
+add_agent quebec-opus-t1 a0000000000fixt "$SID" 3600 100 50
+write_steps a0000000000fixw "python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait" \
+    "STILL RUNNING at 12:00:00Z: repeat this wait to collect the native task's completion." 270 3
+write_steps a0000000000fixt "scripts/run-tests.sh --suite stall-watch" "ok" 600 1
+tick 0
+check "L01  three agent_hold.py wait steps 4.5 min apart: SLOW-STEPS, named, median, slowest command, since; a 10-min run-tests.sh step is not" \
+    "$( [ "$(count "$OUT" "[SLOW-STEPS]")" -eq 1 ] && has "$OUT" "[SLOW-STEPS] papa-opus-w1" && has "$OUT" "median step time 4.5 min" \
+        && has "$OUT" "agent_hold.py wait" && has "$OUT" "(since " && ! has "$OUT" "quebec-opus-t1"; echo $?)" "out=$OUT"
+tick 60
+check "L02  not repeated at the next look" "$( [ -z "$OUT" ]; echo $?)" "out=$OUT"
+write_steps a0000000000fixt "scripts/run-tests.sh --suite stall-watch" "ok" 600 3
+write_steps a0000000000fixw "git status" "ok" 5 3
+tick 120; tick 180
+check "L03  three 10-min run-tests.sh steps are exempt; the fast teammate clears once" \
+    "$( [ "$(count "$OUT" "STALL-CLEARED")" -eq 1 ] && has "$OUT" "papa-opus-w1" && ! has "$OUT" "[SLOW-STEPS]"; echo $?)" "out=$OUT"
 
 # --- E: a teammate's escalation wakes an idle lead (2026-10-01) ---------------
 # richos-hq docs/operations/2026-10-01-escalation-wakes-the-lead.md, built past

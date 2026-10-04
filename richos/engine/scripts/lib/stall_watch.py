@@ -465,6 +465,7 @@ def look(src, now, session_id, th=None):
     stalls += s
     if why:
         problems.append(why)
+    stalls += _slow_steps(src, reg, now, session_id)
     return stalls, [p for p in problems if p]
 
 
@@ -688,6 +689,134 @@ def _silent(src, reg, now, session_id, th, waits):
                          "no commit and no transcript activity" if not own_waits else
                          "no commit and no transcript activity (it has a recorded wait)", lines, action))
     return out, ""
+
+
+# ---------------------------------------------------------------------------
+# SLOW STEPS (2026-10-04)
+# ---------------------------------------------------------------------------
+# THE FAILURE: isaac-opus-logo1 spent 1.5 hours on a small fix because every
+# step cost about 4.5 minutes (a background Bash call, then `agent_hold.py wait`
+# returning only at its bound). It wrote its transcript every 4.5 minutes, so the
+# SILENT rule (20 minutes) never saw it, and the CEO had to ask.
+#
+# THE RULE: a live teammate whose last SLOW_STEPS_N tool results each came at
+# least SLOW_STEP_SECONDS after the call they answer. The step time is the
+# timestamp of the tool_result row minus the timestamp of its tool_use row in
+# the teammate's own transcript. A step whose command really ran that long (a
+# test run, a build, a phone measurement) is exempt: its command is a
+# reserve.py, run-tests.sh, perf, xcodebuild or gradle command, or its output
+# says it was still working. A "STILL RUNNING" or "STILL WAITING" from
+# `agent_hold.py wait` is never exempt: it is the defect itself.
+SLOW_STEPS_N = 3
+SLOW_STEP_SECONDS = 180
+SLOW_TAIL_BYTES = 4 * 1024 * 1024
+SLOW_EXEMPT_WORDS = ("reserve.py", "run-tests.sh", "perf", "xcodebuild", "gradle")
+
+
+def _row_epoch(text):
+    try:
+        t = str(text)
+        if t.endswith("Z"):
+            t = t[:-1] + "+00:00"
+        return _dt.datetime.fromisoformat(t).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def _result_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return ""
+
+
+def transcript_steps(path):
+    """[(call epoch, step seconds, command, result text)] oldest first, for every
+    tool call in the transcript's tail that has its result. Never raises."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            if size > SLOW_TAIL_BYTES:
+                fh.seek(size - SLOW_TAIL_BYTES)
+                fh.readline()  # a partial first row
+            raw = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+    calls, steps = {}, []
+    for line in raw.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        msg = row.get("message") if isinstance(row, dict) else None
+        content = msg.get("content") if isinstance(msg, dict) else None
+        at = _row_epoch(row.get("timestamp")) if isinstance(row, dict) else None
+        if at is None or not isinstance(content, list):
+            continue
+        for b in content:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use" and b.get("id"):
+                inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+                calls[b["id"]] = (at, str(inp.get("command") or b.get("name") or ""))
+            elif b.get("type") == "tool_result" and b.get("tool_use_id") in calls:
+                t0, cmd = calls.pop(b["tool_use_id"])
+                steps.append((t0, at - t0, cmd, _result_text(b.get("content"))))
+    steps.sort(key=lambda s: s[0] + s[1])
+    return steps
+
+
+def _step_is_slow(step):
+    _t0, secs, cmd, text = step
+    if secs < SLOW_STEP_SECONDS:
+        return False
+    if "agent_hold.py wait" in cmd or "STILL RUNNING" in text or "STILL WAITING" in text:
+        return True
+    if any(w in cmd for w in SLOW_EXEMPT_WORDS) or "still working" in text.lower():
+        return False
+    return True
+
+
+def _median(values):
+    v = sorted(values)
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2.0
+
+
+def _slow_steps(src, reg, now, session_id):
+    if src.ws is None or reg.problem or not session_id:
+        return []
+    out = []
+    cache = {}
+    for rec in reg.recs:
+        if rec.get("session_id") != session_id or rec.get("disposition"):
+            continue
+        try:
+            fin, paused, _why = src.ws.finished_state(rec, cache)
+        except Exception:  # noqa: BLE001
+            continue
+        if fin or paused:
+            continue
+        path = _transcript(src, rec)
+        if not path:
+            continue
+        last = transcript_steps(path)[-SLOW_STEPS_N:]
+        if len(last) < SLOW_STEPS_N or not all(_step_is_slow(s) for s in last):
+            continue
+        name = str(rec.get("name") or rec.get("key") or "?")
+        worst = max(last, key=lambda s: s[1])
+        since = last[0][0]
+        lines = ["median step time %.1f min over its last %d tool calls (steps: %s min)" % (
+                     _median([s[1] for s in last]) / 60.0, SLOW_STEPS_N, ", ".join("%.1f" % (s[1] / 60.0) for s in last)),
+                 "slowest step (%.1f min): `%s`" % (worst[1] / 60.0, (worst[2] or "")[:100]),
+                 "transcript: " + path]
+        action = ["read the end of its transcript, then tell %s what is slow (SendMessage to %s)" % (name, name),
+                  "check it: %s %s" % (os.path.join(src.engine_root, "scripts", "agent-liveness.sh"),
+                                       rec.get("agent_id") or name)]
+        out.append(Stall("slow:%s" % rec.get("key"), "SLOW-STEPS", name, since,
+                         "every step takes minutes, though it is not silent", lines, action))
+    return out
 
 
 # ---------------------------------------------------------------------------
