@@ -1632,4 +1632,46 @@ for line in sys.stdin:
         assert!(!matches!(view.admission, Admission::Held { .. }), "{:?}", view.admission);
         service.shutdown();
     }
+
+    /// **Hunt part 1 v3, finding 51.** Quit's stop must interrupt EVERY account's pending
+    /// read. Account 1's second read never answers; Work was read after Account 1's reader
+    /// started, so a single shared fence pointed at Work and quit waited out the 20 s request
+    /// deadline. The bound is the probe's own (`probe.rs`, half of `DEADLINE`).
+    #[test]
+    #[cfg(unix)]
+    fn shutdown_interrupts_account_ones_pending_read_after_another_account_was_read() {
+        let root = Scratch::new();
+        let dir = root.path().to_path_buf();
+        let bin = script(&dir.join("claude-fixture"), r#"#!/usr/bin/env python3
+import json, os, sys, time
+root = os.path.dirname(os.path.abspath(__file__))
+added = "claude-accounts" in os.environ.get("CLAUDE_CONFIG_DIR", "")
+n = 0
+for line in sys.stdin:
+    v = json.loads(line)
+    payload = {}
+    if v["request"]["subtype"] != "initialize":
+        n += 1
+        if not added and n == 2:
+            open(os.path.join(root, "default-pending"), "w").close()
+            while True: time.sleep(0.02)
+        payload = {"rate_limits_available": True, "rate_limits": {
+            "five_hour": {"utilization": 5, "resets_at": "2099-01-01T00:00:00Z"},
+            "seven_day": {"utilization": 5, "resets_at": "2099-01-05T00:00:00Z"}}}
+    print(json.dumps({"type": "control_response", "response": {"subtype": "success", "request_id": v["request_id"], "response": payload}}), flush=True)
+"#);
+        let service = std::sync::Arc::new(Service::open(&dir).unwrap());
+        service.accounts.add("Work").unwrap();
+        let first = service.refresh(&bin, true);
+        assert!(first.accounts.iter().all(|a| a.checked_at.is_some()), "{:?}", first.accounts);
+        service.snapshot.lock().unwrap().checked_at = Some(crate::util::now_millis() - 10_000);
+        let reader = service.clone();
+        let refreshing = std::thread::spawn(move || reader.refresh(&bin, true));
+        wait_until("Account 1's second read is pending", || dir.join("default-pending").exists());
+        let began = std::time::Instant::now();
+        service.shutdown();
+        let took = began.elapsed();
+        refreshing.join().unwrap();
+        assert!(took < std::time::Duration::from_secs(10), "quit waited {took:?} for Account 1's read");
+    }
 }

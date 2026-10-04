@@ -14,10 +14,14 @@ use std::{
 const DEADLINE: Duration = Duration::from_secs(20);
 const MAX_FRAME: u64 = 256 * 1024;
 
+/// The one stop every account's reader shares. Each reader's latest process has its own
+/// fence here, keyed by its folder (`None` is Account 1), so a stop reaches all of them: one
+/// shared slot was overwritten by the next account's child, and quit then waited out
+/// `DEADLINE` on Account 1's pending read (hunt part 1 v3, finding 51).
 #[derive(Default)]
 pub(super) struct Control {
     stopped: std::sync::atomic::AtomicBool,
-    fence: std::sync::Mutex<Option<crate::owned_process::ProcessFence>>,
+    fences: std::sync::Mutex<std::collections::BTreeMap<Option<PathBuf>, crate::owned_process::ProcessFence>>,
 }
 impl Control {
     pub(super) fn stopped(&self) -> bool {
@@ -26,7 +30,7 @@ impl Control {
     pub(super) fn stop(&self) {
         self.stopped
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(fence) = self.fence.lock().unwrap().as_ref() {
+        for fence in self.fences.lock().unwrap().values() {
             fence.kill();
         }
     }
@@ -75,7 +79,7 @@ impl Connection {
         let stdin = raw.stdin.take().ok_or(ReadError::Failed)?;
         let stdout = raw.stdout.take().ok_or(ReadError::Failed)?;
         let child = OwnedChild::new(raw);
-        *control.fence.lock().unwrap() = Some(child.fence());
+        control.fences.lock().unwrap().insert(folder.map(Path::to_path_buf), child.fence());
         if control.stopped() {
             return Err(ReadError::Failed);
         }
