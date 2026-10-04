@@ -1268,7 +1268,7 @@ fn a_fast_burn_alerts_once_when_the_high_speed_is_first_detected() {
     assert!(alerts(&spine).is_empty(), "one reading is no speed");
     *streamed.lock().unwrap() = Some(streamed_five_hour(54., start + 60_000));
     spine.submit_prompt("two", Source::Text).unwrap();
-    assert_eq!(alerts(&spine), vec!["Usage is climbing fast: Account 1's five-hour window is filling about 4% a minute and is at 54%. I'm checking every minute now. Automatic pause is off in Settings, so nothing acts before it reaches 100%.".to_string()]);
+    assert_eq!(alerts(&spine), vec!["Usage is climbing fast: Account 1's five-hour window went from 50% to 54% in 1 minute. I'm checking every minute now. Automatic pause is off in Settings, so nothing acts before it reaches 100%.".to_string()]);
     assert_eq!(quota.view().refresh_interval_ms, richos_core::quota::FAST_REFRESH_INTERVAL_MS);
     *streamed.lock().unwrap() = Some(streamed_five_hour(58., start + 120_000));
     spine.submit_prompt("three", Source::Text).unwrap();
