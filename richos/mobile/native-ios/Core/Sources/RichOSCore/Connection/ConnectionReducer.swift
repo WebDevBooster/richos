@@ -78,6 +78,7 @@ public enum ConnectionReducer {
                 effects.append(.connect)
             }
         case .macQuestionCapability(let available): s.mac?.questionAnswers = available
+        case .macAudioCapability(let available): s.mac?.replyAudio = available
         case .macCapabilities(let text, let voice):
             s.connectionNotice = text ? (s.connectionNotice == .incompatible ? nil : s.connectionNotice) : .incompatible
             if voice {

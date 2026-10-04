@@ -84,16 +84,22 @@ public struct StreamRow: Codable, Equatable, Sendable {
     /// absent means show no length — never 0:00.
     public var question: QuestionCard?
     public var durationMs: Int?
+    /// The Mac holds this reply's audio already (`GET /api/audio/<id>` serves it). A Mac that offers
+    /// `audio` synthesizes any reply on request and sends `false` here (`phone/rows.rs`), so this is
+    /// one of two ways a reply can be heard (`ReplyAudio.hearable`).
+    public var hasAudio: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, cursor, role, kind, text, complete, question
         case threadID = "thread_id", createdAt = "created_at", clientID = "client_id", durationMs = "duration_ms"
+        case hasAudio = "has_audio"
     }
 
     public init(id: String, threadID: String?, cursor: Int, role: String, kind: String? = "text", text: String,
-                createdAt: String? = nil, clientID: String? = nil, complete: Bool, durationMs: Int? = nil) {
+                createdAt: String? = nil, clientID: String? = nil, complete: Bool, durationMs: Int? = nil, hasAudio: Bool = false) {
         self.id = id; self.threadID = threadID; self.cursor = cursor; self.role = role; self.kind = kind; self.text = text
         self.createdAt = createdAt; self.clientID = clientID; self.complete = complete; self.durationMs = durationMs
+        self.hasAudio = hasAudio
     }
 
     public init(from decoder: Decoder) throws {
@@ -109,6 +115,7 @@ public struct StreamRow: Codable, Equatable, Sendable {
         complete = try c.decodeIfPresent(Bool.self, forKey: .complete) ?? true
         question = try c.decodeIfPresent(QuestionCard.self, forKey: .question)
         durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+        hasAudio = try c.decodeIfPresent(Bool.self, forKey: .hasAudio) ?? false
     }
 
     /// The conversation bubble this row is. A row carrying `duration_ms` is a voice note whatever
@@ -123,6 +130,7 @@ public struct StreamRow: Codable, Equatable, Sendable {
         var message = Message(id: id, author: role == "ceo" ? .me : .rich, kind: voice ? .voice : .text, text: attached?.caption ?? text,
                        sentAt: sentAt, durationMs: durationMs, clientID: clientID, cursor: cursor, attachments: attached?.files)
         message.question = question
+        if role != "ceo", hasAudio { message.hasAudio = true }
         return message
     }
 }

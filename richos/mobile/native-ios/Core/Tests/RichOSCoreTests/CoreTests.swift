@@ -98,7 +98,7 @@ let repositoryRoot: URL = {
         let question = try #require(Fixture.named("ask-open").state.messages.first?.question)
         let all: [Action] = [
             .answerQuestion(id: question.id, options: ["today"], text: "", revision: 0, clientID: "answer", at: 1),
-            .questionAnswered(clientID: "answer", question: question, at: 2), .macQuestionCapability(true),
+            .questionAnswered(clientID: "answer", question: question, at: 2), .macQuestionCapability(true), .macAudioCapability(true),
             .compose(text: "x"), .setAppearance(.light), .openScanner, .closeScanner, .scanned(text: "x"),
             .submitPairingLink(text: "x"), .cameraPermission(.denied), .pairingAnswered(Scenario.answer), .pairingAnswered(Scenario.holdingAnswer),
             .pairingRefused, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem, .openSheet(.forget), .closeSheet,

@@ -475,6 +475,52 @@ do {
     check(!source.contains("Light appearance") && !source.contains(".setAppearance("), "G9 Settings draws no appearance row")
 }
 
+// App Review rehearsal 2026-10-04 row 2: "Hear it" under each of Rich's finished replies the Mac can
+// read aloud (round 12.1 `.rich-audio`): every reply when the Mac offers `audio` (a real Mac's way),
+// one reply when only its row says `has_audio` (the review host's demo reply); never under yours.
+do {
+    func isText(_ r: M.Row) -> Bool { if case .text = r.body { return true } else { return false } }
+    let base = try! Fixture.named("conv-populated").state
+    check(base.mac != nil, "row 2: the populated conversation is paired")
+    check(!ScreenModel(state: base).thread.rows.contains { $0.audio != nil }, "row 2: a Mac that offers no audio: no Hear it")
+    var offered = base
+    offered.mac?.replyAudio = true
+    let rows = ScreenModel(state: offered).thread.rows
+    let replies = rows.filter { $0.author == .rich && isText($0) }
+    check(!replies.isEmpty && replies.allSatisfy { $0.audio == .ready }, "row 2: the Mac offers audio: Hear it under every reply of Rich's (\(replies.count))")
+    check(rows.filter { $0.author == .me }.allSatisfy { $0.audio == nil }, "row 2: never under your own messages")
+    var one = base
+    let last = one.messages.lastIndex { $0.author == .rich && $0.kind == .text && $0.question == nil }!
+    one.messages[last].hasAudio = true
+    let heard = ScreenModel(state: one).thread.rows.filter { $0.audio == .ready }
+    check(heard.map(\.id) == [one.messages[last].id], "row 2: has_audio alone: Hear it under that reply only")
+    one.playback = Playback(messageID: one.messages[last].id, phase: .playing, progress: 0.4)
+    check(ScreenModel(state: one).thread.rows.first { $0.id == one.messages[last].id }?.audio == .playing(progress: 0.4),
+          "row 2: pressed, the same reply plays")
+}
+
+// App Review rehearsal 2026-10-04 row 7: until the App Store listing is live it answers 404, so
+// Settings draws no "Check for updates" row that opens it.
+do {
+    if case .settings(let s)? = ScreenModel(state: try! Fixture.named("settings").state).sheet {
+        check(!AppLinks.appStoreListingLive && !s.showsUpdateCheck, "row 7: before release, Settings has no Check for updates")
+    } else { check(false, "row 7: the settings fixture opens Settings") }
+    let overlays = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Settings/Overlays.swift", encoding: .utf8)) ?? ""
+    let guarded = overlays.components(separatedBy: "if settings.showsUpdateCheck {").dropFirst().first ?? ""
+    check(guarded.prefix(120).contains("title: \"Check for updates\""), "row 7: the Check for updates row is drawn only when it is shown")
+}
+
+// App Review rehearsal 2026-10-04 rows 13 and 15: the consent screen says what the privacy policy
+// says (not kept by us; Cloudflare carries the messages), and Settings has no web-app footer.
+do {
+    let takeovers = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Pairing/Takeovers.swift", encoding: .utf8)) ?? ""
+    let consent = takeovers.components(separatedBy: "struct ConsentRows").dropFirst().first ?? ""
+    check(!consent.contains("stored nowhere"), "row 13: the consent screen no longer says stored nowhere")
+    check(consent.contains("not kept by us") && consent.contains("Cloudflare"), "row 13: it says not kept by us and names Cloudflare")
+    let overlays = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Settings/Overlays.swift", encoding: .utf8)) ?? "unreadable"
+    check(!overlays.contains("web app"), "row 15: Settings says nothing about a web app")
+}
+
 // I02 (native acceptance r1): the out-of-reach line is no longer a row under the header's fade; it is
 // pinned below the header in full ink on the floating surface, computed here in both themes.
 do {

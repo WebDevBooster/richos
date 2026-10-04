@@ -121,6 +121,7 @@ public actor NetworkEffects: EffectHandler {
                     if let capabilities = paired.answer.capabilities, !capabilities.isEmpty {
                         actions.append(.macCapabilities(text: capabilities.contains("text"), voice: capabilities.contains("voice")))
                 actions.append(.macQuestionCapability(capabilities.contains("questions")))
+                        actions.append(.macAudioCapability(capabilities.contains("audio")))
                         actions.append(.macAttachmentLimits(capabilities.contains("attachments") ? paired.answer.attachmentLimits : nil))
                     }
                     return actions
@@ -249,6 +250,18 @@ public actor NetworkEffects: EffectHandler {
     }
 
     private struct OlderPage: Decodable { var messages: [StreamRow]; var more: Bool }
+
+    /// One reply's audio from the paired Mac (`GET /api/audio/<message_id>`, signed in the header as
+    /// the Mac requires), or `nil` when there is none to play: no pairing or key, no answer, a refusal
+    /// (the Mac's 503 "Audio playback is unavailable"), or bytes over the Mac's own ceiling. Asked
+    /// once per press of "Hear it"; never retried, so nothing runs that the person did not ask for.
+    public func replyAudio(messageID: String, state: AppState) async -> Data? {
+        guard let api = await client(for: state) else { return nil }
+        let path = ReplyAudio.path(messageID: messageID, threadID: state.mac?.threadID)
+        guard let response = try? await api.signed("GET", path), response.status == 200,
+              !response.body.isEmpty, response.body.count <= ReplyAudio.maxBytes else { return nil }
+        return response.body
+    }
 
     /// A delivery's answer, restamped with the time it arrived.
     static func answered(_ action: Action, at: Int64) -> Action {

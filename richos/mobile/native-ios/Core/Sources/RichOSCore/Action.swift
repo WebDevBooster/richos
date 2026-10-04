@@ -105,6 +105,8 @@ public enum Action: Equatable, Sendable {
     /// What the Mac says it accepts (capability negotiation, contract §12).
     case macCapabilities(text: Bool, voice: Bool)
     case macQuestionCapability(Bool)
+    /// The Mac offers `audio`: Rich's replies can be heard (`ReplyAudio.hearable`).
+    case macAudioCapability(Bool)
     /// The Mac answered 403 `{"revoked":true}`: this phone was removed (round-12 `conn-revoked`).
     case pairingRevoked
     /// What the Mac accepts for attachments (from `hello` or the pairing answer); `nil` = none.
@@ -311,7 +313,7 @@ public enum Reducer {
              .pairingRefused, .pairingUnreachable, .pairingNeedsMacUpdate, .confirmWords, .rejectWords, .macConfirmation,
              .acceptConsent, .dismissPairingProblem, .discardUnsentAndPair:
             PairingReducer.reduce(&next, action, &effects)
-        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .tunnelChanged, .macCapabilities, .macQuestionCapability, .pairingRevoked,
+        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .tunnelChanged, .macCapabilities, .macQuestionCapability, .macAudioCapability, .pairingRevoked,
              .macAttachmentLimits, .pushRegistered:
             ConnectionReducer.reduce(&next, action, &effects)
         case .foregrounded, .backgrounded:

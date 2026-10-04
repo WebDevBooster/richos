@@ -48,6 +48,7 @@ extension Action: Codable {
         var acceptsText: Bool?
         var acceptsVoice: Bool?
         var acceptsQuestions: Bool?
+        var acceptsAudio: Bool?
         var width: Double?
         var dx: Double?
         var dy: Double?
@@ -78,7 +79,7 @@ extension Action: Codable {
         "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "remember-reading", "set-following", "set-composer-focus",
         "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
-        "network", "health", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "mac-question-capability", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
+        "network", "health", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "mac-question-capability", "mac-audio-capability", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
         "voice-press", "voice-start-locked", "microphone-permission", "dismiss-microphone-card", "voice-move", "voice-release", "voice-locked-send",
         "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
         "send-kept", "discard-kept", "record-play",
@@ -153,6 +154,7 @@ extension Action: Codable {
         case "connected": self = .connected(at: now)
         case "connection-diagnosed": self = .connectionDiagnosed(try need(w.notice, "notice"))
         case "mac-question-capability": self = .macQuestionCapability(try need(w.acceptsQuestions, "acceptsQuestions"))
+        case "mac-audio-capability": self = .macAudioCapability(try need(w.acceptsAudio, "acceptsAudio"))
         case "mac-capabilities": self = .macCapabilities(text: try need(w.acceptsText, "acceptsText"), voice: try need(w.acceptsVoice, "acceptsVoice"))
         case "pairing-revoked": self = .pairingRevoked
         case "mac-attachment-limits": self = .macAttachmentLimits(w.limits)
@@ -264,6 +266,7 @@ extension Action: Codable {
         case .connected(let at): w = Wire("connected"); w.at = at
         case .connectionDiagnosed(let n): w = Wire("connection-diagnosed"); w.notice = n
         case .macQuestionCapability(let v): w = Wire("mac-question-capability"); w.acceptsQuestions = v
+        case .macAudioCapability(let v): w = Wire("mac-audio-capability"); w.acceptsAudio = v
         case .macCapabilities(let t, let v): w = Wire("mac-capabilities"); w.acceptsText = t; w.acceptsVoice = v
         case .pairingRevoked: w = Wire("pairing-revoked")
         case .macAttachmentLimits(let l): w = Wire("mac-attachment-limits"); w.limits = l

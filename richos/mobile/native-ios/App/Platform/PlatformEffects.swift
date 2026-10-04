@@ -23,12 +23,16 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
     /// Apple's photo picker, camera and document browser for the + menu; `nil` without an
     /// attachment store (the platform tests).
     @MainActor private(set) var picker: AttachmentPicker?
+    /// Rich's reply audio from the paired Mac (`NetworkEffects.replyAudio`); `nil` in the platform tests.
+    private let replyAudio: (@Sendable (_ messageID: String, _ state: AppState) async -> Data?)?
 
     @MainActor
     init(network: (any EffectHandler)? = nil, clock: any Clock = SystemClock(), recorder: VoiceRecorder = VoiceRecorder(),
          previewKeys: PreviewKeyStore = .shared,
-         openURL: @escaping @MainActor (URL) -> Void = { UIApplication.shared.open($0) }, attachments: URL? = nil) {
+         openURL: @escaping @MainActor (URL) -> Void = { UIApplication.shared.open($0) }, attachments: URL? = nil,
+         replyAudio: (@Sendable (_ messageID: String, _ state: AppState) async -> Data?)? = nil) {
         self.network = network
+        self.replyAudio = replyAudio
         self.clock = clock
         self.previewKeys = previewKeys
         self.recorder = recorder
@@ -42,6 +46,7 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             self.dispatch?(.voiceInterrupted(at: self.clock.nowMs()))
         }
         recorder.onPlaybackEnded = { [weak self] in self?.dispatch?(.playbackEnded) }
+        recorder.onReplyProgress = { [weak self] id, progress in self?.dispatch?(.playbackProgress(id: id, progress: progress)) }
     }
 
     /// The courier's source of voice-message bytes (the same files the recorder writes).
@@ -98,6 +103,21 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             await MainActor.run { recorder.play(id: id) }
             return []
 
+        case .fetchReplyAudio(let id):
+            // "Hear it": the Mac reads the reply (round 12.1 `conv-preparing-reply`), then it plays
+            // (`conv-playing-reply`). Asked once; a refusal or no answer puts "Hear it" back.
+            await MainActor.run { recorder.awaitReply(id) }
+            let bytes = await replyAudio?(id, state)
+            return await MainActor.run { () -> [Action] in
+                // Stopped, or another reply asked for, while the Mac answered: nothing plays.
+                guard recorder.awaitedReply == id else { return [] }
+                guard let bytes, recorder.playReply(bytes, id: id) else {
+                    recorder.stopPlayback()
+                    return [.playbackEnded]
+                }
+                return [.playbackStarted(id: id)]
+            }
+
         case .stopAudio:
             await MainActor.run { recorder.stopPlayback() }
             // Rich's reply audio is the network handler's; it hears the stop too.
@@ -143,7 +163,7 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             try? previewKeys.erase()
             return await network?.handle(effect, state: state) ?? []
 
-        case .persist, .pair, .confirmFingerprint, .checkMacConfirmation, .deliver, .loadOlder, .fetchReplyAudio, .connect, .reconnect, .disconnect, .deleteAttachments,
+        case .persist, .pair, .confirmFingerprint, .checkMacConfirmation, .deliver, .loadOlder, .connect, .reconnect, .disconnect, .deleteAttachments,
              .unregisterNotifications:
             return await network?.handle(effect, state: state) ?? []
         }
