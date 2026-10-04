@@ -161,7 +161,7 @@ class Base(unittest.TestCase):
             RICHOS_PHONE_WATCH_IOS_CLI=f"{sys.executable} {self.bin / 'cli.py'} ios",
             RICHOS_PHONE_WATCH_SIGNING=f"{sys.executable} {self.bin / 'signing.py'}",
             RICHOS_PHONE_WATCH_PERF=str(self.bin / "perf.py"),
-            RICHOS_PHONE_WATCH_QUIET_S="0", RICHOS_PHONE_WATCH_POLL_S="0", RICHOS_PHONE_WATCH_TRIALS="3",
+            RICHOS_PHONE_WATCH_POLL_S="0", RICHOS_PHONE_WATCH_TRIALS="3",
             # Only processes naming the made-up phones count: the real phones on this Mac may be in use.
             RICHOS_PHONE_WATCH_MARKERS="ident", RICHOS_PHONE_WATCH_MAX_WAIT_S="60",
             RICHOS_APPLE_TEAM="FAKETEAM42")
@@ -482,7 +482,7 @@ class Run(Base):
         try:
             self.request()
             env = dict(self.env, RICHOS_PHONE_WATCH_PLATFORMS="android", RICHOS_PHONE_WATCH_POLL_S="1",
-                       RICHOS_PHONE_WATCH_QUIET_S="1", RICHOS_PHONE_WATCH_MAX_WAIT_S="60")
+                       RICHOS_PHONE_WATCH_MAX_WAIT_S="60")
             started = time.monotonic()
             outcomes = self.run_round(env=env)
             self.assertEqual(outcomes[0]["verdict"], "good")
@@ -692,17 +692,22 @@ class Busy(unittest.TestCase):
         self.assertEqual(users[0][1], "python3 phone-android.py tap --serial <phone> Send")
         self.assertEqual(watch.users("ios", [IDENT], procs=procs, me=20), [])
 
-    def test_B2_the_wait_resets_on_every_busy_sample_and_never_interrupts(self):
-        samples = iter([[(30, "x")], [], [(30, "x")], [], [], []])
-        clock = iter(range(0, 100, 10))
-        os.environ["RICHOS_PHONE_WATCH_QUIET_S"] = "15"
-        try:
-            free, waited = watch.wait_until_free("android", [SERIAL], sample=lambda: next(samples),
-                                                 clock=lambda: next(clock), sleep=lambda s: None, log=lambda s: None)
-        finally:
-            del os.environ["RICHOS_PHONE_WATCH_QUIET_S"]
+    def test_B2_a_free_phone_is_measured_at_once_and_a_busy_one_is_waited_for(self):
+        slept = []
+        free, waited = watch.wait_until_free("android", [SERIAL], sample=lambda: [],
+                                             clock=lambda: 0, sleep=slept.append,
+                                             log=lambda s: None)
         self.assertTrue(free)
-        self.assertEqual(waited, 60, "free only once QUIET_S has passed with no busy sample, counted from the last one")
+        self.assertEqual(waited, 0, "one sample with no user is enough")
+        self.assertEqual(slept, [], "a free phone is not waited for")
+        samples = iter([[(30, "x")], [(30, "x")], []])
+        slept = []
+        free, waited = watch.wait_until_free("android", [SERIAL], sample=lambda: next(samples),
+                                             clock=iter(range(0, 100, 10)).__next__, sleep=slept.append,
+                                             log=lambda s: None)
+        self.assertTrue(free)
+        self.assertEqual(waited, 30, "free at the first sample with no user")
+        self.assertEqual(len(slept), 2, "polled while busy, interrupting nothing")
 
 
 if __name__ == "__main__":
