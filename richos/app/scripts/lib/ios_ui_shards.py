@@ -67,6 +67,8 @@ def within(select, ids):
     """The enumerated ids a `-only-testing:` selector names. Xcode 26.3 lists the whole XCTest UI bundle
     beside a Swift Testing selector that names only the unit bundle, so the listing is cut to the ask."""
     wants = [(sel.split(":", 1)[1] if ":" in sel else sel) for sel in select]
+    if not wants:  # no selector asked: the whole listing is the plan (the retry reads asks from shard files)
+        return list(ids)
     return [k for k in ids if any(k == w or k.startswith(w + "/") for w in wants)]
 
 
