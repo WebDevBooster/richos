@@ -241,6 +241,26 @@ class Gate(unittest.TestCase):
         with self.assertRaises(SystemExit):
             ship_gate_fixture.write(ship_gate_fixture.WATCH_STATE, "android", self.measured)
 
+    def test_f2_a_stand_in_covers_only_the_exact_uncommitted_tree_and_the_real_gate_never_does(self):
+        stand_in = self.tmp / "stand-in"
+        self.verdict("android")
+        self.write(APP_FILE["android"], "merge tree\n")
+        ship_gate_fixture.write(stand_in, "android", self.measured, repo=self.repo)
+        self.assertTrue(shipgate.check("android", self.repo, checkout=True, home=stand_in)["ok"])
+        # The real gate (no stand-in): the same uncommitted code is refused.
+        self.refused("android", "uncommitted app code")
+        # Any further edit is no longer the covered tree.
+        self.write(APP_FILE["android"], "edited again\n")
+        with self.assertRaises(shipgate.Refused):
+            shipgate.check("android", self.repo, checkout=True, home=stand_in)
+        # The watch's own directory never honors a coversTree claim.
+        entries = json.loads((self.home / "measured.json").read_text())
+        entries["android"]["coversTree"] = shipgate.tree_fingerprint("android", self.repo)
+        (self.home / "measured.json").write_text(json.dumps(entries))
+        with unittest.mock.patch.object(shipgate.watch, "DEFAULT_HOME", str(self.home)):
+            with self.assertRaises(shipgate.Refused):
+                shipgate.check("android", self.repo, checkout=True, home=str(self.home))
+
 
 FAKE_GATE = """#!/usr/bin/env python3
 import os, sys

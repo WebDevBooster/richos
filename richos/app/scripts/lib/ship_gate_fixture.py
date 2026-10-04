@@ -30,7 +30,7 @@ WATCH_STATE = "/Volumes/E1TB/state/richos/phone-speed-watch"
 WALK_STATE = "/Volumes/E1TB/state/richos/review-walk"
 
 
-def write(directory, platform, commit):
+def write(directory, platform, commit, repo=None):
     directory = Path(directory).resolve()
     if directory == Path(WATCH_STATE).resolve():
         raise SystemExit(f"refused: {directory} is the speed watch's own state; a stand-in goes in scratch")
@@ -44,6 +44,10 @@ def write(directory, platform, commit):
     measured = directory / "measured.json"
     entries = json.loads(measured.read_text()) if measured.exists() else {}
     entries[platform] = {"commit": commit, "record": str(record), "verdict": "good"}
+    if repo:  # cover exactly the uncommitted app code in REPO now (a merge gate bundles its merge tree)
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "mobile/perf"))
+        import shipgate  # noqa: E402
+        entries[platform]["coversTree"] = shipgate.tree_fingerprint(platform, repo)
     measured.write_text(json.dumps(entries))
     return directory
 
@@ -66,9 +70,10 @@ def main(argv=None):
     ap.add_argument("--dir", required=True)
     ap.add_argument("--platform", required=True, choices=sorted(PASSING))
     ap.add_argument("--commit", required=True)
+    ap.add_argument("--repo", help="also cover the uncommitted app code of this checkout, as it is now")
     ap.add_argument("--walks", help="also write a stand-in passing review walk record for --commit here")
     args = ap.parse_args(argv)
-    print(write(args.dir, args.platform, args.commit))
+    print(write(args.dir, args.platform, args.commit, args.repo))
     if args.walks:
         print(walk(args.walks, args.platform, args.commit))
     return 0

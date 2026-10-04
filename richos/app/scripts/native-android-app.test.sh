@@ -66,8 +66,9 @@ if node "$NA/release/make-app-icon.cjs" --check >"$SCRATCH/icon.log" 2>&1; then 
 # The throwaway key lives two days in this suite's scratch and is deleted with it; the Firebase
 # values are placeholders, so the smoke bundle is never an uploadable app. Every bundle asks the speed
 # gate first, whatever key signs it (CEO §106), so the suite gives it a STAND-IN passing verdict for
-# this checkout's HEAD, in its own scratch (lib/ship_gate_fixture.py); the gate still refuses
-# uncommitted app code, which no verdict can cover. It also asks the review-walk gate (CEO §107), so
+# this checkout's HEAD, in its own scratch (lib/ship_gate_fixture.py); the stand-in also names the exact
+# uncommitted app code in this tree (a merge gate bundles its uncommitted merge tree), so the test checks
+# the bundle step; the real gate still refuses any uncommitted app code. It also asks the review-walk gate (CEO §107), so
 # the same fixture writes a STAND-IN passing walk record for HEAD (--walks, RICHOS_REVIEW_WALK_RECORDS).
 KEYTOOL=""
 for home in "${RANDROID_JAVA_HOME:-}" "${JAVA_HOME:-}" "/Applications/Android Studio.app/Contents/jbr/Contents/Home"; do
@@ -86,7 +87,7 @@ else
     if [ -z "$SMOKE_SHA" ]; then
       bad "could not read the throwaway key's fingerprint"
     elif ! python3 "$DIR/lib/ship_gate_fixture.py" --dir "$SCRATCH/speed-verdicts" --platform android \
-         --commit "$(git -C "$ROOT" rev-parse HEAD)" --walks "$SCRATCH/review-walks" >/dev/null; then
+         --commit "$(git -C "$ROOT" rev-parse HEAD)" --repo "$ROOT" --walks "$SCRATCH/review-walks" >/dev/null; then
       bad "could not write the stand-in speed verdict and review walk"
     elif env RANDROID_RELEASE_DIR="$SCRATCH/release" RANDROID_UPLOAD_CERT_SHA256="$SMOKE_SHA" \
          RICHOS_SHIP_GATE_VERDICTS="$SCRATCH/speed-verdicts" \
