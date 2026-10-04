@@ -688,6 +688,24 @@ export function walkGate(commit: string, spawn: Spawn = NodeChildProcess.spawnSy
   }
 }
 
+/// RichOS addition: refuses an archive App Store Connect would reject for its device family, icons or
+/// orientations (Release/check_device_family.py; build 1 was rejected on 2026-10-04 with 90023/90474).
+/// Runs on the archive itself, before anything contacts Apple. Fails closed.
+export function deviceFamilyCheck(archive: string, spawn: Spawn = NodeChildProcess.spawnSync) {
+  const path = NodePath.resolve(expandHome(archive));
+  const run = spawn("python3", [NodePath.join(RELEASE_DIR, "check_device_family.py"), path], {
+    encoding: "utf8",
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (run.status !== 0) {
+    const lines = `${run.stdout ?? ""}\n${run.stderr ?? ""}`.split("\n").filter((line) => /FAIL|Error|error/u.test(line));
+    throw new Error(
+      `REFUSED by the device-family check: iPhone archive ${archive} would be rejected by App Store Connect: ${lines.slice(0, 5).join("; ") || run.error?.message || `exit ${run.status}`}.`,
+    );
+  }
+}
+
 function receiptKey(selection: BuildSelection) {
   return `${selection.version} (${selection.build})`;
 }
@@ -727,6 +745,7 @@ type ReleaseArgs = Exclude<ReturnType<typeof parseTestFlightArgs>, { command: "h
 export type ReleaseDeps = {
   gate: (where: string[]) => string;
   walk: (commit: string) => void;
+  deviceFamily: (archive: string) => void;
   receipts: string;
   checkout: string;
   readArchive: (archive: string) => Promise<unknown>;
@@ -742,6 +761,7 @@ export type ReleaseDeps = {
 const RELEASE_DEPS: ReleaseDeps = {
   gate: (where) => speedGate(where),
   walk: (commit) => walkGate(commit),
+  deviceFamily: (archive) => deviceFamilyCheck(archive),
   receipts: UPLOAD_RECEIPTS,
   checkout: RELEASE_DIR,
   readArchive: readArchivedInfo,
@@ -788,6 +808,8 @@ export async function runRelease(args: ReleaseArgs, deps: ReleaseDeps = RELEASE_
     }
     // The reviewer walk on that same commit (§107), before credentials, network or Xcode.
     deps.walk(stamped);
+    // What App Store Connect would reject on processing: device family, icons, orientations.
+    deps.deviceFamily(args.archive);
     const { config, privateKey } = await deps.readEnv(args.envFile);
     const client = deps.client(config, privateKey);
     await deps.upload(args.archive, args.exportOptions, config, privateKey, client.verifyUpload, (selection) =>
@@ -907,7 +929,8 @@ exact app code (richos/mobile/perf/shipgate.py, CEO §106). Upload gates the com
 carries (RichOSSourceCommit in the archived app's Info.plist, stamped when it is archived; an archive
 without it, or built with uncommitted app code, is refused) and records it; publish gates the commit
 its upload recorded. Upload is also REFUSED unless the automated walk of exactly what Apple's
-reviewer does passed on the archive's commit (rios review-walk --commit SHA; CEO §107).
+reviewer does passed on the archive's commit (rios review-walk --commit SHA; CEO §107), and unless
+Release/check_device_family.py passes the archive (iPhone-only device family, icons, orientations).
 `);
     return;
   }

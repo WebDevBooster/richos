@@ -18,6 +18,7 @@ import { describe, it } from "node:test";
 
 import {
   createTestFlightClient,
+  deviceFamilyCheck,
   insideGitWorkTree,
   makeAppStoreToken,
   parseTestFlightArgs,
@@ -522,6 +523,7 @@ describe("speed gate (CEO §106)", () => {
         calls.push(`walk ${commit}`);
         if (!walkPasses) throw new Error(WALK_REFUSAL);
       },
+      deviceFamily: (archive) => void calls.push(`family ${archive}`),
       receipts: NodePath.join(directory, "uploads.json"),
       checkout: "/the/checkout",
       readArchive: async (archive) => (calls.push(`archive ${archive}`), archived),
@@ -564,7 +566,7 @@ describe("speed gate (CEO §106)", () => {
     try {
       await runRelease(upload, deps);
       NodeAssert.deepEqual(calls, ["archive /tmp/A.xcarchive", `gate --repo /the/checkout --commit ${COMMIT}`,
-        `walk ${COMMIT}`, "credentials", "upload", "verify", "export"]);
+        `walk ${COMMIT}`, "family /tmp/A.xcarchive", "credentials", "upload", "verify", "export"]);
       NodeAssert.equal(uploadedCommit(deps.receipts, selection), COMMIT);
       calls.length = 0;
       await runRelease(publish, deps);
@@ -658,6 +660,21 @@ describe("speed gate (CEO §106)", () => {
     try {
       await NodeAssert.rejects(runRelease(upload, deps), (e: Error) => e.message === WALK_REFUSAL);
       NodeAssert.deepEqual(calls, ["archive /tmp/A.xcarchive", `gate --repo /the/checkout --commit ${OTHER}`, `walk ${OTHER}`]);
+      NodeAssert.equal(NodeFS.existsSync(deps.receipts), false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("upload is refused by the device-family check before credentials, App Store Connect or Xcode", async () => {
+    const { deps, calls, cleanup } = harness(true);
+    try {
+      deps.deviceFamily = (archive) => {
+        calls.push(`family ${archive}`);
+        deviceFamilyCheck(archive, (() => ({ status: 1, stdout: "ok   app device family\nFAIL extension device family: [1, 2]\n", stderr: "", pid: 0, output: [], signal: null })) as never);
+      };
+      await NodeAssert.rejects(runRelease(upload, deps), /REFUSED by the device-family check: .*FAIL extension device family: \[1, 2\]/u);
+      NodeAssert.deepEqual(calls, ["archive /tmp/A.xcarchive", `gate --repo /the/checkout --commit ${COMMIT}`, `walk ${COMMIT}`, "family /tmp/A.xcarchive"]);
       NodeAssert.equal(NodeFS.existsSync(deps.receipts), false);
     } finally {
       cleanup();
