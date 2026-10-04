@@ -36,14 +36,22 @@ final class VoiceRecorder: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDeleg
     var onLevel: ((Double) -> Void)?
     /// The OS took the audio (a call, Siri, the route went away): the core keeps the recording.
     var onInterrupted: (() -> Void)?
-    /// Playback of one of your own recordings ended.
+    /// Playback of one of your own recordings, or of Rich's reply, ended.
     var onPlaybackEnded: (() -> Void)?
+    /// How far into Rich's reply the audio is (0…1), while it plays.
+    var onReplyProgress: ((String, Double) -> Void)?
 
     let directory: URL
     private var recorder: AVAudioRecorder?
     private var recordingID: String?
     private var meter: Timer?
     private var player: AVAudioPlayer?
+    /// The reply a "Hear it" press is waiting on while its audio comes from the Mac. A stop, another
+    /// press or a recording clears it, so audio that arrives for a reply no longer asked for never plays.
+    private(set) var awaitedReply: String?
+    private var playingReply: String?
+    /// Exists only while a reply plays (Battery: no timer while idle).
+    private var replyProgress: Timer?
 
     static let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000,
                                           AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
@@ -133,7 +141,48 @@ final class VoiceRecorder: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDeleg
         }
     }
 
+    /// "Hear it" was pressed: whatever was playing stops, and this reply's audio is awaited.
+    func awaitReply(_ id: String) {
+        stopPlayback()
+        awaitedReply = id
+    }
+
+    /// Plays Rich's reply from the Mac's WAV bytes. `false` when it cannot be played.
+    func playReply(_ bytes: Data, id: String) -> Bool {
+        guard awaitedReply == id else { return false }
+        awaitedReply = nil
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback)
+            try AVAudioSession.sharedInstance().setActive(true)
+            let player = try AVAudioPlayer(data: bytes, fileTypeHint: AVFileType.wav.rawValue)
+            player.delegate = self
+            guard player.play() else { throw CocoaError(.fileReadUnknown) }
+            self.player = player
+            playingReply = id
+            replyProgress = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reportReplyProgress() }
+            }
+            return true
+        } catch {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            return false
+        }
+    }
+
+    private func reportReplyProgress() {
+        guard let player, let id = playingReply, player.duration > 0 else { return }
+        onReplyProgress?(id, player.currentTime / player.duration)
+    }
+
+    private func endReplyProgress() {
+        replyProgress?.invalidate()
+        replyProgress = nil
+        playingReply = nil
+    }
+
     func stopPlayback() {
+        awaitedReply = nil
+        endReplyProgress()
         guard let player else { return }
         player.stop()
         self.player = nil
@@ -150,7 +199,14 @@ final class VoiceRecorder: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDeleg
     // then act on the main actor.
     @objc nonisolated private func sessionInterrupted(_ note: Notification) {
         guard note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt == AVAudioSession.InterruptionType.began.rawValue else { return }
-        Task { @MainActor in if self.recorder != nil { self.onInterrupted?() } }
+        Task { @MainActor in
+            if self.recorder != nil { self.onInterrupted?() }
+            // A call or Siri took the audio from Rich's reply: it ends, rather than sit paused as "Stop".
+            if self.playingReply != nil {
+                self.stopPlayback()
+                self.onPlaybackEnded?()
+            }
+        }
     }
 
     @objc nonisolated private func routeChanged(_ note: Notification) {
@@ -161,6 +217,7 @@ final class VoiceRecorder: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDeleg
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
             self.player = nil
+            self.endReplyProgress()
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             self.onPlaybackEnded?()
         }

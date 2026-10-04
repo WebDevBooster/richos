@@ -475,6 +475,30 @@ do {
     check(!source.contains("Light appearance") && !source.contains(".setAppearance("), "G9 Settings draws no appearance row")
 }
 
+// App Review rehearsal 2026-10-04 row 2: "Hear it" under each of Rich's finished replies the Mac can
+// read aloud (round 12.1 `.rich-audio`): every reply when the Mac offers `audio` (a real Mac's way),
+// one reply when only its row says `has_audio` (the review host's demo reply); never under yours.
+do {
+    func isText(_ r: M.Row) -> Bool { if case .text = r.body { return true } else { return false } }
+    let base = try! Fixture.named("conv-populated").state
+    check(base.mac != nil, "row 2: the populated conversation is paired")
+    check(!ScreenModel(state: base).thread.rows.contains { $0.audio != nil }, "row 2: a Mac that offers no audio: no Hear it")
+    var offered = base
+    offered.mac?.replyAudio = true
+    let rows = ScreenModel(state: offered).thread.rows
+    let replies = rows.filter { $0.author == .rich && isText($0) }
+    check(!replies.isEmpty && replies.allSatisfy { $0.audio == .ready }, "row 2: the Mac offers audio: Hear it under every reply of Rich's (\(replies.count))")
+    check(rows.filter { $0.author == .me }.allSatisfy { $0.audio == nil }, "row 2: never under your own messages")
+    var one = base
+    let last = one.messages.lastIndex { $0.author == .rich && $0.kind == .text && $0.question == nil }!
+    one.messages[last].hasAudio = true
+    let heard = ScreenModel(state: one).thread.rows.filter { $0.audio == .ready }
+    check(heard.map(\.id) == [one.messages[last].id], "row 2: has_audio alone: Hear it under that reply only")
+    one.playback = Playback(messageID: one.messages[last].id, phase: .playing, progress: 0.4)
+    check(ScreenModel(state: one).thread.rows.first { $0.id == one.messages[last].id }?.audio == .playing(progress: 0.4),
+          "row 2: pressed, the same reply plays")
+}
+
 // I02 (native acceptance r1): the out-of-reach line is no longer a row under the header's fade; it is
 // pinned below the header in full ink on the floating surface, computed here in both themes.
 do {

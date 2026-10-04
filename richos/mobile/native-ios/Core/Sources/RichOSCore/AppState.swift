@@ -339,6 +339,8 @@ public enum Pairing: String, Codable, Sendable {
 
 public struct MacLink: Codable, Equatable, Sendable {
     public var questionAnswers: Bool?
+    /// The Mac offers `audio`: it reads any reply aloud on request (`GET /api/audio/<id>`).
+    public var replyAudio: Bool?
     /// The API base, fixed by the pairing link (contract §1.2).
     public var origin: String
     public var route: PairLink.Route
@@ -441,6 +443,9 @@ public struct Message: Codable, Equatable, Identifiable, Sendable {
     /// Photos and files sent with this message (the text is then its caption). `nil` for none.
     public var question: QuestionCard?
     public var attachments: [AttachmentRef]?
+    /// Rich's reply whose row said `has_audio: true`. `nil` (never `false`) otherwise, so stored
+    /// conversations from earlier versions read the same.
+    public var hasAudio: Bool?
 
     public init(id: String, author: Author, kind: Kind = .text, text: String, sentAt: Int64,
                 delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil, clientID: String? = nil, cursor: Int? = nil,

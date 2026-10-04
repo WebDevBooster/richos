@@ -205,7 +205,8 @@ enum Boot {
         let network = NetworkEffects(transport: transport, stream: transport, identities: PlatformEffects.identityStore(),
                                      recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()),
                                      attachments: FileAttachmentStore(directory: ShareIntake.attachmentsDirectory()))
-        let platform = PlatformEffects(network: network, attachments: ShareIntake.attachmentsDirectory())
+        let platform = PlatformEffects(network: network, attachments: ShareIntake.attachmentsDirectory(),
+                                       replyAudio: { id, state in await network.replyAudio(messageID: id, state: state) })
         let effects: (any EffectHandler)?
         #if DEBUG
         // Gesture fixtures use the real core and storage with controlled

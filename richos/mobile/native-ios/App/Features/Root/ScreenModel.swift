@@ -294,7 +294,14 @@ extension ScreenModel {
             thread = cachedTranscript
         } else {
         let staged = Dictionary(s.outbox.flatMap { $0.files ?? [] }.map { ($0.id, $0.path) }, uniquingKeysWith: { a, _ in a })
-        thread.rows = RichOSCore.Transcript.visible(s).map { Row(message: $0, questionsAvailable: s.mac?.questionAnswers == true, stagedPath: { staged[$0] }, directory: attachments) }
+        let visible = RichOSCore.Transcript.visible(s)
+        thread.rows = visible.map { Row(message: $0, questionsAvailable: s.mac?.questionAnswers == true, stagedPath: { staged[$0] }, directory: attachments) }
+        // "Hear it" under each of Rich's finished replies the Mac can read aloud (round 12.1
+        // `.rich-audio`); the reply being prepared or played is drawn so just below.
+        let macOffersAudio = s.mac?.replyAudio == true
+        for (i, message) in visible.enumerated() where ReplyAudio.hearable(message, macOffersAudio: macOffersAudio) {
+            if case .text = thread.rows[i].body { thread.rows[i].audio = .ready }
+        }
         for i in thread.rows.indices {
             if case .question(let q, _, _, _) = thread.rows[i].body,
                let pending = s.outbox.first(where: { $0.questionID == q.id }) {
@@ -535,7 +542,8 @@ final class ScreenProjectionCache {
         let same = directory == attachments && previous.map {
             $0.messages == state.messages && $0.outbox == state.outbox &&
             $0.reply == state.reply && $0.playback == state.playback &&
-            $0.mac?.questionAnswers == state.mac?.questionAnswers && $0.connectionNotice == state.connectionNotice
+            $0.mac?.questionAnswers == state.mac?.questionAnswers && $0.mac?.replyAudio == state.mac?.replyAudio &&
+            $0.connectionNotice == state.connectionNotice
         } == true
         let result = ScreenModel(state: state, attachments: attachments, cachedTranscript: same ? transcript : nil)
         previous = state
