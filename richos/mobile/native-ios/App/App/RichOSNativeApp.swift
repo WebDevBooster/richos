@@ -101,8 +101,9 @@ struct RichOSNativeApp: App {
                 } else {
                     // Until the saved state is read: the launch screen (the app icon on the launch
                     // ground), drawn live, so the first frame continues it exactly until the conversation
-                    // appears (LaunchShell). This was `Color.clear` over the window's white: a blank frame.
-                    LaunchShellView()
+                    // appears; and never longer than Boot's bound on the logo: past it the conversation's
+                    // own screen shows, quiet, until the read lands (LaunchRoot, CEO §105).
+                    LaunchRoot(quietAfter: Boot.quietBudget())
                 }
             }
             .modifier(PhoneAppearanceMirror { appearance in store?.followPhone(appearance) })
@@ -196,9 +197,25 @@ enum Boot {
     }
 
     private static var load: Task<Loaded, Never>?
+    /// When the load started (the app's first line), on the uptime clock.
+    private static var startedUptime: TimeInterval?
+    /// How long the logo may stay up from the app's first line while the saved state is read. The read
+    /// is local and normally done within a few tens of milliseconds of the first frame (the test iPhone
+    /// opens to an input-ready conversation about 0.4 s after its process starts), so a normal launch
+    /// never reaches it; a read that does (a phone busy after a restart, a slow disk) shows the
+    /// conversation's quiet screen instead of the logo.
+    static let logoBound: Duration = .milliseconds(500)
+
+    /// What is left of `logoBound` now; zero once it has passed.
+    static func quietBudget(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Duration {
+        guard let startedUptime else { return logoBound }
+        let left = logoBound - .milliseconds(Int64((now - startedUptime) * 1000))
+        return left > .zero ? left : .zero
+    }
 
     static func start() {
         guard load == nil else { return }
+        startedUptime = ProcessInfo.processInfo.systemUptime
         LaunchTiming.record("state-load-start")
         let transport = URLSessionTransport()
         // The courier reads voice messages from the same files the recorder writes.
@@ -217,7 +234,10 @@ enum Boot {
         effects = platform
         #endif
         load = Task { @MainActor in
-            let store = await AppStore.launch(storage: AppStore.defaultStorage(), effects: effects, performance: PerformanceMarks.record)
+            // Creating the directory and marking it out of backups is disk work: off the main thread,
+            // so a slow disk can never hold the frames the window draws meanwhile (LaunchRoot).
+            let storage = await Task.detached(priority: .userInitiated) { AppStore.defaultStorage() }.value
+            let store = await AppStore.launch(storage: storage, effects: effects, performance: PerformanceMarks.record)
             LaunchTiming.record("state-loaded")
             return Loaded(store: store, platform: platform, network: network)
         }

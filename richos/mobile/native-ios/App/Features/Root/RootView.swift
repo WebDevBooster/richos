@@ -138,7 +138,12 @@ struct ScreenView: View {
         let palette = Palette.for(model.appearance)
         let fullHeight = root.size.height + root.safeAreaInsets.top + root.safeAreaInsets.bottom
         return ZStack(alignment: .top) {
-            if model.thread.isEmpty {
+            if model.quiet {
+                // The saved conversation is still being read (`LaunchRoot`): nothing between the header
+                // and the composer yet, neither its messages nor the first-minute hello, which would be
+                // untrue for a person who has a conversation.
+                Color.clear
+            } else if model.thread.isEmpty {
                 // It scrolls between its top and the composer zone, as Android's `EmptyConversation`
                 // does (`verticalScroll`, bottom-padded by the zone): at the largest text size the
                 // paragraph is taller than an iPhone SE, and unscrolled it pushed Settings and the
