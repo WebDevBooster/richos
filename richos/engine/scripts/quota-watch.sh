@@ -63,6 +63,16 @@
 #       at the hold's release when agents are paused for the quota, and at
 #       the reset.
 #
+# HIGH SPEED, ruling §108 (2026-10-04): "when the token consumption velocity
+# increases a lot, we need to start checking the remaining quota every 2
+# minutes (instead of 5) and then also re-calculate the estimate for when the
+# workers must be paused". From 5.8 points per 5 minutes (the 7 points above
+# 93% used inside one check plus a minute for the hold) the watcher wakes the
+# lead once with QUOTA-FAST (the speed and when the window runs out, for the
+# CEO), polls every 120 s, and sends QUOTA-THRESHOLD early, when the measured
+# speed would carry the window to 100% before the next check and the hold.
+# At normal speed nothing changes. Derivation and readings: quota_watch.py.
+#
 # THE THRESHOLD is QUOTA_PAUSE_PERCENT in the governed repository's
 # orchestration.config, beside MODEL_CEILING, read here and nowhere else.
 # Undeclared is UNKNOWN (exit 2), never a built-in 93.

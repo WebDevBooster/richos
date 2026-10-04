@@ -275,6 +275,38 @@ mutant refresh-not-re-read "R03" "$L" \
     '            pass' \
     "After a refresh the watcher would read the status line a whole poll later, and the next refresh would come as it turns one poll old."
 
+# 11. HIGH SPEED, ruling §108 (2026-10-04): the 15 Fable workers of 2026-09-29
+#     took the five-hour window from 93% past 100% between two 5-minute checks.
+mutant fast-never-polls-sooner "R06" "$L" \
+    '        sleep_for = a.fast_poll if fast else a.poll' \
+    '        sleep_for = a.poll' \
+    "At high speed the watcher would still read every 5 minutes, which is what let the window reach 100%."
+
+mutant fast-poll-clamped-back "R06" "$L" \
+    '            sleep_for = max(1, min(sleep_for, window_end - now))' \
+    '            sleep_for = max(1, min(a.poll, window_end - now))' \
+    "The window-end clamp would put the 5-minute interval back, and the 2-minute check would never happen."
+
+mutant early-wake-never "R09" "$L" \
+    '            if verdict == "below" and early_wake(a, r["used"], speed):' \
+    '            if False:' \
+    "At high speed the pause would wait for 93%, and at some poll phases the window reaches 100% before the hold lands."
+
+mutant fast-alert-never "R08" "$L" \
+    '            out.wake("FAST", _capture(_emit_fast, a, r, speed, now, w), now)' \
+    '            pass' \
+    "The CEO would not be told that usage is running at high speed."
+
+mutant fast-alert-every-poll "R08" "$L" \
+    '        if fast and r["state"] == "ok" and not r["ended"] and not same_window(fast_alerted, r["resets_at"]):' \
+    '        if fast and r["state"] == "ok" and not r["ended"]:' \
+    "The lead would be woken with the same alert every 2 minutes."
+
+mutant normal-read-as-fast "R07" "$L" \
+    '    return (100.0 - a.threshold) / float(a.poll + a.hold)' \
+    '    return (100.0 - a.threshold) / float(3 * a.poll + a.hold)' \
+    "Ordinary work at its fastest would count as high speed: an alert for nothing and twice the checks."
+
 # THE DOORBELL EVERY SESSION STARTS WITH: the plugin monitor.
 mutant monitor-delivers-nothing "M01" "$L" \
     '                sys.stdout.write(ev["text"])' \
