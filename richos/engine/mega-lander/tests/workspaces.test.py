@@ -3797,6 +3797,52 @@ class HuntV3_01_ARecordWithoutItsWorkspacesIsDamaged(Base):
         self.assertEqual([p for p, _w in ws.damaged_records()], [ws.agent_path(rec["key"])])
 
 
+class HuntV3_02_TheBudgetBoundsTheWholeCleanup(Base):
+    """Hunt part 4 v3, V3-02: V2-03 stopped a stage from STARTING past the
+    deadline, but a slow helper inside a stage (the container reaper) still
+    kept the caller waiting, and an already-landed retry dropped the deadline."""
+
+    def _ended(self, name, kind):
+        aid, path = self.spawn(name)
+        self.finish(aid)
+        rec = self.rec(name)
+        rec["disposition"] = {"kind": kind, "at": ws.now(), "reason": "fixture only"}
+        ws.save_agent(rec)
+        return rec, path
+
+    def test_v3_02_a_slow_container_helper_never_keeps_the_caller_past_its_budget(self):
+        rec, path = self._ended("zach-opus-v3deadline", "discarded")
+        release = threading.Event()
+
+        def slow_containers(paths):
+            release.wait(1.25)
+            return {}
+        t0 = time.monotonic()
+        try:
+            with patch.object(ws, "stop_containers", side_effect=slow_containers), \
+                    patch.object(ws, "stop_test_instances", return_value={}):
+                ok = ws._delete(rec, ws.live_workspaces(rec), True, "v3-02",
+                                processes={"stopped": [], "survivors": []}, deadline=ws.now() + 0.15)
+            took = time.monotonic() - t0
+        finally:
+            release.set()
+            time.sleep(0.1)                     # the helper's own thread returns
+        self.assertLess(took, 0.6, "a 0.15 s cleanup budget kept its caller %.2f s" % took)
+        self.assertFalse(ok)
+        self.assertTrue(os.path.isdir(path))
+        d = self.rec("zach-opus-v3deadline")["deletion"]
+        self.assertIn("containers", d["deferred"])
+        self.assertEqual(d.get("attempts", 0), 0, "running out of time was counted as a failure")
+
+    def test_v3_02_an_already_landed_retry_keeps_the_callers_deadline(self):
+        self._ended("zach-opus-v3retry", "landed")
+        deadline = ws.now() - 1
+        with patch.object(ws, "_delete_chain", return_value=False) as spy:
+            res = ws.land("zach-opus-v3retry", self.sid, deadline=deadline)
+        self.assertEqual(spy.call_args.kwargs.get("deadline"), deadline)
+        self.assertTrue(res["cleanup_pending"])
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a
