@@ -80,6 +80,7 @@ import {
   DEFAULT_TIER,
   DEFAULT_MODEL,
   whisperArgs,
+  restyleArgs,
   MAX_CONTEXT_TOKENS,
   resolveModel,
   resolveModelChecked,
@@ -1596,6 +1597,16 @@ test('every flag the pipeline passes is one the settings table decided — no si
     assert.ok(decided.has(args[i]), `${args[i]} is passed to whisper-cli but is not in the settings decision table`);
     if (takesValue.has(args[i])) i += 1;
   }
+  // The restyle re-decode (stage 3.9) adds its own three, decided in the table's restyle row.
+  const restyleTakesValue = new Set(['-mc', '--prompt']);
+  const restyleDecided = new Set([...restyleTakesValue, '--carry-initial-prompt']);
+  const extra = restyleArgs('Some preceding text.');
+  for (let i = 0; i < extra.length; i += 1) {
+    assert.ok(restyleDecided.has(extra[i]), `${extra[i]} is passed by the restyle re-decode but is not in the settings decision table`);
+    if (restyleTakesValue.has(extra[i])) i += 1;
+  }
+  // And the MAIN pass never carries a prompt: the restyle budget is that decode's alone.
+  assert.ok(!args.includes('--prompt') && args[args.lastIndexOf('-mc') + 1] === String(MAX_CONTEXT_TOKENS));
 });
 
 test('a tier decodeArg still wins over the default (emitted after, whisper-cli takes the last)', () => {

@@ -33,7 +33,8 @@ import {
   measureSpanVolume,
   CHANNEL_FILES,
 } from './normalize.js';
-import { transcribeSession, transcribeClips, whisperVersion } from './transcribe.js';
+import { transcribeSession, transcribeClips, transcribeStyled, whisperVersion } from './transcribe.js';
+import { restyleChannel, restyleWarnings } from './restyle.js';
 import { mergeTranscript, renderMarkdown, verify, wordCount } from './merge.js';
 import { correct } from './correct.js';
 import { loadEntityMemory } from './entities.js';
@@ -641,11 +642,61 @@ export function runPipeline(sessionDir, opts = {}) {
       log.alarm(`${sessionId} — word-density instrument SKIPPED: no speech-burst grid, so there is no physical speech budget to measure the transcript against`);
     }
 
+    // ---- Stage 3.9: RESTYLE run-on windows (punctuation and case only) ---------------------------
+    // At MAX_CONTEXT_TOKENS = 0 every 30-second window is decoded with no text before it, and a
+    // window that starts mid-sentence comes out lowercase and unpunctuated about a third of the time
+    // (lib/restyle.js has the measurement). Each such span is re-decoded ONCE, as one clip,
+    // conditioned on the transcript's own preceding text, and only its punctuation and case are
+    // taken — never a word. AFTER every detector on purpose: 3.5–3.8 judged exactly the words that
+    // still ship. `RICHOS_RESTYLE=off` disables it; the main-pass decode is identical either way.
+    const restyleOn = String(opts.restyle ?? process.env.RICHOS_RESTYLE ?? 'on') !== 'off';
+    let restyleReport = { enabled: restyleOn, spans: 0, chunks: 0, restyled: 0, words: 0, unrestored: [], elapsedMs: null };
+    let shipped = { me: asrGuarded.me, others: dia.segments };
+    if (restyleOn) {
+      const t0 = Date.now();
+      let clipIndex = 0;
+      const decodeFor = (channel) => (span, prompt) => {
+        privateDirectory(probeDir, sessionDir);
+        const clip = cutSpan(channelPaths[channel], span, path.join(probeDir, `sty-${channel}-${clipIndex++}.wav`), { padSec: 0 });
+        return transcribeStyled(clip, prompt, { model, extraArgs: decodeArgs });
+      };
+      try {
+        const me = restyleChannel(shipped.me, { decode: decodeFor('me'), channel: 'me' });
+        const others = restyleChannel(shipped.others, { decode: decodeFor('others'), channel: 'others' });
+        shipped = { me: me.segments, others: others.segments };
+        restyleReport = {
+          enabled: true,
+          spans: me.report.spans + others.report.spans,
+          chunks: me.report.chunks + others.report.chunks,
+          restyled: me.report.restyled + others.report.restyled,
+          words: me.report.words + others.report.words,
+          unrestored: [...me.report.unrestored, ...others.report.unrestored],
+          elapsedMs: Date.now() - t0,
+        };
+      } catch (err) {
+        // Never fails the pipeline: the main-pass text ships as decoded, and says so.
+        log.alarm(`${sessionId} — restyle could not run; run-on spans ship without punctuation and case`, {
+          error: String(err && err.message ? err.message : err),
+        });
+        restyleReport = { ...restyleReport, error: String(err && err.message ? err.message : err) };
+      } finally {
+        try {
+          fs.rmSync(probeDir, { recursive: true, force: true });
+        } catch {
+          /* the clips are inside the session dir, which already holds the full audio */
+        }
+      }
+      log.info(
+        `${sessionId} — restyle: ${restyleReport.spans} run-on span(s), ${restyleReport.restyled}/${restyleReport.chunks} clip(s) ` +
+          `given punctuation and case, ${restyleReport.unrestored.length} left as decoded (${restyleReport.elapsedMs} ms)`,
+      );
+    }
+
     // ---- Stage 4: MERGE + caption fold-in -------------------------------------------------------
     const captions = readCaptions(sessionDir);
     const merged = mergeTranscript({
-      me: asrGuarded.me,
-      others: dia.segments,
+      me: shipped.me,
+      others: shipped.others,
       captions,
       startedAt: Number(record.startedAt || 0),
     });
@@ -779,6 +830,7 @@ export function runPipeline(sessionDir, opts = {}) {
       unprobed: substitutionReport.unprobed,
       byChannel: substitutionReport.byChannel,
     };
+    record.pipeline.restyle = restyleReport;
     record.pipeline.diarization = {
       method: dia.method,
       remoteTurns: dia.turns,
@@ -789,6 +841,7 @@ export function runPipeline(sessionDir, opts = {}) {
     verification.repetitionGuard = record.pipeline.repetitionGuard;
     verification.deletionGuard = record.pipeline.deletionGuard;
     verification.substitutionGuard = record.pipeline.substitutionGuard;
+    verification.restyle = record.pipeline.restyle;
     // A detect-only class leaves fabricated text in transcript.md, and the deletion class leaves a
     // HOLE in it. verification.json must say both in plain English, or "enabled: true" reads as
     // "hallucination: handled" and a missing clause reads as a pause. ONE warnings vocabulary for
@@ -798,6 +851,7 @@ export function runPipeline(sessionDir, opts = {}) {
       ...guardWarnings(repetitionReport),
       ...deletionWarnings(deletionReport),
       ...substitutionWarnings(substitutionReport),
+      ...restyleWarnings(restyleReport),
     ];
     // FIRST in the list, deliberately. The other three warn about what the transcript SAYS; this
     // one warns that the thing which produced all of it is not what produced the last one, which
