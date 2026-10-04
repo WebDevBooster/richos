@@ -6915,26 +6915,104 @@ body.home-open {
 
 /* Weekly reset approval is separate from the five-hour pause policy. */
 .quota-reset-offers { border-top: 1px solid var(--line-soft); margin-top: 24px; padding-top: 20px; }
-/* Fill-first: several Claude accounts. Text uses the panel's existing ink tokens only. */
-.quota-accounts { margin: 14px 0 0; }
-.quota-heading-actions { display: flex; gap: 10px; align-items: flex-start; }
-.quota-accounts-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
-.quota-accounts h3 { margin: 0; }
-.quota-accounts .quota-message, .quota-account-rows, .quota-account-add { margin-top: 8px; }
-#quota-account-feedback:empty { display: none; }
-.quota-account-rows { padding: 0; margin: 0 0 10px; list-style: none; }
-.quota-account-row { display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--line-soft); padding: 8px 0; font-size: 1rem; }
-.quota-account-text { min-width: 0; flex: 1; }
-.quota-account-text > * { display: block; }
-.quota-account-in-use { margin-left: 0; }
-.quota-account-add { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
-.quota-account-label { display: flex; flex-direction: column; gap: 4px; font-size: 1rem; color: var(--ink); }
-.quota-account-label input { padding: 4px 8px; border: 1px solid var(--line-control); border-radius: 6px; font: inherit; color: var(--ink); background: var(--card); }
-.quota-at-threshold { border: 0; padding: 0; margin: 14px 0 0; font-size: 1rem; color: var(--ink); }
-.quota-at-threshold legend { padding: 0; margin-bottom: 6px; font-weight: 600; }
-.quota-at-threshold label { display: block; padding: 3px 0; }
-/* The radios are non-text indicators: the panel's gold (3:1 probed by quota.js) and its ink. */
-.quota-at-threshold input { accent-color: var(--gold); color: var(--ink); font: inherit; margin-right: 6px; }
+/* Fill-first, built to round 16 (richos-hq design/mockups/rounds/round-16/, the design the CEO
+   chose 2026-10-04): the account lanes, the verb inside the one sentence, the moved lines and
+   their ghosts, Add account inline. Drawn with the panel's existing ink, gold and line tokens
+   only; no new token and no new hue. */
+.quota-panel.is-multi { width: min(1300px, 94vw); }
+.quota-panel.is-multi .quota-body { grid-template-columns: minmax(0, 1fr) 496px; }
+@media (max-width: 1100px) { .quota-panel.is-multi .quota-body { grid-template-columns: minmax(0, 1fr) 400px; } }
+@media (max-width: 850px) { .quota-panel.is-multi .quota-body { grid-template-columns: minmax(0, 1fr); } }
+.quota-toolbar { flex-wrap: wrap; }
+.quota-toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Open Claude Usage is the app's own control (not in round 16): it sits at the end of the
+   weekly reset section's one line, so the reading line carries exactly round 16's
+   + Add account and Refresh and the sheet keeps round 14's height. */
+.quota-reset-offers.is-empty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.quota-reset-offers.is-empty p { margin: 0; }
+.quota-reset-offers.is-empty #quota-usage-open { margin: 0; }
+.quota-btn-quiet { border-color: transparent; padding-left: 6px; padding-right: 6px; color: var(--gold-text); font-weight: 600; }
+.quota-btn-quiet:hover { border-color: transparent; background: var(--gold-soft); }
+.quota-fast { color: var(--gold-text); font-weight: 600; }
+/* The lanes, in handover order. The gold mark is the one the rail puts on the active thread;
+   the next account's mark is dashed gold, a used-up one dashed ink. */
+.quota-lanes { margin-top: 10px; border-top: 1px solid var(--line-soft); }
+.quota-lane { position: relative; display: grid; grid-template-columns: 3px minmax(0, 1fr) auto; gap: 0 14px; align-items: center; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line-soft); border-radius: 0 8px 8px 0; }
+.quota-lane[tabindex="0"] { cursor: pointer; }
+.quota-lane:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.quota-lane[aria-current="true"] { background: linear-gradient(90deg, var(--gold-soft), transparent 72%); }
+.quota-lane-mark { align-self: stretch; border-radius: 2px; }
+.quota-lane.is-inuse .quota-lane-mark { background: var(--gold); }
+.quota-lane.is-next .quota-lane-mark { background: repeating-linear-gradient(180deg, var(--gold-text) 0 4px, transparent 4px 8px); }
+.quota-lane.is-gone .quota-lane-mark { background: repeating-linear-gradient(180deg, var(--ink-faint) 0 3px, transparent 3px 6px); }
+.quota-lane-main { min-width: 0; padding-left: 12px; }
+.quota-lane-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.quota-lane-label { font-size: 1.0625rem; font-weight: 600; color: var(--ink); }
+.quota-lane-tag { display: inline-flex; align-items: center; border: 1px solid var(--gold); border-radius: 999px; padding: 0 9px; font-size: 1rem; font-weight: 600; line-height: 1.4; color: var(--gold-text); }
+.quota-lane-tag.is-next { border-color: var(--line-control); color: var(--ink); font-weight: 500; }
+.quota-lane-tag.is-gone { border-color: var(--line-control); color: var(--ink-soft); font-weight: 500; }
+.quota-lane-when { margin-left: auto; font-size: 1rem; color: var(--ink-soft); white-space: nowrap; }
+.quota-lane-when b, .quota-fig b { color: var(--ink); font-weight: 600; }
+.quota-lane-figs { display: flex; flex-wrap: wrap; gap: 4px 22px; margin-top: 3px; font-size: 1rem; color: var(--ink-soft); }
+.quota-fig { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.quota-fig b { font-variant-numeric: tabular-nums; }
+.quota-fig.is-gone b { color: var(--gold-text); }
+/* The mini bar's track is decoration; its gold fill is the indicator. */
+.quota-lane-mini { position: relative; display: block; flex: none; width: 64px; height: 6px; border-radius: 3px; background: var(--line-strong); overflow: hidden; }
+.quota-lane-mini b { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--gold); }
+.quota-lane-mini.is-stale b { background: repeating-linear-gradient(135deg, var(--gold) 0 2px, transparent 2px 5px); }
+.quota-lane-note { display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: 1rem; color: var(--ink-soft); }
+.quota-lane-pulse { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); animation: quota-breathe 1.6s ease-in-out infinite; }
+@keyframes quota-breathe { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
+.quota-lane-side { display: flex; align-items: center; gap: 6px; }
+.quota-lane .quota-lane-remove { color: var(--ink-soft); font-weight: 500; }
+.quota-lane:hover .quota-lane-remove, .quota-lane:focus-within .quota-lane-remove, .quota-lane.is-confirm .quota-lane-remove { color: var(--gold-text); font-weight: 600; }
+.quota-lane-confirm { grid-column: 2 / 4; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 6px 0 0 12px; font-size: 1rem; color: var(--ink); }
+/* Add account, inline, no warning text (plan §15 answer 5). */
+.quota-addform { margin-top: 10px; border: 1px solid var(--line-control); border-radius: 12px; padding: 12px 16px 14px; background: var(--card); }
+.quota-addform-title { font-size: 1.0625rem; font-weight: 600; color: var(--ink); }
+.quota-addform-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; margin-top: 10px; }
+.quota-addform-rows.is-one { grid-template-columns: 1fr; }
+.quota-addform-row { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 1rem; color: var(--ink-soft); }
+.quota-addform-row input { width: 100%; box-sizing: border-box; padding: 5px 10px; border: 1px solid var(--line-control); border-bottom: 2px solid var(--gold); border-radius: 6px 6px 2px 2px; background: var(--surface); font: inherit; font-size: 1.0625rem; font-weight: 600; color: var(--ink); }
+.quota-addform-row input::placeholder { color: var(--ink-faint); font-weight: 400; }
+.quota-addform-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.quota-account-feedback { margin-top: 8px; font-size: 1rem; color: var(--ink-soft); }
+.quota-account-feedback:empty { display: none; }
+/* A line that moved while usage is fast keeps a dashed ghost where it was. */
+.quota-pause-ghost { position: absolute; top: 2px; width: 0; }
+.quota-pause-ghost i { position: absolute; left: -1px; width: 2px; height: 33px; background: repeating-linear-gradient(180deg, var(--ink-faint) 0 3px, transparent 3px 6px); }
+.quota-chart-small .quota-pause-line i { top: 6px; height: 26px; }
+.quota-chart-small .quota-pause-ghost i { top: 6px; height: 24px; }
+.quota-row-switch { font-size: 1rem; font-weight: 600; color: var(--gold-text); }
+.quota-was { font-weight: 500; color: var(--ink-soft); }
+/* The verb: the choice inside round 14's sentence. Pause is the default. */
+.quota-opts { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.quota-opt { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 5px 9px 5px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; text-align: left; font: inherit; font-size: 1.0625rem; line-height: 1.45; color: var(--ink); }
+.quota-opt:not(:disabled):hover { background: var(--gold-soft); }
+.quota-opt[aria-checked="true"] { border-color: var(--line-control); background: var(--card); }
+.quota-opt b { font-weight: 600; }
+.quota-radio { position: relative; flex: none; box-sizing: border-box; width: 16px; height: 16px; margin-top: 4px; border: 2px solid var(--ink-soft); border-radius: 50%; }
+.quota-opt[aria-checked="true"] .quota-radio { border-color: var(--gold); }
+.quota-opt[aria-checked="true"] .quota-radio::after { content: ""; position: absolute; inset: 2px; border-radius: 50%; background: var(--gold); }
+/* DECLARED CONTRAST EXEMPTION, round 16 NOTES.md "One inactive control is dimmed": while the
+   switch is off the two verbs are disabled (not clickable, out of the tab order) and dimmed;
+   the hint beside them states the state in full-contrast text. Inactive controls are outside
+   the WCAG floor. */
+.quota-opts.is-off { opacity: .55; }
+.quota-opt:disabled { cursor: default; }
+.quota-sentence-tail { display: block; margin-top: 6px; color: var(--ink-soft); }
+.quota-panel .quota-hint { margin-top: 8px; font-size: 1rem; color: var(--ink-soft); }
+.quota-hold-detail p + p { margin-top: 6px; }
+#quota-freshness b { font-weight: 600; color: var(--ink); }
+#quota-hold-status { display: flex; align-items: center; gap: 10px; }
+/* The status dot is a non-text indicator: gold on card 6.36:1 dark, 3.83:1 light; the ink-soft
+   ring 5.78:1 / 6.38:1 (round 16 NOTES.md, the same tokens). */
+.quota-status-dot { flex: none; box-sizing: border-box; width: 10px; height: 10px; border: 2px solid var(--ink-soft); border-radius: 50%; }
+.quota-status-dot.is-on { border-color: var(--gold); background: var(--gold); }
+.quota-status-dot.is-holding { border-color: var(--gold-text); }
+.quota-status-dot.is-fast { border-color: var(--gold); background: var(--gold); animation: quota-breathe 1s ease-in-out infinite; }
+.quota-hold-detail b { color: var(--ink); font-weight: 600; }
 .quota-reset-offers h3 { font-size: 1.125rem; margin: 0 0 8px; }
 .quota-reset-offers h4 { font-size: 1rem; margin: 0 0 8px; }
 .quota-reset-offers p { font-size: 1rem; line-height: 1.5; margin: 8px 0; overflow-wrap: anywhere; }

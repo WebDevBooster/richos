@@ -1971,7 +1971,8 @@
           quotaPolicy = { ...args.policy }; localStorage.setItem("richos-mock-quota-policy", JSON.stringify(quotaPolicy)); return quotaView();
         }
         case "claude_account_add": {
-          if (!mockAccounts.length) mockAccounts.push({ id: "1", label: "Account 1", inUse: true, windows: structuredClone(quotaView().windows), checkedAt: Date.now(), exhaustedUntil: null, message: null });
+          // Going from one account to two names both (round 16): `currentLabel` names Account 1.
+          if (!mockAccounts.length) mockAccounts.push({ id: "1", label: (args.currentLabel || "").trim() || "Account 1", inUse: true, windows: structuredClone(quotaView().windows), checkedAt: Date.now(), exhaustedUntil: null, message: null });
           const id = String(Math.max(...mockAccounts.map(a => Number(a.id))) + 1);
           mockAccounts.push({ id, label: (args.label || "").trim() || `Account ${id}`, inUse: false, windows: [], checkedAt: null, exhaustedUntil: null, message: null });
           return quotaView();

@@ -116,8 +116,8 @@ async function main() {
       const box = await page.locator(".quota-panel").boundingBox();
       assert(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1024 && box.y + box.height <= 700);
       assert(await page.evaluate(() => { const p = document.querySelector(".quota-panel"); return p.scrollWidth <= p.clientWidth; }));
-      await page.locator(".quota-boundary").scrollIntoViewIfNeeded();
-      assert(await page.locator(".quota-boundary").isVisible());
+      await page.locator(".quota-boundary:not([hidden])").scrollIntoViewIfNeeded();
+      assert(await page.locator(".quota-boundary:not([hidden])").isVisible());
       await page.locator("#quota-title").scrollIntoViewIfNeeded();
       await shot(page, "claude-quota-" + theme, { fullPage: false });
       await page.setViewportSize({ width: 1440, height: 900 });
@@ -237,9 +237,10 @@ async function main() {
       ["stale", {...quota, state: "stale", checkedAt: now - 3600000}],
       ["refresh-failed", {...quota, state: "stale", retryAt: now + 600000, message: "Could not refresh Claude Code quota."}],
       ["unavailable", {state: "unavailable", windows: [], checkedAt: null, message: "No current Claude Code reading."}],
-      // Fill-first (plan richos-hq 2026-10-04 §15): two accounts, Switch chosen, fast use
-      // with both check points recalculated (answer 10), one account not read yet.
-      ["two-accounts", {...quota, refreshIntervalMs: 60000, actAt: {five_hour: 92, seven_day: 96}, atThreshold: "switch", accounts: [
+      // Fill-first, round 16: two accounts, Switch chosen, fast use (2 points a minute) with
+      // both check points recalculated (plan answer 10), one account not read yet.
+      // The top-level windows are the account IN USE (quota.rs view_at), here Work.
+      ["two-accounts", {...quota, windows: [{...quota.windows[0], usedPercent: 12}, {...quota.windows[1], usedPercent: 40}], refreshIntervalMs: 60000, speeds: {five_hour: 2 / 60000}, actAt: {five_hour: 92, seven_day: 96}, atThreshold: "switch", accounts: [
         {id: "1", label: "Account 1", inUse: false, windows: quota.windows.slice(0, 2), checkedAt: now, exhaustedUntil: null, message: null},
         {id: "2", label: "Work", inUse: true, windows: [{...quota.windows[0], usedPercent: 12}, {...quota.windows[1], usedPercent: 40}], checkedAt: now, exhaustedUntil: null, message: null},
         {id: "3", label: "Spare", inUse: false, windows: [], checkedAt: null, exhaustedUntil: null, message: null}]}],
@@ -250,19 +251,26 @@ async function main() {
       await page.waitForTimeout(150);
       if (name === "unavailable") assert((await page.locator("#quota-hold-status").innerText()).includes("Waiting for a current reading"));
       if (name === "two-accounts") {
-        assertEqual(await page.locator(".quota-account-row strong").allTextContents(), ["Account 1", "Work", "Spare"]);
-        assertEqual(await page.locator(".quota-account-row.is-in-use strong").allTextContents(), ["Work"], "In use marks the account in use");
-        assert(await page.locator('input[name="quota-at-threshold"][value="switch"]').isChecked(), "the saved setting is shown");
-        assert((await page.locator("#quota-checkpoints").innerText()).includes("acts at 92% of the five-hour window and 96% of the weekly window"));
-        assertEqual(await page.locator(".quota-account-row").nth(0).locator("button").allTextContents(), [], "Account 1 has no Remove");
-        assertEqual(await page.locator(".quota-account-row").nth(2).locator("button").allTextContents(), ["Sign in", "Remove"]);
+        // Round 16: the lanes in handover order (in use first, then by weekly reset, the
+        // unread one last), the verb inside the sentence, the moved lines with their ghosts.
+        assertEqual(await page.locator(".quota-lane-label").allTextContents(), ["Work", "Account 1", "Spare"]);
+        assertEqual(await page.locator(".quota-lane.is-inuse .quota-lane-label").allTextContents(), ["Work"], "in use marks the account in use");
+        assertEqual(await page.locator(".quota-lane.is-next .quota-lane-label").allTextContents(), ["Account 1"], "next is the read account with room");
+        assertEqual(await page.locator("#quota-verb-switch").getAttribute("aria-checked"), "true", "the saved verb is shown");
+        assert((await page.locator("#quota-freshness").innerText()).includes("every minute — usage is fast"));
+        assertEqual((await page.locator(".quota-hero .quota-pause-line").innerText()).trim(), "switch at 92% · was 93%");
+        assertEqual(await page.locator(".quota-pause-ghost").count(), 2, "both moved lines keep a ghost");
+        assert((await page.locator(".quota-row-switch").innerText()).includes("switches at 96%"));
+        assertEqual(await page.locator("#quota-hold-status").innerText(), "Usage is fast — checking every minute.");
+        assertEqual(await page.locator('.quota-lane[data-id="1"] button').allTextContents(), [], "Account 1 has no Remove");
+        assertEqual(await page.locator('.quota-lane[data-id="3"] button').allTextContents(), ["Sign in", "Remove"]);
       }
       // Several accounts add a row each, so that state may scroll vertically (never sideways),
       // and every one of its controls must then be reachable by scrolling. Every single-account
       // state, which is today's panel, still fits without scrolling.
       if (name === "two-accounts") {
         assert(await page.evaluate(() => { const p = document.querySelector(".quota-body"); return p.scrollWidth <= p.clientWidth; }), name + " never scrolls sideways");
-        for (const control of await page.locator(".quota-account-row button, input[name=quota-at-threshold], #quota-account-start").all()) {
+        for (const control of await page.locator(".quota-lane button, .quota-opt, #quota-account-start").all()) {
           await control.scrollIntoViewIfNeeded(); assert(await control.isVisible(), name + " control reachable");
         }
       } else assert(await page.evaluate(() => { const p = document.querySelector(".quota-body"); return p.scrollHeight <= p.clientHeight + 1 && p.scrollWidth <= p.clientWidth; }), name + " fits");
@@ -270,7 +278,8 @@ async function main() {
         const C = window.__contrastMath, failures = [];
         const root = document.querySelector(".quota-panel");
         for (const e of root.querySelectorAll("*")) {
-          if (!e.getClientRects().length || e.closest("[hidden]") || e.classList.contains("sr-only")) continue;
+          // Declared exemption (style.css, round 16 NOTES.md): the disabled, dimmed verbs while the switch is off.
+          if (!e.getClientRects().length || e.closest("[hidden]") || e.classList.contains("sr-only") || e.closest(".quota-opts.is-off")) continue;
           if (![...e.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) && e.tagName !== "INPUT") continue;
           const style = getComputedStyle(e), fg = C.parseCssColor(style.color);
           let bg = C.parseCssColor(getComputedStyle(root).backgroundColor);
@@ -360,6 +369,102 @@ async function main() {
       }
       await page.close();
     }
+  });
+
+  // ---- Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design) -------
+  const twoAccounts = (extra = {}) => ({ ...quota, atThreshold: "pause", accounts: [
+    { id: "1", label: "Home", inUse: true, windows: [{ ...quota.windows[0], usedPercent: 41 }, quota.windows[1]], checkedAt: now, exhaustedUntil: null, message: null },
+    { id: "2", label: "Work", inUse: false, windows: [{ ...quota.windows[0], usedPercent: 10 }, { ...quota.windows[1], usedPercent: 20, resetsAt: now + 86400000 }], checkedAt: now, exhaustedUntil: null, message: null }],
+    windows: [{ ...quota.windows[0], usedPercent: 41 }, quota.windows[1]], ...extra });
+  await run.check("round 16, one account: + Add account beside Refresh and the five-minute reading line", async () => {
+    const page = await open("dark", quota);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-window");
+    assertEqual(await page.locator(".quota-toolbar-actions button").allTextContents(), ["+ Add account", "Refresh"]);
+    assert((await page.locator("#quota-freshness").innerText()).includes("checks every 5 min"));
+    assert(await page.locator("#quota-lanes").isHidden(), "one account draws no lanes");
+    assert(await page.locator("#quota-verbs").isHidden(), "one account keeps round 14's sentence");
+    assertEqual(await page.locator("#quota-policy-title").innerText(), "Automatic pause");
+    await page.close();
+  });
+  await run.check("round 16, Add account from one account names both, then the lanes and the verb appear", async () => {
+    const page = await open("dark", quota, 100, null, true);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-window");
+    await page.click("#quota-account-start");
+    assert(await page.locator("#quota-account-current").isVisible(), "the first account is named too");
+    assertEqual(await page.locator("#quota-addform-title").innerText(), "Add a second Claude account");
+    await page.fill("#quota-account-current", "Home");
+    await page.fill("#quota-account-label", "Work");
+    await page.click("#quota-account-add");
+    await page.waitForSelector(".quota-lane");
+    assertEqual(await page.locator(".quota-lane-label").allTextContents(), ["Home", "Work"]);
+    // The lane waits with a pulse while Claude Code signs in through the browser; when the
+    // sign-in ends (the preview's ends at once) it reads "Not read yet" with Sign in.
+    assert((await page.locator('.quota-lane[data-id="2"]').innerText()).includes("signing in through your browser"));
+    await page.waitForFunction(() => document.querySelector('.quota-lane[data-id="2"]').textContent.includes("Not read yet"));
+    assertEqual(await page.locator("#quota-policy-title").innerText(), "Automatic pause or switch");
+    assert(await page.locator("#quota-verbs").isVisible());
+    assertEqual((await page.locator("#quota-sentence-lead").innerText()).trim(), "Once Home’s five-hour window passes");
+    await page.close();
+  });
+  await run.check("round 16, the one decision: off dims the verbs and draws the line only; on, the verb moves the ruler label", async () => {
+    const page = await open("light", twoAccounts(), 100, null, false);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-lane");
+    assert(await page.locator("#quota-verb-switch").isDisabled(), "off: the verbs are disabled");
+    assertEqual(await page.locator("#quota-hint").innerText(), "Off — nothing happens at 93%; the line is only drawn.");
+    assertEqual((await page.locator(".quota-hero .quota-pause-line").innerText()).trim(), "off · 93%");
+    assertEqual(await page.locator("#quota-hold-status").innerText(), "Off. Nothing is paused.");
+    await page.click("#quota-enabled");
+    await page.waitForFunction(() => !document.getElementById("quota-verb-switch").disabled);
+    assertEqual((await page.locator(".quota-hero .quota-pause-line").innerText()).trim(), "pause at 93%");
+    assertEqual(await page.locator("#quota-hold-status").innerText(), "On. Nothing is waiting.");
+    assert((await page.locator("#quota-verb-switch").innerText()).includes("switch to Work, the next account"));
+    await page.click("#quota-verb-switch");
+    await page.waitForFunction(() => document.getElementById("quota-verb-switch").getAttribute("aria-checked") === "true");
+    assertEqual((await page.locator(".quota-hero .quota-pause-line").innerText()).trim(), "switch at 93%");
+    assertEqual(await page.locator("#quota-hold-status").innerText(), "On. Rich switches at the line.");
+    await page.close();
+  });
+  await run.check("round 16, a lane shows its account's rulers; Remove asks once inline", async () => {
+    const page = await open("dark", twoAccounts(), 100, null, true);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-lane");
+    assertEqual(await page.locator(".quota-lane.is-next .quota-lane-label").allTextContents(), ["Work"]);
+    await page.click('.quota-lane[data-id="2"] .quota-lane-label');
+    await page.waitForFunction(() => document.querySelector(".quota-hero .quota-window-label").textContent.startsWith("Five-hour window · Work"));
+    assertEqual(await page.locator(".quota-hero .quota-pause-line").count(), 0, "the line belongs to the account in use");
+    await page.click('.quota-lane[data-id="2"] .quota-lane-remove');
+    assert((await page.locator(".quota-lane-confirm").innerText()).includes("Its sign-in here is forgotten; nothing on the account itself changes."));
+    await page.click("#quota-remove-no");
+    assertEqual(await page.locator(".quota-lane-confirm").count(), 0, "Keep it keeps it");
+    await page.click('.quota-lane[data-id="2"] .quota-lane-remove');
+    await page.click("#quota-remove-yes");
+    await page.waitForFunction(() => document.getElementById("quota-lanes").hidden);
+    assertEqual(await page.locator("#quota-policy-title").innerText(), "Automatic pause", "down to one account: round 14's sheet");
+    await page.close();
+  });
+  await run.check("round 16, the sheet after a switch and the hold when every account is used up", async () => {
+    const switched = twoAccounts({ lastSwitch: { from: "1", to: "2", at: now - 4 * 60000, why: "fiveHour", used: 94 } });
+    switched.accounts = switched.accounts.map(a => ({ ...a, inUse: a.id === "2", exhaustedUntil: a.id === "1" ? now + 2 * 3600000 : null }));
+    let page = await open("dark", switched, 100, null, true);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-lane");
+    assertEqual(await page.locator(".quota-lane-label").allTextContents(), ["Work", "Home"]);
+    assert((await page.locator('.quota-lane[data-id="1"]').innerText()).includes("usable again"));
+    assert((await page.locator("#quota-hold-status").innerText()).startsWith("In use: Work, since "));
+    assert(/Rich switched from Home \d+m ago at 94% of its five-hour window\./.test(await page.locator("#quota-hold-detail").innerText()));
+    await page.close();
+    const gone = twoAccounts({ heldUntil: now + 3600000 });
+    gone.accounts = gone.accounts.map(a => ({ ...a, exhaustedUntil: now + (a.id === "1" ? 3600000 : 7200000) }));
+    page = await open("dark", gone, 100, null, true);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-lane");
+    assertEqual(await page.locator("#quota-hold-status").innerText(), "Every account is used up.");
+    assert((await page.locator("#quota-hold-detail").innerText()).includes("when Home’s window resets — the soonest."));
+    assertEqual(await page.locator(".quota-lane-tag.is-gone").count(), 1, "the account not in use reads used up");
+    await page.close();
   });
   await run.check("no renderer errors", async () => assertEqual(errors, []));
   await browser.close();
