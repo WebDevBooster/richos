@@ -26,12 +26,12 @@ its own clone of main's tip on the external SSD (never a worktree of the reposit
     that phone's app (is_app_code: its native-* directory minus tests, tooling, the headless CLI and
     notes) changed since its last measurement, that measurement's samples are judged AGAIN against the
     current limits and the phone is not touched (`unchanged`; a newly failing verdict is escalated).
-  - waits until the phone has been quiet for QUIET_S (600 s): no process outside this run's own
-    tree names the phone's serial or identifier or runs a phone tool (phone-android.py,
-    phone-ios.py, hidden-send-try.py, devicectl, xctrace, an adb client). It never interrupts
-    anything. There is no committed per-phone lease to ask (escalation
-    esc-20261002T084952Z-58b2be1f), so an agent idle for longer than QUIET_S between two phone
-    commands is not seen. A phone still busy after MAX_WAIT_S (6 h) is reported, never measured.
+  - measures the phone as soon as one sample shows it free (CEO 2026-10-04: the phone is for
+    testing; there is no quiet period): no process outside this run's own tree names the phone's
+    serial or identifier or runs a phone tool (phone-android.py, phone-ios.py,
+    hidden-send-try.py, devicectl, xctrace, an adb client). Only while such a command is running
+    right now does it wait, polling every POLL_S, and it never interrupts anything. A phone still
+    busy after MAX_WAIT_S (6 h) is reported, never measured.
   - touches the phone ONLY through the platform command lines (CEO mandate, §76 addendum,
     CLI-first mobile development): `randroid device install` and `randroid device perf` on
     Android, `rios device install` and `rios device perf` on the iPhone (VERBS below). They build
@@ -175,10 +175,6 @@ def setting(name, default):
     if not value:
         return default
     return value if isinstance(default, str) else type(default)(value)
-
-
-def quiet_s():
-    return setting("QUIET_S", 600)
 
 
 def poll_s():
@@ -553,22 +549,17 @@ def users(platform, idents, procs=None, me=None):
 
 
 def wait_until_free(platform, idents, sample=None, clock=time.monotonic, sleep=time.sleep, log=say):
-    """Block until the phone has been quiet for QUIET_S. Returns (True, waited_s) or (False, last users)."""
+    """Return at the first sample with no user of the phone: (True, waited_s); (False, last users) after MAX_WAIT_S."""
     sample = sample or (lambda: users(platform, idents))
     start = clock()
-    quiet_since = None
     while True:
         busy = sample()
         t = clock()
-        if busy:
-            quiet_since = None
-            if t - start >= max_wait_s():
-                return False, busy
-            log(f"{platform}: busy ({len(busy)} process(es), e.g. pid {busy[0][0]}); waiting, interrupting nothing")
-        else:
-            quiet_since = t if quiet_since is None else quiet_since
-            if t - quiet_since >= quiet_s():
-                return True, round(t - start)
+        if not busy:
+            return True, round(t - start)
+        if t - start >= max_wait_s():
+            return False, busy
+        log(f"{platform}: busy ({len(busy)} process(es), e.g. pid {busy[0][0]}); waiting, interrupting nothing")
         sleep(poll_s())
 
 
