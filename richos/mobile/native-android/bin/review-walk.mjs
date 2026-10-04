@@ -30,6 +30,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resetReviewHost } from './review-reset.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CREDENTIALS = '/Volumes/E1TB/state/richos/review-mock/secrets/review-credentials.json';
@@ -299,26 +300,7 @@ if (creds) {
 	if (signedIn && !occupied) {
 		const walked = steps.every((s) => s.ok);  // the phone is paired now, so the reset is the step itself
 		await step('reset the Google review host', async () => {
-			await page.goto(creds.access, { waitUntil: 'load' });
-			const reset = page.getByRole('button', { name: 'Reset this review host', exact: true });
-			const canReset = (await reset.count()) > 0;
-			if (walked && !canReset) throw new Error(`the page offers no Reset this review host after pairing; ${(await body()).slice(0, 300)}`);
-			if (canReset) {
-				await page.locator('#reset').check();
-				await reset.click();
-			} else if (!(await page.getByRole('button', { name: 'Get a pairing link', exact: true }).count())) {
-				// A waiting phone (the walk stopped between pairing and the press): They do not match removes it.
-				const no = page.getByRole('button', { name: 'They do not match', exact: true });
-				if (await no.count()) await no.click();
-			}
-			// No phone: either no link, or this walk's unused link (it expires by itself in 5 minutes and
-			// pairs nobody; the next reviewer's "Get a new link instead" replaces it).
-			await page.locator('button:text-is("Get a pairing link"), button:text-is("Get a new link instead")').first().waitFor({ timeout: 20_000 });
-			const text = await body();
-			if (/is paired with this review host|A phone reached this review host/.test(text)) throw new Error(`${creds.host} still has a phone after the reset`);
-			await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-			return canReset ? `pressed Reset this review host on the page; ${creds.host} has no phone and its sample conversations again; signed out`
-				: `nothing was paired, so there was nothing to reset; ${creds.host} has no phone; signed out`;
+			return resetReviewHost(page, creds, { walked });
 		}, { always: true });
 	} else {
 		steps.push({ name: 'reset the Google review host', ok: false, detail: occupied ? 'not done: the host was in use by someone else' : 'not reached: the sign-in failed' });
