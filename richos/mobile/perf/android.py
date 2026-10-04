@@ -43,8 +43,11 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import perfcore
+import phone_changes
 from perfcore import Refused, Unmeasurable
 
+BATTERY_UNDO = ["dumpsys battery reset"]
+ATRACE_UNDO = ["atrace --async_stop > /dev/null 2>&1"]
 PACKAGE = "dev.richos.connect"
 ACTIVITY = f"{PACKAGE}/dev.richos.android.app.MainActivity"
 RECEIVER = f"{PACKAGE}/dev.richos.android.app.debug.DevBridgeReceiver"
@@ -503,6 +506,27 @@ class Device:
         except Unmeasurable:
             return False
 
+    def begin_change(self, kind, undo):
+        """Record on the Mac what is about to change on the phone, so a killed run is still undone (phone_changes.py)."""
+        phone_changes.begin(self.serial, kind, undo)
+
+    def end_change(self, kind, undo):
+        """Undo it now; the record is erased only when the undo reached the phone."""
+        try:
+            for c in undo:
+                self.sh(c)
+        except Unmeasurable:
+            return False
+        phone_changes.forget(self.serial, kind)
+        return True
+
+    def restore_leftovers(self, log=lambda s: None):
+        """First thing in every run: undo what a previous run recorded and never undid."""
+        def one(c):
+            self.sh(c)
+            return True
+        return phone_changes.restore(self.serial, one, log)
+
     def uptime_epoch(self):
         return self.sh("date +%s.%N").strip()
 
@@ -956,6 +980,7 @@ class Measure:
 
     def atrace(self, categories, action, settle_s):
         """Run `action()` inside an atrace capture of the app; returns the trace text."""
+        self.d.begin_change("atrace", ATRACE_UNDO)
         self.d.sh(f"atrace --async_start -b 16384 -a {PACKAGE} {' '.join(categories)}")
         error = None
         try:
@@ -966,6 +991,7 @@ class Measure:
             error = failure
         finally:
             self.d.sh(f"atrace --async_stop -o {TRACE_FILE}", check=False)
+            self.d.end_change("atrace", ATRACE_UNDO)
         text = self.d.run("exec-out", "cat", TRACE_FILE, check=False)
         self.d.sh(f"rm -f {TRACE_FILE}", check=False)
         self.last_trace = text
@@ -1416,6 +1442,7 @@ class Measure:
         t_front = parse_threads(self.d.sh(thread_cmd))
         self.home()
         self.d.sleep(settle_s)
+        self.d.begin_change("battery", BATTERY_UNDO)
         self.d.sh("dumpsys battery unplug", check=False)
         try:
             self.d.sh("dumpsys batterystats --reset", check=False)
@@ -1428,7 +1455,7 @@ class Measure:
             s1 = parse_proc_stat_ticks(self.d.sh(f"cat /proc/{pid}/stat")) if alive else None
             checkin = parse_checkin(self.d.sh("dumpsys batterystats --checkin"), uid)
         finally:
-            self.d.sh("dumpsys battery reset", check=False)
+            self.d.end_change("battery", BATTERY_UNDO)
         alarms = [l.strip() for l in self.d.sh("dumpsys alarm", check=False).splitlines()
                   if PACKAGE in l and "Active uids" not in l]
         jobs = [l.strip() for l in self.d.sh(f"dumpsys jobscheduler {PACKAGE}", check=False).splitlines()
