@@ -74,6 +74,30 @@ class ExportedEvidence(Fixture):
         self.assertTrue(summary["passed"], summary)
 
 
+class OnePhone(Fixture):
+    def test_wifi_off_switches_the_phone_whose_cable_it_checked(self):
+        """V05: --device PHONE-A with RICHOS_IOS_DEVICE=PHONE-B. The cable check and both runs (read, press)
+        must all name PHONE-A; the environment is left as it was."""
+        checked, used = [], []
+
+        def run(args):
+            used.append(os.environ["RICHOS_IOS_DEVICE"])
+            folder = Path(args.out)
+            folder.mkdir(parents=True, exist_ok=True)
+            value = "1" if len(used) == 1 else "0"  # on when read, off after the press
+            (folder / "steps.jsonl").write_text(json.dumps({"do": "value", "ok": True, "detail": {"value": value}}) + "\n")
+            return {"passed": True}
+        with patch.dict(os.environ, {"RICHOS_IOS_DEVICE": "PHONE-B", "RICHOS_APPLE_TEAM": "fixture"}), \
+                patch.object(phone_ios, "require_cable", checked.append), patch.object(phone_ios, "_run", run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = phone_ios.wifi_off(SimpleNamespace(out=str(self.root / "wifi"), device="PHONE-A"))
+            after = os.environ["RICHOS_IOS_DEVICE"]
+        self.assertEqual(code, 0)
+        self.assertEqual(checked, ["PHONE-A"])
+        self.assertEqual(used, ["PHONE-A", "PHONE-A"], "the Wi-Fi was read or switched on a phone whose cable was not checked")
+        self.assertEqual(after, "PHONE-B")
+
+
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=1).result
     print("OK" if result.wasSuccessful() else "FAILED")

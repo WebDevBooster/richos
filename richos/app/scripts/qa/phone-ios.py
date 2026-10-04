@@ -987,7 +987,18 @@ def switch_wifi_off(out, device):
     """The cable check, then the switch read and turned off when on (ensure_wifi). Raises CannotAnswer off the cable,
     before Settings is opened."""
     require_cable(device)
-    result = ensure_wifi(out, on=False)
+    # ONE PHONE (hunt part 2 v3, V05): the step runner (_run, and the rios it starts) selects the phone from
+    # RICHOS_IOS_DEVICE alone, so the phone whose cable was just checked is the one it is told to switch.
+    # `--device A` with RICHOS_IOS_DEVICE=B used to check A's cable and turn B's Wi-Fi off.
+    saved = os.environ.get("RICHOS_IOS_DEVICE")
+    os.environ["RICHOS_IOS_DEVICE"] = device
+    try:
+        result = ensure_wifi(out, on=False)
+    finally:
+        if saved is None:
+            os.environ.pop("RICHOS_IOS_DEVICE", None)
+        else:
+            os.environ["RICHOS_IOS_DEVICE"] = saved
     result["putBack"] = "rios device wifi-on --out DIR, then rios device net"
     return result
 
