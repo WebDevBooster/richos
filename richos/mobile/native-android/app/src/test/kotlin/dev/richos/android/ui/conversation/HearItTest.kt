@@ -19,11 +19,23 @@ import dev.richos.android.ui.model.ReplyAudio
 import dev.richos.android.ui.model.ScreenModel
 import dev.richos.android.ui.model.Speaker
 import dev.richos.android.ui.toAction
+import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performClick
+import dev.richos.android.ui.RichApp
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * "Hear it" under Rich's finished reply (round 12.1 `richAudioHTML`), by the reference client's rule
@@ -35,7 +47,12 @@ import org.junit.Test
  * from one signed `GET /api/audio/<id>?thread_id=<thread>`, and the platform player is told to play
  * those bytes and to stop.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
 class HearItTest {
+    @get:Rule
+    val compose = createComposeRule()
+
     private val wav = "RIFF-fixture-not-real-audio".toByteArray()
     private val requests = mutableListOf<HttpRequest>()
     private var audioStatus = 200
@@ -120,6 +137,26 @@ class HearItTest {
         assertEquals(2, requests.size)
         assertEquals(1, played.size)
         assertEquals(ReplyAudio.READY, audio(core))
+    }
+
+    /**
+     * The same on the drawn screen, tapped: the conversation must redraw the reply's row when only
+     * core's reply playback changes (the emulator check, 2026-10-04: the release app played the
+     * Mac's audio while the row went on showing "Hear it", because the thread's projection was
+     * remembered without core's `replyPlayback` among its keys).
+     */
+    @Test
+    fun `on screen, the tap shows Stop while it plays and Stop brings Hear it back`() {
+        val core = core("""["text","voice","audio"]""")
+        var model by mutableStateOf(ScreenModel(core.state))
+        compose.setContent { RichApp(model, onEvent = { e -> runBlocking { e.toAction()?.let { core.dispatch(it) } }; model = ScreenModel(core.state) }) }
+        compose.onNodeWithContentDescription("Hear this reply").performClick()
+        compose.waitForIdle()
+        assertEquals(REPLY, played.single().first)
+        compose.onNodeWithContentDescription("Stop the reply").assertExists("Stop shows while the reply plays")
+        compose.onNodeWithContentDescription("Stop the reply").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Hear this reply").assertExists("Hear it is back after Stop")
     }
 
     @Test
