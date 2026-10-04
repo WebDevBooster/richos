@@ -8890,7 +8890,7 @@
     },
     "scripts/lib/device-identifiers.py": {
       "source": "scripts/lib/device-identifiers.py",
-      "sha256": "aa681157712058a199f4f9fc63bb860da8a74be5d1d386b8daf53e23a2f24d4f",
+      "sha256": "6a810b7c89d0d99311fa03da3f68dba036ccfd0b3a10c75d3460d36cc97271d4",
       "evidence": "Full file reviewed (2026-10-02, renewed for --scan-tree). Environment reads: RICHOS_DEVICE_IDENTIFIERS_FILE only, an operator-scope path override, never an orchestration.config key; HOME via expanduser. The only subprocess is the external git executable (rev-parse --is-inside-work-tree on the list's folder; ls-files and grep --cached on the repository path the caller names), not an engine reader. Manifest rows and blobs are supplied data; no engine imports, no config reads, no writes.",
       "keys": [],
       "edges": []
