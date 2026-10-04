@@ -19,8 +19,12 @@
 #                                       by nothing, and one not named cc/ is refused)
 #     - git worktree prune             (all forms; use worktree list to inspect)
 #     - git worktree remove / rm -r of an agent's workspace (cc/, worktree-*,
-#       .claude/worktrees/) or of a codex/ one
+#       .claude/worktrees/) or of a codex/ one (on a codex/ branch, or under a
+#       Codex worktree root such as ~/.codex/worktrees, detached or not)
 #     - git branch -d / -D of a cc/, worktree-* or codex/ branch
+#     - git worktree remove / git branch -d|-D whose operand the guard cannot
+#       read ("$d", $(...), a glob, xargs): it cannot be proved not codex/
+#       (2026-10-04: a loop over "$d" with an ack removed dozens of Codex ones)
 #     - claude --worktree / -w         (point 3: nobody starts a session in its
 #                                       own workspace)
 #   BLOCKED unless it carries `worktree-remove-ack:<reason>` (logged to the
@@ -419,6 +423,21 @@ def _is_codex(t):
     return _refname(t).startswith("codex/")
 
 
+def _unreadable_operand(t):
+    """A token the shell expands before git sees it: a variable, a command
+    substitution, a glob. Its value is not in the command text."""
+    return bool(re.search(r"[$`*?\[]", t or ""))
+
+
+# Where Codex makes its workspaces. Most are DETACHED (no codex/ branch to read),
+# and they are Codex's all the same (point 2). WTR_CODEX_WORKTREE_ROOTS (colon-
+# separated) replaces the list, for tests.
+CODEX_WORKTREE_ROOTS = [os.path.realpath(os.path.expanduser(r)) for r in (
+    os.environ.get("WTR_CODEX_WORKTREE_ROOTS") or
+    ":".join(["~/.codex/worktrees", os.path.join(os.environ.get("CODEX_HOME") or "~/.codex", "worktrees"),
+              "/Volumes/E1TB/state/codex/home/worktrees"])).split(":") if r]
+
+
 def _is_recorded(t):
     return _refname(t) in recorded_integration_branches()
 
@@ -519,7 +538,20 @@ def collect_git(text):
         if sub2 == "remove":
             reasons.append("git worktree remove")
             after = rest[rest.index("remove") + 1:] if "remove" in rest else []
-            paths.extend(t for t in after if not t.startswith("-"))
+            operands = [t for t in after if not t.startswith("-")]
+            paths.extend(operands)
+            # AN OPERAND THE GUARD CANNOT READ CANNOT BE PROVED NOT TO BE codex/
+            # (2026-10-04). `for d in ...; do git worktree remove "$d"; done`
+            # carrying a worktree-remove-ack removed dozens of Codex worktrees:
+            # `$d` is no path on disk, so workspace_kind() answered "" and the
+            # ack let the loop through. Point 2 has no override, so a removal
+            # whose target is a variable, a substitution, a glob or stdin
+            # (xargs) is refused: name each path literally and it is checked.
+            if not operands or any(_unreadable_operand(t) for t in operands):
+                spec.append("git worktree remove of %s, which this guard cannot read, so it cannot "
+                            "prove it is not a codex/ workspace (a codex/ workspace or branch is never "
+                            "deleted without the CEO's express word — point 2; name each path literally)"
+                            % (" ".join(operands) or "a path it is not given (stdin / xargs)"))
         elif sub2 == "prune":
             # Even default pruning deletes Git metadata for absent worktrees,
             # including registered ones. Block dry-run forms too: later options
@@ -554,6 +586,15 @@ def collect_git(text):
             or re.fullmatch(r"-[alrv]+", t)
             for t in rest)
         positional = [t for t in rest if not t.startswith("-")]
+        # The same hole as `worktree remove "$d"` (2026-10-04): `git branch -d
+        # "${b#refs/heads/}"` in a loop deleted branches nobody could see the
+        # names of. A delete whose branch is a variable, a substitution, a glob
+        # or stdin cannot be proved not to be codex/, so it is refused.
+        if deletes and (not positional or any(_unreadable_operand(t) for t in positional)):
+            spec.append("git branch -d/-D of %s, which this guard cannot read, so it cannot prove it is "
+                        "not a codex/ branch (never deleted without the CEO's express word — point 2; "
+                        "name each branch literally)"
+                        % (" ".join(positional) or "a branch it is not given (stdin / xargs)"))
         # Rule 6b, widened in round 8: an AGENT moving, renaming, COPYING ONTO,
         # force-moving, CREATING or deleting a protected ref. -f/--force (a
         # move), -m/-M/--move, -c/-C/--copy (the destination is the last
@@ -859,7 +900,8 @@ def workspace_kind(p):
     if not gd or not cd or os.path.realpath(gd) == os.path.realpath(cd):
         return ""
     br = _git(p, "symbolic-ref", "--quiet", "--short", "HEAD")
-    if br.startswith("codex/"):
+    real = os.path.realpath(p)
+    if br.startswith("codex/") or any(real.startswith(r + os.sep) for r in CODEX_WORKTREE_ROOTS):
         return "codex"
     if br.startswith("cc/") or br.startswith("worktree-") or "/.claude/worktrees/" in os.path.realpath(p) + "/":
         return "system"

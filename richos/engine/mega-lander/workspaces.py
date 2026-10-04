@@ -2822,6 +2822,7 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
                     fresh["claimed_by"] = me
                     save_agent(fresh)
                     rec = fresh
+        refused = ""
         if auto and not _past(deadline):
             try:
                 res = land(rec["key"], me, auto=True, deadline=deadline)
@@ -2829,11 +2830,15 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
                     continue
             except Deadline:
                 _deferred(report, rec)
-            except SpecError:
-                pass
+            except SpecError as e:
+                # SAID, NEVER SWALLOWED (2026-10-04): four merged, ended
+                # workspaces sat 1-2 days while this refusal was dropped here
+                # and their wait note kept them off every gate's list.
+                refused = " ".join(str(e).split())[:400]
         elif auto:
             _deferred(report, rec)
-        items.append(_item(rec, why, cache, me))
+        items.append(_item(rec, why + ("; it did not land on its own: " + refused if refused else ""),
+                           cache, me))
     return items
 
 
@@ -4630,12 +4635,26 @@ def integration_for(repo):
     return integration_target([], repo)
 
 
-def land(ref, me="", auto=False, ignored_ok="", deadline=None):
+def land(ref, me="", auto=False, ignored_ok="", deadline=None, keep_ignored=None):
     """Point 4: landed means every workspace and branch is deleted. Landed is
     proved from git: every branch tip (and every workspace HEAD) is already in
     the branch this work INTEGRATES ON, which is the branch recorded when the
     work started — usually main, and its dev branch when it cannot reach main
-    yet (point 14). An agent that produced nothing is landed (point 7)."""
+    yet (point 14). An agent that produced nothing is landed (point 7).
+
+    THE AUTOMATIC LAND KEEPS IGNORED FILES INSTEAD OF WAITING FOR A WAIVER
+    (2026-10-04). Until then any ignored file the main checkout lacked (an
+    in-flight ack file, build output nobody declared regenerable) held a
+    merged, ended workspace pending until a person typed
+    --ignored-not-needed: 418 of the 559 lands since 2026-09-21 were done by
+    hand with that waiver and 51 landed on their own, and four merged
+    workspaces sat 1-2 days. The refusal was swallowed in pending(), so
+    nothing said why. Now, once every branch is proved to be in the
+    integration branch, those entries are MOVED to <state>/kept/ and the land
+    goes on: point 8 still holds (nothing is lost), and nobody has to
+    remember. Uncommitted work and unreadable directories still refuse.
+    `keep_ignored` defaults to `auto`; `merge_and_land` passes it too."""
+    keep = auto if keep_ignored is None else keep_ignored
     rec = _resolve(ref, me)
     fin, _pz, why = finished_state(rec)
     if not fin:
@@ -4684,19 +4703,66 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None):
     containers = stop_containers(paths)
     if containers.get("failed"):
         raise SpecError("cannot land %s: workspace containers could not be stopped" % rec["name"])
+    kept = ""
+    if keep and not ignored_ok and not _not_in_integration(rec, chain, deadline=deadline):
+        kept = _keep_ignored(rec, chain, deadline)
     _require_landed(rec, chain, ignored_ok, deadline)
     for r in chain:
         with Lock():
             fresh = load_agent(r["key"])
             fresh["disposition"] = {"kind": "landed", "at": now(), "auto": bool(auto), "by_session": me,
-                                    "ignored_not_needed": ignored_ok or None, "as_part_of": rec["key"]}
+                                    "ignored_not_needed": ignored_ok or None, "as_part_of": rec["key"],
+                                    **({"kept_ignored": kept} if kept else {})}
             save_agent(fresh)
         event("landed", key=r["key"], auto=bool(auto), as_part_of=rec["key"])
     clean = _delete_chain(chain, "landed", processes=stopped, deadline=deadline)
     if not clean:
         if not (load_agent(rec["key"]) or {}).get("disposition"):
             raise SpecError("landing eligibility changed during cleanup; the work was preserved")
-    return {"landed": True, **({"cleanup_pending": True} if not clean else {})}
+    return {"landed": True, **({"cleanup_pending": True} if not clean else {}),
+            **({"kept_ignored": kept} if kept else {})}
+
+
+def merge_and_land(ref, me="", message=""):
+    """`workspaces.sh merge <name>`: THE MERGE AND THE LAND ARE ONE COMMAND
+    (2026-10-04). The lead merged with `git merge --no-ff` and then had to
+    remember a separate `workspaces.sh land`; for four teammates he did not,
+    and their workspaces stayed 1-2 days. This merges every branch of a
+    FINISHED teammate that is not yet in its integration branch, in that
+    repository's main checkout (which must be on that branch), with git's own
+    hooks and checks, then lands it exactly as the automatic land does
+    (ignored files are kept, never a reason to stay). A merge git refuses
+    stops here with git's words; nothing is landed. Returns (merged, land
+    result)."""
+    rec = _resolve(ref, me)
+    fin, _pz, why = finished_state(rec)
+    if not fin:
+        raise SpecError("%s is not finished (%s); merge it when its run has ended" % (rec["name"], why))
+    chain = _chain(rec)
+    merged = []
+    for repo, b in _branch_targets(chain):
+        main = main_checkout(repo)
+        target, tip, why_not = integration_target(chain, repo)
+        if why_not or not main:
+            raise SpecError("cannot merge %s of %s: %s" % (b, repo, why_not or "its main checkout cannot be read"))
+        t, unread = branch_tip_read(main, b)
+        if unread:
+            raise SpecError("cannot merge %s of %s: %s" % (b, repo, unread))
+        if not t or is_ancestor(main, t, tip):
+            continue
+        rc, head, _e = git(main, "symbolic-ref", "--quiet", "--short", "HEAD")
+        if rc or head.strip() != target:
+            raise SpecError("cannot merge %s: the main checkout %s is on %s, not on %s, the branch this work "
+                            "integrates on" % (b, main, head.strip() or "a detached HEAD", target))
+        args = ["merge", "--no-ff", "--no-edit"] + (["-m", message] if message else []) + [b]
+        # git's own checks (pre-merge-commit) run here and may take minutes.
+        r = subprocess.run(["git", "-C", main] + args, capture_output=True, text=True, env=_git_env())
+        if r.returncode != 0:
+            raise SpecError("git merge of %s into %s of %s failed (exit %d); nothing was landed:\n%s"
+                            % (b, target, main, r.returncode, (r.stdout + r.stderr).strip()[-3000:]))
+        merged.append((repo, b))
+        event("merged", key=rec["key"], repo=repo, branch=b, into=target)
+    return merged, land(rec["key"], me, keep_ignored=True)
 
 
 def _require_landed(rec, chain, ignored_ok="", deadline=None):
@@ -4707,6 +4773,96 @@ def _require_landed(rec, chain, ignored_ok="", deadline=None):
     missing = _not_in_integration(rec, chain, preserved, deadline)
     if missing:
         raise SpecError(_not_landed_message(rec, missing))
+
+
+def _keep_ignored(rec, chain, deadline=None):
+    """Move every ignored entry the land would refuse (one the main checkout
+    lacks, not generated at creation, not declared regenerable) out of the
+    work's workspaces into <state>/kept/<key>-<time>/<n>-<workspace>/<entry>,
+    and return that directory ("" when nothing was kept). In-flight ack files
+    are deleted instead, never kept. Called only once every branch and HEAD is
+    proved to be in the integration branch.
+
+    Nothing moves while any workspace has uncommitted work or an entry that
+    could not be read: _require_clean then refuses, naming them, exactly as
+    before. Partial-cleanup residue is left to _require_clean as well."""
+    if any(r.get("landing_cleanup_started") or r.get("deletion") for r in chain):
+        return ""
+    plan = []
+    for r in chain:
+        for n, w in enumerate(live_workspaces(r)):
+            p = w.get("path")
+            if not p or not os.path.isdir(p):
+                continue
+            dirty, ignored = uncommitted(p, deadline)
+            ignored = _minus_regenerable(r, w, _minus_generated(w, ignored, deadline))
+            if dirty or any(" (unreadable" in rel for rel in ignored):
+                return ""
+            label = "%d-%s" % (n, _key_segment(os.path.basename(p.rstrip("/"))))
+            plan += [(r["key"], label, p, rel.rstrip("/")) for rel in ignored]
+    # IN-FLIGHT ACK FILES ARE NOT KEPT AT ALL (2026-10-04). They are the
+    # agent's receipts that it saw main move, and their durable copy is the
+    # ack ledger, so once the work is proved landed they are deleted, never
+    # moved. Everything else kept goes to <state>/kept/, which the scratch
+    # reaper empties after SCRATCH_KEPT_RETENTION_DAYS (§54).
+    acks = [x for x in plan if _is_ack(x[3])]
+    plan = [x for x in plan if not _is_ack(x[3])]
+    if not plan and not acks:
+        return ""
+    # A MOVE, NEVER A COPY: inside a gate's budget only a rename is bounded.
+    # A workspace on another volume than the registry keeps the old answer
+    # (the land waits, and pending() now says why).
+    _ensure_dirs()
+    try:
+        here = os.stat(state_dir()).st_dev
+        if any(os.stat(p).st_dev != here for _k, _l, p, _r in plan):
+            return ""
+    except OSError:
+        return ""
+    root = _p("kept", "%s-%d" % (_key_segment(rec["key"]), int(now())))
+    moved, dropped = [], []
+    # An entry that holds the ack directory (a `.claude/` the main checkout
+    # lacks) loses the acks first, so they are not kept inside it.
+    holders = [(p, _ACK_DIR) for _k, _l, p, rel in plan if _ACK_DIR.startswith(rel.rstrip("/") + "/")]
+    for p, rel in [(p, rel) for _k, _l, p, rel in acks] + holders:
+        src = os.path.join(p, rel)
+        if not os.path.lexists(src):
+            continue
+        try:
+            if os.path.isdir(src) and not os.path.islink(src):
+                shutil.rmtree(src)
+            else:
+                os.unlink(src)
+        except OSError as e:
+            raise SpecError("cannot land %s: the in-flight ack %s could not be deleted (%s)"
+                            % (rec["name"], src, e))
+        dropped.append(src)
+    for key, label, p, rel in plan:
+        where = label if key == rec["key"] else _key_segment(key) + "-" + label
+        src, dst = os.path.join(p, rel), os.path.join(root, where, rel)
+        if not os.path.lexists(src):
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        try:
+            shutil.move(src, dst)
+        except (OSError, shutil.Error) as e:
+            event("kept-ignored", key=rec["key"], kept=root, entries=moved[:50], failed=rel, why=str(e)[:200])
+            raise SpecError("cannot land %s: the ignored entry %s could not be kept in %s (%s); "
+                            "what was moved is there" % (rec["name"], os.path.join(p, rel), root, e))
+        moved.append(os.path.join(p, rel))
+    event("kept-ignored", key=rec["key"], kept=root if moved else "", entries=moved[:50], count=len(moved),
+          acks_deleted=len(dropped))
+    return root if moved else ""
+
+
+# Where scripts/inflight-ack.sh writes an agent's ack files, relative to its
+# workspace: <workspace>/.claude/inflight-acks/<first-12-of-sha>.<name>.ack
+_ACK_DIR = ".claude/inflight-acks"
+
+
+def _is_ack(rel):
+    rel = rel.rstrip("/")
+    return rel == _ACK_DIR or rel.startswith(_ACK_DIR + "/")
 
 
 def _not_landed_message(rec, missing):
@@ -5953,7 +6109,9 @@ def gate_stop(payload, entity):
         msg = "\n".join(notes)
         if items:
             msg = (msg + "\n" if msg else "") + "Pending finished work (waiting): " + \
-                ", ".join("%s [%s: %s]" % (i["name"], i["waiting"], i["waiting_on"]) for i in items)
+                ", ".join("%s [%s: %s]%s" % (i["name"], i["waiting"], i["waiting_on"],
+                                             " (%s)" % i["why"] if "did not land on its own" in i["why"] else "")
+                          for i in items)
         return True, msg
     last = str(payload.get("last_assistant_message") or "")
     if last and _turn_started_by_person(str(payload.get("transcript_path") or "")) \
@@ -6319,6 +6477,10 @@ def main(argv):
     x = sub.add_parser("land")
     x.add_argument("agent")
     x.add_argument("--ignored-not-needed", default="")
+    x = sub.add_parser("merge", help="merge a finished teammate's branches into the branch its work "
+                                     "integrates on, then land it: its workspaces and branches are deleted")
+    x.add_argument("agent")
+    x.add_argument("-m", "--message", default="")
     x = sub.add_parser("discard")
     x.add_argument("agent")
     x.add_argument("--reason", required=True)
@@ -6454,7 +6616,7 @@ def main(argv):
         me = a.session or current_session()
         if a.cmd == "status":
             return _print_status(me, entity)
-        if a.cmd == "land":
+        if a.cmd in ("land", "merge"):
             # Taken BEFORE the land: the record is read for the agent's type and
             # its transcript, and a land that ends in a deletion retry must not
             # cost the count. The transcript itself lives in the platform's
@@ -6463,7 +6625,15 @@ def main(argv):
             # Read BEFORE the land, which deletes the workspaces the sweep
             # attributes this agent's scratch by.
             sweep_scopes = land_sweep_scopes(a.agent, me)
-            res = land(a.agent, me, ignored_ok=a.ignored_not_needed) or {}
+            if a.cmd == "merge":
+                merged, res = merge_and_land(a.agent, me, a.message)
+                for repo, b in merged:
+                    print("merged: %s into the integration branch of %s" % (b, repo))
+                res = res or {}
+                if res.get("kept_ignored"):
+                    print("kept: ignored files it left are in %s" % res["kept_ignored"])
+            else:
+                res = land(a.agent, me, ignored_ok=a.ignored_not_needed) or {}
             if res.get("cleanup_pending"):
                 print("landed: %s — deletion of its workspaces and branches is NOT finished; it is retried" % a.agent)
             else:

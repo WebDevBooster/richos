@@ -3115,17 +3115,25 @@ class Finding14_WhatTheEngineMadeIsNotTheAgentsWork(Base):
         self.assertFalse(os.path.exists(path))
 
     def test_finding_14_anything_else_ignored_still_needs_the_waiver(self):
+        """By hand it still needs the waiver. The AUTOMATIC land (2026-10-04)
+        keeps it instead of waiting for one: the notes are moved to the kept
+        directory, never deleted, and the setup's own link is not kept."""
         aid, path = self._created_with_setup_link("zach-opus-gen2")
         os.makedirs(os.path.join(path, "build"))
         with open(os.path.join(path, "build", "notes.txt"), "w") as f:
             f.write("the only copy of the agent's notes\n")
         self.finish(aid)
-        self.assertEqual(self.names(), ["zach-opus-gen2"])
         with self.assertRaises(ws.SpecError) as e:
             ws.land("zach-opus-gen2", self.sid)
         self.assertIn("build/", str(e.exception))
         self.assertNotIn("cache-link", str(e.exception))
         self.assertTrue(os.path.isfile(os.path.join(path, "build", "notes.txt")))
+        self.assertEqual(self.names(), [])                              # the automatic land
+        kept = self.rec("zach-opus-gen2")["disposition"]["kept_ignored"]
+        found = [os.path.relpath(os.path.join(r, f), kept) for r, _d, fs in os.walk(kept) for f in fs]
+        self.assertEqual(len(found), 1)
+        self.assertTrue(found[0].endswith(os.path.join("build", "notes.txt")), found)
+        self.assertFalse(os.path.exists(path))
 
     def test_finding_14_a_setup_product_the_agent_changed_is_its_own(self):
         aid, path = self._created_with_setup_link("zach-opus-gen3")
@@ -3133,10 +3141,15 @@ class Finding14_WhatTheEngineMadeIsNotTheAgentsWork(Base):
         os.unlink(link)
         os.symlink(os.path.join(self.env.root, "somewhere-else"), link)
         self.finish(aid)
-        self.assertEqual(self.names(), ["zach-opus-gen3"])
         with self.assertRaises(ws.SpecError) as e:
             ws.land("zach-opus-gen3", self.sid)
         self.assertIn("cache-link", str(e.exception))
+        # The automatic land (2026-10-04) keeps the changed link, as a link.
+        self.assertEqual(self.names(), [])
+        kept = self.rec("zach-opus-gen3")["disposition"]["kept_ignored"]
+        links = [os.path.join(r, n) for r, ds, fs in os.walk(kept) for n in fs + ds
+                 if os.path.islink(os.path.join(r, n))]
+        self.assertEqual([os.readlink(p) for p in links], [os.path.join(self.env.root, "somewhere-else")])
 
 
 class Finding15_TheBudgetReachesTheWork(Base):
@@ -3632,6 +3645,129 @@ class SeverityThreeGroupJ(Point09_NeverWritesAgain):
         with open(ws._p("events.jsonl")) as f:
             evs = [json.loads(l) for l in f if '"processes-stopped"' in l]
         self.assertTrue(evs[-1].get("starts", {}).get(str(pr.pid)), evs[-1])
+
+
+class AutoLand_MergedAndEndedLandsOnItsOwn(Base):
+    """2026-10-04: four teammates' workspaces sat 1-2 days after their work
+    was merged and their agents had ended. The automatic land refused them on
+    ignored files the main checkout lacked (in-flight ack files, build output),
+    pending() swallowed the refusal, and a stale "started" wait note kept them
+    off every gate's list. A merged, ended workspace now lands on its own,
+    whatever wait note it carries: the ignored files are KEPT, never lost."""
+
+    def _finished_with_ignored_file(self, name):
+        cc = self.make_cc(name)
+        aid, npath = self.spawn(name, cc=cc)
+        self.commit(cc)
+        os.makedirs(os.path.join(cc, "build"))
+        with open(os.path.join(cc, "build", "inflight.ack"), "w") as f:
+            f.write("ack of main at abc123\n")
+        self.finish(aid)
+        return cc, npath
+
+    def test_a_merged_ended_workspace_with_a_stale_wait_note_lands_on_its_own(self):
+        cc, npath = self._finished_with_ignored_file("zach-opus-al")
+        ws.wait("zach-opus-al", "started", "merging now (land chain 5, one merge)", "", self.sid)
+        self.merge(self.other, "cc/zach-opus-al")
+        ok, msg = ws.gate_stop({"session_id": self.sid}, self.entity)     # the lead's turn ends
+        self.assertTrue(ok, msg)
+        self.assertFalse(os.path.exists(cc), "the merged, ended cc/ workspace is still there")
+        self.assertFalse(os.path.exists(npath), "its native workspace is still there")
+        self.assertNotIn("cc/zach-opus-al", branches(self.other))
+        d = self.rec("zach-opus-al")["disposition"]
+        self.assertEqual((d["kind"], d["auto"]), ("landed", True))
+        kept = [os.path.join(r, f) for r, _d, fs in os.walk(d["kept_ignored"]) for f in fs]
+        self.assertEqual([open(p).read() for p in kept], ["ack of main at abc123\n"])
+
+    def test_a_merge_of_a_finished_teammate_lands_it(self):
+        """`workspaces.sh merge <name>` is the land command: after the merge of
+        a finished teammate's branch its workspaces and branches are gone."""
+        cc, npath = self._finished_with_ignored_file("zach-opus-mg")
+        tip = run("git", "-C", self.other, "rev-parse", "cc/zach-opus-mg").stdout.strip()
+        merged, res = ws.merge_and_land("zach-opus-mg", self.sid, "Merge cc/zach-opus-mg: the work")
+        self.assertEqual(merged, [(self.other, "cc/zach-opus-mg")])
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+        self.assertIn("Merge cc/zach-opus-mg: the work",
+                      run("git", "-C", self.other, "log", "-1", "--format=%s").stdout)
+        self.assertFalse(os.path.exists(cc) or os.path.exists(npath))
+        self.assertNotIn("cc/zach-opus-mg", branches(self.other))
+        self.assertEqual(self.names(), [])
+
+    def test_a_running_teammate_is_not_merged(self):
+        cc = self.make_cc("zach-opus-mr")
+        self.spawn("zach-opus-mr", cc=cc)
+        self.commit(cc)
+        head = run("git", "-C", self.other, "rev-parse", "HEAD").stdout.strip()
+        with self.assertRaises(ws.SpecError):
+            ws.merge_and_land("zach-opus-mr", self.sid)
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "HEAD").stdout.strip(), head)
+        self.assertTrue(os.path.isdir(cc))
+
+    def test_uncommitted_work_still_holds_the_land_and_says_why(self):
+        cc, _npath = self._finished_with_ignored_file("zach-opus-ud")
+        with open(os.path.join(cc, "left.txt"), "w") as f:
+            f.write("uncommitted\n")
+        self.merge(self.other, "cc/zach-opus-ud")
+        item = [i for i in ws.pending(self.sid, self.entity) if i["name"] == "zach-opus-ud"]
+        self.assertEqual(len(item), 1)
+        self.assertIn("did not land on its own", item[0]["why"])
+        self.assertIn("uncommitted", item[0]["why"])
+        self.assertTrue(os.path.isfile(os.path.join(cc, "build", "inflight.ack")))  # nothing moved
+
+    def test_an_ack_is_never_kept_and_the_reaper_deletes_a_kept_copy_after_7_days(self):
+        """§54 (2026-10-04): what the automatic land keeps goes away by itself.
+        An in-flight ack file (scripts/inflight-ack.sh writes it under
+        .claude/inflight-acks/) is not kept at all; anything else kept is
+        deleted by the scratch reaper once older than SCRATCH_KEPT_RETENTION_DAYS."""
+        with open(os.path.join(self.other, ".gitignore"), "a") as f:
+            f.write(".claude/\n")
+        run("git", "-C", self.other, "commit", "-q", "-am", "ignore .claude/")
+        os.makedirs(os.path.join(self.other, ".claude"))          # every real main checkout has one
+        cc = self.make_cc("zach-opus-kr")
+        aid, _npath = self.spawn("zach-opus-kr", cc=cc)
+        self.commit(cc)
+        os.makedirs(os.path.join(cc, ".claude", "inflight-acks"))
+        with open(os.path.join(cc, ".claude", "inflight-acks", "abc123abc123.zach-opus-kr.ack"), "w") as f:
+            f.write("ack of main at abc123\n")
+        os.makedirs(os.path.join(cc, "build"))
+        with open(os.path.join(cc, "build", "notes.txt"), "w") as f:
+            f.write("the only copy of the agent's notes\n")
+        self.finish(aid)
+        _merged, res = ws.merge_and_land("zach-opus-kr", self.sid)
+        self.assertTrue(res["landed"])
+        kept = res["kept_ignored"]
+        found = sorted(os.path.relpath(os.path.join(r, f), kept) for r, _d, fs in os.walk(kept) for f in fs)
+        self.assertEqual(len(found), 1, found)                    # the ack is not kept
+        self.assertTrue(found[0].endswith(os.path.join("build", "notes.txt")), found)
+        self.assertFalse(os.path.exists(cc))
+
+        spec = importlib.util.spec_from_file_location(
+            "scratch_reaper", os.path.join(HERE, "..", "..", "scripts", "lib", "scratch-reaper.py"))
+        reaper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reaper)
+        kept_dir = os.path.realpath(ws._p("kept"))
+
+        def sweep():
+            r = object.__new__(reaper.Reaper)
+            r.cfg = {"kept_dir": kept_dir, "kept_retention_days": 7}
+            r.entries, r.roots, r.scope, r.unattributed, r.now = [], [], None, 0, time.time()
+            r.scan_kept(reaper.Walls([kept_dir]))
+            # Only what this test planned: no test instances, devices, Docker or failure file.
+            r.collect_test_instances = lambda *_a: []
+            r.collect_test_devices = lambda *_a: []
+            r.prune_docker = lambda: []
+            r._record_failures = lambda *_a: None
+            r.apply(os.path.join(self.env.root, "reaper.log"))
+            return [(e.path, e.action) for e in r.entries]
+
+        real = os.path.realpath(kept)
+        self.assertEqual(sweep(), [(real, reaper.KEEP)])          # 0 days old: kept
+        self.assertTrue(os.path.isdir(kept))
+        old = time.time() - 8 * 86400
+        os.utime(kept, (old, old))
+        self.assertEqual(sweep(), [(real, reaper.DELETE)])        # 8 days old: deleted
+        self.assertFalse(os.path.exists(kept))
 
 
 if __name__ == "__main__":
