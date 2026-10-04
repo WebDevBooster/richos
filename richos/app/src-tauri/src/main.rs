@@ -2938,10 +2938,26 @@ fn main() {
             let quota_app = app.handle().clone();
             std::thread::spawn(move || {
                 let mut wait = std::time::Duration::ZERO;
+                let mut counted: Option<std::time::Instant> = None;
                 loop {
                     let Some(quota) = quota_weak.upgrade() else { break };
                     let force = quota.wait_for_refresh(wait);
                     if quota.is_shutdown() { break; }
+                    // **How many agents are working**, for round 16's "15 agents reading at
+                    // once" and "3 agents are holding their place": the provider's own launch
+                    // rows with no end observed, in every open lease session (the drill chip's
+                    // "N working", summed). Counted here, every 5 seconds, so a turn boundary
+                    // that says a line never takes the work host's locks to count.
+                    if counted.is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(5)) {
+                        if let Some(state) = quota_app.try_state::<AppState>() {
+                            let mut sessions: Vec<String> = state.control.lease_session().into_iter().chain(state.work.lease_sessions()).collect();
+                            sessions.sort(); sessions.dedup();
+                            let engine_state = state.data_dir.join("engine-state");
+                            quota.set_agents_working(sessions.iter()
+                                .map(|session| richos_core::app_workers::status(&engine_state, Some(session)).active).sum());
+                            counted = Some(std::time::Instant::now());
+                        }
+                    }
                     let bin = quota_bin.lock().unwrap().clone();
                     quota.run_approved_weekly_reset(&bin);
                     quota.refresh(&bin, force);
@@ -5260,6 +5276,8 @@ fn claude_quota_activity(state: State<AppState>, thread_id: Option<String>) -> R
         activity.resumes_at = Some(if weekly { resets_at }
             else { resets_at.saturating_sub(20 * 60_000).saturating_add(1) });
     }
+    // Round 16's working row names the account in use once there are two or more.
+    activity.account = quota.accounts.iter().find(|a| a.in_use).filter(|_| quota.accounts.len() > 1).map(|a| a.label.clone());
     Ok(activity)
 }
 
@@ -8678,6 +8696,8 @@ struct LaunchStateView {
 /// JavaScript's `getTimezoneOffset()`, so US Pacific daylight time is `-420`.
 #[tauri::command(async)]
 fn launch_state(state: State<AppState>, utc_offset_minutes: i32) -> LaunchStateView {
+    // The same offset lets Rich's quota lines say a clock time (round 16: "until 2:17 AM").
+    state.quota.set_utc_offset(utc_offset_minutes);
     let launch = state.launch.lock().unwrap();
     LaunchStateView {
         kind: launch.run_kind().map(|k| k.as_str().to_string()),
