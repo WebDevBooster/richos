@@ -146,6 +146,7 @@ run_case "still blocks: cp INTO protected abs"   2 "$(json_cmd "cp /tmp/a $ROOT/
 run_case "still blocks: cp -t protected"         2 "$(json_cmd "cp -t $ROOT/$FIRST_PROTECTED /tmp/a" "$ROOT")"
 run_case "still blocks: rsync INTO protected"    2 "$(json_cmd "rsync -a /tmp/scratch/ $ROOT/$FIRST_PROTECTED/" "$ROOT")"
 run_case "P3-33: rsync --remove-source-files OUT of protected is blocked (deletes source)" 2 "$(json_cmd "rsync -a --remove-source-files $ROOT/$FIRST_PROTECTED/ /tmp/scratch/" "$ROOT")"
+run_case "P3-33 v3: a QUOTED --remove-source-files is the same flag and is blocked" 2 "$(json_cmd "rsync '--remove-source-files' $ROOT/$FIRST_PROTECTED/a /tmp/scratch/" "$ROOT")"
 run_case "still blocks: mv OUT of protected (removes source)" 2 "$(json_cmd "mv $ROOT/$FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
 
 # --- ALLOWED: scratchpad + non-source writes in main ---

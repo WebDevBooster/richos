@@ -246,7 +246,9 @@ def write_targets(verb, toks):
     if verb not in ('cp', 'rsync'):
         return toks
     # P3-33: rsync --remove-source-files / --remove-sent-files DELETES its sources.
-    if verb == 'rsync' and any(t in ('--remove-source-files', '--remove-sent-files') for t in toks):
+    # Quoting the flag does not change it ('--remove-source-files' is the same
+    # argument to rsync), so compare it with its quotes removed (v3 re-check).
+    if verb == 'rsync' and any(t.strip('\'\"') in ('--remove-source-files', '--remove-sent-files') for t in toks):
         return toks
     dest = []
     plain = []
