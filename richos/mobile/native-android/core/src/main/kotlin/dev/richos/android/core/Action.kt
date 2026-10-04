@@ -17,6 +17,12 @@ sealed interface Action {
     data object PlayKept : Action
     @Serializable @SerialName("playback-ended")
     data class PlaybackEnded(val id: String) : Action
+    /** "Hear it" under Rich's reply [id]: its audio from the Mac (`GET /api/audio`), then played. */
+    @Serializable @SerialName("reply-play")
+    data class HearReply(val id: String) : Action
+    /** "Stop" on the reply [id] being heard. */
+    @Serializable @SerialName("reply-stop")
+    data class StopReply(val id: String) : Action
     @Serializable @SerialName("select-thread")
     data class SelectThread(val threadId: String) : Action
 

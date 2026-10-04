@@ -106,6 +106,7 @@ class RichCore private constructor(
         Action.PlayKept -> mutex.withLock {
             val kept = session.keptRecordings.lastOrNull()
             if (!visible || voiceSession != null || kept == null) return@withLock emit()
+            endReply()
             if (playingRecordingId == kept.id) {
                 ports.recorder.stopPlayback()
                 playingRecordingId = null
@@ -119,6 +120,15 @@ class RichCore private constructor(
         }
         is Action.PlaybackEnded -> mutex.withLock {
             if (playingRecordingId == action.id) playingRecordingId = null
+            if (reply?.id == action.id) endReply()
+            emit()
+        }
+        is Action.HearReply -> hearReply(action.id)
+        is Action.StopReply -> mutex.withLock {
+            if (reply?.id == action.id) {
+                endReply()
+                ports.recorder.stopPlayback()
+            }
             emit()
         }
         is Action.Pair -> pair(action.link)
@@ -314,6 +324,7 @@ class RichCore private constructor(
         ports.recorder.stopPlayback()
         return mutex.withLock {
         playingRecordingId = null
+        endReply()
         // Lifecycle shutdown must take effect even when disk is full. An online flag is never a
         // reason to keep an outbox timer or network drain alive behind a hidden interface.
         session = session.copy(online = false)
@@ -673,6 +684,72 @@ class RichCore private constructor(
             }
         }
         return null
+    }
+
+    // --- "Hear it": Rich's reply read aloud by the Mac (round 12.1 `richAudioHTML`) ---------------
+
+    /** The reply being heard, preparing or playing; null when none. */
+    private var reply: ReplyPlayback? = null
+
+    /** Counts presses and stops, so audio that arrives for a press no longer wanted never plays. */
+    private var replyAsk = 0
+
+    private fun endReply() {
+        reply = null
+        replyAsk++
+    }
+
+    /**
+     * "Hear it" (`app.js` `hearIt`): whatever plays stops, the reply shows "Preparing the audio…", the
+     * Mac's audio comes from ONE signed `GET /api/audio/<id>?thread_id=<thread>` (never retried, so
+     * nothing runs that the person did not ask for), and it plays with Stop and the waveform. A
+     * refusal, no answer, bytes over the Mac's ceiling or a player that cannot start puts "Hear it"
+     * back. A Stop, another press, a recording or leaving the screen meanwhile wins: nothing plays.
+     */
+    private suspend fun hearReply(id: String): AppState {
+        val ask = mutex.withLock {
+            val p = session.pairing
+            val row = session.selectedThreadId?.let { session.cache[it] }?.lastOrNull { it.id == id }
+            if (!visible || voiceSession != null || row == null || !session.paired || !ReplyAudioRule.hearable(row, session.capabilities) ||
+                p.apiBase == null || p.deviceId == null || p.challenge == null || reply?.id == id
+            ) {
+                return@withLock null
+            }
+            ports.recorder.stopPlayback()
+            playingRecordingId = null
+            endReply()
+            reply = ReplyPlayback(id, playing = false)
+            emit()
+            Triple(replyAsk, p, row.threadId)
+        } ?: return flow.value
+        val (mine, p, thread) = ask
+        var challenge: String? = null
+        val audio = try {
+            withTimeoutOrNull(ReplyAudioRule.REQUEST_MS) {
+                val signed = api.signed(p.apiBase!!, p.deviceId!!, p.challenge!!, "GET", ReplyAudioRule.path(id, thread), null)
+                challenge = signed.challenge
+                signed.response.body.takeIf { it.isNotEmpty() && it.size <= ReplyAudioRule.MAX_BYTES }
+            }
+        } catch (failure: TransportFailure) {
+            challenge = failure.challenge
+            null
+        }
+        return mutex.withLock {
+            if (replyAsk == mine) {
+                val started = audio != null && visible && voiceSession == null &&
+                    try { ports.recorder.playReply(id, audio) } catch (failure: CoreError) { false }
+                if (started && visible) {
+                    reply = ReplyPlayback(id, playing = true)
+                } else {
+                    if (started) ports.recorder.stopPlayback()
+                    endReply()
+                }
+            }
+            // The newest challenge the Mac gave, kept like every signed answer's (after the outcome,
+            // so a storage failure here can never leave "Preparing the audio…" on screen).
+            val fresh = challenge?.takeIf { it != session.pairing.challenge && session.pairing.apiBase == p.apiBase }
+            if (fresh != null) commit(session.copy(pairing = session.pairing.copy(challenge = fresh))) else emit()
+        }
     }
 
     // --- photos and files (CEO §75; Echo 22e59ed8) ------------------------------------------------
@@ -1293,6 +1370,7 @@ class RichCore private constructor(
                 is VoiceEffect.StartRecording -> try {
                     ports.recorder.stopPlayback()
                     playingRecordingId = null
+                    endReply()
                     val journal = session.copy(activeRecording = KeptRecording(effect.id, 0, reason = KeptReason.INTERRUPTED, recordedAt = ports.clock.now()))
                     ports.session.write(journal)
                     session = journal
@@ -1352,6 +1430,7 @@ class RichCore private constructor(
         AppState.of(session, (outbox.all() + session.pendingEnqueues).distinctBy { it.clientId }, outbox.dueInMs(), lastSend, Connections.view(effectiveConnection(), ports.clock.now())).copy(
             voice = voiceSession,
             playingRecordingId = playingRecordingId,
+            replyPlayback = reply,
             voiceElapsedMs = voiceSession?.takeIf { it.recordingStartedAtMs != null }?.elapsedMs,
             microphone = session.microphone,
             microphonePrompt = microphonePrompt,
@@ -1475,6 +1554,8 @@ class RichCore private constructor(
         fun actionName(action: Action): String = when (action) {
             Action.PlayKept -> "play-kept"
             is Action.PlaybackEnded -> "playback-ended"
+            is Action.HearReply -> "reply-play"
+            is Action.StopReply -> "reply-stop"
             is Action.SelectThread -> "select-thread"
             is Action.RememberReading -> "remember-reading"
             is Action.Compose -> "compose"

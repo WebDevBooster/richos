@@ -52,6 +52,9 @@ interface Transport {
  */
 interface Recorder {
     suspend fun play(id: String): Boolean = false
+
+    /** Plays Rich's reply [id] from the Mac's audio bytes; false when it cannot be played. One player: [stopPlayback] ends it. */
+    suspend fun playReply(id: String, audio: ByteArray): Boolean = false
     suspend fun stopPlayback() {}
     suspend fun start(id: String) {}
 

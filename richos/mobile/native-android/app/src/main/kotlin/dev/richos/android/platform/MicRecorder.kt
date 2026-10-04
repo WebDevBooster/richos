@@ -52,6 +52,7 @@ class MicRecorder(
 ) : Recorder {
     private val playback = KeptAudioPlayer(context, dir, onPlaybackEnded)
     override suspend fun play(id: String) = playback.play(id)
+    override suspend fun playReply(id: String, audio: ByteArray) = playback.playReply(id, audio)
     override suspend fun stopPlayback() = playback.stop()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null

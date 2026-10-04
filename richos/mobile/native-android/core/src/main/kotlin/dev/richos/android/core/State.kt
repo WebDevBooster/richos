@@ -252,6 +252,9 @@ data class AppState(
     val attachNotice: AttachNotice? = null,
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
     val playingRecordingId: String? = null,
+    /** Rich's reply being heard ("Hear it"): preparing, then playing; null when none. */
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val replyPlayback: ReplyPlayback? = null,
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
     val readingAnchor: ReadingAnchor? = null,
     /** The selected conversation's accepted messages not yet echoed by the Mac ([Session.sent]). */

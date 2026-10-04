@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.MediaDataSource
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
@@ -16,7 +17,10 @@ import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** Foreground-only playback of a kept local recording. No service, wake lock or polling. */
+/**
+ * Foreground-only playback of a kept local recording, or of Rich's reply from the Mac's audio bytes
+ * ("Hear it"). One player for both. No service, wake lock or polling.
+ */
 class KeptAudioPlayer(context: Context, private val directory: File, private val ended: (String) -> Unit) {
     private val manager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val main = Handler(Looper.getMainLooper())
@@ -30,6 +34,16 @@ class KeptAudioPlayer(context: Context, private val directory: File, private val
         if (id.isEmpty() || id.contains('/') || id.contains('\\') || id == "." || id == "..") throw CoreError("The recording could not be opened.")
         val file = File(directory, id)
         if (!file.isFile) throw CoreError("The saved recording could not be found.")
+        start(id) { it.setDataSource(file.absolutePath) }
+    }
+
+    /** Rich's reply [id], from the Mac's audio bytes held in memory (never written to disk). */
+    suspend fun playReply(id: String, audio: ByteArray): Boolean = withContext(Dispatchers.Main) {
+        stopNow()
+        start(id) { it.setDataSource(BytesSource(audio)) }
+    }
+
+    private suspend fun start(id: String, source: (MediaPlayer) -> Unit): Boolean {
         val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(attributes).setOnAudioFocusChangeListener({ change ->
@@ -42,9 +56,9 @@ class KeptAudioPlayer(context: Context, private val directory: File, private val
         current = id
         val media = MediaPlayer()
         player = media
-        try {
+        return try {
             media.setAudioAttributes(attributes)
-            media.setDataSource(file.absolutePath)
+            source(media)
             val ready = withTimeoutOrNull(3_000) {
                 suspendCancellableCoroutine<Boolean> { continuation ->
                     stoppedWhilePreparing = { if (continuation.isActive) continuation.resume(false) }
@@ -90,4 +104,18 @@ class KeptAudioPlayer(context: Context, private val directory: File, private val
         focus = null
         if (notify && id != null) ended(id)
     }
+}
+
+/** The Mac's audio, in memory, as the player's source. */
+private class BytesSource(private val bytes: ByteArray) : MediaDataSource() {
+    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+        if (position >= bytes.size) return -1
+        val n = minOf(size.toLong(), bytes.size - position).toInt()
+        System.arraycopy(bytes, position.toInt(), buffer, offset, n)
+        return n
+    }
+
+    override fun getSize(): Long = bytes.size.toLong()
+
+    override fun close() = Unit
 }
