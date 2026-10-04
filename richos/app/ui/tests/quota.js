@@ -138,7 +138,9 @@ async function main() {
     await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForSelector(".quota-window--stale");
     assert(await page.locator("#quota-refresh").isDisabled());
-    assert((await page.locator("#quota-freshness").innerText()).includes("Stale"));
+    // Round 16: "Last reading 47 min ago — stale", in gold.
+    assert(/^Last reading .+ ago — stale/.test(await page.locator("#quota-freshness").innerText()));
+    assert(await page.locator("#quota-freshness.is-stale").count());
     await page.close();
   });
   await run.check("inline threshold validation, Enter saves and Escape keeps without closing", async () => {
@@ -351,7 +353,11 @@ async function main() {
     ];
     for (const resets of variants) {
       const page = await open("dark", { ...quota, resets });
-      await enableTechnical(page); await page.click("#set-quota-open"); await page.waitForSelector("#quota-reset-offers p");
+      await enableTechnical(page); await page.click("#set-quota-open"); await page.waitForSelector(".quota-window");
+      // With nothing to approve, revoke or check, round 16 draws nothing below the ruler key.
+      const offered = resets.offers.some(o => o.expiresAt > now) || resets.lastAttempt;
+      if (!offered) { assert(await page.locator("#quota-reset-offers").isHidden(), "nothing to act on: no reset section"); await page.close(); continue; }
+      await page.waitForSelector("#quota-reset-offers p");
       assertEqual(await page.locator("#quota-reset-prepare-launch").count(), 0);
       assertEqual(await page.evaluate(() => window.__richosResetCalls), []);
       if (resets.lastAttempt?.outcome === "uncertain") {
@@ -454,7 +460,7 @@ async function main() {
     assertEqual(await page.locator(".quota-lane-label").allTextContents(), ["Work", "Home"]);
     assert((await page.locator('.quota-lane[data-id="1"]').innerText()).includes("usable again"));
     assert((await page.locator("#quota-hold-status").innerText()).startsWith("In use: Work, since "));
-    assert(/Rich switched from Home \d+m ago at 94% of its five-hour window\./.test(await page.locator("#quota-hold-detail").innerText()));
+    assert(/Rich switched from Home \d+ min ago at 94% of its five-hour window\./.test(await page.locator("#quota-hold-detail").innerText()));
     await page.close();
     const gone = twoAccounts({ heldUntil: now + 3600000 });
     gone.accounts = gone.accounts.map(a => ({ ...a, exhaustedUntil: now + (a.id === "1" ? 3600000 : 7200000) }));
@@ -464,6 +470,48 @@ async function main() {
     assertEqual(await page.locator("#quota-hold-status").innerText(), "Every account is used up.");
     assert((await page.locator("#quota-hold-detail").innerText()).includes("when Home’s window resets — the soonest."));
     assertEqual(await page.locator(".quota-lane-tag.is-gone").count(), 1, "the account not in use reads used up");
+    await page.close();
+  });
+  // ---- Round 16, the eleven differences echo-opus-panel16b closed ------------------------
+  await run.check("round 16: Refresh has its icon, times read as round 16 writes them, the ruler key is round 16's, nothing below it", async () => {
+    const page = await open("dark", twoAccounts(), 100, null, true, { viewport: { width: 1400, height: 835 } });
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-lane");
+    assertEqual(await page.locator("#quota-refresh svg").count(), 1, "Refresh carries the circular-arrow icon");
+    assertEqual((await page.locator("#quota-refresh").innerText()).trim(), "Refresh");
+    // "Resets in <b>2 h</b> · at 3:40 PM": the span bold, then the clock.
+    const hero = page.locator(".quota-hero .quota-reset");
+    assert(/^Resets in (\d+ h( \d+ min)?|\d+ min) · at .+(AM|PM)$/.test((await hero.innerText()).trim()), await hero.innerText());
+    assertEqual(await hero.locator("b").count(), 1, "the span is bold");
+    assert(/^resets in \d+ d( \d+ h)?$/.test((await page.locator(".quota-weekly .quota-reset").first().innerText()).trim()));
+    assertEqual(await page.locator(".quota-hero .quota-ends b").count(), 2, "began and resets times are bold");
+    assertEqual((await page.locator(".quota-legend").innerText()).trim(),
+      "The gold bar is what you have used; the tick is how far the clock has run. Bar past the tick means you are spending faster than the window is passing.");
+    assertEqual(await page.locator(".quota-legend b").innerText(), "Bar past the tick means you are spending faster than the window is passing.");
+    assert(await page.locator("#quota-reset-offers").isHidden(), "no reset offer: no section, no Open Claude Usage");
+    assert(await page.locator("#quota-account-feedback").isHidden(), "no feedback line in a steady state");
+    // Item 7: the two-account sheet fits the test VM's 1400 × 835 window without a scroll.
+    assert(await page.evaluate(() => { const p = document.querySelector(".quota-body"); return p.scrollHeight <= p.clientHeight + 1; }), "two accounts fit 1400 × 835");
+    await page.close();
+  });
+  await run.check("round 16: the working row names the account in use; Add and Remove say it in passing", async () => {
+    const page = await open("dark", twoAccounts(), 100, { held: [], released: [] }, true);
+    await page.click("#set-btn");
+    // The preview's worker status has one agent active (mock.js get_worker_status).
+    await page.waitForFunction(() => !document.getElementById("quota-work-status").hidden);
+    assertEqual(await page.locator("#quota-work-status").innerText(), "1 agent working on Home");
+    await page.click("#set-btn"); await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-lane");
+    await page.click('.quota-lane[data-id="2"] .quota-lane-remove');
+    // The passing line's 3.6 s is run on a fake clock, so the verdict never waits on the host.
+    await page.clock.install();
+    await page.click("#quota-remove-yes");
+    await page.clock.runFor(1);
+    assert((await page.locator("#quota-account-feedback").textContent()).includes("removed from this Mac"), "Remove says what it did");
+    await page.clock.runFor(3499);
+    assert((await page.locator("#quota-account-feedback").textContent()).includes("removed from this Mac"), "still said before 3.6 s");
+    await page.clock.runFor(200);
+    assertEqual(await page.locator("#quota-account-feedback").textContent(), "", "said in passing, then gone");
     await page.close();
   });
   await run.check("no renderer errors", async () => assertEqual(errors, []));

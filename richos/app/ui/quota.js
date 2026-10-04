@@ -20,7 +20,7 @@
     <div class="quota-body"><div class="quota-windows-col">
       <div class="quota-toolbar"><span id="quota-freshness">Loading quota…</span>
         <div class="quota-toolbar-actions"><button id="quota-account-start" class="quota-btn quota-btn-quiet" type="button">+ Add account</button>
-          <button id="quota-refresh" class="quota-btn" type="button">Refresh</button></div></div>
+          <button id="quota-refresh" class="quota-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg><span id="quota-refresh-label">Refresh</span></button></div></div>
       <p id="quota-message" class="quota-message" role="status" hidden></p>
       <div id="quota-lanes" class="quota-lanes" role="list" aria-label="Claude accounts" hidden></div>
       <div id="quota-account-new" class="quota-addform" role="group" aria-labelledby="quota-addform-title" hidden>
@@ -36,8 +36,8 @@
       <p id="quota-account-feedback" class="quota-account-feedback" role="status" aria-live="polite"></p>
       <div id="quota-windows" aria-label="Claude Code quota windows"></div>
       <div id="quota-empty" hidden><h3>No reading yet.</h3><p>Claude Code has not reported an allowance. There is no usage figure to show yet.</p></div>
-      <p class="quota-legend">Gold is what you have <b>used</b>. The tick is where the clock is <b>now</b>. Bar past the tick means you are spending faster than the window is passing.</p>
-      <section id="quota-reset-offers" class="quota-reset-offers" aria-label="Weekly quota resets"><button id="quota-usage-open" class="quota-btn" type="button" title="claude.ai/new#settings/usage">Open Claude Usage</button></section>
+      <p class="quota-legend">The gold bar is what you have used; the tick is how far the clock has run. <b>Bar past the tick means you are spending faster than the window is passing.</b></p>
+      <section id="quota-reset-offers" class="quota-reset-offers" aria-label="Weekly quota resets" hidden><button id="quota-usage-open" class="quota-btn" type="button" title="claude.ai/new#settings/usage">Open Claude Usage</button></section>
       <p id="quota-reset-feedback" role="status" aria-live="polite"></p>
     </div><form id="quota-policy" class="quota-policy" novalidate>
       <h3 id="quota-policy-title">Automatic pause</h3>
@@ -68,9 +68,11 @@
     </form></div></section>`;
   document.body.appendChild(sheet);
   const field = id => sheet.querySelector("#" + id);
-  // Open Claude Usage is the app's own control (round 16 has none): it lives in the weekly
-  // reset section it serves, at the end of its line, so the reading line carries exactly
-  // round 16's "+ Add account" and Refresh and the sheet keeps round 14's height.
+  // Open Claude Usage is the app's own control (round 16 has none). It is drawn only inside the
+  // weekly-reset section, and that section only when there is a reset offer, an approval or a
+  // reset attempt to show (`renderResets`), none of which round 16 draws: an uncertain reset
+  // blocks automatic retry and tells the user to check Claude's Usage page, and this is the way
+  // there. In every state round 16 draws, neither the section nor the button is on the sheet.
   const usageOpen = field("quota-usage-open");
   usageOpen.addEventListener("click", async () => {
     try { await bridge.invoke("open_external", { target: "claude.ai/new#settings/usage" }); }
@@ -79,9 +81,16 @@
   let view = null, activity = null, busy = false, saving = false, dirty = false, generation = 0;
   let resetDraft = null, resetSaving = false, resetPaint = "";
   let timer = null, lastPoll = 0, lastActivity = 0, activityBusy = false;
+  // A span as round 16 writes one (quota.html fmtDur): "under a minute", "47 min",
+  // "3 h 22 min", "4 d 2 h", to the nearest minute.
   const duration = ms => {
-    const m = Math.max(1, Math.ceil(ms / 60000));
-    return m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor(m % 1440 / 60)}h` : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+    const m = Math.round(Math.max(0, ms) / 60000);
+    if (m < 1) return "under a minute";
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60), r = m % 60;
+    if (h < 24) return r ? `${h} h ${r} min` : `${h} h`;
+    const d = Math.floor(h / 24), rh = h % 24;
+    return rh ? `${d} d ${rh} h` : `${d} d`;
   };
   // Provider readings can differ by a second at a minute boundary. Round only
   // the displayed date; countdowns, window progress and quota policy keep the exact timestamp.
@@ -166,8 +175,11 @@
     }
     chart.appendChild(bar);
     if (window.resetsAt && window.durationMs > 0) {
-      const ends = node("div", "quota-ends");
-      ends.append(node("span", "", "began " + stamp(window.resetsAt - window.durationMs, !hero)), node("span", "", "resets " + stamp(window.resetsAt, !hero)));
+      // Round 16: "began <b>9:57 PM</b>" and "resets <b>Mon 2:57 AM</b>", a weekday on any
+      // day but today.
+      const ends = node("div", "quota-ends"), ended = window.resetsAt <= now;
+      const end = (word, t) => { const span = node("span", "", word + " "); span.appendChild(node("b", "", when(t))); return span; };
+      ends.append(end("began", window.resetsAt - window.durationMs), end(ended ? "ended" : "resets", window.resetsAt));
       chart.appendChild(ends);
     }
     return chart;
@@ -211,8 +223,14 @@
         if (at !== 99) sw.appendChild(node("span", "quota-was", " · was 99%"));
         heading.appendChild(sw);
       }
-      const reset = window.resetsAt <= Date.now() && window.resetsAt ? "Window ended · awaiting refresh" : window.resetsAt ? `Resets in ${duration(window.resetsAt - Date.now())}${primary ? " · " + clock(window.resetsAt) : ""}` : "Reset time unavailable";
-      heading.appendChild(node("div", "quota-reset", reset));
+      // Round 16: the hero "Resets in <b>3 h 22 min</b> · at Mon 2:57 AM", a row "resets in
+      // <b>4 d 2 h</b>", and an ended window "This window <b>ended 4 min ago</b> — the new one
+      // has no reading yet".
+      const reset = node("div", "quota-reset"), left = window.resetsAt - Date.now();
+      if (!window.resetsAt) reset.textContent = "Reset time unavailable";
+      else if (left <= 0) reset.innerHTML = `${primary ? "This window" : "Window"} <b>ended ${esc(duration(-left))} ago</b> — the new one has no reading yet`;
+      else reset.innerHTML = `${primary ? "Resets" : "resets"} in <b>${esc(duration(left))}</b>${primary ? ` · at ${esc(when(window.resetsAt))}` : ""}`;
+      heading.appendChild(reset);
       row.append(heading, ruler(window, primary, old, line)); list.appendChild(row);
     }
     if (windows.length && !sel) {
@@ -221,7 +239,8 @@
       if (!windows.some(w => w.id !== "five_hour" && w.id !== "seven_day")) list.appendChild(node("p", "quota-absent", "Model-specific weekly limits not reported for this account."));
     }
     field("quota-empty").hidden = !!windows.length;
-    sheet.querySelector(".quota-legend").hidden = !windows.length;
+    // Round 16 hides the ruler key while the Add account form is open.
+    sheet.querySelector(".quota-legend").hidden = !windows.length || !field("quota-account-new").hidden;
   }
 
   // ---- the lanes ------------------------------------------------------------------------
@@ -449,10 +468,13 @@
     const container = field("quota-reset-offers"), focus = document.activeElement?.id;
     container.replaceChildren();
     const keepUsage = () => container.appendChild(usageOpen);
+    // Nothing to approve, revoke or check: round 16 draws nothing below the ruler key, so
+    // neither does this (no "No reset offer is available." line, no Open Claude Usage).
     const compact = !offers.length && !r.approval && !r.lastAttempt;
-    container.classList.toggle("is-empty", compact);
-    if (!compact) container.appendChild(node("h3", "", "Weekly quota reset"));
-    if (!compact) container.appendChild(node("p", "quota-muted", "Approve in advance. Rich will use one reset automatically at 99% weekly usage while the desktop app or terminal watcher is running. They share one approval and attempt record. Checks every 5 minutes. Five-hour usage never triggers it."));
+    container.hidden = compact;
+    if (compact) return;
+    container.appendChild(node("h3", "", "Weekly quota reset"));
+    container.appendChild(node("p", "quota-muted", "Approve in advance. Rich will use one reset automatically at 99% weekly usage while the desktop app or terminal watcher is running. They share one approval and attempt record. Checks every 5 minutes. Five-hour usage never triggers it."));
     if (r.lastAttempt) {
       const text = { used: "Your approved reset was used. Checking the new allowance…", alreadyUsed: "Anthropic reports this reset was already used.", notUsed: "Anthropic did not use the reset. The approval has ended.", uncertain: "The reset outcome is unconfirmed. Automatic retry is blocked. Check Claude’s Usage page before taking further action." }[r.lastAttempt.outcome] || "Reset outcome unavailable. Check Claude’s Usage page.";
       container.appendChild(node("p", "quota-reset-result", text));
@@ -513,11 +535,20 @@
   }
 
   // ---- Add account, Sign in, Remove, the verb -------------------------------------------
+  // A line under the lanes for what Add, Sign in and Remove did. Round 16 says these as a
+  // passing toast, so a success fades after 3.6 s (its toast's time) and is never left under
+  // the rows in a steady state; a failure stays until the next action.
+  let feedbackTimer = null;
+  function feedback(text, passing = false) {
+    const line = field("quota-account-feedback");
+    clearTimeout(feedbackTimer); line.textContent = text;
+    if (passing && text) feedbackTimer = setTimeout(() => { if (line.textContent === text) line.textContent = ""; }, 3600);
+  }
   async function accountCall(command, args, done) {
     if (accountBusy) return;
-    accountBusy = true; field("quota-account-feedback").textContent = ""; render();
+    accountBusy = true; feedback(""); render();
     try { const next = await bridge.invoke(command, args); if (next && next.windows) view = next; if (done) done(next); }
-    catch (error) { field("quota-account-feedback").textContent = typeof error === "string" ? error : "That change could not be made. Nothing changed."; }
+    catch (error) { feedback(typeof error === "string" ? error : "That change could not be made. Nothing changed."); }
     finally { accountBusy = false; if (!sheet.hidden) render(); }
   }
   function watchSignIn() {
@@ -527,8 +558,11 @@
       try { answer = await bridge.invoke("claude_account_sign_in_poll", {}); } catch (_) {}
       if (answer && answer[1]?.state === "connecting") { if (signingId !== answer[0]) { signingId = answer[0]; render(); } return; }
       clearInterval(signInTimer); signInTimer = null; signingId = null;
-      if (answer) field("quota-account-feedback").textContent = answer[1]?.state === "connected" ? "Signed in. Reading its allowance…" : (answer[1]?.message || "");
-      refresh(true);
+      const connected = answer?.[1]?.state === "connected", reading = "Signed in. Reading its allowance…";
+      if (answer) feedback(connected ? reading : (answer[1]?.message || ""), connected);
+      // The reading that arrives ends "Reading its allowance…": the lane takes its place.
+      await refresh(true);
+      if (field("quota-account-feedback").textContent === reading) feedback("");
     }, 2000);
   }
   function openAdd() {
@@ -539,7 +573,7 @@
     field("quota-addform-title").textContent = first ? "Add a second Claude account" : "Add another Claude account";
     field("quota-account-current-row").hidden = !first;
     field("quota-addform-rows").classList.toggle("is-one", !first);
-    field("quota-account-feedback").textContent = "";
+    feedback("");
     render();
     (first ? field("quota-account-current") : field("quota-account-label")).focus();
   }
@@ -555,14 +589,14 @@
       field("quota-account-new").hidden = true;
       const added = (next?.accounts || []).reduce((top, a) => !top || Number(a.id) > Number(top.id) ? a : top, null);
       signingId = added ? added.id : null;
-      field("quota-account-feedback").textContent = "Claude Code opened its sign-in page in your browser. Finish there; the reading arrives here.";
+      feedback("Claude Code opened its sign-in page in your browser. Finish there; the reading arrives here.", true);
       watchSignIn();
     });
   }
   function accountSignIn(id) {
     accountCall("claude_account_sign_in", { id }, () => {
       signingId = id;
-      field("quota-account-feedback").textContent = "Finish the sign-in in your browser.";
+      feedback("Finish the sign-in in your browser.", true);
       watchSignIn();
     });
   }
@@ -570,7 +604,7 @@
     const gone = accounts().find(a => a.id === id);
     accountCall("claude_account_remove", { id }, () => {
       removeId = null; if (selectedId === id) selectedId = null;
-      field("quota-account-feedback").textContent = gone ? `${gone.label} removed from this Mac. Sign in again to add it back.` : "Account removed.";
+      feedback(gone ? `${gone.label} removed from this Mac. Sign in again to add it back.` : "Account removed.", true);
     });
   }
   field("quota-account-start").addEventListener("click", openAdd);
@@ -587,16 +621,20 @@
   function render() {
     paintMenu();
     field("quota-refresh").disabled = busy || saving || !!(view?.retryAt > Date.now());
-    field("quota-refresh").textContent = busy ? "Refreshing…" : "Refresh";
+    // Round 16's Refresh: the circular-arrow icon, "Asking Claude Code…" while it asks.
+    field("quota-refresh").classList.toggle("is-busy", busy);
+    field("quota-refresh-label").textContent = busy ? "Asking Claude Code…" : "Refresh";
     if (!view) return;
-    const now = Date.now(), age = view.checkedAt ? now - view.checkedAt < 60000 ? "just now" : duration(now - view.checkedAt) + " ago" : null;
+    const now = Date.now(), age = view.checkedAt ? duration(now - view.checkedAt) + " ago" : null;
     const freshness = field("quota-freshness");
+    freshness.classList.toggle("is-stale", !!age && stale());
     if (!age) freshness.textContent = "No current reading";
     else {
       // The cadence: every 5 minutes at every level of use; every MINUTE while usage is fast or
       // a rise is expected, in gold (round 16's reading line, the app's measured interval).
+      // Round 16's words: "Checked 3 min ago", or "Last reading 47 min ago — stale".
       const quick = fastNow() ? "every minute — usage is fast" : expectedNow() ? "every minute — a rise is expected" : null;
-      freshness.replaceChildren(node("b", "", `${stale() ? "Stale · last reading" : "Checked"} ${age}`), " · ",
+      freshness.replaceChildren(node("b", "", stale() ? `Last reading ${age} — stale` : `Checked ${age}`), " · ",
         quick ? node("span", "quota-fast", quick) : `checks every ${Math.round(view.refreshIntervalMs / 60000)} min`);
     }
     field("quota-message").textContent = (view.message || "") + (view.retryAt > now ? ` Next refresh available in ${duration(view.retryAt - now)}.` : "");

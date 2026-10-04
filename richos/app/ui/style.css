@@ -6925,12 +6925,23 @@ body.home-open {
 @media (max-width: 850px) { .quota-panel.is-multi .quota-body { grid-template-columns: minmax(0, 1fr); } }
 .quota-toolbar { flex-wrap: wrap; }
 .quota-toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-/* Open Claude Usage is the app's own control (not in round 16): it sits at the end of the
-   weekly reset section's one line, so the reading line carries exactly round 16's
-   + Add account and Refresh and the sheet keeps round 14's height. */
-.quota-reset-offers.is-empty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
-.quota-reset-offers.is-empty p { margin: 0; }
-.quota-reset-offers.is-empty #quota-usage-open { margin: 0; }
+/* Round 16's Refresh carries its circular-arrow icon, turning while it asks. */
+.quota-btn svg { flex: none; width: 14px; height: 14px; }
+#quota-refresh { gap: 8px; }
+#quota-refresh.is-busy svg { animation: quota-spin 1s linear infinite; }
+@keyframes quota-spin { to { transform: rotate(360deg); } }
+/* Round 16 bolds the times: "Resets in <b>3 h 22 min</b>", "began <b>9:57 PM</b>" (ink on
+   surface, 13.02:1 dark / 17.02:1 light, round 16 NOTES.md), and a stale reading line reads
+   gold (gold-text on surface 6.87:1 / 6.26:1). */
+.quota-reset b, .quota-ends b { color: var(--ink); font-weight: 600; }
+#quota-freshness.is-stale b { color: var(--gold-text); }
+.quota-legend b { font-weight: 600; }
+/* Round 16's ruler: the start and reset stamps sit 8 px above the "now" label (hero: stamps at
+   29 px, "now" at 37 px; small: stamps at 32 px, "now" at 40 px, its tick 18-38 px). */
+.quota-ends { margin-top: -5px; }
+.quota-chart-small .quota-ends { margin-top: -2px; }
+.quota-chart-small .quota-marker i { top: 10px; }
+.quota-chart-small .quota-marker span { top: 32px; }
 .quota-btn-quiet { border-color: transparent; padding-left: 6px; padding-right: 6px; color: var(--gold-text); font-weight: 600; }
 .quota-btn-quiet:hover { border-color: transparent; background: var(--gold-soft); }
 .quota-fast { color: var(--gold-text); font-weight: 600; }
@@ -7021,8 +7032,7 @@ body.home-open {
 .quota-reset-confirm { border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px; margin-top: 12px; }
 .quota-reset-armed { font-weight: 600; }
 #quota-reset-feedback { font-size: 1rem; line-height: 1.5; }
-
-.quota-reset-offers.is-empty { margin-top: 12px; padding-top: 8px; }
+#quota-reset-feedback:empty { display: none; }
 
 .quota-toolbar { flex-wrap: wrap; gap: 8px; }
 .quota-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

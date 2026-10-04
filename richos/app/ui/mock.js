@@ -1964,7 +1964,9 @@
           if (["disabled", "ready"].includes(admission.state) && held.length) {
             return { held: [], released: held.map(r => ({ ...r, releasedAt: Date.now() })), resumesAt: null };
           }
-          return { ...activity, held, released: scoped(activity.released), resumesAt: admission.state === "held" ? admission.resetsAt - (quotaView().windows.some(w => w.id === "seven_day" && w.usedPercent >= 99 && w.resetsAt === admission.resetsAt) ? 0 : 20 * 60000 - 1) : null };
+          // Round 16's working row: the account in use, named, with two or more accounts.
+          const inUse = quotaView().accounts.find(a => a.inUse);
+          return { ...activity, held, released: scoped(activity.released), ...(inUse ? { account: inUse.label } : {}), resumesAt: admission.state === "held" ? admission.resetsAt - (quotaView().windows.some(w => w.id === "seven_day" && w.usedPercent >= 99 && w.resetsAt === admission.resetsAt) ? 0 : 20 * 60000 - 1) : null };
         }
         case "set_claude_quota_policy": {
           if (!Number.isInteger(args.policy.pausePercent) || args.policy.pausePercent < 1 || args.policy.pausePercent > 99) throw new Error("Invalid pause threshold.");
