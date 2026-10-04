@@ -63,6 +63,15 @@ def unmatched(select, ids):
     return out
 
 
+def within(select, ids):
+    """The enumerated ids a `-only-testing:` selector names. Xcode 26.3 lists the whole XCTest UI bundle
+    beside a Swift Testing selector that names only the unit bundle, so the listing is cut to the ask."""
+    wants = [(sel.split(":", 1)[1] if ":" in sel else sel) for sel in select]
+    if not wants:  # no selector asked: the whole listing is the plan (the retry reads asks from shard files)
+        return list(ids)
+    return [k for k in ids if any(k == w or k.startswith(w + "/") for w in wants)]
+
+
 def enumerated(tests_json):
     data = json.load(open(tests_json))
     if data.get("errors"):
@@ -106,7 +115,7 @@ def cmd_split(work, shards, times, select):
         open(os.path.join(work, "expected.txt"), "w").write("")
         return 0
     try:
-        ids = enumerated(os.path.join(work, "tests.json"))
+        ids = within(select, enumerated(os.path.join(work, "tests.json")))
     except (OSError, ValueError, KeyError) as exc:
         print("native-ios-ui: the test list could not be read: %s" % exc)
         return 1
@@ -284,13 +293,20 @@ def cmd_retry(work, previous, i, runner=subprocess.run):
     """Prepare one device's exact unresolved cases from its enumerated selection."""
     i = int(i)
     work = Path(work)
-    raw = {norm(t): t for t in enumerated(work / ("tests-%d.json" % i))}
-    expected = sorted(raw)
+    listed = enumerated(work / ("tests-%d.json" % i))
     asked = [a.strip() for f in sorted(work.glob("shard-*.args")) for a in f.read_text().splitlines() if a.strip()]
+    raw = {norm(t): t for t in within(asked, listed)}
+    # The unit bundle is Swift Testing, which never passes through XCTestCase: its run is attributed to
+    # this build by the stamped BuildStampTests probe, so a unit selection always carries that control.
+    probe_id = "RichOSNativeTests/BuildStampTests/testTheBundleCarriesItsBuildStamp"
+    if any(t.startswith("RichOSNativeTests/") for t in raw):
+        # Not in the enumeration of a one-suite selection, so it is named, with the () Xcode matches by.
+        raw[probe_id] = next((t for t in listed if norm(t) == probe_id), probe_id + "()")
+    expected = sorted(raw)
     if not expected:
         print("native-ios-ui: FAIL: the selection (%s) matched 0 tests; 0 of what was asked will run" % ", ".join(asked))
         return 1
-    missing = unmatched(asked, list(raw.values()))
+    missing = unmatched(asked, listed)
     if missing:
         print("native-ios-ui: FAIL: %d of %d selectors matched 0 tests (Xcode matches a case only as it lists it, "
               "with its trailing parentheses): %s" % (len(missing), len(asked), ", ".join(missing)))
@@ -475,7 +491,7 @@ def selftest():
     quiet = contextlib.redirect_stdout(io.StringIO())
     with tempfile.TemporaryDirectory() as work, quiet:
         json.dump({"values": [{"enabledTests": [{"identifier": i} for i in ids]}]}, open(os.path.join(work, "tests.json"), "w"))
-        rc = cmd_split(work, 3, os.path.join(work, "none.tsv"), ["-only-testing:B"])
+        rc = cmd_split(work, 3, os.path.join(work, "none.tsv"), ["-only-testing:B", "-only-testing:U"])
         args = sorted(l for n in (1, 2, 3) for l in open(os.path.join(work, "shard-%d.args" % n)).read().split("\n") if l)
         check(rc == 0 and args == sorted("-only-testing:" + i for i in ids), "three shard files hold the whole list once")
         # Fake result bundles: device 0 complete, device 1 missing one test.
@@ -616,6 +632,13 @@ def selftest():
               "a full run hands xcodebuild every case with its (): XCTest and Swift Testing alike")
         check(retry(listed, ["-only-testing:RichOSNativeUITests/A/testX"]) == 1
               and "matched 0 tests" in said.getvalue(), "a selector that matches nothing is a FAILURE, named")
+        # --only RichOSNativeTests/Suite: Xcode 26.3 also lists the whole UI bundle; only the suite's cases run.
+        rc = retry(listed, ["-only-testing:RichOSNativeTests/Suite"])
+        args = (work / "retry-0.args").read_text().split()
+        check(rc == 0 and sorted(args) == sorted(["-only-testing:RichOSNativeTests/Suite/case()",
+                  "-only-testing:RichOSNativeTests/BuildStampTests/testTheBundleCarriesItsBuildStamp()"])
+              and "RichOSNativeUITests/A/testX" not in (work / "expected-0.txt").read_text(),
+              "--only RichOSNativeTests/<Suite> plans only that suite's cases, not the UI bundle")
         check(retry([], ["-only-testing:RichOSNativeUITests/A/testX()"]) == 1
               and "matched 0 tests; 0 of what was asked will run" in said.getvalue(), "an empty enumeration is a FAILURE with the count")
     print("  shards selftest: %d passed, %d failed" % (ok, bad))
