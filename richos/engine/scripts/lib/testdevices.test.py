@@ -804,6 +804,25 @@ class Collector(Base):
             self.assertEqual(self.devices()[0]["state"], "Shutdown")
             self.assertEqual(T.records(), [])
 
+    def test_lease_hold_survives_one_unreadable_process_start(self):
+        ident = "emu-lease-unknown"
+        path = T._record_path("android-emulator", ident)
+        T._write_json(path, {"lease": {"created": 1}, "generation": {"pid": 4242, "start": "Mon Oct  4 10:00:00 2026"}})
+        answers = iter([None, "Mon Oct  4 10:00:00 2026", "Mon Oct  4 10:00:00 2026"])
+        seen = []
+
+        def ps(pid):
+            seen.append(pid)
+            return next(answers)
+
+        def nap(_):
+            if len(seen) >= 3:
+                os.unlink(path)          # only the record's removal may end the loop here
+
+        with patch.object(T, "process_start", side_effect=ps), patch.object(T.time, "sleep", side_effect=nap):
+            self.assertEqual(T.hold_lease("android-emulator", ident), 0)
+        self.assertEqual(len(seen), 3, "an unknown answer ended the lease early")
+
     def test_pressure_shutdown_does_not_need_owner_process_listing(self):
         import cpu_guard
         udid = self.device("old-checkout-simulator")
