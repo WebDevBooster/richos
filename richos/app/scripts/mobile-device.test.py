@@ -647,7 +647,7 @@ def _():
     # `reboot` is the remedy the check itself applies, so it too runs without the check, holding the phone.
     # `launch` opens the app on purpose: it holds the phone but runs its own Wi-Fi-first, launch-once procedure
     # instead of the trust check, so it sits beside the read-only verbs on the HOLD line and is the only one there that launches.
-    assert 'approval|procs|apps|lock|battery|syslog|trust|net|close|wifi-restore|reboot|launch) exec "${HOLD[@]}"' in text
+    assert 'approval|procs|apps|lock|battery|syslog|trust|net|close|wifi-restore|wifi-on|wifi-off|reboot|launch) exec "${HOLD[@]}"' in text
 
 
 @case("D27b a phone joined to Wi-Fi whose Wi-Fi carries no traffic is restarted once BEFORE anything is opened, so iOS never refuses the app for want of a network")
@@ -724,7 +724,11 @@ def phone_run(module, fake, path, tmp):
                            approval_announced=False)
     out, err = io.StringIO(), io.StringIO()
     from unittest.mock import patch
-    with patch.object(module, "_run", fake), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+    # On the cable unless the test says otherwise (a list that presses the Wi-Fi switch is refused off it).
+    cabled = getattr(fake, "props", {"tunnelState": "connected", "transportType": "wired"})
+    with patch.object(module, "_run", fake), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+            patch.object(module, "devicectl", lambda a, d: {"connectionProperties": cabled}), \
+            patch.dict(os.environ, {"RICHOS_IOS_DEVICE": "00000000-0000000000000000"}):
         try:
             code = module.run(args)
             return code, (json.loads(out.getvalue()) if out.getvalue() else None), None
@@ -834,6 +838,59 @@ def _():
         assert module.addresses_app(safari + [app_step]) is True, app_step
     text = (REPO / "richos/mobile/native-ios/Tools/physical-device.mjs").read_text()
     assert "env.RICHOS_PHYSICAL_RUNNER_ONLY === '1'" in text and "t['UITargetAppPath']=t['TestHostPath']" in text
+
+
+def wifi_off_call(module, fake, props, tmp):
+    """`wifi-off`'s work (switch_wifi_off) against the fake Settings, with devicectl answering `props`.
+    (code, result or refusal sentence, devicectl calls); code None when refused."""
+    from unittest.mock import patch
+    seen = []
+    with patch.object(module, "_run", fake), \
+            patch.object(module, "devicectl", lambda a, d: seen.append(a) or {"connectionProperties": props}):
+        try:
+            result = module.switch_wifi_off(Path(tmp) / f"off-{fake.runs}-{len(seen)}", "00000000-0000000000000000")
+        except module.CannotAnswer as refused:
+            return None, str(refused), seen
+    return (0 if not result["error"] else 1), result, seen
+
+
+@case("D32 wifi-off: refused over Wi-Fi (the Mac would lose the phone) with Settings never opened; over the cable it turns the switch off, and an off switch costs one read and no tap")
+def _():
+    module = load_phone_ios()
+    wired = {"tunnelState": "connected", "transportType": "wired"}
+    with tempfile.TemporaryDirectory() as tmp:
+        for props in ({"tunnelState": "connected", "transportType": "localNetwork"}, {"tunnelState": "disconnected"}, {}):
+            fake = FakeSettings(module)
+            code, said, seen = wifi_off_call(module, fake, props, tmp)
+            assert code is None and "not touched" in said and fake.runs == 0 and fake.wifi == "1", (props, said, fake.runs)
+        assert "USB cable" in wifi_off_call(module, FakeSettings(module), {"tunnelState": "connected", "transportType": "localNetwork"}, tmp)[1]
+        fake = FakeSettings(module)
+        code, result, seen = wifi_off_call(module, fake, wired, tmp)
+        assert code == 0 and fake.wifi == "0" and result["before"] == "1" and result["turnedOff"] is True and fake.runs == 2, (code, result)
+        assert seen == [["device", "info", "details"]], seen
+        code, result, _ = wifi_off_call(module, fake, wired, tmp)
+        assert code == 0 and fake.wifi == "0" and result["turnedOff"] is False and fake.runs == 3, (code, result, fake.runs)
+        stuck = FakeSettings(module, stuck=True)
+        code, result, _ = wifi_off_call(module, stuck, wired, tmp)
+        assert code == 1 and "still on" in result["error"], result
+    text = (REPO / "richos/mobile/native-ios/bin/rios").read_text()
+    assert "wifi-on|wifi-off|reboot|launch) exec \"${HOLD[@]}\"" in text
+
+
+@case("D33 a `run` list that presses the Wi-Fi switch is refused off the cable before anything touches the phone; on the cable it runs, and a list that never presses it asks nothing")
+def _():
+    module = load_phone_ios()
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeSettings(module)
+        fake.props = {"tunnelState": "connected", "transportType": "localNetwork"}
+        code, summary, error = phone_run(module, fake, wifi_list(tmp), tmp)
+        assert isinstance(error, module.CannotAnswer) and "USB cable" in str(error) and fake.runs == 0 and fake.wifi == "1", (error, fake.runs)
+        fake = FakeSettings(module)
+        code, summary, error = phone_run(module, fake, wifi_list(tmp, {"do": "tap", "kind": "switch", "label": "Wi‑Fi", "in": "settings"}), tmp)
+        assert error is None and code == 0 and fake.wifi == "1", (error, code)
+    assert module.switches_wifi([{"do": "tap", "kind": "switch", "label": "Wi‑Fi", "in": "settings"}])
+    assert not module.switches_wifi([{"do": "tap", "label": "Wi-Fi", "in": "settings"}, {"do": "value", "kind": "switch", "label": "Wi‑Fi", "in": "settings"},
+                                     {"do": "tap", "kind": "switch", "label": "Camera", "in": "settings"}])
 
 
 # -- the commit check ---------------------------------------------------------------------------
