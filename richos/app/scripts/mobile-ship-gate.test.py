@@ -22,6 +22,10 @@ state (measured.json and the records it names). No phone, build, store or networ
       uncommitted (read back by testflight.ts upload, which gates that commit)
   F1  the stand-in verdict a test writes (lib/ship_gate_fixture.py, named by RICHOS_SHIP_GATE_VERDICTS)
       passes the real gate for the same app code, says it is a stand-in, and still refuses other app code
+  B1-B4  `randroid bundle` also refuses without a PASSING review walk of its exact commit (CEO 2026-10-04,
+      §107; richos/mobile/perf/reviewwalk.py, written by `randroid review-walk`), before it builds: B1 no
+      record, B2 a failed walk (naming the step), B3 a record for different code; B4 a passing record lets
+      the build start and the pass line is printed; B5 the walk itself takes only an emulator and a full commit
 """
 import contextlib
 import io
@@ -39,6 +43,7 @@ PERF = HERE.parents[1] / "mobile/perf"
 sys.path.insert(0, str(PERF))
 sys.path.insert(0, str(HERE / "lib"))
 import shipgate  # noqa: E402
+import reviewwalk  # noqa: E402
 import ship_gate_fixture  # noqa: E402
 
 APP_FILE = {"android": "richos/mobile/native-android/app/src/main/kotlin/Main.kt",
@@ -270,6 +275,7 @@ class RandroidBundle(unittest.TestCase):
             "richos/mobile/native-android/release/upload-certificate.sha256":
                 (PERF.parent / "native-android/release/upload-certificate.sha256").read_text(),
             "richos/mobile/perf/shipgate.py": FAKE_GATE,
+            "richos/mobile/perf/reviewwalk.py": (PERF / "reviewwalk.py").read_text(),
             "richos/engine/scripts/lib/native-work.py": FAKE_GRADLE,
         }
         for rel, text in files.items():
@@ -284,9 +290,13 @@ class RandroidBundle(unittest.TestCase):
         (jdk / "bin/java").chmod(0o755)
         (jdk / "release").write_text('JAVA_VERSION="21.0.1"\n')
         self.randroid = here / "bin/randroid"
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "RANDROID_", "ORG_GRADLE"))}
+        self.repo, self.walks = repo, self.tmp / "walks"
+        self.head = git(repo, "rev-parse", "HEAD")
+        self.env = {k: v for k, v in os.environ.items()
+                    if not k.startswith(("GIT_", "RANDROID_", "ORG_GRADLE", "RICHOS_REVIEW_WALK"))}
         self.env.update(GIT_CONFIG_GLOBAL=str(EMPTY_CONFIG), GIT_CONFIG_NOSYSTEM="1", FAKE_LOG=str(self.log),
-                        RANDROID_CACHE=str(self.tmp / "cache"), RANDROID_JAVA_HOME=str(jdk))
+                        RANDROID_CACHE=str(self.tmp / "cache"), RANDROID_JAVA_HOME=str(jdk),
+                        RICHOS_REVIEW_WALK_RECORDS=str(self.walks))
         for key in ("storeFile", "storePassword", "keyAlias", "keyPassword"):
             self.env[f"ORG_GRADLE_PROJECT_richos.upload.{key}"] = "x"
         for key in ("projectId", "appId", "apiKey", "senderId"):
@@ -305,6 +315,7 @@ class RandroidBundle(unittest.TestCase):
         self.assertNotIn("gradle", log)
 
     def test_r2_a_pass_lets_the_build_start(self):
+        ship_gate_fixture.walk(self.walks, "android", self.head)  # and the walk gate's (B4)
         p, log = self.bundle(FAKE_GATE="pass")
         self.assertIn("gate check --platform android", log)
         self.assertIn(":app:bundleRelease", log)  # the stand-in Gradle then fails: "did not build"
@@ -321,6 +332,81 @@ class RandroidBundle(unittest.TestCase):
         p, log = self.bundle_args("--skip-speed")
         self.assertNotEqual(p.returncode, 0)
         self.assertNotIn("gradle", log)
+
+    # --- B1-B4: the review-walk gate (CEO §107). The speed gate passes in each, so only the walk decides.
+    def walk(self, commit, failed_step=None):
+        names = ["sign in on the access page", "get a pairing link", "open the pairing link in the app",
+                 "the six words match; They match in the app and on the page",
+                 "send a message and see the Demo reply", "reset the Google review host"]
+        steps = [{"name": n, "ok": n != failed_step,
+                  "detail": "no Demo reply within 60 s" if n == failed_step else "ok"} for n in names]
+        return reviewwalk.write({"platform": "android", "commit": commit, "passed": failed_step is None,
+                                 "at": "2026-10-04T10:00:00Z", "host": "google-review.example", "steps": steps},
+                                root=self.walks)
+
+    def walk_refused(self, *phrases, **env):
+        p, log = self.bundle(FAKE_GATE="pass", **env)
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("REFUSED by the review-walk gate (CEO ", p.stderr)
+        self.assertIn(f"Android build of {self.head[:12]}", p.stderr)
+        for phrase in phrases:
+            self.assertIn(phrase, p.stderr)
+        self.assertIn("gate check --platform android", log, "the speed gate ran first and passed")
+        self.assertNotIn("gradle", log, "nothing built")
+        return p
+
+    def test_b1_no_walk_record_refuses(self):
+        self.walk_refused("no review walk has run on this commit", f"{self.head}.json does not exist")
+        # The real record directory (no stand-in named) has no walk of this throwaway commit either.
+        env = {k: v for k, v in self.env.items() if k != "RICHOS_REVIEW_WALK_RECORDS"}
+        p = subprocess.run([str(self.randroid), "bundle"], env={**env, "FAKE_GATE": "pass"}, capture_output=True,
+                           text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("no review walk has run on this commit", p.stderr)
+        self.assertIn(reviewwalk.ROOT, p.stderr)
+
+    def test_b2_a_failed_walk_refuses_naming_the_step(self):
+        self.walk(self.head, failed_step="send a message and see the Demo reply")
+        self.walk_refused("FAILED at step 'send a message and see the Demo reply'", "no Demo reply within 60 s")
+
+    def test_b3_a_walk_of_different_code_refuses(self):
+        self.walk(self.head)
+        walked = self.head
+        app = self.repo / "richos/mobile/native-android/app/Main.kt"
+        app.parent.mkdir(parents=True, exist_ok=True)
+        app.write_text("changed after the walk\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "app code after the walk")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.walk_refused("no review walk has run on this commit")
+        # A record filed under this commit that describes another commit is not this build's walk.
+        record = json.loads((self.walks / "android" / f"{walked}.json").read_text())
+        (self.walks / "android" / f"{self.head}.json").write_text(json.dumps(record))
+        self.walk_refused(f"is for Android {walked[:12]}, not this build")
+
+    def test_b4_a_passing_walk_of_this_commit_lets_the_build_start(self):
+        self.walk(self.head)
+        p, log = self.bundle(FAKE_GATE="pass")
+        self.assertNotIn("REFUSED", p.stderr)
+        self.assertIn(f"review walk: Android build of {self.head[:12]}: the review walk PASSED on google-review.example",
+                      p.stderr)
+        self.assertIn("STAND-IN walk records", p.stderr)
+        self.assertIn(":app:bundleRelease", log)  # the stand-in Gradle then fails: "did not build"
+
+    def test_b5_the_walk_never_reaches_a_phone_or_unnamed_code(self):
+        """bin/review-walk.mjs (what `randroid review-walk` runs) takes only an emulator serial and a full
+        commit, and refuses anything else before it touches a device, the review service or the record."""
+        walk = PERF.parent / "native-android/bin/review-walk.mjs"
+        base = ["--adb", "adb", "--package", "dev.richos.connect", "--activity", "dev.richos.connect/x.Main",
+                "--apk", "/nonexistent.apk", "--writer", "/nonexistent.py"]
+        cases = (([*base, "--serial", "PHONESERIAL0001", "--commit", "a" * 40], "emulators only"),
+                 ([*base, "--serial", "emulator-5580", "--commit", "abc1234"], "--commit must be a full commit"),
+                 (["--serial", "emulator-5580", "--commit", "a" * 40], "needs --adb"))
+        for argv, why in cases:
+            p = subprocess.run(["node", str(walk), *argv], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                               env={**self.env, "PATH": os.environ.get("PATH", "")})
+            self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+            self.assertIn(why, p.stdout)
 
     def bundle_args(self, *args):
         p = subprocess.run([str(self.randroid), "bundle", *args], env=self.env, capture_output=True, text=True,

@@ -50,6 +50,7 @@ bin/randroid emu stop | delete                    # quit it (by the PID recorded
 
 bin/randroid build debug | release               # release is signed when the upload key is present
 bin/randroid bundle                               # the signed .aab for Google Play (see Release)
+bin/randroid review-walk [--commit SHA]           # Google's reviewer, automated, on that release build
 bin/randroid verify-bundle <file.aab>             # upload signature, permanent ID, no bridge
 bin/randroid check-release                        # the bridge is absent from the release APK and bundle
 bin/randroid doctor
@@ -137,6 +138,27 @@ speed tests). It asks before anything builds. Google ties the app to whichever k
 upload, so no key is exempt. Uncommitted app code is refused too; there is no flag that skips it. The
 Android suite's throwaway-key bundle passes with a stand-in verdict written into its own scratch
 (`richos/app/scripts/lib/ship_gate_fixture.py`), which the gate's pass line names as a stand-in.
+
+**It also refuses every bundle unless the Google reviewer's walk PASSED on that exact commit** (CEO
+2026-10-04 §107: the CEO is never the first tester). The walk is one command, and it needs nobody:
+
+```sh
+richos/mobile/native-android/bin/randroid review-walk --commit <sha>   # default: HEAD
+```
+
+It builds the RELEASE app from exactly that commit's files (`git archive` into the cache, so nothing
+uncommitted reaches it), signed with the upload key (it runs itself through the two wrappers above
+when the environment lacks them), installs it fresh on this checkout's emulator and does what the
+review notes tell Google's reviewer (`richos/mobile/review-mock/README.md`), against the live review
+service: sign in on the access page (headless Chromium), get a pairing link, open it in the app, check
+that the six words match and press They match in the app and on the page, send one message and see
+its Demo reply, then reset the Google review host. Each step passes or the walk fails, naming the step.
+Pass or fail, it writes `/Volumes/E1TB/state/richos/review-walk/android/<full sha>.json`
+(`richos/mobile/perf/reviewwalk.py`, shared with the iPhone), and `bundle` reads that record for its
+own HEAD before anything builds; the receipt names it. A host that already has a phone (another walk
+or a reviewer) is not touched: the walk fails at its first step and says so. An emulator the walk
+booted is stopped when it ends. The suite's throwaway-key bundle uses a stand-in walk record in its
+scratch (`ship_gate_fixture.py --walks`, named by `RICHOS_REVIEW_WALK_RECORDS`); the pass line says so.
 
 **What verification means** (`bundle` runs it; `bin/randroid verify-bundle <file.aab>` runs it on
 any file): every entry is signed, by exactly one signer, and that signer's SHA-256 is

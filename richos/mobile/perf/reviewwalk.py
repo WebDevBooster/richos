@@ -37,7 +37,7 @@ import sys
 ROOT = "/Volumes/E1TB/state/richos/review-walk"
 LABEL = {"android": "Android", "ios": "iPhone"}
 WALK = {"ios": "richos/mobile/native-ios/bin/rios review-walk --commit {sha}",
-        "android": "the Android review walk on {sha}"}
+        "android": "richos/mobile/native-android/bin/randroid review-walk --commit {sha}"}
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
