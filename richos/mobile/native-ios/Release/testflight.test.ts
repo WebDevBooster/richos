@@ -17,8 +17,11 @@ import * as NodePath from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  compareListing,
   compareScreenshots,
   createTestFlightClient,
+  LISTING_FIELDS,
+  readListingRecord,
   deviceFamilyCheck,
   insideGitWorkTree,
   makeAppStoreToken,
@@ -34,7 +37,7 @@ import {
   walkGate,
   withTemporaryPrivateKey,
 } from "./testflight.ts";
-import type { ReleaseDeps } from "./testflight.ts";
+import type { ListingRecord, ListingText, ReleaseDeps } from "./testflight.ts";
 
 const BUNDLE = "dev.richos.connect";
 const keys = NodeCrypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -729,5 +732,288 @@ describe("store screenshot read-back", () => {
       /not COMPLETE/u,
     );
     NodeAssert.match(compareScreenshots(local, [done("aa")])[0]!, /Expected 2 screenshots/u);
+  });
+});
+
+// CEO 2026-10-04: the App Store listing can never differ from the record, and no version that is not
+// proven can be sent to App Review. check-listing / apply-listing / submit against a fake client and fake
+// gates; no request leaves this Mac and nothing is ever submitted.
+describe("listing record, check-listing and submit (CEO 2026-10-04)", () => {
+  const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+  const SPEED_REFUSAL = "REFUSED by the speed gate (CEO §106): iPhone build of 0123456789ab: no speed verdict file";
+  const WALK_REFUSAL = "REFUSED by the review-walk gate (CEO §107): iPhone build of 0123456789ab: no review walk has run on this commit";
+  const TEXT: ListingText = {
+    name: "RichConnect for RichOS",
+    subtitle: "Connect with Rich on the go",
+    description: "RichConnect brings your RichOS assistant to your iPhone.\n\nRichConnect follows your iPhone's light or dark appearance.",
+    keywords: "assistant,voice",
+    promotionalText: "Take Rich with you.",
+    privacyPolicyUrl: "https://richos.ceo/privacy",
+    supportUrl: "https://richos.ceo/support",
+  };
+  const LOCAL = [
+    { fileName: "01-a.png", md5: "aa" },
+    { fileName: "02-b.png", md5: "bb" },
+  ];
+  const SHOTS = LOCAL.map((file) => ({ fileName: file.fileName, checksum: file.md5, state: "COMPLETE" }));
+  const RECORD: ListingRecord = { path: "/record.json", version: VERSION, locale: "en-US", text: TEXT, screenshotsDir: "/shots" };
+
+  function harness(
+    options: {
+      live?: Partial<ListingText>;
+      shots?: typeof SHOTS;
+      build?: string | undefined;
+      uploaded?: boolean;
+      speedPasses?: boolean;
+      walkPasses?: boolean;
+    } = {},
+  ) {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "listing-gate-"));
+    const calls: string[] = [];
+    const build = "build" in options ? options.build : "1";
+    const live = { ...TEXT, ...options.live };
+    const deps: ReleaseDeps = {
+      gate: (where) => {
+        calls.push(`gate ${where.join(" ")}`);
+        if (options.speedPasses === false) throw new Error(SPEED_REFUSAL);
+        return where[where.indexOf("--commit") + 1] ?? "";
+      },
+      walk: (commit) => {
+        calls.push(`walk ${commit}`);
+        if (options.walkPasses === false) throw new Error(WALK_REFUSAL);
+      },
+      deviceFamily: () => void calls.push("family"),
+      receipts: NodePath.join(directory, "uploads.json"),
+      checkout: "/the/checkout",
+      readArchive: async () => ({}),
+      readEnv: async () => (calls.push("credentials"), parseTestFlightEnv(internalOnlySource)),
+      client: () => ({
+        readListing: async (version: string, locale: string) => {
+          calls.push(`read ${version} ${locale}`);
+          return {
+            versionId: "version-1",
+            state: "PREPARE_FOR_SUBMISSION",
+            versionLocalizationId: "vl",
+            infoLocalizationId: "il",
+            text: { ...live },
+            shots: options.shots ?? SHOTS,
+          };
+        },
+        setListingText: async (_live, want) => {
+          const changed = LISTING_FIELDS.filter((field) => live[field] !== want[field]);
+          Object.assign(live, want);
+          calls.push(`set ${changed.join(",")}`);
+          return changed;
+        },
+        selectedBuild: async () => (calls.push("selected build"), build),
+        submitForReview: async (versionId: string) => {
+          calls.push(`SUBMIT ${versionId}`);
+          return { submissionId: "submission-1", state: "WAITING_FOR_REVIEW" };
+        },
+      }),
+      upload: async () => undefined,
+      readNotes: async () => "",
+      readRecord: (path) => (calls.push(`record ${path}`), RECORD),
+      localShots: () => LOCAL,
+    };
+    if (options.uploaded !== false) recordUpload(deps.receipts, { build: "1", version: VERSION }, COMMIT);
+    return { deps, calls, cleanup: () => NodeFS.rmSync(directory, { recursive: true, force: true }) };
+  }
+  const parse = (command: string) => {
+    const args = parseTestFlightArgs([command, "--record", "/record.json"]);
+    if (args.command !== command) throw new Error("unexpected parse");
+    return args as Exclude<typeof args, { command: "help" }>;
+  };
+  const submitted = (calls: string[]) => calls.some((call) => call.startsWith("SUBMIT"));
+
+  it("submit is refused when the live listing differs from the record, naming the field, before any gate or submission", async () => {
+    const { deps, calls, cleanup } = harness({
+      live: { description: "RichConnect brings your RichOS assistant to your iPhone.\n\nChoose light or dark in Settings." },
+    });
+    try {
+      await NodeAssert.rejects(runRelease(parse("submit"), deps), (e: Error) =>
+        /^REFUSED by the listing check: .*differs from the record \/record\.json \(1\):\ndescription: differs at character 59/u.test(e.message) &&
+        /Run apply-listing/u.test(e.message));
+      NodeAssert.deepEqual(calls, ["record /record.json", "credentials", `read ${VERSION} en-US`]);
+      NodeAssert.equal(submitted(calls), false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("submit is refused when the selected build's commit has no review walk, and nothing is submitted", async () => {
+    const { deps, calls, cleanup } = harness({ walkPasses: false });
+    try {
+      await NodeAssert.rejects(runRelease(parse("submit"), deps), (e: Error) => e.message === WALK_REFUSAL);
+      NodeAssert.deepEqual(calls.slice(-2), [`gate --repo /the/checkout --commit ${COMMIT}`, `walk ${COMMIT}`]);
+      NodeAssert.equal(submitted(calls), false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("submit is refused when the selected build's commit has no speed pass, and nothing is submitted", async () => {
+    const { deps, calls, cleanup } = harness({ speedPasses: false });
+    try {
+      await NodeAssert.rejects(runRelease(parse("submit"), deps), (e: Error) => e.message === SPEED_REFUSAL);
+      NodeAssert.equal(calls.at(-1), `gate --repo /the/checkout --commit ${COMMIT}`);
+      NodeAssert.equal(submitted(calls), false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("submit sends the version only after the listing, the speed pass and the review walk all hold", async () => {
+    const { deps, calls, cleanup } = harness();
+    try {
+      const outcome = await runRelease(parse("submit"), deps);
+      NodeAssert.deepEqual(calls, [
+        "record /record.json",
+        "credentials",
+        `read ${VERSION} en-US`,
+        "selected build",
+        `gate --repo /the/checkout --commit ${COMMIT}`,
+        `walk ${COMMIT}`,
+        "SUBMIT version-1",
+      ]);
+      NodeAssert.equal((outcome?.result as { commit: string }).commit, COMMIT);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("submit is refused with no build selected, or a build this tool did not upload", async () => {
+    for (const [options, words] of [
+      [{ build: undefined }, /has no build selected/u],
+      [{ uploaded: false }, /no record of the commit it was uploaded from.*can be submitted for review/u],
+    ] as const) {
+      const { deps, calls, cleanup } = harness(options);
+      try {
+        await NodeAssert.rejects(runRelease(parse("submit"), deps), words);
+        NodeAssert.equal(calls.some((call) => /^(gate|walk|SUBMIT)/u.test(call)), false);
+      } finally {
+        cleanup();
+      }
+    }
+  });
+
+  it("submit, check-listing and apply-listing take only --record and --env-file: nothing skips a check", () => {
+    NodeAssert.throws(() => parseTestFlightArgs(["submit"]), /--record/u);
+    NodeAssert.throws(() => parseTestFlightArgs(["submit", "--record", "/r.json", "--skip-walk"]));
+    NodeAssert.throws(() => parseTestFlightArgs(["submit", "--record", "/r.json", "--build", "2"]), /only --record/u);
+    NodeAssert.throws(
+      () => parseTestFlightArgs(["status", "--build", "1", "--version", VERSION, "--record", "/r.json"]),
+      /--record is only valid/u,
+    );
+  });
+
+  it("check-listing fails naming every mismatched field and screenshot, and passes on the record", async () => {
+    const bad = harness({ live: { subtitle: "Old", privacyPolicyUrl: null }, shots: [SHOTS[1]!, SHOTS[0]!] });
+    try {
+      await NodeAssert.rejects(runRelease(parse("check-listing"), bad.deps), (e: Error) => {
+        const lines = e.message.split("\n").slice(1);
+        NodeAssert.deepEqual(lines.map((line) => line.split(":")[0]), ["subtitle", "privacyPolicyUrl", "screenshots", "screenshots"]);
+        return true;
+      });
+    } finally {
+      bad.cleanup();
+    }
+    const good = harness();
+    try {
+      await runRelease(parse("check-listing"), good.deps);
+      NodeAssert.equal(submitted(good.calls), false);
+    } finally {
+      good.cleanup();
+    }
+  });
+
+  it("apply-listing sets only the differing text, leaves matching screenshots alone, re-checks, and never submits", async () => {
+    const { deps, calls, cleanup } = harness({ live: { description: "old", keywords: "old" } });
+    try {
+      const outcome = await runRelease(parse("apply-listing"), deps);
+      NodeAssert.deepEqual(calls, [
+        "record /record.json",
+        "credentials",
+        `read ${VERSION} en-US`,
+        "set description,keywords",
+        `read ${VERSION} en-US`,
+      ]);
+      NodeAssert.equal((outcome?.result as { screenshotsReplaced: boolean }).screenshotsReplaced, false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("compareListing treats a missing value as empty and names each field", () => {
+    NodeAssert.deepEqual(compareListing(TEXT, { ...TEXT }, LOCAL, SHOTS), []);
+    NodeAssert.deepEqual(compareListing({ ...TEXT, promotionalText: null }, { ...TEXT, promotionalText: "" }, LOCAL, SHOTS), []);
+    NodeAssert.match(compareListing(TEXT, { ...TEXT, name: "RichConnect" }, LOCAL, SHOTS)[0]!, /^name: differs at character 12/u);
+  });
+
+  it("the record's screenshotsDir is resolved inside the record's own repository, and must stay inside it", () => {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "listing-record-"));
+    try {
+      NodeFS.mkdirSync(NodePath.join(directory, ".git"));
+      NodeFS.mkdirSync(NodePath.join(directory, "docs/operations"), { recursive: true });
+      const file = NodePath.join(directory, "docs/operations/listing.json");
+      const write = (screenshotsDir: unknown) =>
+        NodeFS.writeFileSync(
+          file,
+          JSON.stringify({
+            screenshotsDir,
+            localization: { locale: "en-US", name: TEXT.name, subtitle: TEXT.subtitle, privacyPolicyUrl: TEXT.privacyPolicyUrl },
+            version: { versionString: VERSION },
+            copy: {
+              locale: "en-US",
+              description: TEXT.description,
+              keywords: TEXT.keywords,
+              promotionalText: TEXT.promotionalText,
+              supportUrl: TEXT.supportUrl,
+            },
+          }),
+        );
+      write("design/store/set-b");
+      const listing = readListingRecord(file);
+      NodeAssert.equal(listing.screenshotsDir, NodePath.join(directory, "design/store/set-b"));
+      NodeAssert.deepEqual(listing.text, TEXT);
+      NodeAssert.equal(listing.version, VERSION);
+      for (const wrong of [undefined, "/abs/shots", "../elsewhere"]) {
+        write(wrong);
+        NodeAssert.throws(() => readListingRecord(file), /screenshotsDir/u);
+      }
+    } finally {
+      NodeFS.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("submitForReview creates one review submission holding the version, then submits it; selectedBuild reads no build as none", async () => {
+    const writes: string[] = [];
+    let buildData: unknown = null;
+    const client = createTestFlightClient(config, keys.privateKey, async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.pathname === "/v1/appStoreVersions/version-1/build") return Response.json({ data: buildData });
+      const body = JSON.parse(String(init?.body));
+      writes.push(`${method} ${url.pathname} ${JSON.stringify(body.data.relationships ?? body.data.attributes)}`);
+      if (url.pathname === "/v1/reviewSubmissions") {
+        return Response.json({ data: { type: "reviewSubmissions", id: "rs-1" } }, { status: 201 });
+      }
+      if (url.pathname === "/v1/reviewSubmissionItems") {
+        return Response.json({ data: { type: "reviewSubmissionItems", id: "item-1" } }, { status: 201 });
+      }
+      if (url.pathname === "/v1/reviewSubmissions/rs-1") {
+        return Response.json({ data: { type: "reviewSubmissions", id: "rs-1", attributes: { state: "WAITING_FOR_REVIEW" } } });
+      }
+      throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+    });
+    NodeAssert.equal(await client.selectedBuild("version-1"), undefined);
+    buildData = { type: "builds", id: "b-1", attributes: { version: "1" } };
+    NodeAssert.equal(await client.selectedBuild("version-1"), "1");
+    NodeAssert.deepEqual(await client.submitForReview("version-1"), { submissionId: "rs-1", state: "WAITING_FOR_REVIEW" });
+    NodeAssert.deepEqual(writes, [
+      `POST /v1/reviewSubmissions {"app":{"data":{"type":"apps","id":"${config.appId}"}}}`,
+      'POST /v1/reviewSubmissionItems {"reviewSubmission":{"data":{"type":"reviewSubmissions","id":"rs-1"}},"appStoreVersion":{"data":{"type":"appStoreVersions","id":"version-1"}}}',
+      'PATCH /v1/reviewSubmissions/rs-1 {"submitted":true}',
+    ]);
   });
 });
