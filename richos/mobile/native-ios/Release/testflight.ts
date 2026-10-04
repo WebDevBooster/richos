@@ -30,6 +30,11 @@
 //      refuses unless the automated walk of exactly what Apple's reviewer does passed on the archive's
 //      stamped commit (walkGate below; richos/mobile/perf/reviewwalk.py, written by `rios review-walk`).
 //      A build that never reaches App Store Connect can never be selected for review there.
+//   7. The listing and App Review (CEO 2026-10-04: the listing must never differ from the record, and
+//      no unproven version may be submitted). check-listing compares the live App Store listing with
+//      the record; apply-listing sets it from the record; submit is the only way this Mac sends a
+//      version to App Review and refuses unless the listing matches and the selected build's commit
+//      has both the speed pass and the review-walk pass. None of it has a skip option.
 // Nothing else is changed: no retries of writes, refusal of a second upload of an existing build,
 // app and group ownership checks before any write, the key written to a private temporary file
 // only for Xcode and removed after.
@@ -207,6 +212,138 @@ export function makeAppStoreToken(
     dsaEncoding: "ieee-p1363",
   });
   return `${input}.${signature.toString("base64url")}`;
+}
+
+/// Screenshots (CEO 2026-10-04: the corrected store screenshots must reach the listing without anyone
+/// clicking them in). The local files, in file-name order, with the MD5 Apple reports as sourceFileChecksum.
+export type LocalShot = { fileName: string; md5: string };
+export type RemoteShot = { fileName: string; checksum: string | undefined; state: string | undefined };
+
+export function localShots(dir: string): { fileName: string; path: string; md5: string; size: number }[] {
+  const names = NodeFS.readdirSync(dir)
+    .filter((name) => name.toLowerCase().endsWith(".png"))
+    .sort();
+  if (names.length === 0) throw new Error(`No PNG files in ${dir}.`);
+  if (names.length > 10) throw new Error("An App Store screenshot set holds at most 10 screenshots.");
+  return names.map((fileName) => {
+    const path = NodePath.join(dir, fileName);
+    const bytes = NodeFS.readFileSync(path);
+    return { fileName, path, md5: NodeCrypto.createHash("md5").update(bytes).digest("hex"), size: bytes.length };
+  });
+}
+
+/// Compares the listing's screenshots (in Apple's stored order) with the local files (in file-name order).
+/// Returns one line per problem; an empty list means same count, same order, every checksum matching and
+/// every screenshot COMPLETE.
+export function compareScreenshots(local: LocalShot[], remote: RemoteShot[]) {
+  const problems: string[] = [];
+  if (local.length !== remote.length) {
+    problems.push(`Expected ${local.length} screenshots on the listing; Apple has ${remote.length}.`);
+  }
+  for (let index = 0; index < Math.min(local.length, remote.length); index++) {
+    const want = local[index]!;
+    const have = remote[index]!;
+    const position = `Position ${index + 1}`;
+    if (have.state !== "COMPLETE") {
+      problems.push(`${position} (${want.fileName}): Apple reports ${have.state ?? "no state"}, not COMPLETE.`);
+    }
+    if ((have.checksum ?? "").toLowerCase() !== want.md5.toLowerCase()) {
+      problems.push(
+        `${position} (${want.fileName}): Apple's checksum ${have.checksum ?? "(none)"} is not the local file's ${want.md5}.`,
+      );
+    }
+  }
+  return problems;
+}
+
+/// The listing record (CEO 2026-10-04: the App Store listing must never differ from the record). The record
+/// is the JSON file kept in the private record repository (richos-hq docs/operations/*-listing-state.json);
+/// these are the fields check-listing compares, by the name it prints. Name, subtitle and privacy URL live
+/// on Apple's app info; the rest on the version.
+export const LISTING_FIELDS = [
+  "name",
+  "subtitle",
+  "description",
+  "keywords",
+  "promotionalText",
+  "privacyPolicyUrl",
+  "supportUrl",
+] as const;
+export type ListingField = (typeof LISTING_FIELDS)[number];
+export type ListingText = Record<ListingField, string | null>;
+const APP_INFO_FIELDS: readonly ListingField[] = ["name", "subtitle", "privacyPolicyUrl"];
+
+export type ListingRecord = { path: string; version: string; locale: string; text: ListingText; screenshotsDir: string };
+
+function optionalText(value: unknown, label: string) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") throw new Error(`Expected a string or null for ${label}.`);
+  return value;
+}
+
+/// Reads the record. Its `screenshotsDir` is relative to the record's own repository, so the record names
+/// exactly one folder of screenshots, in its own history.
+export function readListingRecord(path: string): ListingRecord {
+  const resolved = NodePath.resolve(expandHome(path));
+  let data: unknown;
+  try {
+    data = JSON.parse(NodeFS.readFileSync(resolved, "utf8"));
+  } catch {
+    throw new Error(`Cannot read the listing record at ${path}.`);
+  }
+  const root = record(data, "listing record");
+  const localization = record(root.localization, "record localization");
+  const copy = record(root.copy, "record copy");
+  const version = record(root.version, "record version");
+  const locale = text(copy.locale, "record copy.locale");
+  if (localization.locale !== locale) throw new Error("The record's localization and copy name different locales.");
+  const dir = text(root.screenshotsDir, "record screenshotsDir");
+  if (NodePath.isAbsolute(dir) || dir.split(/[\\/]/u).includes("..")) {
+    throw new Error("The record's screenshotsDir must be a path inside the record's repository.");
+  }
+  let repository = NodePath.dirname(resolved);
+  while (!NodeFS.existsSync(NodePath.join(repository, ".git"))) {
+    const parent = NodePath.dirname(repository);
+    if (parent === repository) throw new Error(`The listing record ${path} is not inside a git repository.`);
+    repository = parent;
+  }
+  return {
+    path: resolved,
+    version: text(version.versionString, "record version.versionString"),
+    locale,
+    text: {
+      name: optionalText(localization.name, "record localization.name"),
+      subtitle: optionalText(localization.subtitle, "record localization.subtitle"),
+      description: optionalText(copy.description, "record copy.description"),
+      keywords: optionalText(copy.keywords, "record copy.keywords"),
+      promotionalText: optionalText(copy.promotionalText, "record copy.promotionalText"),
+      privacyPolicyUrl: optionalText(localization.privacyPolicyUrl, "record localization.privacyPolicyUrl"),
+      supportUrl: optionalText(copy.supportUrl, "record copy.supportUrl"),
+    },
+    screenshotsDir: NodePath.join(repository, dir),
+  };
+}
+
+/// Where two texts first differ, with a little context on each side, so a long description's one changed
+/// sentence is visible in a terminal.
+function firstDifference(have: string, want: string) {
+  let index = 0;
+  while (index < have.length && index < want.length && have[index] === want[index]) index++;
+  const excerpt = (value: string) =>
+    JSON.stringify(value.slice(Math.max(0, index - 30), index + 50)) + (value.length > index + 50 ? "…" : "");
+  return `differs at character ${index + 1}: the listing has ${excerpt(have)}; the record says ${excerpt(want)}`;
+}
+
+/// One line per mismatch, each starting with the field's name; an empty list means the listing is the record.
+export function compareListing(want: ListingText, have: ListingText, local: LocalShot[], remote: RemoteShot[]) {
+  const problems: string[] = [];
+  for (const field of LISTING_FIELDS) {
+    const wanted = want[field] ?? "";
+    const actual = have[field] ?? "";
+    if (wanted !== actual) problems.push(`${field}: ${firstDifference(actual, wanted)}.`);
+  }
+  for (const problem of compareScreenshots(local, remote)) problems.push(`screenshots: ${problem}`);
+  return problems;
 }
 
 // All writes use the app and groups verified by status(). No credentials go into command output.
@@ -530,7 +667,246 @@ export function createTestFlightClient(
     return status(selection);
   }
 
-  return { status, publish, verifyUpload };
+  /// Replaces the screenshots of the iPhone 6.9-inch set of the version being prepared. Changes nothing
+  /// else: never submits, selects a build or touches testers.
+  // Apple's API names the 6.7/6.9-inch iPhone family APP_IPHONE_67 (read from this listing: it has no
+  // APP_IPHONE_69 set; the 1320 x 2868 images are the 6.9-inch size and live in this set).
+  /// The one iOS App Store version with this version string.
+  async function findVersion(version: string) {
+    const versionQuery = new URLSearchParams({
+      "filter[platform]": "IOS",
+      "filter[versionString]": version,
+      limit: "10",
+    });
+    const versions = await list(
+      `/v1/apps/${encodeURIComponent(config.appId)}/appStoreVersions?${versionQuery}`,
+      "appStoreVersions",
+    );
+    if (versions.length !== 1) throw new Error(`Expected one iOS version ${version}; found ${versions.length}.`);
+    return versions[0]!;
+  }
+
+  async function versionLocalization(versionId: string, version: string, locale: string) {
+    const localizations = await list(
+      `/v1/appStoreVersions/${encodeURIComponent(versionId)}/appStoreVersionLocalizations?limit=200`,
+      "appStoreVersionLocalizations",
+    );
+    const localization = localizations.find((item) => item.attributes.locale === locale);
+    if (!localization) throw new Error(`Version ${version} has no ${locale} localization.`);
+    return localization;
+  }
+
+  async function screenshotSet(localizationId: string, version: string, locale: string, displayType: string) {
+    const sets = await list(
+      `/v1/appStoreVersionLocalizations/${encodeURIComponent(localizationId)}/appScreenshotSets?limit=200`,
+      "appScreenshotSets",
+    );
+    const set = sets.find((item) => item.attributes.screenshotDisplayType === displayType);
+    if (!set) {
+      throw new Error(
+        `No ${displayType} screenshot set on version ${version} (${locale}); found: ${sets.map((item) => item.attributes.screenshotDisplayType).join(", ") || "none"}.`,
+      );
+    }
+    return set;
+  }
+
+  /// The set's screenshots in the order Apple stores (and shows) them.
+  async function remoteShots(setId: string): Promise<RemoteShot[]> {
+    return (await list(`/v1/appScreenshotSets/${encodeURIComponent(setId)}/appScreenshots?limit=200`, "appScreenshots")).map(
+      (item) => {
+        const delivery = isRecord(item.attributes.assetDeliveryState) ? item.attributes.assetDeliveryState : {};
+        return {
+          fileName: String(item.attributes.fileName ?? ""),
+          checksum:
+            typeof item.attributes.sourceFileChecksum === "string" ? item.attributes.sourceFileChecksum : undefined,
+          state: typeof delivery.state === "string" ? delivery.state : undefined,
+        };
+      },
+    );
+  }
+
+  /// The app-level localization (name, subtitle, privacy URL) of the app info being prepared. Before the
+  /// first release there is one app info; after it, the live one is READY_FOR_DISTRIBUTION and the one
+  /// being prepared is the other.
+  async function appInfoLocalization(locale: string) {
+    const infos = await list(`/v1/apps/${encodeURIComponent(config.appId)}/appInfos?limit=10`, "appInfos");
+    const live = ["READY_FOR_DISTRIBUTION", "READY_FOR_SALE", "REPLACED_WITH_NEW_INFO"];
+    const states = infos.map((info) => String(info.attributes.state ?? info.attributes.appStoreState ?? "?"));
+    const prepared = infos.length === 1 ? infos : infos.filter((_info, index) => !live.includes(states[index]!));
+    if (prepared.length !== 1) {
+      throw new Error(`Expected one app info being prepared; found ${prepared.length} (${states.join(", ") || "none"}).`);
+    }
+    const localizations = await list(
+      `/v1/appInfos/${encodeURIComponent(prepared[0]!.id)}/appInfoLocalizations?limit=200`,
+      "appInfoLocalizations",
+    );
+    const localization = localizations.find((item) => item.attributes.locale === locale);
+    if (!localization) throw new Error(`The app info has no ${locale} localization.`);
+    return localization;
+  }
+
+  /// Everything check-listing compares, read from App Store Connect. Reads only.
+  async function readListing(version: string, locale: string, displayType = "APP_IPHONE_67") {
+    await verifyApp();
+    const prepared = await findVersion(version);
+    const [localization, info] = await Promise.all([
+      versionLocalization(prepared.id, version, locale),
+      appInfoLocalization(locale),
+    ]);
+    const set = await screenshotSet(localization.id, version, locale, displayType);
+    const field = (value: Resource, name: string) => {
+      const raw = value.attributes[name];
+      return typeof raw === "string" ? raw : null;
+    };
+    const listing: ListingText = {
+      name: field(info, "name"),
+      subtitle: field(info, "subtitle"),
+      description: field(localization, "description"),
+      keywords: field(localization, "keywords"),
+      promotionalText: field(localization, "promotionalText"),
+      privacyPolicyUrl: field(info, "privacyPolicyUrl"),
+      supportUrl: field(localization, "supportUrl"),
+    };
+    return {
+      versionId: prepared.id,
+      state: String(prepared.attributes.appStoreState ?? ""),
+      versionLocalizationId: localization.id,
+      infoLocalizationId: info.id,
+      text: listing,
+      shots: await remoteShots(set.id),
+    };
+  }
+
+  /// Sets only the text fields that differ from `want`; returns their names. Never touches anything else.
+  async function setListingText(live: Awaited<ReturnType<typeof readListing>>, want: ListingText) {
+    const changed = LISTING_FIELDS.filter((name) => (live.text[name] ?? "") !== (want[name] ?? ""));
+    const pick = (names: readonly ListingField[]) =>
+      Object.fromEntries(names.filter((name) => changed.includes(name)).map((name) => [name, want[name]]));
+    const infoChanges = pick(APP_INFO_FIELDS);
+    const versionChanges = pick(LISTING_FIELDS.filter((name) => !APP_INFO_FIELDS.includes(name)));
+    if (Object.keys(infoChanges).length > 0) {
+      await request(`/v1/appInfoLocalizations/${encodeURIComponent(live.infoLocalizationId)}`, "PATCH", {
+        data: { type: "appInfoLocalizations", id: live.infoLocalizationId, attributes: infoChanges },
+      });
+    }
+    if (Object.keys(versionChanges).length > 0) {
+      await request(`/v1/appStoreVersionLocalizations/${encodeURIComponent(live.versionLocalizationId)}`, "PATCH", {
+        data: { type: "appStoreVersionLocalizations", id: live.versionLocalizationId, attributes: versionChanges },
+      });
+    }
+    return changed;
+  }
+
+  /// The build number of the build selected on the version, or undefined when none is.
+  async function selectedBuild(versionId: string) {
+    const response = record(
+      await request(`/v1/appStoreVersions/${encodeURIComponent(versionId)}/build`),
+      "selected build response",
+    );
+    if (response.data === null || response.data === undefined) return undefined;
+    return text(resource(response.data, "builds").attributes.version, "selected build number");
+  }
+
+  /// Sends the version to App Review: one review submission holding this version, then submitted. Only
+  /// `submit` (runRelease) calls it, after every refusal has had its chance. Writes are never retried.
+  async function submitForReview(versionId: string) {
+    const created = record(
+      await request("/v1/reviewSubmissions", "POST", {
+        data: {
+          type: "reviewSubmissions",
+          attributes: { platform: "IOS" },
+          relationships: { app: { data: { type: "apps", id: config.appId } } },
+        },
+      }),
+      "review submission response",
+    );
+    const submission = resource(created.data, "reviewSubmissions");
+    await request("/v1/reviewSubmissionItems", "POST", {
+      data: {
+        type: "reviewSubmissionItems",
+        relationships: {
+          reviewSubmission: { data: { type: "reviewSubmissions", id: submission.id } },
+          appStoreVersion: { data: { type: "appStoreVersions", id: versionId } },
+        },
+      },
+    });
+    const submitted = record(
+      await request(`/v1/reviewSubmissions/${encodeURIComponent(submission.id)}`, "PATCH", {
+        data: { type: "reviewSubmissions", id: submission.id, attributes: { submitted: true } },
+      }),
+      "review submission response",
+    );
+    const after = resource(submitted.data, "reviewSubmissions");
+    return { submissionId: after.id, state: String(after.attributes.state ?? "") };
+  }
+
+  async function screenshots(dir: string, version: string, displayType = "APP_IPHONE_67") {
+    const files = localShots(dir);
+    const app = await verifyApp();
+    const prepared = await findVersion(version);
+    const state = text(prepared.attributes.appStoreState, "appStoreState");
+    if (!["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"].includes(state)) {
+      throw new Error(`Version ${version} is ${state}; screenshots can only change while it is being prepared.`);
+    }
+    const locale = text(app.attributes.primaryLocale, "primaryLocale");
+    const localization = await versionLocalization(prepared.id, version, locale);
+    const set = await screenshotSet(localization.id, version, locale, displayType);
+    const setPath = `/v1/appScreenshotSets/${encodeURIComponent(set.id)}/appScreenshots?limit=200`;
+    for (const old of await list(setPath, "appScreenshots")) {
+      await request(`/v1/appScreenshots/${encodeURIComponent(old.id)}`, "DELETE");
+    }
+    const created: string[] = [];
+    for (const file of files) {
+      const reservation = record(
+        await request("/v1/appScreenshots", "POST", {
+          data: {
+            type: "appScreenshots",
+            attributes: { fileName: file.fileName, fileSize: file.size },
+            relationships: { appScreenshotSet: { data: { type: "appScreenshotSets", id: set.id } } },
+          },
+        }),
+        "appScreenshots response",
+      );
+      const shot = resource(reservation.data, "appScreenshots");
+      const bytes = NodeFS.readFileSync(file.path);
+      for (const operation of items(shot.attributes.uploadOperations, "uploadOperations")) {
+        const part = record(operation, "upload operation");
+        const offset = Number(part.offset);
+        const length = Number(part.length);
+        const headers: Record<string, string> = {};
+        for (const header of items(part.requestHeaders ?? [], "requestHeaders")) {
+          const pair = record(header, "request header");
+          headers[text(pair.name, "header name")] = text(pair.value, "header value");
+        }
+        const response = await fetchImpl(text(part.url, "upload url"), {
+          method: text(part.method, "upload method"),
+          headers,
+          body: bytes.subarray(offset, offset + length),
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (!response.ok) throw new Error(`Uploading ${file.fileName} failed: HTTP ${response.status}.`);
+      }
+      await request(`/v1/appScreenshots/${encodeURIComponent(shot.id)}`, "PATCH", {
+        data: { type: "appScreenshots", id: shot.id, attributes: { uploaded: true, sourceFileChecksum: file.md5 } },
+      });
+      created.push(shot.id);
+    }
+    await request(`/v1/appScreenshotSets/${encodeURIComponent(set.id)}/relationships/appScreenshots`, "PATCH", {
+      data: created.map((id) => ({ type: "appScreenshots", id })),
+    });
+    // Wait until Apple has processed every one (bounded: 5 minutes).
+    let remote: RemoteShot[] = [];
+    for (let attempt = 0; attempt < 60; attempt++) {
+      remote = await remoteShots(set.id);
+      const states = remote.map((item) => item.state);
+      if (states.includes("FAILED")) break;
+      if (remote.length === files.length && states.every((value) => value === "COMPLETE")) break;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+    return { version, locale, displayType, files, remote, problems: compareScreenshots(files, remote) };
+  }
+
+  return { status, publish, verifyUpload, screenshots, readListing, setListingText, selectedBuild, submitForReview };
 }
 
 export function validateUploadMetadata(infoPlist: unknown, exportOptions: unknown, bundleId: string) {
@@ -729,12 +1105,12 @@ export function recordUpload(file: string, selection: BuildSelection, commit: st
 }
 
 /// The commit a build was uploaded from; refuses a build this tool did not upload.
-export function uploadedCommit(file: string, selection: BuildSelection) {
+export function uploadedCommit(file: string, selection: BuildSelection, action = "published") {
   const entry = readReceipts(file)[receiptKey(selection)];
   const commit = isRecord(entry) ? entry.commit : undefined;
   if (typeof commit !== "string" || !/^[0-9a-f]{40}$/u.test(commit)) {
     throw new Error(
-      `REFUSED by the speed gate (CEO §106): iPhone build ${receiptKey(selection)}: no record of the commit it was uploaded from (${file}); only a build uploaded by this tool, after the speed gate, can be published.`,
+      `REFUSED by the speed gate (CEO §106): iPhone build ${receiptKey(selection)}: no record of the commit it was uploaded from (${file}); only a build uploaded by this tool, after the speed gate, can be ${action}.`,
     );
   }
   return commit;
@@ -753,9 +1129,11 @@ export type ReleaseDeps = {
   client: (
     config: TestFlightConfig,
     privateKey: NodeCrypto.KeyObject,
-  ) => Pick<ReturnType<typeof createTestFlightClient>, "status" | "publish" | "verifyUpload">;
+  ) => Partial<ReturnType<typeof createTestFlightClient>>;
   upload: typeof uploadArchive;
   readNotes: (path: string) => Promise<string>;
+  readRecord: (path: string) => ListingRecord;
+  localShots: (dir: string) => LocalShot[];
 };
 
 const RELEASE_DEPS: ReleaseDeps = {
@@ -769,7 +1147,61 @@ const RELEASE_DEPS: ReleaseDeps = {
   client: createTestFlightClient,
   upload: uploadArchive,
   readNotes: (path) => NodeFSP.readFile(expandHome(path), "utf8"),
+  readRecord: readListingRecord,
+  localShots,
 };
+
+function need<T>(value: T | undefined, name: string): T {
+  if (value === undefined) throw new Error(`The App Store Connect client has no ${name}.`);
+  return value;
+}
+
+/// The live listing beside the record: every mismatch by field name (empty when they are the same).
+async function compareLiveListing(
+  listing: ListingRecord,
+  client: ReturnType<ReleaseDeps["client"]>,
+  deps: Pick<ReleaseDeps, "localShots">,
+) {
+  const local = deps.localShots(listing.screenshotsDir);
+  const live = await need(client.readListing, "readListing")(listing.version, listing.locale);
+  return { listing, local, live, problems: compareListing(listing.text, live.text, local, live.shots) };
+}
+
+export type ListingCheck = Awaited<ReturnType<typeof compareLiveListing>>;
+
+function listingDiffers(check: ListingCheck) {
+  return new Error(
+    `The App Store listing of ${check.listing.version} differs from the record ${check.listing.path} (${check.problems.length}):\n${check.problems.join("\n")}`,
+  );
+}
+
+/// `submit` (CEO 2026-10-04: impossible to submit a version that is not proven). The only way this tool
+/// sends a version to App Review. Every refusal comes before the one write; nothing skips any of them.
+async function submitVersion(listing: ListingRecord, client: ReturnType<ReleaseDeps["client"]>, deps: ReleaseDeps) {
+  // 1. The live listing is the record: text and screenshots.
+  const check = await compareLiveListing(listing, client, deps);
+  if (check.problems.length > 0) {
+    throw new Error(
+      `REFUSED by the listing check: ${listingDiffers(check).message}\nRun apply-listing, then submit again.`,
+    );
+  }
+  // 2. The build selected on the version, and the commit its upload recorded from the archive's stamp.
+  const build = await need(client.selectedBuild, "selectedBuild")(check.live.versionId);
+  if (!build) {
+    throw new Error(`REFUSED: version ${listing.version} has no build selected in App Store Connect; nothing was submitted.`);
+  }
+  const selection = { build, version: listing.version };
+  const commit = uploadedCommit(deps.receipts, selection, "submitted for review");
+  // 3. The speed pass (§106) for that exact commit.
+  const passed = deps.gate(["--repo", deps.checkout, "--commit", commit]);
+  if (passed !== commit) {
+    throw new Error(`REFUSED by the speed gate (CEO §106): iPhone: the gate passed ${passed}, not build ${receiptKey(selection)}'s ${commit}.`);
+  }
+  // 4. The review walk (§107) for that exact commit.
+  deps.walk(commit);
+  const submission = await need(client.submitForReview, "submitForReview")(check.live.versionId);
+  return { ...check, build: selection, commit, submission };
+}
 
 /// The archived app's Info.plist, where its source stamp is.
 export function readArchivedInfo(archive: string) {
@@ -812,10 +1244,38 @@ export async function runRelease(args: ReleaseArgs, deps: ReleaseDeps = RELEASE_
     deps.deviceFamily(args.archive);
     const { config, privateKey } = await deps.readEnv(args.envFile);
     const client = deps.client(config, privateKey);
-    await deps.upload(args.archive, args.exportOptions, config, privateKey, client.verifyUpload, (selection) =>
+    await deps.upload(args.archive, args.exportOptions, config, privateKey, need(client.verifyUpload, "verifyUpload"), (selection) =>
       recordUpload(deps.receipts, selection, commit),
     );
     return undefined;
+  }
+  if (args.command === "screenshots") {
+    // Listing artwork only: no build is uploaded or published, so neither gate applies.
+    const { privateKey, config } = await deps.readEnv(args.envFile);
+    const result = await need(deps.client(config, privateKey).screenshots, "screenshots")(expandHome(args.dir), args.version);
+    return { config, result };
+  }
+  if (args.command === "check-listing" || args.command === "apply-listing" || args.command === "submit") {
+    // The record is read first: a missing or malformed record refuses before credentials or network.
+    const listing = deps.readRecord(args.record);
+    const { config, privateKey } = await deps.readEnv(args.envFile);
+    const client = deps.client(config, privateKey);
+    if (args.command === "submit") return { config, result: await submitVersion(listing, client, deps) };
+    let changed: string[] = [];
+    let screenshotsReplaced = false;
+    if (args.command === "apply-listing") {
+      // Never submits: text first, then the screenshots only when they differ, then the full check.
+      const before = await compareLiveListing(listing, client, deps);
+      changed = await need(client.setListingText, "setListingText")(before.live, listing.text);
+      if (compareScreenshots(before.local, before.live.shots).length > 0) {
+        const shots = await need(client.screenshots, "screenshots")(listing.screenshotsDir, listing.version);
+        if (shots.problems.length > 0) throw new Error(`Screenshot read-back does not match:\n${shots.problems.join("\n")}`);
+        screenshotsReplaced = true;
+      }
+    }
+    const check = await compareLiveListing(listing, client, deps);
+    if (check.problems.length > 0) throw listingDiffers(check);
+    return { config, result: { ...check, changed, screenshotsReplaced } };
   }
   const selection = { build: args.build, version: args.version };
   if (args.command === "publish") {
@@ -824,8 +1284,8 @@ export async function runRelease(args: ReleaseArgs, deps: ReleaseDeps = RELEASE_
   const { config, privateKey } = await deps.readEnv(args.envFile);
   const client = deps.client(config, privateKey);
   return args.command === "publish"
-    ? { config, result: await client.publish(selection, await deps.readNotes(args.notesFile)) }
-    : { config, result: await client.status(selection) };
+    ? { config, result: await need(client.publish, "publish")(selection, await deps.readNotes(args.notesFile)) }
+    : { config, result: await need(client.status, "status")(selection) };
 }
 
 // Xcode needs a file. REST requests use only the in-memory key.
@@ -858,21 +1318,42 @@ export function parseTestFlightArgs(args: string[]) {
       "notes-file": { type: "string" },
       archive: { type: "string" },
       "export-options": { type: "string" },
+      dir: { type: "string" },
+      record: { type: "string" },
       help: { type: "boolean" },
     },
   });
   if (values.help) return { command: "help" as const };
   const command = positionals[0];
-  if (
-    positionals.length !== 1 ||
-    (command !== "status" && command !== "publish" && command !== "upload")
-  ) {
-    throw new Error("Choose status, publish, or upload. Use --help for usage.");
+  const commands = ["status", "publish", "upload", "screenshots", "check-listing", "apply-listing", "submit"] as const;
+  if (positionals.length !== 1 || !commands.includes(command as never)) {
+    throw new Error(`Choose ${commands.join(", ")}. Use --help for usage.`);
   }
   const envFile =
     values["env-file"] ??
     process.env.RICHOS_IOS_TESTFLIGHT_ENV_FILE ??
     NodePath.join(NodeOS.homedir(), ".config/richos/testflight.env");
+  if (command === "check-listing" || command === "apply-listing" || command === "submit") {
+    // The version, the text and the screenshots all come from the record; nothing else is accepted, and
+    // there is no option that skips a check.
+    if (values.build || values.version || values.archive || values["export-options"] || values["notes-file"] || values.dir) {
+      throw new Error(`${command} takes only --record and --env-file; the version and everything else come from the record.`);
+    }
+    return { command, envFile, record: text(values.record, "--record") };
+  }
+  if (values.record) throw new Error("--record is only valid with check-listing, apply-listing and submit.");
+  if (command === "screenshots") {
+    if (values.build || values.archive || values["export-options"] || values["notes-file"]) {
+      throw new Error("Screenshots takes only --dir, --version and --env-file.");
+    }
+    return {
+      command: "screenshots" as const,
+      envFile,
+      dir: text(values.dir, "--dir"),
+      version: text(values.version, "--version"),
+    };
+  }
+  if (values.dir) throw new Error("--dir is only valid with screenshots.");
   if (command === "upload") {
     if (values.build || values.version || values["notes-file"]) {
       throw new Error(
@@ -915,7 +1396,19 @@ async function main() {
     process.stdout.write(`Usage:
   node Release/testflight.ts status --build 1 --version 1.0.0
   node Release/testflight.ts publish --build 1 --version 1.0.0 --notes-file /path/to/notes.txt
+  node Release/testflight.ts screenshots --version 1.0.0 --dir /path/to/pngs   (replaces the iPhone 6.9-inch set in file-name order, then reads it back)
   node Release/testflight.ts upload --archive /path/to/RichOSNative.xcarchive --export-options Release/ExportOptions.plist
+  node Release/testflight.ts check-listing --record /path/to/listing-state.json   (exit 1, every mismatch by field, unless the live listing is the record)
+  node Release/testflight.ts apply-listing --record /path/to/listing-state.json   (sets the listing from the record, then check-listing; never submits)
+  node Release/testflight.ts submit --record /path/to/listing-state.json          (the only way to send a version to App Review)
+
+The listing record is the private record repository's docs/operations/*-listing-state.json: name,
+subtitle, description, keywords, promotional text, privacy and support URLs, the version, and
+screenshotsDir (the folder of screenshots, relative to that repository, in file-name order).
+Submit is REFUSED, with no option to skip, unless check-listing passes, the build selected on the
+version was uploaded by this tool (its archive's stamped commit is recorded), that commit has the
+phone speed watch's pass (shipgate.py, CEO §106) and the review walk passed on it (reviewwalk.py,
+CEO §107).
 
 Optional: --env-file /path/to/file or RICHOS_IOS_TESTFLIGHT_ENV_FILE.
 Default env file: ~/.config/richos/testflight.env (mode 600, never inside a git working tree).
@@ -936,7 +1429,54 @@ Release/check_device_family.py passes the archive (iPhone-only device family, ic
   }
   const outcome = await runRelease(args);
   if (!outcome) return;
-  const { config, result } = outcome;
+  if (args.command === "check-listing" || args.command === "apply-listing" || args.command === "submit") {
+    // A mismatch never reaches here: runRelease threw it, every field by name, and the exit is 1.
+    const check = outcome.result as ListingCheck & {
+      changed?: string[];
+      screenshotsReplaced?: boolean;
+      build?: BuildSelection;
+      commit?: string;
+      submission?: { submissionId: string; state: string };
+    };
+    if (args.command === "apply-listing") {
+      process.stdout.write(
+        `Set from the record: ${check.changed?.length ? check.changed.join(", ") : "no text field (all already matched)"}; screenshots ${check.screenshotsReplaced ? "replaced" : "already matched, left as they are"}.\n`,
+      );
+    }
+    process.stdout.write(`Record: ${check.listing.path}\nVersion ${check.listing.version} (${check.live.state}), ${check.listing.locale}\n`);
+    for (const field of LISTING_FIELDS) {
+      const value = check.live.text[field] ?? "";
+      const shown = value.length > 70 ? `${JSON.stringify(value.slice(0, 70))}… (${value.length} characters)` : JSON.stringify(value);
+      process.stdout.write(`  ok  ${field}: ${shown}\n`);
+    }
+    check.local.forEach((file, index) => {
+      process.stdout.write(`  ok  screenshot ${index + 1}: ${file.fileName}  md5 ${file.md5}  ${check.live.shots[index]?.state}\n`);
+    });
+    process.stdout.write(
+      `The listing matches the record: ${LISTING_FIELDS.length} text fields and ${check.local.length} screenshots (${check.listing.screenshotsDir}).\n`,
+    );
+    if (args.command === "submit" && check.submission && check.build) {
+      process.stdout.write(
+        `Submitted ${check.listing.version} (${check.build.build}), commit ${check.commit}, to App Review: submission ${check.submission.submissionId} is ${check.submission.state}.\n`,
+      );
+    }
+    return;
+  }
+  if (args.command === "screenshots") {
+    const shots = outcome.result as { remote: RemoteShot[]; files: LocalShot[]; problems: string[] };
+    shots.files.forEach((file, index) => {
+      const have = shots.remote[index];
+      process.stdout.write(
+        `${index + 1}. ${file.fileName}  local md5 ${file.md5}  Apple ${have?.checksum ?? "(none)"}  ${have?.state ?? "(missing)"}\n`,
+      );
+    });
+    if (shots.problems.length > 0) throw new Error(`Read-back does not match:\n${shots.problems.join("\n")}`);
+    process.stdout.write(
+      `Read-back matches: ${shots.files.length} screenshots, in order, every checksum equal and COMPLETE.\n`,
+    );
+    return;
+  }
+  const { config, result } = outcome as { config: TestFlightConfig; result: Awaited<ReturnType<ReturnType<typeof createTestFlightClient>["status"]>> };
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if (args.command === "publish") {
     process.stdout.write(

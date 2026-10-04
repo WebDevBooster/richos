@@ -13,7 +13,7 @@ this Mac from the command line; nothing here needs Simulator.app or opens a wind
 | `platform-tests.sh` | The notification and share platform tests, on this Mac, no simulator |
 | `simulator-tests.sh` | The share sheet, platform effects and notification platform on one simulator it creates and deletes; writes share-sheet snapshots |
 | `make-app-icon.cjs` | The icon at every size from `richos/app/icon-source/richos-icon-1024.png`; `--check` finds drift |
-| `testflight.ts`, `testflight.test.ts` | Upload, status and publish against App Store Connect (adopted from T3 Code, MIT) |
+| `testflight.ts`, `testflight.test.ts` | Upload, status and publish against App Store Connect (adopted from T3 Code, MIT); the store listing's check, apply and the App Review submit (RichOS) |
 | `ExportOptions.plist` | The export options the upload uses |
 | `App-Info.plist`, `RichOSNative.entitlements` | The app's keys and entitlements a build setting cannot express |
 | `third-party/T3-Code-LICENSE.txt` | T3 Code's MIT notice for the adopted files |
@@ -113,6 +113,21 @@ stops it. The checkout running `upload` must have the archive's commit. No flag 
 4. `node Release/testflight.ts status --version 1.0.0 --build <n>` until processing is `VALID`.
 5. `node Release/testflight.ts publish --version 1.0.0 --build <n> --notes-file <notes>` puts it
    in the internal group. A rerun writes nothing twice.
+
+**The App Store listing is the record, and only a proven version goes to App Review** (CEO
+2026-10-04). The listing record is the private record repository's
+`docs/operations/*-listing-state.json`: name, subtitle, description, keywords, promotional text,
+privacy and support URLs, the version, and `screenshotsDir` (the screenshots folder, relative to that
+repository, shown in file-name order).
+
+- `node Release/testflight.ts check-listing --record <record>` reads the live listing and exits 1
+  naming every field, and every screenshot position, that differs from the record.
+- `node Release/testflight.ts apply-listing --record <record>` sets the differing text fields from the
+  record, replaces the screenshots only when they differ, then runs the same check. It never submits.
+- `node Release/testflight.ts submit --record <record>` is the only way this Mac sends a version to App
+  Review. It refuses, with no option to skip, unless check-listing passes, the build selected on the
+  version was uploaded by this tool (so its archive's stamped commit is recorded), that commit has the
+  speed pass (`shipgate.py`, §106) and the review walk passed on it (`reviewwalk.py`, §107).
 
 A simulator release check does not prove signing or TestFlight upload. Verify the account record,
 API key and current distribution toolchain before running steps 2–5. The tool is tested against a
