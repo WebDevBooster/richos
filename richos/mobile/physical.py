@@ -14,6 +14,9 @@ So a physical phone is touched ONLY through the two command lines, `randroid dev
     physical.py android-gate    --adb ADB --serial S        exit 0 (the installed build as JSON) or 3
     physical.py android-install --adb ADB --serial S --apk APK --aapt2 AAPT2
     physical.py android-record  --adb ADB --serial S --out FILE.mp4 [--seconds N]
+    physical.py android-condition --adb ADB --serial S [--seconds N] [--out DIR]
+                                                            READ ONLY: what automation left running or
+                                                            changed on the phone, and its log flood
     physical.py ios-app APP                                 exit 0 for a Release bundle, 3 otherwise
     physical.py hold --platform android|ios --phone ID [--wait S] [--holder NAME] -- <command>
                                                             run <command> holding that phone's lock
@@ -212,6 +215,305 @@ def record(adb_path, serial, out, seconds):
     finally:
         adb(adb_path, serial, "shell", f"rm -f {remote}", timeout=30)
     return {"recording": out, "seconds": seconds, "bytes": os.path.getsize(out), "build": info}
+
+
+# -- the phone's condition: what automation left behind (CEO 2026-10-04) --------------------------
+# On the iPhone, every automated session left a stuck input client behind until a reboot, and the
+# phone slowed down. This is the Android read of the same question: what our tools left running or
+# changed that a person would not, and the phone's log flood. READ ONLY: every command below is a
+# read (`settings get`, never put; `wm size` with no argument; `logcat` without -c; `dumpsys` with no
+# reset flag); `read_only` checks each command before it runs, and mobile-device.test.py (D34) checks every call. Nothing is fixed,
+# reset, killed or restarted here; the report says what it found, and a person decides. The CEO's own
+# app is only asked whether it runs (`pidof`), never read beyond that. A debuggable test copy is
+# REPORTED, not refused: seeing the phone's state is never refused (as `device build`).
+
+CONDITION_SETTINGS = [  # (namespace, key, the value a phone has when nobody changed it)
+    ("global", "window_animation_scale", "1.0"), ("global", "transition_animation_scale", "1.0"),
+    ("global", "animator_duration_scale", "1.0"), ("global", "stay_on_while_plugged_in", "0"),
+    ("system", "show_touches", "0"), ("system", "pointer_location", "0"),
+    ("global", "always_finish_activities", "0"), ("global", "debug_view_attributes", "0"),
+    ("global", "debug_app", None), ("global", "wait_for_debugger", "0"),
+    ("secure", "enabled_accessibility_services", None), ("secure", "accessibility_enabled", None),
+    ("secure", "touch_exploration_enabled", "0"), ("secure", "default_input_method", None),
+    ("secure", "enabled_input_methods", None), ("system", "screen_off_timeout", None),
+    ("global", "development_settings_enabled", None), ("global", "adb_enabled", None),
+    ("secure", "ui_night_mode", None),
+]
+CONDITION_PROPS = ["debug.hwui.profile", "debug.hwui.overdraw", "debug.layout", "debug.hwui.show_dirty_regions",
+                   "persist.sys.ui.hw", "debug.atrace.tags.enableflags", "debug.atrace.app_cmdlines",
+                   "debug.atrace.app_number", "log.tag", "persist.log.tag"]
+# Files our tools put on the phone and remove when they end normally (a UI dump, a recording, a trace,
+# the benchmark's binaries): one left behind says a run ended early.
+LEFTOVER_FILES = "richos|qa-phone|randroid|review-walk|emu-ui"
+CONDITION_DUMP_KEYS = [k for _, k, _ in CONDITION_SETTINGS if k not in ("default_input_method", "enabled_input_methods")]
+INPUT_WINDOW = re.compile(r"(?i)input|window|viewroot|surface|choreographer|anr|blast|focus")
+SHELL_USER = "shell"
+
+
+def condition_reads(seconds):
+    """name -> one read-only shell command (each is checked by `read_only` before it runs)."""
+    reads = {f"setting:{ns}:{key}": f"settings get {ns} {key}" for ns, key, _ in CONDITION_SETTINGS}
+    reads.update({f"prop:{p}": f"getprop {p}" for p in CONDITION_PROPS})
+    reads.update({
+        "clock": "date +%s; cat /proc/uptime; cat /proc/loadavg",
+        "processes": "ps -A -o PID,PPID,USER,ETIME,TIME,NAME,ARGS",
+        "packages": f"cmd package list packages -U {PACKAGE}",
+        "bench-package": "cmd package list packages dev.richos.bench",
+        "files": f"ls -la /sdcard /data/local/tmp | grep -E '{LEFTOVER_FILES}'",
+        "tracing": "cat /sys/kernel/tracing/tracing_on; cat /sys/kernel/debug/tracing/tracing_on",
+        "wm-size": "wm size", "wm-density": "wm density", "night": "cmd uimode night",
+        "battery": "dumpsys battery",
+        "batterystats-reset": "dumpsys batterystats | grep -m 3 -E 'RESET:TIME|Time on battery'",
+        "settings-history": "dumpsys settings | grep -E '" + "|".join(CONDITION_DUMP_KEYS) + "'",
+        "ime": "ime list -s",
+        "accessibility": "dumpsys accessibility | grep -i -E 'uiautomation|bound services|enabled services'",
+        "instrumentation": "dumpsys activity processes | grep -i -E 'instrumentation|instr='",
+        "input": "dumpsys input",
+        "power": "dumpsys power | grep -i -E 'wake_lock|wake locks|stay_on|mStayOn'",
+        "test-copy": f"echo pid:; pidof {PACKAGE}; echo services:; dumpsys activity services {PACKAGE} | "
+                     f"grep -E 'ServiceRecord|app=|isForeground'; echo jobs:; dumpsys jobscheduler {PACKAGE} | grep -E 'JOB #'; "
+                     f"echo alarms:; dumpsys alarm | grep -F '{PACKAGE}'",
+        "ceo-app-runs": f"pidof {test_copy.CEO_APP_ANDROID}",
+        "front": "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
+        # Every line written in the next `seconds`: the phone's own clock marks the start, the phone
+        # sleeps, then one dump (`logcat -d`, which ends on its own: no reader is left behind) of the
+        # lines since that mark. (A streamed logcat ended by `timeout` lost its buffered output on the
+        # Honor: 0 lines in 30 s, measured 2026-10-04.)
+        "log": f"t=$(date +%s); echo since $t; sleep {int(seconds)}; logcat -d -v epoch -b main,system,crash -T \"$t.000\"",
+        # Then the whole buffer as it stands (its sizes first): the same count over the hours it holds,
+        # and whether it still reaches back to the window's start (if not, the window lost lines).
+        "log-buffer": "logcat -g -b main,system,crash; logcat -d -v epoch -b main,system,crash",
+    })
+    return reads
+
+
+# Each piece of a read, split at ; | and &&, must be one of these, and nothing in a dumpsys may name
+# a flag that changes the phone (`dumpsys battery unplug`, `dumpsys batterystats --reset`).
+READ_SEGMENT = re.compile(
+    r"^(settings get (global|secure|system) \w+|getprop [\w.]+|date \+%s|cat /proc/(uptime|loadavg)"
+    r"|ps -A -o [A-Z,]+|cmd package list packages( -U)? [\w.]+|wm (size|density)|cmd uimode night|ime list -s"
+    r"|ls -la( /[\w/]+)+|cat /sys/kernel(/debug)?/tracing/tracing_on"
+    r"|pidof [\w.]+|grep( -[a-zA-Z]+| \d+)* '[^']*'|t=\$\(date \+%s\)|echo [\w:]+|echo since \$t|sleep \d+"
+    r"|logcat -d -v epoch -b [a-z,]+ -T \"\$t\.000\"|logcat -d -v epoch -b [a-z,]+|logcat -g -b [a-z,]+"
+    r"|dumpsys (battery|batterystats|settings|accessibility|activity processes|activity services [\w.]+"
+    r"|jobscheduler [\w.]+|alarm|input|power|window))$")
+WRITES = re.compile(r"logcat\b.*\s-[cG]\b|--reset|\bunplug\b|\breset\b|\bset\b|\bput\b|--enable|--disable|\blogcat\b.*\s-c\b|\bkill\b")
+
+
+def read_only(cmd):
+    """True when every piece of `cmd` is a known read and nothing in it names a write."""
+    masked = re.sub(r"'[^']*'", "'Q'", cmd)  # a grep pattern's own | and ; are not separators
+    pieces = [x.strip() for x in re.split(r";|&&|\|", masked) if x.strip()]
+    return bool(pieces) and all(READ_SEGMENT.match(x) for x in pieces) and not WRITES.search(masked)
+
+
+def parse_ps(text):
+    rows = []
+    for line in text.replace("\r", "").splitlines()[1:]:
+        parts = line.split(None, 6)
+        if len(parts) < 6 or not parts[0].isdigit():
+            continue
+        rows.append({"pid": int(parts[0]), "ppid": int(parts[1]) if parts[1].isdigit() else None, "user": parts[2],
+                     "elapsed": parts[3], "cpu": parts[4], "name": parts[5], "args": parts[6] if len(parts) > 6 else ""})
+    return rows
+
+
+def leftovers(rows):
+    """Processes an adb shell started and left: adbd is among their ancestors (what `adb shell` runs
+    is adbd's child), or a test tool started through app_process (uiautomator, monkey, am
+    instrument's runner) whoever started it. adbd itself and this read's own `ps` and its shell are
+    not counted; the phone's own daemons that run as the shell user but were started by init at boot
+    are listed apart (`shellUserNotFromAdb`), never as ours."""
+    by_pid = {r["pid"]: r for r in rows}
+    own = {r["pid"] for r in rows if r["args"].startswith("ps -A ")}
+    own |= {r["ppid"] for r in rows if r["pid"] in own and by_pid.get(r["ppid"], {}).get("name") != "adbd"}
+
+    def from_adb(r):
+        seen, pid = set(), r["ppid"]
+        while pid and pid not in seen and pid in by_pid:
+            seen.add(pid)
+            if by_pid[pid]["name"] == "adbd":
+                return True
+            pid = by_pid[pid]["ppid"]
+        return False
+
+    found, other = [], []
+    for r in rows:
+        if r["pid"] in own or r["name"] == "adbd":
+            continue
+        tool = re.search(r"uiautomator|com\.android\.commands\.\S+|\bmonkey\b|screenrecord", r["args"] + " " + r["name"])
+        parent = by_pid.get(r["ppid"], {}).get("name")
+        if from_adb(r) or tool:
+            found.append({**r, "parent": parent, "why": ("started over adb (adbd is an ancestor)" if from_adb(r) else "")
+                          + (f"; a test tool ({tool.group(0)})" if tool else "")})
+        elif r["user"] == SHELL_USER:
+            other.append({**r, "parent": parent})
+    return found, other
+
+
+LOG_LINE = re.compile(r"^\s*(\d+\.\d+)\s+(\d+)\s+(\d+)\s+([VDIWEFA])\s+(.*?)\s*:\s(.*)$")
+
+
+def normalize(message):
+    m = re.sub(r"0x[0-9a-fA-F]+", "0x#", message)
+    m = re.sub(r"\b[0-9a-fA-F]{6,}\b", "#", m)
+    return re.sub(r"\d+", "#", m).strip()[:200]
+
+
+def log_flood(text, seconds, names, top=15):
+    """A log read: total lines and rate, the most repeated lines (digits and ids folded, so one
+    message repeated with different numbers is one row), each with its rate and the processes that
+    wrote it, and the share from the input and window system. `seconds` None: the rate is over the
+    span the lines cover (the whole buffer's read)."""
+    from collections import Counter, defaultdict
+    counts, pids, sample = Counter(), defaultdict(set), {}
+    total = errors = input_window = 0
+    since, first, last = None, None, None
+    for line in text.replace("\r", "").splitlines():
+        mark = re.match(r"^since (\d+)$", line.strip())
+        if mark:
+            since = int(mark.group(1))
+            continue
+        m = LOG_LINE.match(line)
+        if not m:
+            continue
+        total += 1
+        ts, pid, _, prio, tag, msg = m.groups()
+        first = float(ts) if first is None else min(first, float(ts))
+        last = float(ts) if last is None else max(last, float(ts))
+        errors += prio in "EF"
+        input_window += bool(INPUT_WINDOW.search(tag))
+        key = (prio, tag, normalize(msg))
+        counts[key] += 1
+        pids[key].add(int(pid))
+        sample.setdefault(key, msg[:200])
+    window = seconds if seconds is not None else (round(last - first, 1) if first is not None else None)
+    rate = lambda n: round(n / window, 3) if window else None
+    who = lambda key: sorted({names.get(pid, f"pid {pid} (ended)") for pid in pids[key]})[:5]
+    rows = [{"count": n, "perSecond": rate(n), "priority": k[0], "tag": k[1], "line": sample[k], "folded": k[2],
+             "processes": who(k)} for k, n in counts.most_common(top)]
+    top_ew = [{"count": n, "perSecond": rate(n), "priority": k[0], "tag": k[1], "line": sample[k], "processes": who(k)}
+              for k, n in counts.most_common() if k[0] in "WEF"][:top]
+    return {"windowSeconds": window, "since": since, "first": first, "last": last,
+            "lines": total, "perSecond": rate(total), "errorLines": errors,
+            "inputWindowLines": input_window, "inputWindowPerSecond": rate(input_window), "top": rows,
+            "topWarningsAndErrors": top_ew}
+
+
+def input_state(text):
+    """`dumpsys input`: the dispatcher's connections and monitors. A connection that is not NORMAL
+    or not responsive, and the same channel registered more than once, are the Android form of the
+    iPhone's stuck input clients."""
+    from collections import Counter
+    conns, monitors, anr, section = [], [], [], None
+    now, _, last_anr = text.replace("\r", "").partition("Input Dispatcher State at time of last ANR:")
+    for line in now.splitlines():
+        s = line.strip()
+        if re.match(r"(Global|Gesture) monitors", s) or s.startswith("Monitors"):
+            section = "monitors"
+        elif s.startswith("Connections:"):
+            section = "connections"
+        elif s and not s[0].isdigit() and line[:1] not in (" ", "\t"):
+            section = None
+        if "channelName=" in s and section == "connections":
+            conns.append(s)
+        elif section == "monitors" and re.match(r"\d+:", s):
+            monitors.append(s)
+        if re.search(r"\bANR\b|not responding|unresponsive", s, re.I):
+            anr.append(s[:300])
+    name = lambda c: re.sub(r"\b[0-9a-f]{6,}\b", "#", (re.search(r"channelName='([^']*)'", c) or [None, c])[1])
+    dup = {k: n for k, n in Counter(name(c) for c in conns).items() if n > 1}
+    bad = [c[:300] for c in conns if "responsive=false" in c or not re.search(r"status=NORMAL", c)]
+    last = [x.strip()[:300] for x in last_anr.splitlines() if re.match(r"\s*(Time|Reason):", x)][:2]
+    return {"connections": len(conns), "notNormalOrUnresponsive": bad, "duplicateChannels": dup,
+            "monitors": [m[:300] for m in monitors], "anrLines": anr[:20], "lastAnr": last}
+
+
+def condition(adb_path, serial, seconds=30, out_dir=None):
+    if not (5 <= seconds <= 120):
+        raise CannotAnswer("--seconds must be 5 to 120 (the log is read for that long)")
+    info = probe(adb_path, serial)
+    physical(info)
+    raw = {}
+    reads = condition_reads(seconds)
+    unsafe = [cmd for cmd in reads.values() if not read_only(cmd)]
+    if unsafe:
+        raise CannotAnswer(f"not a read, so not run: {unsafe[0][:160]}")
+    for name, cmd in reads.items():
+        p = adb(adb_path, serial, "shell", cmd, timeout=seconds + 60 if name == "log" else 60)
+        raw[name] = (p.stdout or "").replace("\r", "")
+        if (p.stderr or "").strip():
+            raw[name + ".stderr"] = p.stderr
+    get = lambda k: raw.get(k, "").strip()
+    settings = []
+    for ns, key, default in CONDITION_SETTINGS:
+        value = get(f"setting:{ns}:{key}")
+        value = None if value in ("", "null") else value
+        changed = default is not None and value is not None and _num(value) != _num(default)
+        settings.append({"namespace": ns, "key": key, "value": value, "untouched": default, "changed": changed})
+    props = {p: get(f"prop:{p}") or None for p in CONDITION_PROPS}
+    rows = parse_ps(raw["processes"])
+    names = {r["pid"]: f"{r['name']} ({r['user']})" for r in rows}
+    left, other = leftovers(rows)
+    window = {**log_flood(raw["log"], seconds, names), "error": raw.get("log.stderr", "").strip()[:300] or None}
+    buffer = log_flood(raw.get("log-buffer", ""), None, names)
+    # The buffer no longer reaching back to the window's start means lines written in the window were
+    # pushed out before the dump read them: the window's count is then a floor.
+    window["bufferTurnedOver"] = bool(window["since"] and buffer["first"] and buffer["first"] > window["since"])
+    clock = get("clock").split()
+    battery = get("battery")
+    overrides = {k: get(k) for k in ("wm-size", "wm-density")}
+    result = {
+        "build": info,
+        "phoneClock": {"epoch": int(clock[0]) if clock and clock[0].isdigit() else None,
+                       "uptimeHours": round(float(clock[1]) / 3600, 2) if len(clock) > 1 else None,
+                       "loadavg": " ".join(clock[3:6]) if len(clock) > 5 else None},
+        "leftoverProcesses": left,
+        "shellUserNotFromAdb": other,
+        "adbd": [{k: r[k] for k in ("pid", "elapsed", "args")} for r in rows if r["name"] == "adbd"],
+        "processCount": len(rows),
+        "settings": settings,
+        "settingsChanged": [f"{s['namespace']} {s['key']}={s['value']}" for s in settings if s["changed"]],
+        "settingsHistory": get("settings-history").splitlines()[:80],
+        "debugProperties": {k: v for k, v in props.items() if v},
+        "displayOverrides": {k: v for k, v in overrides.items() if "Override" in v},
+        "display": overrides,
+        "nightMode": get("night"),
+        "batteryOverridden": "UPDATES STOPPED" in battery,
+        "battery": battery.splitlines()[:12],
+        "batterystatsReset": get("batterystats-reset").splitlines(),
+        "inputMethodsEnabled": get("ime").splitlines(),
+        "accessibility": get("accessibility").splitlines()[:30],
+        "instrumentation": get("instrumentation").splitlines()[:20],
+        "input": input_state(raw["input"]),
+        "wakeLocks": get("power").splitlines()[:60],
+        "leftoverFiles": get("files").splitlines()[:40],
+        "benchmarkAppInstalled": get("bench-package") or None,
+        "kernelTracingOn": get("tracing").splitlines(),
+        "testCopy": {"package": PACKAGE, "uid": get("packages") or None, "detail": get("test-copy").splitlines()[:40]},
+        "ceoAppRunning": bool(get("ceo-app-runs")),
+        "front": get("front").splitlines(),
+        "log": window,
+        "logBuffer": {**{k: v for k, v in buffer.items() if k != "since"},
+                      "sizes": [x.strip() for x in raw.get("log-buffer", "").splitlines() if "ring buffer" in x]},
+        "logLevel": {k: props.get(k) for k in ("log.tag", "persist.log.tag")},
+    }
+    if out_dir:
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        for name, text in raw.items():
+            if name == "ceo-app-runs":
+                continue
+            (Path(out_dir) / (re.sub(r"[^\w.-]+", "_", name) + ".txt")).write_text(text)
+        (Path(out_dir) / "condition.json").write_text(json.dumps(result, indent=2))
+        result["rawDir"] = out_dir
+    return result
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return v
 
 
 # -- one user per phone -------------------------------------------------------------------------
@@ -568,8 +870,8 @@ def main(argv):
             print(json.dumps({"ok": False, "error": str(e)}), file=sys.stderr)
             return 2
     p = argparse.ArgumentParser(prog="physical.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["android-build", "android-gate", "android-install", "android-record", "ios-app", "scan",
-                                       "status"])
+    p.add_argument("command", choices=["android-build", "android-condition", "android-gate", "android-install",
+                                       "android-record", "ios-app", "scan", "status"])
     p.add_argument("--platform")
     p.add_argument("--phone", default="")
     p.add_argument("value", nargs="?")
@@ -606,6 +908,8 @@ def main(argv):
                 physical(result)
             elif a.command == "android-gate":
                 result = gate(a.adb, a.serial)
+            elif a.command == "android-condition":
+                result = condition(a.adb, a.serial, a.seconds, a.out)
             elif a.command == "android-install":
                 if not (a.apk and a.aapt2):
                     raise CannotAnswer("android-install needs --apk and --aapt2")
