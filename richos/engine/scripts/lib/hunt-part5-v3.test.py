@@ -363,5 +363,42 @@ class P5_33_QuotaTickUsesCompiledHelper(Scratch):
         self.assertEqual(self.run_helper("tick", with_binary=False), "CARGO")
 
 
+class P5_46_SkippedMergeIsNotALanding(Scratch):
+    """A merge or removal on the right of `||` did not run in a successful call. Data only."""
+
+    def setUp(self):
+        super().setUp()
+        self.lm = load("land_measure_p5v3", os.path.join(SCRIPTS, "land-completeness-measure.py"))
+
+    def events(self, cmd):
+        path = os.path.join(self.tmp, "t.jsonl")
+        with open(path, "w") as fh:
+            fh.write(json.dumps({"type": "assistant", "timestamp": "t1", "message": {"content": [
+                {"type": "tool_use", "id": "u1", "name": "Bash", "input": {"command": cmd}}]}}) + "\n")
+            fh.write(json.dumps({"type": "user", "timestamp": "t2", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "u1", "content": "ok"}]}}) + "\n")
+        return [e for e in self.lm.walk_transcript(path) if e[0] in ("land", "removal")]
+
+    def test_merge_after_or_is_not_a_land(self):
+        self.assertEqual(self.events("true || git merge cc/example"), [])
+
+    def test_merge_after_and_is_a_land(self):
+        self.assertEqual([e[0] for e in self.events("cd repo && git merge cc/example")], ["land"])
+
+    def test_merge_after_a_semicolon_runs_and_is_a_land(self):
+        self.assertEqual(self.lm.classify_land("true || echo skipped; git merge cc/example"),
+                         "cc/example")
+
+    def test_echoed_removal_script_is_not_a_removal(self):
+        self.assertFalse(self.lm.is_removal("echo scripts/remove-agent-worktree.sh x"))
+
+    def test_removal_script_after_or_is_not_a_removal(self):
+        self.assertFalse(self.lm.is_removal("true || bash scripts/remove-agent-worktree.sh x"))
+
+    def test_run_removal_script_is_a_removal(self):
+        self.assertTrue(self.lm.is_removal("bash scripts/remove-agent-worktree.sh x"))
+        self.assertTrue(self.lm.is_removal("scripts/collect-worktree-artifacts.sh x && git worktree list"))
+
+
 if __name__ == "__main__":
     unittest.main()
