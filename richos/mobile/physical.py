@@ -509,6 +509,11 @@ def condition(adb_path, serial, seconds=30, out_dir=None):
         "logBuffer": {**{k: v for k, v in buffer.items() if k != "since"},
                       "sizes": [x.strip() for x in raw.get("log-buffer", "").splitlines() if "ring buffer" in x]},
         "logLevel": {k: props.get(k) for k in ("log.tag", "persist.log.tag")},
+        # what a run recorded on the Mac as changed on this phone and never put back (phone_changes.py); listed, not undone
+        "pendingPhoneChanges": [
+            f"{r.get('kind')}: recorded {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(r['at']))}"
+            if isinstance(r.get("at"), (int, float)) else f"{r.get('kind')}: recorded at an unknown time"
+            for r in phone_changes.pending(serial)],
     }
     if out_dir:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -915,7 +920,8 @@ def main(argv):
                 raise CannotAnswer("ios-app takes the app bundle's path")
             result = ios_app(a.value)
         else:
-            put_back_leftovers(a.adb, a.serial)
+            if a.command != "android-condition":  # condition only reads: it lists what is pending and restores nothing
+                put_back_leftovers(a.adb, a.serial)
             if a.command == "android-build":
                 result = probe(a.adb, a.serial)
                 physical(result)

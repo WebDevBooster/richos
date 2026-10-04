@@ -315,6 +315,27 @@ def _():
         assert not physical.read_only(write), write
 
 
+@case("D34b condition lists a change a run recorded and never put back, by name and when, and restores nothing")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        ph = Phone(tmp, sha="a" * 64, replies=CONDITION_REPLIES)
+        rec = str(Path(tmp) / "records")
+        env = {"RICHOS_PHONE_CHANGES_DIR": rec}
+        os.environ["RICHOS_PHONE_CHANGES_DIR"] = rec
+        try:
+            sys.path.insert(0, str(Path(physical.__file__).parent / "perf"))
+            import phone_changes
+            phone_changes.begin("PHONE1", "battery", ["dumpsys battery reset"])
+        finally:
+            os.environ.pop("RICHOS_PHONE_CHANGES_DIR", None)
+        code, out = ph.randroid("device", "--serial", "PHONE1", "condition", "--seconds", "5", env=env)
+        assert code == 0, (code, out)
+        found = json.loads(out[out.index("{"):])["result"]["pendingPhoneChanges"]
+        assert len(found) == 1 and found[0].startswith("battery: recorded 20"), found
+        assert not any("battery reset" in c for c in ph.calls), ph.calls  # listed, never undone
+        assert len(list(Path(rec).glob("*.json"))) == 1
+
+
 # -- every other command tests the release build only --------------------------------------------
 
 @case("D6 build shows the installed build, debuggable or not: the way to see the phone's state is never refused")
