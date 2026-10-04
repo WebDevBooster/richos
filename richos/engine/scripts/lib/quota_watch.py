@@ -283,6 +283,20 @@ EXPECT_SECONDS = 300
 # rounded up to a minute.
 HOLD_SECONDS = 60
 
+
+def speed_settings(a):
+    """Fill in the §108 check interval and hold time from a.poll where the
+    caller did not set them, and return a. Both scale down with an accelerated
+    poll (seconds long, in the suites), so fixtures' fast rises keep their
+    meaning; production is 60 and 60. main() and poll_loop() both call it, so a
+    caller that builds its own arguments (the weekly suite, the replay) never
+    meets a missing one; values a caller set are kept."""
+    if getattr(a, "fast_poll", None) is None:
+        a.fast_poll = min(a.poll, FAST_POLL_SECONDS)
+    if getattr(a, "hold", None) is None:
+        a.hold = min(HOLD_SECONDS, a.poll // 5)
+    return a
+
 # WAKE THE LEAD BEFORE THE READING TURNS ONE POLL OLD (2026-09-25, measured).
 # The lead read 91% at 07:57Z and 95% at 08:07Z: the pause fired at 95, not 93.
 # A reading is current up to one poll (300 s) old, so a loop that polls every
@@ -1267,6 +1281,7 @@ def poll_loop(a, out, alive=None):
     # does (hunt part 5, P5-15): once the failures span one poll's worth of time, the
     # lead is told the watcher is blind, once per episode. A completed poll ends the episode.
     health = {"first": None, "woken": False, "count": 0}
+    speed_settings(a)
     with contextlib.redirect_stdout(out):
         while True:
             try:
@@ -1955,11 +1970,8 @@ def main(argv):
     a.payload = default_payload_path()
     a.poll = _env_int("QUOTA_WATCH_POLL_SECONDS", POLL_SECONDS)
     a.stale = _env_int("QUOTA_WATCH_STALE_SECONDS", a.poll)
-    # Ruling §108. Both scale down with the suite's accelerated poll (seconds
-    # long), so its fixtures' fast rises keep their meaning; production is 120
-    # and 60.
-    a.fast_poll = min(a.poll, FAST_POLL_SECONDS)
-    a.hold = min(HOLD_SECONDS, a.poll // 5)
+    a.fast_poll = a.hold = None
+    speed_settings(a)  # ruling §108
     a.threshold_raw = (a.threshold_raw or "").strip()
     a.threshold, a.threshold_problem = parse_threshold(a.threshold_raw)
     a.engine_root = a.engine_root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
