@@ -51,6 +51,21 @@ ends its run, and a later message starts a new run (Rich, brief addition 1). The
 generated WAIT therefore tells it to run `agent_hold.py wait`, which returns
 RESUMED only once the hold is released.
 
+A HELD AGENT MAKES NO MODEL CALL WHILE IT WAITS (2026-10-04). Every return of a
+tool call is a model call that reads the agent's whole context. The wait used to
+return STILL WAITING every 270 s to keep the prompt cache warm, and each held
+agent re-ran it: on 2026-09-29 fifteen held Fable workers made 44 such calls in
+17 minutes, reading 22.0 million context tokens, after the five-hour quota had
+switched to the API. Now gate(), run first by the PreToolUse[Bash] rewriter
+(shell-evidence.py), holds a held agent's wait call before it starts, for as
+long as the hold stands, once that agent has been handed this hold's WAIT
+notice; the model is not called until the release lets the call run and print
+RESUMED. Measured on Claude Code 2.1.288: a PreToolUse hook held a subagent's
+tool call for 700 s with no model call, and a test agent held 5 minutes made
+none until its release. The bound is that hook's timeout in hooks.json (86400 s;
+not measured beyond 700 s): when it expires the call runs, returns STILL WAITING
+once and the next wait is held again.
+
 NATIVE TASKS KEEP THE TOOL ROUND FREE (2026-09-28). The previous foreground
 wrapper used trap, $$ and a subshell job. Claude Code 2.1.283 rejects those
 constructs for worktree-isolated agents. New calls retain the original command
@@ -121,11 +136,13 @@ WAIT_CALL = re.compile(r"\s*(?:python3\s+)?(?:\S*/)?agent_hold\.py\s+wait"
                        r"(?:\s+--max-seconds\s+\d+(?:\.\d+)?)?\s*(?:2>&1\s*)?\Z")
 TOOL_MAX_TIMEOUT_MS = 600000   # the Bash tool's ceiling unless BASH_MAX_TIMEOUT_MS says otherwise
 WAIT_MARGIN_SECONDS = 15       # the wait returns this long before its call's timeout
-# Each STILL WAITING is one model turn. Measured 2026-09-28: after a 25 s gap the turn read the
-# agent's whole context from the prompt cache; after 585 s the conversation part had expired and
-# was written again (5,244 tokens rewritten, only the shared 11,430-token prefix still read).
-# Returning inside the cache's lifetime keeps each turn a cache read: about 6x cheaper per hour held.
+# Each STILL WAITING / STILL RUNNING is one model turn. Measured 2026-09-28: after a 25 s gap the
+# turn read the agent's whole context from the prompt cache; after 585 s the conversation part had
+# expired and was written again. Returning inside the cache's lifetime keeps each turn a cache read.
+# This bound now applies only to an agent that is NOT held (waiting for its own running task): a
+# held agent's wait is held by gate() before it starts and makes no model call until its release.
 WAIT_CACHE_SECONDS = 270
+GATE_POLL_SECONDS = 1.0
 HOW_TO_WAIT = ("To wait, run this command with the Bash tool's timeout input set to 600000 (do not type a shell timeout prefix), and run it again each time it prints "
                "STILL WAITING: " + WAIT_COMMAND)
 REFUSED_TEXT = ("WAIT: the orchestrator has told you to wait, so this command did not run. Run it again after "
@@ -1250,6 +1267,39 @@ def notice_hold(session, agent):
         return False
     _write_json(path, {"at": held["at"]})
     return True
+
+
+def gate(payload, poll=GATE_POLL_SECONDS):
+    """A held agent's wait call starts only once its hold is released (run first by shell-evidence.py).
+
+    The call is held here, before it runs, so the model is not called while the
+    agent waits. Only a subagent's own wait call, only while its hold stands and
+    only after that agent was handed this hold's WAIT notice (the first wait after
+    a hold returns at once, so the queued WAIT message reaches the agent). Always
+    allows the call in the end and never prints a decision: the wait itself then
+    reports RESUMED. Ends early when the session that ran this hook is gone.
+    """
+    try:
+        if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+            return 0
+        if not is_wait_call((payload.get("tool_input") or {}).get("command")):
+            return 0
+        session, agent = payload.get("session_id"), payload.get("agent_id")
+        if not _valid_ids(session, agent):
+            return 0
+        path = _held_path(session, agent)
+        notice = os.path.join(state_dir(), "wait-notices", "%s__%s.json" % (session, agent))
+        while True:
+            held = _read_json(path)
+            if not isinstance(held, dict):
+                return 0
+            if (_read_json(notice) or {}).get("at") != held.get("at"):
+                return 0
+            if os.getppid() == 1:
+                return 0
+            time.sleep(poll)
+    except Exception:  # a broken gate must never keep a call from running
+        return 0
 
 
 def wait_resume(max_seconds=None, poll=2.0, out=sys.stdout):

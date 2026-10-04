@@ -141,16 +141,23 @@ h=b"richos"
 for _ in range(int(sys.argv[1])): h=hashlib.sha256(h).digest()
 print(h.hex())' "$ROUNDS")"
 
-agent_call() { # <agent-id> <tool_use_id> <command> <tag> [bg]  -> starts it; shell pid in $T/<tag>.shell
-    local rewritten="$T/$4.hook.json"
+call_payload() { # <agent-id> <tool_use_id> <command> <tag> [bg]  -> the PreToolUse[Bash] payload in $T/<tag>.payload.json
     local transcript="$T/transcripts/$CUR_SID/subagents/agent-$1.jsonl"
     mkdir -p "$(dirname "$transcript")"; touch "$transcript"
     python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","session_id":sys.argv[1],"agent_id":sys.argv[2],"tool_use_id":sys.argv[3],"tool_name":"Bash","cwd":sys.argv[5],"transcript_path":sys.argv[7],"tool_input":{"command":sys.argv[4],"run_in_background":sys.argv[6]=="bg"}}))' "$CUR_SID" "$1" "$2" "$3" "$ENT" "${5:-fg}" "$transcript" \
-        | bash "$HOOKS/shell-evidence.sh" > "$rewritten"
-    python3 "$T/launch.py" "$SHELL_BIN" "$rewritten" "$T/$4.shell" "$T/$4.rc" "$CUR_SID" "$1" "$2" "$transcript" &
+        > "$T/$4.payload.json"
+}
+agent_launch() { # <agent-id> <tool_use_id> <tag>  -> runs the rewritten call as the harness does; shell pid in $T/<tag>.shell
+    local transcript="$T/transcripts/$CUR_SID/subagents/agent-$1.jsonl"
+    python3 "$T/launch.py" "$SHELL_BIN" "$T/$3.hook.json" "$T/$3.shell" "$T/$3.rc" "$CUR_SID" "$1" "$2" "$transcript" &
     OURS+=("$!")
-    local i=0; while [ ! -s "$T/$4.shell" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
-    if [ "$(cat "$T/$4.shell")" -gt 1 ]; then OURS+=("$(cat "$T/$4.shell")"); fi
+    local i=0; while [ ! -s "$T/$3.shell" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+    if [ "$(cat "$T/$3.shell")" -gt 1 ]; then OURS+=("$(cat "$T/$3.shell")"); fi
+}
+agent_call() { # <agent-id> <tool_use_id> <command> <tag> [bg]  -> hook, then starts it; shell pid in $T/<tag>.shell
+    call_payload "$@"
+    bash "$HOOKS/shell-evidence.sh" < "$T/$4.payload.json" > "$T/$4.hook.json"
+    agent_launch "$1" "$2" "$4"
 }
 wait_file() { local i=0; while [ ! -s "$1" ] && [ $i -lt "${2:-400}" ]; do sleep 0.05; i=$((i + 1)); done; [ -s "$1" ]; }
 pstate() { ps -o stat= -p "$1" 2>/dev/null | tr -d ' '; }
@@ -274,7 +281,12 @@ python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","
 sub "H7.4 a TaskStop naming it still continues it" "! is_stopped $WG"
 kill -9 "$WG" 2>/dev/null
 
-echo "=== H8 the agent WAITS inside its run: its wait command returns RESUMED only after the generated RESUME ==="
+echo "=== H8 the agent WAITS inside its run: its wait is held before it starts (no model call) and returns RESUMED only after the generated RESUME ==="
+# The CEO (2026-10-04): "there was still some token leakage somewhere even after everyone
+# was paused." Every return of a tool call is a model call, so once the held agent has had
+# the WAIT notice, its next wait is held by the PreToolUse[Bash] hook (agent_hold.gate)
+# before it starts and nothing returns to the agent until the RESUME. The hook therefore
+# runs in the background here: it does not return while the hold stands.
 AID4="aholdfourfourfour"
 register_agent "zach-opus-hold4" "$AID4"
 # A background call this time: frozen whole, so the wait returns at RESUME without collecting it.
@@ -285,14 +297,23 @@ WAITCMD="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import pause
 agent_call "$AID4" "toolu_notice8" "$WAITCMD" notice8
 wait_file "$T/notice8.rc" 100
 sub "H8.0 a hold that predates the wait gets an immediate WAIT result" "grep -q '^WAIT:' '$T/notice8.stdout'"
-agent_call "$AID4" "toolu_wait8" "$WAITCMD" wait8
-SHW="$(cat "$T/wait8.shell")"
-sleep 1
-sub "H8.1 the wait the message names runs (never refused, never frozen: Sage's catch A) and has not returned" \
-    "! is_stopped $SHW && [ ! -e '$T/wait8.rc' ]" "$(pstate "$SHW") $(cat "$T/wait8.stdout" 2>/dev/null)"
+call_payload "$AID4" "toolu_wait8" "$WAITCMD" wait8
+bash "$HOOKS/shell-evidence.sh" < "$T/wait8.payload.json" > "$T/wait8.hook.json" &
+HK8="$!"; OURS+=("$HK8")
+sleep 2
+sub "H8.1 the wait the message names is held by its hook before it starts: no tool result, so no model call; the hook is never frozen (Sage's catch A)" \
+    "kill -0 $HK8 2>/dev/null && ! is_stopped $HK8 && [ ! -s '$T/wait8.hook.json' ]" \
+    "$(pstate "$HK8") $(cat "$T/wait8.hook.json" 2>/dev/null)"
+sleep 2
+sub "H8.2 still held 2 s later: no tool result has reached the agent, and the call has not started" \
+    "kill -0 $HK8 2>/dev/null && [ ! -s '$T/wait8.hook.json' ] && [ ! -e '$T/wait8.shell' ]"
 send "zach-opus-hold4" "$RESUME_TEXT" "$T/resume8.out"
+i=0; while kill -0 "$HK8" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+sub "H8.3 the generated RESUME lets the hook return its rewrite within seconds" \
+    "! kill -0 $HK8 2>/dev/null && grep -q updatedInput '$T/wait8.hook.json'" "$(cat "$T/wait8.hook.json" "$T/resume8.out" 2>/dev/null)"
+agent_launch "$AID4" "toolu_wait8" wait8
 wait_file "$T/wait8.rc" 200
-sub "H8.2 after the generated RESUME it prints RESUMED and exits 0; the worker runs again" \
+sub "H8.4 the released wait prints RESUMED and exits 0; the worker runs again" \
     "grep -q '^RESUMED at' '$T/wait8.stdout' && [ \"\$(cat $T/wait8.rc)\" = 0 ] && ! is_stopped $W8" "$(cat "$T/wait8.stdout" "$T/resume8.out")"
 kill -9 "$W8" 2>/dev/null
 
