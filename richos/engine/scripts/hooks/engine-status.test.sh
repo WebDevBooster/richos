@@ -1333,6 +1333,22 @@ esac
 cp "$SANDBOX/engine-status.sh.pristine" "$ENGINE/scripts/hooks/engine-status.sh"
 restore
 
+# 8 — THE ROOT-FAILURE BANNER PROMISES NOTHING THE ENGINE DOES NOT DO (hunt part
+# 3 v3, finding 29). Advisory notices return 0 on a root failure, so "every
+# guard in this session will refuse" is false; the banner must say which do.
+banner "RICHOS_ENTITY_ROOT=$SANDBOX/no-such-repository"
+case "$OUT" in
+    *"ROOT RESOLUTION FAILURE"*)
+        if printf '%s' "$OUT" | grep -q 'Every guard in this session will refuse'; then
+            bad "8a  the root-failure banner does not claim every guard refuses" "it still does"
+        elif printf '%s' "$OUT" | grep -q 'advisory notices'; then
+            ok "8a  the root-failure banner says blocking guards refuse and advisory notices only report"
+        else
+            bad "8a  the root-failure banner names the advisory notices" "$(printf '%s' "$OUT" | cut -c1-200)"
+        fi ;;
+    *)  bad "8a  the root-failure banner (fixture)" "no root failure reached: $(printf '%s' "$OUT" | cut -c1-200)" ;;
+esac
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf 'engine-status: %d/%d cases pass\n' "$PASS" "$PASS"
