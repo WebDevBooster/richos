@@ -16,7 +16,16 @@
 #                                       with-android-firebase.py) and a committed source tree.
 #                                       Whatever key signs it, it is REFUSED without the phone speed
 #                                       watch's §104 PASS for this exact app code
-#                                       (richos/mobile/perf/shipgate.py, CEO §106); nothing skips that
+#                                       (richos/mobile/perf/shipgate.py, CEO §106) and without a PASSING
+#                                       review walk of this exact commit (below; reviewwalk.py, CEO
+#                                       §107); nothing skips either
+#   randroid review-walk [--commit SHA] what Google's reviewer does, automated, on the RELEASE build of
+#                                       exactly SHA (default HEAD) on this CLI's emulator, against the
+#                                       live review service: sign in on the access page (headless
+#                                       Chromium), get a pairing link, open it in the app, check the six
+#                                       words and press They match in the app and on the page, send one
+#                                       message and see the Demo reply, reset the review host. Writes the
+#                                       walk record (pass or fail, every step named) that bundle reads
 #   randroid verify-bundle <file.aab>   check a bundle: signed by the upload key only, permanent ID,
 #                                       base module only, development bridge absent (full dex dump),
 #                                       release security policy (richos/mobile/security)
@@ -573,8 +582,8 @@ release_policy() {  # $1 = apk (binary, or a bundle's base as a proto APK); prin
 
 # The APK a release or debug build just wrote, named by AGP's own output-metadata.json (the name
 # changes with signing: app-release.apk signed, app-release-unsigned.apk not).
-built_apk() {  # $1 = debug | release | perfCopy | seedTwin
-  python3 - "$OUT/app/outputs/apk/$1" <<'PY'
+built_apk() {  # $1 = debug | release | perfCopy | seedTwin, $2 = the build's output folder (default $OUT)
+  python3 - "${2:-$OUT}/app/outputs/apk/$1" <<'PY'
 import json, os, sys
 d = sys.argv[1]
 meta = json.load(open(os.path.join(d, "output-metadata.json")))
@@ -757,6 +766,110 @@ speed_gate() {  # returns nonzero with the refusal in SPEED_REFUSAL
   return 1
 }
 
+# The review-walk gate (CEO 2026-10-04, §107: the CEO is never the first tester): no bundle without a
+# PASSING `randroid review-walk` record for this exact commit, read by richos/mobile/perf/reviewwalk.py
+# from its fixed state directory. No flag skips it. The one exception is a test's STAND-IN records
+# directory, named by RICHOS_REVIEW_WALK_RECORDS (the Android suite's throwaway-key bundle, as with the
+# speed gate's RICHOS_SHIP_GATE_VERDICTS); a stand-in record is judged by every rule of the real one and
+# the pass line names it. Anything the gate cannot run or read refuses.
+WALK_REFUSAL=""
+WALK_LINE=""
+WALK_RECORD=""
+walk_gate() {  # $1 = the full commit; returns nonzero with the refusal in WALK_REFUSAL
+  local out
+  if out="$(PYTHONDONTWRITEBYTECODE=1 python3 - "$HERE/../perf" "$1" 2>&1 <<'PY'
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+try:
+    import reviewwalk
+except Exception as exc:  # noqa: BLE001 - a gate that cannot load refuses
+    sys.exit(f"REFUSED by the review-walk gate (CEO §107): Android build of {sys.argv[2][:12]}: the gate could not load ({exc})")
+stand_in = os.environ.get("RICHOS_REVIEW_WALK_RECORDS", "")
+try:
+    result = reviewwalk.check("android", sys.argv[2], root=stand_in or reviewwalk.ROOT)
+except reviewwalk.Refused as exc:
+    sys.exit(f"REFUSED by the review-walk gate (CEO §107): {exc}")
+except Exception as exc:  # noqa: BLE001 - anything unexpected refuses, never allows
+    sys.exit(f"REFUSED by the review-walk gate (CEO §107): Android build of {sys.argv[2][:12]}: the gate itself failed: {type(exc).__name__}: {exc}")
+print(result["line"] + (f" (STAND-IN walk records from {stand_in}, a test fixture)" if stand_in else ""))
+print(result["record"])
+PY
+)"; then
+    WALK_LINE="$(printf '%s\n' "$out" | head -1)"
+    WALK_RECORD="$(printf '%s\n' "$out" | sed -n 2p)"
+    return 0
+  fi
+  WALK_REFUSAL="$(printf '%s\n' "${out:-REFUSED by the review-walk gate (CEO §107): Android: the gate did not run}" | tail -1)"
+  return 1
+}
+
+# --- the store reviewer's walk (CEO 2026-10-04, §107) -------------------------------------------
+# The RELEASE build of exactly one commit, built from that commit's own files (git archive into this
+# CLI's cache, so nothing uncommitted can reach it), signed with the upload key, installed fresh on
+# this CLI's emulator (never a phone: `serial` is only the emulator this CLI booted), then walked by
+# bin/review-walk.mjs exactly as the Google Play review notes tell the reviewer
+# (richos/mobile/review-mock/README.md). The record is written whether the walk passes or fails.
+# An emulator this verb booted is stopped when it ends; one that was already running is left.
+SIGNING_WRAPPER="${RANDROID_SIGNING_WRAPPER:-/Users/alex/ab/richos-hq/scripts/with-android-signing.py}"
+review_walk() {
+  local commit=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --commit) commit="${2:-}"; shift 2 || shift $# ;;
+      *) fail "unknown review-walk option '$1'; see randroid --help" ;;
+    esac
+  done
+  local repo sha
+  repo="$(git -C "$HERE" rev-parse --show-toplevel)" || fail "not a git checkout: $HERE"
+  sha="$(git -C "$repo" rev-parse --verify --quiet "${commit:-HEAD}^{commit}")" || fail "review-walk: ${commit:-HEAD} is not a commit in $repo"
+  # The build Google gets is signed with the upload key and carries the Firebase values; both reach
+  # Gradle only through the richos-hq wrappers, which re-run this command with them.
+  if ! upload_key_present; then
+    [ -f "$SIGNING_WRAPPER" ] || fail "REFUSED: no upload key in the environment and no $SIGNING_WRAPPER; the release build could not be installed" 3
+    exec python3 "$SIGNING_WRAPPER" "${BASH_SOURCE[0]}" review-walk --commit "$sha"
+  fi
+  if ! firebase_present && [ -f "$FIREBASE_WRAPPER" ]; then
+    exec python3 "$FIREBASE_WRAPPER" "${BASH_SOURCE[0]}" review-walk --commit "$sha"
+  fi
+  need_java
+  local walk="$CACHE/review-walk"
+  local src="$walk/src"
+  rm -rf "$src"; mkdir -p "$src"
+  git -C "$repo" archive "$sha" richos/mobile/native-android richos/mobile/conformance | tar -x -C "$src" \
+    || fail "could not export $sha's Android app"
+  local na="$src/richos/mobile/native-android" apk
+  python3 "$HERE/../../engine/scripts/lib/native-work.py" -- "$na/gradlew" -p "$na" --project-cache-dir "$walk/gradle-project" \
+    -Prichos.out="$walk/out" -q --no-configuration-cache :app:assembleRelease >&2 \
+    || fail "the release build of ${sha:0:12} did not build"
+  apk="$(built_apk release "$walk/out")" || fail "no release APK recorded in output-metadata.json"
+  case "$apk" in *-unsigned.apk) fail "REFUSED: $apk is unsigned; the emulator installs only a signed APK" 3 ;; esac
+  local booted_here=0
+  if ! { [ -f "$EMU_RECORD" ] && kill -0 "$(record_get pid)" 2>/dev/null; }; then booted_here=1; fi
+  if [ "$booted_here" -eq 1 ]; then
+    trap 'emu_stop >/dev/null 2>&1 || true' EXIT
+    # This command owns the emulator it boots, for as long as it lives (testdevices.py's lease).
+    export RICHOS_TEST_DEVICE_OWNER_PID=$$
+  fi
+  emu_boot
+  local s; s="$(serial)"
+  [ -n "$s" ] || fail "no emulator serial"
+  emu_awake "$s"
+  # A reviewer installs the app fresh from Google Play: no earlier install, no earlier data. This is
+  # this CLI's emulator, never a phone.
+  "$ADB" -s "$s" uninstall "$PACKAGE" >/dev/null 2>&1 || true
+  "$ADB" -s "$s" install "$apk" >&2 || fail "the release build of ${sha:0:12} did not install on $s"
+  local code=0
+  # run-active renews the emulator's lease while the walk lives (the lease otherwise ends 900 s after
+  # the boot, measured 2026-10-04: mid-walk), and ends the walk if the lease is lost.
+  python3 "$HERE/../../engine/scripts/lib/testdevices.py" run-active --kind android-emulator --id "$CACHE" \
+    --checkout "$HERE/../../.." -- \
+    node "$HERE/bin/review-walk.mjs" --adb "$ADB" --serial "$s" --commit "$sha" --package "$PACKAGE" \
+    --activity "$ACTIVITY" --apk "$apk" --writer "$HERE/../perf/reviewwalk.py" || code=$?
+  # The test instance is garbage: quit it.
+  "$ADB" -s "$s" shell am force-stop "$PACKAGE" >/dev/null 2>&1 || true
+  return "$code"
+}
+
 # The signed bundle for Google Play. Refuses rather than produce a bundle that would upload and
 # be wrong: unsigned (no upload key), unable to receive notifications (no Firebase values), built
 # from uncommitted source (no commit identifies it), carrying a stale icon, or SLOWER THAN THE SPEED
@@ -778,6 +891,8 @@ bundle() {
   node "$HERE/release/make-app-icon.cjs" --check >&2 || fail "the launcher icon is stale; run node release/make-app-icon.cjs"
   # Every bundle, whatever key signs it: refuse before minutes of building.
   speed_gate || fail "$SPEED_REFUSAL"
+  walk_gate "$sha" || fail "$WALK_REFUSAL"
+  printf 'review walk: %s\n' "$WALK_LINE" >&2
   # Whole minutes from 2026-01-01T00:00Z to now (UTC): every later bundle has a higher code.
   local code
   code="$(python3 -c 'import time,calendar; print((int(time.time()) - calendar.timegm((2026,1,1,0,0,0))) // 60)')"
@@ -791,11 +906,11 @@ bundle() {
   file="$dir/RichConnect-$code.aab"
   cp "$built" "$file"
   if ! result="$(verify_bundle "$file" "$code")"; then printf '%s\n' "$result" >&2; fail "the bundle failed verification: $file"; fi
-  python3 - "$result" "$sha" "$dirty" "$file" <<'PY'
+  python3 - "$result" "$sha" "$dirty" "$file" "$WALK_RECORD" <<'PY'
 import json, sys
 result, sha, dirty, file = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3] == "true", sys.argv[4]
 r = result["result"]
-receipt = {"bundle": file, "commit": sha, "dirty": dirty, "package": r["package"],
+receipt = {"bundle": file, "commit": sha, "dirty": dirty, "reviewWalk": sys.argv[5], "package": r["package"],
            "versionCode": r["versionCode"], "versionName": r["versionName"],
            "signerSha256": r["signer"]["sha256"], "signerExpectedFrom": r["signer"]["expectedFrom"],
            "checks": r["checks"]}
@@ -838,6 +953,7 @@ case "$mode" in
       *) fail "build takes debug, release or twin" ;;
     esac ;;
   bundle) bundle "$@" ;;
+  review-walk) review_walk "$@" ;;
   verify-bundle)
     [ "$#" -ge 1 ] || fail "verify-bundle takes the path of an .aab"
     verify_bundle "$1" ;;
@@ -845,6 +961,6 @@ case "$mode" in
   emu) emu "$@" ;;
   device) device "$@" ;;
   doctor) doctor ;;
-  ""|-h|--help|help) sed -n '2,79p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,88p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) fail "unknown mode '$mode'; see randroid --help" ;;
 esac
