@@ -631,6 +631,34 @@ export function whisperArgs(opts = {}) {
   ];
 }
 
+/**
+ * The text-context budget of the RESTYLE re-decode (stage 3.9, `restyle.js`) — and ONLY of that
+ * decode. The main pass stays at `MAX_CONTEXT_TOKENS = 0`; nothing here touches it.
+ *
+ * Why a budget at all: whisper.cpp only admits a `--prompt` when `-mc` leaves room for it (at 0 the
+ * prompt is byte-identical to no prompt — the settings table, §2). Why it cannot fabricate: the
+ * re-decode is ONE clip inside ONE decode window, conditioned on a fixed prompt, so there is no
+ * decoded text to accumulate; and `restyle.js` takes only punctuation and case from it, never a
+ * word. 100 is the value measured on the CEO's 66-minute file (2026-10-04): 36 of 38 run-on
+ * windows came back punctuated, in 81.6 s for all 38.
+ */
+export const RESTYLE_MAX_CONTEXT_TOKENS = 100;
+
+/**
+ * The arguments the restyle re-decode adds AFTER `whisperArgs()` (whisper-cli takes the last `-mc`).
+ * An empty prompt (a span at the very start of a channel, with nothing before it) adds only the
+ * budget, so the clip decodes unconditioned — the honest fallback, counted as unrestored if it
+ * comes back run-on.
+ * @param {string} prompt the transcript text preceding the span
+ * @returns {string[]}
+ */
+export function restyleArgs(prompt) {
+  const p = String(prompt || '').trim();
+  return p
+    ? ['-mc', String(RESTYLE_MAX_CONTEXT_TOKENS), '--prompt', p, '--carry-initial-prompt']
+    : ['-mc', String(RESTYLE_MAX_CONTEXT_TOKENS)];
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Workspace source (the system architecture §2/§4.2) — the CEO-information-perimeter ingest layer.
 // A NEW MODULE inside this same local service (not a second daemon): reuses the drop-zone discipline,

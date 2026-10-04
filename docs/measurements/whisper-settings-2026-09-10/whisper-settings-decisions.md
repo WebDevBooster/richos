@@ -54,6 +54,13 @@ and the deletion detector's clip probe, same decode flags, no `-ojf`/`-of`, seve
 
 plus one `--version` per session from `whisperVersion()` — the identity probe, §4.1.
 
+And, since 2026-10-04, the restyle re-decode (stage 3.9, §9): one clip per run-on span, the main
+pass's decode flags, then a prompt budget and the transcript's own preceding text:
+
+```
+-m <model> -f <clip> -l en -t 4 -mc 0 -oj -np -fa -mc 100 --prompt <preceding text> --carry-initial-prompt -of <base>
+```
+
 | Flag | Vendor default | We ship | Why ours, with evidence |
 |---|---|---|---|
 | `-m` | `models/ggml-base.en.bin` | resolved model path | **ARGUED.** The vendor default names a file that does not exist on this machine. `resolveModelChecked()` picks by id and refuses a candidate failing size/GGML-magic against its pin. |
@@ -82,7 +89,7 @@ plus one `--version` per session from `whisperVersion()` — the identity probe,
 | `-ml` / `-sow` | `0` / off | `0` / off | **MEASURED.** `-ml 60 -sow` produces byte-identical TEXT with 250 segments instead of 152 and costs 7% more time. Finer segments would change caption and merge granularity for no accuracy gain, so the segment boundaries stay the model's. |
 | `-dtw` | off | off | **MEASURED.** `-dtw large.v3.turbo` is byte-identical **including the token offsets we consume** (1,829 word times either way) and costs **26% more wall clock**. It writes its timestamps somewhere `parseSegmentWordTimes` does not read; enabling it would be paying for an unused output. |
 | `-sns` | off | off | **MEASURED.** `-sns` scores **3.41%** (+0.52 points, insertions 8 → 16). Suppressing non-speech tokens makes this pipeline worse, not safer. |
-| `--prompt` / `--carry-initial-prompt` | unset / off | **unset, and §5 is why** | **MEASURED.** Under `-mc 0` both are **byte-identical to no prompt at all** — a zero text-context budget leaves no room for the prompt tokens — while costing 29–55% wall clock. Setting them today would ship a feature that reports on and does nothing. |
+| `--prompt` / `--carry-initial-prompt` | unset / off | **main pass: unset, and §5 is why. Restyle re-decode only: set, with `-mc 100` — CHANGED 2026-10-04, §9** | **MEASURED.** Under `-mc 0` both are **byte-identical to no prompt at all** — a zero text-context budget leaves no room for the prompt tokens — while costing 29–55% wall clock. On the main pass they stay unset. On the one-clip restyle re-decode they are the mechanism: §9 has the measurement and the reason it cannot fabricate. |
 | `--suppress-regex` | unset | unset | **ARGUED.** A regex that deletes text before anything looks at the audio is the failure this project has already recorded: the captured fabricated span contains a real spoken "Zero.", so a blanket strip deletes speech (`ceo-decisions.md` §10). Suppression here is post-decode, adjudicated against the audio, and stays there. |
 | `--grammar` / `--grammar-rule` / `--grammar-penalty` | unset / unset / `100.0` | unset | **ARGUED.** A GBNF grammar constrains the decoder to a formal language. Conversation is not one. Nothing to write. |
 | `-ot` / `-on` / `-d` | `0` / `0` / `0` | unchanged | **ARGUED.** Offsets and durations are for decoding part of a file. We decode the whole channel; the clip probe cuts its own audio with ffmpeg so that every stage measures the same clip the same way. |
@@ -277,3 +284,37 @@ or they are named as not answerable.
 | Are `-tp` / `-tpi` / `-et` / `-lpt` tuned right for hard audio? | Fallback never fires on any material we have, so every value is inert on it. | Keep the vendor's recovery path enabled and unmodified. Tuning a defense on material that never triggers it would be fitting to noise. |
 | Would a different `-wt` improve deletion-detector localization? | Two settings 50x apart give identical token offsets on this corpus; nothing here exercises it. | Leave at `0.01` and keep scoring coverage on word times, which is already the measured-better unit. |
 | turbo vs q5_0 | The CEO's, and out of scope for this table. | Nothing here depends on it; see §6. |
+
+## 9. Run-on windows and the restyle re-decode (2026-10-04)
+
+**The defect** (CEO, 2026-10-04): a 66-minute imported video, decoded with exactly §1's command
+(whisper.cpp 1.9.4, `large-v3-turbo-q5_0`), came back with stretches of lowercase, unpunctuated
+run-on text between stretches that read perfectly. The measurement run reproduced his transcript
+byte for byte (text sha256 prefix `42919666dfdef913`, both runs).
+
+**The cause.** At `-mc 0` every 30-second window decodes with no text before it, so punctuation and
+case are chosen afresh per window. A window starts at the previous one's last timestamp, usually
+mid-sentence. Of 143 windows, 105 began on a lowercase word and 37 of those (35%) came out run-on;
+of the 38 that began capitalized, 1 did (2.6%). The bad windows are scattered from 02:50 to 65:55,
+so this is not drift.
+
+**Every decode-level lever, measured on the same file:**
+
+| Lever | Result | Verdict |
+|---|---|---|
+| `-mc 16` (carry 16 decoded tokens) | run-on words 32.7% → **64.6%**, lowercase pronoun 102 → 293, longest segment 10.5 s → 30.0 s | Rejected. Bad style is carried forward as well as good; this is the drift `-mc 0` prevents. |
+| `--prompt` + `--carry-initial-prompt` at `-mc 20` (main pass) | punctuation returns, but timestamps collapse to one 30 s segment per window and words at a window end are **dropped** | Rejected: deletes speech. |
+| the same at `-mc 1` | only the prompt's last token survives (`max(1, mc-1)`, whisper.cpp `src/whisper.cpp:7067`); a repetition loop appears | Rejected. |
+| `--grammar` forbidding a lowercase first letter | 9 of 17 restored; **deletes** the leading words it cannot capitalize (up to twelve at one window start); 2.3× slower | Rejected: deletes speech. |
+| isolated re-decode of the span, no prompt | 15 of 33 restored | Rejected: a coin flip. |
+| **one-clip re-decode of each run-on window, prompted with the transcript's own preceding text, `-mc 100`** | **36 of 38** came back punctuated (the other two punctuated too, by a stricter detector's miss); 81.6 s for all 38 | **Adopted, as stage 3.9.** |
+
+**Why the adopted row cannot fabricate.** Each clip fits one decode window and is conditioned on a
+fixed prompt, so no decoded text accumulates, which is the mechanism behind every loop in §5. And
+`restyle.js` takes only punctuation and case from it: the main pass's words are aligned to the
+re-decode's and keep their identity, so no word can be inserted, deleted or substituted, and every
+detector (3.5 to 3.8) has already judged the words that ship. The main pass is unchanged:
+`-mc 0`, no prompt.
+
+**Cost:** one model load and one short decode per run-on clip, so zero on a transcript without
+run-on windows and proportional to the defect on one with them.

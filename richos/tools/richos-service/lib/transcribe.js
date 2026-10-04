@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { withPrivateOutputs } from './private-files.js';
-import { whisperBin, resolveModel, whisperArgs, DEFAULT_MODEL } from './config.js';
+import { whisperBin, resolveModel, whisperArgs, restyleArgs, DEFAULT_MODEL } from './config.js';
 import { assertToolchain, resolveToolchain, probeWhisper, provenanceString } from './toolchain.js';
 
 /**
@@ -214,6 +214,47 @@ export function transcribeSession(channels, opts = {}) {
     whisper: me.toolchain ? me.toolchain.provenance : whisperVersion(),
     toolchain: me.toolchain || null,
   };
+}
+
+/**
+ * Re-decode ONE clip conditioned on the transcript text that precedes it — the restyle stage's
+ * decode (`restyle.js`, stage 3.9). Returns the clip's text.
+ *
+ * One invocation per clip, unlike `transcribeClips`: `--prompt` is per invocation, and each clip's
+ * prompt is different (and, for consecutive clips, includes the previous clip's restyled text).
+ * The decode parameters are `whisperArgs()` exactly as the main pass uses them, with
+ * `restyleArgs()` after them; gated by the same toolchain check, because this text decides the
+ * punctuation and case of a shipped transcript.
+ *
+ * @param {string} clipPath
+ * @param {string} prompt
+ * @param {{model?: string, extraArgs?: string[], language?: string}} [opts]
+ * @returns {string}
+ */
+export function transcribeStyled(clipPath, prompt, opts = {}) {
+  const modelId = opts.model || DEFAULT_MODEL;
+  const modelPath = resolveModel(modelId);
+  checkToolchain(modelPath, modelId);
+  const jsonPath = `${clipPath}.json`;
+  withPrivateOutputs([jsonPath], ([output]) => {
+    execFileSync(
+      whisperBin(),
+      [
+        '-m', modelPath,
+        '-f', clipPath,
+        ...whisperArgs({ extraArgs: opts.extraArgs, language: opts.language }),
+        ...restyleArgs(prompt),
+        '-of', output.slice(0, -5),
+      ],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    );
+  });
+  const json = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  return (json.transcription || [])
+    .map((r) => String(r?.text ?? ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
