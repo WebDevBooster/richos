@@ -487,12 +487,20 @@ def main(argv=None):
             return 0
         tool_versions = versions(ROOT, cargo=not args.static)
         report["versions"] = tool_versions
-        if not args.all or not fast_was_run(args.suite_results, os.environ.get("RICHOS_NIGHTLY_RUN_ID")):
+        # lint.test.sh runs `lint.sh --all` (fast AND Tauri) inside the script suites. When this
+        # run's receipt shows it passed, the same source already passed every check `--all`
+        # makes here, Tauri Clippy included, so none is repeated (hunt part 2 v3, R47: only
+        # the fast phase was reused, and the nightly ran Tauri Clippy twice).
+        if args.all and fast_was_run(args.suite_results, os.environ.get("RICHOS_NIGHTLY_RUN_ID")):
+            print("lint.test.sh passed `lint.sh --all` in this run's script suites: its fast and "
+                  "Tauri lint are not run again", flush=True)
+            report["reused"] = "lint.test.sh"
+        else:
             static_full(args, rows, tool_versions, report)
             if not args.static:
                 rust_fast(args, rows, tool_versions, report)
-        if args.all:
-            tauri(ROOT, args, rows, tool_versions, report)
+            if args.all:
+                tauri(ROOT, args, rows, tool_versions, report)
         print(f"Lint passed in {time.monotonic() - started:.2f}s", flush=True)
         return 0
     except (Refusal, OSError, ValueError, subprocess.TimeoutExpired, subprocess.CalledProcessError, TimeoutError) as exc:

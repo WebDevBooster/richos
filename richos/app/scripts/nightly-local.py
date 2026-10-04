@@ -534,8 +534,9 @@ GATE_COMMANDS = ("build", "release", "stable")
 # of the gates themselves (the old one-after-another order, which `--gates-at-once 1` keeps)
 # is written in gates().
 GATE_AFTER = {
-    # `lint.sh --all --suite-results` reads the script-suites receipt to skip the fast lint
-    # that lint.test.sh already ran in this build (lint/driver.py fast_was_run).
+    # `lint.sh --all --suite-results` reads the script-suites receipt to skip the fast and
+    # Tauri lint that lint.test.sh's own `lint.sh --all` already passed in this build
+    # (lint/driver.py fast_was_run; hunt part 2 v3, R47).
     "gates/lint-tauri": ("gates/script-suites",),
     # The privacy sweep waited here for the UI suite until 2026-09-29, because the suite
     # rewrote committed screenshots in the tree the sweep scans. The suite now runs in its own
