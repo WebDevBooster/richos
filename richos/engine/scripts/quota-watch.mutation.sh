@@ -278,14 +278,29 @@ mutant refresh-not-re-read "R03" "$L" \
 # 11. HIGH SPEED, ruling §108 (2026-10-04): the 15 Fable workers of 2026-09-29
 #     took the five-hour window from 93% past 100% between two 5-minute checks.
 mutant fast-never-polls-sooner "R06" "$L" \
-    '        sleep_for = a.fast_poll if fast else a.poll' \
-    '        sleep_for = a.poll' \
+    '        sleep_for = a.fast_poll if fast or expected else a.poll' \
+    '        sleep_for = a.fast_poll if expected else a.poll' \
     "At high speed the watcher would still read every 5 minutes, which is what let the window reach 100%."
+
+mutant expected-rise-ignored "R10" "$L" \
+    '        sleep_for = a.fast_poll if fast or expected else a.poll' \
+    '        sleep_for = a.fast_poll if fast else a.poll' \
+    "Ten teammates started at once would be checked every 5 minutes until the burn had already been measured."
+
+mutant jump-averaged-away "R11" "$L" \
+    '    if t1 - t0 >= jump:{NL}        rates.append' \
+    '    if False:{NL}        rates.append' \
+    "A sudden jump would be averaged over 5 minutes, and the pause would come a check too late."
+
+mutant fast-never-ends "R12" "$L" \
+    '        fast = speed is not None and speed >= fast_speed(a){NL}' \
+    '        fast = (speed is not None and speed >= fast_speed(a)) or same_window(fast_alerted, r["resets_at"]){NL}' \
+    "After a burst the watcher would stay on 1-minute checks and the early pause point for the rest of the window."
 
 mutant fast-poll-clamped-back "R06" "$L" \
     '            sleep_for = max(1, min(sleep_for, window_end - now))' \
     '            sleep_for = max(1, min(a.poll, window_end - now))' \
-    "The window-end clamp would put the 5-minute interval back, and the 2-minute check would never happen."
+    "The window-end clamp would put the 5-minute interval back, and the 1-minute check would never happen."
 
 mutant early-wake-never "R09" "$L" \
     '            if verdict == "below" and early_wake(a, r["used"], speed):' \
@@ -300,7 +315,7 @@ mutant fast-alert-never "R08" "$L" \
 mutant fast-alert-every-poll "R08" "$L" \
     '        if fast and r["state"] == "ok" and not r["ended"] and not same_window(fast_alerted, r["resets_at"]):' \
     '        if fast and r["state"] == "ok" and not r["ended"]:' \
-    "The lead would be woken with the same alert every 2 minutes."
+    "The lead would be woken with the same alert at every 1-minute check."
 
 mutant normal-read-as-fast "R07" "$L" \
     '    return (100.0 - a.threshold) / float(a.poll + a.hold)' \

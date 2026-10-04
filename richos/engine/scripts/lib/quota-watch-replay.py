@@ -102,7 +102,7 @@ def replay(case, payload, work, engine, fake):
     args = SimpleNamespace(threshold=93, threshold_problem="", config="fixture",
                            payload=str(payload), engine_root=str(engine), poll=300,
                            stale=300, until_reset=False, command="quota-watch.sh",
-                           fast_poll=120, hold=60)
+                           fast_poll=60, hold=60)
     try:
         rc = watch.poll_loop(args, watch.Out(lines=buf, events=buf))
         raise AssertionError("the poll loop returned (%r) instead of polling on" % (rc,))
@@ -136,13 +136,23 @@ def replay(case, payload, work, engine, fake):
 # r09: the same run had it not slowed at the end: its own measured speed from
 # 18:29:11Z to 18:50:15Z (84 points in 1264 s, 3.99 points per minute) held to
 # 100%. The recorded run slowed to about 2.4 per minute after 91%, where the
-# 2-minute check alone is enough; at 3.99 the early wake is what holds it.
+# check alone is enough; at 3.99 the early wake is what holds it.
+# r10: usage flat at 20% (21% after 15 minutes) while the suite has just
+# registered 10 teammates: the expected rise, nothing measured.
+# r11: 80% and flat for 4 minutes, then a JUMP to 7 points a minute (invented:
+# 1.75 times the 15-worker run, about 26 such workers).
+# r12: a burst at 20 points per 5 minutes (the 15-worker run's speed) from 10%
+# to 70%, then back to 3 per 5 minutes (normal work's fastest, 3.8, rounded
+# down), crossing 93% at normal speed.
 SPEED_CASES = {
     "r05": dict(points=[(61, 7), (1325, 91), (1500, 98)], reset=12110, end=1800),
     "r07": dict(points=[(0, 80), (315, 84)], reset=12110, end=1800),
     "r09": dict(points=[(61, 7), (1325, 91)], reset=12110, end=1800),
+    "r10": dict(points=[(0, 20), (900, 21)], reset=12110, end=900),
+    "r11": dict(points=[(0, 80), (240, 80), (240 + 20 * 60 / 7.0, 100)], reset=12110, end=900),
+    "r12": dict(points=[(0, 10), (900, 70), (3200, 93)], reset=12110, end=4200),
 }
-PHASES = range(0, 300, 30)
+PHASES = range(0, 300, 15)
 
 
 _real_read_source = watch.read_source
@@ -215,7 +225,7 @@ def replay_speed(case, payload, work, engine, fake, start=0):
     args = SimpleNamespace(threshold=93, threshold_problem="", config="fixture",
                            payload=str(payload), engine_root=str(engine), poll=300,
                            stale=300, until_reset=False, command="quota-watch.sh",
-                           fast_poll=120, hold=60)
+                           fast_poll=60, hold=60)
     try:
         rc = watch.poll_loop(args, watch.Out(lines=buf, events=buf))
         raise AssertionError("the poll loop returned (%r) instead of polling on" % (rc,))
@@ -234,7 +244,7 @@ if __name__ == "__main__":
     case, payload, work, engine, fake = sys.argv[1:]
     if case in SPEED_CASES:
         out = replay_speed(case, Path(payload), Path(work), Path(engine), Path(fake))
-        if case in ("r05", "r09"):
+        if case in ("r05", "r09"):  # every 15 s of the 5-minute cycle
             out["phases"] = []
             for start in PHASES:
                 d = replay_speed(case, Path(payload), Path(work) / ("phase-%d" % start), Path(engine), Path(fake), start)
