@@ -439,6 +439,10 @@ pub struct Service {
     /// are Account 1's, exactly as before; every added account has its own pair here.
     pub accounts: std::sync::Arc<crate::claude_accounts::Accounts>,
     extra: Mutex<BTreeMap<String, AccountReader>>,
+    /// **The high-speed alert** (plan §15 answer 9): written once when the account in use is
+    /// first seen fast, taken once by whoever says it in the conversation.
+    alert: Mutex<Option<String>>,
+    was_fast: std::sync::atomic::AtomicBool,
 }
 
 /// An added account's own probe and its last reading.
@@ -503,6 +507,8 @@ impl Service {
             refresh_wake: std::sync::Condvar::new(),
             accounts: std::sync::Arc::new(crate::claude_accounts::Accounts::open(data_dir)?),
             extra: Mutex::new(BTreeMap::new()),
+            alert: Mutex::new(None),
+            was_fast: std::sync::atomic::AtomicBool::new(false),
         };
         service.publish()?;
         Ok(service)
@@ -608,8 +614,37 @@ impl Service {
             }
         }
         self.decide();
+        self.note_speed();
         let _best_effort = self.publish();
         self.accounts.in_use().id
+    }
+
+    /// **Detect very high speed once** (plan §15 answer 9, the same detection that moves the
+    /// switch and the pause earlier, `Reading::fast`). The alert is written on the first
+    /// reading that finds the account in use fast, and not again until a reading finds it back
+    /// at normal speed — so one burst is one alert.
+    fn note_speed(&self) {
+        let in_use = self.accounts.in_use();
+        let Some(reading) = self.readings().remove(&in_use.id) else { return };
+        let fast = reading.fast();
+        let was = self.was_fast.swap(fast, std::sync::atomic::Ordering::SeqCst);
+        if !fast || was { return; }
+        let Some((window, per_ms)) = reading.windows.iter()
+            .filter_map(|w| reading.speeds.get(&w.id).map(|s| (w, *s)))
+            .max_by(|a, b| a.1.total_cmp(&b.1)) else { return };
+        let name = if window.id == "five_hour" { "five-hour" } else if window.id == "seven_day" { "weekly" } else { window.label.as_str() };
+        let whose = if self.accounts.count() > 1 { format!("{}'s {name}", in_use.label) } else { format!("the {name}") };
+        // Said only when something will act: another account to switch to, or the pause on.
+        let acts = self.accounts.count() > 1 || self.policy.lock().unwrap().enabled;
+        let then = if acts { "and acts before it reaches 100%" } else { "Automatic pause is off in Settings" };
+        *self.alert.lock().unwrap() = Some(format!(
+            "Claude usage is very fast right now: {whose} limit is filling about {:.0}% a minute and is at {:.0}%. RichOS now checks every 2 minutes{}{then}.",
+            per_ms * 60_000.0, window.used_percent, if acts { " " } else { ". " }));
+    }
+
+    /// The high-speed alert, taken once by whoever says it in the conversation.
+    pub fn take_alert(&self) -> Option<String> {
+        self.alert.lock().unwrap().take()
     }
 
     fn decide(&self) {
@@ -724,6 +759,7 @@ impl Service {
             self.decide();
             if let Err(error) = self.publish() { eprintln!("[richos] quota snapshot: {error}"); }
         }
+        self.note_speed();
         self.resets.refresh(bin, force || changed);
         self.view()
     }
@@ -1013,12 +1049,13 @@ pub(crate) mod tests {
 
     /// **§108: when usage speeds up a lot, the quota is checked every 2 minutes instead of 5.**
     /// "A lot" is 5 points or more per five-minute check (1 point a minute, 3x a five-hour
-    /// window's even pace). 50% -> 51% in one minute is exactly that; 50% -> 50.2% is not.
+    /// window's even pace). The 2026-09-29 run measured 3.7 to 4 a minute: 7% -> 11% in one
+    /// minute here. Ordinary use measured about 0.33 a minute: 50% -> 50.33% is not fast.
     #[test]
     fn fast_usage_is_checked_every_two_minutes_and_normal_usage_every_five() {
         let mut fast = Snapshot::default();
-        fast.accept(five_hour_at(50.), NOW);
-        fast.accept(five_hour_at(51.), NOW + 60_000);
+        fast.accept(five_hour_at(7.), NOW);
+        fast.accept(five_hour_at(11.), NOW + 60_000);
         let view = fast.view(policy(), NOW + 60_000);
         assert_eq!(view.refresh_interval_ms, FAST_REFRESH_INTERVAL_MS);
         assert_eq!(view.next_check_at, Some(NOW + 60_000 + 2 * 60_000));
@@ -1026,7 +1063,7 @@ pub(crate) mod tests {
 
         let mut normal = Snapshot::default();
         normal.accept(five_hour_at(50.), NOW);
-        normal.accept(five_hour_at(50.2), NOW + 60_000);
+        normal.accept(five_hour_at(50.33), NOW + 60_000);
         let view = normal.view(policy(), NOW + 60_000);
         assert_eq!(view.refresh_interval_ms, REFRESH_INTERVAL_MS);
         assert_eq!(view.next_check_at, Some(NOW + 60_000 + 5 * 60_000));
@@ -1035,25 +1072,29 @@ pub(crate) mod tests {
         assert!(normal.speeds.is_empty());
     }
 
-    /// **§108's case: 15 parallel Fable workers.** The five-hour window gains 6 points a
-    /// minute. At 87% the next check (2 minutes away, because this is fast) would read
-    /// 87 + 12 = 99%: under 100, so work continues and that check comes before the wall. At 89%
-    /// it would read 101%, so the pause comes NOW, at 89%, before the 93% line — and the
-    /// separate-process gate, reading the published file, agrees. At normal speed nothing
-    /// changes: 92.9% is still Ready.
+    /// **§108's case, at its MEASURED speed: 15 parallel Fable workers.** Reed's reading of the
+    /// 2026-09-29 run (richos-hq `docs/research/2026-10-04-fifteen-fable-workers-quota-burn.md`):
+    /// the five-hour window went 7% -> 100% in about 25 minutes, 3.7 to 4 points a minute,
+    /// about 11x ordinary use (0.33 a minute); 93% was crossed between two five-minute checks
+    /// and the first alarm came at 98%. Here the window gains 4 points a minute. At 91% the
+    /// next check (2 minutes away, because this is fast) would read 91 + 8 = 99%: under 100, so
+    /// work continues and that check still comes before the wall. At 92.5% it would read
+    /// 100.5%, so the pause comes NOW, at 92.5%, before the 93% line — and the separate-process
+    /// gate, reading the published file, agrees. At normal speed nothing changes: 92.9% is
+    /// still Ready.
     #[test]
     fn a_fast_five_hour_burn_pauses_before_93_percent_so_the_next_check_stays_under_100() {
         let mut s = Snapshot::default();
-        s.accept(five_hour_at(81.), NOW);
-        s.accept(five_hour_at(87.), NOW + 60_000);
+        s.accept(five_hour_at(87.), NOW);
+        s.accept(five_hour_at(91.), NOW + 60_000);
         let reading = s.reading();
         assert!(reading.fast());
         assert!(reading.projected(&s.windows[0]) < 100.);
         assert_eq!(s.view(policy(), NOW + 60_000).admission, Admission::Ready);
-        // 20 s later: too soon for a new speed, so 6 points a minute still stands.
-        s.accept(five_hour_at(89.), NOW + 80_000);
+        // 20 s later: too soon for a new speed, so 4 points a minute still stands.
+        s.accept(five_hour_at(92.5), NOW + 80_000);
         assert!(s.reading().projected(&s.windows[0]) >= 100.);
-        assert!(matches!(s.view(policy(), NOW + 80_000).admission, Admission::Held { .. }), "paused at 89%, before 93%");
+        assert!(matches!(s.view(policy(), NOW + 80_000).admission, Admission::Held { .. }), "paused at 92.5%, before 93%");
         // The published file carries the speed, so the gate decides the same.
         let dir = Scratch::new();
         let published = s.view(policy(), NOW + 80_000);

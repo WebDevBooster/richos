@@ -220,6 +220,11 @@ impl ContextSource {
 /// phrase somebody typed twice.
 pub const STOPPED_BY_CEO: &str = "stopped_by_ceo";
 
+/// Rotation reason: the lease moves to the account now in use, at a turn boundary (fill-first).
+pub const ACCOUNT_SWITCH: &str = "account-switch";
+/// Rotation reason: a turn was refused for a usage limit and is re-served on the next account.
+pub const ACCOUNT_EXHAUSTED: &str = "account-exhausted";
+
 /// The mouth every sentence typed or spoken at the Mac is recorded under, on an install that
 /// keeps it (operator back-end spec r3 (s); `ledger::Event::PromptReceived::channel`). A
 /// phone's is the intake record's own value, `"phone"`.
@@ -3010,6 +3015,37 @@ impl Spine {
         // twelve runs in docs/verification/native-claude-stream-json-2026-08-31/raw/
         // contain no API error at all. So both are covered, which is breadth in place of
         // a capture and not the same thing as one.
+        // ==============================================================================
+        // FILL-FIRST'S BACKSTOP: THE TURN WAS REFUSED FOR A USAGE LIMIT ANYWAY
+        // ==============================================================================
+        //
+        // The switch normally happens BEFORE a turn (`prepare_request`), from the freshest
+        // reading and the measured speed, so the account is left before it is full. This is
+        // only for one turn that by itself used up what remained. The account is marked gone,
+        // the next account with room is put in use, and his prompt is re-served on a fresh
+        // lease exactly as the mid-turn-crash path does: one clean exchange, the failed turn
+        // superseded. With no account left, nothing changes here and the turn ends as it
+        // would have with one account.
+        if let Err(e) = &stop {
+            if let Some(resets_at) = crate::claude_accounts::parse_usage_limit(&e.to_string()) {
+                let account = self.lease.as_ref().and_then(|l| l.account()).map(str::to_string);
+                if let (Some(quota), Some(account)) = (self.quota_service(), account) {
+                    if quota.limit_reached(&account, resets_at) == crate::claude_accounts::AfterLimit::Continue {
+                        self.ledger.interrupt_turn(turn_id, &e.to_string())?;
+                        self.raise_quota_notices(Some(thread_id));
+                        self.emit(StreamEvent::TurnError {
+                            thread_id: thread_id.to_string(),
+                            turn_id: turn_id.to_string(),
+                            reason: "Continuing on the next Claude account.".to_string(),
+                            at: now_millis(),
+                        });
+                        self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Recovering, None));
+                        return self.recover_and_replay(turn_id, binding, text, ACCOUNT_EXHAUSTED);
+                    }
+                }
+            }
+        }
+
         if let Some(failure) = self.detect_upstream_failure(turn_id, &stop) {
             return self.finish_upstream_failure(turn_id, binding, text, failure, allow_recovery);
         }
@@ -3103,7 +3139,7 @@ impl Spine {
                     self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Failed));
                 }
                 if will_recover {
-                    return self.recover_and_replay(turn_id, binding, text);
+                    return self.recover_and_replay(turn_id, binding, text, "mid-turn-crash");
                 }
                 Err(e.into())
             }
@@ -3654,6 +3690,9 @@ impl Spine {
         self.input_channels.retain(|id, _| self.ledger.turn(id).is_some_and(|turn|
             matches!(turn.state, crate::ledger::TurnState::Received | crate::ledger::TurnState::InFlight)));
         self.flush_pending_proactive_emits();
+        // A switch notice or a high-speed alert that arrived while this turn held the spine
+        // is said now, the first moment it can be.
+        self.raise_quota_notices(Some(binding.thread_id()));
         // The CEO's two mid-turn controls settle HERE, at the boundary, and in this order.
         //
         // DRAIN FIRST, THEN STOP — and the order was chosen by running it the other way.
@@ -3950,7 +3989,7 @@ impl Spine {
         let will_recover = may_retry && allow_recovery && self.lease_factory.is_some();
         if will_recover {
             self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Recovering, None));
-            return self.recover_and_replay(turn_id, binding, original_text);
+            return self.recover_and_replay(turn_id, binding, original_text, "mid-turn-crash");
         }
         self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Failed, None));
         self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Failed));
@@ -3962,6 +4001,7 @@ impl Spine {
         failed_turn_id: &str,
         binding: &ThreadBinding,
         original_text: &str,
+        reason: &str,
     ) -> Result<(), SpineError> {
         if self.lease_factory.is_none() { return Err(SpineError::NoLeaseFactory); }
         let recovery_action = self.ledger.record_action_with(
@@ -3988,9 +4028,9 @@ impl Spine {
         self.clear_lease();
         let outcome = self.deliver(&replay_turn_id, binding, original_text, false);
         if let Some(to_session) = self.lease_session_id().map(str::to_string) {
-            self.ledger.record_rotation(&from_session, &to_session, "mid-turn-crash")?;
+            self.ledger.record_rotation(&from_session, &to_session, reason)?;
             self.rotation_count += 1;
-            self.last_rotation_reason = Some("mid-turn-crash".to_string());
+            self.last_rotation_reason = Some(reason.to_string());
         }
         self.ledger.update_action(
             &recovery_action,
@@ -4216,6 +4256,52 @@ impl Spine {
     /// conversation lease is spawned outside rotation, and rotation reports through it too.
     /// [`Spine::prime_front_desk`] prints the answer into `app.log` through the shell, so the
     /// value has to come from the code that did the thing rather than from a proxy for it.
+    /// The quota service, when the lease factory knows the accounts (fill-first).
+    fn quota_service(&self) -> Option<std::sync::Arc<crate::quota::Service>> {
+        self.lease_factory.as_ref().and_then(|factory| factory.quota())
+    }
+
+    /// **Must the lease in the chair move to another account before this turn?** Hands the
+    /// lease's own streamed reading to the quota service, which decides on the freshest
+    /// readings and the measured speed (`claude_accounts.rs`), and answers whether the account
+    /// now in use differs from the lease's. A lease that cannot say its account never moves.
+    fn account_switch_due(&mut self) -> bool {
+        let Some(quota) = self.quota_service() else { return false };
+        let Some(lease) = self.lease.as_ref() else { return false };
+        let Some(account) = lease.account().map(str::to_string) else { return false };
+        quota.before_turn(&account, lease.streamed_usage()) != account
+    }
+
+    /// **The one-line switch notice and the high-speed alert, in the conversation** (plan §15
+    /// answers 9 and the brief's "a switch shows one line"). Raised as Rich's proactive
+    /// messages so they are durable: the alert at `InterruptNow` (at once, with the OS
+    /// notification), the switch at `Digest`. Called before every turn, at the backstop, and by
+    /// the desktop's quota monitor whenever the spine is free — so with no turn running, an
+    /// alert lands the moment the reading that detected it is taken; while a conversation turn
+    /// holds the spine, it is written at the next of those points. With no thread to speak in
+    /// they stay pending.
+    pub fn raise_quota_notices(&mut self, thread_id: Option<&str>) {
+        let Some(quota) = self.quota_service() else { return };
+        let thread = match thread_id {
+            Some(thread) => thread.to_string(),
+            None => match self.active.as_ref() {
+                Some(binding) => binding.thread_id().to_string(),
+                None => return,
+            },
+        };
+        let pending = [
+            (AttentionTier::InterruptNow, quota.take_alert()),
+            (AttentionTier::Digest, quota.accounts.take_notice()),
+        ];
+        for (tier, text) in pending {
+            if let Some(text) = text {
+                if let Err(error) = self.raise_proactive(Some(&thread), tier, &text) {
+                    eprintln!("[richos] claude accounts: a notice could not be written ({error})");
+                }
+            }
+        }
+    }
+
     fn prepare_request(&mut self, binding: &ThreadBinding) -> Result<bool, SpineError> {
         let mut spawned = false;
         // **THE DESK THAT IS ALREADY THIS THREAD'S TAKES THE CHAIR FIRST.**
@@ -4255,6 +4341,15 @@ impl Spine {
             self.park_current_front_desk();
             self.resume_front_desk(binding.thread_id());
         }
+        // **FILL-FIRST, BEFORE EVERY TURN** (plan §15 answers 6-9, ruling §108). The freshest
+        // reading — this lease's own streamed `rate_limit_event` when newer than the probe —
+        // and the measured speed decide whether the account in use must be left; when this
+        // lease is no longer on the account in use, it rotates HERE, at the boundary, before
+        // the prompt is sent. Never inside a turn, and never at 100%.
+        if self.pending_rotation_reason.is_none() && self.account_switch_due() {
+            self.pending_rotation_reason = Some(ACCOUNT_SWITCH.to_string());
+        }
+        self.raise_quota_notices(Some(binding.thread_id()));
         if let Some(reason) = self.pending_rotation_reason.take() {
             // **A WATERMARK RENEWAL WAITS FOR A COMMAND THE LEASE STARTED** (reap gap C6).
             // Retiring the lease ends its tool commands, and a renewal is invisible, so one due

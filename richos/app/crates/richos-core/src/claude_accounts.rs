@@ -430,25 +430,27 @@ pub(crate) mod tests {
         assert_eq!(accounts.in_use().id, "2", "99% at normal speed switches");
     }
 
-    /// **§108 addendum (plan answer 8), a fast burn on the WEEKLY window:** 15 parallel
-    /// workers gaining 1.5 points a minute. At 96% that is fast (7.5 points per five-minute
-    /// check, over the 5-point line), so the next check is 2 minutes away and would read
-    /// 96 + 1.5 x 2 = 99%: under 100, so it waits. At 97.1% the next check would read
-    /// 97.1 + 3 = 100.1%, so it switches NOW, before 99% and before the wall. The projected use
-    /// at the next check after the decision to stay is always under 100%.
+    /// **§108 addendum (plan answer 8), a fast burn on the WEEKLY window**, at the speed the
+    /// 2026-09-29 run measured on its five-hour window (4 points a minute; richos-hq
+    /// `docs/research/2026-10-04-fifteen-fable-workers-quota-burn.md`), used here as the worst
+    /// case: no weekly figure was measured for that run. That is fast (20 points per
+    /// five-minute check), so the next check is 2 minutes away. At 90% it would read
+    /// 90 + 8 = 98%: under 100, so it stays. At 92.5% it would read 100.5%, so it switches NOW,
+    /// before 99% and before the wall. The projected use at the next check after every
+    /// decision to stay is under 100%.
     #[test]
     fn a_fast_weekly_burn_switches_before_99_percent_so_the_next_check_stays_under_100() {
         let (_dir, accounts) = two_accounts();
-        let per_ms = 1.5 / 60_000.;
-        let mut fast = reading(10., HOUR, 96., 24 * HOUR);
+        let per_ms = 4.0 / 60_000.;
+        let mut fast = reading(10., HOUR, 90., 24 * HOUR);
         fast.speeds.insert("seven_day".into(), per_ms);
         assert!(fast.fast());
         assert_eq!(fast.interval(), crate::quota::FAST_REFRESH_INTERVAL_MS);
         assert!(!accounts.evaluate(&readings(fast.clone(), reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
         assert!(fast.projected(&fast.windows[1]) < 100., "staying is safe only if the next check is under 100%");
-        fast.windows[1].used_percent = 97.1;
+        fast.windows[1].used_percent = 92.5;
         assert!(fast.projected(&fast.windows[1]) >= 100.);
         assert!(accounts.evaluate(&readings(fast, reading(0., HOUR, 5., 48 * HOUR)), 93, NOW).unwrap());
-        assert_eq!(accounts.in_use().id, "2", "switched at 97.1%, before 99%");
+        assert_eq!(accounts.in_use().id, "2", "switched at 92.5%, before 99%");
     }
 }
