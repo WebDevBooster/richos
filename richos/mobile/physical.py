@@ -18,6 +18,9 @@ So a physical phone is touched ONLY through the two command lines, `randroid dev
                                                             READ ONLY: what automation left running or
                                                             changed on the phone, and its log flood
     physical.py ios-app APP                                 exit 0 for a Release bundle, 3 otherwise
+    physical.py ios-automation-end --device ID              end iOS's AutomationModeUI and the stuck
+                                                            input clients it keeps from every UI-test
+                                                            session (see "the input client" below)
     physical.py hold --platform android|ios --phone ID [--wait S] [--holder NAME] -- <command>
                                                             run <command> holding that phone's lock
     physical.py status --platform android|ios --phone ID    free or held, and by whom (JSON)
@@ -45,6 +48,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -706,6 +710,18 @@ def hold(platform, phone, cmd, wait_s=0, holder=None, say=lambda s: print(s, fil
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
             raise Refused(str(error))
+        # A run killed outright (its own session end never ran) leaves AutomationModeUI's stuck input
+        # clients behind: they go before this command touches the phone, so nothing measures a clogged
+        # phone. Refused when that cannot be done, like the network above.
+        try:
+            automation_ui_ended(say, device, "before the run")
+        except CannotAnswer as error:
+            record.update(endedAt=now_iso(), exit=3, refused=str(error)[:300])
+            write_record(record_path, record)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+            raise Refused(f"{error}; nothing was run (the phone may be carrying stuck input clients from earlier "
+                          "UI-test sessions, which make any timing on it wrong)")
     child = subprocess.Popen(cmd, env={**os.environ, HOLD_ENV: f"{name}:{os.getpid()}"})
     forward = lambda signum, _frame: child.send_signal(signum)
     previous_handlers = {s: signal.signal(s, forward) for s in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
@@ -717,6 +733,10 @@ def hold(platform, phone, cmd, wait_s=0, holder=None, say=lambda s: print(s, fil
         for s, h in previous_handlers.items():
             signal.signal(s, h)
         if net_check:
+            try:
+                automation_ui_ended(say, device, "after the run")
+            except CannotAnswer as error:
+                say(f"{error}; the next `rios device` run ends it before it starts")
             left = phone_net.postflight(say, device)
         record.update(endedAt=now_iso(), exit=code)
         write_record(record_path, record)
@@ -746,6 +766,74 @@ def ios_app(app):
         raise Refused(f"{app} is {'a Debug' if found == 'debug' else 'not a Release'} bundle (its development "
                       f"markers say so); {RULE}")
     return {"app": app, "configuration": found}
+
+
+# -- iOS: the input client every UI-test session leaves behind (2026-10-04) --------------------
+# Each XCUITest session on the iPhone turns on iOS's Automation Mode, and its process AutomationModeUI
+# opens an input (HID) connection to backboardd that it never reads again once the session is over.
+# backboardd then flags that client unresponsive on every motion event; they pile up one per session
+# until a reboot (23 on the morning of 2026-10-04: about 8,000 log lines a second and a stuttering
+# phone that failed the speed check). Measured on the test iPhone the same day: a session that ends
+# normally (xcodebuild exit 0) still leaves one, 0 -> 1 about a minute later; AutomationModeUI ignores
+# SIGTERM; ending it with SIGKILL closes every connection it holds (4 -> 0 and 1 -> 0, still 0 80 s
+# later), and iOS starts it again for the next session, which passes. So every UI-test session on the
+# phone ends with AutomationModeUI ended (physical-device.mjs), and so does every hold of the phone,
+# before and after its command, whatever that command did. Nothing else on the phone is touched.
+AUTOMATION_UI = "/System/Library/PrivateFrameworks/AutomationMode.framework/AutomationModeUI.app/AutomationModeUI"
+
+
+def _devicectl(args, device, runner, timeout=120):
+    """devicectl's JSON `result` for one call on the phone; CannotAnswer when it gives none."""
+    with tempfile.TemporaryDirectory(prefix="richos-devicectl-") as tmp:
+        out = os.path.join(tmp, "out.json")
+        try:
+            p = runner(["xcrun", "devicectl", *args, "--device", device, "--json-output", out],
+                       capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise CannotAnswer(f"devicectl {' '.join(args)} did not answer: {e}")
+        if p.returncode != 0 or not os.path.exists(out):
+            raise CannotAnswer(f"devicectl {' '.join(args)} failed: {((p.stderr or '') + (p.stdout or '')).strip()[-200:]}")
+        with open(out) as f:
+            return json.load(f).get("result") or {}
+
+
+def automation_ui_pids(rows):
+    """The pids of iOS's AutomationModeUI in devicectl's `runningProcesses`, matched by its exact path."""
+    return sorted(int(r["processIdentifier"]) for r in rows
+                  if str(r.get("executable", "")).endswith(AUTOMATION_UI) and r.get("processIdentifier") is not None)
+
+
+def end_automation_ui(device, runner=subprocess.run):
+    """End AutomationModeUI on the iPhone (SIGKILL through devicectl; it ignores SIGTERM) and check it is
+    gone. Returns {"ended": [pids]} ([] when it was not running). CannotAnswer when it cannot be listed or
+    is still running afterwards: the phone would keep its stuck input clients."""
+    if not device:
+        raise CannotAnswer("no phone named (--device or RICHOS_IOS_DEVICE), so AutomationModeUI could not be ended")
+    listing = lambda: automation_ui_pids(_devicectl(["device", "info", "processes"], device, runner).get("runningProcesses") or [])
+    pids = listing()
+    for pid in pids:
+        try:
+            _devicectl(["device", "process", "terminate", "--pid", str(pid), "--kill"], device, runner)
+        except CannotAnswer:
+            pass  # gone already, or refused: the listing below decides
+    left = listing() if pids else []
+    if set(left) & set(pids):
+        raise CannotAnswer(f"AutomationModeUI (pid {', '.join(map(str, sorted(set(left) & set(pids))))}) is still "
+                           "running after SIGKILL; its stuck input clients stay on the phone until it restarts")
+    return {"ended": pids}
+
+
+def automation_ui_ended(say, device, when):
+    """The hold's step `when` ("before the run" / "after the run"): end AutomationModeUI and say so when it
+    was running. Without a named phone it is skipped and said, as the network check is."""
+    if not device:
+        say(f"AutomationModeUI not checked {when}: RICHOS_IOS_DEVICE names no phone")
+        return None
+    ended = end_automation_ui(device)
+    if ended["ended"]:
+        say(f"{when}: ended iOS's AutomationModeUI (pid {', '.join(map(str, ended['ended']))}) and with it the stuck "
+            "input clients it keeps from UI-test sessions")
+    return ended
 
 
 # -- the commit check ---------------------------------------------------------------------------
@@ -888,8 +976,9 @@ def main(argv):
             return 2
     p = argparse.ArgumentParser(prog="physical.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["android-build", "android-condition", "android-gate", "android-install",
-                                       "android-record", "ios-app", "scan", "status"])
+                                       "android-record", "ios-app", "ios-automation-end", "scan", "status"])
     p.add_argument("--platform")
+    p.add_argument("--device")
     p.add_argument("--phone", default="")
     p.add_argument("value", nargs="?")
     p.add_argument("--adb", default="adb")
@@ -919,6 +1008,9 @@ def main(argv):
             if not a.value:
                 raise CannotAnswer("ios-app takes the app bundle's path")
             result = ios_app(a.value)
+        elif a.command == "ios-automation-end":
+            require_verb("rios")
+            result = end_automation_ui(a.device)
         else:
             if a.command != "android-condition":  # condition only reads: it lists what is pending and restores nothing
                 put_back_leftovers(a.adb, a.serial)
