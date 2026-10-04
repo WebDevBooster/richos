@@ -10099,7 +10099,7 @@
           "to": "scripts/lib/agent_hold.py#capture"
         },
         {
-          "to": "scripts/lib/agent_hold.py"
+          "to": "scripts/lib/agent_hold.py#gate"
         }
       ]
     },
@@ -11946,6 +11946,13 @@
       "keys": [],
       "edges": [],
       "evidence": "release, records, release_session, release_orphans and describe_* only: read hold records in the agent-hold state directory, this user's ps table and recorded shell PID files, and continue recorded processes. No watchdog, engine execution or orchestration.config read."
+    },
+    "scripts/lib/agent_hold.py#gate": {
+      "source": "scripts/lib/agent_hold.py",
+      "sha256": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+      "keys": [],
+      "edges": [],
+      "evidence": "gate only (2026-10-04), run by shell-evidence.py before its rewrite: for a subagent's own wait call it reads that agent's hold record and wait-notice file in the agent-hold state directory (RICHOS_AGENT_HOLD_DIR, else CLAUDE_CONFIG_DIR or HOME .claude/state/agent-hold), sleeps one second between reads while the hold stands and returns when it is gone, when the notice is not this hold's or when its parent process is gone. It starts no process, signals nothing and never reaches the watchdog or the workspace recipient CLI (watch and _registry_finished are not called). No engine execution and no orchestration.config read."
     },
     "scripts/lib/agent_hold.py#capture": {
       "source": "scripts/lib/agent_hold.py",
