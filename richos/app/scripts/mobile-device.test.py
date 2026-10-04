@@ -1019,6 +1019,17 @@ def _():
     assert "env.RICHOS_PHYSICAL_RUNNER_ONLY === '1'" in text and "t['UITargetAppPath']=t['TestHostPath']" in text
 
 
+@case("D31d --as-installed hands the runner alone even for a list that acts on the app, so the installed build stays")
+def _():
+    module = load_phone_ios()
+    app = [{"do": "launch"}, {"do": "tap", "id": "composer.send"}]
+    assert module.runner_only_for(app) is False
+    assert module.runner_only_for(app, as_installed=True) is True
+    assert module.runner_only_for([{"do": "home"}]) is True
+    text = (REPO / "richos/app/scripts/qa/phone-ios.py").read_text()
+    assert "--as-installed hands the phone no app, so --prebuilt has nothing to reuse" in text
+
+
 def wifi_off_call(module, fake, props, tmp):
     """`wifi-off`'s work (switch_wifi_off) against the fake Settings, with devicectl answering `props`.
     (code, result or refusal sentence, devicectl calls); code None when refused."""
