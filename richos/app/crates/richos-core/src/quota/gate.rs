@@ -19,7 +19,7 @@ pub(super) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> io::Resu
     serde_json::from_slice(&bytes).map_err(io::Error::other)
 }
 
-fn admission(state: &Path, now: u64) -> Admission {
+pub(super) fn admission(state: &Path, now: u64) -> Admission {
     let Ok(view) = read_json::<View>(&state.join("claude-quota.json")) else {
         return Admission::Unknown;
     };
@@ -29,6 +29,12 @@ fn admission(state: &Path, now: u64) -> Admission {
         .parent()
         .and_then(|p| read_json::<Policy>(&p.join("claude-quota-policy.json")).ok())
         .unwrap_or(view.policy);
+    // **Every account exhausted** (fill-first, Frank's finding 2): held until the soonest
+    // reset among them, whatever the pause switch says, because there is no account left for
+    // the work to run on. Never set with one account.
+    if let Some(until) = view.held_until.filter(|t| *t > now) {
+        return Admission::Held { resets_at: until };
+    }
     if !policy.enabled {
         return Admission::Disabled;
     }

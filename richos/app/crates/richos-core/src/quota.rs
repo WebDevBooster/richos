@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
     sync::Mutex,
@@ -93,6 +94,19 @@ pub struct View {
     pub message: Option<String>,
     pub policy: Policy,
     pub admission: Admission,
+    /// **Fill-first** (`claude_accounts.rs`). Every field below is additive and defaulted, so
+    /// this file stays readable by its existing readers (`quota/gate.rs`, the desktop shell,
+    /// `scripts/claude-quota.test.sh`), and every field above describes the account IN USE.
+    /// One row per account; empty while there is only Account 1.
+    #[serde(default)]
+    pub accounts: Vec<crate::claude_accounts::AccountView>,
+    /// Every account is exhausted: work is held until this moment, the soonest reset among
+    /// them. The gate honors it (`gate.rs`). `None` with one account.
+    #[serde(default)]
+    pub held_until: Option<u64>,
+    /// The setting for the five-hour threshold: Pause (default) or Switch.
+    #[serde(default)]
+    pub at_threshold: crate::claude_accounts::AtThreshold,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -293,6 +307,9 @@ impl Snapshot {
             message: self.error.map(|e| e.message().into()),
             policy,
             admission,
+            accounts: Vec::new(),
+            held_until: None,
+            at_threshold: Default::default(),
         }
     }
 }
@@ -312,7 +329,36 @@ pub struct Service {
     connecting: std::sync::atomic::AtomicBool,
     refresh_requested: Mutex<bool>,
     refresh_wake: std::sync::Condvar,
+    /// The account list and the switch decision (fill-first). `source` and `snapshot` above
+    /// are Account 1's, exactly as before; every added account has its own pair here.
+    pub accounts: std::sync::Arc<crate::claude_accounts::Accounts>,
+    extra: Mutex<BTreeMap<String, AccountReader>>,
+    /// The freshest reading a lease streamed for its account (`rate_limit_event`), and when.
+    stream: Mutex<BTreeMap<String, StreamedReading>>,
 }
+
+/// An added account's own probe and its last reading.
+type AccountReader = (Box<dyn Source>, Snapshot);
+/// Windows a lease streamed, and when they were observed (epoch ms).
+pub type StreamedReading = (Vec<Window>, u64);
+
+/// Is a read due? The same rule Account 1's reader has always used: a manual refresh waits
+/// only for the five-second double-click cooldown; the monitor's tick waits for the backoff
+/// and the five-minute cache.
+fn due(current: &View, force: bool, now: u64) -> bool {
+    let last_attempt = [current.checked_at, current.retry_at.map(|t| t.saturating_sub(BACKOFF_MS))]
+        .into_iter()
+        .flatten()
+        .filter(|t| *t <= now + 5_000)
+        .max();
+    let cooling = last_attempt.is_some_and(|t| now.saturating_sub(t) < 5_000);
+    !if force {
+        cooling
+    } else {
+        current.retry_at.is_some() || current.next_check_at.is_some_and(|t| t > now)
+    }
+}
+
 impl Service {
     /// Production desktop entrypoint. Tests and simulations keep `open` isolated.
     pub fn open_account_wide(data_dir: &Path) -> io::Result<Self> {
@@ -351,6 +397,9 @@ impl Service {
             connecting: std::sync::atomic::AtomicBool::new(false),
             refresh_requested: Mutex::new(true),
             refresh_wake: std::sync::Condvar::new(),
+            accounts: std::sync::Arc::new(crate::claude_accounts::Accounts::open(data_dir)?),
+            extra: Mutex::new(BTreeMap::new()),
+            stream: Mutex::new(BTreeMap::new()),
         };
         service.publish()?;
         Ok(service)
@@ -380,9 +429,175 @@ impl Service {
         std::mem::take(&mut *requested)
     }
     fn view_at(&self, now: u64) -> View {
-        let mut view = self.snapshot.lock().unwrap().view(self.policy.lock().unwrap().clone(), now);
+        let policy = self.policy.lock().unwrap().clone();
+        let in_use = self.accounts.in_use();
+        // The top-level reading is the account IN USE, so the pause gate and every existing
+        // reader keep describing the subscription the work is actually running on.
+        let mut view = if in_use.id == crate::claude_accounts::ACCOUNT_ONE {
+            self.snapshot.lock().unwrap().view(policy.clone(), now)
+        } else {
+            match self.extra.lock().unwrap().get(&in_use.id) {
+                Some((_, snapshot)) => snapshot.view(policy.clone(), now),
+                None => Snapshot::default().view(policy.clone(), now),
+            }
+        };
         view.resets = self.resets.view();
+        view.at_threshold = self.accounts.at_threshold();
+        if self.accounts.count() > 1 {
+            let readings = self.readings();
+            view.accounts = self.accounts.list().into_iter().map(|account| {
+                let account_view = if account.id == crate::claude_accounts::ACCOUNT_ONE {
+                    self.snapshot.lock().unwrap().view(policy.clone(), now)
+                } else {
+                    self.extra.lock().unwrap().get(&account.id).map(|(_, s)| s.view(policy.clone(), now))
+                        .unwrap_or_else(|| Snapshot::default().view(policy.clone(), now))
+                };
+                let exhausted = crate::claude_accounts::exhausted(
+                    readings.get(&account.id).map(Vec::as_slice).unwrap_or(&[]), view.at_threshold,
+                    policy.pause_percent, self.accounts.limited_until(&account.id), now);
+                crate::claude_accounts::AccountView {
+                    in_use: account.id == in_use.id,
+                    id: account.id,
+                    label: account.label,
+                    windows: account_view.windows,
+                    checked_at: account_view.checked_at,
+                    exhausted_until: exhausted.map(|(_, until)| until),
+                    message: account_view.message,
+                }
+            }).collect();
+            view.held_until = self.accounts.held_until(&readings, policy.pause_percent, now);
+            if let Some(until) = view.held_until {
+                view.admission = Admission::Held { resets_at: until };
+            }
+        }
         view
+    }
+
+    /// Every account's freshest windows: the probe's, overlaid by the lease's own streamed
+    /// `rate_limit_event` reading wherever that is newer.
+    fn readings(&self) -> BTreeMap<String, Vec<Window>> {
+        let mut readings = BTreeMap::new();
+        {
+            let one = self.snapshot.lock().unwrap();
+            if one.checked_at.is_some() {
+                readings.insert(crate::claude_accounts::ACCOUNT_ONE.to_string(), (one.windows.clone(), one.checked_at));
+            }
+        }
+        for (id, (_, snapshot)) in self.extra.lock().unwrap().iter() {
+            if snapshot.checked_at.is_some() {
+                readings.insert(id.clone(), (snapshot.windows.clone(), snapshot.checked_at));
+            }
+        }
+        for (id, (windows, observed)) in self.stream.lock().unwrap().iter() {
+            let entry = readings.entry(id.clone()).or_insert_with(|| (Vec::new(), None));
+            if entry.1.is_none_or(|probe| *observed >= probe) {
+                for window in windows {
+                    match entry.0.iter_mut().find(|w| w.id == window.id) {
+                        Some(existing) => *existing = window.clone(),
+                        None => entry.0.push(window.clone()),
+                    }
+                }
+            }
+        }
+        readings.into_iter().map(|(id, (windows, _))| (id, windows)).collect()
+    }
+
+    /// **Before EVERY turn** (the CEO's correction, 2026-10-04): record the reading the lease
+    /// on `account` streamed, if any, decide on the freshest readings whether the account in
+    /// use must be left, and return the account that is in use now. The caller rotates its
+    /// lease when that is not `account`; this is a turn boundary, so rotating is legal.
+    pub fn before_turn(&self, account: &str, streamed: Option<(Vec<Window>, u64)>) -> String {
+        if let Some(reading) = streamed {
+            self.stream.lock().unwrap().insert(account.to_string(), reading);
+        }
+        self.decide();
+        self.accounts.in_use().id
+    }
+
+    fn decide(&self) {
+        let pause = self.policy.lock().unwrap().pause_percent;
+        match self.accounts.evaluate(&self.readings(), pause, crate::util::now_millis()) {
+            Ok(true) => {
+                if let Err(error) = self.publish() { eprintln!("[richos] quota snapshot: {error}"); }
+            }
+            Ok(false) => {}
+            Err(error) => eprintln!("[richos] claude accounts: the switch could not be saved ({error})"),
+        }
+    }
+
+    /// **The backstop**: a turn on `account` was refused by a usage limit anyway.
+    pub fn limit_reached(&self, account: &str, resets_at: Option<u64>) -> crate::claude_accounts::AfterLimit {
+        let pause = self.policy.lock().unwrap().pause_percent;
+        let outcome = self.accounts.limit_reached(account, resets_at, &self.readings(), pause, crate::util::now_millis())
+            .unwrap_or(crate::claude_accounts::AfterLimit::NoRoom);
+        if let Err(error) = self.publish() { eprintln!("[richos] quota snapshot: {error}"); }
+        outcome
+    }
+
+    /// The folder a lease on the account in use runs under, and that account's id.
+    pub fn lease_account(&self) -> crate::claude_accounts::Account {
+        self.accounts.in_use()
+    }
+
+    pub fn add_account(&self, label: &str) -> io::Result<View> {
+        self.accounts.add(label)?;
+        self.request_refresh();
+        let _best_effort = self.publish();
+        Ok(self.view())
+    }
+
+    pub fn remove_account(&self, id: &str) -> io::Result<View> {
+        self.accounts.remove(id)?;
+        self.extra.lock().unwrap().remove(id);
+        self.stream.lock().unwrap().remove(id);
+        let _best_effort = self.publish();
+        Ok(self.view())
+    }
+
+    pub fn set_at_threshold(&self, value: crate::claude_accounts::AtThreshold) -> io::Result<View> {
+        self.accounts.set_at_threshold(value)?;
+        self.decide();
+        let _best_effort = self.publish();
+        Ok(self.view())
+    }
+
+    /// Read every added account on the same schedule as Account 1, one control-only child
+    /// each, under its own folder.
+    fn refresh_accounts(&self, bin: &Path, force: bool) {
+        let policy = self.policy.lock().unwrap().clone();
+        for account in self.accounts.list() {
+            if account.id == crate::claude_accounts::ACCOUNT_ONE || self.is_shutdown() { continue; }
+            let Some(folder) = account.folder.clone() else { continue };
+            let now = crate::util::now_millis();
+            let current = {
+                let mut extra = self.extra.lock().unwrap();
+                let (_, snapshot) = extra.entry(account.id.clone()).or_insert_with(|| (
+                    Box::new(probe::ClaudeSource::for_folder(self.control.clone(), folder)) as Box<dyn Source>,
+                    Snapshot::default()));
+                snapshot.view(policy.clone(), now)
+            };
+            if !due(&current, force, now) { continue; }
+            // Taken out of the map for the read, so a slow provider never holds the lock a
+            // settings paint needs.
+            let Some((mut source, _)) = self.extra.lock().unwrap().get_mut(&account.id)
+                .map(|(s, snap)| (std::mem::replace(s, Box::new(probe::ClaudeSource::default())), snap.checked_at)) else { continue };
+            let result = source.read(bin, &self.cwd);
+            let observed = crate::util::now_millis();
+            let mut extra = self.extra.lock().unwrap();
+            let Some((slot, snapshot)) = extra.get_mut(&account.id) else { continue };
+            *slot = source;
+            match result {
+                Ok(windows) => snapshot.accept(windows, observed),
+                Err(error) => {
+                    if error == ReadError::Unsupported {
+                        snapshot.windows.clear();
+                        snapshot.checked_at = None;
+                    }
+                    snapshot.error = Some(error);
+                    snapshot.retry_at = Some(observed + BACKOFF_MS);
+                }
+            }
+        }
     }
     pub fn set_policy(&self, policy: Policy) -> io::Result<View> {
         policy.validate().map_err(io::Error::other)?;
@@ -407,6 +622,11 @@ impl Service {
             *self.snapshot.lock().unwrap() = Snapshot::default();
         }
         self.refresh_windows(bin, force || changed);
+        if self.accounts.count() > 1 {
+            self.refresh_accounts(bin, force);
+            self.decide();
+            if let Err(error) = self.publish() { eprintln!("[richos] quota snapshot: {error}"); }
+        }
         self.resets.refresh(bin, force || changed);
         self.view()
     }
@@ -430,24 +650,15 @@ impl Service {
             return self.view();
         }
         let now = crate::util::now_millis();
-        let current = self.view_at(now);
+        // Account 1's own reading (the account in use may be another one).
+        let current = self.snapshot.lock().unwrap().view(self.policy.lock().unwrap().clone(), now);
         // **A manual refresh does not wait out the automatic failure backoff.** The backoff
         // protects the provider from the monitor's ticks; a person who fixed the problem and
         // asked again is owed a real check. What still protects the provider from him is the
         // short cooldown against double-clicks, measured from the last attempt of any kind —
         // a failure's `retry_at` is set `BACKOFF_MS` past the attempt that caused it.
-        let last_attempt = [current.checked_at, current.retry_at.map(|t| t.saturating_sub(BACKOFF_MS))]
-            .into_iter()
-            .flatten()
-            .filter(|t| *t <= now + 5_000)
-            .max();
-        let cooling = last_attempt.is_some_and(|t| now.saturating_sub(t) < 5_000);
-        if if force {
-            cooling
-        } else {
-            current.retry_at.is_some() || current.next_check_at.is_some_and(|t| t > now)
-        } {
-            return current;
+        if !due(&current, force, now) {
+            return self.view();
         }
         let result = source.read(bin, &self.cwd);
         let observed = crate::util::now_millis();
@@ -499,7 +710,7 @@ impl Service {
     }
 }
 
-fn atomic_write(path: &Path, value: &impl Serialize) -> io::Result<()> {
+pub(crate) fn atomic_write(path: &Path, value: &impl Serialize) -> io::Result<()> {
     use io::Write;
     fs::create_dir_all(
         path.parent()
@@ -526,7 +737,7 @@ fn atomic_write(path: &Path, value: &impl Serialize) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     #[test]
     fn desktop_boot_keeps_app_data_isolated_but_reads_the_shared_reset_store() {
@@ -546,7 +757,7 @@ mod tests {
     }
 
     use serde_json::json;
-    pub(super) struct Scratch(pub PathBuf);
+    pub(crate) struct Scratch(pub PathBuf);
     impl Scratch {
         pub fn new() -> Self {
             let path = std::env::temp_dir().join(format!("richos-quota-{}", uuid::Uuid::new_v4()));
@@ -697,6 +908,91 @@ mod tests {
             Err(ReadError::Malformed)
         );
     }
+    // ---- fill-first: several accounts, read by fake `claude` scripts -------------------
+
+    /// A fake `claude` that answers `get_usage` with the figures in `usage.json` of the
+    /// folder it was started under (`CLAUDE_CONFIG_DIR`), or `usage-1.json` beside it for
+    /// Account 1, which runs with the app's own environment.
+    #[cfg(unix)]
+    fn fake_claude(root: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = root.join("claude-fixture");
+        fs::write(&path, format!(r#"#!/usr/bin/env python3
+import json, os, sys
+folder = os.environ.get("CLAUDE_CONFIG_DIR", "")
+usage = os.path.join(folder, "usage.json") if "claude-accounts" in folder else "{}"
+for line in sys.stdin:
+    v = json.loads(line)
+    kind = v["request"]["subtype"]
+    five, weekly, weekly_reset = json.load(open(usage))
+    payload = {{}} if kind == "initialize" else {{"rate_limits_available": True, "rate_limits": {{
+        "five_hour": {{"utilization": five, "resets_at": "2099-01-01T00:00:00Z"}},
+        "seven_day": {{"utilization": weekly, "resets_at": weekly_reset}}}}}}
+    print(json.dumps({{"type": "control_response", "response": {{"subtype": "success", "request_id": v["request_id"], "response": payload}}}}), flush=True)
+"#, root.join("usage-1.json").display())).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        path
+    }
+    fn usage(path: &Path, five: f64, weekly: f64, weekly_reset: &str) {
+        fs::write(path, serde_json::to_vec(&json!([five, weekly, weekly_reset])).unwrap()).unwrap();
+    }
+
+    /// **His answer 2, both settings, on readings taken by the real probe under each folder.**
+    /// Account 1's five-hour window is at 93%; Account 2 ("Work") is at 10%. With Pause (the
+    /// default) nothing moves: the 93% rule pauses exactly as before. With Switch, Account 2
+    /// is put in use, the one-line notice is written, and the top-level reading every existing
+    /// reader uses now describes Account 2.
+    #[test]
+    #[cfg(unix)]
+    fn at_93_percent_of_the_five_hour_window_pause_stays_and_switch_moves_to_the_next_account() {
+        let root = Scratch::new();
+        let bin = fake_claude(root.path());
+        let service = Service::open(root.path()).unwrap();
+        let work = service.accounts.add("Work").unwrap();
+        usage(&root.path().join("usage-1.json"), 93., 40., "2099-01-05T00:00:00Z");
+        usage(&work.folder.clone().unwrap().join("usage.json"), 10., 20., "2099-01-06T00:00:00Z");
+        let view = service.refresh(&bin, true);
+        assert_eq!(view.at_threshold, crate::claude_accounts::AtThreshold::Pause, "Pause is the default");
+        assert_eq!(service.accounts.in_use().id, "1", "Pause never switches");
+        assert_eq!(view.accounts.len(), 2);
+        assert_eq!(view.accounts[1].windows[0].used_percent, 10., "Account 2 was read under its own folder");
+        assert_eq!(view.windows[0].used_percent, 93.);
+
+        let view = service.set_at_threshold(crate::claude_accounts::AtThreshold::Switch).unwrap();
+        assert_eq!(service.accounts.in_use().id, work.id, "Switch moves to the account with room");
+        assert_eq!(view.windows[0].used_percent, 10., "the published reading is the account in use");
+        assert!(view.accounts[1].in_use && !view.accounts[0].in_use);
+        assert_eq!(service.accounts.take_notice().as_deref(),
+            Some("Switched to Work: Account 1 reached 93% of its five-hour limit."));
+        let published: View = gate::read_json(&root.path().join("engine-state/claude-quota.json")).unwrap();
+        assert_eq!(published.windows[0].used_percent, 10.);
+    }
+
+    /// **All accounts exhausted** (Frank's finding 2): held until the soonest reset among
+    /// them, in the view and in the separate-process gate, even with the pause switch off.
+    /// With one account nothing changes: no hold appears.
+    #[test]
+    #[cfg(unix)]
+    fn when_every_account_is_exhausted_work_is_held_until_the_soonest_reset() {
+        let root = Scratch::new();
+        let bin = fake_claude(root.path());
+        let service = Service::open(root.path()).unwrap();
+        let work = service.accounts.add("Work").unwrap();
+        usage(&root.path().join("usage-1.json"), 20., 99.5, "2099-01-05T00:00:00Z");
+        usage(&work.folder.clone().unwrap().join("usage.json"), 20., 100., "2099-01-03T00:00:00Z");
+        let view = service.refresh(&bin, true);
+        assert!(!view.policy.enabled, "the pause switch is off");
+        let soonest = reset(&json!("2099-01-03T00:00:00Z")).unwrap();
+        assert_eq!(view.held_until, Some(soonest));
+        assert_eq!(view.admission, Admission::Held { resets_at: soonest });
+        let state = root.path().join("engine-state");
+        assert_eq!(gate::admission(&state, crate::util::now_millis()), Admission::Held { resets_at: soonest });
+        // One account left: today's behavior, no hold.
+        service.remove_account(&work.id).unwrap();
+        assert_eq!(service.view().held_until, None);
+        assert_eq!(gate::admission(&state, crate::util::now_millis()), Admission::Disabled);
+    }
+
     struct FakeSource {
         calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
         result: Result<Vec<Window>, ReadError>,

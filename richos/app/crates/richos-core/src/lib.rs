@@ -68,6 +68,7 @@ pub mod american_spelling;
 /// the session that reads them (CEO §86, 2026-09-24).
 pub mod attachments;
 pub mod belief;
+pub mod claude_accounts;
 pub mod cognition;
 pub mod company;
 pub mod correction;
