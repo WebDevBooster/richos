@@ -854,10 +854,8 @@ review_walk() {
   local s; s="$(serial)"
   [ -n "$s" ] || fail "no emulator serial"
   emu_awake "$s"
-  # A reviewer installs the app fresh from Google Play: no earlier install, no earlier data. This is
-  # this CLI's emulator, never a phone.
-  "$ADB" -s "$s" uninstall "$PACKAGE" >/dev/null 2>&1 || true
-  "$ADB" -s "$s" install "$apk" >&2 || fail "the release build of ${sha:0:12} did not install on $s"
+  # The walk itself puts the app on this emulator as a reviewer's fresh Play install (review-walk.mjs,
+  # emulator serials only); this CLI's install step never uninstalls or clears data.
   local code=0
   # run-active renews the emulator's lease while the walk lives (the lease otherwise ends 900 s after
   # the boot, measured 2026-10-04: mid-walk), and ends the walk if the lease is lost.

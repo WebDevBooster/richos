@@ -190,6 +190,14 @@ let link = '';
 const marker = `Review walk ${o.commit.slice(0, 8)} ${new Date().toISOString().slice(11, 19)}`;
 const apkSha = createHash('sha256').update(readFileSync(o.apk)).digest('hex');
 
+// A reviewer installs the app fresh from Google Play: no earlier install, no earlier data. This is the
+// walk's own emulator (the serial is checked above to be emulator-NNNN), never a phone.
+try { adb('uninstall', o.package); } catch { /* not installed yet */ } // device-cli-exempt: emulator-NNNN serials only, checked above
+try { adb('install', o.apk); } catch (error) { // device-cli-exempt: emulator-NNNN serials only, checked above
+	console.log(JSON.stringify({ ok: false, error: `the release build did not install on ${o.serial}: ${String(error.message).slice(0, 300)}` }));
+	process.exit(1);
+}
+
 async function body() { return page.locator('body').innerText(); }
 
 try {
