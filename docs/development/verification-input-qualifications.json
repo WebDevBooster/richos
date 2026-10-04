@@ -2563,7 +2563,7 @@
       "review": "The complete R1-R10 refusal journeys copy the release script, version/config and real name scanner into a private tracked repository. A private literal deny-list includes both clean and planted-hit controls. Downloads are exclusively from an owned loopback fixture server. Every app case refuses before any compiler, signing or publication step. Private HOME clears signing/proxy/config overrides; the worktree-derived port is operational allocation, not asserted data. Receipt timestamps are output only. Source Git history, live release hosts and operator records are not consulted. Cargo invocations use workspace-specific mutable outputs. The bound Cargo dispatcher and target resolver read Cargo.toml in the same declared source or private fixture workspace. Compiler wrappers and their settings are bound by the runner toolchain identity.",
       "sources": {
         "richos/app/scripts/make-release.test.sh": "354dab37039aaba443d108821fe51405142e66710ab5c8285013a62f5f17ffe8",
-        "richos/app/scripts/make-release.sh": "3cad06ac6ce5b06ba62f1248c9bfb101eabc224fb19769291e1d8815a0ed1541",
+        "richos/app/scripts/make-release.sh": "22239930261bb743e21af674fdcc082fac8500441f466a59fdbcfc9f5680d5a4",
         "richos/app/scripts/lib/cargo-target.sh": "792e2e55fb692061744f8fe931ef42b0f70deb13ec10341dc4dd46fe36cfb487",
         "richos/app/scripts/lib/output-lock.sh": "d58823a5ddc7fa31e0aae4053f1ccf0a9c10e0c83c72c5f8ac9e9a84f19362f6",
         "richos/app/scripts/lib/worktree-resource.sh": "f3ce44d7c52f97f4545e4c79636e8ad19cba994db5168d9f1b8104b57793a1c7",
