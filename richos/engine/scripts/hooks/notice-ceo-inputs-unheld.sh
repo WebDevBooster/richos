@@ -234,13 +234,14 @@ except (OSError, KeyError, AttributeError, ImportError, SyntaxError):
 
 path = os.environ["LEDGER"]
 
-# The last 500 records. A ledger is append-only and grows for the life of the
-# repository; re-deciding every historical entry every turn would make a
-# turn-end hook scale with the age of the project. Anything older than 500
-# hand-overs has either been resolved or has been announced 500 times.
+# EVERY record. A bound on the last N records counted unrelated hand-overs,
+# not resolutions: an input refused before 500 later commits dropped out of
+# the reminder while git still did not hold it (hunt part 3 v3, finding 43).
+# Reading the whole ledger is one cheap JSON parse per line; the git checks
+# below run only for paths whose latest word is still unresolved.
 try:
     with open(path, encoding="utf-8") as fh:
-        lines = fh.readlines()[-500:]
+        lines = fh.readlines()
 except OSError as exc:
     print("BROKEN\t%s" % exc.__class__.__name__)
     sys.exit(0)

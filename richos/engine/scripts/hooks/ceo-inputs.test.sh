@@ -510,6 +510,28 @@ say "stop hook, stood down" "$SOUT4"
 case "$SOUT4" in *"STOOD DOWN"*) ok "H4  the partner announces its own stand-down" ;;
                  *)              bad "H4  the partner announces its stand-down" "$SOUT4" ;; esac
 
+# --- P3-43: an unresolved input is still named after 500 unrelated records ---
+# The reader kept only the last 500 ledger rows, so a refusal followed by 500
+# unrelated hand-overs vanished while git still did not hold the file.
+REPO_I="$(new_repo repo-i)"
+AGED_I="$REPO_I/aged-input.md"
+printf 'aged input\n' > "$AGED_I"
+mkdir -p "$REPO_I/.claude/state"
+python3 - "$REPO_I/.claude/state/ceo-inputs.jsonl" "$AGED_I" <<'PYL'
+import json, sys
+ledger, aged = sys.argv[1], sys.argv[2]
+with open(ledger, "w") as fh:
+    fh.write(json.dumps({"refused": [{"path": aged, "why": "fixture refusal"}]}) + "\n")
+    for i in range(500):
+        fh.write(json.dumps({"committed": ["/invented/unrelated-%d" % i]}) + "\n")
+PYL
+SOUT_I="$(stop_payload "$REPO_I" | RICHOS_ENTITY_ROOT="$REPO_I" bash "$STOP_HOOK" 2>/dev/null)"
+case "$SOUT_I" in
+    *"HELD BY NOTHING BUT YOUR DISK"*"aged-input.md"*)
+        ok "P3-43 a refused input is still named after 500 unrelated ledger records" ;;
+    *)  bad "P3-43 a refused input is still named after 500 unrelated ledger records" "$SOUT_I" ;;
+esac
+
 # --- P3-22: the commit holds the bytes the gates checked, not the live file ---
 # Its fixture repository is removed however the fragment ends, and it is made
 # in a temp directory of its own so the suite can SEE that nothing was left

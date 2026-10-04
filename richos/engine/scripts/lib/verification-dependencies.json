@@ -896,7 +896,7 @@
     },
     "scripts/hooks/notice-ceo-inputs-unheld.sh#fixtures": {
       "source": "scripts/hooks/notice-ceo-inputs-unheld.sh",
-      "sha256": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
+      "sha256": "b0324ae5589a7116ab2416643a899de05613fda7dafb204ce56c6d6e8e784585",
       "evidence": "Reads CHECK_CEO_INPUTS_UNHELD from its resolved private entity, the private ingress ledger and Git status. Its embedded Python imports the analyzer only for is_handover_file; no arbitrary analyzer main/lease command executes on import.",
       "keys": [
         "CHECK_CEO_INPUTS_UNHELD"
@@ -915,7 +915,7 @@
     },
     "scripts/hooks/ceo-inputs.test.sh": {
       "source": "scripts/hooks/ceo-inputs.test.sh",
-      "sha256": "7454274624db5587714011e25b026f229cf6b2cfe573df547aa7a13b91ee6cc5",
+      "sha256": "7d50668a973252982a9d17eedfc9444dc3bf7b35227e61d8653d3c49fbcf5a21",
       "evidence": "Every new_repo config is created from literal PROTECTED_PATHS and explicit opt-out settings. All normal/broken-wrapper and Stop calls pin RICHOS_ENTITY_ROOT to those private repositories. Even the outside-seat and unadopted target files are created inside this suite sandbox; it never copies the real config.",
       "keys": [],
       "edges": [
@@ -7245,7 +7245,7 @@
     },
     "scripts/hooks/notice-ceo-inputs-unheld.sh#unadopted-stop": {
       "source": "scripts/hooks/notice-ceo-inputs-unheld.sh",
-      "sha256": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
+      "sha256": "b0324ae5589a7116ab2416643a899de05613fda7dafb204ce56c6d6e8e784585",
       "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
       "keys": [],
       "edges": [
@@ -16304,7 +16304,7 @@
         "scripts/hooks/left-off.test.sh": "159b8e36fd623094897bde2132e2c205fbc985ae72895e783645bb91720ac3a1",
         "scripts/hooks/left-off.mutation.sh": "845f799309b90254a9ac87ed3fead11485364080c49b4be8640b6f335fe02c0a",
         "scripts/hooks/notice-ceo-asks.sh": "a69920c5d344cc2f050112281e96c948b884b40a2c91416f01499d25f0618330",
-        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
+        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b0324ae5589a7116ab2416643a899de05613fda7dafb204ce56c6d6e8e784585",
         "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
         "scripts/hooks/notice-claim-capability.sh": "f918e14199d059e57f306ee1202fe0edb3ab27711deb0003358ad36bcae3a1c5",
@@ -16605,7 +16605,7 @@
         "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
         "scripts/hooks/guard-unresolved-claims.sh": "ee955921f52cd49dcf9e2abb50b2cada51d5d2628bb9384baac7dada190633ba",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
-        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
+        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b0324ae5589a7116ab2416643a899de05613fda7dafb204ce56c6d6e8e784585",
         "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
         "scripts/hooks/notice-disk-alert.sh": "8d30387da21de0f07be504cc9d64e73ad43455816b41af567474fc63462331f0",
@@ -16961,7 +16961,7 @@
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
-        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
+        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b0324ae5589a7116ab2416643a899de05613fda7dafb204ce56c6d6e8e784585",
         "scripts/hooks/commit-ceo-inputs.py": "28c6e1ab45e203c11582e9f76a3feb5e3e096dbb95a1df23815164298d5be21a",
         "scripts/hooks/scan-secrets.sh": "fd488d5b07748fd41c773c80ec133eed526869534f4f1324c847a33701ae1ab1",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
