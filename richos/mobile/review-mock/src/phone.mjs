@@ -136,7 +136,7 @@ async function events(host, incoming) {
 		return host.backfill(threadId, before, limit);
 	}
 	const since = u64(queryValue(incoming.query, 'since')) ?? u64(incoming.lastEventId);
-	return host.openStream(threadId, since);
+	return host.openStream(threadId, since, check.device.id);
 }
 
 async function audio(host, incoming, rawId) {
