@@ -19,10 +19,30 @@ pub mod reset_tools;
 
 pub const REFRESH_INTERVAL_MS: u64 = 5 * 60_000;
 
-/// **When usage speeds up a lot, the quota is checked every 2 minutes instead of 5** (the
-/// CEO's ruling §108, 2026-10-04: 15 parallel Fable workers took the five-hour window past the
-/// 93% pause to 100% between two five-minute checks).
-pub const FAST_REFRESH_INTERVAL_MS: u64 = 2 * 60_000;
+/// **When usage speeds up a lot, or a big rise is expected, the quota is checked every MINUTE
+/// instead of 5** (ruling §108: "every 2 minutes"; plan §15 answer 10: "use every minute
+/// instead if that causes no problems", after measuring what one reading costs).
+///
+/// **The measurement, 2026-10-04, this Mac, Claude Code 2.1.288**, with
+/// `cargo run -p richos-core --example claude_quota -- --measure <claude> N GAP`: a cold read
+/// (spawn, initialize, `get_usage`) took 2.49-2.92 s; a warm read on the kept connection
+/// 2.02-2.22 s; the child's CPU time grew 2.03-2.04 s per read with reads 6 s apart and
+/// 2.29 s per read with reads 30 s apart — so the cost is the READ, not an idle child: about
+/// 2.2 s of one core per read. The resident child is 390-430 MB. At one read a minute that is
+/// about 3.7% of one core per account being read fast (2.2 / 60), only while usage is fast or
+/// a rise is expected, and only for the account in use; at 2 minutes it would be 1.8%. Every
+/// minute lets the act point sit closer to the normal one at the same speed (4 points a minute
+/// projects 4 points ahead instead of 8), so it is the choice. The cost no measurement here can
+/// show is Anthropic's side (a `get_usage` a minute per account); a failed read backs off
+/// `BACKOFF_MS` as before.
+pub const FAST_REFRESH_INTERVAL_MS: u64 = 60_000;
+
+/// **An EXPECTED rise** (plan §15 answer 10): this many leases started, or agents dispatched,
+/// within `EXPECTED_RISE_WINDOW_MS` switches checking to the fast interval before any jump is
+/// measured, for `EXPECTED_RISE_MS`. Then it ends by itself unless a measured speed keeps it.
+pub const EXPECTED_RISE_STARTS: usize = 3;
+pub const EXPECTED_RISE_WINDOW_MS: u64 = 60_000;
+pub const EXPECTED_RISE_MS: u64 = 10 * 60_000;
 
 /// **"Speeds up a lot", as a number:** a window gaining 5 percentage points or more per
 /// five-minute check, i.e. 1 point a minute. That is 3x the even pace of a five-hour window
@@ -42,24 +62,34 @@ pub struct Reading {
     /// Window id -> percentage points per millisecond, from the last two readings of that
     /// same window (same reset time). Absent until two readings far enough apart exist.
     pub speeds: BTreeMap<String, f64>,
+    /// A big rise is expected (many leases or agents started at once): check fast already.
+    pub expected: bool,
 }
 impl Reading {
-    /// Is usage fast enough to check every 2 minutes (§108)?
+    /// Is usage measured fast enough to check every minute (§108)?
     pub fn fast(&self) -> bool {
         self.speeds.values().any(|s| s * REFRESH_INTERVAL_MS as f64 >= FAST_POINTS_PER_CHECK)
     }
-    /// The gap to the next check: 2 minutes when fast, 5 otherwise.
+    /// The gap to the next check: one minute when fast or a rise is expected, 5 otherwise.
+    /// When the speed comes back down (and no rise is expected) it is 5 minutes again.
     pub fn interval(&self) -> u64 {
-        if self.fast() { FAST_REFRESH_INTERVAL_MS } else { REFRESH_INTERVAL_MS }
+        if self.fast() || self.expected { FAST_REFRESH_INTERVAL_MS } else { REFRESH_INTERVAL_MS }
     }
     /// What this window will read at the next check, at its measured speed.
     pub fn projected(&self, window: &Window) -> f64 {
         window.used_percent + self.speeds.get(&window.id).copied().unwrap_or(0.) * self.interval() as f64
     }
-    /// **Act now?** At the threshold at normal speed; EARLIER when the measured speed would
-    /// carry the window to 100% before the next check could act (§108: never at 100%).
+    /// **The check point, recalculated from the measured speed** (plan §15 answer 10): the
+    /// normal threshold (93% five-hour, 99% weekly), or lower when the speed would carry the
+    /// window to 100% before the next check — `100 - speed x interval`. At normal speed it is
+    /// the normal threshold again (answer 11).
+    pub fn act_point(&self, window: &Window, threshold: f64) -> f64 {
+        let reach = self.speeds.get(&window.id).copied().unwrap_or(0.) * self.interval() as f64;
+        threshold.min(100. - reach)
+    }
+    /// **Act now?** At the check point (§108: never at 100%).
     pub fn reaches(&self, window: &Window, threshold: f64) -> bool {
-        window.used_percent >= threshold || self.projected(window) >= 100.
+        window.used_percent >= self.act_point(window, threshold)
     }
 }
 pub const RESET_EXEMPTION_MS: u64 = 20 * 60_000;
@@ -156,6 +186,10 @@ pub struct View {
     /// above reads 120000 while it is fast.
     #[serde(default)]
     pub speeds: BTreeMap<String, f64>,
+    /// The check point of each window, percent used: 93 (five-hour) and 99 (weekly) at
+    /// normal speed, lower while a measured speed would otherwise reach 100% between checks.
+    #[serde(default)]
+    pub act_at: BTreeMap<String, f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -279,6 +313,8 @@ struct Snapshot {
     speeds: BTreeMap<String, f64>,
     /// Each window's speed base: the reading the next speed is measured from.
     bases: BTreeMap<String, SpeedBase>,
+    /// A big rise is expected until this moment (plan §15 answer 10). It ends by itself.
+    rise_until: Option<u64>,
 }
 
 /// One window's reading as a speed base: used percent, its reset time, and when it was read.
@@ -307,7 +343,11 @@ impl Snapshot {
         }
     }
     fn reading(&self) -> Reading {
-        Reading { windows: self.windows.clone(), speeds: self.speeds.clone() }
+        self.reading_at(crate::util::now_millis())
+    }
+    fn reading_at(&self, now: u64) -> Reading {
+        Reading { windows: self.windows.clone(), speeds: self.speeds.clone(),
+            expected: self.rise_until.is_some_and(|t| t > now) }
     }
     fn accept(&mut self, mut windows: Vec<Window>, observed: u64) {
         self.measure(&windows, observed);
@@ -319,7 +359,8 @@ impl Snapshot {
         if let Some(previous) = missing_held_weekly { windows.push(previous); }
         let speeds = std::mem::take(&mut self.speeds);
         let bases = std::mem::take(&mut self.bases);
-        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases };
+        let rise_until = self.rise_until;
+        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rise_until };
     }
     /// **A reading the lease itself streamed** (`rate_limit_event`), merged window by window
     /// over the probe's. It never clears a probe error or its backoff; it only adds what it saw.
@@ -335,8 +376,15 @@ impl Snapshot {
         self.checked_at = Some(observed);
     }
     fn view(&self, policy: Policy, now: u64) -> View {
-        let reading = self.reading();
+        let reading = self.reading_at(now);
         let interval = reading.interval();
+        // The two check points, recalculated from the measured speed (answer 10), shown in
+        // the panel; the normal 93% and 99% again once the speed is back down (answer 11).
+        let act_at: BTreeMap<String, f64> = self.windows.iter().filter_map(|w| match w.id.as_str() {
+            "five_hour" => Some((w.id.clone(), reading.act_point(w, f64::from(policy.pause_percent)))),
+            "seven_day" => Some((w.id.clone(), reading.act_point(w, resets::WEEKLY_THRESHOLD))),
+            _ => None,
+        }).collect();
         let expired = self
             .windows
             .iter()
@@ -416,6 +464,7 @@ impl Snapshot {
             held_until: None,
             at_threshold: Default::default(),
             speeds: self.speeds.clone(),
+            act_at,
         }
     }
 }
@@ -443,7 +492,12 @@ pub struct Service {
     /// first seen fast, taken once by whoever says it in the conversation.
     alert: Mutex<Option<String>>,
     was_fast: std::sync::atomic::AtomicBool,
+    /// When leases and agent dispatches started, for the EXPECTED rise (answer 10).
+    starts: Mutex<std::collections::VecDeque<u64>>,
 }
+
+/// The gate appends one line per agent dispatch here (`gate.rs`); the service counts them.
+pub const DISPATCH_LOG: &str = "agent-dispatches.log";
 
 /// An added account's own probe and its last reading.
 type AccountReader = (Box<dyn Source>, Snapshot);
@@ -509,6 +563,7 @@ impl Service {
             extra: Mutex::new(BTreeMap::new()),
             alert: Mutex::new(None),
             was_fast: std::sync::atomic::AtomicBool::new(false),
+            starts: Mutex::new(std::collections::VecDeque::new()),
         };
         service.publish()?;
         Ok(service)
@@ -638,8 +693,48 @@ impl Service {
         let acts = self.accounts.count() > 1 || self.policy.lock().unwrap().enabled;
         let then = if acts { "and acts before it reaches 100%" } else { "Automatic pause is off in Settings" };
         *self.alert.lock().unwrap() = Some(format!(
-            "Claude usage is very fast right now: {whose} limit is filling about {:.0}% a minute and is at {:.0}%. RichOS now checks every 2 minutes{}{then}.",
+            "Claude usage is very fast right now: {whose} limit is filling about {:.0}% a minute and is at {:.0}%. RichOS now checks every minute{}{then}.",
             per_ms * 60_000.0, window.used_percent, if acts { " " } else { ". " }));
+    }
+
+    /// **A lease was started** (the shell's lease factory, conversation or work). Several
+    /// within a minute is an EXPECTED rise (plan §15 answer 10): checking goes to the fast
+    /// interval now, before any jump is measured.
+    pub fn lease_started(&self) {
+        self.started(&[crate::util::now_millis()]);
+    }
+
+    fn started(&self, at: &[u64]) {
+        let now = crate::util::now_millis();
+        let expected = {
+            let mut starts = self.starts.lock().unwrap();
+            starts.extend(at.iter().copied());
+            while starts.front().is_some_and(|t| *t + EXPECTED_RISE_WINDOW_MS < now) { starts.pop_front(); }
+            starts.len() >= EXPECTED_RISE_STARTS
+        };
+        if expected {
+            self.starts.lock().unwrap().clear();
+            let until = Some(now + EXPECTED_RISE_MS);
+            let in_use = self.accounts.in_use().id;
+            if in_use == crate::claude_accounts::ACCOUNT_ONE {
+                self.snapshot.lock().unwrap().rise_until = until;
+            } else if let Some((_, snapshot)) = self.extra.lock().unwrap().get_mut(&in_use) {
+                snapshot.rise_until = until;
+            }
+            self.request_refresh();
+            let _best_effort = self.publish();
+        }
+    }
+
+    /// The agent dispatches the gate wrote since the last look (a large parallel job is an
+    /// expected rise too). The file is emptied after each look, so it stays small.
+    fn take_dispatches(&self) {
+        let path = self.cwd.join("engine-state").join(DISPATCH_LOG);
+        let Ok(text) = fs::read_to_string(&path) else { return };
+        if text.is_empty() { return; }
+        let _best_effort = fs::write(&path, b"");
+        let at: Vec<u64> = text.lines().filter_map(|l| l.trim().parse().ok()).collect();
+        self.started(&at);
     }
 
     /// The high-speed alert, taken once by whoever says it in the conversation.
@@ -744,6 +839,7 @@ impl Service {
     }
     pub fn refresh(&self, bin: &Path, force: bool) -> View {
         if self.is_shutdown() || self.connecting.load(std::sync::atomic::Ordering::SeqCst) { return self.view(); }
+        self.take_dispatches();
         let marker = self.resets.marker();
         let changed = {
             let mut last = self.last_reset_marker.lock().unwrap();
@@ -1041,24 +1137,32 @@ pub(crate) mod tests {
             Err(ReadError::Malformed)
         );
     }
-    // ---- §108: the speed of use -------------------------------------------------------
+    // ---- §108 and plan §15 answers 10-11: the speed of use --------------------------------
 
     fn five_hour_at(used: f64) -> Vec<Window> {
         snapshot(used, 3 * 3_600_000).windows
     }
+    /// Both windows: five-hour at `five`%, weekly at `weekly`% (reset in two days).
+    fn both_at(five: f64, weekly: f64) -> Vec<Window> {
+        let mut windows = five_hour_at(five);
+        windows.push(Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: weekly,
+            resets_at: Some(NOW + 48 * 3_600_000), duration_ms: 168 * 3_600_000 });
+        windows
+    }
 
-    /// **§108: when usage speeds up a lot, the quota is checked every 2 minutes instead of 5.**
-    /// "A lot" is 5 points or more per five-minute check (1 point a minute, 3x a five-hour
-    /// window's even pace). The 2026-09-29 run measured 3.7 to 4 a minute: 7% -> 11% in one
-    /// minute here. Ordinary use measured about 0.33 a minute: 50% -> 50.33% is not fast.
+    /// **§108: when usage speeds up a lot, the quota is checked every minute instead of 5**
+    /// (answer 10 allows a minute; `FAST_REFRESH_INTERVAL_MS` carries the read-cost
+    /// measurement). "A lot" is 5 points or more per five-minute check (1 point a minute, 3x a
+    /// five-hour window's even pace). The 2026-09-29 run measured 3.7 to 4 a minute: 7% -> 11%
+    /// in one minute here. Ordinary use measured about 0.33 a minute: 50% -> 50.33% is not fast.
     #[test]
-    fn fast_usage_is_checked_every_two_minutes_and_normal_usage_every_five() {
+    fn fast_usage_is_checked_every_minute_and_normal_usage_every_five() {
         let mut fast = Snapshot::default();
         fast.accept(five_hour_at(7.), NOW);
         fast.accept(five_hour_at(11.), NOW + 60_000);
         let view = fast.view(policy(), NOW + 60_000);
         assert_eq!(view.refresh_interval_ms, FAST_REFRESH_INTERVAL_MS);
-        assert_eq!(view.next_check_at, Some(NOW + 60_000 + 2 * 60_000));
+        assert_eq!(view.next_check_at, Some(NOW + 60_000 + 60_000));
         assert_eq!(view.state, State::Fresh);
 
         let mut normal = Snapshot::default();
@@ -1076,37 +1180,96 @@ pub(crate) mod tests {
     /// 2026-09-29 run (richos-hq `docs/research/2026-10-04-fifteen-fable-workers-quota-burn.md`):
     /// the five-hour window went 7% -> 100% in about 25 minutes, 3.7 to 4 points a minute,
     /// about 11x ordinary use (0.33 a minute); 93% was crossed between two five-minute checks
-    /// and the first alarm came at 98%. Here the window gains 4 points a minute. At 91% the
-    /// next check (2 minutes away, because this is fast) would read 91 + 8 = 99%: under 100, so
-    /// work continues and that check still comes before the wall. At 92.5% it would read
-    /// 100.5%, so the pause comes NOW, at 92.5%, before the 93% line — and the separate-process
-    /// gate, reading the published file, agrees. At normal speed nothing changes: 92.9% is
-    /// still Ready.
+    /// and the first alarm came at 98%. At 4 a minute, checked every minute, the 93% point
+    /// already lands before the wall: the last check under it (92.9%) is followed one minute
+    /// later by one that reads at most 96.9% and holds. At twice that speed (8 a minute) the
+    /// point moves to 100 - 8 = 92%, so the hold comes at 92.5%, before 93% — and the
+    /// separate-process gate, reading the published file, agrees.
     #[test]
-    fn a_fast_five_hour_burn_pauses_before_93_percent_so_the_next_check_stays_under_100() {
+    fn a_fast_five_hour_burn_holds_before_100_and_before_93_when_the_speed_demands_it() {
         let mut s = Snapshot::default();
-        s.accept(five_hour_at(87.), NOW);
-        s.accept(five_hour_at(91.), NOW + 60_000);
-        let reading = s.reading();
-        assert!(reading.fast());
-        assert!(reading.projected(&s.windows[0]) < 100.);
+        s.accept(five_hour_at(88.9), NOW);
+        s.accept(five_hour_at(92.9), NOW + 60_000);
+        assert!(s.reading().fast());
+        assert_eq!(s.view(policy(), NOW + 60_000).act_at["five_hour"], 93.);
         assert_eq!(s.view(policy(), NOW + 60_000).admission, Admission::Ready);
-        // 20 s later: too soon for a new speed, so 4 points a minute still stands.
-        s.accept(five_hour_at(92.5), NOW + 80_000);
-        assert!(s.reading().projected(&s.windows[0]) >= 100.);
-        assert!(matches!(s.view(policy(), NOW + 80_000).admission, Admission::Held { .. }), "paused at 92.5%, before 93%");
-        // The published file carries the speed, so the gate decides the same.
+        assert!(s.reading().projected(&s.windows[0]) < 100., "the next check comes before the wall");
+        s.accept(five_hour_at(96.9), NOW + 120_000);
+        assert!(matches!(s.view(policy(), NOW + 120_000).admission, Admission::Held { .. }), "held at 96.9%, never at 100%");
+
+        let mut double = Snapshot::default();
+        double.accept(five_hour_at(84.5), NOW);
+        double.accept(five_hour_at(92.5), NOW + 60_000);
+        let view = double.view(policy(), NOW + 60_000);
+        assert!((view.act_at["five_hour"] - 92.).abs() < 1e-9, "{:?}", view.act_at);
+        assert!(matches!(view.admission, Admission::Held { .. }), "held at 92.5%, before 93%");
         let dir = Scratch::new();
-        let published = s.view(policy(), NOW + 80_000);
         let state = dir.path().join("engine-state");
-        atomic_write(&state.join("claude-quota.json"), &published).unwrap();
+        atomic_write(&state.join("claude-quota.json"), &view).unwrap();
         atomic_write(&dir.path().join("claude-quota-policy.json"), &policy()).unwrap();
-        assert!(matches!(gate::admission(&state, NOW + 80_000), Admission::Held { .. }));
-        // Normal speed: the 93% rule exactly as before.
-        let mut calm = Snapshot::default();
-        calm.accept(five_hour_at(92.8), NOW);
-        calm.accept(five_hour_at(92.9), NOW + 60_000);
-        assert_eq!(calm.view(policy(), NOW + 60_000).admission, Admission::Ready);
+        assert!(matches!(gate::admission(&state, NOW + 60_000), Admission::Held { .. }));
+    }
+
+    /// **Plan §15 answer 10, point 3: a measured jump moves BOTH check points at once**, and the
+    /// published view (the panel's) carries them. Five-hour gaining 8 a minute: 100 - 8 = 92
+    /// (from 93). Weekly gaining 2 a minute: 100 - 2 = 98 (from 99).
+    #[test]
+    fn a_measured_jump_moves_both_check_points_and_the_view_shows_them() {
+        let mut s = Snapshot::default();
+        s.accept(both_at(40., 60.), NOW);
+        assert_eq!(s.view(policy(), NOW).act_at, [("five_hour".to_string(), 93.), ("seven_day".to_string(), 99.)].into());
+        s.accept(both_at(48., 62.), NOW + 60_000);
+        let act = s.view(policy(), NOW + 60_000).act_at;
+        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 98.).abs() < 1e-9, "{act:?}");
+    }
+
+    /// **Plan §15 answer 11: when the speed comes back down, everything resets.** After the
+    /// burn above, a reading a minute later that gained 0.3 points: checking is every 5 minutes
+    /// again and both check points are 93% and 99% again. A way in needs its way out.
+    #[test]
+    fn a_return_to_normal_speed_restores_the_five_minute_interval_and_both_normal_check_points() {
+        let mut s = Snapshot::default();
+        s.accept(both_at(40., 60.), NOW);
+        s.accept(both_at(48., 62.), NOW + 60_000);
+        assert_eq!(s.view(policy(), NOW + 60_000).refresh_interval_ms, FAST_REFRESH_INTERVAL_MS);
+        s.accept(both_at(48.3, 62.02), NOW + 120_000);
+        let view = s.view(policy(), NOW + 120_000);
+        assert_eq!(view.refresh_interval_ms, REFRESH_INTERVAL_MS);
+        assert_eq!(view.next_check_at, Some(NOW + 120_000 + REFRESH_INTERVAL_MS));
+        let act = view.act_at;
+        assert_eq!((act["five_hour"], act["seven_day"]), (93., 99.), "{act:?}");
+    }
+
+    /// **Plan §15 answer 10, point 2: an EXPECTED rise.** Three leases started within a minute
+    /// switch checking to every minute before any speed is measured (no speed exists: one
+    /// reading only). Three agent dispatches written by the gate do the same on a fresh
+    /// service. Ten minutes later, with no measured speed, it is every 5 minutes again.
+    #[test]
+    fn an_expected_rise_checks_every_minute_before_any_jump_is_measured() {
+        for by_dispatch in [false, true] {
+            let dir = Scratch::new();
+            let service = Service::open(dir.path()).unwrap();
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let mut windows = snapshot(20., 3_600_000).windows;
+            windows[0].resets_at = Some(crate::util::now_millis() + 3_600_000);
+            *service.source.lock().unwrap() = Box::new(FakeSource { calls, result: Ok(windows) });
+            service.refresh(Path::new("unused"), true);
+            assert_eq!(service.view().refresh_interval_ms, REFRESH_INTERVAL_MS);
+            if by_dispatch {
+                let now = crate::util::now_millis();
+                fs::write(dir.path().join("engine-state").join(DISPATCH_LOG), format!("{now}\n{now}\n{now}\n")).unwrap();
+                service.refresh(Path::new("unused"), false);
+            } else {
+                for _ in 0..3 { service.lease_started(); }
+            }
+            let view = service.view();
+            assert!(view.speeds.is_empty(), "nothing was measured yet");
+            assert_eq!(view.refresh_interval_ms, FAST_REFRESH_INTERVAL_MS, "dispatch={by_dispatch}");
+            assert_eq!(view.next_check_at, view.checked_at.map(|t| t + FAST_REFRESH_INTERVAL_MS));
+            let later = crate::util::now_millis() + EXPECTED_RISE_MS + 1;
+            assert_eq!(service.snapshot.lock().unwrap().view(policy(), later).refresh_interval_ms, REFRESH_INTERVAL_MS,
+                "the expected rise ends by itself");
+        }
     }
 
     // ---- fill-first: several accounts, read by fake `claude` scripts -------------------

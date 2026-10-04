@@ -74,6 +74,15 @@ fn wait(
     if !worker && payload["tool_name"] != "Agent" {
         return Ok(());
     }
+    // **An agent dispatch is a rise to expect** (fill-first, plan §15 answer 10): one line per
+    // dispatch, counted by the quota service, which switches to the fast interval when several
+    // arrive within a minute. Best effort: a failed note never holds or refuses the tool.
+    if payload["tool_name"] == "Agent" {
+        use std::io::Write as _;
+        if let Ok(mut log) = fs::OpenOptions::new().create(true).append(true).open(state.join(super::DISPATCH_LOG)) {
+            drop(writeln!(log, "{}", crate::util::now_millis()));
+        }
+    }
     let started = Instant::now();
     let mut observation: Option<super::holds::Guard> = None;
     loop {

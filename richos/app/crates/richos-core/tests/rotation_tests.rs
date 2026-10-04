@@ -1267,7 +1267,7 @@ fn a_fast_burn_alerts_once_when_the_high_speed_is_first_detected() {
     assert!(alerts(&spine).is_empty(), "one reading is no speed");
     *streamed.lock().unwrap() = Some(streamed_five_hour(54., start + 60_000));
     spine.submit_prompt("two", Source::Text).unwrap();
-    assert_eq!(alerts(&spine), vec!["Claude usage is very fast right now: Account 1's five-hour limit is filling about 4% a minute and is at 54%. RichOS now checks every 2 minutes and acts before it reaches 100%.".to_string()]);
+    assert_eq!(alerts(&spine), vec!["Claude usage is very fast right now: Account 1's five-hour limit is filling about 4% a minute and is at 54%. RichOS now checks every minute and acts before it reaches 100%.".to_string()]);
     assert_eq!(quota.view().refresh_interval_ms, richos_core::quota::FAST_REFRESH_INTERVAL_MS);
     *streamed.lock().unwrap() = Some(streamed_five_hour(58., start + 120_000));
     spine.submit_prompt("three", Source::Text).unwrap();
