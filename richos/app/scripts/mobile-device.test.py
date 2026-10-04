@@ -248,18 +248,23 @@ CONDITION_REPLIES = {
     "date +%s": "1759576000\n3600.50 3500.00\n2.10 1.90 1.80 1/900 4242",
     "ps -A -o": "PID   PPID USER ELAPSED TIME NAME ARGS\n"
                 "1       0 root 01:00:00 00:00:05 init /init\n"
+                "300     1 shell 01:00:00 00:00:01 emdlogger emdlogger\n"
+                "700     1 shell 00:50:00 00:00:09 adbd adbd --root_seclabel=u:r:su:s0\n"
                 "900     1 shell 03:59:12 00:01:40 uiautomator app_process /system/bin com.android.commands.uiautomator.Launcher dump\n"
+                "901   700 shell 00:40:00 00:00:00 sleep sleep 9999\n"
                 "4242    1 system 01:00:00 00:10:00 system_server system_server\n"
-                "5000  4999 shell 00:00:00 00:00:00 ps ps -A -o PID,PPID,USER,ETIME,TIME,NAME,ARGS\n"
-                "4999     1 shell 00:00:00 00:00:00 sh sh -c ps\n",
+                "5000   700 shell 00:00:00 00:00:00 ps ps -A -o PID,PPID,USER,ETIME,TIME,NAME,ARGS\n",
     "wm size": "Physical size: 1080x2412\nOverride size: 540x1200",
     "dumpsys battery": "Current Battery Service state:\n  (UPDATES STOPPED -- use 'reset' to restart)\n  AC powered: false",
     "dumpsys input": "Input Dispatcher State:\n  Connections:\n"
                      "    0: channelName='abc123 StatusBar (server)', windowName='StatusBar', status=NORMAL, monitor=false, responsive=true\n"
                      "    1: channelName='def456 dev.example/Main (server)', windowName='Main', status=NORMAL, monitor=false, responsive=false\n"
                      "    2: channelName='UiAutomation (server)', windowName='', status=NORMAL, monitor=true, responsive=true\n"
-                     "    3: channelName='UiAutomation (server)', windowName='', status=NORMAL, monitor=true, responsive=true\n",
-    "t=$(date +%s); timeout": "\n".join(
+                     "    3: channelName='UiAutomation (server)', windowName='', status=NORMAL, monitor=true, responsive=true\n"
+                     "\nInput Dispatcher State at time of last ANR:\n  ANR:\n    Time: 2026-09-10 10:32:48\n"
+                     "    Reason: x is not responding.\n  Connections:\n"
+                     "    9: channelName='aaa111 Old (server)', windowName='Old', status=NORMAL, monitor=false, responsive=false\n",
+    "t=$(date +%s); echo since": "\n".join(["since 1759576000"] +
         [f" 1759576000.{i:03d}  4242  4300 E InputDispatcher: channel 'abc{i} Window' ~ Consumer closed input channel {i}"
          for i in range(60)] + [" 1759576001.000   900   901 I Other: once"]),
 }
@@ -280,15 +285,21 @@ def _():
         assert not any(w in c for c in shells for w in ("settings put", "--reset", "unplug", "logcat -c", "kill", "force-stop",
                                                           "input keyevent", "svc ", "wm size 5")), shells
         assert all(c.split()[1] == "PHONE1" for c in ph.calls), ph.calls  # never a bare adb
-        assert [p["pid"] for p in r["leftoverProcesses"]] == [900], r["leftoverProcesses"]  # its own ps and sh are not counted
+        # a test tool wherever it came from, and what adbd started and left; never adbd, this read's own ps,
+        # or a shell-user daemon init started at boot (listed apart)
+        assert [p["pid"] for p in r["leftoverProcesses"]] == [900, 901], r["leftoverProcesses"]
         assert "uiautomator" in r["leftoverProcesses"][0]["why"] and r["leftoverProcesses"][0]["elapsed"] == "03:59:12"
+        assert "started over adb" in r["leftoverProcesses"][1]["why"], r["leftoverProcesses"][1]
+        assert [p["pid"] for p in r["shellUserNotFromAdb"]] == [300], r["shellUserNotFromAdb"]
         assert set(r["settingsChanged"]) == {"global window_animation_scale=0.0", "global stay_on_while_plugged_in=7"}, r["settingsChanged"]
         assert r["batteryOverridden"] is True and "wm-size" in r["displayOverrides"], r
         assert len(r["input"]["notNormalOrUnresponsive"]) == 1, r["input"]
-        assert r["input"]["duplicateChannels"] == {"UiAutomation (server)": 2}, r["input"]
+        assert r["input"]["duplicateChannels"] == {"UiAutomation (server)": 2}, r["input"]  # the last-ANR snapshot is not now
+        assert r["input"]["lastAnr"][0] == "Time: 2026-09-10 10:32:48" and r["input"]["connections"] == 4, r["input"]
         top = r["log"]["top"][0]
         assert top["count"] == 60 and top["perSecond"] == 12.0 and top["tag"] == "InputDispatcher", top
         assert top["processes"] == ["system_server (system)"] and r["log"]["inputWindowLines"] == 60, r["log"]
+        assert r["log"]["since"] == 1759576000 and r["log"]["bufferTurnedOver"] is False, r["log"]
         assert r["phoneClock"]["uptimeHours"] == 1.0 and r["ceoAppRunning"] is False, r["phoneClock"]
         assert Path(out_dir, "condition.json").is_file() and not Path(out_dir, "ceo-app-runs.txt").exists()
         # an emulator is refused before any read
@@ -296,6 +307,9 @@ def _():
         emu = Phone(Path(tmp) / "emu", emulator=True)
         code, out = emu.randroid("device", "--serial", "PHONE1", "condition", "--seconds", "5")
         assert code == 3 and "randroid emu" in out and len(emu.calls) == 1, (code, out, emu.calls)
+    # the whole buffer's read: the rate is over the span its lines cover
+    flood = physical.log_flood("\n".join(f" {150 + i}.000  1  1 W T: m {i}" for i in range(11)), None, {})
+    assert flood["windowSeconds"] == 10.0 and flood["perSecond"] == 1.1 and flood["first"] == 150.0, flood
     for write in ("settings put global window_animation_scale 0", "dumpsys battery unplug", "dumpsys batterystats --reset",
                   "logcat -c", "wm size 540x1200", "settings get global x; svc power stayon true", "grep -E 'a|b'; am kill x"):
         assert not physical.read_only(write), write

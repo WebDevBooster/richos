@@ -241,7 +241,7 @@ CONDITION_SETTINGS = [  # (namespace, key, the value a phone has when nobody cha
 ]
 CONDITION_PROPS = ["debug.hwui.profile", "debug.hwui.overdraw", "debug.layout", "debug.hwui.show_dirty_regions",
                    "persist.sys.ui.hw", "debug.atrace.tags.enableflags", "debug.atrace.app_cmdlines",
-                   "debug.atrace.app_number"]
+                   "debug.atrace.app_number", "log.tag", "persist.log.tag"]
 # Files our tools put on the phone and remove when they end normally (a UI dump, a recording, a trace,
 # the benchmark's binaries): one left behind says a run ended early.
 LEFTOVER_FILES = "richos|qa-phone|randroid|review-walk|emu-ui"
@@ -270,13 +270,19 @@ def condition_reads(seconds):
         "instrumentation": "dumpsys activity processes | grep -i -E 'instrumentation|instr='",
         "input": "dumpsys input",
         "power": "dumpsys power | grep -i -E 'wake_lock|wake locks|stay_on|mStayOn'",
-        "test-copy": f"pidof {PACKAGE}; dumpsys activity services {PACKAGE} | grep -E 'ServiceRecord|app=|isForeground'; "
-                     f"dumpsys jobscheduler {PACKAGE} | grep -E 'JOB #'; dumpsys alarm | grep -F '{PACKAGE}'",
+        "test-copy": f"echo pid:; pidof {PACKAGE}; echo services:; dumpsys activity services {PACKAGE} | "
+                     f"grep -E 'ServiceRecord|app=|isForeground'; echo jobs:; dumpsys jobscheduler {PACKAGE} | grep -E 'JOB #'; "
+                     f"echo alarms:; dumpsys alarm | grep -F '{PACKAGE}'",
         "ceo-app-runs": f"pidof {test_copy.CEO_APP_ANDROID}",
         "front": "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'",
-        # Every new line from now for `seconds`, then logcat ends on its own (the phone's `timeout`):
-        # no reader is left behind by this read. -T takes the phone's own epoch.
-        "log": f"t=$(date +%s); timeout {int(seconds)} logcat -v epoch -b main,system,crash -T \"$t.000\"",
+        # Every line written in the next `seconds`: the phone's own clock marks the start, the phone
+        # sleeps, then one dump (`logcat -d`, which ends on its own: no reader is left behind) of the
+        # lines since that mark. (A streamed logcat ended by `timeout` lost its buffered output on the
+        # Honor: 0 lines in 30 s, measured 2026-10-04.)
+        "log": f"t=$(date +%s); echo since $t; sleep {int(seconds)}; logcat -d -v epoch -b main,system,crash -T \"$t.000\"",
+        # Then the whole buffer as it stands (its sizes first): the same count over the hours it holds,
+        # and whether it still reaches back to the window's start (if not, the window lost lines).
+        "log-buffer": "logcat -g -b main,system,crash; logcat -d -v epoch -b main,system,crash",
     })
     return reads
 
@@ -287,11 +293,11 @@ READ_SEGMENT = re.compile(
     r"^(settings get (global|secure|system) \w+|getprop [\w.]+|date \+%s|cat /proc/(uptime|loadavg)"
     r"|ps -A -o [A-Z,]+|cmd package list packages( -U)? [\w.]+|wm (size|density)|cmd uimode night|ime list -s"
     r"|ls -la( /[\w/]+)+|cat /sys/kernel(/debug)?/tracing/tracing_on"
-    r"|pidof [\w.]+|grep( -[a-zA-Z]+| \d+)* '[^']*'|t=\$\(date \+%s\)"
-    r"|timeout \d+ logcat -v epoch -b [a-z,]+ -T \"\$t\.000\""
+    r"|pidof [\w.]+|grep( -[a-zA-Z]+| \d+)* '[^']*'|t=\$\(date \+%s\)|echo [\w:]+|echo since \$t|sleep \d+"
+    r"|logcat -d -v epoch -b [a-z,]+ -T \"\$t\.000\"|logcat -d -v epoch -b [a-z,]+|logcat -g -b [a-z,]+"
     r"|dumpsys (battery|batterystats|settings|accessibility|activity processes|activity services [\w.]+"
     r"|jobscheduler [\w.]+|alarm|input|power|window))$")
-WRITES = re.compile(r"--reset|\bunplug\b|\breset\b|\bset\b|\bput\b|--enable|--disable|\blogcat\b.*\s-c\b|\bkill\b")
+WRITES = re.compile(r"logcat\b.*\s-[cG]\b|--reset|\bunplug\b|\breset\b|\bset\b|\bput\b|--enable|--disable|\blogcat\b.*\s-c\b|\bkill\b")
 
 
 def read_only(cmd):
@@ -313,20 +319,36 @@ def parse_ps(text):
 
 
 def leftovers(rows):
-    """Processes an adb shell started and left: owned by the `shell` user (what `adb shell` runs as),
-    or a tool started through app_process (uiautomator, monkey, am instrument's runner) whoever owns
-    it. This read's own `ps` and its parent shell are not counted."""
+    """Processes an adb shell started and left: adbd is among their ancestors (what `adb shell` runs
+    is adbd's child), or a test tool started through app_process (uiautomator, monkey, am
+    instrument's runner) whoever started it. adbd itself and this read's own `ps` and its shell are
+    not counted; the phone's own daemons that run as the shell user but were started by init at boot
+    are listed apart (`shellUserNotFromAdb`), never as ours."""
+    by_pid = {r["pid"]: r for r in rows}
     own = {r["pid"] for r in rows if r["args"].startswith("ps -A ")}
-    own |= {r["ppid"] for r in rows if r["pid"] in own}
-    found = []
+    own |= {r["ppid"] for r in rows if r["pid"] in own and by_pid.get(r["ppid"], {}).get("name") != "adbd"}
+
+    def from_adb(r):
+        seen, pid = set(), r["ppid"]
+        while pid and pid not in seen and pid in by_pid:
+            seen.add(pid)
+            if by_pid[pid]["name"] == "adbd":
+                return True
+            pid = by_pid[pid]["ppid"]
+        return False
+
+    found, other = [], []
     for r in rows:
-        if r["pid"] in own:
+        if r["pid"] in own or r["name"] == "adbd":
             continue
         tool = re.search(r"uiautomator|com\.android\.commands\.\S+|\bmonkey\b|screenrecord", r["args"] + " " + r["name"])
-        if r["user"] == SHELL_USER or tool:
-            found.append({**r, "why": ("started by an adb shell (user shell)" if r["user"] == SHELL_USER else "")
+        parent = by_pid.get(r["ppid"], {}).get("name")
+        if from_adb(r) or tool:
+            found.append({**r, "parent": parent, "why": ("started over adb (adbd is an ancestor)" if from_adb(r) else "")
                           + (f"; a test tool ({tool.group(0)})" if tool else "")})
-    return found
+        elif r["user"] == SHELL_USER:
+            other.append({**r, "parent": parent})
+    return found, other
 
 
 LOG_LINE = re.compile(r"^\s*(\d+\.\d+)\s+(\d+)\s+(\d+)\s+([VDIWEFA])\s+(.*?)\s*:\s(.*)$")
@@ -339,32 +361,41 @@ def normalize(message):
 
 
 def log_flood(text, seconds, names, top=15):
-    """The log read over `seconds`: total lines and rate, the most repeated lines (digits and ids
-    folded, so one message repeated with different numbers is one row), each with its rate and the
-    processes that wrote it, and the share from the input and window system."""
+    """A log read: total lines and rate, the most repeated lines (digits and ids folded, so one
+    message repeated with different numbers is one row), each with its rate and the processes that
+    wrote it, and the share from the input and window system. `seconds` None: the rate is over the
+    span the lines cover (the whole buffer's read)."""
     from collections import Counter, defaultdict
     counts, pids, sample = Counter(), defaultdict(set), {}
     total = errors = input_window = 0
+    since, first, last = None, None, None
     for line in text.replace("\r", "").splitlines():
+        mark = re.match(r"^since (\d+)$", line.strip())
+        if mark:
+            since = int(mark.group(1))
+            continue
         m = LOG_LINE.match(line)
         if not m:
             continue
         total += 1
-        _, pid, _, prio, tag, msg = m.groups()
+        ts, pid, _, prio, tag, msg = m.groups()
+        first = float(ts) if first is None else min(first, float(ts))
+        last = float(ts) if last is None else max(last, float(ts))
         errors += prio in "EF"
         input_window += bool(INPUT_WINDOW.search(tag))
         key = (prio, tag, normalize(msg))
         counts[key] += 1
         pids[key].add(int(pid))
         sample.setdefault(key, msg[:200])
-    rate = lambda n: round(n / seconds, 2) if seconds else None
-    rows = [{"count": n, "perSecond": rate(n), "priority": p, "tag": t, "line": sample[(p, t, l)], "folded": l,
-             "processes": sorted({names.get(pid, f"pid {pid} (ended)") for pid in pids[(p, t, l)]})[:5]}
-            for (p, t, l), n in counts.most_common(top)]
-    top_ew = [r for r in ({"count": n, "perSecond": rate(n), "priority": p, "tag": t, "line": sample[(p, t, l)],
-                           "processes": sorted({names.get(pid, f"pid {pid} (ended)") for pid in pids[(p, t, l)]})[:5]}
-                          for (p, t, l), n in counts.most_common() if p in "WEF")][:top]
-    return {"seconds": seconds, "lines": total, "perSecond": rate(total), "errorLines": errors,
+    window = seconds if seconds is not None else (round(last - first, 1) if first is not None else None)
+    rate = lambda n: round(n / window, 3) if window else None
+    who = lambda key: sorted({names.get(pid, f"pid {pid} (ended)") for pid in pids[key]})[:5]
+    rows = [{"count": n, "perSecond": rate(n), "priority": k[0], "tag": k[1], "line": sample[k], "folded": k[2],
+             "processes": who(k)} for k, n in counts.most_common(top)]
+    top_ew = [{"count": n, "perSecond": rate(n), "priority": k[0], "tag": k[1], "line": sample[k], "processes": who(k)}
+              for k, n in counts.most_common() if k[0] in "WEF"][:top]
+    return {"windowSeconds": window, "since": since, "first": first, "last": last,
+            "lines": total, "perSecond": rate(total), "errorLines": errors,
             "inputWindowLines": input_window, "inputWindowPerSecond": rate(input_window), "top": rows,
             "topWarningsAndErrors": top_ew}
 
@@ -375,7 +406,8 @@ def input_state(text):
     iPhone's stuck input clients."""
     from collections import Counter
     conns, monitors, anr, section = [], [], [], None
-    for line in text.replace("\r", "").splitlines():
+    now, _, last_anr = text.replace("\r", "").partition("Input Dispatcher State at time of last ANR:")
+    for line in now.splitlines():
         s = line.strip()
         if re.match(r"(Global|Gesture) monitors", s) or s.startswith("Monitors"):
             section = "monitors"
@@ -392,8 +424,9 @@ def input_state(text):
     name = lambda c: re.sub(r"\b[0-9a-f]{6,}\b", "#", (re.search(r"channelName='([^']*)'", c) or [None, c])[1])
     dup = {k: n for k, n in Counter(name(c) for c in conns).items() if n > 1}
     bad = [c[:300] for c in conns if "responsive=false" in c or not re.search(r"status=NORMAL", c)]
+    last = [x.strip()[:300] for x in last_anr.splitlines() if re.match(r"\s*(Time|Reason):", x)][:2]
     return {"connections": len(conns), "notNormalOrUnresponsive": bad, "duplicateChannels": dup,
-            "monitors": [m[:300] for m in monitors], "anrLines": anr[:20]}
+            "monitors": [m[:300] for m in monitors], "anrLines": anr[:20], "lastAnr": last}
 
 
 def condition(adb_path, serial, seconds=30, out_dir=None):
@@ -409,6 +442,8 @@ def condition(adb_path, serial, seconds=30, out_dir=None):
     for name, cmd in reads.items():
         p = adb(adb_path, serial, "shell", cmd, timeout=seconds + 60 if name == "log" else 60)
         raw[name] = (p.stdout or "").replace("\r", "")
+        if (p.stderr or "").strip():
+            raw[name + ".stderr"] = p.stderr
     get = lambda k: raw.get(k, "").strip()
     settings = []
     for ns, key, default in CONDITION_SETTINGS:
@@ -419,6 +454,12 @@ def condition(adb_path, serial, seconds=30, out_dir=None):
     props = {p: get(f"prop:{p}") or None for p in CONDITION_PROPS}
     rows = parse_ps(raw["processes"])
     names = {r["pid"]: f"{r['name']} ({r['user']})" for r in rows}
+    left, other = leftovers(rows)
+    window = {**log_flood(raw["log"], seconds, names), "error": raw.get("log.stderr", "").strip()[:300] or None}
+    buffer = log_flood(raw.get("log-buffer", ""), None, names)
+    # The buffer no longer reaching back to the window's start means lines written in the window were
+    # pushed out before the dump read them: the window's count is then a floor.
+    window["bufferTurnedOver"] = bool(window["since"] and buffer["first"] and buffer["first"] > window["since"])
     clock = get("clock").split()
     battery = get("battery")
     overrides = {k: get(k) for k in ("wm-size", "wm-density")}
@@ -427,7 +468,9 @@ def condition(adb_path, serial, seconds=30, out_dir=None):
         "phoneClock": {"epoch": int(clock[0]) if clock and clock[0].isdigit() else None,
                        "uptimeHours": round(float(clock[1]) / 3600, 2) if len(clock) > 1 else None,
                        "loadavg": " ".join(clock[3:6]) if len(clock) > 5 else None},
-        "leftoverProcesses": leftovers(rows),
+        "leftoverProcesses": left,
+        "shellUserNotFromAdb": other,
+        "adbd": [{k: r[k] for k in ("pid", "elapsed", "args")} for r in rows if r["name"] == "adbd"],
         "processCount": len(rows),
         "settings": settings,
         "settingsChanged": [f"{s['namespace']} {s['key']}={s['value']}" for s in settings if s["changed"]],
@@ -450,7 +493,10 @@ def condition(adb_path, serial, seconds=30, out_dir=None):
         "testCopy": {"package": PACKAGE, "uid": get("packages") or None, "detail": get("test-copy").splitlines()[:40]},
         "ceoAppRunning": bool(get("ceo-app-runs")),
         "front": get("front").splitlines(),
-        "log": log_flood(raw["log"], seconds, names),
+        "log": window,
+        "logBuffer": {**{k: v for k, v in buffer.items() if k != "since"},
+                      "sizes": [x.strip() for x in raw.get("log-buffer", "").splitlines() if "ring buffer" in x]},
+        "logLevel": {k: props.get(k) for k in ("log.tag", "persist.log.tag")},
     }
     if out_dir:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
