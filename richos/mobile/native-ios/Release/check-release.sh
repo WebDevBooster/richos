@@ -19,6 +19,9 @@
 #   R8  no development code in any Release binary (the markers `bin/rios sim check-release` uses),
 #       after proving the Debug app binary DOES carry them (a negative check needs its positive)
 #   R9  nothing from the source tree that is not app content was bundled (specs, tests, scripts)
+#   R10 iPhone only, as App Store Connect reads it (Release/check_device_family.py): UIDeviceFamily is
+#       exactly [1] in the app and both extensions, the required icons are compiled, the orientation set
+#       fits the devices; proved against a copy rewritten to [1, 2], which it must refuse
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:?usage: check-release.sh <output directory>}"
@@ -179,6 +182,27 @@ for dirpath, _, files in os.walk(release):
         if f.endswith((".yml", ".sh", ".cjs", ".mjs", ".ts", ".md")) or f == "main.swift" or f.endswith(".entitlements"):
             stray.append(os.path.relpath(os.path.join(dirpath, f), release))
 (bad if stray else ok)("R9 no specs, scripts, tests or notes were bundled", f"found {stray}")
+
+# R10 — the 2026-10-04 upload failure (Apple errors 90023 and 90474): every target had been given
+# TARGETED_DEVICE_FAMILY "1,2". The same script checks an .xcarchive before upload.
+import shutil, tempfile
+checker = os.path.join(root, "Release", "check_device_family.py")
+run = subprocess.run([sys.executable, checker, release], capture_output=True, text=True)
+copy = tempfile.mkdtemp(dir=os.path.dirname(products)) + "/RichOSNative.app"
+shutil.copytree(release, copy, symlinks=True)
+with open(os.path.join(copy, "Info.plist"), "rb") as f:
+    spoiled = plistlib.load(f)
+spoiled["UIDeviceFamily"] = [1, 2]
+with open(os.path.join(copy, "Info.plist"), "wb") as f:
+    plistlib.dump(spoiled, f)
+negative = subprocess.run([sys.executable, checker, copy], capture_output=True, text=True)
+shutil.rmtree(os.path.dirname(copy))
+if run.returncode != 0:
+    bad("R10 iPhone only: device family, icons, orientations", run.stdout.strip())
+elif negative.returncode == 0:
+    bad("R10 the device-family check refuses an app declaring iPhone and iPad", "it passed a copy with UIDeviceFamily [1, 2]")
+else:
+    ok("R10 iPhone only: UIDeviceFamily [1] in the app and both extensions, icons compiled, orientations valid; refuses [1, 2]")
 
 sys.exit(1 if failed else 0)
 PY
