@@ -6,6 +6,7 @@
 #   lib/hook_command.py, lib/registered-hooks.sh (P5-45)
 #   lib/failure-type.py (P5-57)
 #   row-headline-verify.sh (P5-67)
+#   lib/unguarded_rm.py (P5-82)
 # This wrapper is what names those files to the proof selector.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

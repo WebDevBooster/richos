@@ -170,5 +170,32 @@ class P5_67_ShortCircuitedGrep(unittest.TestCase):
         self.assertFalse(self.fn("false && ( grep absent file )"))
 
 
+class P5_82_UnboundShellPositionals(unittest.TestCase):
+    """`sh -c '<script>' sh` supplies $0 only; $1 is not bound. Parsed as data, never run."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, HERE)
+        cls.ur = load("unguarded_rm_p5v3", os.path.join(HERE, "unguarded_rm.py"))
+
+    def reasons(self, cmd):
+        return self.ur.verdict(cmd, cwd="/owned/work", home="/Users/fixture")
+
+    def test_direct_unguarded_variable_refused(self):
+        self.assertTrue(self.reasons('rm -f "$D/file"'))
+
+    def test_only_argument_zero_does_not_bind_dollar_one(self):
+        self.assertTrue(self.reasons("""sh -c 'rm -f "$1/file"' sh"""))
+
+    def test_one_argument_does_not_bind_dollar_two(self):
+        self.assertTrue(self.reasons("""sh -c 'rm -f "$2/file"' sh /owned"""))
+
+    def test_supplied_positional_passes(self):
+        self.assertEqual(self.reasons("""sh -c 'rm -f "$1/file"' sh /owned"""), [])
+
+    def test_guarded_positional_passes(self):
+        self.assertEqual(self.reasons("""sh -c 'rm -f "${1:?}/file"' sh"""), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15610,7 +15610,7 @@
     },
     "scripts/lib/unguarded_rm.py": {
       "source": "scripts/lib/unguarded_rm.py",
-      "sha256": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
+      "sha256": "23ffb1b7d209152936e0f59c2978b233342b72e85557c6f855d9f1a6c973e838",
       "keys": [],
       "edges": [],
       "evidence": "Classifies the supplied command text with its own tokenizer (json, os, re, sys only): an rm, rmdir or find -delete whose path starts with an unguarded variable or names a critical path. The working directory comes from the payload and HOME from the payload or the process environment; no orchestration key, no subprocess, no writes."
@@ -16349,7 +16349,7 @@
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
         "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
-        "scripts/lib/unguarded_rm.py": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
+        "scripts/lib/unguarded_rm.py": "23ffb1b7d209152936e0f59c2978b233342b72e85557c6f855d9f1a6c973e838",
         "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121",
         "ass-kicker/tests/record-claims.replay.py": "094a016f81b059134abe4293ceef446032f0ddafe433042a49f53ac4d6f5b0cd"
       }
@@ -16576,7 +16576,7 @@
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
         "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
-        "scripts/lib/unguarded_rm.py": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
+        "scripts/lib/unguarded_rm.py": "23ffb1b7d209152936e0f59c2978b233342b72e85557c6f855d9f1a6c973e838",
         "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121"
       }
     },
@@ -16809,7 +16809,7 @@
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
         "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
-        "scripts/lib/unguarded_rm.py": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
+        "scripts/lib/unguarded_rm.py": "23ffb1b7d209152936e0f59c2978b233342b72e85557c6f855d9f1a6c973e838",
         "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121"
       },
       "evidence": "R1 checks event/matcher registrations of these five hooks. Dispatcher manifest is independently bound; no other hook registration runs."
@@ -17022,7 +17022,7 @@
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
         "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
-        "scripts/lib/unguarded_rm.py": "798856246c3f9c8d6d57c1acac5653a0a547b393c8f9ec2f4be30065c155eceb",
+        "scripts/lib/unguarded_rm.py": "23ffb1b7d209152936e0f59c2978b233342b72e85557c6f855d9f1a6c973e838",
         "scripts/lib/shared_scratchpad.py": "19c25c29397f3215c6e25f7c64195e433bc064b33b5798bb044075bb2c521121"
       },
       "evidence": "Enumerates PreToolUse/Stop registrations and matcher payloads; boundary assertion classifies every event. Full dynamic helper inventory is source-bound."
