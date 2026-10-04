@@ -8680,7 +8680,7 @@
     },
     "mega-lander/tests/workspaces.test.py": {
       "source": "mega-lander/tests/workspaces.test.py",
-      "sha256": "237bd7e43034cad206b9f5a0394a3a46e28602279f04112dd2b2dbd0d17503d8",
+      "sha256": "7d5b62254895f31ee12a6cf88ddc1d7fb8f87875e00a8bbff65696746ff5a3dc",
       "evidence": "AST census of every ws call, subprocess and run call: fixed Git fixtures, captured sleep processes, a literal shutdown writer and seven Stop guards. Private HOME/config directories and Git config do not replace real app cleanup or QA settings. Six guards receive only a forbidden lead; workspace gate receives a private unadopted repository. The sole land CLI call explicitly patches out the scratch sweep. The added resource-waits Stop guard also returns at the forbidden-lead recovery before reading settings or wait state. Renewed 2026-09-30 (hunt part 4): the finding-20 case runs app.test.py as a subprocess for the one case test_pause_message_is_fixed selects (edge to that case) and reads the five sibling *.mutation.sh files as text; the finding 11-15 and 29 cases add literal sleeper processes, ps reads, a patched container reaper and a private RICHOS_WORKSPACES_GATE_BUDGET. No configuration read is added.",
       "keys": [],
       "edges": [
@@ -16115,7 +16115,7 @@
         "ass-kicker/tests/stated-actions.mutation.sh": "3805f49c604e9ed14afdec1fa955b11edc639b2b798b4b229abc2d79c7779bf1",
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
-        "mega-lander/tests/workspaces.test.py": "237bd7e43034cad206b9f5a0394a3a46e28602279f04112dd2b2dbd0d17503d8",
+        "mega-lander/tests/workspaces.test.py": "7d5b62254895f31ee12a6cf88ddc1d7fb8f87875e00a8bbff65696746ff5a3dc",
         "mega-lander/workspaces.py": "88940ded851616c212a025a586e66144e3e80122de6531dd8441d7c2b0ae1af7",
         "mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",

@@ -211,6 +211,22 @@ class Base(unittest.TestCase):
     def names(self, sid=None):
         return sorted(i["name"] for i in ws.pending(sid or self.sid, self.entity, scan=True))
 
+    def term_ignoring_holder(self):
+        """A real process in a workspace that ignores SIGTERM, so only the
+        SIGKILL escalation can stop it. It says ready only after its handler
+        is installed, so the TERM is never sent before it can be ignored."""
+        d = os.path.realpath(tempfile.mkdtemp(prefix="ws-kill-", dir=self.env.root))
+        ready = os.path.join(d, "ready")
+        pr = subprocess.Popen([sys.executable, "-c",
+                               "import signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                               "open(sys.argv[1], 'w').close(); time.sleep(3600)", ready], cwd=d)
+        self.env.procs.append(pr)
+        guard = time.monotonic() + 30
+        while not os.path.exists(ready):
+            self.assertLess(time.monotonic(), guard, "the holder never installed its handler")
+            time.sleep(0.02)
+        return d, pr
+
 
 # ===========================================================================
 class Point01_CcNaming(Base):
@@ -1194,22 +1210,6 @@ class Point09_NeverWritesAgain(Base):
         self.assertFalse(os.path.exists(npath))
         ev = open(os.path.join(ws.state_dir(), "events.jsonl")).read()
         self.assertIn('"event": "processes-stopped"', ev)
-
-    def term_ignoring_holder(self):
-        """A real process in a workspace that ignores SIGTERM, so only the
-        SIGKILL escalation can stop it. It says ready only after its handler
-        is installed, so the TERM is never sent before it can be ignored."""
-        d = os.path.realpath(tempfile.mkdtemp(prefix="ws-kill-", dir=self.env.root))
-        ready = os.path.join(d, "ready")
-        pr = subprocess.Popen([sys.executable, "-c",
-                               "import signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-                               "open(sys.argv[1], 'w').close(); time.sleep(3600)", ready], cwd=d)
-        self.env.procs.append(pr)
-        guard = time.monotonic() + 30
-        while not os.path.exists(ready):
-            self.assertLess(time.monotonic(), guard, "the holder never installed its handler")
-            time.sleep(0.02)
-        return d, pr
 
     def test_point_09_a_killed_process_the_kernel_is_slow_to_remove_is_not_a_survivor(self):
         # THE RACE (2026-09-29, the load-sensitive checks audit, item 3). The
@@ -3595,8 +3595,10 @@ class Hunt4_MutationHarnessesDeclareTheirFocus(unittest.TestCase):
         self.assertIn("1 run, 0 failed", r.stdout)
 
 
-class SeverityThreeGroupJ(Point09_NeverWritesAgain):
-    """Hunt V2-08 to V2-11."""
+class SeverityThreeGroupJ(Base):
+    """Hunt V2-08 to V2-11. A Base, not a Point09_NeverWritesAgain: that
+    subclassing (for term_ignoring_holder, now on Base) ran Point09's six
+    tests a second time (hunt part 4 v3, V3-07)."""
 
     def test_v2_08_top_level_ignored_link_is_compared_by_target(self):
         with open(os.path.join(self.other, ".gitignore"), "a") as f:
@@ -3940,6 +3942,25 @@ class HuntV3_06_AStatusQueryWritesNoCleanupHistory(Base):
         # The real land still records what it did not preserve.
         ws.land(name, self.sid)
         self.assertIn('"regenerable-not-preserved"', open(events).read())
+
+
+class HuntV3_07_NoTestIsCollectedTwice(unittest.TestCase):
+    """Hunt part 4 v3, V3-07: SeverityThreeGroupJ subclassed the concrete
+    Point09_NeverWritesAgain for one helper and so ran its six tests twice.
+    Every collected test must be defined by the class that runs it, or by a
+    class the loader does not collect on its own."""
+
+    def test_v3_07_no_collected_test_is_inherited_from_another_collected_class(self):
+        module = sys.modules[type(self).__module__]
+        loader = unittest.defaultTestLoader
+        cases = [c for c in vars(module).values()
+                 if isinstance(c, type) and issubclass(c, unittest.TestCase)]
+        collected = set(c for c in cases if loader.getTestCaseNames(c))
+        twice = ["%s.%s (defined by %s)" % (c.__name__, m, owner.__name__)
+                 for c in cases for m in loader.getTestCaseNames(c)
+                 for owner in [next(k for k in c.__mro__ if m in vars(k))]
+                 if owner is not c and owner in collected]
+        self.assertEqual(twice, [])
 
 
 if __name__ == "__main__":
