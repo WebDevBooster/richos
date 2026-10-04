@@ -563,6 +563,56 @@ else
         "rc=$WW_RC; output: $(tail -8 "$SANDBOX/wrong-witness.out" | tr '\n' '|')"
 fi
 
+# ---------------------------------------------------------------------------
+# 7. THE SHIPPED ENGINE IS COPIED ONCE PER RUN, NOT ONCE PER MUTANT (hunt part
+#    4 v3, V3-03). Every mutant used to copy every dependency directory from
+#    the shipped tree again. A `cp` on PATH logs each call; three mutants must
+#    read the shipped scripts/ once, and each must still get a sandbox of its
+#    own: all three apply the SAME mutation to the same file, which fails
+#    ("TARGET ABSENT") in any mutant whose file another one already changed.
+# ---------------------------------------------------------------------------
+CNT_ENG="$SANDBOX/fake-engine-copy-count"
+cp -R "$FAKE_ENG" "$CNT_ENG"
+cat > "$CNT_ENG/scripts/count-suite.sh" <<'CSEOF'
+#!/usr/bin/env bash
+E="$(cd "$(dirname "$0")/.." && pwd)"
+if grep -q 'THE_LOAD_BEARING_LINE=1' "$E/scripts/hooks/fake-guard.sh"; then echo "  PASS  W1 the named case"; exit 0; fi
+echo "  FAIL  W1 the named case"; exit 1
+CSEOF
+mkdir -p "$SANDBOX/cp-shim"
+cat > "$SANDBOX/cp-shim/cp" <<CPEOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$SANDBOX/cp.log"
+exec /bin/cp "\$@"
+CPEOF
+chmod +x "$SANDBOX/cp-shim/cp"
+cat > "$SANDBOX/copy-count-harness.sh" <<CCEOF
+#!/usr/bin/env bash
+set -uo pipefail
+. "$CNT_ENG/scripts/lib/mutation-harness.sh"
+mutation_begin "copy-count fixture" "scripts/count-suite.sh"
+for n in one two three; do
+    mutant "copy-count-\$n" "W1" "scripts/hooks/fake-guard.sh" "THE_LOAD_BEARING_LINE=1" "THE_LOAD_BEARING_LINE=0" "fixture"
+done
+mutation_end
+CCEOF
+: > "$SANDBOX/cp.log"
+PATH="$SANDBOX/cp-shim:$PATH" bash "$SANDBOX/copy-count-harness.sh" >"$SANDBOX/copy-count.out" 2>&1; CC_RC=$?
+CC_COPIES="$(grep -cF -- "$CNT_ENG/scripts " "$SANDBOX/cp.log" || true)"
+CC_PASSED="$(grep -c '  PASS  copy-count-' "$SANDBOX/copy-count.out" || true)"
+if [ "$CC_COPIES" = 1 ]; then
+    ok "7a  three mutants read the shipped engine's scripts/ once, not once each"
+else
+    bad "7a  the shipped engine is copied once per run" \
+        "scripts/ was copied from the shipped tree $CC_COPIES time(s) for three mutants"
+fi
+if [ "$CC_RC" -eq 0 ] && [ "$CC_PASSED" = 3 ]; then
+    ok "7b  and each mutant still had a sandbox of its own: the same mutation applied in all three"
+else
+    bad "7b  each mutant has a sandbox of its own" \
+        "rc=$CC_RC, $CC_PASSED of 3 passed; output: $(tail -8 "$SANDBOX/copy-count.out" | tr '\n' '|')"
+fi
+
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
