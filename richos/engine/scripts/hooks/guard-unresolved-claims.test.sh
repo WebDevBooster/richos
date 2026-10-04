@@ -288,6 +288,15 @@ cat >"$AGENT_EARLIER" <<JSON
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
 JSON
 
+# An Agent call in THIS turn that the host REFUSED (its result is an error)
+# dispatched nobody (hunt part 3 v3, finding 19).
+AGENT_REFUSED="$SANDBOX/agent-refused.jsonl"
+cat >"$AGENT_REFUSED" <<JSON
+{"type":"user","promptId":"$PROMPT_ID","message":{"content":"go"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"refused1","name":"Agent","input":{"name":"norm-opus-a1"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"refused1","is_error":true,"content":"Refused before dispatch"}]}}
+JSON
+
 # --- payload builder -------------------------------------------------------
 payload() { # <message> [transcript] [session_id] [stop_hook_active] [cwd]
     python3 - "$1" "${2:-$EMPTY_TR}" "${3:-$SESSION_ID}" "${4:-false}" "${5:-$ENTITY}" <<'PY'
@@ -424,6 +433,10 @@ fi
 
 run_case "p3.agent-called-only-in-an-earlier-turn-still-reports" 0 \
     "$(payload 'Separate trees, no collision — dispatching it now instead of holding it.' "$AGENT_EARLIER")" \
+    "in-flight dispatch claim"
+
+run_case "p4.refused-agent-call-this-turn-still-reports (P3-19)" 0 \
+    "$(payload 'Separate trees, no collision — dispatching it now instead of holding it.' "$AGENT_REFUSED")" \
     "in-flight dispatch claim"
 
 # --- SAFETY: never strand a session ----------------------------------------

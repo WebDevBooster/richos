@@ -808,7 +808,7 @@ def read_transcript(path, prompt_id=None, limit_bytes=48 * 1024 * 1024):
     the message itself comes from last_assistant_message and only the tool
     traffic comes from here.
     """
-    blob, tools = [], []
+    blob, calls, refused = [], [], set()
     # No prompt_id -> no turn boundary -> count everything (see docstring:
     # the wide answer is the quiet one for the only question asked of it).
     turn_started = prompt_id is None
@@ -837,12 +837,18 @@ def read_transcript(path, prompt_id=None, limit_bytes=48 * 1024 * 1024):
                     for b in content:
                         if isinstance(b, dict) and b.get("type") == "tool_use":
                             if turn_started:
-                                tools.append(b.get("name", ""))
+                                calls.append((b.get("id"), b.get("name", "")))
+                        elif (isinstance(b, dict) and b.get("type") == "tool_result"
+                              and b.get("is_error") is True and b.get("tool_use_id")):
+                            refused.add(b["tool_use_id"])
                 flat = _flatten(content)
                 if flat:
                     blob.append(flat)
     except OSError:
         return "", []
+    # A call whose result is an error was refused or failed: a refused Agent
+    # dispatched nobody, so it is not this turn's tool (hunt part 3 v3, 19).
+    tools = [name for cid, name in calls if not (cid and cid in refused)]
     return "\n".join(blob), tools
 
 

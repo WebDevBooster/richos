@@ -454,6 +454,9 @@ def observe_pushes(transcript_path, state, budget):
     if tr.get("path") != transcript_path or offset > size:
         offset = 0                       # a different or a truncated transcript
     seen = []
+    # A Bash call whose result is an error was refused or failed before it ran
+    # its push; it creates no CI obligation (hunt part 3 v3, finding 19).
+    refused = set()
     try:
         # READLINE, NEVER `for line in fh`. Iterating a text file disables
         # tell() ("telling position disabled by next() call"), and the byte
@@ -474,7 +477,7 @@ def observe_pushes(transcript_path, state, budget):
                 line = raw.decode("utf-8", "replace").strip()
                 if not line:
                     continue
-                if '"Bash"' not in line or "push" not in line:
+                if ('"Bash"' not in line or "push" not in line) and '"is_error"' not in line:
                     continue
                 try:
                     rec = json.loads(line)
@@ -487,6 +490,10 @@ def observe_pushes(transcript_path, state, budget):
                 cwd = rec.get("cwd") or ""
                 ts = _epoch(rec.get("timestamp"))
                 for block in content:
+                    if (isinstance(block, dict) and block.get("type") == "tool_result"
+                            and block.get("is_error") is True and block.get("tool_use_id")):
+                        refused.add(block["tool_use_id"])
+                        continue
                     if not isinstance(block, dict) or block.get("type") != "tool_use":
                         continue
                     if block.get("name") != "Bash":
@@ -494,10 +501,14 @@ def observe_pushes(transcript_path, state, budget):
                     cmd = (block.get("input") or {}).get("command") or ""
                     for p in parse_pushes(cmd, cwd):
                         p["at"] = ts
+                        p["_call"] = block.get("id")
                         seen.append(p)
     except OSError as exc:
         return [], "the transcript could not be read (%s)" % exc
 
+    seen = [p for p in seen if not (p.get("_call") and p["_call"] in refused)]
+    for p in seen:
+        p.pop("_call", None)
     tr["path"] = transcript_path
     tr["offset"] = offset
     return seen, ""

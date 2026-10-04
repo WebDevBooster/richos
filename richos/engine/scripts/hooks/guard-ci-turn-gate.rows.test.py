@@ -49,6 +49,27 @@ class Rows(unittest.TestCase):
             seen, _ = gate.observe_pushes(path, state, gate.Budget(5))
             self.assertEqual([p["branch"] for p in seen], ["main"])
 
+    def test_p3_19_v3_refused_push_is_not_an_obligation(self):
+        # A Bash push the host refused (its result is an error) never ran.
+        recs = [{"cwd": "/tmp", "message": {"content": [
+                    {"type": "tool_use", "name": "Bash", "id": "b",
+                     "input": {"command": "git push origin main"}}]}},
+                {"type": "user", "message": {"content": [
+                    {"type": "tool_result", "tool_use_id": "b", "is_error": True,
+                     "content": "PreToolUse refused; command never ran"}]}},
+                {"cwd": "/tmp", "message": {"content": [
+                    {"type": "tool_use", "name": "Bash", "id": "c",
+                     "input": {"command": "git push origin release"}}]}},
+                {"type": "user", "message": {"content": [
+                    {"type": "tool_result", "tool_use_id": "c", "content": "ok"}]}}]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "t.jsonl")
+            with open(path, "w") as fh:
+                fh.write("".join(json.dumps(r) + "\n" for r in recs))
+            seen, why = gate.observe_pushes(path, {}, gate.Budget(5))
+            self.assertEqual(why, "")
+            self.assertEqual([p["branch"] for p in seen], ["release"])
+
     def test_p3_15_green_expires(self):
         old = {"state": "green", "age_seconds": 24 * 3600}
         self.assertFalse(gate.cache_is_usable(old))

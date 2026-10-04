@@ -2442,7 +2442,7 @@
     },
     "scripts/hooks/guard-unasked-deferral.py": {
       "source": "scripts/hooks/guard-unasked-deferral.py",
-      "sha256": "710a23aed3c07760de60b9f88ec23d25aa299d0a0cf996906d9a4302533398e8",
+      "sha256": "40d1ef26f03d26cdd896709e4eb9189d0f26e1d6ea000b07f40a2c14daacff98",
       "evidence": "Standard-library predicate reads the supplied JSON payload and transcript. It parses quoted constructions and tool-use records as data, with no config or subprocess helper.",
       "keys": [],
       "edges": []
@@ -2468,7 +2468,7 @@
     },
     "scripts/hooks/unasked-deferral.test.sh": {
       "source": "scripts/hooks/unasked-deferral.test.sh",
-      "sha256": "b97f47aeb146bf796ae52823af73a1d0e080ec5c59b4ad9f26ff52240775a9f4",
+      "sha256": "e320bb7894ac35b1c1249a6ea65590f2db10de757ca5f200a10e57327ca8e67a",
       "evidence": "Every hook invocation targets a generated entity config and transcript; the missing-root case terminates before reading settings. Nested mutations rerun this same fixture constructor, replacing all configuration rather than inheriting production values.",
       "keys": [],
       "edges": [
@@ -3007,7 +3007,7 @@
     },
     "scripts/hooks/guard-unresolved-claims.py": {
       "source": "scripts/hooks/guard-unresolved-claims.py",
-      "sha256": "ceeef213d0f2eddc2eef01ca50ac46c0441d8f48665197cc4529b6be524247d1",
+      "sha256": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
       "evidence": "Standard-library transcript/claim predicate invokes only Git queries plus two fixed imports: workspaces.integration_for and unlanded-branches.sweep. The latter extra-repository setting is an environment value inherited from the sourcing wrapper.",
       "keys": [
         "UNLANDED_BRANCHES_EXTRA_REPOS"
@@ -3049,7 +3049,7 @@
     },
     "scripts/hooks/guard-unresolved-claims.test.sh": {
       "source": "scripts/hooks/guard-unresolved-claims.test.sh",
-      "sha256": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
+      "sha256": "58b9f2700b0be075e1ef95af1f4988e5a2989fdb3923144b105e6e23b3eceb81",
       "evidence": "Every normal hook call pins the generated entity with empty/literal switched config. Private Git graph, transcript, roster and registry fixtures supply all semantic data. workspaces.sh is called only for integration; copied broken hook exits before config because roots are absent. Four fixed polarity mutants re-enter the same fixture builder.",
       "keys": [],
       "edges": [
@@ -3081,7 +3081,7 @@
     },
     "scripts/hooks/guard-ci-turn-gate.py": {
       "source": "scripts/hooks/guard-ci-turn-gate.py",
-      "sha256": "cdd712047f239404068465145927125e9a462692a033be644ba135792ba17b58",
+      "sha256": "68707f95e555f9d3ceafc032639386107fe05417e5b86a9ef94d9a1ae79d5220",
       "evidence": "Standard-library transcript/CI-state predicate imports fixed ci_pause.pause_for only. It parses shell text as data; actual subprocesses are fixed Git queries and gh api. No orchestration config values are sourced or read.",
       "keys": [],
       "edges": [
@@ -16147,9 +16147,9 @@
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
         "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
         "scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
-        "scripts/hooks/guard-unresolved-claims.py": "ceeef213d0f2eddc2eef01ca50ac46c0441d8f48665197cc4529b6be524247d1",
+        "scripts/hooks/guard-unresolved-claims.py": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
-        "scripts/hooks/guard-unresolved-claims.test.sh": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
+        "scripts/hooks/guard-unresolved-claims.test.sh": "58b9f2700b0be075e1ef95af1f4988e5a2989fdb3923144b105e6e23b3eceb81",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.mutation.sh": "78c0a853cbbffd9329395faadcb69527aeaf6c12b17b45afefbbcecab995cff8",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
@@ -16260,7 +16260,7 @@
         "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
         "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/hooks/guard-ci-red-lands.sh": "9dcac2ccec57f2fe1d47b8b5b86eda0590e5c784e587f732376b385c94232094",
-        "scripts/hooks/guard-ci-turn-gate.py": "cdd712047f239404068465145927125e9a462692a033be644ba135792ba17b58",
+        "scripts/hooks/guard-ci-turn-gate.py": "68707f95e555f9d3ceafc032639386107fe05417e5b86a9ef94d9a1ae79d5220",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
         "scripts/hooks/guard-completeness-commits.sh": "fb36f214fcc59dd4bbbcdecae56368169d536327a6350afd864922df8ed2f395",
         "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
@@ -16318,7 +16318,7 @@
         "scripts/lib/protected-ref-moves.py": "d4b8e7c1cb3553a722541124159906f4f9d7284aa94d311c2d4c0b2c6974c95c",
         "scripts/hooks/protected-ref-moves.test.sh": "fe6929dc70eeb05f5c17f6e2d7cba139e61b9e7f0f796f9fe2c0cc288daa45d2",
         "scripts/hooks/notice-unasked-deferral.sh": "01c58a8e0c3f279efe85cadb579c6e01f24c002c8d2b8789520285456af5fcc9",
-        "scripts/hooks/guard-unasked-deferral.py": "710a23aed3c07760de60b9f88ec23d25aa299d0a0cf996906d9a4302533398e8",
+        "scripts/hooks/guard-unasked-deferral.py": "40d1ef26f03d26cdd896709e4eb9189d0f26e1d6ea000b07f40a2c14daacff98",
         "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
         "scripts/hooks/notice-unstarted-rows.sh": "b85c3314266c707dd30e6ab3d8bd311119f504115166b3b0023a4291b3193e48",
         "scripts/hooks/notice-waiver-repetition.sh": "db7a0e6b1e6a2603d93955f5624de15dd5a010112049f898c6dbb4379b7ce6e7",
@@ -16892,7 +16892,7 @@
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
         "scripts/lib/ceo-ruled.py": "e92586fdd79f1c648c2f764613f47a56bc7f2d843061c70053611d7f2e23ce30",
         "scripts/hooks/guard-ci-turn-gate.sh": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
-        "scripts/hooks/guard-ci-turn-gate.py": "cdd712047f239404068465145927125e9a462692a033be644ba135792ba17b58",
+        "scripts/hooks/guard-ci-turn-gate.py": "68707f95e555f9d3ceafc032639386107fe05417e5b86a9ef94d9a1ae79d5220",
         "scripts/lib/ci_pause.py": "f41e86ea2b1aaa036c92eb44ddcb2fe2a6880724162561a5e31b84d556758693",
         "scripts/hooks/guard-definition-drift.sh": "6abe090d1a5eae1c726799e7c6e9bdaad2da332635fec5737ce9ce31f4f05007",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
@@ -16956,7 +16956,7 @@
         "scripts/hooks/guard-stop-live-work.sh": "5cd71abf69697f041f48560ab09d6e7f7f4b2324761916b07b589569ff7dd17e",
         "scripts/lib/stop-live-work.py": "d39269d911e9456fd0bbce45b95e67919c36dd4b7ecb96c58b3e4a8bd262532a",
         "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
-        "scripts/hooks/guard-unresolved-claims.py": "ceeef213d0f2eddc2eef01ca50ac46c0441d8f48665197cc4529b6be524247d1",
+        "scripts/hooks/guard-unresolved-claims.py": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
         "scripts/hooks/guard-workflow-ban.sh": "2b93395b9ef6e99b03221e0dcf7682b926f366dbb7884c3889c00384cf550ade",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
@@ -16985,7 +16985,7 @@
         "scripts/lib/protected-ref-moves.py": "d4b8e7c1cb3553a722541124159906f4f9d7284aa94d311c2d4c0b2c6974c95c",
         "scripts/hooks/protected-ref-moves.test.sh": "fe6929dc70eeb05f5c17f6e2d7cba139e61b9e7f0f796f9fe2c0cc288daa45d2",
         "scripts/hooks/notice-unasked-deferral.sh": "01c58a8e0c3f279efe85cadb579c6e01f24c002c8d2b8789520285456af5fcc9",
-        "scripts/hooks/guard-unasked-deferral.py": "710a23aed3c07760de60b9f88ec23d25aa299d0a0cf996906d9a4302533398e8",
+        "scripts/hooks/guard-unasked-deferral.py": "40d1ef26f03d26cdd896709e4eb9189d0f26e1d6ea000b07f40a2c14daacff98",
         "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
         "scripts/hooks/notice-unstarted-rows.sh": "b85c3314266c707dd30e6ab3d8bd311119f504115166b3b0023a4291b3193e48",
         "scripts/lib/unstarted-rows.sh": "12069725d4b1d131f6ae622f957087e432b197a84f5c446fa323bd6f533657e0",
@@ -17135,7 +17135,7 @@
         "mega-lander/workspaces.py": "0454485eebdb249824931dc1fd363ecabf8fa915530dcb2d63bacf2c94cdd450",
         "mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
         "scripts/hooks/guard-sealed-worktree.sh": "5fdfedcb7ff7a83f4411eb5a90919ab1fc5d037a6362221551f75db8621d0f93",
-        "scripts/hooks/guard-unresolved-claims.py": "ceeef213d0f2eddc2eef01ca50ac46c0441d8f48665197cc4529b6be524247d1",
+        "scripts/hooks/guard-unresolved-claims.py": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",

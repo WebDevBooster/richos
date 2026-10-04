@@ -2184,7 +2184,7 @@
     "engine scripts/hooks/guard-unresolved-claims.test.sh": {
       "review": "Reachability, push and integration facts come from generated private Git histories, refs, worktree locks and ledgers. The fixed claim parser reads private transcript/roster data and explicit fixture repositories. Private HOME/config supplies empty recovery/session state. Four nested source mutants rebuild those same fixtures; no remote push, model or host transcript is executed. Timestamps describe records only.",
       "sources": {
-        "richos/engine/scripts/hooks/guard-unresolved-claims.test.sh": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
+        "richos/engine/scripts/hooks/guard-unresolved-claims.test.sh": "58b9f2700b0be075e1ef95af1f4988e5a2989fdb3923144b105e6e23b3eceb81",
         "richos/engine/scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
         "richos/engine/scripts/lib/mutation-harness.sh": "bf3eb527309787734b7717ea43717e211164c96ad6bfb07ff5944d9acc71f6bc",
         "richos/engine/scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
@@ -2200,7 +2200,7 @@
         "richos/engine/mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
         "richos/engine/mega-lander/workspaces.py": "0454485eebdb249824931dc1fd363ecabf8fa915530dcb2d63bacf2c94cdd450",
         "richos/engine/scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
-        "richos/engine/scripts/hooks/guard-unresolved-claims.py": "ceeef213d0f2eddc2eef01ca50ac46c0441d8f48665197cc4529b6be524247d1",
+        "richos/engine/scripts/hooks/guard-unresolved-claims.py": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
         "richos/engine/scripts/lib/unlanded-branches.py": "2aa9d32b80809d78c10c9571a91c4bdbb58c7cf22197b6398fd1239b481b1810",
         "richos/engine/scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
         "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
@@ -2305,7 +2305,7 @@
       "sources": {
         "richos/engine/scripts/hooks/contract-integrity.test.sh": "c8359b680fc35b18523a9abded3fb39b4e5acfdf13ebb99de6f59719eee288e3",
         "richos/engine/scripts/hooks/claim-roles.mutation.sh": "73f0f9a1974cd17863539183827f795c5d343ff418b6acca7e98ca7242b811b2",
-        "richos/engine/scripts/hooks/guard-unresolved-claims.test.sh": "3ae1f1c337d152990d8a5b0c2847115763fd569316b84d5bc81e227ae199c31e",
+        "richos/engine/scripts/hooks/guard-unresolved-claims.test.sh": "58b9f2700b0be075e1ef95af1f4988e5a2989fdb3923144b105e6e23b3eceb81",
         "richos/engine/scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
         "richos/engine/scripts/lib/mutation-harness.sh": "bf3eb527309787734b7717ea43717e211164c96ad6bfb07ff5944d9acc71f6bc",
         "richos/engine/scripts/lib/stop-at-line.py": "159fa146e159af513ac9bcdbacc515d3cb1700da4945916989215e266cdf9bcc",
@@ -2321,7 +2321,7 @@
         "richos/engine/mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
         "richos/engine/mega-lander/workspaces.py": "0454485eebdb249824931dc1fd363ecabf8fa915530dcb2d63bacf2c94cdd450",
         "richos/engine/scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
-        "richos/engine/scripts/hooks/guard-unresolved-claims.py": "ceeef213d0f2eddc2eef01ca50ac46c0441d8f48665197cc4529b6be524247d1",
+        "richos/engine/scripts/hooks/guard-unresolved-claims.py": "c3f48e242801a6e71dbee94bc11f3eb359d6135b22a860246db9538491b6e5ec",
         "richos/engine/scripts/lib/unlanded-branches.py": "2aa9d32b80809d78c10c9571a91c4bdbb58c7cf22197b6398fd1239b481b1810",
         "richos/engine/scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
         "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",

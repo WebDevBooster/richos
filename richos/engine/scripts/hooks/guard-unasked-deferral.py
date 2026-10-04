@@ -355,6 +355,10 @@ def _tools_of_turn(payload):
     except Exception:
         return None
     tools = set()
+    # A call whose result is an error was refused or failed: a refused Agent
+    # started nothing and discharges nothing (hunt part 3 v3, finding 19).
+    # Walking backward, a call's result is seen before the call.
+    refused = set()
     for line in reversed(lines):
         try:
             rec = json.loads(line)
@@ -369,11 +373,16 @@ def _tools_of_turn(payload):
                 isinstance(b, dict) and b.get("type") == "tool_result"
                 for b in content
             ):
+                for b in content:
+                    if b.get("is_error") is True and b.get("tool_use_id"):
+                        refused.add(b["tool_use_id"])
                 continue  # tool results are not a prompt
             break  # the real prompt that opened this turn
         if rec.get("type") == "assistant" and isinstance(content, list):
             for b in content:
                 if isinstance(b, dict) and b.get("type") == "tool_use":
+                    if b.get("id") and b["id"] in refused:
+                        continue
                     tools.add(b.get("name") or "")
     return tools
 
