@@ -506,8 +506,11 @@ pub struct Service {
 /// The gate appends one line per agent dispatch here (`gate.rs`); the service counts them.
 pub const DISPATCH_LOG: &str = "agent-dispatches.log";
 
-/// An added account's own probe and its last reading.
-type AccountReader = (Box<dyn Source>, Snapshot);
+/// An added account's own probe and its last reading. The probe has its own lock, as
+/// Account 1's `source` does, so a read holds it and never the map (hunt part 1 v3,
+/// finding 48: it used to be swapped out of the map for the read, and an overlapping
+/// refresh read that account with the placeholder, which is Account 1's reader).
+type AccountReader = (std::sync::Arc<Mutex<Box<dyn Source>>>, Snapshot);
 /// Windows a lease streamed, and when they were observed (epoch ms).
 pub type StreamedReading = (Vec<Window>, u64);
 
@@ -803,23 +806,23 @@ impl Service {
             if account.id == crate::claude_accounts::ACCOUNT_ONE || self.is_shutdown() { continue; }
             let Some(folder) = account.folder.clone() else { continue };
             let now = crate::util::now_millis();
-            let current = {
+            let (reader, current) = {
                 let mut extra = self.extra.lock().unwrap();
-                let (_, snapshot) = extra.entry(account.id.clone()).or_insert_with(|| (
-                    Box::new(probe::ClaudeSource::for_folder(self.control.clone(), folder)) as Box<dyn Source>,
+                let (reader, snapshot) = extra.entry(account.id.clone()).or_insert_with(|| (
+                    std::sync::Arc::new(Mutex::new(Box::new(probe::ClaudeSource::for_folder(self.control.clone(), folder)) as Box<dyn Source>)),
                     Snapshot::default()));
-                snapshot.view(policy.clone(), now)
+                (reader.clone(), snapshot.view(policy.clone(), now))
             };
             if !due(&current, force, now) { continue; }
-            // Taken out of the map for the read, so a slow provider never holds the lock a
-            // settings paint needs.
-            let Some((mut source, _)) = self.extra.lock().unwrap().get_mut(&account.id)
-                .map(|(s, snap)| (std::mem::replace(s, Box::new(probe::ClaudeSource::default())), snap.checked_at)) else { continue };
+            // The read holds this account's own probe lock, never the map's, so a slow
+            // provider never holds the lock a settings paint needs. A read already in flight
+            // for this account is shared, exactly as Account 1's is (`refresh_windows`).
+            let Ok(mut source) = reader.try_lock() else { continue };
             let result = source.read(bin, &self.cwd);
+            drop(source);
             let observed = crate::util::now_millis();
             let mut extra = self.extra.lock().unwrap();
-            let Some((slot, snapshot)) = extra.get_mut(&account.id) else { continue };
-            *slot = source;
+            let Some((_, snapshot)) = extra.get_mut(&account.id) else { continue };
             match result {
                 Ok(windows) => snapshot.accept(windows, observed),
                 Err(error) => {
@@ -1520,5 +1523,83 @@ for line in sys.stdin:
             3,
             "new connection clears old backoff"
         );
+    }
+
+    #[cfg(unix)]
+    fn script(path: &Path, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        fs::write(path, body).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        path.to_path_buf()
+    }
+    #[cfg(unix)]
+    fn wait_until(what: &str, done: impl Fn() -> bool) {
+        // A hang guard on a Python child starting, never a clock on the behavior.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while !done() {
+            assert!(std::time::Instant::now() < until, "never happened: {what}");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    /// **Hunt part 1 v3, finding 48.** Two overlapping refreshes (the monitor and the manual
+    /// refresh both call `refresh`) while an added account's read is in flight. The second
+    /// one must never read that account with a reader that is not its own: Account 1 is at
+    /// 99.5% weekly, Work at 10%, and Work must stay Work — read under its own folder, not
+    /// held — on this refresh and every later one.
+    #[test]
+    #[cfg(unix)]
+    fn overlapping_refreshes_never_read_an_added_account_with_account_ones_reader() {
+        let root = Scratch::new();
+        let dir = root.path().to_path_buf();
+        let bin = script(&dir.join("claude-fixture"), r#"#!/usr/bin/env python3
+import json, os, sys, time
+root = os.path.dirname(os.path.abspath(__file__))
+added = "claude-accounts" in os.environ.get("CLAUDE_CONFIG_DIR", "")
+for line in sys.stdin:
+    v = json.loads(line)
+    payload = {}
+    if v["request"]["subtype"] != "initialize":
+        if added:
+            open(os.path.join(root, "added-started"), "w").close()
+            while not os.path.exists(os.path.join(root, "release-added")): time.sleep(0.005)
+        else:
+            with open(os.path.join(root, "default-reads"), "a") as f: f.write("x\n")
+            if len(open(os.path.join(root, "default-reads")).read().splitlines()) == 2:
+                open(os.path.join(root, "default-second-started"), "w").close()
+                while not os.path.exists(os.path.join(root, "release-default-second")): time.sleep(0.005)
+        used = 10 if added else 99.5
+        payload = {"rate_limits_available": True, "rate_limits": {
+            "five_hour": {"utilization": 10, "resets_at": "2099-01-01T00:00:00Z"},
+            "seven_day": {"utilization": used, "resets_at": "2099-01-05T00:00:00Z"}}}
+    print(json.dumps({"type": "control_response", "response": {"subtype": "success", "request_id": v["request_id"], "response": payload}}), flush=True)
+"#);
+        let service = std::sync::Arc::new(Service::open(&dir).unwrap());
+        let work = service.accounts.add("Work").unwrap();
+        let (one, b1) = (service.clone(), bin.clone());
+        let first = std::thread::spawn(move || one.refresh(&b1, true));
+        wait_until("Work's read started", || dir.join("added-started").exists());
+        let (two, b2) = (service.clone(), bin.clone());
+        let second = std::thread::spawn(move || two.refresh(&b2, true));
+        wait_until("the second refresh read or finished", || {
+            dir.join("default-second-started").exists() || second.is_finished()
+        });
+        fs::write(dir.join("release-added"), b"").unwrap();
+        first.join().unwrap();
+        fs::write(dir.join("release-default-second"), b"").unwrap();
+        second.join().unwrap();
+        let weekly = |view: &View| view.accounts.iter().find(|a| a.id == work.id).unwrap()
+            .windows.iter().find(|w| w.id == "seven_day").unwrap().used_percent;
+        let view = service.view();
+        assert_eq!(weekly(&view), 10., "Work shows Account 1's usage");
+        assert_eq!(view.held_until, None, "work is held although Work has room");
+        // A later refresh still reads Work under Work's folder.
+        let earlier = Some(crate::util::now_millis() - 10_000);
+        service.snapshot.lock().unwrap().checked_at = earlier;
+        service.extra.lock().unwrap().get_mut(&work.id).unwrap().1.checked_at = earlier;
+        let view = service.refresh(&bin, true);
+        assert_eq!(weekly(&view), 10., "the wrong reader survived into the next refresh");
+        assert_eq!(view.held_until, None);
+        service.shutdown();
     }
 }
