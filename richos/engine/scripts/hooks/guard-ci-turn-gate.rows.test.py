@@ -71,6 +71,29 @@ class Rows(unittest.TestCase):
             gate.evaluate(payload, budget)
             self.assertIn(key, gate.load_state(sid).get("pushes", {}))
 
+    def test_p3_13_v3_branch_lookup_timeout_keeps_the_obligation(self):
+        # An omitted-refspec push records no branch; the branch is read at
+        # judgment time. A lookup that runs out of budget is transient and
+        # must not drop the push as unknowable (v3 re-check).
+        with tempfile.TemporaryDirectory() as d:
+            gate.STATE_DIR = os.path.join(d, "state")
+            repo = os.path.join(d, "repo")
+            os.makedirs(repo)
+            sid = "s13v3"
+            key = "%s\torigin\t" % repo
+            gate.save_state(sid, {"pushes": {key: {"dir": repo, "remote": "origin",
+                                                   "branch": "", "at": 1}},
+                                  "transcript": {}})
+            real = gate.repo_facts
+            gate.repo_facts = lambda *_a: (repo, "fixture/repo", "")
+            try:
+                budget = gate.Budget(5)
+                budget.seconds = 0.0
+                gate.evaluate({"session_id": sid, "transcript_path": "", "cwd": repo}, budget)
+            finally:
+                gate.repo_facts = real
+            self.assertIn(key, gate.load_state(sid).get("pushes", {}))
+
     def test_p3_17_older_obligation_is_not_starved(self):
         with tempfile.TemporaryDirectory() as d:
             gate.STATE_DIR = os.path.join(d, "state")

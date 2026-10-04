@@ -586,7 +586,11 @@ def head_of(root, remote, branch, budget):
 
 
 def current_branch(root, budget):
+    """The checked-out branch; "" when there is none (detached); None when the
+    lookup ran out of time, which says nothing about the branch (P3-13)."""
     rc, out, _err = run(["git", "-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"], budget)
+    if rc == TIMEOUT_RC:
+        return None
     return out.strip() if rc == 0 else ""
 
 
@@ -998,6 +1002,10 @@ def evaluate(payload, budget):
             permanent(key, "%s: %s" % (os.path.basename(push["dir"] or "?"), err))
             continue
         branch = push.get("branch") or current_branch(root, budget)
+        if branch is None:
+            # Out of time, not unknowable: keep the push and read it next turn.
+            unreadable.append("%s: the pushed branch could not be read inside the budget" % slug)
+            continue
         if not branch:
             permanent(key, "%s: the branch that was pushed could not be determined" % slug)
             continue
