@@ -77,8 +77,11 @@
     phone-ios.py apps                              which RichConnect builds and test runners are installed
     phone-ios.py lock                              the phone's lock state
     phone-ios.py battery                           level, charging and external power
-    phone-ios.py syslog --seconds S --out FILE     the phone's log for S seconds, keeping ONLY lines that
-                                                   name RichOSNative or dev.richos.connect
+    phone-ios.py syslog --seconds S --out FILE [--keep TEXT ...]
+                                                   the phone's log for S seconds, keeping ONLY lines that
+                                                   name RichOSNative or dev.richos.connect, plus lines
+                                                   containing each --keep TEXT (6+ characters), e.g.
+                                                   --keep IOHIDEventSystem: backboardd's HID clients
     (`syslog` and `battery` take --network for an unplugged phone: libimobiledevice's -n, same pairing)
     phone-ios.py trust --device ID --out FILE [--seconds S]
                                                    why iOS will or will not open RichConnect: Developer
@@ -1628,6 +1631,14 @@ def syslog(args):
     out = Path(args.out)
     if not str(out.resolve()).startswith("/Volumes/E1TB/"):
         raise CannotAnswer("--out must be on /Volumes/E1TB")
+    # --keep TEXT adds a key: a system line the phone's condition is read from (backboardd's HID
+    # client lines), named explicitly, never the whole log. A key shorter than 6 characters would keep
+    # nearly every line, so it is refused.
+    extra = tuple(getattr(args, "keep", None) or ())
+    short = [k for k in extra if len(k) < 6]
+    if short:
+        raise CannotAnswer(f"--keep needs at least 6 characters (got {short[0]!r}): a short key keeps the whole log")
+    keys = SYSLOG_KEEP + extra
     relay = spawn_owned(["idevicesyslog", "-u", libimobile_id(args.device), *(["-n"] if args.network else []), "--no-colors"],
                              stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL, text=True, errors="replace")
@@ -1647,7 +1658,7 @@ def syslog(args):
                 if not line:
                     break
                 total += 1
-                if any(key in line for key in SYSLOG_KEEP):
+                if any(key in line for key in keys):
                     f.write(line)
                     kept += 1
     finally:
@@ -1659,7 +1670,8 @@ def syslog(args):
             relay.wait()
     if total == 0:
         raise CannotAnswer("the phone's log relay produced nothing (is the hardware UDID attached?)")
-    return emit({"out": str(out), "kept": kept, "read": total, "relayPid": relay.pid, "relayExit": relay.returncode})
+    return emit({"out": str(out), "kept": kept, "read": total, "keys": list(keys), "relayPid": relay.pid,
+                 "relayExit": relay.returncode})
 
 
 SYSLOG_ENTRY = re.compile(r"^\w{3} +\d+ (\d\d):(\d\d):(\d\d)(?:\.\d+)? (\S+)\[(\d+)\]")
@@ -1762,6 +1774,9 @@ def main(argv):
         if name == "syslog":
             s.add_argument("--seconds", type=float, required=True)
             s.add_argument("--out", required=True)
+            s.add_argument("--keep", action="append", default=[],
+                           help="also keep lines containing TEXT (at least 6 characters; repeatable), e.g. "
+                                "IOHIDEventSystem for backboardd's HID client lines")
         if name in ("syslog", "battery"):
             # Unplugged (round 2 discharge windows): libimobiledevice's network mode, same pairing.
             s.add_argument("--network", action="store_true")

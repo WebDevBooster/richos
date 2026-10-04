@@ -1116,6 +1116,27 @@ expect "I14 a log capture with no interval is refused" 2 "--seconds must be 1 to
 run python3 "$QA/phone-ios.py" syslog --device x --seconds 5 --out "$OFFSSD/syslog.txt"
 expect "I15 a log capture off the external SSD is refused before the relay starts" 2 "--out must be on /Volumes/E1TB"
 
+run python3 "$QA/phone-ios.py" syslog --device x --seconds 5 --out /Volumes/E1TB/nonexistent-qa-test.txt --keep IOHID
+expect "I15b a --keep key short enough to keep the whole log is refused before the relay starts" 2 "--keep needs at least 6 characters"
+
+if [ -d /Volumes/E1TB/tmp ] && SSDTMP="$(mktemp -d /Volumes/E1TB/tmp/qa-syslog-keep.XXXXXX)"; then
+  mkdir -p "$TMP/fakesyslog"
+  cat > "$TMP/fakesyslog/idevicesyslog" <<'SH'
+#!/bin/sh
+echo 'Oct  1 08:00:00.000000 backboardd(IOKit)[71] <Debug>: 0x1: set property:IOHIDEventSystemClientIsUnresponsive value:1 client:00000000-FAKE'
+echo 'Oct  1 08:00:00.100000 SpringBoard[35] <Notice>: a line nobody asked for'
+echo 'Oct  1 08:00:00.200000 RichOSNative[600] <Notice>: the app'
+SH
+  chmod +x "$TMP/fakesyslog/idevicesyslog"
+  run env PATH="$TMP/fakesyslog:$PATH" python3 "$QA/phone-ios.py" syslog --device 00008030-0000000000000001 --seconds 2 \
+    --out "$SSDTMP/keep.txt" --keep IOHIDEventSystem
+  if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -Fq '"kept": 2' && grep -Fq 'IsUnresponsive' "$SSDTMP/keep.txt" \
+     && ! grep -Fq 'SpringBoard' "$SSDTMP/keep.txt"; then
+    ok "I15c syslog --keep adds the named system lines and still drops every other line"
+  else bad "I15c syslog --keep keeps the named lines only" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+  rm -rf "$SSDTMP"
+else skip "I15c syslog --keep keeps the named lines only" "/Volumes/E1TB/tmp is not there to write the capture"; fi
+
 run python3 "$QA/phone-ios.py" battery --device 00000000-NOT-A-PHONE --network
 expect "I16 a battery reading from a phone that is not there is refused, never a number" 2 "did not report the battery"
 
