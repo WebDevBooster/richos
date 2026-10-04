@@ -1237,6 +1237,39 @@ else
   ok "C1 cleanup waits, escalates past a child that ignores TERM, and deletes the scratch only after it is gone"
 fi
 
+# R15 — THE RETRY IS STOPPED WITH THE RUNNER (hunt part 2 v3, R15). The suite fails its first
+# attempt, and its retry (run alone) starts a 30-second child. The runner is sent TERM, as a
+# caller stopping it would. Within 5 s the runner must have exited and the retry's child be gone;
+# the foreground retry deferred the TERM trap and was not in the cleanup's inventory, so both
+# stayed alive until the retry finished on its own.
+R15BOX="$TMP/r15box"; mkdir -p "$R15BOX"
+install_harness "$R15BOX"
+R15PID="$TMP/r15.pid"
+printf '%s\n' \
+  "if [ ! -e \"$TMP/r15.first\" ]; then touch \"$TMP/r15.first\"; echo '  FAIL  r15 first attempt'; exit 1; fi" \
+  "echo \$\$ > \"$R15PID\"; exec sleep 30" > "$R15BOX/retried.test.sh"
+env -i PATH="$FIXTURE_PATH" HOME="$FIXTURE_HOME" LC_ALL=C RUN_TESTS_STATE="$TMP/fixture-state" \
+    RUN_TESTS_KILL_GRACE=1 bash "$R15BOX/run-tests.sh" > "$TMP/r15.out" 2>&1 &
+R15RUNNER=$!
+n=0; while [ ! -s "$R15PID" ] && [ "$n" -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
+R15CHILD="$(cat "$R15PID" 2>/dev/null)"
+kill -TERM "$R15RUNNER" 2>/dev/null
+n=0; while kill -0 "$R15RUNNER" 2>/dev/null && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+R15RUNNING=""; R15ALIVE=""
+if kill -0 "$R15RUNNER" 2>/dev/null; then R15RUNNING=1; fi
+if [ -n "$R15CHILD" ] && kill -0 "$R15CHILD" 2>/dev/null; then R15ALIVE=1; fi
+# This test's own processes, by their recorded pids, whatever the verdict.
+[ -z "$R15ALIVE" ] || kill -KILL "$R15CHILD" 2>/dev/null
+[ -z "$R15RUNNING" ] || kill -KILL "$R15RUNNER" 2>/dev/null
+wait "$R15RUNNER" 2>/dev/null
+if [ -z "$R15CHILD" ]; then
+  bad "R15 a retry is stopped with the runner" "the retry never started: $(tr '\n' ' ' < "$TMP/r15.out" | cut -c1-300)"
+elif [ -n "$R15RUNNING" ] || [ -n "$R15ALIVE" ]; then
+  bad "R15 a retry is stopped with the runner" "5 s after TERM: runner running=${R15RUNNING:-no}, retry child $R15CHILD alive=${R15ALIVE:-no}"
+else
+  ok "R15 TERM during a retry ends the runner and the retry's child within 5 s"
+fi
+
 # R44 — AN OPTION WITH NO VALUE ENDS THE RUN (hunt part 2, R44). `--jobs` as the last word made
 # `shift 2` fail without shifting, so the argument loop never ended. The runner is started in
 # the background and given 10 s.
