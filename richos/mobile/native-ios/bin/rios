@@ -8,6 +8,9 @@
 #   bin/rios perf (--simulator UDID | --reparse DIR) --stamp FILE [perf args]
 #                                     cold launch and warm return to the presented, input-ready
 #                                     viewport (richos/mobile/perf/perf.py ios; perf/README.md)
+#   bin/rios review-walk --commit SHA what Apple's reviewer does, on the Release app of SHA in a leased
+#                                     simulator, against the live review service; writes the record
+#                                     `testflight.ts upload` requires (CEO §107; Tools/review-walk.mjs)
 #   bin/rios device <command>         a PHYSICAL iPhone; the only way anything touches one. Only the
 #                                     Release build goes on it and every test on it tests that build
 #                                     (CEO 2026-10-02); nothing uninstalls or wipes an app.
@@ -70,6 +73,11 @@ SCRATCH="$RICHOS_NATIVE_IOS_CACHE/spm"
 if [ "${1:-}" = "perf" ]; then
   shift
   PYTHONDONTWRITEBYTECODE=1 exec python3 "$HERE/../perf/perf.py" ios "$@"
+fi
+
+if [ "${1:-}" = "review-walk" ]; then
+  shift
+  PYTHONDONTWRITEBYTECODE=1 exec node "$HERE/Tools/review-walk.mjs" "$@"
 fi
 
 if [ "${1:-}" = "device" ]; then
