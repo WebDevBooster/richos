@@ -128,6 +128,28 @@
 #            with its session, poller and all
 #   M02      --alive with nothing polling: NOT WATCHED, exit 2
 #
+# HIGH SPEED, ruling §108 (2026-10-04): when usage speeds up a lot, check every
+# minute (his "every 2 minutes", or every minute if that causes no problems)
+# and wake the lead early enough that the hold lands before 100%;
+# and (its addendum) alert the lead so the CEO is told:
+#   R05      2026-09-29's 15 Fable workers replayed, at the real poll phase and
+#            every 15 s phase: the window is under 100% when the hold lands
+#   R06      the same run: 300 s polls until the speed is measured, then 60 s
+#   R08      the same run: QUOTA-FAST once, at the first fast measurement,
+#            before the pause
+#   R09      the same run at its measured 3.99 points a minute held to 100%
+#            (it really slowed after 91%): the EARLY pause, below 93% where it
+#            must be, lands the hold under 100% at every 15 s poll phase
+#   R12      a burst, then normal speed again: back to 300 s polls, and the
+#            pause at the first reading at or above 93%, not early
+#   R10      10 teammates registered within 5 minutes: polls every 60 s while
+#            usage is flat, before any rise is measured, then 300 s again
+#   R11      a measured jump (flat at 80%, then 7 points a minute): the pause
+#            comes at the jump poll, from the jump speed, and the hold lands
+#            under 100%; averaged over 5 minutes it would land at 100%
+#   R07      the fastest normal rise ever logged: exactly as before, 300 s
+#            polls, no alert, the pause at the first reading >= 93%
+#
 # The mutation harness, quota-watch.mutation.sh, is run from the bottom of
 # this file, so the runner that discovers *.test.sh runs it too.
 #
@@ -990,9 +1012,17 @@ if wants "N04"; then
 write_payload 50 3600 1500
 fake_seq "ok 80" "ok 88" "hang-usage"
 outage_watch "$SB/n04.out" 2 5
+# Since ruling §108, 8 points in one poll is high speed: the first wake-up is
+# QUOTA-FAST, and --watch exits on it. As the fallback is used, it is started
+# again on the same poller, which delivers the QUOTA-STALE this case is about.
+wait_for_line "$SB/n04.out" '^QUOTA-FAST' 20
+n=0; while kill -0 "$WATCH_PID" 2>/dev/null && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+( exec bash "$Q" --watch >>"$SB/n04.out" 2>&1 ) &
+WATCH_PID=$!
 CHECK_POLLING=1 finish_watch 20; OUT="$(cat "$SB/n04.out")"
-check "N04  a timeout streak just after a steep rise (80->88% in one poll): QUOTA-STALE at once, from the measured rise, and the polling goes on" \
+check "N04  a timeout streak just after a steep rise (80->88% in one poll): QUOTA-FAST first, then QUOTA-STALE at once, from the measured rise, and the polling goes on" \
     "$([ "$WRC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^QUOTA-STALE: get_usage has not answered since' \
+       && printf '%s\n' "$OUT" | grep -E '^QUOTA-(FAST|STALE)' | head -1 | grep -q '^QUOTA-FAST' \
        && printf '%s' "$OUT" | grep -q 'at the fastest rise measured this window' \
        && ! printf '%s' "$OUT" | grep -q 'has been missed' && [ "$POLLING" = yes ]; echo $?)" \
     "rc=$WRC polling=$POLLING out=$OUT"
@@ -1081,6 +1111,116 @@ d = json.loads(sys.stdin.read())
 ok = d["fired_at"] is not None and d["fired_at"] < 600 and 93 <= d["value"] < 95 and not d["lead_woken"] and d["via_get_usage"]
 sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r04.report") out=$(cat "$SB/r04/transcript.log")"
 
+fi
+
+# --- R05-R08: ruling §108, high speed (2026-10-04) ----------------------------
+# r05 replays 2026-09-29's 15 Fable workers from the lead's transcript
+# (7% 18:29:11Z, 91% 18:50:15Z, 98% 18:53:10Z, 100% by 18:54:16Z) at the
+# watcher's real poll phase and at every 30 s phase of its cycle, through the
+# real get_usage transport. Before
+# §108 the pause came at 98% at 18:53:10Z, and a minute later (the hold) the
+# window was full. r07 replays the fastest normal rise ever logged (4 points in
+# 315 s) from 80%. Both run the production loop at its real 300 s polls.
+if wants "R05" || wants "R06" || wants "R08"; then
+fake ok 7
+replay r05
+R05="$(tail -1 "$SB/r05.report")"
+check "R05  the 15-worker burn of 2026-09-29, at its real poll phase and every 15 s phase: the pause wakes the lead while the window is still under 100% a minute later, when the hold lands $R05" \
+    "$(printf '%s' "$R05" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+ph = d["phases"]
+ok = (d["wake_at"] is not None and d["at_hold"] < 100 and d["via_get_usage"] and len(ph) == 20
+      and all(p["wake_at"] is not None and p["at_hold"] < 100 for p in ph))
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r05.report") out=$(cat "$SB/r05/transcript.log" 2>/dev/null)"
+check "R06  at high speed the watcher reads every minute: 300 s polls until the speed is measured, 60 s after $R05" \
+    "$(printf '%s' "$R05" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+first = d["fast_alerts"][0][0] if d["fast_alerts"] else None
+i = d["polls"].index(first) if first in d["polls"] else None
+ok = (i is not None and all(g == 300 for g in d["gaps"][:i]) and len(d["gaps"][i:]) >= 3
+      and all(g == 60 for g in d["gaps"][i:]))
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r05.report")"
+check "R08  the 15-worker burn: QUOTA-FAST alerts the lead ONCE, at the first poll that measures the speed, before the pause $R05" \
+    "$(printf '%s' "$R05" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+ok = (len(d["fast_alerts"]) == 1 and d["fast_alerts"][0][0] == 300 and d["fast_alerts"][0][1] >= 5.8
+      and d["wake_at"] is not None and d["fast_alerts"][0][0] < d["wake_at"])
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r05.report")"
+fi
+
+if wants "R09"; then
+fake ok 7
+replay r09
+R09="$(tail -1 "$SB/r09.report")"
+check "R09  the same run at its own measured 3.99 points a minute held to 100%, at every 15 s poll phase: the EARLY pause lands the hold under 100% $R09" \
+    "$(printf '%s' "$R09" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+ph = d["phases"]
+ok = (len(ph) == 20 and all(p["wake_at"] is not None and p["at_hold"] < 100 for p in ph)
+      and any(p["early"] and p["value"] < 93 for p in ph))
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r09.report")"
+fi
+
+if wants "R07"; then
+fake ok 80
+replay r07
+R07="$(tail -1 "$SB/r07.report")"
+check "R07  the fastest normal rise ever logged (4 points in 315 s) behaves as before §108: 300 s polls, no alert, the pause at the first reading at or above 93% $R07" \
+    "$(printf '%s' "$R07" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+ok = (d["wake_at"] == 1200 and d["value"] >= 93 and not d["early"] and not d["fast_alerts"]
+      and d["gaps"] and all(g == 300 for g in d["gaps"]))
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r07.report") out=$(cat "$SB/r07/transcript.log" 2>/dev/null)"
+fi
+
+if wants "R12"; then
+fake ok 10
+replay r12
+R12="$(tail -1 "$SB/r12.report")"
+check "R12  a burst at 20 points per 5 minutes, then normal speed again: back to 300 s polls, and the pause at the first reading at or above 93%, not early $R12" \
+    "$(printf '%s' "$R12" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+g = d["gaps"]
+ok = (len(d["fast_alerts"]) == 1 and 60 in g and len(g) >= 4 and g[-3:] == [300, 300, 300]
+      and d["wake_at"] is not None and d["value"] >= 93 and not d["early"])
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r12.report")"
+fi
+
+# R10 / R11: a big rise EXPECTED. 10 teammates registered now, through the real
+# registry (18 of 20 recorded sessions never started more than 7 within 5
+# minutes; the 15-worker run started 15). Last, so no other case sees them.
+if wants "R10" || wants "R11"; then
+for i in 01 02 03 04 05 06 07 08 09 10; do ws_spawn "dev-burst$i" "a0000000000qb0$i"; done
+if wants "R10"; then
+fake ok 20
+replay r10
+R10="$(tail -1 "$SB/r10.report")"
+check "R10  10 teammates registered within 5 minutes: checks every 60 s while usage is flat, before any rise is measured, then every 300 s again $R10" \
+    "$(printf '%s' "$R10" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+g = d["gaps"]
+ok = (not d["fast_alerts"] and d["wake_at"] is None and len(g) >= 6 and g[:4] == [60, 60, 60, 60]
+      and g[-1] == 300)
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r10.report")"
+fi
+if wants "R11"; then
+fake ok 80
+replay r11
+R11="$(tail -1 "$SB/r11.report")"
+check "R11  a measured jump (80% flat, then 7 points a minute): the pause comes at the jump poll from the jump speed, and the hold lands under 100% $R11" \
+    "$(printf '%s' "$R11" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+ok = d["wake_at"] == 300 and d["value"] < 93 and d["early"] and d["at_hold"] < 100
+sys.exit(0 if ok else 1)' 2>/dev/null; echo $?)" "report=$(cat "$SB/r11.report") out=$(cat "$SB/r11/transcript.log" 2>/dev/null)"
+fi
 fi
 
 if [ -n "$FOCUS" ]; then
