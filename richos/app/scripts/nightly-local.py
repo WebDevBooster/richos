@@ -484,10 +484,11 @@ UI_QUARANTINE = ()
 # THE CEO, 2026-09-25: "why the fuck do I fucking have to wait for ONE FUCKING HOUR WHEN THE
 # WHOLE FUCKING MAC IS FREE???" -- and, asked what happens with ten engineers working: the
 # number is chosen when the build is started, from what is running on the Mac at the time.
-# Then: "how do I know that you won't fuck this up next time?" So there is NO DEFAULT.
-# `build`, `release` and `stable` refuse to start unless both are named on the command line,
-# and the run log's first lines say what was chosen and by whom. A forgotten decision is a
-# refusal nobody can miss, not an hour of a free Mac running things in a line.
+# Then: "how do I know that you won't fuck this up next time?" So there is NO DEFAULT for the
+# decision a build actually uses: `build`, `release` and `stable` refuse to start unless
+# --gates-at-once is named on the command line, and the run log's first lines say what was
+# chosen and by whom. A forgotten decision is a refusal nobody can miss, not an hour of a free
+# Mac running things in a line.
 #
 #   --gates-at-once N|all   how many of the gates below run at the same time. 1 is the old
 #                           order exactly (one after another, inline, in GATE ORDER below);
@@ -496,10 +497,12 @@ UI_QUARANTINE = ()
 #                           (testdevices.py pool_leases). Handed to the script-suites gate as
 #                           RICHOS_IOS_POOL_LEASES; every other caller keeps one.
 #                           Since 2026-09-26 no suite in the desktop build leases one (the
-#                           phone apps' suites left it, phone-app-suites.tsv), so today the
-#                           number changes nothing. It is still required, because dropping a
-#                           required flag changes every operator's command line, and that is
-#                           a decision for whoever owns those command lines, not this change.
+#                           phone apps' suites left it, phone-app-suites.tsv), so the number
+#                           changes nothing, and it is NOT required (hunt part 2 v3, R48; the
+#                           CEO's order of 2026-10-04 to fix it settles the question this note
+#                           used to leave to the command lines' owner). Still accepted, and
+#                           recorded when given; when it is not, the log says so and a suite
+#                           that ever leased one would get one at a time, stated literally.
 #
 # Neither replaces a backstop. Every command still takes a machine worker token
 # (worker_tokens.py), a simulator boot still passes simulator_budget.py's live/boot limits
@@ -1166,9 +1169,9 @@ class Runner:
         self.skipped = {}
         self.started = time.time()
         self.active_phase = None
-        # The operator's two decisions (GATES_AT_ONCE_FLAG, SIMULATED_PHONES_FLAG). main()
-        # refuses a gate-running command that does not name both; 1 and 1 here is what a
-        # Runner built by hand gets, which is the old behavior exactly.
+        # The operator's decisions (GATES_AT_ONCE_FLAG, required; SIMULATED_PHONES_FLAG, None
+        # when not named, which no desktop suite needs). 1 and 1 here is what a Runner built by
+        # hand gets, which is the old behavior exactly.
         self.gates_at_once = gates_at_once
         self.simulated_phones = simulated_phones
         self.chosen_by = chosen_by
@@ -1200,8 +1203,12 @@ class Runner:
         who = self.chosen_by or "whoever constructed this Runner (no command line)"
         self.announce(f"Gates at once: {self.gates_at_once} "
                       f"({GATES_AT_ONCE_FLAG} {self.gates_at_once}, chosen by {who})")
-        self.announce(f"Simulated phones at once: {self.simulated_phones} "
-                      f"({SIMULATED_PHONES_FLAG} {self.simulated_phones}, chosen by {who})")
+        if self.simulated_phones is None:
+            self.announce(f"Simulated phones at once: not named ({SIMULATED_PHONES_FLAG} not given; "
+                          "no suite in this build leases one, and one that did would get one at a time)")
+        else:
+            self.announce(f"Simulated phones at once: {self.simulated_phones} "
+                          f"({SIMULATED_PHONES_FLAG} {self.simulated_phones}, chosen by {who})")
 
     def announce(self, text):
         """Say it on the terminal AND in the run log, so neither has to be read beside
@@ -1878,7 +1885,8 @@ class Runner:
             with self.phase("gates/script-suites"):
                 # Written in script_suites_environment(), which gate_conditions() also calls,
                 # so the checks run before a nightly meet these exact values.
-                extra = script_suites_environment(self.simulated_phones, skip_unchanged)
+                extra = script_suites_environment(
+                    1 if self.simulated_phones is None else self.simulated_phones, skip_unchanged)
                 args =["bash", self.source / SCRIPTS / "run-tests.sh", "--for", "desktop",
                         "--results-out", results]
                 if no_host_screen:
@@ -2733,9 +2741,11 @@ def main():
                              "whose inputs are ready. Choose it from what else is running on "
                              "this Mac.")
     parser.add_argument(SIMULATED_PHONES_FLAG, type=simulated_phones_value, metavar="N",
-                        help="REQUIRED for build, release and stable: how many simulated "
+                        help="optional for build, release and stable: how many simulated "
                              "iPhones the suites may use at once (one per device type; the "
-                             "machine still boots at most two simulators at a time).")
+                             "machine still boots at most two simulators at a time). No suite "
+                             "in the desktop build leases one; not named, a suite that did "
+                             "would get one at a time.")
     parser.add_argument(PASSED_GATES_FLAG, metavar="RUN_ID",
                         help="build or release: run no gate, and build the source commit of RUN_ID, "
                              "a recorded run whose log shows every gate PASSED on that commit; "
@@ -2791,22 +2801,21 @@ def main():
         parser.error(f"{PASSED_GATES_FLAG} names a run whose gates a build or release reuses; it means "
                      f"nothing to {args.command}")
     # NO SILENT DEFAULT (CEO, 2026-09-25: "how do I know that you won't fuck this up next
-    # time?"). A command that runs the gates names both numbers, or it does not start.
-    # A command that reuses a recorded run's gates runs none, so it names neither.
+    # time?"). A command that runs the gates names how many run at once, or it does not start.
+    # It is not made to name a simulated-phone count no gate of the desktop build uses (hunt
+    # part 2 v3, R48). A command that reuses a recorded run's gates runs none, so it names neither.
     runs_gates = (args.command in GATE_COMMANDS and not (args.command == "stable" and args.dry_run)
                   and not args.gates_passed_in)
-    missing = [flag for flag, value in ((GATES_AT_ONCE_FLAG, args.gates_at_once),
-                                        (SIMULATED_PHONES_FLAG, args.simulated_phones))
-               if value is None]
-    if runs_gates and missing:
+    named = [flag for flag, value in ((GATES_AT_ONCE_FLAG, args.gates_at_once),
+                                      (SIMULATED_PHONES_FLAG, args.simulated_phones))
+             if value is not None]
+    if runs_gates and args.gates_at_once is None:
         parser.error(
-            f"{args.command} refuses to start without {GATES_AT_ONCE_FLAG} and "
-            f"{SIMULATED_PHONES_FLAG}, and this command line is missing {' and '.join(missing)}. "
+            f"{args.command} refuses to start without {GATES_AT_ONCE_FLAG}. "
             f"{GATES_AT_ONCE_FLAG} N|all is how many gates run at the same time (1 = one after "
-            f"another, all = every gate whose inputs are ready); {SIMULATED_PHONES_FLAG} N is "
-            "how many simulated iPhones the suites may use at once. Choose both from what else "
-            "is running on this Mac: all and 2 on a free Mac, fewer when engineers are busy.")
-    if not runs_gates and len(missing) < 2:
+            f"another, all = every gate whose inputs are ready). Choose it from what else is "
+            "running on this Mac: all on a free Mac, fewer when engineers are busy.")
+    if not runs_gates and named:
         parser.error(f"{GATES_AT_ONCE_FLAG} and {SIMULATED_PHONES_FLAG} decide how the gates run; "
                      f"they mean nothing to {args.command}"
                      + (" --dry-run, which runs no gate" if args.command == "stable" else "")
