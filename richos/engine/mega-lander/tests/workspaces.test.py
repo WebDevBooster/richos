@@ -211,6 +211,22 @@ class Base(unittest.TestCase):
     def names(self, sid=None):
         return sorted(i["name"] for i in ws.pending(sid or self.sid, self.entity, scan=True))
 
+    def term_ignoring_holder(self):
+        """A real process in a workspace that ignores SIGTERM, so only the
+        SIGKILL escalation can stop it. It says ready only after its handler
+        is installed, so the TERM is never sent before it can be ignored."""
+        d = os.path.realpath(tempfile.mkdtemp(prefix="ws-kill-", dir=self.env.root))
+        ready = os.path.join(d, "ready")
+        pr = subprocess.Popen([sys.executable, "-c",
+                               "import signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                               "open(sys.argv[1], 'w').close(); time.sleep(3600)", ready], cwd=d)
+        self.env.procs.append(pr)
+        guard = time.monotonic() + 30
+        while not os.path.exists(ready):
+            self.assertLess(time.monotonic(), guard, "the holder never installed its handler")
+            time.sleep(0.02)
+        return d, pr
+
 
 # ===========================================================================
 class Point01_CcNaming(Base):
@@ -1194,22 +1210,6 @@ class Point09_NeverWritesAgain(Base):
         self.assertFalse(os.path.exists(npath))
         ev = open(os.path.join(ws.state_dir(), "events.jsonl")).read()
         self.assertIn('"event": "processes-stopped"', ev)
-
-    def term_ignoring_holder(self):
-        """A real process in a workspace that ignores SIGTERM, so only the
-        SIGKILL escalation can stop it. It says ready only after its handler
-        is installed, so the TERM is never sent before it can be ignored."""
-        d = os.path.realpath(tempfile.mkdtemp(prefix="ws-kill-", dir=self.env.root))
-        ready = os.path.join(d, "ready")
-        pr = subprocess.Popen([sys.executable, "-c",
-                               "import signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-                               "open(sys.argv[1], 'w').close(); time.sleep(3600)", ready], cwd=d)
-        self.env.procs.append(pr)
-        guard = time.monotonic() + 30
-        while not os.path.exists(ready):
-            self.assertLess(time.monotonic(), guard, "the holder never installed its handler")
-            time.sleep(0.02)
-        return d, pr
 
     def test_point_09_a_killed_process_the_kernel_is_slow_to_remove_is_not_a_survivor(self):
         # THE RACE (2026-09-29, the load-sensitive checks audit, item 3). The
@@ -3595,8 +3595,10 @@ class Hunt4_MutationHarnessesDeclareTheirFocus(unittest.TestCase):
         self.assertIn("1 run, 0 failed", r.stdout)
 
 
-class SeverityThreeGroupJ(Point09_NeverWritesAgain):
-    """Hunt V2-08 to V2-11."""
+class SeverityThreeGroupJ(Base):
+    """Hunt V2-08 to V2-11. A Base, not a Point09_NeverWritesAgain: that
+    subclassing (for term_ignoring_holder, now on Base) ran Point09's six
+    tests a second time (hunt part 4 v3, V3-07)."""
 
     def test_v2_08_top_level_ignored_link_is_compared_by_target(self):
         with open(os.path.join(self.other, ".gitignore"), "a") as f:
@@ -3768,6 +3770,197 @@ class AutoLand_MergedAndEndedLandsOnItsOwn(Base):
         os.utime(kept, (old, old))
         self.assertEqual(sweep(), [(real, reaper.DELETE)])        # 8 days old: deleted
         self.assertFalse(os.path.exists(kept))
+
+
+class HuntV3_01_ARecordWithoutItsWorkspacesIsDamaged(Base):
+    """Hunt part 4 v3, V3-01: a keyed record that had lost its `workspaces`
+    list passed the V2-04 check, the sweep read it as owning nothing, made its
+    live workspace an orphan, stopped the worker's process and deleted it."""
+
+    def test_v3_01_a_sweep_never_cleans_up_a_live_worker_whose_record_lost_its_workspaces(self):
+        name = "zach-opus-v3record"
+        _aid, path = self.spawn(name)
+        rec = self.rec(name)
+        self.assertFalse(ws.finished_state(rec)[0])
+        sleeper = subprocess.Popen(["sleep", "300"], cwd=path)
+        self.env.procs.append(sleeper)
+        self.assertIn(sleeper.pid, ws.processes_in([path]))
+        rec.pop("workspaces")
+        with open(ws.agent_path(rec["key"]), "w") as f:
+            json.dump(rec, f)
+        with patch.object(ws, "stop_containers", return_value={}), \
+                patch.object(ws, "stop_test_instances", return_value={}):
+            items = ws.pending(self.sid, self.entity, scan=True)
+        time.sleep(0.3)
+        self.assertIsNone(sleeper.poll(), "the sweep stopped a live worker's process")
+        self.assertTrue(os.path.isdir(path), "the sweep deleted a live worker's workspace")
+        self.assertFalse([r for r in ws.all_agents() if r.get("orphan")])
+        self.assertEqual(len([i for i in items if i.get("damaged")]), 1, items)
+        self.assertEqual([p for p, _w in ws.damaged_records()], [ws.agent_path(rec["key"])])
+
+
+class HuntV3_02_TheBudgetBoundsTheWholeCleanup(Base):
+    """Hunt part 4 v3, V3-02: V2-03 stopped a stage from STARTING past the
+    deadline, but a slow helper inside a stage (the container reaper) still
+    kept the caller waiting, and an already-landed retry dropped the deadline."""
+
+    def _ended(self, name, kind):
+        aid, path = self.spawn(name)
+        self.finish(aid)
+        rec = self.rec(name)
+        rec["disposition"] = {"kind": kind, "at": ws.now(), "reason": "fixture only"}
+        ws.save_agent(rec)
+        return rec, path
+
+    def test_v3_02_a_slow_container_helper_never_keeps_the_caller_past_its_budget(self):
+        rec, path = self._ended("zach-opus-v3deadline", "discarded")
+        release = threading.Event()
+
+        def slow_containers(paths):
+            release.wait(1.25)
+            return {}
+        t0 = time.monotonic()
+        try:
+            with patch.object(ws, "stop_containers", side_effect=slow_containers), \
+                    patch.object(ws, "stop_test_instances", return_value={}):
+                ok = ws._delete(rec, ws.live_workspaces(rec), True, "v3-02",
+                                processes={"stopped": [], "survivors": []}, deadline=ws.now() + 0.15)
+            took = time.monotonic() - t0
+        finally:
+            release.set()
+            time.sleep(0.1)                     # the helper's own thread returns
+        self.assertLess(took, 0.6, "a 0.15 s cleanup budget kept its caller %.2f s" % took)
+        self.assertFalse(ok)
+        self.assertTrue(os.path.isdir(path))
+        d = self.rec("zach-opus-v3deadline")["deletion"]
+        self.assertIn("containers", d["deferred"])
+        self.assertEqual(d.get("attempts", 0), 0, "running out of time was counted as a failure")
+
+    def test_v3_02_an_already_landed_retry_keeps_the_callers_deadline(self):
+        self._ended("zach-opus-v3retry", "landed")
+        deadline = ws.now() - 1
+        with patch.object(ws, "_delete_chain", return_value=False) as spy:
+            res = ws.land("zach-opus-v3retry", self.sid, deadline=deadline)
+        self.assertEqual(spy.call_args.kwargs.get("deadline"), deadline)
+        self.assertTrue(res["cleanup_pending"])
+
+
+class HuntV3_05_AFailedProcessListingIsNotAnEmptyOne(Base):
+    """Hunt part 4 v3, V3-05: `lsof` and `ps` that exited non-zero with no
+    output were read as "no process works there", so the land deleted a
+    workspace while its process still ran."""
+
+    def test_v3_05_failed_process_listings_never_certify_a_workspace_empty(self):
+        name = "zach-opus-v3listing"
+        aid, path = self.spawn(name)
+        self.finish(aid)
+        sleeper = subprocess.Popen(["sleep", "300"], cwd=path)
+        self.env.procs.append(sleeper)
+        self.assertIn(sleeper.pid, ws.processes_in([path]))
+        real = subprocess.run
+
+        def failing(command, *args, **kw):
+            if command[0] == "lsof" or list(command[:2]) == ["ps", "-axww"]:
+                return subprocess.CompletedProcess(command, 2, stdout="", stderr="controlled listing failure")
+            return real(command, *args, **kw)
+        with patch.object(ws.subprocess, "run", side_effect=failing), \
+                patch.object(ws, "stop_containers", return_value={}), \
+                patch.object(ws, "stop_test_instances", return_value={}):
+            stopped = ws.stop_processes([path], deadline=ws.now() + 10)
+            with self.assertRaises(ws.SpecError):
+                ws.land(name, self.sid, deadline=ws.now() + 10)
+            with self.assertRaises(ws.SpecError):
+                ws.land(name, self.sid)                       # no deadline: the same answer
+        self.assertTrue(stopped.get("unknown"), stopped)
+        self.assertIsNone(sleeper.poll(), "the process was stopped on a listing that failed")
+        self.assertTrue(os.path.isdir(path), "the workspace was deleted while its process ran")
+        self.assertFalse(self.rec(name).get("disposition"))
+
+
+class HuntV3_04_AReopenedLandingIsNotReportedLanded(Base):
+    """Hunt part 4 v3, V3-04: a land retry whose reproof found new work
+    withdrew the landing and its retry, yet the CLI printed "landed ... it is
+    retried", exited 0 and swept the scratch."""
+
+    def test_v3_04_a_retry_that_reopens_the_landing_is_refused_not_reported_landed(self):
+        import contextlib
+        import io
+        name = "zach-opus-v3reopened"
+        aid, path = self.spawn(name)
+        self.commit(path)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        swept = []
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(ws, "stop_containers", return_value={}), \
+                patch.object(ws, "stop_test_instances", return_value={}):
+            with patch.object(ws, "remove_workspace", return_value=(False, "fixture removal failure")):
+                first = ws.land(name, self.sid)
+            self.assertTrue(first["landed"] and first["cleanup_pending"], first)
+            self.commit(path, "late.txt")                     # new, unmerged work in the kept workspace
+            with patch.object(ws, "sweep_scratch_after_land", side_effect=lambda *a, **k: swept.append(a)), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = ws.main(["--session", self.sid, "land", name])
+        rec = self.rec(name)
+        self.assertIsNone(rec["disposition"])
+        self.assertIsNone(rec["deletion"])
+        self.assertTrue(os.path.isfile(os.path.join(path, "late.txt")))
+        self.assertNotIn("landed:", out.getvalue())
+        self.assertNotEqual(rc, 0, out.getvalue())
+        self.assertIn("REFUSED", err.getvalue())
+        self.assertEqual(swept, [], "the scratch was swept after a landing that was withdrawn")
+
+
+class HuntV3_06_AStatusQueryWritesNoCleanupHistory(Base):
+    """Hunt part 4 v3, V3-06: the dry status proved eligibility through the
+    V2-02 regenerable-output helper, which appended a
+    `regenerable-not-preserved` event at every query although nothing was
+    cleaned up."""
+
+    def test_v3_06_status_appends_nothing_to_the_event_history(self):
+        import contextlib
+        import io
+        with open(os.path.join(self.other, ".gitignore"), "a") as f:
+            f.write("#regenerable: build/\n")
+        run("git", "-C", self.other, "commit", "-qam", "declare regenerable output")
+        name = "zach-opus-v3status"
+        path = self.make_cc(name)
+        aid, _n = self.spawn(name, path, native=False)
+        os.makedirs(os.path.join(path, "build"))
+        with open(os.path.join(path, "build", "output.bin"), "wb") as f:
+            f.write(b"generated fixture output")
+        self.finish(aid)
+        events = ws._p("events.jsonl")
+        before = open(events).read() if os.path.exists(events) else ""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ws._print_status(self.sid, self.entity)
+        after = open(events).read() if os.path.exists(events) else ""
+        self.assertIn("LANDABLE " + name, out.getvalue())
+        self.assertEqual(after[len(before):], "", "a status query wrote history")
+        self.assertTrue(os.path.isfile(os.path.join(path, "build", "output.bin")))
+        # The real land still records what it did not preserve.
+        ws.land(name, self.sid)
+        self.assertIn('"regenerable-not-preserved"', open(events).read())
+
+
+class HuntV3_07_NoTestIsCollectedTwice(unittest.TestCase):
+    """Hunt part 4 v3, V3-07: SeverityThreeGroupJ subclassed the concrete
+    Point09_NeverWritesAgain for one helper and so ran its six tests twice.
+    Every collected test must be defined by the class that runs it, or by a
+    class the loader does not collect on its own."""
+
+    def test_v3_07_no_collected_test_is_inherited_from_another_collected_class(self):
+        module = sys.modules[type(self).__module__]
+        loader = unittest.defaultTestLoader
+        cases = [c for c in vars(module).values()
+                 if isinstance(c, type) and issubclass(c, unittest.TestCase)]
+        collected = set(c for c in cases if loader.getTestCaseNames(c))
+        twice = ["%s.%s (defined by %s)" % (c.__name__, m, owner.__name__)
+                 for c in cases for m in loader.getTestCaseNames(c)
+                 for owner in [next(k for k in c.__mro__ if m in vars(k))]
+                 if owner is not c and owner in collected]
+        self.assertEqual(twice, [])
 
 
 if __name__ == "__main__":

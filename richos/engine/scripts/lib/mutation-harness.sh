@@ -146,6 +146,7 @@ MUT_FOCUS=""
 MUT_SANDBOX=""
 MUT_SUITE=""
 MUT_ENGINE_ROOT=""
+MUT_PRISTINE=""
 MUT_WALL_T0=0
 # Set by mutation_sandbox_engine, for harnesses that keep their own loop.
 MUT_SANDBOX_DIR=""
@@ -335,6 +336,20 @@ mutation_begin() { # <title> <suite-rel-path>
     MUT_SANDBOX="$(scratch_new mutation)" || {
         echo "FATAL: could not allocate a mutation sandbox" >&2; exit 2; }
     command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
+    # THE SHIPPED ENGINE IS COPIED ONCE PER RUN, NOT ONCE PER MUTANT (hunt part
+    # 4 v3, V3-03). Every mutant used to copy scripts/, mega-lander/, ecs/,
+    # agents/, hooks/ and the rest from the shipped tree again, though only one
+    # file of one mutant ever differs. The copy (with every refusal in
+    # mutation_copy_engine) is made here, serially, before any mutant is
+    # submitted; each mutant then CLONES it (_mut_copy_engine), so its sandbox
+    # is still its own and nothing it writes reaches another. A copy that
+    # failed leaves MUT_PRISTINE empty, and every mutant reports that failure
+    # itself (P5-17), exactly as a failed per-mutant copy did.
+    MUT_PRISTINE="$MUT_SANDBOX/.engine"
+    if ! mutation_copy_engine "$MUT_PRISTINE" "$MUT_ENGINE_ROOT"; then
+        rm -rf "$MUT_PRISTINE"
+        MUT_PRISTINE=""
+    fi
     # shellcheck source=stopwatch.sh
     . "$MUT_ENGINE_ROOT/scripts/lib/stopwatch.sh"
     # shellcheck source=mutation-pool.sh
@@ -448,8 +463,17 @@ mutation_copy_engine() { # <dest> <src-engine-root>
     return 0
 }
 
+# _mut_copy_engine <dir> — one mutant's sandbox, cloned from the run's single
+# copy of the engine (MUT_PRISTINE, built by mutation_begin; V3-03). `cp -c`
+# makes APFS clones (no bytes copied; a write to one never reaches another) and
+# falls back to an ordinary copy on a volume without clones; a `cp` that has no
+# -c at all gets the ordinary copy. The scratch-root ceiling is still checked
+# before every mutant.
 _mut_copy_engine() { # <dir>
-    mutation_copy_engine "$1" "$MUT_ENGINE_ROOT"
+    [ -n "$MUT_PRISTINE" ] && [ -d "$MUT_PRISTINE" ] || return 1
+    mut_refuse_oversize_root || return 1
+    cp -cR "$MUT_PRISTINE/." "$1/" 2>/dev/null && return 0
+    rm -rf "$1" && mkdir -p "$1" && cp -R "$MUT_PRISTINE/." "$1/"
 }
 
 # mutation_sandbox_engine <src-engine-root> — mktemp a throwaway directory,
