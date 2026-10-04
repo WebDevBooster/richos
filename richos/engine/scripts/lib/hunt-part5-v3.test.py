@@ -135,5 +135,40 @@ class P5_57_UnrelatedReadIsNotTheRegister(unittest.TestCase):
         self.assertTrue(self.credited("cat failure-types.md"))
 
 
+class P5_67_ShortCircuitedGrep(unittest.TestCase):
+    """A quiet exit 1 excuses a command only when the no-match tool produced it."""
+
+    @classmethod
+    def setUpClass(cls):
+        # The verifier's Python lives inside row-headline-verify.sh; take the exact
+        # function text from it rather than a copy.
+        with open(os.path.join(SCRIPTS, "row-headline-verify.sh"), encoding="utf-8") as fh:
+            src = fh.read()
+        start = src.index("NO_MATCH_TOOLS = ")
+        end = src.index("    return verb in NO_MATCH_TOOLS\n", start) + len("    return verb in NO_MATCH_TOOLS\n")
+        ns = {"re": __import__("re"), "os": os}
+        exec(src[start:end], ns)
+        cls.fn = staticmethod(ns["ends_in_no_match_tool"])
+
+    def test_failed_command_before_and_and_grep_is_not_excused(self):
+        cmd = "python3 -c \"print('ASSERTION');raise SystemExit(1)\" && grep absent /tmp/empty"
+        # the shell really returns 1 here without reaching grep
+        rc = subprocess.run(["/bin/sh", "-c", cmd.replace("/tmp/empty", os.devnull)],
+                            capture_output=True, text=True).returncode
+        self.assertEqual(rc, 1)
+        self.assertFalse(self.fn(cmd))
+
+    def test_plain_grep_is_excused(self):
+        self.assertTrue(self.fn("grep absent file"))
+
+    def test_grep_after_semicolon_or_pipe_or_or_is_excused(self):
+        self.assertTrue(self.fn("cd sub; grep absent file"))
+        self.assertTrue(self.fn("cat file | grep absent"))
+        self.assertTrue(self.fn("false || grep absent file"))
+
+    def test_and_chain_inside_group_is_not_excused(self):
+        self.assertFalse(self.fn("false && ( grep absent file )"))
+
+
 if __name__ == "__main__":
     unittest.main()

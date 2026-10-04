@@ -6049,7 +6049,7 @@
     },
     "scripts/row-headline-verify.sh#fixture-records": {
       "source": "scripts/row-headline-verify.sh",
-      "sha256": "61bc200590ade10b14a7d0890c16e40be56f4e984b89703c366bbf74b4ecc936",
+      "sha256": "a5a357ad047ae2e2c167ee8c614dfd9f7d85da12d4356783653c7c2a7eff9562",
       "evidence": "Reads the generated row declarations and executes headline commands from the caller record. This qualification is restricted to row-currency.test.sh, whose commands are finite literal grep, sound-refusal and fixture git-push/marker cases; none reads orchestration config. Nested mutants only change the finite refusal predicates, retaining the same private records and targets.",
       "keys": [],
       "edges": [
@@ -16398,7 +16398,7 @@
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/row-currency.py": "484404c6143d1a5b94182321e6fa0f6250b298b27a7d3b59ba26d5ed648db677",
         "scripts/row-currency-lint.sh": "47b26a433c2a96e69844fdca03b263c37bd0f80bbbbeeacd87dd4117feef1167",
-        "scripts/row-headline-verify.sh": "61bc200590ade10b14a7d0890c16e40be56f4e984b89703c366bbf74b4ecc936",
+        "scripts/row-headline-verify.sh": "a5a357ad047ae2e2c167ee8c614dfd9f7d85da12d4356783653c7c2a7eff9562",
         "scripts/hooks/guard-row-currency-commits.mutation.sh": "624a4cab7af937bb9ea59cb48429f3ad290fca56eab3d4718a52a7e5eabbc5af",
         "scripts/lib/mutation-harness.sh": "bf3eb527309787734b7717ea43717e211164c96ad6bfb07ff5944d9acc71f6bc",
         "scripts/lib/scratch.sh": "a46b938e776a44638546063d63e1598383e2c4f55230e502f5efb79ef54db7c4",
