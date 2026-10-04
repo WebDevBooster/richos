@@ -459,7 +459,8 @@ def touch_lease(kind, ident):
             raise ValueError("device has no registered lease; prepare it again")
         if kind == "android-emulator":
             gen = rec.get("generation") or {}
-            if process_start(gen.get("pid", 0)) != gen.get("start") or not _names_avd(gen["pid"], gen["avd"]):
+            current = process_start(gen.get("pid", 0))
+            if (current is not None and current != gen.get("start")) or not _names_avd(gen["pid"], gen["avd"]):
                 raise ValueError("device process identity changed; prepare it again")
         if lease_expired(rec):
             raise ValueError("device lease expired; stop and prepare the device again")
@@ -1355,8 +1356,9 @@ def hold_lease(kind, ident):
             return 0
         if kind == "android-emulator":
             gen = rec.get("generation") or {}
-            if process_start(gen.get("pid", 0)) != gen.get("start"):
-                return 0
+            current = process_start(gen.get("pid", 0))
+            if current is not None and current != gen.get("start"):
+                return 0                 # None is "could not be told": ask again next turn
         else:
             devices = ios_devices((rec.get("generation") or {}).get("device_set", ""))
             if devices is not None and not any(d["udid"] == ident and d.get("state") != "Shutdown" for d in devices):
