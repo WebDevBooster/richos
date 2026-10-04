@@ -138,6 +138,29 @@ class GroupG(unittest.TestCase):
         self.assertIsNone(run(fenced))
         self.assertIsNone(run("> QUESTION FOR YOU:\n> Which first?"))
 
+    def test_p3_40_longer_closing_fence_keeps_the_real_question(self):
+        # A fence opened with ``` and closed with ```` is valid Markdown; the
+        # real question AFTER it is still a question (v3 re-check, finding 40).
+        ask = load("blocking_ask40", SCRIPTS / "lib" / "blocking_ask.py")
+        for closer in ("```", "````"):
+            t = os.path.join(self.tmp, "f.jsonl")
+            write_rows(t, [
+                {"type": "user", "turnOrigin": "human"},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text":
+                    "Example:\n```text\nUnrelated example.\n" + closer +
+                    "\n\nQUESTION FOR YOU:\nWhich fixture should run next?\n"}]}},
+                {"type": "user", "turnOrigin": "task_notification"},
+            ])
+            self.assertIsNotNone(ask.unanswered_question(t), closer)
+        # A SHORTER closer does not close it: the fenced text stays an example.
+        t = os.path.join(self.tmp, "g.jsonl")
+        write_rows(t, [
+            {"type": "user", "turnOrigin": "human"},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text":
+                "Example:\n````text\n```\nQUESTION FOR YOU:\nWhich first?\n"}]}},
+            {"type": "user", "turnOrigin": "task_notification"},
+        ])
+        self.assertIsNone(ask.unanswered_question(t))
 
 
 if __name__ == "__main__":

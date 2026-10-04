@@ -72,7 +72,14 @@ STOP_FEEDBACK = "Stop hook feedback:"
 # question put to him (hunt part 3, finding 35). Fenced blocks are removed
 # before the search for the same reason.
 _LEAD_IN_RX = re.compile(r"^[ \t*_#-]*" + re.escape(LEAD_IN), re.M)
-_FENCE_RX = re.compile(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$|^[ \t]*(`{3,}|~{3,}).*\Z",
+# A fence closes on a line of the SAME character at least as long as the
+# opener: ``` is closed by ``` or ````, never by ~~~ or ``. An exact-length
+# closer only (\1 alone) let a valid longer closer fall through to the
+# unclosed arm, which then swallowed the real question after it (hunt part 3
+# v3, finding 40). The opener is its WHOLE run ((?!`) / (?!~)), so a
+# ```` opener cannot backtrack to ``` and be closed by a shorter line.
+_FENCE_RX = re.compile(r"^[ \t]*(`{3,}(?!`)|~{3,}(?!~)).*?^[ \t]*\1(?:(?<=`)`*|(?<=~)~*)[ \t]*$"
+                       r"|^[ \t]*(`{3,}|~{3,}).*\Z",
                        re.M | re.S)
 
 

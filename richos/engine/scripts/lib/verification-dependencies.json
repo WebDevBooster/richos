@@ -983,7 +983,7 @@
     },
     "scripts/lib/blocking_ask.py": {
       "source": "scripts/lib/blocking_ask.py",
-      "sha256": "4c2f26b0de379937cfdf163a1c8bfa7a71f0e566ad2b412eb671f039f5b8c32b",
+      "sha256": "69f84fb7fc13bd0328ad427e1f1d74eb239f5a47cc38ca22f578451fa3510536",
       "evidence": "Standard-library reader of the payload on stdin, the host transcript the payload names, the entity's .claude/state/blocking-ask-exempts.log, and the workspace registry through mega-lander/workspaces.py loaded from the engine root it is given. No orchestration.config key, no subprocess, writes nothing.",
       "keys": [],
       "edges": []
