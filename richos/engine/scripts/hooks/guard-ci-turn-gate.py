@@ -972,11 +972,14 @@ def evaluate(payload, budget):
     facts_cache = {}
     # Never-checked targets first (newest first), then the longest-unchecked, so
     # an older obligation is not starved by newer ones (P3-17).
+    # A target goes to the back of that rotation only once it was actually
+    # JUDGED this turn (a verdict, a pause, a duplicate of one judged). One
+    # that was only SELECTED, then ran out of budget, keeps its place: stamping
+    # the whole selected batch up front let one slow lookup starve the other
+    # five every turn (P3-17, v3 re-check).
     targets = sorted(pushes.items(), key=lambda kv: (float((kv[1] or {}).get("checked_at") or 0),
                                                      -float((kv[1] or {}).get("at") or 0)))[:MAX_TARGETS]
     _now = time.time()
-    for _k, _p in targets:
-        _p["checked_at"] = _now
     judged = set()
 
     # AN ANSWER THAT CAN NEVER ARRIVE IS NOT A FINDING TO REPEAT.
@@ -1005,6 +1008,7 @@ def evaluate(payload, budget):
         root, slug, err = repo_facts(push["dir"], remote, budget, facts_cache)
         if slug and pause_for(slug):
             # Keep the push history for restoration; do not read CI or demand an ack.
+            push["checked_at"] = _now
             continue
         if err.startswith(TRANSIENT):
             unreadable.append("%s: %s" % (os.path.basename(push["dir"] or "?"), err[len(TRANSIENT):]))
@@ -1021,6 +1025,7 @@ def evaluate(payload, budget):
             permanent(key, "%s: the branch that was pushed could not be determined" % slug)
             continue
         if (slug, branch) in judged:
+            push["checked_at"] = _now
             continue
         judged.add((slug, branch))
         sha, err = head_of(root, remote, branch, budget)
@@ -1035,6 +1040,8 @@ def evaluate(payload, budget):
         item = {"slug": slug, "root": root, "remote": remote, "branch": branch,
                 "sha": sha, "at": push.get("at"), "doc": doc}
         st = doc.get("state")
+        if st != "unknown":
+            push["checked_at"] = _now
         if st == "red":
             findings.append(item)
         elif st == "running":

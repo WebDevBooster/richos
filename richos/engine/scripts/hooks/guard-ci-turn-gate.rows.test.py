@@ -142,6 +142,43 @@ class Rows(unittest.TestCase):
                 gate.repo_facts, gate.head_of, gate.verdict_for = real
             self.assertIn("/nonexistent/0", checked)     # the OLDEST was reached by turn 2
 
+    def test_p3_17_v3_a_selected_target_is_not_marked_judged(self):
+        # Six targets; each turn's first CI lookup spends the whole budget, so
+        # the other five run out of time. A target only SELECTED must keep its
+        # place in the rotation: over six turns every one is actually read.
+        with tempfile.TemporaryDirectory() as d:
+            gate.STATE_DIR = os.path.join(d, "state")
+            sid = "s17v3"
+            pushes = {}
+            for n in range(gate.MAX_TARGETS):
+                key = "%s/%d\torigin\tmain" % (d, n)
+                pushes[key] = {"dir": "%s/%d" % (d, n), "remote": "origin",
+                               "branch": "main", "at": 100 + n}
+            gate.save_state(sid, {"pushes": pushes, "transcript": {}})
+            read, holder = [], []
+            real = (gate.repo_facts, gate.head_of, gate.verdict_for)
+
+            def facts(directory, *_a):
+                if holder[0].spent():
+                    return "", "", gate.TRANSIENT + "budget spent"
+                return directory, "fixture/" + os.path.basename(directory), ""
+
+            def verdict(slug, sha, budget):
+                read.append(slug)
+                budget.seconds = 0.0                     # a slow lookup eats the budget
+                return {"state": "green", "runs": []}
+            gate.repo_facts, gate.head_of, gate.verdict_for = (
+                facts, lambda *_a: ("abc", ""), verdict)
+            try:
+                for _ in range(gate.MAX_TARGETS):
+                    b = gate.Budget(5)
+                    holder[:] = [b]
+                    gate.evaluate({"session_id": sid, "transcript_path": "", "cwd": d}, b)
+            finally:
+                gate.repo_facts, gate.head_of, gate.verdict_for = real
+            self.assertEqual(sorted(set(read)),
+                             sorted("fixture/%d" % n for n in range(gate.MAX_TARGETS)))
+
 
 if __name__ == "__main__":
     unittest.main()
