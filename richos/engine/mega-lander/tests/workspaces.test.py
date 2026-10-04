@@ -3843,6 +3843,38 @@ class HuntV3_02_TheBudgetBoundsTheWholeCleanup(Base):
         self.assertTrue(res["cleanup_pending"])
 
 
+class HuntV3_05_AFailedProcessListingIsNotAnEmptyOne(Base):
+    """Hunt part 4 v3, V3-05: `lsof` and `ps` that exited non-zero with no
+    output were read as "no process works there", so the land deleted a
+    workspace while its process still ran."""
+
+    def test_v3_05_failed_process_listings_never_certify_a_workspace_empty(self):
+        name = "zach-opus-v3listing"
+        aid, path = self.spawn(name)
+        self.finish(aid)
+        sleeper = subprocess.Popen(["sleep", "300"], cwd=path)
+        self.env.procs.append(sleeper)
+        self.assertIn(sleeper.pid, ws.processes_in([path]))
+        real = subprocess.run
+
+        def failing(command, *args, **kw):
+            if command[0] == "lsof" or list(command[:2]) == ["ps", "-axww"]:
+                return subprocess.CompletedProcess(command, 2, stdout="", stderr="controlled listing failure")
+            return real(command, *args, **kw)
+        with patch.object(ws.subprocess, "run", side_effect=failing), \
+                patch.object(ws, "stop_containers", return_value={}), \
+                patch.object(ws, "stop_test_instances", return_value={}):
+            stopped = ws.stop_processes([path], deadline=ws.now() + 10)
+            with self.assertRaises(ws.SpecError):
+                ws.land(name, self.sid, deadline=ws.now() + 10)
+            with self.assertRaises(ws.SpecError):
+                ws.land(name, self.sid)                       # no deadline: the same answer
+        self.assertTrue(stopped.get("unknown"), stopped)
+        self.assertIsNone(sleeper.poll(), "the process was stopped on a listing that failed")
+        self.assertTrue(os.path.isdir(path), "the workspace was deleted while its process ran")
+        self.assertFalse(self.rec(name).get("disposition"))
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a

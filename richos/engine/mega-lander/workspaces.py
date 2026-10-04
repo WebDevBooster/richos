@@ -5371,7 +5371,7 @@ def _process_cwds(timeout=60, strict=False):
     """{pid: cwd} for every process the OS will show us.
 
     `strict=True` answers None when the listing could not be made (lsof did not
-    finish in `timeout`, or could not run) instead of {}: an empty answer from
+    finish in `timeout`, could not run, is missing or failed) instead of {}: an empty answer from
     a listing that never happened would read as "nothing works there" and let
     a deletion go ahead over running writers (V2-03 bounds this call by the
     caller's deadline, which makes "did not finish" a real answer)."""
@@ -5384,21 +5384,28 @@ def _process_cwds(timeout=60, strict=False):
                 except OSError:
                     continue
         return out
-    if shutil.which("lsof"):
-        try:
-            r = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "pn", "-w"], capture_output=True, text=True,
-                               timeout=timeout, env=_ps_env())
-        except (OSError, subprocess.TimeoutExpired):
-            return None if strict else out
-        pid = None
-        for line in r.stdout.splitlines():
-            if line.startswith("p"):
-                try:
-                    pid = int(line[1:])
-                except ValueError:
-                    pid = None
-            elif line.startswith("n") and pid:
-                out[pid] = line[1:]
+    # A LISTING THAT FAILED IS NOT AN EMPTY ONE (hunt part 4 v3, V3-05). A
+    # missing lsof, or one that exited non-zero (it names no file here, so a
+    # non-zero exit is an error, never "nothing found"), used to answer {} in
+    # strict mode too, and a deletion went ahead over a running process.
+    if not shutil.which("lsof"):
+        return None if strict else out
+    try:
+        r = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "pn", "-w"], capture_output=True, text=True,
+                           timeout=timeout, env=_ps_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return None if strict else out
+    if r.returncode != 0 and strict:
+        return None
+    pid = None
+    for line in r.stdout.splitlines():
+        if line.startswith("p"):
+            try:
+                pid = int(line[1:])
+            except ValueError:
+                pid = None
+        elif line.startswith("n") and pid:
+            out[pid] = line[1:]
     return out
 
 
@@ -5411,6 +5418,8 @@ def process_table(timeout=30, strict=False):
                            timeout=timeout, env=_ps_env())
     except (OSError, subprocess.TimeoutExpired):
         return None if strict else {}
+    if r.returncode != 0 and strict:
+        return None                       # failed, not empty (V3-05)
     out = {}
     for line in r.stdout.splitlines():
         parts = line.strip().split(None, 2)
@@ -5460,8 +5469,10 @@ def processes_in(paths, deadline=None):
     whose only tie is its arguments is left running and named in the record
     (`_named_only`), never signaled.
 
-    With a `deadline` (V2-03) the two listings are bounded by it, and a listing
-    that did not finish makes the answer None -- unknown, never "none".
+    With a `deadline` (V2-03) the two listings are bounded by it. A listing
+    that did not finish, could not run or FAILED makes the answer None --
+    unknown, never "none" -- with or without a deadline (V3-05): a failed `ps`
+    or `lsof` answered {} and certified a workspace empty while it ran.
 
     A GRADLE DAEMON A NATIVE BUILD KEPT WARM FOR THE WORKSPACE IS THE WORKSPACE'S OWN too
     (2026-10-02, scripts/lib/gradle_daemons.py). It works from Gradle's registry, not from
@@ -5473,7 +5484,7 @@ def processes_in(paths, deadline=None):
         return []
     keep = _protected_pids(deadline)
     hits = set(_gradle_daemons(paths))
-    cwds = _process_cwds(timeout=_bounded(deadline, 60), strict=deadline is not None)
+    cwds = _process_cwds(timeout=_bounded(deadline, 60), strict=True)
     if cwds is None:
         return None
     for pid, cwd in cwds.items():
@@ -5481,7 +5492,7 @@ def processes_in(paths, deadline=None):
         if any(c == p or c.startswith(p + os.sep) for p in paths):
             hits.add(pid)
     hits -= keep
-    table = process_table(timeout=_bounded(deadline, 30), strict=deadline is not None)
+    table = process_table(timeout=_bounded(deadline, 30), strict=True)
     if table is None:
         return None
     grew = bool(hits)
@@ -5538,7 +5549,7 @@ def stop_processes(paths, deadline=None):
     which the deleter holds on exactly as it holds on a survivor."""
     pids = processes_in(paths, deadline)
     if pids is None:
-        why = "the processes working in its workspaces could not be listed in the time the caller had"
+        why = "the processes working in its workspaces could not be listed (the listing failed or ran out of time)"
         event("processes-unknown", paths=paths or None, why=why)
         return {"stopped": [], "survivors": [], "unknown": why}
     spared = _named_only(paths, set(pids), deadline)
