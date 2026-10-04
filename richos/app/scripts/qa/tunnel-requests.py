@@ -14,7 +14,8 @@ appends one line per reading to FILE, this Mac's epoch seconds first:
 
     1790867244.232 request_errors=0 response_by_code[200]=7 total_requests=7
 
-A reading that fails is written as `<epoch> unreadable <why>`, never as a number. (Not the
+A reading that fails, or that answers without the request counter, is written as `<epoch>
+unreadable <why>`, never as a number (hunt part 2 v3, R39: a missing counter is not zero). (Not the
 file `hidden-send-try.py --metrics-file` writes: the same name=value shape since the fix of its
 unlabeled counters, which used to read `total_requests 7=7`; `between` refuses such an old file.)
 It refuses (exit 2) before writing anything when the port does not answer with the helper's
@@ -26,6 +27,7 @@ reading at or before T1 and the last reading at or before T2, each rise with the
 that bracket it (the request arrived inside that interval), and the rise in errors and in
 each response code. It exits 2 when the readings do not cover the window (none at or before
 T1, none at or after T2) or when an unreadable reading falls inside it: a gap is not a zero.
+A reading without total_requests is unreadable, whoever wrote the file.
 T1 and T2 are epoch seconds on this Mac's clock (a phone step's time is the phone's clock;
 say so when you compare them).
 """
@@ -81,7 +83,10 @@ def sample(a):
         while time.time() < end and not stop:
             time.sleep(a.interval)
             try:
-                out.write("%.3f %s\n" % (time.time(), line_of(counters(read(a.port)))))
+                found = counters(read(a.port))
+                if "total_requests" not in found:
+                    raise ValueError("no cloudflared_tunnel_total_requests in the reading")
+                out.write("%.3f %s\n" % (time.time(), line_of(found)))
             except (OSError, ValueError) as e:
                 out.write("%.3f unreadable %s\n" % (time.time(), str(e).replace("\n", " ")))
             out.flush()
@@ -99,7 +104,10 @@ def parse(path):
             if len(parts) > 1 and parts[1] == "unreadable":
                 rows.append((at, None))
                 continue
-            rows.append((at, {k: float(v) for k, v in (p.split("=", 1) for p in parts[1:])}))
+            found = {k: float(v) for k, v in (p.split("=", 1) for p in parts[1:])}
+            # A reading without the request counter cannot say how many requests there were:
+            # it is a gap, never a zero (hunt part 2 v3, R39).
+            rows.append((at, found if "total_requests" in found else None))
     return rows
 
 
