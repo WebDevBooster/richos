@@ -321,5 +321,47 @@ class P5_32_LoginAlarmPlistIsNotAJob(Scratch):
         self.assertEqual(self.installed(0), 0)
 
 
+class P5_33_QuotaTickUsesCompiledHelper(Scratch):
+    """From a source checkout, the watcher's tick uses a compiled helper rather than cargo run.
+
+    A fixture tree holds a copy of quota-reset.sh, a Cargo.toml, a stub `cargo` and a stub
+    compiled helper; each stub only prints its name. Nothing is built."""
+
+    def run_helper(self, *args, with_binary=True):
+        product = os.path.join(self.tmp, "product")
+        scripts = os.path.join(product, "engine", "scripts")
+        os.makedirs(scripts)
+        os.makedirs(os.path.join(product, "app"))
+        with open(os.path.join(product, "app", "Cargo.toml"), "w") as fh:
+            fh.write("[workspace]\n")
+        shutil.copy(os.path.join(SCRIPTS, "quota-reset.sh"), scripts)
+        stubs = os.path.join(self.tmp, "stub-bin")
+        os.makedirs(stubs)
+        targets = [(os.path.join(stubs, "cargo"), "CARGO")]
+        if with_binary:
+            os.makedirs(os.path.join(product, "engine", "bin"))
+            targets.append((os.path.join(product, "engine", "bin", "richos-quota"), "COMPILED"))
+        for path, word in targets:
+            with open(path, "w") as fh:
+                fh.write("#!/bin/sh\necho %s \"$@\"\n" % word)
+            os.chmod(path, 0o755)
+        env = dict(os.environ, HOME=os.path.join(self.tmp, "home"),
+                   PATH=os.pathsep.join([stubs, "/usr/bin", "/bin"]))
+        out = subprocess.run(["bash", os.path.join(scripts, "quota-reset.sh")] + list(args),
+                             env=env, capture_output=True, text=True, timeout=60)
+        return out.stdout.split(" ")[0].strip()
+
+    def test_tick_uses_the_compiled_helper(self):
+        self.assertEqual(self.run_helper("tick"), "COMPILED")
+
+    def test_user_status_stays_source_aligned(self):
+        self.assertEqual(self.run_helper("status"), "CARGO")
+
+    def test_tick_without_a_compiled_helper_still_uses_cargo(self):
+        if os.path.exists("/Applications/RichOS.app/Contents/MacOS/richos-tauri"):
+            self.skipTest("an installed RichOS app would serve the tick on this host")
+        self.assertEqual(self.run_helper("tick", with_binary=False), "CARGO")
+
+
 if __name__ == "__main__":
     unittest.main()

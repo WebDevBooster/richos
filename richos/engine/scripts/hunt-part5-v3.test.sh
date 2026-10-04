@@ -10,6 +10,7 @@
 #   lib/shared_scratchpad.py (P5-83)
 #   lib/qa-throwaways.py (P5-29, P5-30)
 #   login-alarm.sh (P5-32)
+#   quota-reset.sh (P5-33)
 # This wrapper is what names those files to the proof selector.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
