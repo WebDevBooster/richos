@@ -95,7 +95,18 @@ stops it. The checkout running `upload` must have the archive's commit. No flag 
    DEVELOPER_DIR=/Applications/Xcode-26.app/Contents/Developer xcodebuild archive \
      -project <generated project> -scheme RichOSNative -configuration Release \
      -destination 'generic/platform=iOS' -archivePath <path>/RichOSNative.xcarchive \
-     DEVELOPMENT_TEAM=<team> CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Distribution"
+     DEVELOPMENT_TEAM=<team> CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development"
+   ```
+
+   The identity is `Apple Development` on purpose: with automatic signing Xcode refuses `Apple
+   Distribution` ("conflicts with automatically signed targets"). The upload step's export re-signs
+   for App Store Connect (`ExportOptions.plist`, method `app-store-connect`).
+
+   Before the upload, prove the archive is iPhone only (Apple refused the first upload with errors
+   90023 and 90474 when every target also declared iPad):
+
+   ```sh
+   python3 Release/check_device_family.py <path>/RichOSNative.xcarchive
    ```
 
 3. `node Release/testflight.ts upload --archive <path>/RichOSNative.xcarchive --export-options Release/ExportOptions.plist`

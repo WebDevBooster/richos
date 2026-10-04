@@ -25,6 +25,8 @@ settings:
     SWIFT_VERSION: "5.0"
     # Complete concurrency checking, reported as warnings in Swift 5 mode (build plan §3.2).
     SWIFT_STRICT_CONCURRENCY: complete
+    # iPhone only. XcodeGen gives every target its own platform default ("1,2") that overrides this
+    # project-level value, so each target below restates it (Release/check-release.sh R10 proves it).
     TARGETED_DEVICE_FAMILY: "1"
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
@@ -61,6 +63,7 @@ targets:
         # CEO's own app. The preserved app keeps its own identifier.
         PRODUCT_BUNDLE_IDENTIFIER: $(RICHOS_BUNDLE_ID)
         PRODUCT_NAME: RichOSNative
+        TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_CFBundleDisplayName: $(RICHOS_APP_DISPLAY_NAME)
         # The conversation's own frame from the tap (App/Features/Root/LaunchShell.swift), never iOS's
         # generated launch screen, which is an empty white (or black) window (the CEO, 2026-10-02).
@@ -89,6 +92,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.richos.connect.tests
+        TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/TestSupport/TestBundle-Info.plist
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/RichOSNative.app/RichOSNative"
         BUNDLE_LOADER: "$(TEST_HOST)"
@@ -104,6 +108,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.richos.connect.uitests
+        TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/TestSupport/TestBundle-Info.plist
         TEST_TARGET_NAME: RichOSNative
 schemes:
