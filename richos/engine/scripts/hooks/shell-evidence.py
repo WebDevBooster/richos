@@ -12,6 +12,20 @@ import os
 import sys
 
 PREFIX = "set -e -o pipefail\n"
+# The rewrite's own bound. hooks.json gives this hook 86400 s so it can hold a held
+# agent's wait until its release (agent_hold.gate); the rewrite keeps its old 5 s.
+REWRITE_SECONDS = 5
+
+
+def hold_gate(payload):
+    """A held agent's wait call starts only after its release, so no model call is made
+    while it waits (agent_hold.gate). Every other call passes at once."""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
+        import agent_hold
+        agent_hold.gate(payload)
+    except Exception:
+        pass
 
 
 def ownership(payload):
@@ -62,10 +76,32 @@ def rewrite(payload):
     }}
 
 
+class _Late(Exception):
+    pass
+
+
+def _late(_signum, _frame):
+    raise _Late()
+
+
 if __name__ == "__main__":
+    import signal
     try:
-        result = rewrite(json.load(sys.stdin))
+        payload = json.load(sys.stdin)
     except (ValueError, OSError):
+        payload = None
+    if payload is None:
         result = {"systemMessage": "Shell evidence hook could not read this call (invalid payload); failure propagation is unverified."}
+    else:
+        hold_gate(payload)
+        signal.signal(signal.SIGALRM, _late)
+        signal.alarm(REWRITE_SECONDS)
+        try:
+            result = rewrite(payload)
+        except _Late:
+            # What the harness did at the old 5 s hook timeout: the call runs as typed.
+            result = {"systemMessage": "Shell evidence hook ran out of time; failure propagation is unverified."}
+        finally:
+            signal.alarm(0)
     if result:
         print(json.dumps(result))
