@@ -340,6 +340,20 @@ impl Accounts {
         Ok(if self.evaluate(readings, pause_percent, now)? { AfterLimit::Continue } else { AfterLimit::NoRoom })
     }
 
+    /// **A reset was used on `account`** (hunt part 1 v3, finding 49): the usage-limit refusal
+    /// the backstop recorded has been answered, so it no longer holds the account; the fresh
+    /// reading taken next decides. A reset that did not take leaves that reading at the
+    /// weekly threshold (a reset is only attempted there, `resets.rs`), which still holds it.
+    pub fn reset_used(&self, account: &str) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if !state.limited_until.contains_key(account) { return Ok(()); }
+        let mut next = state.clone();
+        next.limited_until.remove(account);
+        self.save(&next)?;
+        *state = next;
+        Ok(())
+    }
+
     /// **All accounts gone** (Frank's finding 2): held until the soonest reset across them.
     /// `None` with one account, so a user with one subscription sees no change.
     pub fn held_until(&self, readings: &BTreeMap<String, Reading>, pause_percent: u8, now: u64) -> Option<u64> {

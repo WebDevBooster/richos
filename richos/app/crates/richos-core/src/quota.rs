@@ -858,6 +858,11 @@ impl Service {
         if changed {
             self.source.lock().unwrap().disconnect();
             *self.snapshot.lock().unwrap() = Snapshot::default();
+            // The reset was used on Account 1's sign-in (the reset reader's), so its
+            // usage-limit hold goes with its old reading (hunt part 1 v3, finding 49).
+            if let Err(error) = self.accounts.reset_used(crate::claude_accounts::ACCOUNT_ONE) {
+                eprintln!("[richos] claude accounts: the reset could not be recorded ({error})");
+            }
         }
         self.refresh_windows(bin, force || changed);
         if self.accounts.count() > 1 {
@@ -1600,6 +1605,31 @@ for line in sys.stdin:
         let view = service.refresh(&bin, true);
         assert_eq!(weekly(&view), 10., "the wrong reader survived into the next refresh");
         assert_eq!(view.held_until, None);
+        service.shutdown();
+    }
+
+    /// **Hunt part 1 v3, finding 49.** A usage limit refused Account 1 (the backstop holds it
+    /// until 2099), then a reset was used: the marker changed and the fresh reading shows 2%.
+    /// The old hold must not outlive the reset that ended it.
+    #[test]
+    #[cfg(unix)]
+    fn a_reset_ends_the_usage_limit_hold_its_fresh_reading_contradicts() {
+        let root = Scratch::new();
+        let bin = fake_claude(root.path());
+        let service = Service::open(root.path()).unwrap();
+        let work = service.accounts.add("Work").unwrap();
+        usage(&root.path().join("usage-1.json"), 10., 99.5, "2099-01-05T00:00:00Z");
+        usage(&work.folder.clone().unwrap().join("usage.json"), 10., 99.5, "2099-01-06T00:00:00Z");
+        service.refresh(&bin, true);
+        let until = 4_071_254_400_000u64;
+        assert_eq!(service.limit_reached("1", Some(until)), crate::claude_accounts::AfterLimit::NoRoom);
+        usage(&root.path().join("usage-1.json"), 10., 2., "2099-01-12T00:00:00Z");
+        fs::write(root.path().join("claude-reset-refresh.json"), b"{\"outcome\":\"used\"}").unwrap();
+        let view = service.refresh(&bin, true);
+        assert_eq!(view.accounts[0].windows.iter().find(|w| w.id == "seven_day").unwrap().used_percent, 2.);
+        assert_eq!(service.accounts.limited_until("1"), None, "the reset left the old limit in place");
+        assert_eq!(view.held_until, None);
+        assert!(!matches!(view.admission, Admission::Held { .. }), "{:?}", view.admission);
         service.shutdown();
     }
 }
