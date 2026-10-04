@@ -8403,7 +8403,7 @@
     },
     "scripts/lib/qa-throwaways.py#scan-classify": {
       "source": "scripts/lib/qa-throwaways.py",
-      "sha256": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
+      "sha256": "bfa7c6cd74e65f0e1c89e6bcf558e10e076014faf22edb47eea0b7904e4741bd",
       "evidence": "Reviewed module import and scan/classify closure. Transcript records and embedded shell commands are parsed as data; only the supplied transcript is opened. Toolkit suffix comes from QA_TOOLKIT_DIR environment or literal default, not a config file.",
       "keys": [
         "QA_TOOLKIT_DIR"
@@ -11808,7 +11808,7 @@
     },
     "scripts/lib/qa-throwaways.py": {
       "source": "scripts/lib/qa-throwaways.py",
-      "sha256": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
+      "sha256": "bfa7c6cd74e65f0e1c89e6bcf558e10e076014faf22edb47eea0b7904e4741bd",
       "evidence": "Reviewed full CLI, transcript scan, classification and reporting. Embedded shell commands remain JSON string data. QA_TOOLKIT_DIR is the only config-named environment input and remains declared.",
       "keys": [
         "QA_TOOLKIT_DIR"
@@ -16195,7 +16195,7 @@
         "scripts/lib/operator_fences_admin.py": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/qa-throwaways.py": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
+        "scripts/lib/qa-throwaways.py": "bfa7c6cd74e65f0e1c89e6bcf558e10e076014faf22edb47eea0b7904e4741bd",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
@@ -17149,7 +17149,7 @@
         "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/qa-throwaways.py": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
+        "scripts/lib/qa-throwaways.py": "bfa7c6cd74e65f0e1c89e6bcf558e10e076014faf22edb47eea0b7904e4741bd",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
@@ -17188,7 +17188,7 @@
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
-        "scripts/lib/qa-throwaways.py": "0e30709e3bbcddfc3695d62993b0efde60c0032b36191d698e3a61375f9b5a1b",
+        "scripts/lib/qa-throwaways.py": "bfa7c6cd74e65f0e1c89e6bcf558e10e076014faf22edb47eea0b7904e4741bd",
         "scripts/lib/qa-toolkit.py": "f490cd7a72bacf99bef3eef47cc059d99cac5f3878b0d2399eea06dae55a24c0",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",

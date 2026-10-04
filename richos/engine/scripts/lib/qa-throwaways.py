@@ -79,6 +79,9 @@ import sys
 
 SCRIPT_SUFFIXES = (".sh", ".py", ".js", ".applescript")
 
+# The conversation rows of a Claude Code transcript; a file with none of them is not one.
+TRANSCRIPT_TYPES = {"user", "assistant", "system", "summary"}
+
 # A redirect into a file: `> x.sh`, `>> x.py`, with or without quotes. `tee`
 # is matched by its own arm below because it takes its target as an argument.
 # Deliberately permissive about what a path looks like — the walks write into
@@ -151,7 +154,8 @@ def scan(path):
                 continue
             # Hunt P5-29: only a row with a transcript "type" counts as recognized, so a
             # file of `{}` and noise is "not a transcript", never a confident zero.
-            if "type" in row:
+            # v3: a type key is not enough; {"type": "garbage"} is not a transcript row.
+            if row.get("type") in TRANSCRIPT_TYPES:
                 parsed += 1
             if row.get("type") != "assistant":
                 continue
@@ -171,7 +175,7 @@ def scan(path):
                     for p in _bash_targets(str(ti.get("command") or "")):
                         events.append({"path": p, "how": "Bash", "row": rows})
     if rows and not parsed:
-        raise CannotAnswer("%s has %d lines and not one of them is JSON — this is not a transcript"
+        raise CannotAnswer("%s has %d lines and not one of them is a transcript row — this is not a transcript"
                            % (path, rows))
     return events, rows
 

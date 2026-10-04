@@ -226,5 +226,30 @@ class P5_83_SessionIdAssignment(Scratch):
         self.assertIsNone(self.refusal("D=sub; rm -rf $D"))
 
 
+def transcript(tmp, rows):
+    path = os.path.join(tmp, "t.jsonl")
+    with open(path, "w") as fh:
+        fh.write("".join(json.dumps(r) + "\n" for r in rows))
+    return path
+
+
+class P5_29_UnknownTranscriptType(Scratch):
+    """A file whose only row has an unknown type is not a transcript, never a zero."""
+
+    def setUp(self):
+        super().setUp()
+        self.qt = load("qa_throwaways_p5v3", os.path.join(HERE, "qa-throwaways.py"))
+
+    def test_unknown_type_cannot_answer(self):
+        with self.assertRaises(self.qt.CannotAnswer):
+            self.qt.scan(transcript(self.tmp, [{"type": "garbage"}]))
+
+    def test_real_assistant_row_is_a_transcript(self):
+        events, rows = self.qt.scan(transcript(self.tmp, [
+            {"type": "user", "message": {"content": "hi"}},
+            {"type": "assistant", "message": {"content": []}}]))
+        self.assertEqual((events, rows), ([], 2))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@
 #   row-headline-verify.sh (P5-67)
 #   lib/unguarded_rm.py (P5-82)
 #   lib/shared_scratchpad.py (P5-83)
+#   lib/qa-throwaways.py (P5-29, P5-30)
 # This wrapper is what names those files to the proof selector.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
