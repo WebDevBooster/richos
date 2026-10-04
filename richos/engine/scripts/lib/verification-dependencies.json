@@ -13834,8 +13834,8 @@
     },
     "scripts/lib/agent_hold.test.py": {
       "source": "scripts/lib/agent_hold.test.py",
-      "sha256": "c057659b0a61caa98742dfbad150acae9c45eecb289212417ee342ca734bfd2c",
-      "evidence": "Fixed Python fixture imports only the bound helper and standard library. Subprocess work/registry programs are literal strings in this source; no config-provided command or discovered test executes. Preserve the real helper closure conservatively. Renewed 2026-10-04: HeldAgentMakesNoModelCalls reads hooks/hooks.json for the PreToolUse[Bash] hooks that act on a held agent's call (the rewriter) and runs them, then the command they leave.",
+      "sha256": "70624e6faa1ce60713146f8330d2796eb4782c81b378726419faa452f07c35bd",
+      "evidence": "Fixed Python fixture imports only the bound helper and standard library. Subprocess work/registry programs are literal strings in this source; no config-provided command or discovered test executes. Preserve the real helper closure conservatively. Renewed 2026-10-04: HeldAgentMakesNoModelCalls reads hooks/hooks.json for the PreToolUse[Bash] hooks that act on a held agent's call (the rewriter) and runs them, then the command they leave. Renewed 2026-10-04 (holdleak3): the fixture worker takes an optional go file as a literal argument, a path in the test's own temporary directory that the test creates after its hold; no new configuration key, environment variable or outside file is read.",
       "keys": [],
       "edges": [
         {

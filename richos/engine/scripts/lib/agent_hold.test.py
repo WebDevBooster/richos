@@ -28,17 +28,29 @@ import agent_hold
 SHELL = shutil.which("zsh") or "/bin/sh"
 ROUNDS = 400000
 
+# The whole chain is about 0.1 s of CPU (measured 2026-10-04 on Python 3.14). A test that
+# holds the worker and then checks its result must not let it finish first: given a go
+# file (the fourth argument, after the mode) the worker keeps hashing past `rounds` (still
+# CPU-bound, still advancing .progress) until that file exists, then writes the chain value
+# at exactly `rounds`. The test creates the file only after its hold, so the worker is
+# always still running when it is held. Without one it ends at `rounds`, as before.
 WORKER = r'''
 import hashlib, os, sys, time
 out, rounds = sys.argv[1], int(sys.argv[2])
+go = sys.argv[4] if len(sys.argv) > 4 else None
 def run():
     open(out + ".pid", "w").write("%d %f" % (os.getpid(), time.time()))
-    h = b"richos"
-    for i in range(rounds):
+    h, result, i = b"richos", None, 0
+    while True:
+        if i == rounds:
+            result = h
+        if result is not None and (not go or (i % 20000 == 0 and os.path.exists(go))):
+            break
         h = hashlib.sha256(h).digest()
         if i % 20000 == 0:
             open(out + ".progress", "w").write(str(i))
-    open(out + ".tmp", "w").write(h.hex())
+        i += 1
+    open(out + ".tmp", "w").write(result.hex())
     os.replace(out + ".tmp", out)
 mode = sys.argv[3] if len(sys.argv) > 3 else "plain"
 if mode == "session":
@@ -300,10 +312,11 @@ class Ownership(Base):
 class RealTree(Base):
     def test_hold_frees_cpu_at_once_and_release_finishes_correctly(self):
         want = expected()
+        go = self.out("go")    # the workers run on until it exists: none can finish before the hold
         body = "\n".join([
-            '%s %s %s %d session &' % (sys.executable, self.worker, self.out("session"), ROUNDS),
-            '%s %s %s %d detach' % (sys.executable, self.worker, self.out("detached"), ROUNDS),
-            '%s %s %s %d' % (sys.executable, self.worker, self.out("plain"), ROUNDS),
+            '%s %s %s %d session %s &' % (sys.executable, self.worker, self.out("session"), ROUNDS, go),
+            '%s %s %s %d detach %s' % (sys.executable, self.worker, self.out("detached"), ROUNDS, go),
+            '%s %s %s %d plain %s' % (sys.executable, self.worker, self.out("plain"), ROUNDS, go),
             'wait',
         ])
         call = self.start_call(body)
@@ -328,6 +341,7 @@ class RealTree(Base):
         sys.stderr.write("\n  measured: %d processes suspended in %.3f s (hold call %.3f s); "
                          "CPU over the next %.1f s: %.2f s\n" % (len(r["held"]), r["stopped_seconds"], took,
                                                                  r["sample_seconds"], r["cpu_during_sample"]))
+        Path(go).touch()   # seen only once released: the held workers cannot run until then
         rel = agent_hold.release(self.session, self.agent)
         self.assertEqual(sorted(map(int, r["held"])), sorted(rel["continued"]), rel)
         self.assertEqual(call.wait(timeout=120), 0)
@@ -697,8 +711,9 @@ class LegacyForeground(Base):
 
     def test_hold_returns_the_foreground_call_at_once_and_wait_collects_the_same_result(self):
         want = expected()
+        go = self.out("go")    # the worker runs on until it exists: it cannot finish before the hold
         command = "\n".join([
-            '%s %s %s %d' % (sys.executable, self.worker, self.out("fg"), ROUNDS),
+            '%s %s %s %d plain %s' % (sys.executable, self.worker, self.out("fg"), ROUNDS, go),
             'echo "worker result: $(cat %s)"' % self.out("fg"),
             'exit 4',
         ])
@@ -730,6 +745,7 @@ class LegacyForeground(Base):
         waiter, _got = self.start_rewritten("python3 %s wait" % (HERE / "agent_hold.py"), tuid="toolu_wait")
         time.sleep(1.0)
         self.assertIsNone(waiter.poll(), "the wait waits while held")
+        Path(go).touch()   # seen only once released: the held worker cannot run until then
         rel = agent_hold.release(self.session, self.agent)
         self.assertIn(worker, rel["continued"])
         out, _err = waiter.communicate(timeout=120)
