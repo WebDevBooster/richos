@@ -4289,10 +4289,11 @@ impl Spine {
                 None => return,
             },
         };
-        let pending = [
+        let mut pending = vec![
             (AttentionTier::InterruptNow, quota.take_alert()),
             (AttentionTier::Digest, quota.accounts.take_notice()),
         ];
+        pending.extend(quota.take_notes().into_iter().map(|note| (AttentionTier::Digest, Some(note))));
         for (tier, text) in pending {
             if let Some(text) = text {
                 if let Err(error) = self.raise_proactive(Some(&thread), tier, &text) {

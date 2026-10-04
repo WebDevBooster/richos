@@ -5288,8 +5288,8 @@ fn set_claude_quota_policy(state: State<AppState>, policy: richos_core::quota::P
 /// **Add account**: a new, empty Claude Code folder, and the stock browser sign-in started
 /// for it at once (the browser opens; the account's row reads it on the next refresh).
 #[tauri::command(async)]
-fn claude_account_add(state: State<AppState>, label: String) -> Result<richos_core::quota::View, String> {
-    let view = state.quota.add_account(&label).map_err(|e| e.to_string())?;
+fn claude_account_add(state: State<AppState>, label: String, current_label: Option<String>) -> Result<richos_core::quota::View, String> {
+    let view = state.quota.add_account(&label, current_label.as_deref()).map_err(|e| e.to_string())?;
     if let Some(added) = state.quota.accounts.list().last().cloned() {
         if let Some(folder) = added.folder {
             let bin = resolve_claude_bin();

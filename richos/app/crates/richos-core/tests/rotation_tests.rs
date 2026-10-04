@@ -1204,7 +1204,7 @@ fn a_turn_that_starts_at_93_percent_runs_under_the_next_account() {
     let his: Vec<_> = prompts.lock().unwrap().iter().filter(|(_, text)| text == "What is on my plate?").cloned().collect();
     assert_eq!(his, vec![("2".to_string(), "What is on my plate?".to_string())], "his turn ran ONLY under Work");
     let msgs = spine.messages(&thread).unwrap();
-    assert!(msgs.iter().any(|m| m.text == "Switched to Work: Account 1 is at 93% of its five-hour limit."), "{msgs:?}");
+    assert!(msgs.iter().any(|m| m.text == "Switched to Work — Account 1 reached 93% of its five-hour window. Nothing stopped."), "{msgs:?}");
     assert!(msgs.iter().any(|m| m.text == "answered on account 2"));
     drop(std::fs::remove_file(&path));
     drop(std::fs::remove_dir_all(dir));
@@ -1236,7 +1236,7 @@ fn a_turn_cut_by_a_usage_limit_is_re_served_under_the_next_account() {
     let msgs = spine.messages(&thread).unwrap();
     let exchange: Vec<_> = msgs.iter().filter(|m| !m.text.starts_with("Switched to")).map(|m| m.text.as_str()).collect();
     assert_eq!(exchange, vec!["Draft the board update", "answered on account 2"], "one clean exchange");
-    assert!(msgs.iter().any(|m| m.text == "Switched to Work: Account 1 reached a usage limit."));
+    assert!(msgs.iter().any(|m| m.text == "Switched to Work — Account 1 reached a usage limit; the step it turned away runs again on Work."));
     let failed = spine.ledger().turns().iter().find(|t| t.state == TurnState::Interrupted).cloned().expect("kept on disk");
     assert!(failed.superseded_by.is_some());
     drop(std::fs::remove_file(&path));
@@ -1262,13 +1262,13 @@ fn a_fast_burn_alerts_once_when_the_high_speed_is_first_detected() {
     spine.set_lease_factory(Box::new(AccountFactory { quota: quota.clone(), spawned: Arc::new(Mutex::new(Vec::new())),
         streamed: Arc::new(Mutex::new(None)), prompts }));
     let alerts = |spine: &richos_core::spine::Spine| spine.messages(&thread).unwrap().iter()
-        .filter(|m| m.text.starts_with("Claude usage is very fast")).map(|m| m.text.clone()).collect::<Vec<_>>();
+        .filter(|m| m.text.starts_with("Usage is climbing fast")).map(|m| m.text.clone()).collect::<Vec<_>>();
 
     spine.submit_prompt("one", Source::Text).unwrap();
     assert!(alerts(&spine).is_empty(), "one reading is no speed");
     *streamed.lock().unwrap() = Some(streamed_five_hour(54., start + 60_000));
     spine.submit_prompt("two", Source::Text).unwrap();
-    assert_eq!(alerts(&spine), vec!["Claude usage is very fast right now: Account 1's five-hour limit is filling about 4% a minute and is at 54%. RichOS now checks every minute and acts before it reaches 100%.".to_string()]);
+    assert_eq!(alerts(&spine), vec!["Usage is climbing fast: Account 1's five-hour window is filling about 4% a minute and is at 54%. I'm checking every minute now. Automatic pause is off in Settings, so nothing acts before it reaches 100%.".to_string()]);
     assert_eq!(quota.view().refresh_interval_ms, richos_core::quota::FAST_REFRESH_INTERVAL_MS);
     *streamed.lock().unwrap() = Some(streamed_five_hour(58., start + 120_000));
     spine.submit_prompt("three", Source::Text).unwrap();

@@ -69,6 +69,21 @@ pub enum AtThreshold {
     Switch,
 }
 
+/// **The last switch**, for the panel's card after it (round 16: who switched, from where,
+/// when, and why). Ids, not labels, so a rename never leaves it stale.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastSwitch {
+    pub from: String,
+    pub to: String,
+    /// Epoch ms.
+    pub at: u64,
+    /// `fiveHour`, `weekly` or `limit`.
+    pub why: String,
+    /// The figure it was read at; `None` for a usage-limit refusal.
+    pub used: Option<f64>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Stored {
@@ -79,6 +94,8 @@ struct Stored {
     /// Account id -> until when a usage limit refused it (epoch ms).
     #[serde(default)]
     limited_until: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_switch: Option<LastSwitch>,
 }
 impl Default for Stored {
     fn default() -> Self {
@@ -87,6 +104,7 @@ impl Default for Stored {
             in_use: ACCOUNT_ONE.into(),
             at_threshold: AtThreshold::Pause,
             limited_until: BTreeMap::new(),
+            last_switch: None,
         }
     }
 }
@@ -227,6 +245,7 @@ impl Accounts {
     }
     pub fn at_threshold(&self) -> AtThreshold { self.state.lock().unwrap().at_threshold }
     pub fn limited_until(&self, id: &str) -> Option<u64> { self.state.lock().unwrap().limited_until.get(id).copied() }
+    pub fn last_switch(&self) -> Option<LastSwitch> { self.state.lock().unwrap().last_switch.clone() }
     pub fn folder(&self, id: &str) -> Option<PathBuf> {
         self.state.lock().unwrap().accounts.iter().find(|a| a.id == id).and_then(|a| a.folder.clone())
     }
@@ -235,6 +254,20 @@ impl Accounts {
         let mut state = self.state.lock().unwrap();
         let mut next = state.clone();
         next.at_threshold = value;
+        self.save(&next)?;
+        *state = next;
+        Ok(())
+    }
+
+    /// **Name an account** (round 16: going from one account to two names both, because the
+    /// first one never needed a label before). Empty keeps the label it has.
+    pub fn rename(&self, id: &str, label: &str) -> io::Result<()> {
+        let label: String = label.trim().chars().filter(|c| !c.is_control()).take(40).collect();
+        if label.is_empty() { return Ok(()); }
+        let mut state = self.state.lock().unwrap();
+        let mut next = state.clone();
+        let Some(account) = next.accounts.iter_mut().find(|a| a.id == id) else { return Ok(()) };
+        account.label = label;
         self.save(&next)?;
         *state = next;
         Ok(())
@@ -274,6 +307,7 @@ impl Accounts {
         next.accounts.retain(|a| a.id != id);
         next.limited_until.remove(id);
         if next.in_use == id { next.in_use = ACCOUNT_ONE.into(); }
+        if next.last_switch.as_ref().is_some_and(|s| s.from == id || s.to == id) { next.last_switch = None; }
         self.save(&next)?;
         *state = next;
         drop(state);
@@ -284,20 +318,39 @@ impl Accounts {
         Ok(())
     }
 
-    fn switch_to(&self, state: &mut Stored, to: &str, why: Gone) -> io::Result<()> {
+    fn switch_to(&self, state: &mut Stored, to: &str, why: Gone, now: u64) -> io::Result<()> {
         let from = state.accounts.iter().find(|a| a.id == state.in_use).map(|a| a.label.clone()).unwrap_or_default();
         let to_label = state.accounts.iter().find(|a| a.id == to).map(|a| a.label.clone()).unwrap_or_default();
+        let (kind, used) = match why {
+            Gone::Weekly(used) => ("weekly", Some(used)),
+            Gone::FiveHour(used) => ("fiveHour", Some(used)),
+            Gone::Limit => ("limit", None),
+        };
         let mut next = state.clone();
+        next.last_switch = Some(LastSwitch { from: next.in_use.clone(), to: to.into(), at: now, why: kind.into(), used });
         next.in_use = to.into();
         self.save(&next)?;
         *state = next;
-        let reason = match why {
-            Gone::Weekly(used) => format!("is at {}% of its weekly limit", used.floor()),
-            Gone::FiveHour(used) => format!("is at {}% of its five-hour limit", used.floor()),
-            Gone::Limit => "reached a usage limit".to_string(),
-        };
-        *self.notice.lock().unwrap() = Some(format!("Switched to {to_label}: {from} {reason}."));
+        // **Rich's one line in the conversation** (round 16, "The switch"). A switch at a turn
+        // boundary stops nothing; a usage-limit refusal re-serves the step it cut on the next
+        // account (`spine.rs`, `work_host.rs`).
+        *self.notice.lock().unwrap() = Some(match why {
+            Gone::FiveHour(used) => format!("Switched to {to_label} — {from} reached {}% of its five-hour window. Nothing stopped.", used.floor()),
+            Gone::Weekly(used) => format!("Switched to {to_label} — {from}'s weekly window reached {}%. Nothing stopped.", used.floor()),
+            Gone::Limit => format!("Switched to {to_label} — {from} reached a usage limit; the step it turned away runs again on {to_label}."),
+        });
         Ok(())
+    }
+
+    /// The account a switch would move to now: among the others with a reading and room, the
+    /// one whose weekly window resets soonest (his answer 1). `None` when none has room.
+    pub fn next(&self, readings: &BTreeMap<String, Reading>, pause: Option<u8>, now: u64) -> Option<Account> {
+        let state = self.state.lock().unwrap();
+        let limited = &state.limited_until;
+        let id = next_account(state.accounts.iter().filter(|a| a.id != state.in_use)
+            .filter_map(|a| readings.get(&a.id).map(|r| (a.id.as_str(), r)))
+            .filter(|(id, r)| gone(r, state.at_threshold, pause, limited.get(*id).copied(), now).is_none()))?;
+        state.accounts.iter().find(|a| a.id == id).cloned()
     }
 
     /// **The switch decision, on the freshest readings.** `readings` holds every account that
@@ -319,7 +372,7 @@ impl Accounts {
             .filter_map(|a| readings.get(&a.id).map(|r| (a.id.as_str(), r)))
             .filter(|(id, r)| gone(r, at, pause, limit(id), now).is_none()));
         let Some(next) = next.map(str::to_string) else { return Ok(false) };
-        self.switch_to(&mut state, &next, why)?;
+        self.switch_to(&mut state, &next, why, now)?;
         Ok(true)
     }
 
@@ -348,15 +401,25 @@ impl Accounts {
     /// **All accounts gone** (Frank's finding 2): held until the soonest reset across them.
     /// `None` with one account, so a user with one subscription sees no change.
     pub fn held_until(&self, readings: &BTreeMap<String, Reading>, pause: Option<u8>, now: u64) -> Option<u64> {
+        self.held(readings, pause, now).map(|(_, _, until)| until)
+    }
+
+    /// The hold when every account is gone, with the account that comes back first and why it
+    /// is gone: its label, the reason, and when (round 16: "names the soonest reset by account").
+    pub fn held(&self, readings: &BTreeMap<String, Reading>, pause: Option<u8>, now: u64) -> Option<(String, Gone, u64)> {
         let state = self.state.lock().unwrap();
         if state.accounts.len() < 2 { return None; }
-        let mut soonest: Option<u64> = None;
+        let mut soonest: Option<(String, Gone, u64)> = None;
         let empty = Reading::default();
         for account in &state.accounts {
             let reading = readings.get(&account.id);
             match gone(reading.unwrap_or(&empty), state.at_threshold, pause,
                 state.limited_until.get(&account.id).copied(), now) {
-                Some((_, until)) => soonest = Some(soonest.map_or(until, |s| s.min(until))),
+                Some((why, until)) if soonest.as_ref().is_none_or(|(_, _, s)| until < *s) => {
+                    soonest = Some((account.label.clone(), why, until));
+                }
+                // Gone, but not the soonest back.
+                Some(_) => {}
                 // An account with a reading and room: work can run.
                 None if reading.is_some() => return None,
                 // No reading: unknown, never counted as room.
@@ -410,7 +473,9 @@ pub(crate) mod tests {
         ].into_iter().map(|(id, r)| (id.to_string(), r)).collect();
         assert!(accounts.evaluate(&readings, Some(93), NOW).unwrap());
         assert_eq!(accounts.in_use().id, "3");
-        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal: Account 1 is at 99% of its weekly limit."));
+        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal — Account 1's weekly window reached 99%. Nothing stopped."));
+        let last = accounts.last_switch().unwrap();
+        assert_eq!((last.from.as_str(), last.to.as_str(), last.at, last.why.as_str(), last.used), ("1", "3", NOW, "weekly", Some(99.)));
         // Staying is fill-first: Personal has room, so nothing moves, even though Work is
         // earlier in the list.
         assert!(!accounts.evaluate(&readings, Some(93), NOW).unwrap());
