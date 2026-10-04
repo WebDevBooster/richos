@@ -1115,7 +1115,7 @@ pub(crate) mod tests {
     /// folder it was started under (`CLAUDE_CONFIG_DIR`), or `usage-1.json` beside it for
     /// Account 1, which runs with the app's own environment.
     #[cfg(unix)]
-    fn fake_claude(root: &Path) -> PathBuf {
+    pub(crate) fn fake_claude(root: &Path) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let path = root.join("claude-fixture");
         fs::write(&path, format!(r#"#!/usr/bin/env python3
@@ -1134,7 +1134,7 @@ for line in sys.stdin:
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         path
     }
-    fn usage(path: &Path, five: f64, weekly: f64, weekly_reset: &str) {
+    pub(crate) fn usage(path: &Path, five: f64, weekly: f64, weekly_reset: &str) {
         fs::write(path, serde_json::to_vec(&json!([five, weekly, weekly_reset])).unwrap()).unwrap();
     }
 

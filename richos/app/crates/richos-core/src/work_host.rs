@@ -584,6 +584,10 @@ pub const QUOTA_WAIT_AFTER_START: [&str; 2] = [
 /// (the work-path design D4), in the design's words.
 pub const ANSWER_RETRY_DETAIL: &str = "Your answer is saved. The back end couldn't take it yet, so I'm trying again.";
 
+/// The row's detail while a run cut by a usage limit starts again under the next Claude
+/// account (fill-first, plan §15 answer 3).
+pub const LIMIT_SWITCH_DETAIL: &str = "A Claude usage limit stopped this run. Starting it again on your next Claude account.";
+
 /// What he is told when two runs of this launch could not get his answer taken (design D4).
 const ANSWER_NOT_TAKEN: &str = "The back end did not take your answer, after two tries.";
 
@@ -1219,6 +1223,9 @@ impl WorkHost {
         //     the command's output is.
         if !reporting {
             self.renew_if_repositories_changed(backend, binding);
+            // 0c. Fill-first: this back end's account must be left (its freshest reading and
+            //     measured speed, `claude_accounts.rs`) — move it now, at this boundary.
+            self.renew_if_account_changed(backend, binding);
         }
 
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
@@ -1842,6 +1849,41 @@ impl WorkHost {
                 eprintln!("[richos] work: RichOS is closing; his answer stays saved for the next launch");
             }
             return;
+        }
+        // ===================================================================================
+        // CUT BY A USAGE LIMIT: STARTED AGAIN UNDER THE NEXT ACCOUNT (plan §15 answer 3)
+        // ===================================================================================
+        //
+        // *"Work cut off by a limit continues on the next account, background work included."*
+        // The switch normally happens before the turn (step 0c); this is the one turn that by
+        // itself used up what remained. The account is marked gone and, when another has room,
+        // the corpse is retired and the assignment is scheduled again: its next lease is spawned
+        // under the account now in use. Bounded by construction — every pass marks one more
+        // account gone — and with no account left it falls through to the failure arms below,
+        // exactly as with one account. His Stop and a quit outrank it.
+        if let Err(why) = &outcome {
+            let limit = (!stopped).then(|| crate::claude_accounts::parse_usage_limit(&why.to_string())).flatten();
+            let account = backend.lease.lock().unwrap().as_ref().and_then(|l| l.account().map(str::to_string));
+            let quota = self.quota.lock().unwrap().clone();
+            if let (Some(resets_at), Some(account), Some(quota)) = (limit, account, quota) {
+                if quota.limit_reached(&account, resets_at) == crate::claude_accounts::AfterLimit::Continue {
+                    eprintln!("[richos] work: a usage limit cut this run; starting it again on the next Claude account");
+                    *backend.lease.lock().unwrap() = None;
+                    {
+                        let mut inner = backend.inner.lock().unwrap();
+                        inner.lease_session = None;
+                        inner.context_chars = 0;
+                        inner.context_usage = None;
+                    }
+                    advance(AssignmentState::Blocked, LIMIT_SWITCH_DETAIL);
+                    let latest = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id)
+                        .unwrap_or_else(|_| record.clone());
+                    if !self.schedule(binding, latest, resumed) {
+                        eprintln!("[richos] work: RichOS is closing; the assignment continues at the next launch");
+                    }
+                    return;
+                }
+            }
         }
         // **ITS COMMAND OUTLIVED THE WAIT: WATCHED, NOT SETTLED** ([`Watched`]). He already has
         // the back end's words (step 3c raised them), the row says the command is running, and
@@ -3153,6 +3195,33 @@ impl WorkHost {
         }
     }
 
+    /// **FILL-FIRST AT AN ASSIGNMENT BOUNDARY** — `run_one` step 0c (plan §15 answers 3 and
+    /// 6-8). The back end's own streamed reading goes to the quota service, which decides on
+    /// the freshest readings and measured speed whether its account must be left; if the
+    /// account in use is now another one, the back end is renewed under it here, with nothing
+    /// live — a rotation like any other ([`Self::rotate`]). The same rule as a repository
+    /// change: a command the back end started and may still be running defers it, because
+    /// retiring the lease would end that command.
+    fn renew_if_account_changed(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding) {
+        let Some(quota) = self.quota.lock().unwrap().clone() else { return };
+        let (account, streamed, commands) = {
+            let lease = backend.lease.lock().unwrap();
+            let Some(lease) = lease.as_ref() else { return };
+            let Some(account) = lease.account() else { return };
+            (account.to_string(), lease.streamed_usage(), lease.running_commands())
+        };
+        if quota.before_turn(&account, streamed) == account {
+            return;
+        }
+        if matches!(commands, Some(crate::lease_commands::CommandReading::Running(_) | crate::lease_commands::CommandReading::Unreadable)) {
+            eprintln!("[richos] back end: its Claude account is to be left; renewal deferred while a command it started may still be running");
+            return;
+        }
+        if let Err(why) = self.rotate(backend, binding, crate::spine::ACCOUNT_SWITCH) {
+            eprintln!("[richos] back end: not moved to the next Claude account ({why})");
+        }
+    }
+
     fn raise(self: &Arc<Self>, record: &Assignment, kind: NoticeKind, text: &str) {
         if assignment::raise_notice(&self.state, &record.entity_id, &record.thread_id, &record.id, kind, text)
             .is_err()
@@ -4001,6 +4070,19 @@ mod tests {
         unrun: Arc<Mutex<VecDeque<String>>>,
         /// The next work turns fail before streaming, one per turn (a dead lease, `Closed`).
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        /// Fill-first: the account this lease was spawned under, and the shared script.
+        account: Option<String>,
+        fill: Arc<Mutex<FillFirst>>,
+    }
+
+    /// **Fill-first's knobs for the fake back end.** With a quota service set, every lease is
+    /// spawned under the account it says is in use (as `main.rs`'s `spawn_work` does), and a
+    /// lease on `limited` has its work turns refused the way `native.rs` reports a usage limit.
+    #[derive(Default)]
+    struct FillFirst {
+        quota: Option<Arc<crate::quota::Service>>,
+        limited: Option<String>,
+        spawned: Vec<String>,
     }
 
     impl Drop for WorkLease {
@@ -4033,8 +4115,15 @@ mod tests {
             on(TurnItem::Text { seq: 0, text: &self.handoff_reply });
             Ok("end_turn".to_string())
         }
+        fn account(&self) -> Option<&str> {
+            self.account.as_deref()
+        }
         fn prompt(&mut self, _text: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
             self.work_prompts.lock().unwrap().push(_text.to_string());
+            if self.account.is_some() && self.account == self.fill.lock().unwrap().limited {
+                return Err(CognitionError::Protocol(crate::claude_accounts::usage_limit_error(
+                    None, "[\"You've hit your session limit\"]")));
+            }
             if let Some(why) = self.turn_error.lock().unwrap().clone() {
                 return Err(CognitionError::Protocol(why));
             }
@@ -4219,6 +4308,7 @@ mod tests {
         first_item_gate: Arc<StartGate>,
         unrun: Arc<Mutex<VecDeque<String>>>,
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        fill: Arc<Mutex<FillFirst>>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -4237,7 +4327,15 @@ mod tests {
                 return Err(CognitionError::Protocol("no second connection could be opened".into()));
             }
             let n = self.spawns.fetch_add(1, Ordering::SeqCst);
+            let account = {
+                let mut fill = self.fill.lock().unwrap();
+                let account = fill.quota.as_ref().map(|quota| quota.lease_account().id);
+                if let Some(account) = &account { fill.spawned.push(account.clone()); }
+                account
+            };
             Ok(Box::new(WorkLease {
+                account,
+                fill: self.fill.clone(),
                 // The FIRST back end keeps the name every other test in this file already
                 // uses; a rotated successor is visibly a different session, which is what
                 // makes a rotation observable rather than inferred.
@@ -4310,6 +4408,7 @@ mod tests {
         first_item_gate: Arc<StartGate>,
         unrun: Arc<Mutex<VecDeque<String>>>,
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        fill: Arc<Mutex<FillFirst>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -4351,7 +4450,9 @@ mod tests {
         let fail_next = Arc::new(Mutex::new(VecDeque::new()));
         let broken = Arc::new(AtomicBool::new(false));
         let attempts = Arc::new(AtomicUsize::new(0));
+        let fill = Arc::new(Mutex::new(FillFirst::default()));
         let factory = WorkFactory {
+            fill: fill.clone(),
             broken: broken.clone(),
             attempts: attempts.clone(),
             silent: silent.clone(),
@@ -4386,7 +4487,7 @@ mod tests {
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
             work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies,
-            silent, first_item_gate, unrun, fail_next, broken, attempts }
+            silent, first_item_gate, unrun, fail_next, broken, attempts, fill }
     }
 
     /// **A second lease factory over the SAME scripted state as `h`'s** — every knob and every
@@ -4394,6 +4495,7 @@ mod tests {
     /// (design §4.1 tests 2 and 3), or a host with a different notifier.
     fn factory_over(h: &Harness, step_ms: u64) -> WorkFactory {
         WorkFactory {
+            fill: h.fill.clone(),
             broken: h.broken.clone(),
             attempts: h.attempts.clone(),
             start_gate: h.start_gate.clone(),
@@ -4862,6 +4964,48 @@ mod tests {
         quota.set_policy(crate::quota::Policy::default()).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(5)));
         assert_eq!(h.spawns.load(Ordering::SeqCst), 1);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **Plan §15 answer 3: background work cut by a limit continues on the next account.**
+    /// Two accounts, both read by the fake `claude` (Account 1 at 40%, Work at 5%). The back
+    /// end is spawned under Account 1, whose work turn is refused for a usage limit (the error
+    /// `native.rs` writes for the three real signals). The run is started again, on a NEW lease
+    /// spawned under Work, which takes the work: the cut run raises nothing to him.
+    #[test]
+    #[cfg(unix)]
+    fn a_background_lease_cut_by_a_usage_limit_is_started_again_under_the_next_account() {
+        let h = harness(5);
+        let quota = Arc::new(crate::quota::Service::open(&h.root).unwrap());
+        let work = quota.accounts.add("Work").unwrap();
+        let bin = crate::quota::tests::fake_claude(&h.root);
+        crate::quota::tests::usage(&h.root.join("usage-1.json"), 40., 40., "2099-01-05T00:00:00Z");
+        crate::quota::tests::usage(&work.folder.clone().unwrap().join("usage.json"), 5., 10., "2099-01-06T00:00:00Z");
+        quota.refresh(&bin, true);
+        {
+            let mut fill = h.fill.lock().unwrap();
+            fill.quota = Some(quota.clone());
+            fill.limited = Some("1".into());
+        }
+        h.host.set_quota(quota.clone());
+        h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        // Two runs: the one the limit cut, and the one started again under Work.
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(30)), "the run never finished");
+        assert_eq!(h.fill.lock().unwrap().spawned, vec!["1".to_string(), "2".to_string()],
+            "the second lease was spawned under the next account");
+        assert_eq!(quota.lease_account().id, "2");
+        assert!(h.work_prompts.lock().unwrap().len() >= 2, "the work was sent again");
+        // The row's last word is the SECOND run's, on the successor; the cut run said nothing
+        // to him at all. (How the second run settles is this harness's own business: with no
+        // worker receipts it reports that nothing was landed, as every harness run does.)
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.work_session.as_deref(), Some("work-session-rotated-1"), "{row:?}");
+        assert!(!row.detail.contains("usage limit"), "{}", row.detail);
+        let told = h.notices.0.lock().unwrap().clone();
+        assert_eq!(told.len(), 1, "only the second run's ending reached him: {told:?}");
+        assert!(told.iter().all(|(_, n)| !n.text.contains("usage limit")), "{told:?}");
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
