@@ -536,19 +536,32 @@ chmod +x "$E/scripts/lib/quiet.test.sh"
     printf '{"event": "registered", "agent_id": "live1", "teammate": "echo-opus-live1", "source": "detect-nonnative-worktree.sh", "ts": "t"}\n' >> "$OPCFG/state/worktree-ledger.jsonl"
     mkdir -p "$OPCFG/teams/session-cafebabe"
     printf '{"event": "WorkerRunEnded", "agent_id": "live1", "session_id": "cafebabe-0000", "timestamp": "t"}\n' >> "$OPCFG/worker-events.jsonl"
+    # A REAL LAND, as workspaces.py writes it into the live registry: the
+    # agent's record leaves agents/ for done/ and the landed/deleted events
+    # are appended (2026-10-04: lands were held back during the nightly's
+    # workspace-mutants gate, which runs its units through this runner, on
+    # the belief that the canary would charge them to the gate's unit).
+    mkdir -p "$OPCFG/state/workspaces/agents" "$OPCFG/state/workspaces/done"
+    printf '{"key": "cafebabe--echo-opus-live1", "name": "echo-opus-live1"}\n' \
+        > "$OPCFG/state/workspaces/agents/cafebabe--echo-opus-live1.json"
+    printf '{"event": "landed", "key": "cafebabe--echo-opus-live1", "ts": "t"}\n{"event": "deleted", "key": "cafebabe--echo-opus-live1", "ts": "t"}\n' \
+        >> "$OPCFG/state/workspaces/events.jsonl"
+    mv "$OPCFG/state/workspaces/agents/cafebabe--echo-opus-live1.json" "$OPCFG/state/workspaces/done/"
     touch "$FLAGS/writer-done"
 ) &
 WRITER=$!
 RC="$(op_shard --only-units scripts/lib/quiet.test.sh)"
 wait "$WRITER" 2>/dev/null
 if [ "$RC" = "0" ] && grep -q 'PASS' "$SANDBOX/out" && [ -e "$FLAGS/writer-done" ] \
-   && grep -q 'echo-opus-live1' "$OPCFG/state/worktree-ledger.jsonl" 2>/dev/null; then
-    ok "S15e a clean unit PASSES while another process writes the live record during it — the canary counts only the unit's own writes"
+   && grep -q 'echo-opus-live1' "$OPCFG/state/worktree-ledger.jsonl" 2>/dev/null \
+   && [ -f "$OPCFG/state/workspaces/done/cafebabe--echo-opus-live1.json" ]; then
+    ok "S15e a clean unit PASSES while another process writes the live record during it, a land in the live workspace registry included — the canary counts only the unit's own writes"
 else
     bad "S15e rc=$RC — a concurrent writer to the live record failed a clean unit"; sed 's/^/          /' "$SANDBOX/out"
 fi
 rm -f "$E/scripts/lib/quiet.test.sh"
-rm -rf "$OPCFG/teams/session-cafebabe" "$OPCFG/worker-events.jsonl" "$OPCFG/state/worktree-ledger.jsonl"
+rm -rf "$OPCFG/teams/session-cafebabe" "$OPCFG/worker-events.jsonl" "$OPCFG/state/worktree-ledger.jsonl" \
+       "$OPCFG/state/workspaces"
 
 # S15f — the unit CANNOT reach the live record: HOME is outside the operator's
 # home, and every variable the operator exported INTO the record is removed —
