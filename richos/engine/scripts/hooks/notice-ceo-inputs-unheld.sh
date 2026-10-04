@@ -295,7 +295,13 @@ for p in sorted(k for k, v in verdict.items() if v is not None):
 RC=$?
 set -e
 
-[ "$RC" = "0" ] || notice_clean
+# A crashed reader decided nothing: it is not "nothing is unheld" (hunt part 3
+# v3, finding 28).
+if [ "$RC" != "0" ]; then
+    _CRASH_MSG="INGRESS FOLLOW-UP — DID NOT RUN THIS TURN: its reader exited $RC with no verdict, so a file you handed over that a gate refused was not checked. $HOOK_TAG"
+    stop_notice_abnormal "reader-crashed" "$_CRASH_MSG"
+    exit 0
+fi
 
 if printf '%s' "$UNRESOLVED" | grep -q '^BROKEN'; then
     stop_notice_abnormal "ledger-unreadable" \

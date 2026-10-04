@@ -211,6 +211,7 @@ import inflight
 seen = []
 overdue = []
 unsent = []
+failed = []
 for repo in dict.fromkeys(r for r in os.environ["IF_REPOS"].split("\n") if r.strip()):
     if repo in seen:
         continue
@@ -219,7 +220,10 @@ for repo in dict.fromkeys(r for r in os.environ["IF_REPOS"].split("\n") if r.str
         res = inflight.assess(repo, None, os.environ["IF_TEAMS"], int(os.environ["IF_TMO"]),
                               os.environ.get("IF_SID", ""),
                               os.environ.get("IF_TRANSCRIPT", ""))
-    except Exception:
+    except Exception as exc:
+        # An assessment that raised decided nothing about this repository: it is
+        # NOT "everyone acked" (hunt part 3 v3, finding 28).
+        failed.append("%s (%s)" % (os.path.basename(repo.rstrip("/")) or repo, exc.__class__.__name__))
         continue
     for wt in res["worktrees"]:
         who = wt.get("resolved_name") or os.path.basename(wt["path"].rstrip("/"))
@@ -235,8 +239,11 @@ if unsent:
     parts.append("NEVER TOLD: " + ", ".join(sorted(set(unsent))))
 if overdue:
     parts.append("no ack past the timeout: " + ", ".join(sorted(set(overdue))))
-print("\t".join(["|".join(sorted(set(unsent + overdue))), "; ".join(parts)]))
-' 2>/dev/null || true)"
+if failed:
+    parts.append("NOT CHECKED, the assessment failed for: " + ", ".join(failed))
+print("\t".join(["|".join(sorted(set(unsent + overdue)) + ["not-checked:" + f for f in failed]),
+                 "; ".join(parts)]))
+' 2>/dev/null || printf 'not-checked:the sweep\tNOT CHECKED: the in-flight sweep itself failed to run')"
 
 KEY="$(printf '%s' "$SUMMARY" | cut -f1)"
 TEXT="$(printf '%s' "$SUMMARY" | cut -f2-)"
@@ -246,6 +253,12 @@ if [ -z "$KEY" ]; then
     exit 0
 fi
 
+case "$TEXT" in
+    "NOT CHECKED"*)
+        _NC_MSG="IN-FLIGHT SWEEP — $TEXT. Whether teammates behind the current tip were told and acked is unknown this turn; run scripts/inflight-notify.sh status by hand."
+        stop_notice_abnormal "outstanding:$KEY" "$_NC_MSG"
+        exit 0 ;;
+esac
 stop_notice_abnormal "outstanding:$KEY" \
     "IN-FLIGHT SWEEP (rich-lander SKILL.md §8b) — $TEXT. Main moved under them and they cannot know it. Message them naming the SHA, or if ${TIMEOUT_MIN}min has passed with no ack, TaskStop + respawn with a corrected brief. That is yours to do: scripts/inflight-notify.sh status"
 exit 0

@@ -135,6 +135,12 @@ if [ ! -f "$_BA_LIB" ]; then
     exit 0
 fi
 
-OUT="$(printf '%s' "$INPUT" | python3 "$_BA_LIB" unanswered 2>/dev/null || true)"
+OUT="$(printf '%s' "$INPUT" | python3 "$_BA_LIB" unanswered 2>/dev/null)"
+RC=$?
+# A crashed checker is not "no unanswered question" (hunt part 3 v3, finding 28).
+if [ "$RC" != "0" ]; then
+    printf '{"suppressOutput":true,"systemMessage":"UNANSWERED-QUESTION WATCH DID NOT RUN: scripts/lib/blocking_ask.py exited %s with no verdict, so an unanswered question is not repeated this turn."}\n' "$RC"
+    exit 0
+fi
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 exit 0

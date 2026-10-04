@@ -896,7 +896,7 @@
     },
     "scripts/hooks/notice-ceo-inputs-unheld.sh#fixtures": {
       "source": "scripts/hooks/notice-ceo-inputs-unheld.sh",
-      "sha256": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+      "sha256": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
       "evidence": "Reads CHECK_CEO_INPUTS_UNHELD from its resolved private entity, the private ingress ledger and Git status. Its embedded Python imports the analyzer only for is_handover_file; no arbitrary analyzer main/lease command executes on import.",
       "keys": [
         "CHECK_CEO_INPUTS_UNHELD"
@@ -963,7 +963,7 @@
     },
     "scripts/hooks/guard-ceo-ruled-ask.sh": {
       "source": "scripts/hooks/guard-ceo-ruled-ask.sh",
-      "sha256": "4eb071bae6ed6b143b8eb876a33bb5fdc4f99ea10f4914166fa242686b5199e1",
+      "sha256": "f09a98805684daaa62bca976e467abc3484e1b776f5bed99752fad890a7319a2",
       "evidence": "Resolves the governed entity then calls the deaf-lead, premise and ruling helpers; all setting reads are in those helpers. Renewed 2026-10-01: CHECK 0 pipes the payload to scripts/lib/blocking_ask.py check with the resolved entity and engine roots and acts only on its first field.",
       "keys": [],
       "edges": [
@@ -990,7 +990,7 @@
     },
     "scripts/hooks/notice-unanswered-question.sh": {
       "source": "scripts/hooks/notice-unanswered-question.sh",
-      "sha256": "4f6572b59a8f8a4ad4c5c59e326766d8c23508b0d8effc83764ed51f2ab9a014",
+      "sha256": "f2b9188f885d3e252f06f9032d7a194623d538136718f02a986008a60eca3b8c",
       "evidence": "Resolves the governed entity (not adopted: silent; root failure: one stop notice), then pipes the Stop payload to scripts/lib/blocking_ask.py unanswered and prints its one JSON line, if any. No configuration read of its own. Renewed 2026-10-01: an empty or unreadable payload is announced through the shared Stop form of scripts/lib/unevaluated-notice.sh and stop-hook-notice.sh before blocking_ask.py runs; no new setting is read.",
       "keys": [],
       "edges": [
@@ -3023,7 +3023,7 @@
     },
     "scripts/hooks/guard-unresolved-claims.sh": {
       "source": "scripts/hooks/guard-unresolved-claims.sh",
-      "sha256": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+      "sha256": "ee955921f52cd49dcf9e2abb50b2cada51d5d2628bb9384baac7dada190633ba",
       "evidence": "Normal invocation resolves the entity, sources its claims switch and extra repositories then invokes fixed recovery, notice and analyzer helpers. No self-test dispatch occurs in this suite.",
       "keys": [
         "CHECK_UNRESOLVED_CLAIMS",
@@ -3802,7 +3802,7 @@
     },
     "scripts/hooks/notice-inflight-acks.sh": {
       "source": "scripts/hooks/notice-inflight-acks.sh",
-      "sha256": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
+      "sha256": "472a52d1fe0e78b0f4f166da9402fae9acf3eba3f6329c3afeb7460ced547a32",
       "evidence": "Resolves the entity and team ledger, reads the timeout through inflight.sh and assesses recorded repositories through inflight.py. Its fixed Stop-notice and payload helpers read/write notice state; remediation and TaskStop text are output only.",
       "keys": [],
       "edges": [
@@ -7204,7 +7204,7 @@
     },
     "scripts/hooks/guard-unresolved-claims.sh#unadopted-stop": {
       "source": "scripts/hooks/guard-unresolved-claims.sh",
-      "sha256": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+      "sha256": "ee955921f52cd49dcf9e2abb50b2cada51d5d2628bb9384baac7dada190633ba",
       "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
       "keys": [],
       "edges": [
@@ -7245,7 +7245,7 @@
     },
     "scripts/hooks/notice-ceo-inputs-unheld.sh#unadopted-stop": {
       "source": "scripts/hooks/notice-ceo-inputs-unheld.sh",
-      "sha256": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+      "sha256": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
       "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
       "keys": [],
       "edges": [
@@ -7340,7 +7340,7 @@
     },
     "scripts/hooks/notice-inflight-acks.sh#unadopted-stop": {
       "source": "scripts/hooks/notice-inflight-acks.sh",
-      "sha256": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
+      "sha256": "472a52d1fe0e78b0f4f166da9402fae9acf3eba3f6329c3afeb7460ced547a32",
       "evidence": "Visibility suite invokes this hook with no CLI arguments and a new unadopted directory, first as explicit bad root then as cwd/payload. Root-failure/not-adopted paths terminate before entity config, transcript predicates or live-state checks. Bootstrap, module initialization and any pre-root session-recovery helper remain bound. The negative control only replaces stop_notice_abnormal output.",
       "keys": [],
       "edges": [
@@ -8590,7 +8590,7 @@
     },
     "scripts/hooks/guard-unresolved-claims.sh#forbidden-stop": {
       "source": "scripts/hooks/guard-unresolved-claims.sh",
-      "sha256": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+      "sha256": "ee955921f52cd49dcf9e2abb50b2cada51d5d2628bb9384baac7dada190633ba",
       "evidence": "The workspace unit suite invokes this hook without arguments for a recorded forbidden lead. Reviewed bootstrap and successful stop-session-recovery return before root resolution or later policy readers. Self-test dispatch is not entered.",
       "keys": [],
       "edges": [
@@ -15894,7 +15894,7 @@
       ],
       "sources": {
         "scripts/hooks/ceo-ruled.test.sh": "e135b5b7c3ad3cf859acaa38ced4c58e973e5df651315f1147fd4483f1e30c0d",
-        "scripts/hooks/guard-ceo-ruled-ask.sh": "4eb071bae6ed6b143b8eb876a33bb5fdc4f99ea10f4914166fa242686b5199e1",
+        "scripts/hooks/guard-ceo-ruled-ask.sh": "f09a98805684daaa62bca976e467abc3484e1b776f5bed99752fad890a7319a2",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
@@ -16148,7 +16148,7 @@
         "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
         "scripts/hooks/guard-unresolved-claims.mutation.sh": "6d4bf387038b7a414e1ddbb0f0866376e85be97fcd900d2722eb36bc6fc030c7",
         "scripts/hooks/guard-unresolved-claims.py": "9159e2947c3fd004f033cd67fd7e0218c416933684fad3a596c6a95d4a719189",
-        "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+        "scripts/hooks/guard-unresolved-claims.sh": "ee955921f52cd49dcf9e2abb50b2cada51d5d2628bb9384baac7dada190633ba",
         "scripts/hooks/guard-unresolved-claims.test.sh": "58b9f2700b0be075e1ef95af1f4988e5a2989fdb3923144b105e6e23b3eceb81",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.mutation.sh": "78c0a853cbbffd9329395faadcb69527aeaf6c12b17b45afefbbcecab995cff8",
@@ -16164,7 +16164,7 @@
         "scripts/hooks/interactive-prompt.mutation.sh": "3872e019a151c07a5d387e3128451954efcd34e4b3ac738bfc6282a430833e27",
         "scripts/hooks/mechanical-findings.mutation.sh": "822097cb9972738d9d39a91ab187d2475cfb4008f63c3c421e5ef9e7f1818a6d",
         "scripts/hooks/mechanical-findings.test.sh": "e23f188f029e21dec0e06c0758bb6912ede88002d366c5c3b331f3a0ca7a0397",
-        "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
+        "scripts/hooks/notice-inflight-acks.sh": "472a52d1fe0e78b0f4f166da9402fae9acf3eba3f6329c3afeb7460ced547a32",
         "scripts/hooks/notice-inflight-sends.sh": "b5120d7d24070d1e306ed38fd96345bfee3c7d2538e1bde72c4bde155a4e0af4",
         "scripts/hooks/notice-mechanical-findings.sh": "1b3ba1af8d15b64cd8eda504e691347f0ef923bd78e53f235223589248bb1c07",
         "scripts/hooks/observe-created-refs.sh": "6c1bcc7fc86608dace9465fdaef957468872b82906e4134382a98b5ab8085202",
@@ -16253,7 +16253,7 @@
         "scripts/hooks/guard-ceo-ask-first.sh": "4dc92ca5c60ff39ed949fc88a8a4955264ece2d17bc689f9c2a2eb8b1bae0728",
         "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
         "scripts/lib/ceo-asks.py": "12901dece778f3fcbafc4049d254176066697f46a3d5930a40a9e700b132a3f3",
-        "scripts/hooks/guard-ceo-ruled-ask.sh": "4eb071bae6ed6b143b8eb876a33bb5fdc4f99ea10f4914166fa242686b5199e1",
+        "scripts/hooks/guard-ceo-ruled-ask.sh": "f09a98805684daaa62bca976e467abc3484e1b776f5bed99752fad890a7319a2",
         "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
         "scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
@@ -16304,7 +16304,7 @@
         "scripts/hooks/left-off.test.sh": "159b8e36fd623094897bde2132e2c205fbc985ae72895e783645bb91720ac3a1",
         "scripts/hooks/left-off.mutation.sh": "845f799309b90254a9ac87ed3fead11485364080c49b4be8640b6f335fe02c0a",
         "scripts/hooks/notice-ceo-asks.sh": "a69920c5d344cc2f050112281e96c948b884b40a2c91416f01499d25f0618330",
-        "scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
         "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
         "scripts/hooks/notice-claim-capability.sh": "f918e14199d059e57f306ee1202fe0edb3ab27711deb0003358ad36bcae3a1c5",
@@ -16603,9 +16603,9 @@
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
         "scripts/hooks/guard-stated-actions.sh": "298ca9bc06008b74d12d8b81e995a7df9772dff1ec7c8b830645aee6d06f9a52",
-        "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+        "scripts/hooks/guard-unresolved-claims.sh": "ee955921f52cd49dcf9e2abb50b2cada51d5d2628bb9384baac7dada190633ba",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
-        "scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
         "scripts/hooks/notice-ceo-ruled-prose.sh": "b6aa4600524c27077232a5a83feab3cfe603436ae8dcaaaa0bcc9ed725c0c1b5",
         "scripts/hooks/notice-ceo-unasked.sh": "f4af34765475356f416a9b7e429dc320e17fbaf63969f8de1a6b34e5a5d859c1",
         "scripts/hooks/notice-disk-alert.sh": "8d30387da21de0f07be504cc9d64e73ad43455816b41af567474fc63462331f0",
@@ -16615,7 +16615,7 @@
         "scripts/hooks/notice-escalations.sh": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
         "scripts/lib/escalations.sh": "bda6b4af107d64144cac6fe9a5ac507b007c81ebac30b53bb59256b49f9ff1c5",
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
-        "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
+        "scripts/hooks/notice-inflight-acks.sh": "472a52d1fe0e78b0f4f166da9402fae9acf3eba3f6329c3afeb7460ced547a32",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
         "scripts/hooks/notice-mechanical-findings.sh": "1b3ba1af8d15b64cd8eda504e691347f0ef923bd78e53f235223589248bb1c07",
         "scripts/hooks/notice-protected-ref-moves.sh": "15ea383b87181c6924a00f8b5f656f72f2319e9680947674f68972fbcd6c2c43",
@@ -16886,7 +16886,7 @@
         "scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
         "scripts/lib/ceo-asks.py": "12901dece778f3fcbafc4049d254176066697f46a3d5930a40a9e700b132a3f3",
-        "scripts/hooks/guard-ceo-ruled-ask.sh": "4eb071bae6ed6b143b8eb876a33bb5fdc4f99ea10f4914166fa242686b5199e1",
+        "scripts/hooks/guard-ceo-ruled-ask.sh": "f09a98805684daaa62bca976e467abc3484e1b776f5bed99752fad890a7319a2",
         "scripts/lib/premise-ask.sh": "54ed7bab6c1f1632458c6dbabc05f13dcec91f6ab262bfe3c5c2ae20b4b91080",
         "scripts/lib/premise-ask.py": "2a6a079fbc0fab7937f90967c29c19e7ab2747a7286ec9923ec1dd685aa63e0a",
         "scripts/lib/ceo-ruled.sh": "737879339e074a0c41011974a8dcdc74bbbbf7118ffda2904e2f8da7a0b10e91",
@@ -16955,13 +16955,13 @@
         "scripts/hooks/turn-manifest.py": "e04420bc04a4910a3ee370a031e62b4ca6b6a52a8499cba824d6363fd732a8b1",
         "scripts/hooks/guard-stop-live-work.sh": "5cd71abf69697f041f48560ab09d6e7f7f4b2324761916b07b589569ff7dd17e",
         "scripts/lib/stop-live-work.py": "d39269d911e9456fd0bbce45b95e67919c36dd4b7ecb96c58b3e4a8bd262532a",
-        "scripts/hooks/guard-unresolved-claims.sh": "88db28246b8e79d1d623d26e366fcc3c8bf1811e3bb464fc04d484761ead14d2",
+        "scripts/hooks/guard-unresolved-claims.sh": "ee955921f52cd49dcf9e2abb50b2cada51d5d2628bb9384baac7dada190633ba",
         "scripts/hooks/guard-unresolved-claims.py": "9159e2947c3fd004f033cd67fd7e0218c416933684fad3a596c6a95d4a719189",
         "scripts/hooks/guard-workflow-ban.sh": "2b93395b9ef6e99b03221e0dcf7682b926f366dbb7884c3889c00384cf550ade",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
-        "scripts/hooks/notice-ceo-inputs-unheld.sh": "22df89c10271652f710eb04caba653cdc138eda6bc4eeb1971f9b0e83adf2fc7",
+        "scripts/hooks/notice-ceo-inputs-unheld.sh": "b99f7df2f890a8c9587b1e8f3f55d662fb92084f5a43204f03f85d90f9394125",
         "scripts/hooks/commit-ceo-inputs.py": "28c6e1ab45e203c11582e9f76a3feb5e3e096dbb95a1df23815164298d5be21a",
         "scripts/hooks/scan-secrets.sh": "fd488d5b07748fd41c773c80ec133eed526869534f4f1324c847a33701ae1ab1",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
@@ -16973,7 +16973,7 @@
         "scripts/lib/foreign_app_data.py": "752fbb7aade6e2281d7335fceba9cdcb1fdd3d7b0302df40665dc40f72d120a8",
         "scripts/hooks/notice-escalations.sh": "d22cb1eb33ba6bd7d6c6fb9fc10a714d1e55c198a21a3e75efd7ae5ea4da8b94",
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
-        "scripts/hooks/notice-inflight-acks.sh": "00c0ab640594e4639be4f1b153f1ee8a1b29429dd936b81c4b74078a2f79b029",
+        "scripts/hooks/notice-inflight-acks.sh": "472a52d1fe0e78b0f4f166da9402fae9acf3eba3f6329c3afeb7460ced547a32",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
         "scripts/lib/inflight.py": "d1feca630d8fda5b042c70e0940798856678db09faa65e4b722f3d9c6f9ec3a3",
         "scripts/hooks/notice-mechanical-findings.sh": "1b3ba1af8d15b64cd8eda504e691347f0ef923bd78e53f235223589248bb1c07",
