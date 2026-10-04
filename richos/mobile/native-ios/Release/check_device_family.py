@@ -15,6 +15,8 @@ Checks, each printed as one line; exit 0 only when all pass:
     renditions and the 1024 px App Store one (when a catalog is present)
   - the orientation set is valid for the declared devices: an app that is not iPhone-only must
     declare all four orientations (error 90474); an iPhone-only app may declare any non-empty set
+  - the app was built with the iOS 26 SDK or later (DTSDKName / DTPlatformVersion in Info.plist);
+    App Store Connect refuses anything older (2026-10-04: "built with the iOS 18.5 SDK")
 Exit 2 on a usage error.
 """
 import os
@@ -54,6 +56,27 @@ def icon_widths(app):
     return {int(w) for w in re.findall(r'"PixelWidth" : (\d+)', listing)}
 
 
+MIN_SDK = 26
+XCODE_26 = "/Volumes/E1TB/Applications/Xcode-26.3.app"
+
+
+def sdk_major(info):
+    """The major iOS SDK version the app was built with, or None when the plist does not say."""
+    m = re.search(r"(\d+)(?:\.\d+)*$", str(info.get("DTSDKName") or ""))
+    for text in (m.group(1) if m else None, str(info.get("DTPlatformVersion") or "").split(".")[0]):
+        if text and text.isdigit():
+            return int(text)
+    return None
+
+
+def check_sdk(info):
+    found = sdk_major(info)
+    detail = (f"built with {info.get('DTSDKName') or 'no SDK recorded'} "
+              f"(DTPlatformVersion {info.get('DTPlatformVersion')!r}); App Store Connect needs the iOS "
+              f"{MIN_SDK} SDK or later. Archive with Xcode 26: DEVELOPER_DIR={XCODE_26}/Contents/Developer")
+    return (found is not None and found >= MIN_SDK, f"built with the iOS {MIN_SDK} SDK or later", detail)
+
+
 def check(app):
     """Returns a list of (ok, name, detail) rows."""
     rows = []
@@ -89,6 +112,7 @@ def check(app):
     rows.append((icon_name == "AppIcon" and not missing,
                  "the required icons are present (AppIcon; " + ", ".join(str(w) for w in sorted(needed)) + " px)",
                  f"CFBundleIconName {icon_name!r}; missing renditions {missing}"))
+    rows.append(check_sdk(info))
     return rows
 
 

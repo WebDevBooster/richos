@@ -78,7 +78,7 @@ stops it. The checkout running `upload` must have the archive's commit. No flag 
    working tree, or with any mode but 600):
 
    ```dotenv
-   # ~/.config/richos/testflight.env, mode 600
+   # /Volumes/E1TB/state/richos/mobile-setup/app-store-connect/testflight.env.pending, mode 600
    RICHOS_IOS_ASC_KEY_ID=KEY_ID
    RICHOS_IOS_ASC_ISSUER_ID=ISSUER_UUID
    RICHOS_IOS_ASC_PRIVATE_KEY_BASE64=BASE64_OF_THE_DOWNLOADED_P8_FILE
@@ -92,7 +92,7 @@ stops it. The checkout running `upload` must have the archive's commit. No flag 
    `CURRENT_PROJECT_VERSION` first:
 
    ```sh
-   DEVELOPER_DIR=/Applications/Xcode-26.app/Contents/Developer xcodebuild archive \
+   DEVELOPER_DIR=/Volumes/E1TB/Applications/Xcode-26.3.app/Contents/Developer xcodebuild archive \
      -project <generated project> -scheme RichOSNative -configuration Release \
      -destination 'generic/platform=iOS' -archivePath <path>/RichOSNative.xcarchive \
      DEVELOPMENT_TEAM=<team> CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development"
