@@ -3875,6 +3875,40 @@ class HuntV3_05_AFailedProcessListingIsNotAnEmptyOne(Base):
         self.assertFalse(self.rec(name).get("disposition"))
 
 
+class HuntV3_04_AReopenedLandingIsNotReportedLanded(Base):
+    """Hunt part 4 v3, V3-04: a land retry whose reproof found new work
+    withdrew the landing and its retry, yet the CLI printed "landed ... it is
+    retried", exited 0 and swept the scratch."""
+
+    def test_v3_04_a_retry_that_reopens_the_landing_is_refused_not_reported_landed(self):
+        import contextlib
+        import io
+        name = "zach-opus-v3reopened"
+        aid, path = self.spawn(name)
+        self.commit(path)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        swept = []
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(ws, "stop_containers", return_value={}), \
+                patch.object(ws, "stop_test_instances", return_value={}):
+            with patch.object(ws, "remove_workspace", return_value=(False, "fixture removal failure")):
+                first = ws.land(name, self.sid)
+            self.assertTrue(first["landed"] and first["cleanup_pending"], first)
+            self.commit(path, "late.txt")                     # new, unmerged work in the kept workspace
+            with patch.object(ws, "sweep_scratch_after_land", side_effect=lambda *a, **k: swept.append(a)), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = ws.main(["--session", self.sid, "land", name])
+        rec = self.rec(name)
+        self.assertIsNone(rec["disposition"])
+        self.assertIsNone(rec["deletion"])
+        self.assertTrue(os.path.isfile(os.path.join(path, "late.txt")))
+        self.assertNotIn("landed:", out.getvalue())
+        self.assertNotEqual(rc, 0, out.getvalue())
+        self.assertIn("REFUSED", err.getvalue())
+        self.assertEqual(swept, [], "the scratch was swept after a landing that was withdrawn")
+
+
 if __name__ == "__main__":
     # No arguments: every point. Arguments: the named classes or tests only,
     # e.g. `workspaces.test.py Point05_Guarantee` -- one point's proof -- or a

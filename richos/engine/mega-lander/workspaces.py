@@ -4709,8 +4709,14 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None, keep_ignored=None
             chain = _chain(rec)
             clean = _delete_chain(chain, "landed", deadline=deadline)
             fresh = load_agent(rec["key"]) or {}
-            return {"landed": (fresh.get("disposition") or {}).get("kind") == "landed",
-                    "already": kind, "cleanup_pending": not clean}
+            # A RETRY THAT REOPENED THE LANDING IS NOT A LAND (hunt part 4 v3,
+            # V3-04). The reproof found new work, withdrew the disposition and
+            # dropped the retry; answering a dict here let the CLI print
+            # "landed ... it is retried" and exit 0. It is refused exactly as
+            # the first land refuses the same change below.
+            if (fresh.get("disposition") or {}).get("kind") != "landed":
+                raise SpecError("landing eligibility changed during cleanup; the work was preserved")
+            return {"landed": True, "already": kind, "cleanup_pending": not clean}
         return {"landed": True, "already": kind}
     chain = _chain(rec)
     # NOTHING IS STOPPED FOR WORK THAT PLAINLY CANNOT LAND (hunt part 4,
