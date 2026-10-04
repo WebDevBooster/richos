@@ -31,6 +31,14 @@
     phone-ios.py wifi-restore --out DIR            read the phone's Wi-Fi switch in Settings; turn it on if
                                                    it is off (`run` does this itself after any list that
                                                    acted on Wi-Fi, however the list ended)
+    phone-ios.py wifi-on --out DIR                 the same as wifi-restore, named as the pair of wifi-off
+    phone-ios.py wifi-off --out DIR [--device ID]  read the phone's Wi-Fi switch in Settings; turn it off if
+                                                   it is on. REFUSED unless this Mac reaches the phone over
+                                                   the USB cable (devicectl transportType "wired"): over
+                                                   Wi-Fi the Mac would lose the phone with no way to switch
+                                                   it back on. `run` refuses a list that presses the Wi-Fi
+                                                   switch for the same reason. Put it back with wifi-on and
+                                                   check with `rios device net`
     phone-ios.py reboot --device ID                restart the phone (devicectl), wait until its Wi-Fi
                                                    carries traffic, open RichConnect ONCE (never a loop);
                                                    the remedy when `trust` fails (no passcode, CEO 2026-10-02);
@@ -879,30 +887,39 @@ def wifi_value(out):
 def ensure_wifi_on(out_root):
     """Read the phone's Wi-Fi switch and turn it on when it is off. Always returns a dict, never raises:
     {'before': '0'|'1'|None, 'after': ..., 'turnedOn': bool, 'error': sentence or None}."""
+    return ensure_wifi(out_root, on=True)
+
+
+def ensure_wifi(out_root, on):
+    """Read the phone's Wi-Fi switch and press it when it is not where `on` wants it. Always returns a dict,
+    never raises: {'before', 'after', 'turnedOn' (on) or 'turnedOff' (off), 'error'}."""
     from types import SimpleNamespace
-    result = {"before": None, "after": None, "turnedOn": False, "error": None}
+    want, other = ("1", "0") if on else ("0", "1")
+    moved = "turnedOn" if on else "turnedOff"
+    result = {"before": None, "after": None, moved: False, "error": None}
     out_root = Path(out_root)
     try:
-        for turn_on, name in ((False, "wifi-read"), (True, "wifi-on")):
-            if turn_on and result["before"] != "0":
+        for press, name in ((False, "wifi-read"), (True, "wifi-on" if on else "wifi-off")):
+            if press and result["before"] != other:
                 break
             folder = out_root / name
             folder.mkdir(parents=True, exist_ok=True)
             listing = folder / "steps-in.json"
-            listing.write_text(json.dumps(wifi_steps(turn_on)))
+            listing.write_text(json.dumps(wifi_steps(press)))
             summary = _run(SimpleNamespace(steps=str(listing), out=str(folder), allowance=120, prebuilt=False,
                                            stamp=None, approval_announced=False))
             value = wifi_value(folder)
-            if turn_on:
-                result.update(after=value, turnedOn=value == "1")
+            if press:
+                result.update(after=value, **{moved: value == want})
             else:
                 result.update(before=value, after=value)
             if value is None:
                 result["error"] = ("the phone's Wi-Fi switch could not be read "
                                    f"({summary.get('error') or summary.get('failed') or 'no 0/1 reading from the switch'})")
                 break
-        if result["before"] == "0" and not result["turnedOn"] and not result["error"]:
-            result["error"] = "the phone's Wi-Fi switch was off and is still off after the tap"
+        if result["before"] == other and not result[moved] and not result["error"]:
+            result["error"] = (f"the phone's Wi-Fi switch was {'off' if on else 'on'} and is still "
+                               f"{'off' if on else 'on'} after the tap")
     except CannotAnswer as error:
         result["error"] = str(error)
     except Exception as error:  # noqa: BLE001: the epilogue says what failed, it never hides the run's own result
@@ -910,10 +927,66 @@ def ensure_wifi_on(out_root):
     return result
 
 
+# WI-FI OFF ONLY OVER THE CABLE (CEO brief 2026-10-04). A phone this Mac reaches over Wi-Fi (devicectl's
+# transportType "localNetwork") is cut off from it the moment its Wi-Fi switch goes off: the UI-test session
+# that would switch it back on can no longer start, and nothing on the Mac can reach the phone again. Over the
+# USB cable ("wired") the developer tunnel does not use the phone's Wi-Fi, so the Mac keeps the phone.
+def switches_wifi(steps):
+    """Does the list press the Wi-Fi SWITCH in Settings (the control itself, by kind; a tap on the text labeled
+    Wi-Fi toggles nothing, measured 2026-10-03)?"""
+    return any(s.get("in") == "settings" and s.get("do") in ("tap", "press", "tapThen") and s.get("kind") == "switch"
+               and "wi-fi" in str(s.get("label", "")).replace("‑", "-").lower() for s in steps)
+
+
+def cable_refusal(props):
+    """None when devicectl's connectionProperties say the phone is reached over the USB cable, else the sentence.
+    Pure (mobile-device.test.py)."""
+    tunnel, transport = props.get("tunnelState"), props.get("transportType")
+    if tunnel != "connected":
+        return f"the iPhone is not connected to this Mac (devicectl: tunnel {tunnel}); its Wi-Fi was not touched"
+    if transport != "wired":
+        return (f"this Mac reaches the iPhone over {transport or 'an unreported transport'}, not the USB cable: switching "
+                "its Wi-Fi off would cut the Mac off from it with no way to switch it back on. Its Wi-Fi was not "
+                "touched; connect the cable and run it again")
+    return None
+
+
+def require_cable(device):
+    """Raise CannotAnswer unless this Mac reaches the phone over the USB cable."""
+    if not device:
+        raise CannotAnswer("name the phone: --device ID or RICHOS_IOS_DEVICE")
+    refused = cable_refusal(devicectl(["device", "info", "details"], device).get("connectionProperties") or {})
+    if refused:
+        raise CannotAnswer(refused)
+
+
+def wifi_off(args):
+    """`rios device wifi-off --out DIR`: over the cable only, read the phone's Wi-Fi switch, turn it off when on."""
+    out = Path(args.out).resolve()
+    if not str(out).startswith("/Volumes/E1TB/"):
+        raise CannotAnswer("--out must be on /Volumes/E1TB (the physical check refuses anything else)")
+    for name in ("RICHOS_IOS_DEVICE", "RICHOS_APPLE_TEAM"):
+        if not os.environ.get(name):
+            raise CannotAnswer(f"set {name}")
+    result = switch_wifi_off(out, args.device or os.environ["RICHOS_IOS_DEVICE"])
+    return emit(result, 0 if not result["error"] else 1)
+
+
+def switch_wifi_off(out, device):
+    """The cable check, then the switch read and turned off when on (ensure_wifi). Raises CannotAnswer off the cable,
+    before Settings is opened."""
+    require_cable(device)
+    result = ensure_wifi(out, on=False)
+    result["putBack"] = "rios device wifi-on --out DIR, then rios device net"
+    return result
+
+
 def run(args):
     """The list, then (when it touched Wi-Fi, however it ended) the Wi-Fi switch read and put back."""
     steps = load_steps(args.steps)
     args.phone_touched = False
+    if switches_wifi(steps):
+        require_cable(os.environ.get("RICHOS_IOS_DEVICE"))
     summary, failure = None, None
     try:
         summary = _run(args)
@@ -1646,6 +1719,10 @@ def main(argv):
                    help="keep XCTest's recording of the phone's screen for the whole session (recorded on the "
                         "phone); the summary names it under screenRecordings, and its absence fails the run")
     sub.add_parser("wifi-restore").add_argument("--out", required=True)
+    sub.add_parser("wifi-on").add_argument("--out", required=True)
+    wo = sub.add_parser("wifi-off")
+    wo.add_argument("--out", required=True)
+    wo.add_argument("--device", help="the phone (default RICHOS_IOS_DEVICE)")
     sub.add_parser("parse-log").add_argument("log")
     sub.add_parser("approval").add_argument("--device", required=True)
     sub.add_parser("summary").add_argument("dir")
@@ -1724,7 +1801,8 @@ def main(argv):
                                     f"`rios device {args.command} ...`: the one command line that puts only the Release "
                                     "build on it (CEO 2026-10-02)"}, 3)
         return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
-                "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore, "trust": trust,
+                "syslog": syslog, "approval": approval, "wifi-restore": wifi_restore, "wifi-on": wifi_restore,
+                "wifi-off": wifi_off, "trust": trust,
                 "reboot": restart_phone, "launch": launch_app, "net": net, "close": close_app}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error), **getattr(error, "extra", {})}, 2)

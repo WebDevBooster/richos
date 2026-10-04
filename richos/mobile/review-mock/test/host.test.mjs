@@ -239,14 +239,38 @@ test('the paired phone has its own 60-a-minute bucket; strangers cannot spend it
 	assert.equal((await phone.signed('POST', '/api/messages', text('p1', 'still fine'))).status, 200);
 });
 
-test('at most four streams at once, as on the Mac', async () => {
+// `device.rs` claim_stream: only OTHER devices' streams count against MAX_STREAMS, and a device's newer stream ends its
+// own older ones. App Review rehearsal row 10 (2026-10-04): this host counted every registered stream and ended none,
+// so a phone whose four earlier streams were still registered here (left open by a network drop, or by earlier app
+// processes) was answered 429 on every reconnect, and its queued message waited under "Reconnecting...".
+test('the paired phone, back after leaving its old streams open, gets a stream and its older ones end, as on the Mac', async () => {
 	const { host } = makeHost();
 	const phone = await pairedPhone(host);
-	const open = [];
-	for (let i = 0; i < MAX_STREAMS; i++) open.push(await phone.events('thread_id=thr_review_welcome'));
-	assert.ok(open.every((r) => r.status === 200));
+	const stale = [];
+	for (let i = 0; i < MAX_STREAMS; i++) stale.push(await phone.events('thread_id=thr_review_welcome'));
+	assert.ok(stale.every((r) => r.status === 200));
+	const back = await phone.events('thread_id=thr_review_welcome');
+	try {
+		assert.equal(back.status, 200, 'the paired phone was refused a stream while only its own older streams held the slots');
+		// Each older stream was ended by the newer one: its body finishes (opening frame, then the end).
+		const ended = (r) => Promise.race([r.text().then(() => true), new Promise((done) => setTimeout(() => done(false), 2000))]);
+		assert.deepEqual(await Promise.all(stale.map(ended)), stale.map(() => true));
+		assert.equal(host.streams.size, 1);
+	} finally {
+		await back.body?.cancel().catch(() => {});
+		await host.forget();
+	}
+});
+
+test('at most four other devices\' streams at once, as on the Mac: the next one is refused and ends nothing', async () => {
+	const { host } = makeHost();
+	const phone = await pairedPhone(host);
+	const others = [];
+	for (let i = 0; i < MAX_STREAMS; i++) others.push(await host.openStream('thr_review_welcome', null, `dev_other_${i}`));
+	assert.ok(others.every((o) => o.type === 'stream'));
 	assert.equal((await phone.events('thread_id=thr_review_welcome')).status, 429);
-	for (const r of open) await r.body.cancel();
+	assert.equal(host.streams.size, MAX_STREAMS);
+	for (const o of others) await o.body.cancel().catch(() => {});
 	await host.forget();
 });
 

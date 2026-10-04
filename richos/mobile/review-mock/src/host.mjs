@@ -788,8 +788,18 @@ export class Host {
 		};
 	}
 
-	/** Open a live stream: the opening frames, then every published frame, with keep-alives. */
-	async openStream(threadId, since) {
+	/**
+	 * Open a live stream: the opening frames, then every published frame, with keep-alives.
+	 *
+	 * `device.rs` claim_stream: the same device's older streams are ended first and stop counting, and only
+	 * OTHER devices' streams are counted against MAX_STREAMS. A phone opens one stream per process, so a newer one
+	 * means the older belongs to a process that is gone, or to a connection the phone left without closing (a
+	 * network drop). Before, every registered stream counted and none was ended, so a phone whose four earlier
+	 * streams were still registered here was refused 429 on every reconnect and its messages waited under
+	 * "Reconnecting..." (App Review rehearsal row 10, 2026-10-04).
+	 */
+	async openStream(threadId, since, deviceId) {
+		for (const open of [...this.streams]) if (open.device === deviceId) open.close();
 		if (this.streams.size >= MAX_STREAMS) return RATE_LIMITED;
 		let opening;
 		const tail = this.replayAfter(since);
@@ -804,6 +814,7 @@ export class Host {
 		const streams = this.streams;
 		let timer = null;
 		const entry = {
+			device: deviceId,
 			write(text) { writer.write(encoder.encode(text)).catch(() => entry.close()); },
 			close() {
 				if (!streams.has(entry)) return;
