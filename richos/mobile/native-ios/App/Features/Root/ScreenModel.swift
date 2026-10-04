@@ -82,6 +82,8 @@ struct ScreenModel: Equatable, Sendable {
         var previews = true
         var update: UpdateCheck = .upToDate
         var macName = "your Mac"
+        /// "Check for updates" opens this app's App Store listing, so it is shown only once that is live.
+        var showsUpdateCheck = AppLinks.appStoreListingLive
     }
 
     enum NotificationStatus: String, Equatable, Sendable {

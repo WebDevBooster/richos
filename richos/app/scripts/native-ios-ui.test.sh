@@ -499,6 +499,17 @@ do {
           "row 2: pressed, the same reply plays")
 }
 
+// App Review rehearsal 2026-10-04 row 7: until the App Store listing is live it answers 404, so
+// Settings draws no "Check for updates" row that opens it.
+do {
+    if case .settings(let s)? = ScreenModel(state: try! Fixture.named("settings").state).sheet {
+        check(!AppLinks.appStoreListingLive && !s.showsUpdateCheck, "row 7: before release, Settings has no Check for updates")
+    } else { check(false, "row 7: the settings fixture opens Settings") }
+    let overlays = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Settings/Overlays.swift", encoding: .utf8)) ?? ""
+    let guarded = overlays.components(separatedBy: "if settings.showsUpdateCheck {").dropFirst().first ?? ""
+    check(guarded.prefix(120).contains("title: \"Check for updates\""), "row 7: the Check for updates row is drawn only when it is shown")
+}
+
 // I02 (native acceptance r1): the out-of-reach line is no longer a row under the header's fade; it is
 // pinned below the header in full ink on the floating surface, computed here in both themes.
 do {

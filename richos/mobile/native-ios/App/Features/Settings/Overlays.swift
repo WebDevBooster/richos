@@ -176,14 +176,16 @@ struct SettingsSheet: View {
                 row(icon: .phone, title: "iPhone permissions", detail: "Microphone and camera", chevron: true) { EmptyView() }
                     .onTapGesture { send(.openSystemSettings) }
                     .accessibilityAddTraits(.isButton)
-                row(icon: .refresh, title: "Check for updates", detail: nil) {
-                    Text(updateValue)
-                        .type(Typography.read)
-                        .foregroundStyle(isUpdateAvailable ? palette.ink : palette.inkSoft)
+                if settings.showsUpdateCheck {
+                    row(icon: .refresh, title: "Check for updates", detail: nil) {
+                        Text(updateValue)
+                            .type(Typography.read)
+                            .foregroundStyle(isUpdateAvailable ? palette.ink : palette.inkSoft)
+                    }
+                    .onTapGesture { send(.checkForUpdates) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("settings.updates")
                 }
-                .onTapGesture { send(.checkForUpdates) }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityIdentifier("settings.updates")
                 row(icon: .life, title: "Support", detail: nil, chevron: true) { EmptyView() }
                     .onTapGesture { send(.openSupport) }
                     .accessibilityAddTraits(.isButton)
