@@ -689,11 +689,16 @@ def probe_runs(slug, sha, budget):
         })
     failed = [r for r in runs if r.get("status") == "completed" and r.get("conclusion") in NOT_GREEN]
     running = [r for r in runs if r.get("status") != "completed"]
+    # GREEN IS A RUN THAT SUCCEEDED, not the absence of a red one. Runs that
+    # all concluded skipped (or neutral, stale) proved nothing about the
+    # commit: that is "none", silent and re-read every turn, never a green
+    # cached as passed (hunt part 3 v3, finding 14).
+    passed = [r for r in runs if r.get("status") == "completed" and r.get("conclusion") == "success"]
     if failed:
         state = "red"
     elif running:
         state = "running"
-    elif runs:
+    elif passed:
         state = "green"
     else:
         state = "none"

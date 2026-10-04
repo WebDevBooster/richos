@@ -70,6 +70,23 @@ class Rows(unittest.TestCase):
             self.assertEqual(why, "")
             self.assertEqual([p["branch"] for p in seen], ["release"])
 
+    def test_p3_14_v3_skipped_only_runs_are_not_green(self):
+        def answer(conclusions):
+            body = {"workflow_runs": [{"path": ".github/workflows/w%d.yml" % i, "name": "w",
+                                       "status": "completed", "conclusion": c, "id": i}
+                                      for i, c in enumerate(conclusions)]}
+            return lambda *_a, **_k: (0, json.dumps(body), "")
+        real = gate.run
+        try:
+            gate.run = answer(["skipped"])
+            self.assertEqual(gate.probe_runs("o/r", "abc", gate.Budget(5))["state"], "none")
+            gate.run = answer(["skipped", "success"])
+            self.assertEqual(gate.probe_runs("o/r", "abc", gate.Budget(5))["state"], "green")
+            gate.run = answer(["skipped", "failure"])
+            self.assertEqual(gate.probe_runs("o/r", "abc", gate.Budget(5))["state"], "red")
+        finally:
+            gate.run = real
+
     def test_p3_15_green_expires(self):
         old = {"state": "green", "age_seconds": 24 * 3600}
         self.assertFalse(gate.cache_is_usable(old))
