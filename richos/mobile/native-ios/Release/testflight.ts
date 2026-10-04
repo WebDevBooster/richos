@@ -209,6 +209,48 @@ export function makeAppStoreToken(
   return `${input}.${signature.toString("base64url")}`;
 }
 
+/// Screenshots (CEO 2026-10-04: the corrected store screenshots must reach the listing without anyone
+/// clicking them in). The local files, in file-name order, with the MD5 Apple reports as sourceFileChecksum.
+export type LocalShot = { fileName: string; md5: string };
+export type RemoteShot = { fileName: string; checksum: string | undefined; state: string | undefined };
+
+export function localShots(dir: string): { fileName: string; path: string; md5: string; size: number }[] {
+  const names = NodeFS.readdirSync(dir)
+    .filter((name) => name.toLowerCase().endsWith(".png"))
+    .sort();
+  if (names.length === 0) throw new Error(`No PNG files in ${dir}.`);
+  if (names.length > 10) throw new Error("An App Store screenshot set holds at most 10 screenshots.");
+  return names.map((fileName) => {
+    const path = NodePath.join(dir, fileName);
+    const bytes = NodeFS.readFileSync(path);
+    return { fileName, path, md5: NodeCrypto.createHash("md5").update(bytes).digest("hex"), size: bytes.length };
+  });
+}
+
+/// Compares the listing's screenshots (in Apple's stored order) with the local files (in file-name order).
+/// Returns one line per problem; an empty list means same count, same order, every checksum matching and
+/// every screenshot COMPLETE.
+export function compareScreenshots(local: LocalShot[], remote: RemoteShot[]) {
+  const problems: string[] = [];
+  if (local.length !== remote.length) {
+    problems.push(`Expected ${local.length} screenshots on the listing; Apple has ${remote.length}.`);
+  }
+  for (let index = 0; index < Math.min(local.length, remote.length); index++) {
+    const want = local[index]!;
+    const have = remote[index]!;
+    const position = `Position ${index + 1}`;
+    if (have.state !== "COMPLETE") {
+      problems.push(`${position} (${want.fileName}): Apple reports ${have.state ?? "no state"}, not COMPLETE.`);
+    }
+    if ((have.checksum ?? "").toLowerCase() !== want.md5.toLowerCase()) {
+      problems.push(
+        `${position} (${want.fileName}): Apple's checksum ${have.checksum ?? "(none)"} is not the local file's ${want.md5}.`,
+      );
+    }
+  }
+  return problems;
+}
+
 // All writes use the app and groups verified by status(). No credentials go into command output.
 export function createTestFlightClient(
   config: TestFlightConfig,
@@ -530,7 +572,109 @@ export function createTestFlightClient(
     return status(selection);
   }
 
-  return { status, publish, verifyUpload };
+  /// Replaces the screenshots of the iPhone 6.9-inch set of the version being prepared. Changes nothing
+  /// else: never submits, selects a build or touches testers.
+  // Apple's API names the 6.7/6.9-inch iPhone family APP_IPHONE_67 (read from this listing: it has no
+  // APP_IPHONE_69 set; the 1320 x 2868 images are the 6.9-inch size and live in this set).
+  async function screenshots(dir: string, version: string, displayType = "APP_IPHONE_67") {
+    const files = localShots(dir);
+    const app = await verifyApp();
+    const versionQuery = new URLSearchParams({
+      "filter[platform]": "IOS",
+      "filter[versionString]": version,
+      limit: "10",
+    });
+    const versions = await list(
+      `/v1/apps/${encodeURIComponent(config.appId)}/appStoreVersions?${versionQuery}`,
+      "appStoreVersions",
+    );
+    if (versions.length !== 1) throw new Error(`Expected one iOS version ${version}; found ${versions.length}.`);
+    const prepared = versions[0]!;
+    const state = text(prepared.attributes.appStoreState, "appStoreState");
+    if (!["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"].includes(state)) {
+      throw new Error(`Version ${version} is ${state}; screenshots can only change while it is being prepared.`);
+    }
+    const locale = text(app.attributes.primaryLocale, "primaryLocale");
+    const localizations = await list(
+      `/v1/appStoreVersions/${encodeURIComponent(prepared.id)}/appStoreVersionLocalizations?limit=200`,
+      "appStoreVersionLocalizations",
+    );
+    const localization = localizations.find((item) => item.attributes.locale === locale);
+    if (!localization) throw new Error(`Version ${version} has no ${locale} localization.`);
+    const sets = await list(
+      `/v1/appStoreVersionLocalizations/${encodeURIComponent(localization.id)}/appScreenshotSets?limit=200`,
+      "appScreenshotSets",
+    );
+    const set = sets.find((item) => item.attributes.screenshotDisplayType === displayType);
+    if (!set) {
+      throw new Error(
+        `No ${displayType} screenshot set on version ${version} (${locale}); found: ${sets.map((item) => item.attributes.screenshotDisplayType).join(", ") || "none"}.`,
+      );
+    }
+    const setPath = `/v1/appScreenshotSets/${encodeURIComponent(set.id)}/appScreenshots?limit=200`;
+    for (const old of await list(setPath, "appScreenshots")) {
+      await request(`/v1/appScreenshots/${encodeURIComponent(old.id)}`, "DELETE");
+    }
+    const created: string[] = [];
+    for (const file of files) {
+      const reservation = record(
+        await request("/v1/appScreenshots", "POST", {
+          data: {
+            type: "appScreenshots",
+            attributes: { fileName: file.fileName, fileSize: file.size },
+            relationships: { appScreenshotSet: { data: { type: "appScreenshotSets", id: set.id } } },
+          },
+        }),
+        "appScreenshots response",
+      );
+      const shot = resource(reservation.data, "appScreenshots");
+      const bytes = NodeFS.readFileSync(file.path);
+      for (const operation of items(shot.attributes.uploadOperations, "uploadOperations")) {
+        const part = record(operation, "upload operation");
+        const offset = Number(part.offset);
+        const length = Number(part.length);
+        const headers: Record<string, string> = {};
+        for (const header of items(part.requestHeaders ?? [], "requestHeaders")) {
+          const pair = record(header, "request header");
+          headers[text(pair.name, "header name")] = text(pair.value, "header value");
+        }
+        const response = await fetchImpl(text(part.url, "upload url"), {
+          method: text(part.method, "upload method"),
+          headers,
+          body: bytes.subarray(offset, offset + length),
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (!response.ok) throw new Error(`Uploading ${file.fileName} failed: HTTP ${response.status}.`);
+      }
+      await request(`/v1/appScreenshots/${encodeURIComponent(shot.id)}`, "PATCH", {
+        data: { type: "appScreenshots", id: shot.id, attributes: { uploaded: true, sourceFileChecksum: file.md5 } },
+      });
+      created.push(shot.id);
+    }
+    await request(`/v1/appScreenshotSets/${encodeURIComponent(set.id)}/relationships/appScreenshots`, "PATCH", {
+      data: created.map((id) => ({ type: "appScreenshots", id })),
+    });
+    // Wait until Apple has processed every one (bounded: 5 minutes).
+    let remote: RemoteShot[] = [];
+    for (let attempt = 0; attempt < 60; attempt++) {
+      remote = (await list(setPath, "appScreenshots")).map((item) => {
+        const delivery = isRecord(item.attributes.assetDeliveryState) ? item.attributes.assetDeliveryState : {};
+        return {
+          fileName: String(item.attributes.fileName ?? ""),
+          checksum:
+            typeof item.attributes.sourceFileChecksum === "string" ? item.attributes.sourceFileChecksum : undefined,
+          state: typeof delivery.state === "string" ? delivery.state : undefined,
+        };
+      });
+      const states = remote.map((item) => item.state);
+      if (states.includes("FAILED")) break;
+      if (remote.length === files.length && states.every((value) => value === "COMPLETE")) break;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+    return { version, locale, displayType, files, remote, problems: compareScreenshots(files, remote) };
+  }
+
+  return { status, publish, verifyUpload, screenshots };
 }
 
 export function validateUploadMetadata(infoPlist: unknown, exportOptions: unknown, bundleId: string) {
@@ -753,7 +897,7 @@ export type ReleaseDeps = {
   client: (
     config: TestFlightConfig,
     privateKey: NodeCrypto.KeyObject,
-  ) => Pick<ReturnType<typeof createTestFlightClient>, "status" | "publish" | "verifyUpload">;
+  ) => Pick<ReturnType<typeof createTestFlightClient>, "status" | "publish" | "verifyUpload" | "screenshots">;
   upload: typeof uploadArchive;
   readNotes: (path: string) => Promise<string>;
 };
@@ -817,6 +961,12 @@ export async function runRelease(args: ReleaseArgs, deps: ReleaseDeps = RELEASE_
     );
     return undefined;
   }
+  if (args.command === "screenshots") {
+    // Listing artwork only: no build is uploaded or published, so neither gate applies.
+    const { privateKey, config } = await deps.readEnv(args.envFile);
+    const result = await deps.client(config, privateKey).screenshots(expandHome(args.dir), args.version);
+    return { config, result };
+  }
   const selection = { build: args.build, version: args.version };
   if (args.command === "publish") {
     deps.gate(["--repo", deps.checkout, "--commit", uploadedCommit(deps.receipts, selection)]);
@@ -858,6 +1008,7 @@ export function parseTestFlightArgs(args: string[]) {
       "notes-file": { type: "string" },
       archive: { type: "string" },
       "export-options": { type: "string" },
+      dir: { type: "string" },
       help: { type: "boolean" },
     },
   });
@@ -865,14 +1016,26 @@ export function parseTestFlightArgs(args: string[]) {
   const command = positionals[0];
   if (
     positionals.length !== 1 ||
-    (command !== "status" && command !== "publish" && command !== "upload")
+    (command !== "status" && command !== "publish" && command !== "upload" && command !== "screenshots")
   ) {
-    throw new Error("Choose status, publish, or upload. Use --help for usage.");
+    throw new Error("Choose status, publish, upload, or screenshots. Use --help for usage.");
   }
   const envFile =
     values["env-file"] ??
     process.env.RICHOS_IOS_TESTFLIGHT_ENV_FILE ??
     NodePath.join(NodeOS.homedir(), ".config/richos/testflight.env");
+  if (command === "screenshots") {
+    if (values.build || values.archive || values["export-options"] || values["notes-file"]) {
+      throw new Error("Screenshots takes only --dir, --version and --env-file.");
+    }
+    return {
+      command: "screenshots" as const,
+      envFile,
+      dir: text(values.dir, "--dir"),
+      version: text(values.version, "--version"),
+    };
+  }
+  if (values.dir) throw new Error("--dir is only valid with screenshots.");
   if (command === "upload") {
     if (values.build || values.version || values["notes-file"]) {
       throw new Error(
@@ -915,6 +1078,7 @@ async function main() {
     process.stdout.write(`Usage:
   node Release/testflight.ts status --build 1 --version 1.0.0
   node Release/testflight.ts publish --build 1 --version 1.0.0 --notes-file /path/to/notes.txt
+  node Release/testflight.ts screenshots --version 1.0.0 --dir /path/to/pngs   (replaces the iPhone 6.9-inch set in file-name order, then reads it back)
   node Release/testflight.ts upload --archive /path/to/RichOSNative.xcarchive --export-options Release/ExportOptions.plist
 
 Optional: --env-file /path/to/file or RICHOS_IOS_TESTFLIGHT_ENV_FILE.
@@ -936,7 +1100,21 @@ Release/check_device_family.py passes the archive (iPhone-only device family, ic
   }
   const outcome = await runRelease(args);
   if (!outcome) return;
-  const { config, result } = outcome;
+  if (args.command === "screenshots") {
+    const shots = outcome.result as { remote: RemoteShot[]; files: LocalShot[]; problems: string[] };
+    shots.files.forEach((file, index) => {
+      const have = shots.remote[index];
+      process.stdout.write(
+        `${index + 1}. ${file.fileName}  local md5 ${file.md5}  Apple ${have?.checksum ?? "(none)"}  ${have?.state ?? "(missing)"}\n`,
+      );
+    });
+    if (shots.problems.length > 0) throw new Error(`Read-back does not match:\n${shots.problems.join("\n")}`);
+    process.stdout.write(
+      `Read-back matches: ${shots.files.length} screenshots, in order, every checksum equal and COMPLETE.\n`,
+    );
+    return;
+  }
+  const { config, result } = outcome as { config: TestFlightConfig; result: Awaited<ReturnType<ReturnType<typeof createTestFlightClient>["status"]>> };
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if (args.command === "publish") {
     process.stdout.write(

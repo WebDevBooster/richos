@@ -17,6 +17,7 @@ import * as NodePath from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  compareScreenshots,
   createTestFlightClient,
   deviceFamilyCheck,
   insideGitWorkTree,
@@ -707,5 +708,26 @@ describe("speed gate (CEO §106)", () => {
     NodeAssert.throws(() => speedGate(["--checkout", "/x"], answer(null, "", "", new Error("spawn python3 ENOENT"))), /did not run \(spawn python3 ENOENT\)/u);
     NodeAssert.throws(() => speedGate(["--checkout", "/x"], answer(0, '{"ok": true}', "")), /no passing commit/u);
     NodeAssert.equal(speedGate(["--checkout", "/x"], answer(0, JSON.stringify({ ok: true, commit: COMMIT }), "")), COMMIT);
+  });
+});
+
+describe("store screenshot read-back", () => {
+  const local = [
+    { fileName: "01-a.png", md5: "aa" },
+    { fileName: "02-b.png", md5: "bb" },
+  ];
+  const done = (checksum: string) => ({ fileName: "x.png", checksum, state: "COMPLETE" });
+
+  it("accepts the same files, in order, every checksum equal and COMPLETE", () => {
+    NodeAssert.deepEqual(compareScreenshots(local, [done("aa"), done("BB")]), []);
+  });
+
+  it("names a wrong order, a wrong checksum, an unfinished upload and a wrong count", () => {
+    NodeAssert.equal(compareScreenshots(local, [done("bb"), done("aa")]).length, 2);
+    NodeAssert.match(
+      compareScreenshots(local, [done("aa"), { fileName: "x", checksum: "bb", state: "UPLOAD_COMPLETE" }])[0]!,
+      /not COMPLETE/u,
+    );
+    NodeAssert.match(compareScreenshots(local, [done("aa")])[0]!, /Expected 2 screenshots/u);
   });
 });
