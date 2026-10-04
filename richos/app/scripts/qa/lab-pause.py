@@ -17,8 +17,10 @@ listener (`mobile_mac_server::serve`), so it cannot pause anything else on this 
 either regex is the try number (1..N), so `--stop-at 'PAUSE MAC {n}' --times 5` follows five
 tries in one list. `--cont-delay S` waits S seconds after the continue mark before continuing.
 
-The process is ALWAYS continued: after each try, on a timeout, and when this tool is stopped
-(SIGINT, SIGTERM, SIGHUP). Prints one JSON document with each stop and continue on this Mac's
+The process this tool stopped is ALWAYS continued: after each try, on a timeout, and when this
+tool is stopped (SIGINT, SIGTERM, SIGHUP). Only a process it stopped: SIGCONT goes out only while
+this tool holds the listener it checked and stopped, never to whatever owns the pid after a wait
+(hunt part 2 v3, R35). Prints one JSON document with each stop and continue on this Mac's
 clock (epoch seconds) and the mark lines matched. Exit 0 when every try was held and released;
 1 when a mark did not appear before --timeout (the process is continued and that is said);
 2 when it cannot answer at all.
@@ -123,6 +125,18 @@ def main(argv):
     a = p.parse_args(argv)
     result = {"tries": []}
     pid = None
+    # The pid is continued ONLY while this tool holds it stopped. A stopped process cannot exit on
+    # its own, so between our SIGSTOP and our SIGCONT the pid is still the checked listener; outside
+    # that window it may belong to anything (pid reuse after a long wait), and is never signalled.
+    held = []
+
+    def resume():
+        if held:
+            held.clear()
+            try:
+                os.kill(pid, signal.SIGCONT)
+            except ProcessLookupError:
+                pass
     try:
         if bool(a.log) == bool(a.log_dir):
             raise CannotAnswer("give exactly one of --log or --log-dir")
@@ -143,7 +157,7 @@ def main(argv):
         result["log"] = str(log)
 
         def release(*_):
-            os.kill(pid, signal.SIGCONT)
+            resume()
             result["released"] = time.time()
             print(json.dumps(result, indent=2))
             sys.exit(1)
@@ -160,6 +174,7 @@ def main(argv):
                 print(json.dumps(result, indent=2))
                 return 1
             check_listener(pid, data)  # the wait above may have been long: still the same lab's listener?
+            held.append(pid)  # first: a signal arriving between the two lines still continues it
             os.kill(pid, signal.SIGSTOP)
             try_record.update(stopped=round(time.time(), 3), stopMark=line[-200:])
             try:
@@ -167,7 +182,7 @@ def main(argv):
                 if line is not None and a.cont_delay:
                     time.sleep(a.cont_delay)
             finally:
-                os.kill(pid, signal.SIGCONT)
+                resume()
                 try_record["continued"] = round(time.time(), 3)
             if line is None:
                 result["error"] = f"try {n}: no line matching the continue mark within {a.timeout:g} s; continued anyway"
@@ -181,11 +196,7 @@ def main(argv):
         print(json.dumps(result, indent=2))
         return 2
     finally:
-        if pid is not None:
-            try:
-                os.kill(pid, signal.SIGCONT)
-            except ProcessLookupError:
-                pass
+        resume()
 
 
 if __name__ == "__main__":
