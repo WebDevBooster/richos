@@ -106,6 +106,11 @@ pub struct EngineProfile {
     /// record's §7 item 2). Set by the shell on an operator install only; `None` everywhere
     /// else, which leaves the front desk's server list exactly what it was.
     pub operator_desk: Option<crate::operator_desk_tools::DeskAccess>,
+    /// **Fill-first: the Claude account this lease runs under.** Set by the shell from the
+    /// account in use (`quota::Service::lease_account`). An added account's folder reaches
+    /// the provider as `CLAUDE_CONFIG_DIR` in [`Self::configure`]; Account 1 has no folder and
+    /// inherits the app's environment exactly as before. `None` everywhere else.
+    pub claude_account: Option<crate::claude_accounts::Account>,
 }
 
 fn quote(path: &Path) -> String { format!("'{}'", path.to_string_lossy().replace('\'', "'\\''")) }
@@ -231,7 +236,7 @@ impl EngineProfile {
         write(&plugin.join("spawn-preflight.json"),
               &json!({"hooks":{"PreToolUse":[{"matcher":"Agent","hooks":preflight}]}}).to_string())?;
         Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default(),
-                  operator_desk: None })
+                  operator_desk: None, claude_account: None })
     }
     /// Install the desktop executable's quota wrapper. Source-test clients which
     /// do not implement that CLI entrypoint keep their canonical hooks unchanged.
@@ -365,6 +370,9 @@ impl EngineProfile {
             }
         }
         command.env_remove("RICHOS_APP_ENTITY").env_remove("RICHOS_APP_THREAD");
+        if let Some(folder) = self.claude_account.as_ref().and_then(|a| a.folder.as_ref()) {
+            command.env("CLAUDE_CONFIG_DIR", folder);
+        }
         if let Some((entity, thread)) = &self.work_scope {
             command.env("RICHOS_APP_ENTITY", entity).env("RICHOS_APP_THREAD", thread);
         }

@@ -1284,6 +1284,8 @@ pub struct NativeClient {
 /// starting value is `NotYetReported` and a derived default would be whichever variant happens
 /// to be declared first.
 struct ReaderState {
+    /// The last usage reading the child streamed (`rate_limit_event`), and when (fill-first).
+    streamed_usage: Option<crate::quota::StreamedReading>,
     question_scope: Option<std::path::PathBuf>,
     permissions: Option<crate::permissions::ScopedPermissions>,
     /// Did the child list all five `richos_work` tools? [`InitFact`], not `bool` — see its
@@ -1645,7 +1647,56 @@ impl Default for ReaderState {
             context_brief_held: None,
             turns_named_by_the_child: false,
             background: Vec::new(),
+            streamed_usage: None,
         }
+    }
+}
+
+/// **The freshest usage reading there is: the one the child streamed** (fill-first, the CEO's
+/// correction of 2026-10-04). Every turn's `rate_limit_event` carries `rate_limit_info`, and on
+/// this wire that names each window: captured on 2.1.x in
+/// `docs/verification/claude-md-sentinel-2026-09-06/raw/cellB-empty-sources-no-claude-md.jsonl`
+/// as `"unifiedWindows":{"five_hour":{"utilization":0.02,"resetsAt":1788701400},
+/// "seven_day":{"utilization":0.58,"resetsAt":1789016400}}`, and in richos-hq
+/// `docs/verification/2026-09-21-macos-walk-fixes/machinery/.../2026-09-21.raw.jsonl` as
+/// `"seven_day":{"resetsAt":1790150400,"utilization":0.98}` with `status: allowed_warning`.
+/// `utilization` is a FRACTION there and `resetsAt` is in SECONDS, so both are converted to
+/// the probe's units (percent, milliseconds). A frame with no `unifiedWindows` (the SDK's
+/// minimal `{"status":"allowed"}`) says nothing about a window and yields nothing.
+pub fn streamed_windows(frame: &Value) -> Option<Vec<crate::quota::Window>> {
+    let windows = frame.get("rate_limit_info")?.get("unifiedWindows")?.as_object()?;
+    let out: Vec<_> = [("five_hour", "Five-hour", 5u64), ("seven_day", "Weekly", 168)].into_iter()
+        .filter_map(|(id, label, hours)| {
+            let w = windows.get(id)?;
+            let used = w.get("utilization")?.as_f64().filter(|u| u.is_finite() && (0.0..=1.0).contains(u))? * 100.0;
+            Some(crate::quota::Window {
+                id: id.into(), label: label.into(), used_percent: used,
+                resets_at: w.get("resetsAt").and_then(Value::as_u64).map(|s| s * 1000),
+                duration_ms: hours * 3_600_000,
+            })
+        }).collect();
+    (!out.is_empty()).then_some(out)
+}
+
+/// **Was this turn refused for a usage limit?** The three signals that really exist on this
+/// wire (Frank's review, finding 1): a `rate_limit_event` whose `rate_limit_info.status` is
+/// `"rejected"`; a `result` whose `api_error_status` is 429; a `result` whose `errors[]` holds
+/// an entry starting `You've hit your`. There is no exit code 4 and no `limit_reached`.
+/// Returns the reset time when the frame gives one (ms).
+pub fn usage_limit_signal(frame: &Value) -> Option<Option<u64>> {
+    match frame.get("type").and_then(Value::as_str) {
+        Some("rate_limit_event") => {
+            let info = frame.get("rate_limit_info")?;
+            (info.get("status").and_then(Value::as_str) == Some("rejected"))
+                .then(|| info.get("resetsAt").and_then(Value::as_u64).map(|s| s * 1000))
+        }
+        Some("result") => {
+            let status = frame.get("api_error_status").and_then(Value::as_u64) == Some(429);
+            let said = frame.get("errors").and_then(Value::as_array).is_some_and(|errors| errors.iter()
+                .any(|e| e.as_str().is_some_and(|s| s.trim_start().starts_with("You've hit your"))));
+            (status || said).then_some(None)
+        }
+        _ => None,
     }
 }
 
@@ -2284,6 +2335,13 @@ impl NativeClient {
         text_deltas: &Arc<AtomicUsize>,
     ) {
         let ty = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        // Kept whichever turn (or none) the frame belongs to: it is a reading of the account.
+        if ty == "rate_limit_event" {
+            if let Some(windows) = streamed_windows(&msg) {
+                state.lock().unwrap().streamed_usage = Some((windows, crate::util::now_millis()));
+            }
+        }
 
         // ---- the control protocol ------------------------------------------------------
         if ty == "control_response" {
@@ -3113,6 +3171,11 @@ impl NativeClient {
         // ([`STOP_REASON_QUESTION_ASKED_OPEN`]); only one that does not answer in time is ended
         // ([`STOP_REASON_QUESTION_ASKED`], which the spine answers with a rotation).
         let mut question_ended = false;
+        // A usage-limit refusal seen on this turn (`usage_limit_signal`), with its reset time.
+        let mut limit: Option<Option<u64>> = None;
+        let limit_error = |resets_at: Option<u64>, detail: String| {
+            NativeError::Protocol(crate::claude_accounts::usage_limit_error(resets_at, &detail))
+        };
         loop {
             if !question_ended && question_scope.as_deref().is_some_and(crate::question_tools::has_asked) {
                 release(&mut seq, on_item, &mut spelling);
@@ -3151,6 +3214,9 @@ impl NativeClient {
                     // of it (`content_block_stop` right after a block's last delta, above all).
                     if !is_ping(&frame) {
                         release(&mut seq, on_item, &mut spelling);
+                    }
+                    if let Some(resets_at) = usage_limit_signal(&frame) {
+                        limit = Some(resets_at);
                     }
                     for record in MachineryRecord::from_native_event(&frame, &self.session_id, seq) {
                         seq += 1;
@@ -3197,6 +3263,15 @@ impl NativeClient {
                             STOP_REASON_QUESTION_ASKED_OPEN
                         }.to_string());
                     }
+                    // **Refused for a usage limit** (fill-first's backstop): said as that, so the
+                    // spine and the work host continue on the next account instead of reading an
+                    // ordinary failure. Whether the child stays alive afterwards is not known
+                    // (Frank's finding 1), so the signal is honored on either ending.
+                    if let Some(resets_at) = limit.or_else(|| usage_limit_signal(&result)) {
+                        let detail = result.get("errors").or_else(|| result.get("result"))
+                            .map(Value::to_string).unwrap_or_else(|| reason.clone());
+                        return Err(limit_error(resets_at, detail));
+                    }
                     if reason == "child_exited" { return Err(NativeError::Closed); }
                     if result.get("is_error").and_then(Value::as_bool) == Some(true)
                         && reason != STOP_REASON_CANCELLED
@@ -3230,6 +3305,9 @@ impl NativeClient {
                 }
                 Err(RecvTimeoutError::Disconnected) => {
                     release(&mut seq, on_item, &mut spelling);
+                    if let Some(resets_at) = limit {
+                        return Err(limit_error(resets_at, "the session ended after the limit".into()));
+                    }
                     return Err(NativeError::Closed);
                 }
             }
@@ -3894,6 +3972,12 @@ impl Drop for NativeCognition {
 }
 
 impl Cognition for NativeCognition {
+    fn account(&self) -> Option<&str> {
+        self.engine_profile.as_ref()?.claude_account.as_ref().map(|a| a.id.as_str())
+    }
+    fn streamed_usage(&self) -> Option<crate::quota::StreamedReading> {
+        self.client.reader_state.lock().unwrap().streamed_usage.clone()
+    }
     fn set_input_channel(&mut self,channel:Option<&str>)->Result<(),CognitionError> {
         let Some(path)=self.client.reader_state.lock().unwrap().question_scope.clone() else{return Ok(());};
         if let Some(channel)=channel.filter(|c|c.starts_with("phone")) {
@@ -4516,6 +4600,83 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         }
     }
 
+    // ---- fill-first's backstop: the three usage-limit signals that really exist ----------
+
+    /// A fake `claude` that takes one turn and answers it with `frames`. Returns what the
+    /// lease's `prompt` returned.
+    fn one_limited_turn(name: &str, frames: &str) -> Result<String, NativeError> {
+        let script = write_script(name, &(r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+"#.to_string() + frames));
+        let root = script.parent().unwrap();
+        let client = NativeClient::spawn(&script, root, &doctrine_fixture(), &skills_fixture()).unwrap();
+        client.prompt("Keep going", &mut |_| {})
+    }
+    fn assert_usage_limit(outcome: Result<String, NativeError>, resets_at: Option<u64>) {
+        let error = outcome.expect_err("a refused turn must not read as completed");
+        assert_eq!(crate::claude_accounts::parse_usage_limit(&error.to_string()), Some(resets_at),
+            "not read as a usage limit: {error}");
+    }
+
+    /// Signal 1 of 3 (Frank's finding 1): `rate_limit_event` with
+    /// `rate_limit_info.status == "rejected"`, its `resetsAt` in seconds carried as ms.
+    #[test]
+    fn a_rejected_rate_limit_event_is_a_usage_limit() {
+        assert_usage_limit(one_limited_turn("limit-rejected", r#"
+printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1790150400,"rateLimitType":"five_hour"}}'
+printf '%s\n' '{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["request refused"]}'
+"#), Some(1_790_150_400_000));
+    }
+
+    /// Signal 2 of 3: a `result` whose `api_error_status` is 429.
+    #[test]
+    fn a_result_with_api_error_status_429_is_a_usage_limit() {
+        assert_usage_limit(one_limited_turn("limit-429", r#"
+printf '%s\n' '{"type":"result","subtype":"error_during_execution","is_error":true,"api_error_status":429,"errors":["429"]}'
+"#), None);
+    }
+
+    /// Signal 3 of 3: a `result` whose `errors[]` holds an entry starting `You've hit your`
+    /// (the errors page's own wording), even on a result that does not say `is_error`.
+    #[test]
+    fn a_result_saying_you_have_hit_your_limit_is_a_usage_limit() {
+        assert_usage_limit(one_limited_turn("limit-said", r#"
+printf '%s\n' '{"type":"result","subtype":"success","errors":["You'"'"'ve hit your weekly limit · resets Mon 12:00am"]}'
+"#), None);
+        // And an ordinary failure is still an ordinary failure.
+        let ordinary = one_limited_turn("limit-none", r#"
+printf '%s\n' '{"type":"result","subtype":"error_during_execution","is_error":true,"api_error_status":500,"errors":["boom"]}'
+"#).expect_err("a failed turn");
+        assert_eq!(crate::claude_accounts::parse_usage_limit(&ordinary.to_string()), None);
+    }
+
+    /// **The freshest reading is the lease's own** (before-every-turn switching). The frame is
+    /// the one captured on 2.1.x in
+    /// `docs/verification/claude-md-sentinel-2026-09-06/raw/cellB-empty-sources-no-claude-md.jsonl`,
+    /// verbatim: fractions become percent, seconds become milliseconds.
+    #[test]
+    fn the_lease_keeps_the_usage_reading_its_child_streamed() {
+        let script = write_script("streamed-usage", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1788701400,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"org_level_disabled","isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":0.02,"resetsAt":1788701400},"seven_day":{"utilization":0.58,"resetsAt":1789016400}}},"uuid":"5202bc87-dcbc-43fe-82ba-94f661a379eb","session_id":"ffd0073a-82e7-42da-b308-2501aaf23a70"}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let root = script.parent().unwrap();
+        let mut cognition = NativeCognition::start(&script, root, &doctrine_fixture(), &skills_fixture()).unwrap();
+        assert!(cognition.streamed_usage().is_none());
+        cognition.prompt("hello", &mut |_| {}).unwrap();
+        let (windows, _) = cognition.streamed_usage().expect("the streamed reading was kept");
+        assert_eq!(windows.len(), 2);
+        assert_eq!((windows[0].id.as_str(), windows[0].resets_at), ("five_hour", Some(1_788_701_400_000)));
+        assert!((windows[0].used_percent - 2.).abs() < 1e-9);
+        assert_eq!((windows[1].id.as_str(), windows[1].resets_at), ("seven_day", Some(1_789_016_400_000)));
+        assert!((windows[1].used_percent - 58.).abs() < 1e-9, "0.58 x 100 in f64 is 57.99999999999999");
+    }
+
     fn assert_returned_before_the_result(root: &Path) {
         assert!(!root.join("result-sent").exists(),
             "the prompt returned only after the provider sent its result: the question retained the asking turn");
@@ -4718,7 +4879,7 @@ done
             },
             work_scope: None,
             permissions: std::sync::Arc::new(crate::permissions::PermissionDesk::default()),
-            operator_desk: None,
+            operator_desk: None, claude_account: None,
         }
     }
 
@@ -6870,7 +7031,7 @@ read -r keep_alive
             cognition.engine_profile = Some(crate::engine_profile::EngineProfile {
                 engine: root.clone(), coordination: root.clone(), plugin: root.clone(), state: root.clone(),
                 runtime: crate::runtime::EngineRuntime {root: root.clone(), python:"/usr/bin/python3".into(), node:"/usr/bin/false".into(), git:"/usr/bin/git".into(),versions:BTreeMap::new()},
-                work_scope:None, permissions:Default::default(), operator_desk: None
+                work_scope:None, permissions:Default::default(), operator_desk: None, claude_account: None
             });
             let result = cognition.prompt("Synthetic audit turn", &mut |_| {});
             let provider_alive = cognition.client.child.try_wait().unwrap().is_none();
