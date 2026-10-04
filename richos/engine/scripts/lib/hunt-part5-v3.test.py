@@ -400,5 +400,28 @@ class P5_46_SkippedMergeIsNotALanding(Scratch):
         self.assertTrue(self.lm.is_removal("scripts/collect-worktree-artifacts.sh x && git worktree list"))
 
 
+class P5_58_BranchPunctuationPrefix(unittest.TestCase):
+    """cc/mark-opus-f1 does not match a different branch that continues it with / or ."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.lo = load("left_off_p5v3", os.path.join(HERE, "left-off.py"))
+
+    def test_slash_continuation_is_another_branch(self):
+        self.assertFalse(self.lo.names_ref("cc/mark-opus-f1", "merge cc/mark-opus-f1/other: Fast-forward"))
+
+    def test_dot_continuation_is_another_branch(self):
+        self.assertFalse(self.lo.names_ref("cc/mark-opus-f1", "merge cc/mark-opus-f1.other: Fast-forward"))
+
+    def test_exact_name_matches(self):
+        self.assertTrue(self.lo.names_ref("cc/mark-opus-f1", "merge cc/mark-opus-f1: Fast-forward"))
+
+    def test_sentence_period_still_matches(self):
+        self.assertTrue(self.lo.names_ref("cc/mark-opus-f1", "Merge cc/mark-opus-f1."))
+
+    def test_teammate_name_inside_its_branch_matches(self):
+        self.assertTrue(self.lo.names_ref("mark-opus-f1", "cc/mark-opus-f1"))
+
+
 if __name__ == "__main__":
     unittest.main()
