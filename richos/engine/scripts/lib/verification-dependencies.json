@@ -15467,7 +15467,7 @@
     },
     "scripts/lib/stall_watch.py#notice": {
       "source": "scripts/lib/stall_watch.py",
-      "sha256": "5e8a2a62e853843e945bd545ad8dc998b115b57035608f0b2c51d6f925f3317c",
+      "sha256": "5dafd95cc31823a3731bd0b7c4b3f1ce0135de0f39035e9a84bedad7a594798d",
       "evidence": "--notice parses arguments and prints fixed text; its numbers are this file's constants or the STALL_WATCH_* and RICHOS_RESOURCE_WAIT_MINUTES environment overrides. It returns before the registry, the slot line or the CPU sampler is loaded. The module imports resource_waits.py, which reads no configuration at import. Renewed 2026-10-01: the module also imports escalations.py (the ESCALATION watch), which reads no configuration at import; --notice prints fixed text about it and reads neither the ledger nor any transcript.",
       "keys": [],
       "edges": [
