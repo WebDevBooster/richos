@@ -64,10 +64,22 @@ test('application and universal links accept only known destinations and cannot 
   assert.equal(destination('https://links.example/#thread=general', ['links.example']).threadId, 'general');
   for (const value of ['richos://pair/#pair=secret', 'richos://conversation/#pair=x', 'https://evil.example/#thread=x', 'richos://conversation/?q=x#thread=y', 'richos://conversation/#thread=x&thread=y']) assert.throws(() => destination(value, ['links.example']));
 });
-test('distribution configuration rejects missing listing and unsafe service destinations', async () => {
+test('distribution configuration rejects missing listing and unsafe service destinations', async t => {
   const { configuration } = await import('../cli/release.mjs');
-  const config = configuration(); assert.equal(config.appId, null); assert.equal(config.metrics, false);
-  assert.throws(() => configuration(undefined, true), /Configure/);
+  const { writeFileSync: write, rmSync: remove } = require('node:fs'), { join } = require('node:path');
+  const saved = process.env.RICHOS_MOBILE_RELEASE_CONFIG; delete process.env.RICHOS_MOBILE_RELEASE_CONFIG;
+  t.after(() => { if (saved === undefined) delete process.env.RICHOS_MOBILE_RELEASE_CONFIG; else process.env.RICHOS_MOBILE_RELEASE_CONFIG = saved; });
+  const dir = require('./storage.cjs').createScratch('release-config-distribution');
+  t.after(() => remove(dir, { recursive: true, force: true }));
+  const committed = configuration(undefined, true);
+  assert.match(committed.appId, /^\d{6,15}$/, 'the committed file carries the listing ID'); assert.equal(committed.metrics, false);
+  const check = (name, change) => { const file = join(dir, `${name}.json`); write(file, JSON.stringify({ ...committed, ...change })); return () => configuration(file, true); };
+  assert.doesNotThrow(check('valid', {}));
+  assert.throws(check('no-listing', { appId: null }), /Configure the verified RichOS Apple app ID/);
+  assert.throws(check('no-support', { supportURL: null }), /Configure supportURL/);
+  assert.throws(check('insecure-support', { supportURL: 'http://richos.ceo/support' }), /Invalid supportURL/);
+  assert.throws(check('insecure-policy', { policyURL: 'http://updates.richos.ceo/v1/policy' }), /Invalid policyURL/);
+  assert.throws(check('wrong-policy-path', { policyURL: 'https://updates.richos.ceo/other' }), /\/v1\/policy/);
 });
 
 test('Release carries the hosted update-policy address; development keeps its local override', async t => {
