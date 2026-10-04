@@ -132,7 +132,7 @@ NOT_APP_INNER = {"android": ("/src/test/", "/src/testDebug/"), "ios": ("/Tests/"
 # (project.yml includes it), App-Info.plist (its INFOPLIST_FILE) and the two .entitlements files
 # (CODE_SIGN_ENTITLEMENTS; the test phone's copy builds with the .testcopy one). These do not go into
 # the built app: the TestFlight tool and its tests, ExportOptions.plist (read by the export at upload,
-# never by a build), the check and test scripts, generate.sh (the project's generator, build tooling
+# never by a build), the check and test scripts (every Release/*.py, by rule below), generate.sh (the project's generator, build tooling
 # like Tools/), make-app-icon.cjs (the build uses the icons it wrote under App/) and third-party/
 # (license text). Anything else in Release/ counts.
 NOT_APP_PATH = {"android": (),
@@ -152,6 +152,8 @@ def is_app_code(platform, path):
     if rest.endswith(".md") or rest.split("/", 1)[0] in NOT_APP_TOP[platform]:
         return False
     if any(rest == p or (p.endswith("/") and rest.startswith(p)) for p in NOT_APP_PATH[platform]):
+        return False
+    if platform == "ios" and rest.startswith("Release/") and rest.endswith(".py") and "/" not in rest[8:]:
         return False
     return not any(marker in "/" + rest for marker in NOT_APP_INNER[platform])
 

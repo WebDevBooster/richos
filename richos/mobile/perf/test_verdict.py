@@ -54,6 +54,13 @@ check("no-out evidence is scratch", d != "None.evidence" and os.path.isabs(d) an
 os.rmdir(d)
 check("out-beside evidence kept", perf.default_evidence_dir("/x/r.json") == "/x/r.json.evidence")
 
+_R = "richos/mobile/native-ios/Release/"
+check("Release python scripts are tooling", not watch.is_app_code("ios", _R + "check_device_family.py")
+      and not watch.is_app_code("ios", _R + "check_sdk_floor.test.py"))
+check("Release build inputs stay app code", all(
+    watch.is_app_code("ios", _R + n) for n in ("App-Info.plist", "platform.yml", "RichOSNative.entitlements",
+                                               "RichOSNative.testcopy.entitlements")))
+
 if fails:
     sys.exit(1)
 print("ok")
