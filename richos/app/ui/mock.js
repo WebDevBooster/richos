@@ -1928,8 +1928,16 @@
     const admission = !quotaPolicy.enabled ? { state: "disabled" } : weekly ? (weekly.resetsAt > Date.now() ? { state: "held", resetsAt: weekly.resetsAt } : { state: "unknown" }) : !window || remaining <= 0 ? { state: "unknown" }
       : high && remaining < 20 * 60000 ? { state: "ready" } : high ? { state: "held", resetsAt: window.resetsAt }
       : fixture.state === "fresh" ? { state: "ready" } : { state: "unknown" };
-    return { ...fixture, resets: structuredClone(resetOffers), refreshIntervalMs: 5 * 60000, policy: { ...quotaPolicy }, admission };
+    // Fill-first in the preview: the preset may carry `accounts`, `atThreshold`, `heldUntil`,
+    // `actAt` and `refreshIntervalMs`; Add and Remove change the preview's own list.
+    const list = mockAccounts.length ? mockAccounts : (fixture.accounts || []);
+    const accounts = list.length > 1 ? structuredClone(list) : [];
+    const atThreshold = mockAtThreshold !== "pause" ? mockAtThreshold : (fixture.atThreshold || "pause");
+    return { refreshIntervalMs: 5 * 60000, ...fixture, resets: structuredClone(resetOffers), policy: { ...quotaPolicy }, admission,
+      accounts, atThreshold, heldUntil: fixture.heldUntil ?? null };
   }
+  let mockAccounts = structuredClone(preset.quota?.accounts || []);
+  let mockAtThreshold = preset.quota?.atThreshold || "pause";
   window.RichBridge = {
     isMock: true,
 
@@ -1962,6 +1970,21 @@
           if (!Number.isInteger(args.policy.pausePercent) || args.policy.pausePercent < 1 || args.policy.pausePercent > 99) throw new Error("Invalid pause threshold.");
           quotaPolicy = { ...args.policy }; localStorage.setItem("richos-mock-quota-policy", JSON.stringify(quotaPolicy)); return quotaView();
         }
+        case "claude_account_add": {
+          if (!mockAccounts.length) mockAccounts.push({ id: "1", label: "Account 1", inUse: true, windows: structuredClone(quotaView().windows), checkedAt: Date.now(), exhaustedUntil: null, message: null });
+          const id = String(Math.max(...mockAccounts.map(a => Number(a.id))) + 1);
+          mockAccounts.push({ id, label: (args.label || "").trim() || `Account ${id}`, inUse: false, windows: [], checkedAt: null, exhaustedUntil: null, message: null });
+          return quotaView();
+        }
+        case "claude_account_remove": {
+          if (args.id === "1") throw "Account 1 is your own Claude Code sign-in and cannot be removed here.";
+          mockAccounts = mockAccounts.filter(a => a.id !== args.id);
+          if (!mockAccounts.some(a => a.inUse) && mockAccounts.length) mockAccounts[0].inUse = true;
+          return quotaView();
+        }
+        case "claude_account_sign_in": return { state: "connecting", message: "Complete sign-in in your browser, then return here." };
+        case "claude_account_sign_in_poll": return null;
+        case "set_claude_at_threshold": { mockAtThreshold = args.value; return quotaView(); }
         // ---- screenshots and files on the Mac composer (CEO §86) -------------------------
         case "attach_pasted_file": {
           const h = (options && options.headers) || {};
