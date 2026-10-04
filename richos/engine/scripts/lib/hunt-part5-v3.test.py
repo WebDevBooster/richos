@@ -197,5 +197,34 @@ class P5_82_UnboundShellPositionals(unittest.TestCase):
         self.assertEqual(self.reasons("""sh -c 'rm -f "${1:?}/file"' sh"""), [])
 
 
+class P5_83_SessionIdAssignment(Scratch):
+    """`SID=<uuid>; rm .../$SID/scratchpad/x` names the same shared session as the literal path."""
+
+    SID = "11111111-2222-3333-4444-555555555555"
+
+    def setUp(self):
+        super().setUp()
+        sys.path.insert(0, HERE)
+        self.sp = load("shared_scratchpad_p5v3", os.path.join(HERE, "shared_scratchpad.py"))
+        self.root = os.path.realpath(os.path.join(self.tmp, "shared-root"))
+        os.makedirs(os.path.join(self.root, "project", self.SID, "scratchpad"))
+        self.cwd = os.path.realpath(os.path.join(self.tmp, "work"))
+        os.makedirs(self.cwd)
+
+    def refusal(self, cmd):
+        return self.sp.verdict(cmd, cwd=self.cwd, roots=[self.root])
+
+    def test_literal_session_path_refused(self):
+        self.assertIsNotNone(self.refusal(
+            "rm -f %s/project/%s/scratchpad/notes.txt" % (self.root, self.SID)))
+
+    def test_assigned_session_id_refused(self):
+        self.assertIsNotNone(self.refusal(
+            "SID=%s; rm -f %s/project/$SID/scratchpad/notes.txt" % (self.SID, self.root)))
+
+    def test_assigned_relative_dir_still_resolves_against_cwd(self):
+        self.assertIsNone(self.refusal("D=sub; rm -rf $D"))
+
+
 if __name__ == "__main__":
     unittest.main()

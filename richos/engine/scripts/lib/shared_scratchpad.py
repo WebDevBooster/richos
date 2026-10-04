@@ -123,6 +123,22 @@ def protected(path, roots):
 
 def _expand(word, assigned, cwd):
     """The word with known variables and ~ substituted, made absolute; None if unknowable."""
+    w = _subst(word, assigned)
+    if w is None:
+        return None
+    if not w.startswith("/"):
+        if not cwd:
+            return None
+        w = os.path.join(cwd, w)
+    return w
+
+
+def _subst(word, assigned):
+    """The word with known variables and ~ substituted, NOT made absolute; None if unknowable.
+
+    Hunt P5-83 (v3): an assigned VALUE is a string, not yet a path. Making
+    `SID=<uuid>` absolute against the working directory turned the session id
+    into /cwd/<uuid>, so `.../$SID/scratchpad` stopped naming the session."""
     def sub(m):
         name = m.group(1) or m.group(2)
         if name in assigned:
@@ -135,10 +151,6 @@ def _expand(word, assigned, cwd):
         return None
     if w == "~" or w.startswith("~/"):
         w = os.path.expanduser(w)
-    if not w.startswith("/"):
-        if not cwd:
-            return None
-        w = os.path.join(cwd, w)
     return w
 
 
@@ -180,7 +192,7 @@ def verdict(command, cwd=None, roots=None):
             m = ASSIGN.match(w)
             if not m:
                 break
-            val = _expand(m.group(2), assigned, here) if m.group(2) else ""
+            val = _subst(m.group(2), assigned) if m.group(2) else ""
             if val is not None:
                 assigned[m.group(1)] = val
         cmd, args = _fad._command(seg)
