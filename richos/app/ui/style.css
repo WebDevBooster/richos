@@ -3159,8 +3159,8 @@ body.bp-mid #rail-scrim {
 
 /* THE SIDEBAR GOES AWAY AT EVERY WIDTH (output side-panel PRD §8). From 820px up the rail
    leaves the row: it slides left by its own width with round 17.1's curve (.38s out-quint,
-   `cubic-bezier(.22,1,.36,1)`, written out because `--out-quint` is defined nowhere in this
-   stylesheet) and the conversation takes the room. Its content fades first (.15s), as the
+   `cubic-bezier(.22,1,.36,1)`, the value `--out-quint` holds at the question card, written
+   out here as S8 first wrote it) and the conversation takes the room. Its content fades first (.15s), as the
    mockup's `.rail-inner` does, so what moves is the empty plane. `visibility` follows the
    slide: hidden only once the slide ends, so nothing in the rail stays focusable or announced
    while it is away, and visible at once on the way back.
@@ -6830,6 +6830,15 @@ body.home-open {
   line-height: 1.4;
   color: var(--ink);
   overflow-wrap: anywhere;
+}
+
+/* The question card's curve. `.ask`, `.ask-opt`, `.ask-send` and `.ask.flash` below name
+   `var(--out-quint)` and nothing defined it, so each of those `animation` and `transition`
+   declarations was invalid at computed-value time and the card ran with none of them. This is
+   the value every round that has the card defines (round 13 and round 15's desktop.html,
+   round 12's shared/app.css): `cubic-bezier(.22,1,.36,1)`, an ease-out quint. */
+:root {
+  --out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Round 13, HQ c50ed191. The existing palette and text-scale remain authoritative.
