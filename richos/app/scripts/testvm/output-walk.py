@@ -25,11 +25,11 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      pandoc. PASS when a row for the PDF is in the record with source `command`.
                      Rich's words on this thread and the assignment's notices are checked for the
                      PDF's absolute path, and whether they carry it is reported.
-  backend-worker     typed: add notes.md to the Acme repository, make notes.pdf from it with pandoc
-                     in the same folder, commit both and land them. PASS when a row with actor
-                     `worker` and a worker name is in the record, no row for that file says `rich`,
-                     and (slice S2b) after the job settles both files are in the Acme folder, each
-                     has a land row at the Acme path from the worker's worktree, notes.pdf's
+  backend-worker     typed: add notes.md to the Acme repository, make notes.zip from it with git
+                     archive in the same folder, commit both and land them. PASS when a row with
+                     actor `worker` and a worker name is in the record, no row for that file says
+                     `rich`, and (slice S2b) after the job settles both files are in the Acme folder,
+                     each has a land row at the Acme path from the worker's worktree, notes.zip's
                      worktree row is a command row with the worker's agent id, and the list folded
                      by the §4.3 rule names each file once at the Acme path with nothing missing.
                      Approve is pressed when the work panel asks.
@@ -72,12 +72,16 @@ PDF_TASK = ('Please run this harmless test command for me yourself with your she
             '--pdf-engine=/opt/homebrew/bin/typst')
 APPROVALS = 6
 # Slice S2b (PRD §12.2b): the worker also makes a file with a command in its own worktree, which
-# is under the app's data directory, and both files are landed. Absolute tool paths, as PDF_TASK's.
+# is under the app's data directory, and both files are landed. The PRD names pandoc; a WORKER's
+# pandoc call needs his approval, and on the VM that approval never reached the Approve control
+# (walks 4 and 5, 2026-10-05, esc-20261005T150541Z-ee581ad7), so the job never landed. A worker's
+# git commands run unasked, so the command-made file is a git archive of the committed notes.md.
 WORKER_TASK = ('Please add a file named notes.md whose whole content is the line "Notes for the walk test." '
-               'to the Acme repository, make notes.pdf from it in the same folder with the shell command '
-               '/opt/homebrew/bin/pandoc notes.md -o notes.pdf --pdf-engine=/opt/homebrew/bin/typst, '
-               'commit both files and land them.')
+               'to the Acme repository and commit it. Then, in the same folder, make notes.zip from that commit '
+               'with the shell command git archive -o notes.zip HEAD notes.md, commit notes.zip too, '
+               'and land both files.')
 WORKTREES = '/engine-state/target-worktrees/'
+MADE = 'notes.zip'
 FRONT_DESK_TASK = ('This is a test of your own Agent tool. Do not register an assignment for it. In this turn, '
                    'use your Agent tool yourself to start one worker that writes a file named direct.md '
                    'containing the word direct in my Acme folder.')
@@ -250,11 +254,11 @@ class OutputWalk(command_walk.CommandWalk):
     def backend_worker(self):
         """S2's worker row, then S2b's land (PRD §12.2b): after the job settles, both files are in
         the Acme folder, the record holds a land row for each at the Acme path from the worker's
-        worktree, notes.pdf's worktree row is the command witness's with the worker's agent id
+        worktree, notes.zip's worktree row is the command witness's with the worker's agent id
         (the carve-out, on the real hook), and the list the app will serve names each file once,
         at the Acme path, with nothing no longer where it was written."""
         turn, sent = self.send(WORKER_TASK)
-        names = ('notes.md', 'notes.pdf')
+        names = ('notes.md', MADE)
         end = time.monotonic() + self.a.within
         workers, lands = [], []
         while time.monotonic() < end:
@@ -274,7 +278,7 @@ class OutputWalk(command_walk.CommandWalk):
         listed = project(rows)
         on_disk = {n: self.exists_in_guest(self.company + '/' + n) for n in names}
         # "Opens": there is no open-file command before slice S3, so the landed copy is read back
-        # at the listed path: notes.md's line, and notes.pdf's PDF header.
+        # at the listed path: notes.md's line, and notes.zip's zip header.
         reads = {n: guest(self.vm, 'head -c 32 ' + shlex.quote(self.company + '/' + n) + ' 2>&1 | head -1', 60).strip()
                  for n in names}
         missing = sorted(k for k in listed if not self.exists_in_guest(k))
@@ -296,7 +300,7 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed("a worker's file is also listed as Rich's: " + json.dumps(mislabeled))
         if not all(on_disk.values()):
             raise StepFailed('the Acme folder does not hold both files: ' + json.dumps(on_disk))
-        if not (reads['notes.md'].startswith('Notes for the walk test') and reads['notes.pdf'].startswith('%PDF')):
+        if not (reads['notes.md'].startswith('Notes for the walk test') and reads[MADE].startswith('PK')):
             raise StepFailed('a landed copy does not read back as written: ' + json.dumps(reads))
         for name in names:
             acme = self.company + '/' + name
@@ -308,9 +312,9 @@ class OutputWalk(command_walk.CommandWalk):
             if len(at_acme) != 1 or at_worktree:
                 raise StepFailed('%s is not listed once at the Acme path: %s' % (name, json.dumps(sorted(listed))))
         made = [r for r in rows if r.get('source') == 'command' and WORKTREES in r.get('path', '')
-                and r['path'].endswith('/notes.pdf') and r.get('agentId')]
+                and r['path'].endswith('/' + MADE) and r.get('agentId')]
         if not made:
-            raise StepFailed("no command row for notes.pdf in the worker's worktree with its agent id (the carve-out)")
+            raise StepFailed("no command row for %s in the worker's worktree with its agent id (the carve-out)" % MADE)
         if missing:
             raise StepFailed('listed but no longer where it was written: ' + json.dumps(missing))
         return evidence
