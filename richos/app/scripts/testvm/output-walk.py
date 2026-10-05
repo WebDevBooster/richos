@@ -61,6 +61,15 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      is photographed; the guest's appearance is flipped (the app follows the OS on
                      a fresh install), photographed again, and put back. PASS when all of it holds.
 
+  previews           slice S5's real-app check (§12.5), after identity, first-run and connect:
+                       --steps identity,first-run,connect,previews
+                     typed: a shell command prints a text file to preview-brief.pdf (cupsfilter) and
+                     draws its first page as preview-page.png (sips). When both rows are in the
+                     record, the Output button opens the panel; each file is opened from the list
+                     and its view photographed in both themes (the guest's appearance flipped and
+                     put back). PASS when the picture is an image named for the file and the PDF
+                     frame is found by its title; what each view shows is read off the photographs.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -82,7 +91,8 @@ _spec.loader.exec_module(command_walk)
 StepFailed = command_walk.StepFailed
 command = command_walk.command
 
-STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel']
+STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
+         'previews']
 # S4's one written file: a shell command, so no tool needs installing and witness (c) sees it.
 PANEL_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
               "and tell me when it has finished: printf '# Panel check\\n\\nOne written file.\\n' > panel-check.md")
@@ -96,6 +106,16 @@ PDF_TASK = ('Please run this harmless test command for me yourself with your she
             "and tell me when it has finished: printf '# Acme launch brief\\n\\nDraft for the walk test.\\n' > "
             'launch-brief.md && /opt/homebrew/bin/pandoc launch-brief.md -o launch-brief.pdf '
             '--pdf-engine=/opt/homebrew/bin/typst')
+# S5's real PDF and real PNG (§12.5), made with what every Mac has, so nothing needs installing:
+# cupsfilter prints the text to a PDF, and sips draws that PDF's first page as a PNG.
+PREVIEW_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
+                "and tell me when it has finished: printf 'Preview brief\\n\\nA real PDF for the walk test.\\n' > preview-brief.txt "
+                '&& /usr/sbin/cupsfilter preview-brief.txt > preview-brief.pdf 2>/dev/null '
+                '&& /usr/bin/sips -s format png preview-brief.pdf --out preview-page.png')
+# The PNG first: with WebKit's PDF view on screen a find through the window's accessibility tree
+# outlives ax.sh's 20 s guest deadline (the third walk, 2026-10-05, pressing "All output"), so
+# the PDF is the last view the step opens and nothing is looked up after it.
+PREVIEW_FILES = (('preview-page.png', 'png'), ('preview-brief.pdf', 'pdf'))
 APPROVALS = 6
 # Slice S2b (PRD §12.2b): the worker also makes a file with a command in its own worktree, which
 # is under the app's data directory, and both files are landed. The PRD names pandoc; a WORKER's
@@ -496,6 +516,89 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the panel was not open after the theme change')
         return evidence
 
+    # --- slice S5: a real PDF and a real PNG previewed in the panel -----------------------------
+    def flip_theme(self, stem):
+        """Photograph the screen in the guest's appearance, flip it, photograph again, put it back.
+        The app follows the OS on a fresh install (theme-boot), so this is both themes."""
+        first_dark = 'Dark' in guest(self.vm, 'defaults read -g AppleInterfaceStyle 2>/dev/null || true')
+        first = 'dark' if first_dark else 'light'
+        second = 'light' if first_dark else 'dark'
+        self.shot(stem + '-' + first + '.png')
+        command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to tell appearance preferences '
+                 'to set dark mode to ' + ('false' if first_dark else 'true')], 60)
+        try:
+            time.sleep(3)  # theme-boot follows the OS appearance live; give the repaint time
+            self.shot(stem + '-' + second + '.png')
+        finally:
+            command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to tell appearance preferences '
+                     'to set dark mode to ' + ('true' if first_dark else 'false')], 60)
+            time.sleep(2)
+        return [stem + '-' + first + '.png', stem + '-' + second + '.png']
+
+    def previews(self):
+        """S5's real-app check (§12.5): a real PDF and a real PNG written by Rich preview in the
+        panel, photographed in both themes."""
+        turn, sent = self.send(PREVIEW_TASK)
+        end = time.monotonic() + self.a.within
+        rows = {}
+        while time.monotonic() < end:
+            record = self.record()
+            rows = {n: [r for r in record if r.get('path', '').endswith('/' + n)] for n, _ in PREVIEW_FILES}
+            if all(rows.values()):
+                break
+            self.approve_pending(sent)
+            time.sleep(5)
+        self.save_record('record-previews.jsonl')
+        evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'rows': rows, 'files': {}}
+        observed = self.out / 'previews-observed.json'
+
+        def note():
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        note()
+        missing = [n for n, found in rows.items() if not found]
+        if missing:
+            raise StepFailed('no row reached the record within %d s for: %s' % (self.a.within, ', '.join(missing)))
+        evidence['on_disk'] = {n: guest(self.vm, 'ls -l ' + shlex.quote(rows[n][-1]['path']) + ' 2>&1 | head -1', 60).strip()
+                               for n, _ in PREVIEW_FILES}
+        note()
+        self.wait_for('files from this thread', role='AXCheckBox', seconds=60)
+        self.press('files from this thread', role='AXCheckBox')
+        self.wait_for('Close the output panel', seconds=20)
+        failures = []
+        for name, kind in PREVIEW_FILES:
+            self.wait_for(name, seconds=20)
+            # The row, or the conversation's link to the same file: either opens its file view.
+            self.press(name)
+            self.wait_for('All output', seconds=20)
+            time.sleep(4)  # the read, the decode and WebKit's PDF view; the viewer says Reading… meanwhile
+            # The pictures first: they are the evidence, and nothing after them can lose them.
+            shots = self.flip_theme('preview-' + kind)
+            # Then the viewer, by name, through targeted finds: a whole-tree read of this window
+            # outlived ax.sh's 20 s guest deadline on the second walk (2026-10-05). The picture is
+            # an AXImage described by its alt text, the file's name; the PDF frame is named by its
+            # title, and the role WebKit gives a frame holding its PDF view is recorded as found.
+            seen = {}
+            roles = ('AXImage',) if kind == 'png' else ('AXGroup', 'AXWebArea', 'AXScrollArea')
+            for role in roles:
+                try:
+                    seen[role] = self.present(name, role=role)
+                except StepFailed as exc:
+                    seen[role] = 'unknown: ' + str(exc).splitlines()[0][:160]
+                if seen[role] is True:
+                    break
+            evidence['files'][name] = {'shots': shots, 'viewer_found_as': seen}
+            note()
+            if not any(v is True for v in seen.values()):
+                failures.append(name + ': no ' + '/'.join(roles) + ' named for the file in its view: ' + json.dumps(seen))
+            # Back to the list with Escape (§6.8: the file view steps back to the list), a key
+            # press that needs no lookup in the window's tree.
+            command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to key code 53'], 60)
+            time.sleep(1)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
     def open_reveal(self):
         if not self.a.probe or not self.a.probe.is_file():
             raise StepFailed('--probe must name the built examples/output_files_probe binary')
@@ -553,9 +656,10 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
-    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel')),
-                   help='default: every step but open-reveal (alone, with --no-app) and panel '
-                        '(S4: --steps identity,first-run,connect,panel)')
+    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel', 'previews')),
+                   help='default: every step but open-reveal (alone, with --no-app), panel '
+                        '(S4: --steps identity,first-run,connect,panel) and previews '
+                        '(S5: --steps identity,first-run,connect,previews)')
     p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
     a = p.parse_args()
     steps = a.steps.split(',')
