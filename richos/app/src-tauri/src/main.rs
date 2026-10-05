@@ -3660,6 +3660,9 @@ fn main() {
             get_timeline,
             // --- Codex-UX slice 7 (2026-08-29): the read-only worker inspector ---
             set_inspector_width,
+            // --- the Output panel's split width (output side-panel PRD §9.5, S9), beside its
+            //     sibling divider's rather than at the end, where parallel slices append ---
+            set_output_width,
             // --- Codex-UX slice 6 (2026-08-29): steering and stop (§9.2/§9.3) ---
             stop_turn,
             steer_message,
@@ -6056,6 +6059,13 @@ fn set_sidebar_width(state: State<AppState>, width: f64) -> Result<f64, String> 
 #[tauri::command(async)]
 fn set_inspector_width(state: State<AppState>, width: f64) -> Result<f64, String> {
     state.nav.lock().unwrap().set_inspector_width(width).map_err(|e| e.to_string())
+}
+
+/// Returns the width the store ACCEPTED: floored at 320px, never capped, because the Output
+/// panel's ceiling is the live stop the page measures (output side-panel PRD §9.5, nav.rs).
+#[tauri::command(async)]
+fn set_output_width(state: State<AppState>, width: f64) -> Result<f64, String> {
+    state.nav.lock().unwrap().set_output_width(width).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]

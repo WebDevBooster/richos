@@ -51,6 +51,19 @@ pub const INSPECTOR_WIDTH_DEFAULT: f64 = 336.0;
 pub const INSPECTOR_WIDTH_MIN: f64 = 280.0;
 pub const INSPECTOR_WIDTH_MAX: f64 = 520.0;
 
+/// The Output panel's split width (output side-panel PRD §9.5; slice S9). Default 400px and a
+/// floor of 320px, as the panel's own `PANEL_DEFAULT` / `PANEL_MIN` (`ui/output-panel.js`).
+///
+/// **There is no ceiling here, and that is the design, not an omission.** The panel's maximum
+/// is *the stop*: the window's width less the sidebar's less the conversation at its narrowest
+/// (`STAGE_MIN`, 360px), a number that moves with the window and with the sidebar. A ceiling
+/// fixed in this file would be wrong on every other window, so Rust clamps the floor and a
+/// value that is not a number, and the page clamps the ceiling when it paints (§9.5: "Rust
+/// clamps the floor and the page clamps the ceiling at paint"). *Open completely* is never
+/// written here: `full` is not persisted, and reopening is at the split width (§9.4).
+pub const OUTPUT_WIDTH_DEFAULT: f64 = 400.0;
+pub const OUTPUT_WIDTH_MIN: f64 = 320.0;
+
 /// A rename override is bounded for the same reason an entity id is: it is CEO-supplied
 /// text that ends up in a durable file and in the accessible name of a control.
 pub const TITLE_MAX_LEN: usize = 200;
@@ -69,6 +82,10 @@ pub struct NavState {
     /// than a shared one: §2.1 calls these two dividers separately adjustable, and one
     /// number for both would make dragging the rail move the inspector.
     pub inspector_width: f64,
+    /// The Output panel's split width in CSS pixels (output side-panel PRD §9.5). Its own
+    /// field, beside the inspector's, for the reason that one has its own: one number for two
+    /// dividers would make dragging one move the other.
+    pub output_width: f64,
     /// Entity ids whose disclosure is closed. Absent = open, so a newly registered entity
     /// appears expanded rather than silently hidden.
     pub collapsed_entities: Vec<String>,
@@ -87,6 +104,7 @@ impl Default for NavState {
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
             sidebar_collapsed: false,
             inspector_width: INSPECTOR_WIDTH_DEFAULT,
+            output_width: OUTPUT_WIDTH_DEFAULT,
             collapsed_entities: Vec::new(),
             pinned_threads: Vec::new(),
             archived_threads: Vec::new(),
@@ -132,6 +150,7 @@ impl NavStore {
             Some(Some(mut s)) => {
                 s.sidebar_width = clamp_width(s.sidebar_width);
                 s.inspector_width = clamp_inspector_width(s.inspector_width);
+                s.output_width = clamp_output_width(s.output_width);
                 (s, true)
             }
             // A file that EXISTS and will not parse. Defaults for this boot, in memory only.
@@ -200,6 +219,14 @@ impl NavStore {
         Ok(self.state.inspector_width)
     }
 
+    /// Returns the width actually stored — floored at 320px, never capped (see
+    /// [`OUTPUT_WIDTH_MIN`]): the page paints `min(this, the stop)`.
+    pub fn set_output_width(&mut self, width: f64) -> std::io::Result<f64> {
+        self.state.output_width = clamp_output_width(width);
+        self.persist()?;
+        Ok(self.state.output_width)
+    }
+
     pub fn set_sidebar_collapsed(&mut self, collapsed: bool) -> std::io::Result<()> {
         self.state.sidebar_collapsed = collapsed;
         self.persist()
@@ -249,6 +276,15 @@ fn clamp_inspector_width(w: f64) -> f64 {
         return INSPECTOR_WIDTH_DEFAULT;
     }
     w.clamp(INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX)
+}
+
+/// The floor only: the ceiling is the live stop, which only the page can measure (§9.5).
+/// `INFINITY` is not finite, so it is the default rather than a panel wider than any window.
+fn clamp_output_width(w: f64) -> f64 {
+    if !w.is_finite() {
+        return OUTPUT_WIDTH_DEFAULT;
+    }
+    w.max(OUTPUT_WIDTH_MIN)
 }
 
 /// Idempotent set membership on a `Vec<String>` used as a small ordered set. Idempotent
@@ -322,6 +358,41 @@ mod tests {
     }
 
     #[test]
+    fn the_output_width_is_floored_never_capped_and_durable() {
+        // Output side-panel PRD §9.5: "default 400, clamped 320..∞ in Rust; the upper bound is the
+        // live stop, so Rust clamps the floor and the page clamps the ceiling at paint".
+        let path = tmp_path("output");
+        {
+            let mut store = NavStore::open(&path);
+            assert_eq!(store.state().output_width, OUTPUT_WIDTH_DEFAULT);
+            assert_eq!(store.set_output_width(10.0).unwrap(), OUTPUT_WIDTH_MIN, "the floor holds");
+            // The stop at 1440px with the sidebar away is 1080px, and a 2560px display's is
+            // 2200px: no number in this file could be the ceiling, so none is.
+            assert_eq!(store.set_output_width(2200.0).unwrap(), 2200.0, "no ceiling in the store");
+            assert_eq!(store.set_output_width(f64::NAN).unwrap(), OUTPUT_WIDTH_DEFAULT);
+            assert_eq!(store.set_output_width(f64::INFINITY).unwrap(), OUTPUT_WIDTH_DEFAULT);
+            assert_eq!(store.set_output_width(756.0).unwrap(), 756.0);
+            // Its own number: the rail's and the inspector's are untouched, and the reverse.
+            assert_eq!(store.state().sidebar_width, SIDEBAR_WIDTH_DEFAULT);
+            assert_eq!(store.state().inspector_width, INSPECTOR_WIDTH_DEFAULT);
+            store.set_inspector_width(412.0).unwrap();
+            assert_eq!(store.state().output_width, 756.0, "the inspector's divider does not move it");
+        }
+        let reopened = NavStore::open(&path);
+        assert_eq!(reopened.state().output_width, 756.0, "the split width survives a relaunch");
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn a_stored_output_width_under_the_floor_is_floored_on_load() {
+        // A hand-edited or older file: the store renders what it would have accepted.
+        let path = tmp_path("output-floor");
+        std::fs::write(&path, br#"{"output_width":12.5}"#).unwrap();
+        assert_eq!(NavStore::open(&path).state().output_width, OUTPUT_WIDTH_MIN);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
     fn a_preferences_file_written_before_the_inspector_existed_still_loads() {
         // The forward-compat case that matters in practice: an owner who has been running
         // RichOS has a nav.json with no `inspector_width` key. `#[serde(default)]` on the
@@ -337,6 +408,7 @@ mod tests {
         assert_eq!(store.state().sidebar_width, 355.0, "the old file's own values survive");
         assert_eq!(store.state().pinned_threads, vec!["thr_a".to_string()]);
         assert_eq!(store.state().inspector_width, INSPECTOR_WIDTH_DEFAULT, "the new field defaults");
+        assert_eq!(store.state().output_width, OUTPUT_WIDTH_DEFAULT, "and so does the Output panel's");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -393,6 +465,7 @@ mod tests {
 
         assert!(store.set_sidebar_width(420.0).is_err(), "an unwritten change is not reported as saved");
         assert!(store.set_inspector_width(380.0).is_err());
+        assert!(store.set_output_width(560.0).is_err());
         assert!(store.set_sidebar_collapsed(true).is_err());
         assert!(store.set_entity_collapsed("ent_a", true).is_err());
         assert!(store.set_thread_pinned("thr_a", true).is_err());
@@ -404,7 +477,7 @@ mod tests {
         assert_eq!(
             std::fs::read(&path).unwrap(),
             original,
-            "seven writes later, his file is byte-for-byte what it was"
+            "eight writes later, his file is byte-for-byte what it was"
         );
         // The temp sibling `persist` would have written must not be left behind either.
         assert!(!path.with_extension("json.tmp").exists());
