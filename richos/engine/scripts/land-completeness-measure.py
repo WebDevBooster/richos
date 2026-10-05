@@ -178,6 +178,37 @@ def _at_command_position(toks, i):
     return k < 0 or toks[k] in _SEPARATORS
 
 
+def _only_if_left_failed(toks, i):
+    """True when the command starting at toks[i] follows `||`.
+
+    Hunt P5-46 (v3): `true || git merge cc/example` succeeds without running the
+    merge. A successful tool result shows the shell call succeeded, not that the
+    right side of `||` ran, so such a command is never credited."""
+    k = i - 1
+    while k >= 0 and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[k]):
+        k -= 1
+    return k >= 0 and toks[k] == "||"
+
+
+_RUNNER_WORDS = {"bash", "sh", "zsh", "python", "python3", "env", "exec", "nohup", "time", "command"}
+
+
+def _runs_marker(toks):
+    """True when a REMOVAL_MARKERS script is the program of a command that runs.
+
+    The program is the command word, or the word after a runner (`bash x.sh`).
+    A marker anywhere else (an echo argument, a commit message) is not the act."""
+    for k, t in enumerate(toks):
+        if not any(os.path.basename(t).startswith(m) for m in REMOVAL_MARKERS):
+            continue
+        start = k
+        if k > 0 and os.path.basename(toks[k - 1]) in _RUNNER_WORDS:
+            start = k - 1
+        if _at_command_position(toks, start) and not _only_if_left_failed(toks, start):
+            return True
+    return False
+
+
 def classify_land(cmd):
     """Is this command a `git merge`? Returns the merged ref or None.
 
@@ -193,7 +224,8 @@ def classify_land(cmd):
     i = 0
     while i < len(toks):
         t = toks[i]
-        if (t == "git" or t.endswith("/git")) and _at_command_position(toks, i):
+        if ((t == "git" or t.endswith("/git")) and _at_command_position(toks, i)
+                and not _only_if_left_failed(toks, i)):
             j = i + 1
             while j < len(toks) and toks[j].startswith("-"):
                 j += 2 if toks[j] in _ARG_TAKING else 1
@@ -220,14 +252,14 @@ def classify_land(cmd):
 def is_removal(cmd):
     if not cmd:
         return False
-    for m in REMOVAL_MARKERS:
-        if m in cmd:
-            return True
+    toks = _command_tokens(strip_noncommand(cmd))
+    if _runs_marker(toks):
+        return True
     # A raw `git worktree remove`. Matched as a token sequence, not a substring,
     # so prose in a commit message does not count as the act.
-    toks = _command_tokens(cmd)
     for k in range(len(toks) - 2):
         if (toks[k].endswith("git") and _at_command_position(toks, k)
+                and not _only_if_left_failed(toks, k)
                 and toks[k + 1] == "worktree" and toks[k + 2] == "remove"):
             return True
     return False
