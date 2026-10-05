@@ -7095,6 +7095,10 @@ body.home-open {
    1 min ago — stale · checks every 5 min" as fitting a 388.4px box that its painted text
    overran by 2.06px (1210px wide, measured with getBoundingClientRect). */
 .quota-reading-part { white-space: nowrap; }
+/* The same rule for the last two words of the hint under the sentence and of the no-reading
+   card (quota.js keepTail): "not / enforced." and "3 / min." were each a lone word on a line in
+   the walk of 2026-10-05 (0-no-reading, 1-one-account). */
+.quota-keep { white-space: nowrap; }
 #quota-freshness { min-width: min-content; padding-right: 4px; }
 
 /* ---------------------------------------------------------------------------------------

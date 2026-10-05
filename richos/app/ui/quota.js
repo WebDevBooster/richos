@@ -104,6 +104,13 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
   const poss = label => esc(label) + "’s";
   function node(tag, cls, text = "") { const n = document.createElement(tag); n.className = cls; n.textContent = text; return n; }
+  // The last two words of a short line stay together, so a wrap never leaves one word alone
+  // ("not / enforced." under the sentence, the walk of 2026-10-05 after nightly 36; the D4 kind).
+  function keepTail(el, text) {
+    const cut = text.lastIndexOf(" ", text.lastIndexOf(" ") - 1);
+    if (cut < 0) { el.textContent = text; return; }
+    el.replaceChildren(text.slice(0, cut + 1), node("span", "quota-keep", text.slice(cut + 1)));
+  }
   function stale(now = Date.now()) { return !view || view.state !== "fresh" || !view.checkedAt || now < view.checkedAt || now - view.checkedAt >= view.refreshIntervalMs || view.windows.some(w => w.resetsAt && w.resetsAt <= now); }
   function validDraft() { return /^[0-9]{1,2}$/.test(field("quota-threshold").value) && Number(field("quota-threshold").value) >= 1; }
   function say(text) { field("quota-save-status").textContent = text; field("quota-save-status").hidden = !text; }
@@ -358,8 +365,8 @@
     // the off line. A draft in progress shows Save and Keep (or the validation line) instead.
     const hint = field("quota-hint");
     hint.hidden = dirty || (many && on);
-    hint.textContent = hint.hidden ? "" : many ? `Off — nothing happens at ${t}%; the line is only drawn.`
-      : on ? "Change the number to move the line." : "Off — the line is only drawn, not enforced.";
+    keepTail(hint, hint.hidden ? "" : many ? `Off — nothing happens at ${t}%; the line is only drawn.`
+      : on ? "Change the number to move the line." : "Off — the line is only drawn, not enforced.");
     field("quota-boundary-one").hidden = many;
     field("quota-boundary-many").hidden = !many;
   }
@@ -461,7 +468,7 @@
       head = "No current reading, so nothing is held.";
       const ask = view.retryAt > now ? view.retryAt : view.nextCheckAt;
       body = `${view.message ? "The last check brought no usage figures" : "Claude Code’s last answer had no usage figures"}, and the pause acts only on a number. Rather than wait on Claude Code, Rich’s agents keep working; the pause acts again once a reading shows the five-hour window past <b>${fiveLine()}%</b>.`
-        + (ask > now ? ` RichOS asks again in ${esc(duration(ask - now))}.` : "");
+        + (ask > now ? ` RichOS asks again in <span class="quota-keep">${esc(duration(ask - now))}.</span>` : "");
     } else if (state === "held") {
       head = "Ready to pause"; body = esc(weeklyHeld ? "Weekly usage reached 99%. Agents will pause at their next step until allowance is confirmed." : `The five-hour allowance has reached ${view.policy.pausePercent}%. Agents will pause when they finish their current step. No pauses observed yet.`);
     } else {

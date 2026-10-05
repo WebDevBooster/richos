@@ -678,9 +678,12 @@ async function main() {
           const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
           for (let n = walker.nextNode(); n; n = walker.nextNode()) {
             for (const m of n.textContent.matchAll(/\S+/g)) {
+              // One line is the words whose boxes overlap vertically, never an exact top: a bold
+              // and a regular glyph on one line can differ by a pixel in where their boxes start.
               const r = document.createRange(); r.setStart(n, m.index); r.setEnd(n, m.index + m[0].length);
-              const top = Math.round(r.getBoundingClientRect().top);
-              rows.set(top, [...(rows.get(top) || []), m[0]]);
+              const box = r.getBoundingClientRect(), mid = (box.top + box.bottom) / 2;
+              const key = [...rows.keys()].find(k => Math.abs(k - mid) < box.height / 2) ?? mid;
+              rows.set(key, [...(rows.get(key) || []), m[0]]);
             }
           }
           const col = box.closest(".quota-windows-col");
@@ -695,6 +698,42 @@ async function main() {
       await page.close();
     }
     assertEqual(lone, [], "a line holding one word");
+  });
+  // The same kind, seen in this branch's own VM walk (2026-10-05): round 16's hint "Off — the
+  // line is only drawn, not / enforced." (1-one-account) and the no-reading card's "RichOS asks
+  // again in 3 / min." (0-no-reading). Their last two words stay together at every width.
+  await run.check("the hint under the sentence and the no-reading card never end on a lone word", async () => {
+    const low = { ...quota, windows: [{ ...quota.windows[0], usedPercent: 41 }, quota.windows[1]] };
+    const none = { state: "unavailable", windows: [], checkedAt: null, retryAt: null, message: null, emptyAt: Date.now(), nextCheckAt: Date.now() + 200000 };
+    const lone = [];
+    for (const [name, fixture, enabled, selector] of [["off", low, false, "#quota-hint"], ["on", low, true, "#quota-hint"],
+      ["no-reading", none, true, "#quota-hold-detail p"]]) {
+      const page = await open("dark", fixture, 100, null, enabled, { viewport: { width: 1400, height: 864 } });
+      await enableTechnical(page); await page.click("#set-quota-open");
+      await page.waitForSelector(selector);
+      for (let width = 860; width <= 1680; width += 10) {
+        await page.setViewportSize({ width, height: 864 });
+        const last = await page.evaluate(sel => {
+          const box = document.querySelector(sel), rows = new Map();
+          const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            for (const m of n.textContent.matchAll(/\S+/g)) {
+              // One line is the words whose boxes overlap vertically, never an exact top: a bold
+              // and a regular glyph on one line can differ by a pixel in where their boxes start.
+              const r = document.createRange(); r.setStart(n, m.index); r.setEnd(n, m.index + m[0].length);
+              const box = r.getBoundingClientRect(), mid = (box.top + box.bottom) / 2;
+              const key = [...rows.keys()].find(k => Math.abs(k - mid) < box.height / 2) ?? mid;
+              rows.set(key, [...(rows.get(key) || []), m[0]]);
+            }
+          }
+          const lines = [...rows.values()].map(w => w.join(" "));
+          return lines.length > 1 ? lines.at(-1) : null;
+        }, selector);
+        if (last !== null && !last.includes(" ")) lone.push(`${name} @${width}: ends on "${last}"`);
+      }
+      await page.close();
+    }
+    assertEqual(lone, [], "a last line holding one word");
   });
   await run.check("no renderer errors", async () => assertEqual(errors, []));
   await browser.close();
