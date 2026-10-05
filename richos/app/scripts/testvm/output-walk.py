@@ -640,7 +640,8 @@ class OutputWalk(command_walk.CommandWalk):
                 raise StepFailed('%s: %.1f is not within %d px of %.1f' % (what, a, tol, b))
 
         # Run after previews, save-copy and attach the panel is already open and the button's name
-        # counts four files, not one: open_panel finds it by the part of its name that never moves.
+        # counts every file those steps wrote (5 on the combined walk), not one: open_panel finds
+        # it by the part of its name that never moves.
         note(panel=self.open_panel())
         time.sleep(1)
         rail = self.node('Entities and threads')
