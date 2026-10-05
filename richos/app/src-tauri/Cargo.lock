@@ -2906,10 +2906,12 @@ version = "1.2.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "core-foundation 0.10.1",
  "futures-util",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "libc",
  "minisign-verify",
  "notify",
  "reqwest",
