@@ -196,6 +196,15 @@ core-foundation = "0.10"
 name = "provision_model"
 path = "examples/provision_model.rs"
 
+# THE OUTPUT FILE COMMANDS, WITHOUT A PANEL. Compiles src/output_files.rs by path and calls what
+# `output_open` and `output_reveal` call, for the test VM's real-app check (Output side panel
+# PRD §12.3) until the panel exists. `test = true` so its own test runs
+# (scripts/output-files-probe.test.sh); that test opens nothing.
+[[example]]
+name = "output_files_probe"
+path = "examples/output_files_probe.rs"
+test = true
+
 [dev-dependencies]
 # `examples/verify_update_signature.rs` — the pre-publication check that a produced
 # `.app.tar.gz` and its `.sig` actually agree under the key `tauri.conf.json` ships.

@@ -34,6 +34,19 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      a file was written and by whom, and the record's rows for it. PASS when no
                      row attributes a worker's write to Rich.
 
+  open-reveal        slice S3's real-app check (§12.3), run alone and with no app launched:
+                       run-walk.py --no-app --home EMPTY_DIR --engine ENGINE --report REPORT -- \\
+                           output-walk.py --out DIR --expect-sha SHA --steps open-reveal --probe PROBE
+                     PROBE is `examples/output_files_probe` built from the same tree. There is no
+                     button for output_open or output_reveal until slice S4 builds the panel, so the
+                     probe calls the very functions those commands call. In the guest it records a
+                     Markdown file it wrote as one witnessed write, opens it by its output id (the
+                     default app), screenshots, shows it in Finder by the same id, screenshots.
+                     PASS when both say what they did, the default app has a window named for the
+                     file and Finder has one named for its folder; whether Finder's selection is the
+                     file is read from Finder when the guest allows it, and is always in the second
+                     screenshot.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -53,8 +66,9 @@ _spec = importlib.util.spec_from_file_location('command_walk', HERE / 'command-w
 command_walk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(command_walk)
 StepFailed = command_walk.StepFailed
+command = command_walk.command
 
-STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker']
+STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal']
 # Every word of each file is given, so nothing has to be known about Acme: the first run of this
 # walk asked for "two sentences about the Acme launch", and Rich rightly asked what they should say
 # instead of making them up (stop_reason question_asked, no assignment).
@@ -255,6 +269,73 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed("a front-desk worker's write is listed as Rich's: " + json.dumps(misattributed))
         return evidence
 
+    # --- slice S3: output_open and output_reveal, through the probe -----------------------------
+    def probe(self, *words):
+        """One probe verb in the guest; its JSON line."""
+        line = guest(self.vm, ' '.join(shlex.quote(w) for w in ('./output_files_probe',) + words) + ' || true', 60)
+        try:
+            return json.loads(line.splitlines()[-1])
+        except (ValueError, IndexError):
+            raise StepFailed('the probe printed no answer: ' + line)
+
+    def windows(self):
+        """Every window of every foreground process in the guest, as (process, window) pairs."""
+        script = ('tell application "System Events"\n'
+                  '  set out to ""\n'
+                  '  repeat with p in (every process whose background only is false)\n'
+                  '    repeat with w in windows of p\n'
+                  '      set out to out & (name of p) & tab & (name of w) & linefeed\n'
+                  '    end repeat\n'
+                  '  end repeat\n'
+                  '  return out\n'
+                  'end tell')
+        text = command([HERE / 'ax.sh', self.vm, script], 60)
+        return [tuple(l.split('\t', 1)) for l in text.splitlines() if '\t' in l]
+
+    def open_reveal(self):
+        if not self.a.probe or not self.a.probe.is_file():
+            raise StepFailed('--probe must name the built examples/output_files_probe binary')
+        command([HERE / 'guest.sh', self.vm, '--push', self.a.probe, 'output_files_probe'], 120)
+        folder = self.home + '/Acme'
+        brief = folder + '/walk-brief.md'
+        data = self.payload + '/probe-data'
+        thread = 'thr_walk_open_reveal'
+        guest(self.vm, 'chmod +x output_files_probe && mkdir -p ' + shlex.quote(folder) + ' ' + shlex.quote(data)
+              + " && printf '# Walk brief\\n\\nOpened by its output id.\\n' > " + shlex.quote(brief))
+        recorded = self.probe('record', data, thread, brief)
+        if 'ok' not in recorded:
+            raise StepFailed('the file could not be recorded: ' + json.dumps(recorded))
+        output_id = recorded['ok']['id']
+        detail = self.probe('file', data, thread, output_id)
+        opened = self.probe('open', data, thread, output_id)
+        time.sleep(4)
+        self.shot('open-reveal-1-opened.png')
+        after_open = self.windows()
+        revealed = self.probe('reveal', data, thread, output_id)
+        time.sleep(4)
+        self.shot('open-reveal-2-revealed.png')
+        after_reveal = self.windows()
+        try:
+            selection = guest(self.vm, 'osascript -e ' + shlex.quote('tell application "Finder" to get name of selection'), 30)
+        except RuntimeError as exc:
+            selection = 'not readable here: ' + str(exc).strip().splitlines()[-1]
+        default_app = ((detail.get('ok') or {}).get('defaultApp') or {}).get('name')
+        evidence = {'output_id': output_id, 'recorded': recorded, 'detail': detail, 'opened': opened,
+                    'windows_after_open': after_open, 'revealed': revealed, 'windows_after_reveal': after_reveal,
+                    'finder_selection': selection, 'default_app': default_app}
+        (self.out / 'open-reveal-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        if 'ok' not in opened:
+            raise StepFailed('output_open refused: ' + json.dumps(opened))
+        if 'ok' not in revealed:
+            raise StepFailed('output_reveal refused: ' + json.dumps(revealed))
+        if not any('walk-brief.md' in w for p, w in after_open if p != 'Finder'):
+            raise StepFailed('no app shows a window for walk-brief.md after output_open: ' + json.dumps(after_open))
+        if not any(p == 'Finder' and w == 'Acme' for p, w in after_reveal):
+            raise StepFailed('Finder shows no window for the folder after output_reveal: ' + json.dumps(after_reveal))
+        if 'walk-brief.md' not in selection and not selection.startswith('not readable'):
+            raise StepFailed("Finder's selection is not the file: " + selection)
+        return evidence
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -262,7 +343,9 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
-    p.add_argument('--steps', default=','.join(STEPS))
+    p.add_argument('--steps', default=','.join(s for s in STEPS if s != 'open-reveal'),
+                   help='default: every step but open-reveal, which runs alone with --no-app')
+    p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
     a = p.parse_args()
     steps = a.steps.split(',')
     unknown = [s for s in steps if s not in STEPS]

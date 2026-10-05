@@ -666,6 +666,8 @@ richos/app/
                               path it was witnessed at, O_NOFOLLOW reads); the Launch Services
                               app list; and the `richos-output://` scheme that serves media, PDF
                               and QuickLook renditions with Range, and a bad id a 404 with no bytes
+    examples/output_files_probe.rs  the same commands from a command line, for the test VM's
+                              open-and-reveal check until the panel has its buttons (slice S4)
     src/updates.rs           THE UPDATE PATH (RICH-TODOs rows 12 and u1): check, download with
                               throttled progress, VERIFY, install, relaunch; a nine-state
                               view emitted as `rich://update`; and the failure classifier
