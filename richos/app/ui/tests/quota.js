@@ -125,6 +125,69 @@ async function main() {
       await page.close();
     });
   }
+  // Walk of nightly 37, D5: on a 1400x864 pt window the five-hour ruler's "now" tick and label ran
+  // into "began 10:20 AM" from 0-21% of the window (round 16's fixed 11% could not know how wide
+  // the stamp is). Every whole percent of the window, on every ruler, at the walk's window and
+  // this suite's minimum one: neither the tick nor the label may touch "began" or "resets", and
+  // the label still shows mid-window, where there is room for it.
+  for (const theme of ["dark", "light"]) {
+    await run.check(theme + " the now tick and label never touch began or resets, anywhere in the window", async () => {
+      const failures = [], shown = [];
+      for (const viewport of [{ width: 1400, height: 864 }, { width: 1024, height: 700 }]) {
+        const page = await open(theme, quota, 100, null, false, { viewport, locale: "en-US" });
+        try {
+          await enableTechnical(page); await page.click("#set-quota-open");
+          await page.waitForSelector(".quota-hero .quota-marker", { state: "attached" }); // zero width by design
+          await page.evaluate(t => document.documentElement.setAttribute("data-theme", t), theme);
+          const sweep = await page.evaluate(async () => {
+            const invoke = window.RichBridge.invoke.bind(window.RichBridge);
+            window.RichBridge.invoke = async (cmd, ...args) => {
+              const result = await invoke(cmd, ...args);
+              if (cmd !== "claude_quota") return result;
+              const now = Date.now();
+              return { ...result, checkedAt: now, windows: result.windows.map(w => ({ ...w, resetsAt: now + (1 - window.__elapsed / 100) * w.durationMs })) };
+            };
+            const frames = async (what, ok) => {
+              for (let i = 0; i < 300; i++) { if (ok()) return; await new Promise(r => requestAnimationFrame(r)); }
+              throw new Error("waited 300 frames for " + what);
+            };
+            const box = b => ({ l: b.left, r: b.right, t: b.top, b: b.bottom });
+            const textBox = el => { const range = document.createRange(); range.selectNodeContents(el); return box(range.getBoundingClientRect()); };
+            const hits = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+            const button = document.getElementById("quota-refresh"), out = [], shownAt50 = [];
+            for (let p = 0; p < 100; p++) {
+              window.__elapsed = p;
+              await frames("Refresh to be ready", () => !button.disabled);
+              button.click();
+              await frames(`the ruler at ${p}%`, () => {
+                const m = document.querySelector(".quota-hero .quota-marker");
+                return !button.disabled && m && Math.abs(parseFloat(m.style.left) - p) < 0.05;
+              });
+              for (const chart of document.querySelectorAll(".quota-chart")) {
+                const name = chart.closest(".quota-window").querySelector(".quota-window-label").firstChild.textContent;
+                const marker = chart.querySelector(".quota-marker"), label = marker.querySelector("span");
+                const stamps = [...chart.querySelectorAll(".quota-ends > span")];
+                const labelOn = !!label && !label.hidden && label.getClientRects().length > 0;
+                if (p === 50 && labelOn) shownAt50.push(name);
+                for (const stamp of stamps) {
+                  const s = textBox(stamp), said = stamp.textContent.replace(/\s+/g, " ");
+                  if (hits(box(marker.querySelector("i").getBoundingClientRect()), s)) out.push(`${p}% ${name}: the tick runs into "${said}"`);
+                  if (labelOn && hits(box(label.getBoundingClientRect()), s)) out.push(`${p}% ${name}: "now" runs into "${said}"`);
+                }
+              }
+            }
+            return { out, shownAt50, charts: document.querySelectorAll(".quota-chart").length };
+          });
+          assertEqual(sweep.charts, 3, "the hero ruler and both weekly rulers are swept");
+          failures.push(...sweep.out.map(f => `${viewport.width}x${viewport.height} ${f}`));
+          shown.push(`${viewport.width}x${viewport.height}: ${sweep.shownAt50.length}/3`);
+          assertEqual(sweep.shownAt50.length, 3, `at 50% every ruler has room for "now" and shows it (${viewport.width}x${viewport.height})`);
+        } finally { await page.close(); }
+      }
+      assertEqual(failures.length, 0, failures.slice(0, 12).join("\n") + (failures.length > 12 ? `\n… ${failures.length} in all` : ""));
+      return `0-99% on 3 rulers at 1400x864 and 1024x700, nothing touches; "now" shown at 50%: ${shown.join(", ")}`;
+    });
+  }
   await run.check("unavailable quota is never rendered as zero usage", async () => {
     const page = await open("dark", null);
     await enableTechnical(page); await page.click("#set-quota-open");

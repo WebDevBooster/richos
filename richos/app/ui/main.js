@@ -1396,14 +1396,39 @@ function jumpToLatest() {
   updateJumpButton();
 }
 
+// A RESIZE IS NOT THE READER SCROLLING. Narrowing a pane or the window rewraps the thread with
+// no render: measured on shot 8 of memory-strategy.js (a5f25ec59), scrollHeight 1730 -> 2058
+// while scrollTop stayed put or WebKit moved it by one 29px line, so a reader who was at the
+// bottom was left up to four lines above it, and WebKit's own move reached the listener below
+// as a scroll and dropped `followBottom`, which put up the jump-down button. So the
+// conversation's box is remembered, a scroll that arrives with a different box while following
+// is the resize's and is put back at the bottom, and a resize with no scroll at all is caught
+// by the observer.
+let laidOut = null;
+const layoutKey = () => `${conversationEl.clientWidth}x${conversationEl.clientHeight}/${messagesEl.clientWidth}`;
+
 conversationEl.addEventListener("scroll", () => {
+  const key = layoutKey(), resized = laidOut !== null && key !== laidOut;
+  laidOut = key;
+  if (followBottom && resized) conversationEl.scrollTop = conversationEl.scrollHeight;
   // §15: "while the user is at the bottom, follow streaming content; when the user scrolls
   // up, stop auto-following."
-  followBottom = atBottom();
+  else followBottom = atBottom();
   updateJumpButton();
   // And where he scrolled TO outlives the process. Debounced: a scroll fires per frame.
   parkViewStateSoon();
 });
+
+if (window.ResizeObserver) {
+  // Runs after layout and before paint, so the reader never sees the frame off the bottom.
+  const keepBottom = new ResizeObserver(() => {
+    laidOut = layoutKey();
+    if (followBottom) conversationEl.scrollTop = conversationEl.scrollHeight;
+    updateJumpButton();
+  });
+  keepBottom.observe(conversationEl);
+  keepBottom.observe(messagesEl);
+}
 
 // ---- announcements (§18) ----------------------------------------------------------------
 //

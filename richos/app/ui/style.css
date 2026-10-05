@@ -7099,6 +7099,12 @@ body.home-open {
 .quota-chart-small .quota-ends { margin-top: -2px; }
 .quota-chart-small .quota-marker i { top: 10px; }
 .quota-chart-small .quota-marker span { top: 32px; }
+/* Walk of nightly 37, D5: a tick over "began" or "resets" stops at the bottom of the bar instead
+   of reaching down into the stamp (quota.js placeNow). Measured in WebKit: hero 8-29 px, the fill's
+   own bottom edge, against the stamp's text box from 29.3 px; small 18-29 px, 4 px under the
+   fill, against the stamp's text box from 32.0 px. Colors are unchanged. */
+.quota-marker.is-short i { height: 21px; }
+.quota-chart-small .quota-marker.is-short i { height: 11px; }
 .quota-btn-quiet { border-color: transparent; padding-left: 6px; padding-right: 6px; color: var(--gold-text); font-weight: 600; }
 .quota-btn-quiet:hover { border-color: transparent; background: var(--gold-soft); }
 .quota-fast { color: var(--gold-text); font-weight: 600; }

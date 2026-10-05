@@ -169,10 +169,9 @@
     if (window.resetsAt > now && window.durationMs > 0 && window.resetsAt - window.durationMs <= now) {
       const elapsed = Math.max(0, Math.min(100, (1 - (window.resetsAt - now) / window.durationMs) * 100));
       const marker = node("span", "quota-marker"); marker.style.left = elapsed + "%"; marker.setAttribute("aria-hidden", "true");
-      marker.appendChild(node("i", ""));
-      // The "now" label is hidden near either end so it never runs into "began" or "resets"
-      // (round 16's rule: 11-86% on the hero ruler, 16-76% on the small ones).
-      if (hero ? elapsed > 11 && elapsed < 86 : elapsed > 16 && elapsed < 76) marker.appendChild(node("span", "", "now"));
+      // The "now" label is hidden near either end so it never runs into "began" or "resets", as
+      // round 16 draws it; where is measured, not a percentage (placeNow below).
+      marker.append(node("i", ""), node("span", "", "now"));
       bar.appendChild(marker);
     }
     if (line) {
@@ -199,6 +198,28 @@
     }
     return chart;
   }
+  // Walk of nightly 37, D5: round 16 hid "now" outside 11-86% of the hero ruler (16-76% on the
+  // small ones), and a percentage cannot know how wide "began 10:20 AM" is. On a 639 px ruler the
+  // label ran into "began" up to 21% and into "resets" from 80%, and the tick, which reaches
+  // below the bar to its label, cut the tops of "began" up to 19%. So both are placed from the
+  // laid-out stamps: the label shows only with NOW_CLEAR_PX of space to either stamp, and a tick
+  // that is not that clear stops at the bottom of the bar (`is-short`, style.css).
+  const NOW_CLEAR_PX = 8, TICK_HALF_PX = 2.5; // the 2 px tick and its 1.5 px halo, each side
+  function placeNow(chart) {
+    const marker = chart.querySelector(".quota-marker"), stamps = chart.querySelectorAll(".quota-ends > span");
+    if (!marker || stamps.length !== 2) return;
+    const began = stamps[0].getBoundingClientRect(), resets = stamps[1].getBoundingClientRect();
+    if (!began.width) return; // not laid out yet (a hidden sheet): the observer places it when it is
+    const clear = (left, right) => left >= began.right + NOW_CLEAR_PX && right <= resets.left - NOW_CLEAR_PX;
+    const x = marker.getBoundingClientRect().left, label = marker.querySelector("span");
+    marker.classList.toggle("is-short", !clear(x - TICK_HALF_PX, x + TICK_HALF_PX));
+    label.hidden = false;
+    const box = label.getBoundingClientRect();
+    label.hidden = !clear(box.left, box.right);
+  }
+  const placeAll = () => { for (const chart of field("quota-windows").querySelectorAll(".quota-chart")) placeNow(chart); };
+  // A window or pane resize moves the stamps without a render, so the list is watched too.
+  if (window.ResizeObserver) new ResizeObserver(placeAll).observe(field("quota-windows"));
   // The five-hour line, on the account in use only: the verb at the threshold, "off" while the
   // switch is off, and while usage is fast the moved point with the normal one as its ghost.
   function fiveHourLine() {
@@ -251,6 +272,7 @@
       heading.appendChild(reset);
       row.append(heading, ruler(window, primary, old, line)); list.appendChild(row);
     }
+    placeAll();
     if (windows.length && !sel) {
       // Round 16's `one-window` rows: the window's label, then "not reported by Claude Code for
       // this account". Round 16 names the model it drew (Sonnet); the app cannot know which
