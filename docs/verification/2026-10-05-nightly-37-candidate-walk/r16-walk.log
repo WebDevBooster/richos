@@ -1,0 +1,15 @@
+[walk] 11:12:15Z technical view on
+[walk] 11:12:30Z 0 no reading: get_usage answers rate_limits null; the pause on
+[walk] 11:12:53Z + Add account offered with no reading
+[walk] 11:12:55Z Ask Claude Code offered
+[walk] 11:12:59Z the card says nothing is held
+[walk] 11:16:54Z 1 one account
+[walk] 11:20:26Z 2 Add account: name both Home and Work
+[walk] 11:21:02Z app data: /Users/admin/testvm/walk-0c6af9a4abdc/home/Library/Application Support/com.richos.app
+[walk] 11:21:11Z the automatic switch on (Pause, the default)
+[walk] 11:24:47Z 3 Switch chosen; Home's five-hour window at 95%
+[walk] 11:28:28Z 4 the panel closed: Rich's switch line, then a turn on Work with three agents working
+[walk] 11:30:26Z 5 fast: Home back under its line (next again); Work rising from its own 10% and 20%, 9 and 3 points a minute
+[walk] 11:34:45Z 6 the panel closed: Rich's alert with the agents counted, then a turn with the working row
+[walk] 11:36:45Z 7 flat readings: Rich's line back to normal, then a turn with the working row
+[walk] 11:39:43Z done
