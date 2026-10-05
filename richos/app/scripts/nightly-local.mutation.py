@@ -74,9 +74,11 @@ MUTANTS = (
      '"RICHOS_IOS_POOL_WAIT": str(GATE_BUDGETS["gates/script-suites"]),',
      '"RICHOS_NATIVE_IOS_APP_A8": "1", "RICHOS_IOS_POOL_WAIT": str(GATE_BUDGETS["gates/script-suites"]),',
      "the desktop build would ask for A8, a phone-app case, the moment native-ios-app ran in it."),
-    ("a-build-starts-without-both-numbers",
-     "test_a_build_that_does_not_name_both_numbers_does_not_start",
-     'if runs_gates and missing:',
+    # Since 419e71e71 (hunt part 2 v3, R48) only --gates-at-once is required; a desktop build
+    # is no longer made to name a simulated-phone count none of its gates uses.
+    ("a-build-starts-without-the-gates-at-once",
+     "test_a_build_that_does_not_name_the_gates_at_once_does_not_start",
+     'if runs_gates and args.gates_at_once is None:',
      'if False:',
      "a forgotten decision would be a silent default, not a refusal."),
     ("the-chosen-numbers-are-not-logged",
