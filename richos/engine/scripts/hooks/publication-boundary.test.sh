@@ -1134,7 +1134,12 @@ fi
 # ---------------------------------------------------------------------------
 # (j) FAIL-OPEN / FAIL-CLOSED conventions.
 # ---------------------------------------------------------------------------
-rc=0; printf 'not json at all' | "$WRITE_HOOK" >/dev/null 2>&1 || rc=$?
+# Seated on a sandbox copy of the adoption, never the engine: an unreadable payload appends a
+# line to <entity>/.claude/state/unevaluated-payloads.log (ci-shard.sh STATE-WRITTEN, 2026-10-05).
+. "$SCRIPT_DIR/../lib/entity-sandbox.sh"
+ENT_MALFORMED="$(entity_sandbox "$ENGINE_ROOT")"
+rc=0; printf 'not json at all' | RICHOS_ENTITY_ROOT="$ENT_MALFORMED" "$WRITE_HOOK" >/dev/null 2>&1 || rc=$?
+rm -rf "$ENT_MALFORMED"
 if [ "$rc" -eq 0 ]; then ok "malformed payload fails OPEN (sibling convention)"
 else bad "malformed payload should fail open, got $rc"; fi
 

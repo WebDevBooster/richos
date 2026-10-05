@@ -705,7 +705,9 @@ FIFO="$SANDBOX/fifo"
 rm -f "$FIFO"; mkfifo "$FIFO"
 ( exec 9>"$FIFO"; sleep 20 ) &
 WRITER=$!
-( bash "$HOOK" --event SessionStart --transcript "$HOOK_T" --now "$NOW" \
+# Seated on the fixture repository: with no seat the hook resolved the engine checkout itself
+# and wrote left-off.nosession.state into its state folder (ci-shard.sh STATE-WRITTEN, 2026-10-05).
+( CLAUDE_PROJECT_DIR="$SEAT" bash "$HOOK" --event SessionStart --transcript "$HOOK_T" --now "$NOW" \
       >"$SANDBOX/ss.out" 2>"$SANDBOX/ss.err" < "$FIFO"
   echo done > "$SANDBOX/sessionstart.done" ) &
 RUNNER=$!

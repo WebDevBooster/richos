@@ -206,8 +206,13 @@ run_case_msg "block message names the failure mode (worktree removed)" 'worktree
 
 # (c) resume-ack: on a completed recipient -> allow + log append
 RESUME_ACK_MSG='"resume-ack: pure question, no file writes — just confirming the deploy SHA.\nWhat SHA did you deploy?"'
-run_case "resume-ack: on completed recipient -> allow" 0 \
+# Seated on a sandbox copy of the adoption, never the engine: the allowed ack is appended to
+# <entity>/.claude/state/resume-acks.log (ci-shard.sh STATE-WRITTEN, 2026-10-05).
+. "$SCRIPT_DIR/../lib/entity-sandbox.sh"
+ENT_ACK="$(entity_sandbox "$RICHOS_ENTITY_ROOT")"
+RICHOS_ENTITY_ROOT="$ENT_ACK" run_case "resume-ack: on completed recipient -> allow" 0 \
     "$(send_json 'dev-done' "$RESUME_ACK_MSG")"
+rm -rf "$ENT_ACK"
 # verify the ack was appended to .claude/state/resume-acks.log (under the hook's
 # REPO_ROOT). Use a copy in a sandbox repo so we assert on a controlled path
 # instead of polluting the real state log.

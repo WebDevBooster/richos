@@ -123,7 +123,12 @@ run_case "Non-write tool (Bash)"        0 '{"tool_name":"Bash","tool_input":{"co
 run_case "Missing file_path"            0 '{"tool_name":"Write","tool_input":{}}'
 run_case "Relative path"                0 "$(json_write Write "$FIRST_PROTECTED/module/file.txt")"
 run_case "Path outside repo"            0 "$(json_write Write "/tmp/scratch/notes.md")"
-run_case "Malformed JSON"               0 'this is not json'
+# Seated on a sandbox copy of the adoption, never the engine: an unreadable payload appends a
+# line to <entity>/.claude/state/unevaluated-payloads.log (ci-shard.sh STATE-WRITTEN, 2026-10-05).
+. "$SCRIPT_DIR/../lib/entity-sandbox.sh"
+ENT_MALFORMED="$(entity_sandbox "$REPO_ROOT")"
+RICHOS_ENTITY_ROOT="$ENT_MALFORMED" run_case "Malformed JSON"               0 'this is not json'
+rm -rf "$ENT_MALFORMED"
 
 # --- python3 missing from PATH -> BLOCKED (fail-closed), loud stderr ---
 # Mirrors the automation QA's repro: with no python3 resolvable on PATH, the guard must

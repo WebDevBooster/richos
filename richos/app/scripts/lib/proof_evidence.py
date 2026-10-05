@@ -94,6 +94,14 @@ DECLARED_OUTPUT_DIRECTORIES = (
     # `shots-gate-honesty-<pid>` folder beside them was an unignored input, so a proof that
     # overlapped it lost a passing result when the gate cleaned up).
     "richos/app/ui/tests/.generated-references",
+    # The engine's own runtime record (2026-10-05). Hooks append to <entity>/.claude/state/ and
+    # a suite that seated its hooks on the engine wrote there; 71 engine checks declare the
+    # whole `richos/engine`, so one appended line made every engine check beside the writer
+    # "invalid: execution inputs changed during the check" (501 finished results, 26,512 s, in
+    # 34 of 211 merge attempts; richos-hq docs/operations/2026-10-04-merge-check-speed.md). It
+    # is the live plugin's audit state, written by sessions as well as tests, and never an input
+    # of a check: ci-shard.sh now fails, by name, a unit that writes it (STATE-WRITTEN).
+    "richos/engine/.claude/state",
 )
 
 

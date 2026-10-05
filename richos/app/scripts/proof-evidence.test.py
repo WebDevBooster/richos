@@ -1258,6 +1258,29 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         self.assertNotEqual(with_tracked, evidence.recipe_identity(self.root, recipe, {}),
                             "an output directory holding a tracked file is bound")
 
+    def test_a_hook_writing_the_engines_runtime_state_invalidates_no_engine_check(self):
+        # 2026-10-05 (merge-check speed, section 2): a hook suite seated on the engine appended a
+        # line to richos/engine/.claude/state/ while the engine checks beside it ran, and every
+        # one whose inputs declare richos/engine came back "invalid: execution inputs changed".
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=env)
+        engine = self.root / "richos/engine"
+        state = engine / ".claude/state"
+        state.mkdir(parents=True)
+        (engine / ".gitignore").write_text("/.claude/state/\n")
+        (engine / "guard.sh").write_text("exit 0\n")
+        (state / "unevaluated-payloads.log").write_text("first\n")
+        self.qualification("fixture input contract", paths=["richos/engine"])
+        recipe = {"paths": ["richos/engine"], "tools": [], "environment": [], "external": [],
+                  "qualification": "qualification.json"}
+        base = evidence.recipe_identity(self.root, recipe, {})
+        with open(state / "unevaluated-payloads.log", "a") as log:
+            log.write("2026-10-05T02:13:38Z\tunevaluated\thook=guard-worktree-isolation.sh\treason=not-json\n")
+        (state / "main-checkout-runs.log").write_text("agent=worker\n")
+        self.assertEqual(base, evidence.recipe_identity(self.root, recipe, {}), "a line appended to the state")
+        (engine / "guard.sh").write_text("exit 1\n")
+        self.assertNotEqual(base, evidence.recipe_identity(self.root, recipe, {}), "the engine's code is bound")
+
     def test_a_ui_gates_generated_reference_is_output_and_no_gate_makes_one_elsewhere(self):
         # Recheck R07 v2 (2026-10-01): gate-honesty.js made `shots-gate-honesty-<pid>/` inside
         # ui/tests, unignored, so a proof whose inputs include richos/app/ui bound it and lost
