@@ -520,3 +520,96 @@ fn machinery_survives_a_restart_and_is_readable_from_a_fresh_process() {
     assert!(rows.iter().any(|r| r.title == "cat engine/VERSION"));
     assert!(rows.iter().any(|r| r.kind == MachineryKind::Unknown));
 }
+
+/// A lease whose turn also makes the app hook write its evidence, the way the real hook does
+/// DURING the turn: before the replayed frames, `during` appends to the evidence folder.
+struct HookedCognition {
+    inner: ReplayCognition,
+    during: Box<dyn FnMut() + Send>,
+}
+
+impl Cognition for HookedCognition {
+    fn session_id(&self) -> &str {
+        self.inner.session_id()
+    }
+    fn reprime(&mut self, priming: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        self.inner.reprime(priming, on_item)
+    }
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        (self.during)();
+        self.inner.prompt(text, on_item)
+    }
+}
+
+fn write_call(id: &str, path: &str, parent: Option<&str>) -> Vec<Item> {
+    let parent = json!(parent);
+    vec![
+        Item::Frame(json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+            "content_block":{"type":"tool_use","id":id,"name":"Write","input":{}}},"parent_tool_use_id":parent})),
+        Item::Frame(json!({"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":id,"name":"Write","input":{"file_path":path,"content":"x"}}]},
+            "parent_tool_use_id":parent})),
+        Item::Frame(json!({"type":"user","message":{"role":"user","content":[
+            {"tool_use_id":id,"type":"tool_result","content":"File created successfully"}]},
+            "tool_use_result":{"type":"create","filePath":path},"parent_tool_use_id":parent})),
+    ]
+}
+
+/// THE OUTPUT RECORD THROUGH THE REAL SPINE (Output side panel PRD §4.1 (a)/(b), S2): in one
+/// turn Rich writes a file himself and a worker he dispatched writes another. Rich's file is
+/// recorded live by witness (a), as Rich's, once although the hook saw it too; the worker's
+/// `Write` arrives nested on the same wire and is NOT recorded as Rich's; at the end of the turn
+/// the hook's row for it is projected under the worker's own name.
+#[test]
+fn a_turns_written_files_reach_the_output_record_with_whoever_wrote_them() {
+    use richos_core::output::{Actor, OutputStore, WriteSource};
+    let dir = tmp_dir("output");
+    let (mine, theirs) = (dir.join("brief.md"), dir.join("numbers.csv"));
+    std::fs::write(&mine, "the brief").unwrap();
+    std::fs::write(&theirs, "a,b").unwrap();
+    let (mine, theirs) = (mine.to_string_lossy().into_owned(), theirs.to_string_lossy().into_owned());
+    let mut script = write_call("toolu_MINE", &mine, None);
+    script.extend(write_call("toolu_THEIRS", &theirs, Some("toolu_AGENT")));
+
+    let evidence = dir.join("engine-state/evidence");
+    let folder = evidence.join("sess-1");
+    let (mine_seen, theirs_seen) = (mine.clone(), theirs.clone());
+    let during = Box::new(move || {
+        use std::io::Write;
+        std::fs::create_dir_all(&folder).unwrap();
+        let line = |file: &str, value: Value| {
+            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(folder.join(file)).unwrap();
+            writeln!(f, "{value}").unwrap();
+        };
+        let now = richos_core::util::now_millis();
+        line("callbacks.jsonl", json!({"schema":1,"callback":{"hook_event_name":"PostToolUse","session_id":"sess-1",
+            "tool_name":"Agent","tool_use_id":"toolu_AGENT","tool_input":{"name":"norm-sonnet-a","prompt":"count"},
+            "tool_response":{"status":"completed","agentId":"agent-7"}}}));
+        line("writes.jsonl", json!({"schema":1,"session_id":"sess-1","agent_id":"agent-7","tool_use_id":"toolu_THEIRS",
+            "path":theirs_seen,"at":now,"source":"hook"}));
+        line("writes.jsonl", json!({"schema":1,"session_id":"sess-1","tool_use_id":"toolu_MINE",
+            "path":mine_seen,"at":now,"source":"hook"}));
+    });
+
+    let ledger = Ledger::open(dir.join("conversation-ledger.jsonl")).unwrap();
+    let mut spine = support::spine(ledger);
+    spine.set_machinery_journal(MachineryJournal::new(dir.join("machinery")));
+    let store = OutputStore::for_data_dir(&dir);
+    spine.set_output_store(store.clone(), Some(evidence));
+    spine.attach_lease(Box::new(HookedCognition { inner: ReplayCognition::new("sess-1", script), during }));
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
+    let turn = spine.submit_prompt("write the brief and have the numbers counted", Source::Text).unwrap();
+
+    let list = store.project(&thread).unwrap();
+    assert_eq!(list.count, 2, "{list:?}");
+    let entry = |name: &str| list.files.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{name}: {list:?}"));
+    let brief = entry("brief.md");
+    assert_eq!((brief.actor, brief.source, brief.writes), (Actor::Rich, WriteSource::Tool, 1));
+    assert_eq!(brief.turn_id.as_deref(), Some(turn.as_str()));
+    let numbers = entry("numbers.csv");
+    assert_eq!(numbers.actor, Actor::Worker, "a nested worker's write is never Rich's");
+    assert_eq!(numbers.worker_name.as_deref(), Some("norm-sonnet-a"));
+    assert_eq!(numbers.turn_id.as_deref(), Some(turn.as_str()));
+    let rows = store.read(&thread).unwrap().rows;
+    assert!(!rows.iter().any(|r| r.path == theirs && r.actor == Actor::Rich), "{rows:?}");
+}

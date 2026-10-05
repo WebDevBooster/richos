@@ -423,6 +423,8 @@ pub struct WorkHost {
     command_wait: Mutex<std::time::Duration>,
     /// [`WORKER_WAIT_BUDGET`] in production; shortened by tests, like `command_wait`.
     worker_wait: Mutex<std::time::Duration>,
+    /// The output record, when the shell attached one ([`WorkHost::set_output_store`]).
+    output: Mutex<Option<crate::output::OutputStore>>,
 }
 
 /// The context window this build assumes while a back end has reported nothing, and the
@@ -720,7 +722,30 @@ impl WorkHost {
             answered_close: Mutex::new(None),
             command_wait: Mutex::new(COMMAND_WAIT_BUDGET),
             worker_wait: Mutex::new(WORKER_WAIT_BUDGET),
+            output: Mutex::new(None),
         })
+    }
+
+    /// Attach the output record (Output side panel PRD §3, §4.1 (b)/(c)). With it, the back
+    /// end's `writes.jsonl` — its own writes, its workers', and the files its commands made —
+    /// is projected into the assignment's thread after every back-end turn and on every pass
+    /// of the worker wait. Without it (every test that does not ask) nothing is recorded.
+    pub fn set_output_store(&self, store: crate::output::OutputStore) {
+        *self.output.lock().unwrap() = Some(store);
+    }
+
+    /// Witnesses (b) and (c) for one back-end session, joined to the assignment it is working
+    /// (`BackendWork::for_assignment`: its thread, and the turn he gave the work in). A failure
+    /// is logged and never fails the work (§4.7).
+    fn project_output(&self, record: &Assignment, session: &str) {
+        let Some(store) = self.output.lock().unwrap().clone() else { return };
+        let join = crate::output::SessionJoin::from_parts(
+            Vec::new(),
+            vec![crate::output::BackendWork::for_assignment(record, session)],
+        );
+        if let Err(e) = store.project_session(&record.thread_id, &self.state.join("evidence"), session, &join) {
+            eprintln!("[richos] output: the back end's written files could not be recorded: {e}");
+        }
     }
 
     /// How long `run_one` waits for a background command before handing it to the watch.
@@ -1614,6 +1639,9 @@ impl WorkHost {
             }
         };
         keep_words(&mut answer, &said);
+        // The back-end turn is over: what it, its workers and its commands wrote so far goes
+        // on the thread's output list (Output side panel PRD §4.1 (b), the per-turn reader).
+        self.project_output(record, &session);
         // **Carried and not taken**: the prompt returned and no item of its turn ever arrived.
         // It is no longer in flight, so it is no longer `carrying`; what that means is decided
         // before the settle (D4).
@@ -1791,6 +1819,8 @@ impl WorkHost {
                 } else if !said.trim().is_empty() {
                     answer = said;
                 }
+                // Each continuation turn is a back-end turn too (§4.1 (b)).
+                self.project_output(record, &session);
                 // **A TURN THAT PRODUCED NOTHING IS A TURN THIS HOST DID NOT GET.** Not
                 // inferred from elapsed time and not inferred from silence on a timer: the
                 // child answered with a terminal `result` and delivered no item at all
@@ -2409,6 +2439,9 @@ impl WorkHost {
                 return false;
             }
             let view = crate::app_workers::status(&self.state, Some(session));
+            // A background worker writes while this waits; its files reach the list on this
+            // pass rather than at the next turn (Output side panel PRD §4.1 (b)).
+            self.project_output(record, session);
             if !view.is_attributed() {
                 return false;
             }

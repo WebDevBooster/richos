@@ -975,6 +975,7 @@ class Record:
     def __init__(self, root, logdir, items, source, identities, previous=None,
                  current_source=None, current_identity=None, current_identities=None, explain=None,
                  current_commit=None):
+        refuse_duplicates(items)  # before anything is written: a saved plan never holds one
         self.root, self.logdir = str(root), Path(logdir)
         # What changed and who could have changed it, appended to an invalidation note, so a
         # check invalidated by another check's writes names the paths instead of only saying so.
@@ -1093,10 +1094,25 @@ def read_plan(path):
     plan = json.loads((Path(path) / "plan.json").read_text())
     if plan.get("schema") != 1:
         raise ValueError("unsupported or missing saved plan schema")
-    labels = [row["check"] for row in plan["items"]]
-    if len(labels) != len(set(labels)):
-        raise ValueError("saved plan contains duplicate obligations")
+    # A row repeated exactly is one obligation saved twice (plans written before plan() and
+    # Record refused it, 2026-10-05: attempt-keq_bkth held `cargo --bin richos-tauri` twice),
+    # so it is read once. Two different rows under one name stay refused: which one passed
+    # cannot be known, since outcomes are keyed by name.
+    rows = {}
+    for row in plan["items"]:
+        if rows.setdefault(row["check"], row) != row:
+            raise ValueError("saved plan contains duplicate obligations")
+    plan["items"] = list(rows.values())
     return plan
+
+
+def refuse_duplicates(items):
+    """Outcomes, identities and reuse are keyed by check name: one name is one obligation."""
+    seen = set()
+    for item in items:
+        if item.label in seen:
+            raise ValueError("plan contains duplicate obligations: " + item.label)
+        seen.add(item.label)
 
 
 def pool_directory(root, history):

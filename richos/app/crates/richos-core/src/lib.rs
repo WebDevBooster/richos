@@ -89,6 +89,9 @@ pub mod loro;
 pub mod live;
 pub mod machinery;
 pub mod native;
+/// The output record: every file a thread produced, written by witnesses (Output side panel
+/// PRD §3-§4, richos-hq `docs/prds/2026-10-05-output-side-panel.md`).
+pub mod output;
 pub mod quota;
 pub mod onboarding;
 pub mod onboarding_tools;

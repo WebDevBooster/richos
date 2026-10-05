@@ -2284,6 +2284,7 @@ mod tests {
             source: Source::Text,
             state: TurnState::Completed,
             session_id: Some("sess".into()),
+            started_sessions: vec!["sess".into()],
             assistant_text: "he said Xthen said Z".into(),
             text_runs: vec![
                 crate::ledger::TextRun { start_seq: Some(0), end_seq: Some(0), text: "he said X".into(), at: 10 },

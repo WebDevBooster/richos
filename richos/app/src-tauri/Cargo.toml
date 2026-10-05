@@ -172,6 +172,21 @@ ring = "0.17"
 # base64url, which is the only encoding RFC 8291 and RFC 8292 use. Already a dev-dependency
 # of this crate and already in the lock at 0.22.1.
 base64 = "0.22"
+# THE OUTPUT FILES (src/output_files.rs): `O_NOFOLLOW` and `ELOOP` for the reads that must
+# never go through a link (Output side panel PRD §5.2 step 5). Already in the lock at 0.2.189
+# beneath tokio, tao and ring (`cargo tree -i libc`); naming it adds no package.
+libc = "0.2"
+
+# THE OUTPUT FILES' APP LIST (src/output_files.rs, Output side panel PRD §5.4): Launch
+# Services' default application and *Open with…* candidates for a file, and each bundle's
+# name. The PRD's `unverified:` is settled by `cargo tree -i core-foundation@0.10.1`: Tauri
+# already pulls 0.10.1 on macOS (beneath tao, security-framework, core-graphics and
+# rustls-platform-verifier), so naming it adds no package (the Cargo.lock diff is two
+# dependency lines and no `[[package]]`) and the degraded mode §5.4 declares is not needed.
+# The two Launch Services functions are declared in output_files.rs against the CoreServices
+# framework.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
 
 # THE REAL DOWNLOAD, WITHOUT A WINDOW. Compiles src/voice_provision.rs by path, exactly as
 # examples/window_placement.rs compiles src/window_geometry.rs, and substitutes only the observer.
@@ -180,6 +195,15 @@ base64 = "0.22"
 [[example]]
 name = "provision_model"
 path = "examples/provision_model.rs"
+
+# THE OUTPUT FILE COMMANDS, WITHOUT A PANEL. Compiles src/output_files.rs by path and calls what
+# `output_open` and `output_reveal` call, for the test VM's real-app check (Output side panel
+# PRD §12.3) until the panel exists. `test = true` so its own test runs
+# (scripts/output-files-probe.test.sh); that test opens nothing.
+[[example]]
+name = "output_files_probe"
+path = "examples/output_files_probe.rs"
+test = true
 
 [dev-dependencies]
 # `examples/verify_update_signature.rs` — the pre-publication check that a produced
