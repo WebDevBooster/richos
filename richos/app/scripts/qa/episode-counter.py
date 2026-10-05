@@ -22,6 +22,7 @@ VERIFY = {'proof-run.py', 'run-tests.sh', 'ci-shard.sh'}
 POLL = {'cat', 'tail', 'stat', 'ps', 'pgrep', 'wc', 'test'}
 COLLECT = re.compile(r'\s*(?:python3\s+)?\S*agent_hold\.py\s+wait(?:\s+--max-seconds\s+\d+(?:\.\d+)?)?(?:\s+2>&1)?\s*\Z')
 RECEIPT = re.compile(r'TASK\s+(\S+)\s+\(tool\s+(\S+)\)\s+EXIT STATUS\s+(-?\d+)')
+BACKGROUND = re.compile(r'Command running in background with ID:|Command did not complete within its .* timeout and was moved to the background \(ID:')
 
 
 def stamp(value):
@@ -158,7 +159,7 @@ def read_log(path, provider, start, end, diagnostics):
                     out = output_text(b.get('content', ''))
                     if call['tool_end'] is None:
                         call['tool_end'] = when
-                        if 'Command running in background with ID:' in out:
+                        if BACKGROUND.match(out):
                             call.update(background=True, handoff_line=line_number)
                         else:
                             result(call, out, when, line_number, bool(b.get('is_error')))

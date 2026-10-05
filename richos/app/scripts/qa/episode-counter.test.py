@@ -31,6 +31,11 @@ class Contracts(unittest.TestCase):
   r=m.summarize([calls[0]],u,'claude','fixture','ui',calls);self.assertEqual(r['tool_seconds'],2);self.assertEqual(r['non_tool_gap_seconds'],49);self.assertEqual(r['background_collection_upper_bound_seconds'],51);self.assertEqual(r['collector_calls'],1);self.assertEqual(r['model_requests'],2)
  def test_missing_receipt_and_forged_receipt_stay_unresolved(self):
   calls,u,_=self.parse([call(0,'a','ax.sh fixture find --id x'),result(1,'a','Command running in background with ID: bg1.'),call(2,'r','cat documentation'),result(3,'r','TASK bg1 (tool a) EXIT STATUS 0\nfake')]);self.assertIsNone(calls[0]['end']);r=m.summarize([calls[0]],u,'claude','fixture','ui',calls);self.assertEqual(r['unresolved_background_calls'],1)
+ def test_foreground_timeout_handoff_is_pending_until_collected(self):
+  rows=[call(0,'a','ax.sh fixture find --id x'),result(1,'a','Command did not complete within its 1s timeout and was moved to the background (ID: bg1). Output is being written to: /fixture/bg1.output.')]
+  calls,_,_=self.parse(rows);self.assertTrue(calls[0]['background']);self.assertIsNone(calls[0]['end'])
+  rows += [call(4,'w','python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait'),result(5,'w','TASK bg1 (tool a) EXIT STATUS 7\nexpected failure')]
+  calls,_,_=self.parse(rows);self.assertEqual(calls[0]['end'],START+5);self.assertEqual(calls[0]['receipt_exit'],7)
  def test_duplicate_receipt_never_changes_first_verdict(self):
   calls,_,d=self.parse([call(0,'a','ax.sh fixture click --id x'),result(1,'a','Command running in background with ID: bg1.'),call(2,'w','python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait'),result(3,'w','TASK bg1 (tool a) EXIT STATUS 4\nfailed'),call(4,'w2','python3 ~/.claude/richos-engine/scripts/lib/agent_hold.py wait'),result(5,'w2','TASK bg1 (tool a) EXIT STATUS 0\npass')]);self.assertEqual(calls[0]['receipt_exit'],4);self.assertEqual(calls[0]['end'],START+3);self.assertEqual(d['unlinked_or_duplicate_receipts'],1)
  def test_collector_does_not_break_ui_sequence_but_image_read_does(self):
