@@ -167,14 +167,17 @@ stay 0, RUN_TESTS_SKIP_UNCHANGED is never set, and RICHOS_RUNTIME_DIR comes from
 `supply_runtime()`. `--without-nightly-conditions` runs a diagnosis without them and is refused
 here. `merge-check-scope.test.py` (NightlyConditions) proves it against the real gate code.
 
-**A check planned past its cap is never started, and the cheap checks go first.** Under
-`--cap`, `proof-run.py` names a check whose planned weight is over the cap NOT RUN before
+**A check planned past its cap is never started, and the long checks go first (2026-10-05).**
+Under `--cap`, `proof-run.py` names a check whose planned weight is over the cap NOT RUN before
 anything starts ("planned N s, over its 600 s cap; not started, the nightly runs it"): it
 takes no token, lane or admission, and an engine unit leaves the receipts proof. The rest
-start cheapest first, so the short checks the change owns finish while the long ones would
-still be queued, and what a round's 900 s cap can still cut is the longest work, last. The
-planned weight is dated data (`lib/ci-unit-weights.tsv`, this checkout's measured history); a
-stale row is fixed by measuring the unit, as section SCR's 676.8 s was (4.8 s measured).
+start longest first, so the long poles overlap everything else instead of following it: started
+cheapest first (2026-09-30 to 2026-10-05), they were the work a round's 900 s cap ended after
+most of it was done, 15,508 s redone in a later round. The planned weight is the median of the
+check's last nine measured executions in this checkout (`weights.tsv` in the proof-run store,
+engine units included); a check never measured here keeps its dated row
+(`lib/ci-unit-weights.tsv` for an engine unit), and the engine lanes are packed with the same
+numbers (`ci-units.sh`, `CI_UNIT_WEIGHTS_MEASURED`).
 
 **What blocks**: a check that failed (`failed`), an unchanged failure the runner refuses to
 run again (`blocked`), and an `invalid` result for any reason except inputs that changed while

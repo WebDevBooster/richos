@@ -11564,8 +11564,8 @@
     },
     "scripts/ci-units.sh": {
       "source": "scripts/ci-units.sh",
-      "sha256": "48f66e45e4621c220c0fb390337bf2c367b59f76bddc67be2a32c0980f980d36",
-      "evidence": "Reviewed every command: discovers test paths and section markers, reads numeric TSV weights and prints units, commands or schedules. Inline Python packs parsed rows. It never executes discovered suites or sources configuration.",
+      "sha256": "e140ea636307d0a614945c5f95996a8459e6587d9668c7f36574ee5b372c16ef",
+      "evidence": "Reviewed every command: discovers test paths and section markers, reads numeric TSV weights (the optional CI_UNIT_WEIGHTS_MEASURED file of measured medians first, then lib/ci-unit-weights.tsv) and prints units, commands or schedules. Inline Python packs parsed rows. It never executes discovered suites or sources configuration.",
       "keys": [],
       "edges": []
     },
@@ -14567,7 +14567,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "72d28e19fb92770841122f3f6cc6c80b76c935fe8eacd5ca23ed371721c0893e",
+          "sha256": "df1bfcc98bc600d7390b095363e4b2097e655b5e4322799bfb5ad8da7d7fef37",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14786,7 +14786,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "72d28e19fb92770841122f3f6cc6c80b76c935fe8eacd5ca23ed371721c0893e",
+          "sha256": "df1bfcc98bc600d7390b095363e4b2097e655b5e4322799bfb5ad8da7d7fef37",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {

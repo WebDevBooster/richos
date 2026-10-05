@@ -827,9 +827,10 @@ try:
     check(uncapped41.state == "passed" and exists(marker41),
           "P41c without --cap the same check runs, whatever its planned weight", uncapped41.state)
 
-    # P42 — under --cap the cheapest checks start first (2026-09-30: in the merge of 4e73fd89 the
-    # longest check started first and everything behind it waited). One lane makes the start
-    # order visible; without --cap the order stays longest first.
+    # P42 — longest first, with or without --cap (2026-10-05). From 2026-09-30 the merge gate
+    # started cheapest first; a check planned past the cap is now never started (P41), and
+    # cheapest first left the long poles to be ended at the round's cap (P43c). One lane makes
+    # the start order visible.
     def start_order(args, name):
         record = os.path.join(tmp, name + ".order")
         lane = [pr.Item(label, os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "echo %s >> %s" % (label, record)],
@@ -838,8 +839,56 @@ try:
             pr.run(lane, args, os.path.join(tmp, name), sampler=idle)
         return open(record).read().split() if exists(record) else None
     capped42, uncapped42 = start_order(Args(cap=600), "p42-capped"), start_order(Args(), "p42-uncapped")
-    check(capped42 == ["five", "twenty", "fifty"] and uncapped42 == ["fifty", "twenty", "five"],
-          "P42 under --cap checks start cheapest first; without it, longest first", (capped42, uncapped42))
+    check(capped42 == ["fifty", "twenty", "five"] and uncapped42 == ["fifty", "twenty", "five"],
+          "P42 checks start longest first, under --cap as without it", (capped42, uncapped42))
+
+    # P43 — PLANNED FROM MEASURED MEDIANS, LONGEST FIRST (2026-10-05, merge-check speed fix 2).
+    # merge110.log: by-reference.test.sh waited 440 s in its lane, ran 443 s, was ended at the
+    # 882 s round cap and ran again; the plan came from a weight the run itself called stale.
+    d43 = os.path.join(tmp, "p43")
+    os.makedirs(d43)
+    # P43a: what a check measured is kept as samples, and its weight is their median: one slow run
+    # does not move the plan (the last run alone did, before).
+    for seconds in (10.0, 12.0, 100.0):
+        done = pr.Item("measured", os.path.join(pr.ROOT, "richos/app"), ["true"], None, 1.0)
+        done.state, done.started, done.ended = "passed", 1000.0, 1000.0 + seconds
+        pr.record_weights(d43, [done])
+    check(pr.history_weights(d43).get("measured") == 12.0,
+          "P43a a check's planned weight is the median of its measured runs (10, 12, 100 -> 12)",
+          open(os.path.join(d43, "weights.tsv")).read())
+    # P43b: an engine unit measured in this checkout is planned at its median, not at the dated
+    # table's row, and the lanes are packed with it.
+    unit43 = "scripts/spawn.test.sh"
+    d43b = os.path.join(tmp, "p43b")
+    os.makedirs(d43b)
+    planned43 = [i for i in pr.plan([unit_line41 + unit43], Args(), d43b, {"engine " + unit43: 431.0})
+                 if i.label == "engine " + unit43]
+    measured43 = open(os.path.join(d43b, "engine-measured-weights.tsv")).read() \
+        if exists(os.path.join(d43b, "engine-measured-weights.tsv")) else ""
+    check(len(planned43) == 1 and planned43[0].weight == 431.0 and unit43 + "\t431.0" in measured43,
+          "P43b a measured engine unit is planned at its measured median, and the packer is given it",
+          ([(i.label, i.weight) for i in planned43], measured43))
+    # P43c: THE MERGE GATE'S SHAPE. One lane, a round cap, and the longest check listed in the
+    # stale plan as the cheapest one used to be: measured, it is planned long and starts first, so
+    # it finishes inside the round; started last it was ended at the round cap.
+    marks43 = os.path.join(d43, "marks")
+    os.makedirs(marks43)
+    def lane43(label, seconds, weight):
+        return pr.Item(label, os.path.join(pr.ROOT, "richos/app"),
+                       ["bash", "-c", "sleep %s; touch %s/%s" % (seconds, marks43, label)], "one-lane", weight)
+    stale43 = os.path.join(d43, "stale")
+    os.makedirs(stale43)
+    with open(os.path.join(stale43, "weights.tsv"), "w") as fh:
+        fh.write("long\t4.0\t4.0,4.0,4.0\nshort-a\t2.0\t2.0\nshort-b\t2.0\t2.0\n")
+    hist43 = pr.history_weights(stale43)
+    lane = [lane43("short-a", 2, hist43["short-a"]), lane43("short-b", 2, hist43["short-b"]),
+            lane43("long", 4, hist43["long"])]
+    with contextlib.redirect_stdout(io.StringIO()):
+        pr.run(lane, Args(cap=600, run_cap=6.5), os.path.join(d43, "run"), sampler=idle)
+    long43 = lane[2]
+    check(long43.state == "passed" and exists(os.path.join(marks43, "long")),
+          "P43c under the gate's caps the longest measured check starts first and finishes inside the round",
+          [(i.label, i.state, i.notes[-1:] if i.notes else []) for i in lane])
 
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.

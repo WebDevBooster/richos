@@ -153,9 +153,9 @@ ADMISSION, TWO CONDITIONS, BOTH CHECKED BEFORE EVERY START:
     apart) and the wait is reported beside its time. --admission-wait bounds only the time the Mac
     refused it while nothing of this run was running; time queued behind this run's own checks,
     including a CPU or pressure refusal while they run, is reported, never charged (refusal_counts).
-Checks start longest-expected first, so the long poles are not the ones left waiting; under --cap
-(the merge gate) cheapest first, and a check planned past the cap is not started (start_key,
-leave_over_cap). While the
+Checks start longest-expected first, the expectation being each check's measured median, so the
+long poles are not the ones left waiting; under --cap (the merge gate) a check planned past the
+cap is not started (start_key, leave_over_cap, MEDIAN_SAMPLES). While the
 run goes, a sampler records total CPU and the tokens held; the summary prints both, which is the
 evidence of host use, not a guarantee that running compilers stay under the admission line.
 
@@ -186,6 +186,7 @@ import re
 import shlex
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 sys.dont_write_bytecode = True
@@ -322,20 +323,44 @@ def uses_gradle(path):
         return False
 
 
-def history_weights(state):
-    w = {}
+# PLANNED FROM MEASURED MEDIANS, LONGEST FIRST (2026-10-05). weights.tsv kept ONE number per
+# check, the last run's, and engine units were planned from lib/ci-unit-weights.tsv, dated data
+# the run itself reported stale (contract-integrity section P planned at 51.5 s, measured 172.4 s).
+# Under the merge gate's caps the plan then started a long check late: in merge110.log
+# by-reference.test.sh waited 440 s in its lane, ran 443 s, was ended at the 882 s round cap and
+# ran again in round 2; 15,508 s of finished work was redone that way (richos-hq
+# docs/operations/2026-10-04-merge-check-speed.md, section 2). Now each row keeps the last
+# MEDIAN_SAMPLES measured executions and its weight is their median: one slow or fast run does
+# not move the plan, and a stale planned weight is replaced the first time the check is measured.
+# Engine units are recorded too, and their measured median replaces the dated table's weight
+# both in the lanes (ci-units.sh packs with it) and in the start order.
+MEDIAN_SAMPLES = 9
+
+
+def history_samples(state):
+    """{label: [seconds, ...]} from weights.tsv: `label <TAB> median [<TAB> s1,s2,...]`."""
+    samples = {}
     try:
         with open(os.path.join(state, "weights.tsv")) as fh:
             for line in fh:
                 parts = line.rstrip("\n").split("\t")
-                if len(parts) >= 2:
-                    try:
-                        w[parts[0]] = float(parts[1])
-                    except ValueError:
-                        pass
+                if len(parts) < 2:
+                    continue
+                try:
+                    values = ([float(v) for v in parts[2].split(",") if v] if len(parts) >= 3
+                              else [float(parts[1])])
+                except ValueError:
+                    continue
+                if values:
+                    samples[parts[0]] = values[-MEDIAN_SAMPLES:]
     except OSError:
         pass
-    return w
+    return samples
+
+
+def history_weights(state):
+    """{label: median measured seconds}."""
+    return {label: round(statistics.median(values), 1) for label, values in history_samples(state).items()}
 
 
 def default_weight(label, hist):
@@ -448,6 +473,14 @@ def plan(lines, args, logdir, hist):
             f = row.split("\t")
             if len(f) >= 4:
                 weight[f[0]] = float(f[3] or 0)
+        # A unit this checkout has measured is planned at its measured median, not at the dated
+        # table's row (MEDIAN_SAMPLES above): in the lanes ci-units.sh packs and in the start order.
+        measured = {unit: hist["engine " + unit] for unit in weight if "engine " + unit in hist}
+        weight.update(measured)
+        measured_file = os.path.join(logdir, "engine-measured-weights.tsv")
+        with open(measured_file, "w") as fh:
+            fh.write("".join("%s\t%s\n" % (unit, measured[unit]) for unit in sorted(measured)))
+        packer_env = {**os.environ, "CI_UNIT_WEIGHTS_MEASURED": measured_file}
         # Under --cap a unit planned past the cap is never started (leave_over_cap), so it takes
         # no shard: packed with the rest it would leave its lane idle and the others fuller.
         cap = getattr(args, "cap", None)
@@ -465,7 +498,7 @@ def plan(lines, args, logdir, hist):
         # be trusted: it is dated data, and a stale heavy row would idle the other shards.
         k = max(1, min(args.engine_shards, len(weight)))
         packed = subprocess.run(["bash", "scripts/ci-units.sh", "shards", str(k), "--units-file", ufile],
-                                cwd=engine, capture_output=True, text=True)
+                                cwd=engine, capture_output=True, text=True, env=packer_env)
         if packed.returncode != 0 or not packed.stdout.strip():
             raise SystemExit("proof-run: engine shard planning failed: " + packed.stderr)
         per = {}
@@ -1078,17 +1111,17 @@ def leave_unselected(items, selected):
 
 
 def start_key(item, args):
-    """The order checks are started in. Without --cap, longest-expected first: every check will
-    run, and the long poles must not be the ones left waiting at the end.
+    """The order checks are started in: longest-expected first, with or without --cap, the
+    expectation being the check's measured median (MEDIAN_SAMPLES above).
 
-    UNDER --cap (the merge gate), CHEAPEST FIRST (2026-09-30). The gate's run ends at its own cap,
-    so its question is how many of the change's checks reach a verdict inside it, and
-    longest-first answered it worst: in the merge of 4e73fd89 the first check started was the
-    1408 s mutation unit, and the checks queued behind it were mostly under a minute. Started
-    cheapest first, the short checks finish and free their token, lane and CPU for the next
-    within seconds, every lane starts on its own cheapest unit, and what the run's cap can still
-    cut is the longest work, last."""
-    return item.weight if getattr(args, "cap", None) else -item.weight
+    2026-09-30 to 2026-10-05 the merge gate (--cap) started cheapest first, because the merge of
+    4e73fd89 had started a 1408 s mutation unit first under a 600 s cap. A check planned past the
+    cap is now never started at all (leave_over_cap), so that reason is gone, and cheapest first
+    had a cost of its own: the long poles started last and were ended at the round's cap after
+    doing most of their work (merge110.log: by-reference.test.sh waited 440 s in its lane, ran
+    443 s, was ended at the 882 s cap and ran again in round 2; 15,508 s redone in all). Started
+    first, the longest check's time overlaps everything else's instead of following it."""
+    return -item.weight
 
 
 def run(items, args, logdir, sampler=None):
@@ -2174,15 +2207,22 @@ def as_printed(lines):
 
 
 def record_weights(state, items):
-    """What each check measured, so the next run starts the long poles first."""
+    """What each check measured, so the next run plans its lanes and starts the long poles first
+    from the median of its last MEDIAN_SAMPLES executions (see MEDIAN_SAMPLES). Only executions
+    that reached a verdict count: a check stopped at a cap ran for the cap, not for its length,
+    and a reused result did not run at all. `engine receipts` reads files; it is not measured."""
     os.makedirs(state, exist_ok=True)
-    w = history_weights(state)
+    samples = history_samples(state)
     for it in items:
-        if it.state == "passed" and not it.label.startswith("engine ") and not getattr(it, "reused_from", None):
-            w[it.label] = round(it.seconds, 1)
-    with open(os.path.join(state, "weights.tsv"), "w") as fh:
-        for k in sorted(w):
-            fh.write("%s\t%s\n" % (k, w[k]))
+        if (it.state in ("passed", "failed") and it.started and it.ended and it.label != "engine receipts"
+                and not getattr(it, "reused_from", None)):
+            samples[it.label] = (samples.get(it.label, []) + [round(it.seconds, 1)])[-MEDIAN_SAMPLES:]
+    path = os.path.join(state, "weights.tsv")
+    with open(path + ".new", "w") as fh:
+        for k in sorted(samples):
+            fh.write("%s\t%s\t%s\n" % (k, round(statistics.median(samples[k]), 1),
+                                       ",".join(str(v) for v in samples[k])))
+    os.replace(path + ".new", path)
 
 
 if __name__ == "__main__":
