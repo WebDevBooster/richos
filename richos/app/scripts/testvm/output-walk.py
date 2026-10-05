@@ -82,8 +82,9 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                        --steps identity,first-run,connect,attach
                      typed: a shell command writes attach-check.md, with a code word in it, at its
                      absolute path in the Acme folder. When its row is in the record and the file is
-                     on disk, the Output button, the file's row, its "More actions for …" and "Add
-                     to chat" are pressed by name and the chip's "Remove attach-check.md" is found;
+                     on disk, the Output button, the row's own "More actions for …" (S6's menu) and
+                     its last item "Add to chat" are pressed by name and the chip's "Remove
+                     attach-check.md" is found;
                      then Rich is asked for the code word in the attached file. PASS when that
                      turn's prompt lists the file under "Attached on this Mac (1 file" and the
                      conversation's attachments folder holds a byte-identical copy. Whether Rich
@@ -752,8 +753,8 @@ class OutputWalk(command_walk.CommandWalk):
     def attach(self):
         """S7's real-app check (§12.7): a recorded file is attached from the Output panel and
         sent; Rich's turn lists it under *Attached on this Mac*. Every press is by the name a
-        person sees: the Output button, the file's row, its `⋯` (*More actions for …*), *Add to
-        chat*, the chip's *Remove …* (found, not pressed), the composer and Send."""
+        person sees: the Output button, the row's `⋯` (*More actions for …*, S6's menu), its last
+        item *Add to chat*, the chip's *Remove …* (found, not pressed), the composer and Send."""
         target = self.company + '/' + ATTACH_NAME
         turn, sent = self.send(ATTACH_TASK % (ATTACH_WORD, shlex.quote(target)))
         end = time.monotonic() + self.a.within
@@ -781,9 +782,10 @@ class OutputWalk(command_walk.CommandWalk):
         # (ax.sh tree hit its own deadline on the first S7 walk) must not replace it.
         presses = [('wait', 'from this thread', 'AXCheckBox', 60), ('press', 'from this thread', 'AXCheckBox', 0),
                    ('wait', 'Close the output panel', 'AXButton', 20), ('wait', ATTACH_NAME, 'AXButton', 20),
-                   # aria-haspopup="menu" makes WebKit expose the `⋯` as AXPopUpButton, not AXButton
-                   # (the second S7 walk waited 20 s for an AXButton that was on screen).
-                   ('press', ATTACH_NAME, 'AXButton', 0), ('wait', 'More actions for ' + ATTACH_NAME, 'AXPopUpButton', 20),
+                   # The ROW's `⋯` (S6's, beside the row in the list), not the file view's: the row is
+                   # not pressed. aria-haspopup="menu" makes WebKit expose the `⋯` as AXPopUpButton,
+                   # not AXButton (the second S7 walk waited 20 s for an AXButton that was on screen).
+                   ('wait', 'More actions for ' + ATTACH_NAME, 'AXPopUpButton', 20),
                    ('press', 'More actions for ' + ATTACH_NAME, 'AXPopUpButton', 0), ('wait', 'Add to chat', 'AXMenuItem', 20),
                    ('press', 'Add to chat', 'AXMenuItem', 0), ('wait', 'Remove ' + ATTACH_NAME, 'AXButton', 30)]
         done = []

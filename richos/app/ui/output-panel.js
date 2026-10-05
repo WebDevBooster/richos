@@ -17,12 +17,12 @@
 // page — from `output_preview`, or says the §6.7 sentence. `viewPreview` below; `hooks.viewer`
 // still overrides it.
 //
-// WHAT IT DOES NOT DO YET, said here so nobody reads a gap as a bug. Each is a later slice of
-// the same PRD, and each has a named hook below rather than a half-built version:
-//   * the per-file actions — Open in <app>, Open with…, Show in Finder, Save a copy…, Copy path
-//     (S6): BUILT, in "THE ACTIONS" near the foot of this file, through `hooks.rowActions`,
-//     `hooks.fileTools` and `hooks.pathTools`; Add to chat (S7) joins its menus through
-//     `hooks.menuItems(entry)`;
+// THE ACTIONS (S6) AND ADD TO CHAT (S7), near the foot of this file: Open in <app>, Open with…,
+// Show in Finder, Save a copy…, Copy path, through `hooks.rowActions`, `hooks.fileTools` and
+// `hooks.pathTools`; Add to chat last in the same menus, through `hooks.menuItems`.
+//
+// WHAT IT DOES NOT DO YET, said here so nobody reads a gap as a bug. A later slice of the same
+// PRD, with a named place rather than a half-built version:
 //   * the divider, the stop, the snap and the floating composer (S9): the panel's width is the
 //     `--output-width` custom property, 400px, and nothing here drags it.
 //
@@ -989,146 +989,6 @@
     return String(s).replace(/(["\\])/g, "\\$1");
   }
 
-  // ---- Add to chat (slice S7, PRD §12.7) ----------------------------------------------------------
-  //
-  // A file from the panel goes into the next message through the attachment desk:
-  // `RichAttachments.addRecorded` stages it by its OUTPUT ID (`output_attach` in
-  // `mac_attachments.rs`), so the desk's limits and its sentences apply unchanged, and a refusal
-  // is said on the tray's line under the composer exactly as a dropped file's is. Then focus goes
-  // to the composer, as round 17's `addToChat` does, so his words follow the file. Below 1180px
-  // the panel lies over the composer (§6.1), so it steps aside first and the tray is seen.
-  //
-  // WHERE IT IS REACHED. Round 17 puts *Add to chat* last in the row's `⋯` menu, the file's `⋯`
-  // menu and the right-click, after a rule (`output.html` `menuItems`). Those menus are slice
-  // S6's, built beside this one. Until they are here, this section gives the file view a `⋯`
-  // holding the one item, and the row's right-click opens the same. `addToChatItem(f)` is the
-  // item S6's menus take; when they land, they take it and `openAddMenu` and its `⋯` go.
-  const ADD_TO_CHAT = "Add to chat";
-  let addMenu = null; // { node, opener } while the menu is open
-
-  /// The menu item, as round 17's `menuItems` shapes one. A file no longer where it was written
-  /// cannot be attached (§4.6); the reason is its tooltip (§6.7).
-  function addToChatItem(f) {
-    return { label: ADD_TO_CHAT, disabled: !f.exists, reason: f.exists ? null : MISSING_LINE, act: () => addToChat(f) };
-  }
-
-  async function addToChat(f) {
-    if (!f || !f.exists || !window.RichAttachments) return;
-    if (!isWide()) close({ keepFocus: true });
-    const said = await window.RichAttachments.addRecorded(f);
-    // A refusal is already said, and announced, by the tray's own `role="status"` line.
-    if (said && said.ok && said.sentence && ctx.announce) ctx.announce(said.sentence);
-    const input = el("input");
-    if (input) input.focus({ preventScroll: true });
-  }
-
-  function dotsIcon() {
-    const svg = document.createElementNS(SVG_NS, "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("fill", "currentColor");
-    svg.setAttribute("aria-hidden", "true");
-    svg.setAttribute("focusable", "false");
-    for (const cx of [5, 12, 19]) {
-      const c = document.createElementNS(SVG_NS, "circle");
-      c.setAttribute("cx", String(cx));
-      c.setAttribute("cy", "12");
-      c.setAttribute("r", "1.75");
-      svg.appendChild(c);
-    }
-    return svg;
-  }
-
-  function closeAddMenu(opts) {
-    if (!addMenu) return;
-    const { node: menu, opener } = addMenu;
-    addMenu = null;
-    menu.remove();
-    if (opener.hasAttribute("aria-expanded")) opener.setAttribute("aria-expanded", "false");
-    if (!(opts && opts.keepFocus) && opener.isConnected) opener.focus({ preventScroll: true });
-  }
-
-  /// The interim `⋯` menu: one `menuitem`, under its opener or at the pointer. `Esc` closes it and
-  /// returns focus to the opener (§6.8); a click anywhere else closes it.
-  function openAddMenu(f, opener, at) {
-    closeAddMenu({ keepFocus: true });
-    const menu = node("div", "menu op-menu");
-    menu.id = "op-menu";
-    menu.setAttribute("role", "menu");
-    menu.setAttribute("aria-label", "Actions for " + f.name);
-    menu.setAttribute("data-dismiss", "escape");
-    menu.tabIndex = -1;
-    const item = addToChatItem(f);
-    const b = node("button", "menu-item", item.label);
-    b.type = "button";
-    b.setAttribute("role", "menuitem");
-    if (item.disabled) {
-      b.disabled = true;
-      b.title = item.reason;
-    }
-    b.addEventListener("click", () => {
-      closeAddMenu({ keepFocus: true });
-      item.act();
-    });
-    menu.appendChild(b);
-    menu.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        closeAddMenu();
-      } else if (e.key === "Tab") {
-        closeAddMenu({ keepFocus: true });
-      }
-    });
-    document.body.appendChild(menu);
-    let x;
-    let y;
-    if (at) {
-      x = at.x;
-      y = at.y;
-    } else {
-      const r = opener.getBoundingClientRect();
-      x = r.right - menu.offsetWidth;
-      y = r.bottom + 6;
-    }
-    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + "px";
-    menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + "px";
-    if (opener.hasAttribute("aria-expanded")) opener.setAttribute("aria-expanded", "true");
-    addMenu = { node: menu, opener };
-    (item.disabled ? menu : b).focus({ preventScroll: true });
-  }
-
-  document.addEventListener("click", (e) => {
-    if (addMenu && !addMenu.node.contains(e.target) && !addMenu.opener.contains(e.target)) closeAddMenu({ keepFocus: true });
-  });
-
-  /// The file view's `⋯` (§6.4's tools, last).
-  function addToChatTools(f, box) {
-    const more = node("button", "of-step of-more");
-    more.type = "button";
-    more.setAttribute("aria-label", "More actions for " + f.name);
-    more.title = "More actions";
-    more.setAttribute("aria-haspopup", "menu");
-    more.setAttribute("aria-expanded", "false");
-    more.appendChild(dotsIcon());
-    more.addEventListener("click", () => {
-      if (addMenu && addMenu.opener === more) closeAddMenu();
-      else openAddMenu(f, more);
-    });
-    box.appendChild(more);
-  }
-
-  /// The row's right-click (§6.3).
-  function addToChatRow(f, row) {
-    row.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      openAddMenu(f, row, { x: e.clientX, y: e.clientY });
-    });
-  }
-
-  const chainHook = (prior, mine) => (prior ? (f, n) => (prior(f, n), mine(f, n)) : mine);
-  hooks.fileTools = chainHook(hooks.fileTools, addToChatTools);
-  hooks.rowActions = chainHook(hooks.rowActions, addToChatRow);
-
   // ---- the thread ------------------------------------------------------------------------------
 
   /// The thread the conversation shows, or null when none is (the home screen, a company's
@@ -1229,9 +1089,9 @@
   // reason as its tooltip — `aria-disabled`, not `disabled`, so it stays focusable and the
   // tooltip shows.
   //
-  // ADD TO CHAT (S7) is not built here: its slice adds menu items through
-  // `hooks.menuItems(entry, detail) -> [{ id, label, icon, act, disabled }]`, shown after a
-  // separator in the row's and the file view's `⋯`.
+  // ADD TO CHAT (S7) joins through `hooks.menuItems(entry, detail) -> [{ id, label, icon, act,
+  // disabled }]`, shown after a separator in the row's `⋯`, its right-click and the file view's
+  // `⋯`; its section follows the entrances below.
 
   /// VERBATIM from `APPS_CHANGED` and `APP_NOT_OFFERED` in `src-tauri/src/output_files.rs`:
   /// the two refusals after which the app list is shown again.
@@ -1250,6 +1110,8 @@
     folder: [["path", { d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
     save: [["path", { d: "M12 4v11" }], ["path", { d: "m7 10 5 5 5-5" }], ["path", { d: "M5 20h14" }]],
     apps: [[3, 3], [14, 3], [3, 14], [14, 14]].map(([x, y]) => ["rect", { x, y, width: 7, height: 7, rx: 1.5 }]),
+    // Round 17's `I.clip`, for Add to chat.
+    clip: [["path", { d: "m21 12-8.5 8.5a5 5 0 0 1-7-7L14 5a3.3 3.3 0 0 1 4.7 4.7L10.3 18a1.6 1.6 0 0 1-2.3-2.3L16 7.7" }]],
   };
 
   function actIcon(name) {
@@ -1769,6 +1631,49 @@
     });
     line.appendChild(copy);
   };
+
+  // ---- Add to chat (slice S7, PRD §12.7), the last item of every menu above ------------------
+  //
+  // A file from the panel goes into the next message through the attachment desk:
+  // `RichAttachments.addRecorded` stages it by its OUTPUT ID (`output_attach` in
+  // `mac_attachments.rs`), so the desk's limits and its sentences apply unchanged, and a refusal
+  // is said on the tray's line under the composer exactly as a dropped file's is. Then focus goes
+  // to the composer, as round 17's `addToChat` does, so his words follow the file. Below 1180px
+  // the panel lies over the composer (§6.1), so it steps aside first and the tray is seen.
+  //
+  // WHERE IT IS REACHED: round 17 puts *Add to chat* last, after a rule, in the row's `⋯`, the
+  // file view's `⋯` and the right-click (`output.html` `menuItems`) — `fileMenuItems` above,
+  // through `hooks.menuItems`. One list builder, so each menu exists once.
+  //
+  // WHAT IT SAYS: *brief.md is attached to your next message.*, in the panel's on-screen notice
+  // (`#op-notice`, S6's, beside every other action's sentence) and in the conversation's live
+  // region (`ctx.announce`), which still speaks when the panel has stepped aside below 1180px
+  // and its notice is off screen with it.
+  const ADD_TO_CHAT = "Add to chat";
+
+  /// The menu item, in S6's shape. Attaching reads the file's bytes, as Save a copy… does, so it
+  /// is lit exactly when Save a copy… is: a file no longer where it was written (§4.6), a link or
+  /// a swapped file cannot be attached, and the reason is its tooltip, the same sentence as every
+  /// other action the menu disables (§6.7). Should the file change after the menu was drawn,
+  /// the desk still refuses it in its own words on the tray's line.
+  function addToChatItem(f, d) {
+    return { id: "add", icon: "clip", label: ADD_TO_CHAT, disabled: blockers(f, d).save, act: () => addToChat(f) };
+  }
+
+  async function addToChat(f) {
+    if (!f || !f.exists || !window.RichAttachments) return;
+    if (!isWide()) close({ keepFocus: true });
+    const said = await window.RichAttachments.addRecorded(f);
+    // A refusal is already said, and announced, by the tray's own `role="status"` line.
+    if (said && said.ok && said.sentence) {
+      notice(said.sentence);
+      if (ctx.announce) ctx.announce(said.sentence);
+    }
+    const input = el("input");
+    if (input) input.focus({ preventScroll: true });
+  }
+
+  hooks.menuItems = (f, d) => [addToChatItem(f, d)];
 
   // A menu closes when he presses anywhere else, scrolls the list under it, or resizes.
   document.addEventListener(

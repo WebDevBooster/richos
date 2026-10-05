@@ -976,8 +976,9 @@ async function main() {
     assertEqual(m.role, "menu");
     assert(m.roles, "every item is a menuitem");
     assertEqual(m.head, "brief.md");
-    assertEqual(m.items, ["Preview", "Open in Obsidian", "Open with…", "Show in Finder", "Save a copy…", "Copy path"]);
-    assertEqual(m.seps, 1);
+    assertEqual(m.items, ["Preview", "Open in Obsidian", "Open with…", "Show in Finder", "Save a copy…", "Copy path", "Add to chat"]);
+    // Round 17's two rules: before Show in Finder, and before Add to chat (S7, last).
+    assertEqual(m.seps, 2);
     assertEqual(m.focus, "Preview", "focus did not move into the menu");
     const opener = await ap.evaluate((sel) => {
       const b = document.querySelector(sel + ' + .oacts [data-act="menu"]');
@@ -996,11 +997,11 @@ async function main() {
     await ap.keyboard.press("ArrowDown");
     assertEqual(await focus(), "Open in Obsidian");
     await ap.keyboard.press("End");
-    assertEqual(await focus(), "Copy path");
+    assertEqual(await focus(), "Add to chat");
     await ap.keyboard.press("ArrowDown");
     assertEqual(await focus(), "Preview", "ArrowDown does not wrap");
     await ap.keyboard.press("ArrowUp");
-    assertEqual(await focus(), "Copy path", "ArrowUp does not wrap");
+    assertEqual(await focus(), "Add to chat", "ArrowUp does not wrap");
     await ap.keyboard.press("Home");
     await ap.keyboard.press("ArrowDown");
     await ap.keyboard.press("ArrowDown");
@@ -1119,7 +1120,7 @@ async function main() {
     await ap.click('.of-tools [data-act="menu"]');
     await ap.waitForSelector("#op-menu");
     m = await menuState();
-    assertEqual([m.kind, m.items], ["file", ["Open in Pages", "Open with…", "Show in Finder", "Save a copy…", "Copy path"]], "the file view's ⋯ is the row's set without Preview");
+    assertEqual([m.kind, m.items], ["file", ["Open in Pages", "Open with…", "Show in Finder", "Save a copy…", "Copy path", "Add to chat"]], "the file view's ⋯ is the row's set without Preview");
     await ap.keyboard.press("Escape");
     assertEqual(await ap.evaluate(() => document.activeElement.getAttribute("aria-label")), "More actions", "Escape did not return focus to the file view's ⋯");
     await ap.click('.of-path [data-act="copy"]');
@@ -1156,8 +1157,8 @@ async function main() {
     await ap.click(rowOf("brief.md") + ' + .oacts [data-act="open"]', { force: true });
     await openRowMenu("brief.md");
     let m = await menuState();
-    assertEqual(m.items, ["Preview", "Open (off)", "Show in Finder (off)", "Save a copy… (off)", "Copy path"]);
-    assertEqual([m.titles["Open"], m.titles["Show in Finder"], m.titles["Save a copy…"], m.titles["Copy path"]], [MISSING, MISSING, MISSING, ""], "each disabled action's tooltip is its reason");
+    assertEqual(m.items, ["Preview", "Open (off)", "Show in Finder (off)", "Save a copy… (off)", "Copy path", "Add to chat (off)"]);
+    assertEqual([m.titles["Open"], m.titles["Show in Finder"], m.titles["Save a copy…"], m.titles["Copy path"], m.titles["Add to chat"]], [MISSING, MISSING, MISSING, "", MISSING], "each disabled action's tooltip is its reason");
     assertEqual(m.focus, "Preview", "focus landed on a disabled item");
     await ap.keyboard.press("ArrowDown");
     assertEqual((await menuState()).focus, "Open", "the arrows skipped a disabled item; it stays reachable, its reason in the tooltip");
@@ -1182,8 +1183,8 @@ async function main() {
     await ap.evaluate(() => window.__RICHOS_MOCK__.outputLinked("term-sheet-march.pdf"));
     await openRowMenu("term-sheet-march.pdf");
     m = await menuState();
-    assertEqual(m.items, ["Preview", "Open (off)", "Show in Finder", "Save a copy… (off)", "Copy path (off)"]);
-    assertEqual([m.titles["Open"], m.titles["Copy path"], m.titles["Show in Finder"]], [LINKED, LINKED, ""]);
+    assertEqual(m.items, ["Preview", "Open (off)", "Show in Finder", "Save a copy… (off)", "Copy path (off)", "Add to chat (off)"]);
+    assertEqual([m.titles["Open"], m.titles["Copy path"], m.titles["Show in Finder"], m.titles["Add to chat"]], [LINKED, LINKED, "", LINKED]);
     await pick("Show in Finder");
     await noticeSays("Finder opens acme/reference/ with term-sheet-march.pdf selected.");
     // A file that went after its menu was drawn: the shell's sentence, and its row dims.
