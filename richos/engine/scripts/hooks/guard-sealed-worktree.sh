@@ -264,6 +264,12 @@ case "$KIND" in
     # stop-work-ack.sh as one plain command (workspaces.py lead_recovery_call).
     # Never refused: a lead that cannot stop its agents is how 2026-09-22 went.
     exit 0 ;;
+  HANDBACK)
+    # A finished agent's SubagentHandback, when its only ending is its own run's
+    # end (workspaces.py _hands_back_after_its_run). The report writes nothing
+    # anywhere, which is point 9's whole reason; every other tool of that agent
+    # is still refused. Walk 6, 2026-10-05: a reviewer's verdict refused 3 times.
+    exit 0 ;;
   FINISHED)
     {
       echo "=== Lock-out: REFUSED (finished agent) ==="
