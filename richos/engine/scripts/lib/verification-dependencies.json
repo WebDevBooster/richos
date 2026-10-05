@@ -10095,7 +10095,7 @@
     },
     "scripts/hooks/shell-evidence.py": {
       "source": "scripts/hooks/shell-evidence.py",
-      "sha256": "cd0cbe203bd77e45353b55d9f695674aac02401b6a69c75dfb4f135fcd37cb36",
+      "sha256": "de4326ba4e1c9d8a415e27379efe3b4ecb15d4dd362419925628afe64c1cf240",
       "evidence": "Full program reviewed: stdlib JSON/text parsing and command wrapping as returned data, plus agent_hold.rewrite for a subagent's call (renewed 2026-09-28: the call becomes a native background task, a held call is denied, the wait call stays foreground): private call records in the agent-hold state directory and shell text. No command execution or config read. Renewed 2026-10-04: before the rewrite it runs agent_hold.gate, which holds a held subagent's wait call until its hold record is gone (reads that record and the agent's wait-notice file in the agent-hold state directory); the rewrite itself is bounded by a 5 s alarm.",
       "keys": [],
       "edges": [
@@ -11935,7 +11935,7 @@
     },
     "scripts/lib/agent_hold.py": {
       "source": "scripts/lib/agent_hold.py",
-      "sha256": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+      "sha256": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
       "keys": [],
       "edges": [
         {
@@ -11946,21 +11946,21 @@
     },
     "scripts/lib/agent_hold.py#release": {
       "source": "scripts/lib/agent_hold.py",
-      "sha256": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+      "sha256": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
       "keys": [],
       "edges": [],
       "evidence": "release, records, release_session, release_orphans and describe_* only: read hold records in the agent-hold state directory, this user's ps table and recorded shell PID files, and continue recorded processes. No watchdog, engine execution or orchestration.config read."
     },
     "scripts/lib/agent_hold.py#gate": {
       "source": "scripts/lib/agent_hold.py",
-      "sha256": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+      "sha256": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
       "keys": [],
       "edges": [],
       "evidence": "gate only (2026-10-04), run by shell-evidence.py before its rewrite: for a subagent's own wait call it reads that agent's hold record and wait-notice file in the agent-hold state directory (RICHOS_AGENT_HOLD_DIR, else CLAUDE_CONFIG_DIR or HOME .claude/state/agent-hold), sleeps one second between reads while the hold stands and returns when it is gone, when the notice is not this hold's or when its parent process is gone. It starts no process, signals nothing and never reaches the watchdog or the workspace recipient CLI (watch and _registry_finished are not called). No engine execution and no orchestration.config read."
     },
     "scripts/lib/agent_hold.py#capture": {
       "source": "scripts/lib/agent_hold.py",
-      "sha256": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+      "sha256": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
       "keys": [],
       "edges": [],
       "evidence": "capture and rewrite (renewed 2026-09-28): for a Bash payload with valid session, agent and tool-use ids it creates call records in the agent-hold state directory, notes the size of the agent's transcript named by the payload, prunes records of ended calls (a signal-0 probe of recorded PIDs) and returns shell text or a deny as data. Pruning a dead call that carried a process identity takes this user's ps table and reads tagged processes' environments through the kernel, to keep ownership of live descendants. No engine execution and no orchestration.config read."
@@ -12557,7 +12557,7 @@
     },
     "scripts/hooks/shell-evidence.test.py": {
       "source": "scripts/hooks/shell-evidence.test.py",
-      "sha256": "47a9c5ed5495a4063ef7113100fb8af6bdf4c30a4eefd4dfe6340d1786c47763",
+      "sha256": "8847f4b091381fe27f44475ba7504492a06d0e5d0756952e5cfd3eaa01b991d3",
       "evidence": "Calls fixed shell-evidence hook with literal payloads and private agent-hold state; executes returned wrappers only around literal echo/printf/false commands. The bound hook and capture helper do not read config.",
       "keys": [],
       "edges": [
@@ -13847,7 +13847,7 @@
     },
     "scripts/lib/agent_hold.test.py": {
       "source": "scripts/lib/agent_hold.test.py",
-      "sha256": "70624e6faa1ce60713146f8330d2796eb4782c81b378726419faa452f07c35bd",
+      "sha256": "9e5b1af636aec380640694897ea1e458cbf1ec658c485146aa34536a771d2c20",
       "evidence": "Fixed Python fixture imports only the bound helper and standard library. Subprocess work/registry programs are literal strings in this source; no config-provided command or discovered test executes. Preserve the real helper closure conservatively. Renewed 2026-10-04: HeldAgentMakesNoModelCalls reads hooks/hooks.json for the PreToolUse[Bash] hooks that act on a held agent's call (the rewriter) and runs them, then the command they leave. Renewed 2026-10-04 (holdleak3): the fixture worker takes an optional go file as a literal argument, a path in the test's own temporary directory that the test creates after its hold; no new configuration key, environment variable or outside file is read.",
       "keys": [],
       "edges": [
@@ -14075,7 +14075,7 @@
     },
     "mega-lander/tests/workspace-pause-hold.test.sh": {
       "source": "mega-lander/tests/workspace-pause-hold.test.sh",
-      "sha256": "59cbcf4d73dcddeb3a161742aa6b4242c5729cdc41cf079b95baa7a7f550eb23",
+      "sha256": "96f0a8c819d5f04dfc7a0d54937d5a7cb2c37fb3f272f6c689c5980f1ffc4064",
       "evidence": "Fixed private Git/process fixture with copied real config. Retain actual isolation/model and lifecycle cleanup keys. Generated shell-evidence prefix invokes bound agent_hold; all body/worker/supervisor/WAIT programs are source-bound. No hook inventory execution.",
       "keys": [],
       "edges": [
@@ -15263,14 +15263,6 @@
           "root": "environment",
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
-          "path": "scripts/lib/agent_hold.py",
-          "sha256": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
-          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
-        },
-        {
-          "root": "environment",
-          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
-          "default_engine": true,
           "path": "scripts/lib/appinstances.py",
           "sha256": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
@@ -15417,6 +15409,14 @@
           "default_engine": true,
           "path": "scripts/lib/worktree-ledger.py",
           "sha256": "38f6cc15cd69ccd6aae90232db8b1b078866b6676b3f4795bdfe13212e1cb8ce",
+          "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
+        },
+        {
+          "root": "environment",
+          "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
+          "default_engine": true,
+          "path": "scripts/lib/agent_hold.py",
+          "sha256": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         }
       ]
@@ -16190,7 +16190,7 @@
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/quota_weekly.py": "fc1f6ada13e8a34479c9004bd3b31a62eb61b7a1281dc32fd578957794046fc7",
         "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354"
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53"
       }
     },
     "scripts/hooks/root-contract.test.sh": {
@@ -16264,7 +16264,7 @@
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/quota_weekly.py": "fc1f6ada13e8a34479c9004bd3b31a62eb61b7a1281dc32fd578957794046fc7",
         "scripts/hooks/left-off-report.sh": "d14ee9ceac38d7de2c7d04ba85eb11a4ab7d6610f3bc0d066db606dbc9090dee",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354"
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53"
       }
     },
     "scripts/hooks/contract-integrity.test.sh": {
@@ -16498,7 +16498,7 @@
         "scripts/lib/quota_weekly.py": "fc1f6ada13e8a34479c9004bd3b31a62eb61b7a1281dc32fd578957794046fc7",
         "scripts/hooks/session-start-scratch.sh": "f78039d4b89732e00fdfec13abd6622f4c9c8f4badb9bca26c4b0a758068d485",
         "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
-        "scripts/hooks/shell-evidence.py": "cd0cbe203bd77e45353b55d9f695674aac02401b6a69c75dfb4f135fcd37cb36",
+        "scripts/hooks/shell-evidence.py": "de4326ba4e1c9d8a415e27379efe3b4ecb15d4dd362419925628afe64c1cf240",
         "scripts/hooks/snapshot-enforcing-hooks.sh": "d357c9a97492d4447e5ad83099da89192d877ac9282e41d712804710e6b739d4",
         "scripts/hooks/task-completed-handoff.sh": "e143bbca2d836099f898f588d12fa1aef39b2fd7db85cf7ad3f575f702d74216",
         "scripts/hooks/teammate-idle-handoff.sh": "9e0e49d90653b6f80b9ccdcda91992bf8372e1ac53f0c8eda366c22e363d087c",
@@ -16510,7 +16510,7 @@
         "scripts/hooks/worker-started-handoff.sh": "f18675f4938cae746d536661b44e49e7a3425c15acff5c7cd3ad2e1bf7ee9919",
         "scripts/hooks/worker-updated-handoff.sh": "6cbcdd13306d482c8bfd9da1f6ccc68141a3091f9f9405bb52232cb14430ebf8",
         "scripts/hooks/contract-integrity-case7.mutation.sh": "71a90a5ab0d82a3e109d7f06924e6766135b106bd3581b291067efb4fa663866",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
@@ -16738,7 +16738,7 @@
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "mega-lander/workspaces.py": "8888402874baaa6943736f71a0a67eb1271bd326cd60b2a4ccdb6733e79b9344",
         "scripts/hooks/scan-secrets.sh": "fd488d5b07748fd41c773c80ec133eed526869534f4f1324c847a33701ae1ab1",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
@@ -16788,7 +16788,7 @@
         "scripts/hooks/notice-waiver-repetition.sh": "db7a0e6b1e6a2603d93955f5624de15dd5a010112049f898c6dbb4379b7ce6e7",
         "scripts/hooks/release-land-leases.sh": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354"
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53"
       }
     },
     "scripts/hooks/waiver-repetition.test.sh": {
@@ -17157,7 +17157,7 @@
         "scripts/hooks/notice-waiver-repetition.py": "536de700653b2d81df7ea51223338be0a9e93e67c1203e9950ec33a312381125",
         "scripts/hooks/release-land-leases.sh": "9b933f62a43f2ef058654297789951667b27f6a116d9e4c4c1895e9c549dceb8",
         "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
-        "scripts/hooks/shell-evidence.py": "cd0cbe203bd77e45353b55d9f695674aac02401b6a69c75dfb4f135fcd37cb36",
+        "scripts/hooks/shell-evidence.py": "de4326ba4e1c9d8a415e27379efe3b4ecb15d4dd362419925628afe64c1cf240",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
         "scripts/hooks/verify-agent-prompt.sh": "862ddf86cca9e7c3b9039d656165f2f4b2afa655d0bc834bc25a59b6371aafda",
         "scripts/hooks/guard-bash-main-writes.sh": "86d87ebcda5e74dc0e0e728bbe5b3c1a198f13946714c326d8c0fe2ae7573884",
@@ -17183,7 +17183,7 @@
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "scripts/hooks/dispatch-pretooluse.manifest": "2c8df980b988666f70540291575d461262ca0192a012a4e3c1a8a32723daf85c",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
         "scripts/lib/record_owner.py": "10f0983a12f686bcf462a63ec71ff8bed32507f5e3315395bf6dcf55eb20cfb1",
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3",
@@ -17247,7 +17247,7 @@
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
         "scripts/hooks/engine-status.sh": "fb2713b25845c04a35dffbea62873d306d93c96ead921925695647d3edb93e1d",
         "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/lib/by-reference-fixture.sh": "403f7116154f6344ebb8621519213a22c0ce3bf6934d49621135f67d2b233ae9"
       },
       "evidence": "Suite and probe audit every event, ordering, registration count and expanded dispatcher manifest. Hook inventory edits select this whole unit."
@@ -17268,7 +17268,7 @@
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/workspaces.py": "8888402874baaa6943736f71a0a67eb1271bd326cd60b2a4ccdb6733e79b9344",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
@@ -17305,7 +17305,7 @@
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "scripts/hooks/observe-created-refs.sh": "6c1bcc7fc86608dace9465fdaef957468872b82906e4134382a98b5ab8085202",
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
@@ -17351,7 +17351,7 @@
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/hooks/observe-created-refs.sh": "6c1bcc7fc86608dace9465fdaef957468872b82906e4134382a98b5ab8085202",
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
@@ -17454,7 +17454,7 @@
         "scripts/hooks/guard-resume-isolation.sh": "3995168d36694672fbb54a2256142f2a9ca553372c56d2c471d326bf91002a78",
         "scripts/hooks/guard-resume-isolation.test.sh": "2fc190fc539a183b423ac8ba7a22a23c56d6f8cd289aa341a67a7d6fd8f39a1d",
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/containers.py": "21ae0f0f3b978556873fd5bdae04e3f70c57387a9efb42f472ada4cc10303142",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
@@ -17530,7 +17530,7 @@
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
         "scripts/hooks/engine-status.sh": "fb2713b25845c04a35dffbea62873d306d93c96ead921925695647d3edb93e1d",
         "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/lib/by-reference-fixture.sh": "403f7116154f6344ebb8621519213a22c0ce3bf6934d49621135f67d2b233ae9"
       },
       "evidence": "Suite and probe audit every event, ordering, registration count and expanded dispatcher manifest. Hook inventory edits select this whole unit."
@@ -17588,7 +17588,7 @@
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
         "scripts/hooks/engine-status.sh": "fb2713b25845c04a35dffbea62873d306d93c96ead921925695647d3edb93e1d",
         "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/lib/by-reference-fixture.sh": "403f7116154f6344ebb8621519213a22c0ce3bf6934d49621135f67d2b233ae9"
       },
       "evidence": "Suite and probe audit every event, ordering, registration count and expanded dispatcher manifest. Hook inventory edits select this whole unit."
@@ -17646,7 +17646,7 @@
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
         "scripts/hooks/engine-status.sh": "fb2713b25845c04a35dffbea62873d306d93c96ead921925695647d3edb93e1d",
         "scripts/hooks/notice-unlanded-branches.sh": "3a1222731913dc06aecd5a9703403ae27b7d61a6f28c7fad00223c4ac6c5a90d",
-        "scripts/lib/agent_hold.py": "a6e8524d2b4b75ae1ca840c3791e91e95ee5ffa17863713d3a109160e1211354",
+        "scripts/lib/agent_hold.py": "304a732f57cc3ed0e02f6a7648191afbe1df99efc162060eb61f4f536128ce53",
         "scripts/lib/by-reference-fixture.sh": "403f7116154f6344ebb8621519213a22c0ce3bf6934d49621135f67d2b233ae9"
       },
       "evidence": "Suite and probe audit every event, ordering, registration count and expanded dispatcher manifest. Hook inventory edits select this whole unit."

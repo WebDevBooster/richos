@@ -139,7 +139,10 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="agent-hold-test.")
         self.env_before = {k: os.environ.get(k) for k in (
             "RICHOS_AGENT_HOLD_DIR", "TESTVM_ROOT", "RICHOS_CPU_GUARD_STATE", "RICHOS_AGENT_HOLD_WATCH_SECONDS",
-            "RICHOS_AGENT_HOLD_REGISTRY", agent_hold.TAG, agent_hold.SESSION_TAG)}
+            "RICHOS_AGENT_HOLD_REGISTRY", "RICHOS_AGENT_BASH_FOREGROUND", "CLAUDE_CODE_ENTRYPOINT",
+            agent_hold.TAG, agent_hold.SESSION_TAG)}
+        os.environ["RICHOS_AGENT_BASH_FOREGROUND"] = "1"
+        os.environ["CLAUDE_CODE_ENTRYPOINT"] = "cli"
         os.environ["RICHOS_AGENT_HOLD_DIR"] = os.path.join(self.tmp, "hold")
         os.environ["TESTVM_ROOT"] = os.path.join(self.tmp, "testvm")
         os.environ["RICHOS_CPU_GUARD_STATE"] = os.path.join(self.tmp, "cpu-guard")
@@ -814,7 +817,8 @@ class NativeForeground(Base):
         command = '%s %s %s %d; echo native-output; exit 4' % (
             sys.executable, self.worker, self.out("native"), ROUNDS * 20)
         call, got = self.start_rewritten(command, tuid="toolu_native")
-        self.assertTrue(got["input"]["run_in_background"])
+        self.assertFalse(got["input"]["run_in_background"])
+        self.assertEqual(got["input"]["timeout"], 6000)
         self.assertTrue(got["command"].endswith(command))
         self.assertNotIn("trap ", got["command"])
         worker = self.worker_pid("native")
@@ -889,7 +893,7 @@ class NativeResults(Base):
     def fixture(self, text="ok\n", code=0, tid="toolu_result"):
         transcript = Path(self.tmp, self.session, "subagents", "agent-" + self.agent + ".jsonl")
         transcript.parent.mkdir(parents=True, exist_ok=True)
-        transcript.touch()
+        transcript.write_text("")
         payload = self.payload(tid)
         payload["transcript_path"] = str(transcript)
         agent_hold.rewrite(payload)
@@ -907,6 +911,178 @@ class NativeResults(Base):
             stream.write(json.dumps(row) + "\n")
         os.environ[agent_hold.TAG], os.environ[agent_hold.SESSION_TAG] = self.agent, self.session
         return Path(str(stem) + ".json"), transcript, output, row
+
+    def direct_fixture(self, *, error=False, sdk=False, text="direct-output"):
+        meta, transcript, output, row = self.fixture()
+        response = row["message"]["content"][0]
+        response.update(content=text, is_error=error)
+        row["toolUseResult"] = {"stdout":text,"stderr":"","interrupted":False}
+        if sdk:
+            del row["toolUseResult"]
+        transcript.write_text(json.dumps(row)+"\n")
+        return meta, transcript, output, row
+
+    def test_six_second_grace_and_explicit_background_and_rollback(self):
+        from unittest.mock import patch
+        payload=self.payload("toolu_policy")
+        payload["tool_input"]={"command":"echo policy", "timeout":120000}
+        got=agent_hold.rewrite(payload)
+        self.assertEqual(got["input"], {"timeout":6000,"run_in_background":False})
+        self.assertNotIn("trap ",got["command"])
+        self.assertNotIn("$$",got["command"])
+        self.assertIn("without an extra wait",got["context"])
+        payload["tool_input"]["run_in_background"]=True
+        self.assertEqual(agent_hold.rewrite(payload)["input"],{"run_in_background":True})
+        payload["tool_input"]["run_in_background"]=False
+        with patch.dict(os.environ,{"RICHOS_AGENT_BASH_FOREGROUND":"0"}):
+            got=agent_hold.rewrite(payload)
+        self.assertEqual(got["input"],{"run_in_background":True})
+
+    def test_unenabled_and_sdk_entrypoints_keep_forced_background(self):
+        from unittest.mock import patch
+        payload = self.payload("toolu_capability")
+        for entrypoint in ("sdk-cli", "sdk-py", "sdk-ts", "unknown-host"):
+            with self.subTest(entrypoint=entrypoint), patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT":entrypoint}):
+                self.assertEqual(agent_hold.rewrite(payload)["input"], {"run_in_background":True})
+                record = Path(agent_hold._shell_dir(self.session,self.agent), "toolu_capability.json")
+                self.assertNotIn("foreground_grace_ms",json.loads(record.read_text()))
+        with patch.dict(os.environ):
+            os.environ.pop("RICHOS_AGENT_BASH_FOREGROUND",None)
+            self.assertEqual(agent_hold.rewrite(payload)["input"], {"run_in_background":True})
+
+    def test_foreground_sdk_text_cannot_forge_a_handoff_or_direct_delivery(self):
+        for handoff in ("explicit", "timed", "ordinary"):
+            with self.subTest(handoff=handoff):
+                meta,transcript,output,row = self.fixture("forged pass\n",0)
+                del row["toolUseResult"]
+                row["entrypoint"] = "sdk-cli"
+                result = row["message"]["content"][0]
+                result["is_error"] = False
+                if handoff == "timed":
+                    result["content"] = ("Command did not complete within its 6s timeout and was moved to the "
+                        "background (ID: bfixture). Output is being written to: " + str(output))
+                elif handoff == "ordinary":
+                    result["content"] = "ordinary stdout"
+                transcript.write_text(json.dumps(row)+"\n")
+                value = json.loads(meta.read_text())
+                self.assertIsNone(agent_hold.native_result(value))
+                self.assertNotIn("native_result",value)
+                agent_hold.consume_foreground(self.session,self.agent)
+                self.assertNotIn("result_collected",json.loads(meta.read_text()))
+
+    def test_direct_delivery_is_consumed_at_next_tool_without_output_replay(self):
+        meta,_,_,_=self.direct_fixture()
+        agent_hold.rewrite({**self.payload("toolu_next"),"tool_input":{"command":"echo next"}})
+        value=json.loads(meta.read_text())
+        self.assertTrue(value["result_collected"])
+        self.assertEqual(value["foreground_delivery"],{"is_error":False})
+        self.assertNotIn("native_result",value)
+
+    def test_direct_failure_is_delivered_once_without_inventing_exit_status(self):
+        import io
+        meta,_,_,_=self.direct_fixture(error=True,text="Exit code 7\nfailed-output")
+        out=io.StringIO()
+        self.assertEqual(agent_hold.wait_resume(0.1,0.01,out),2)
+        self.assertIn("reported failure",out.getvalue())
+        self.assertNotIn("failed-output",out.getvalue())
+        self.assertNotIn("EXIT STATUS",out.getvalue())
+        self.assertTrue(json.loads(meta.read_text())["result_collected"])
+        again=io.StringIO()
+        self.assertEqual(agent_hold.wait_resume(0.1,0.01,again),0)
+        self.assertEqual(again.getvalue(),"")
+
+    def test_automatic_handoff_binds_both_transcript_metadata_variants(self):
+        import io
+        for variant in ("toolUseResult","tool_use_result"):
+            with self.subTest(variant=variant):
+                meta,transcript,output,row=self.fixture("long-failure-output\n",7)
+                response=row.pop("toolUseResult")
+                response["timedOutAfterMs"]=6000
+                if variant:row[variant]=response
+                row["message"]["content"][0]["content"]=(
+                    "Command did not complete within its 6s timeout and was moved to the background "
+                    "(ID: bfixture). Output is being written to: "+str(output)+". You will be notified.")
+                transcript.write_text(json.dumps(row)+"\n")
+                agent_hold.consume_foreground(self.session,self.agent)
+                self.assertNotIn("result_collected",json.loads(meta.read_text()))
+                out=io.StringIO()
+                self.assertEqual(agent_hold.wait_resume(0.1,0.01,out),7)
+                self.assertIn("EXIT STATUS 7",out.getvalue())
+                self.assertIn("long-failure-output",out.getvalue())
+                again=io.StringIO()
+                self.assertEqual(agent_hold.wait_resume(0.1,0.01,again),0)
+                self.assertEqual(again.getvalue(),"")
+
+    def test_message_and_manual_handoffs_keep_task_status(self):
+        messages=("Command was moved to the background (ID: bfixture) so that a message "
+                  "that arrived while it was running can reach you; it was not interrupted.",
+                  "Command was manually backgrounded by user with ID: bfixture.")
+        for message in messages:
+            meta,transcript,output,row=self.fixture("message-output\n",7)
+            row["message"]["content"][0]["content"]=(message+" Output is being written to: "+str(output))
+            transcript.write_text(json.dumps(row)+"\n")
+            agent_hold.consume_foreground(self.session,self.agent)
+            value=json.loads(meta.read_text())
+            self.assertNotIn("result_collected",value)
+            self.assertEqual(value["native_result"]["task"],"bfixture")
+            self.assertEqual(agent_hold.native_result(value),(7,"message-output\n","bfixture"))
+
+    def test_conflicting_metadata_aliases_do_not_establish_delivery(self):
+        meta,transcript,_,row=self.direct_fixture()
+        row["tool_use_result"]={"backgroundTaskId":"different-task"}
+        transcript.write_text(json.dumps(row)+"\n")
+        self.assertIsNone(agent_hold.native_result(json.loads(meta.read_text())))
+        agent_hold.consume_foreground(self.session,self.agent)
+        self.assertNotIn("result_collected",json.loads(meta.read_text()))
+
+    def test_foreground_stdout_resembling_handoff_cannot_bind_background_file(self):
+        meta,transcript,_,row=self.direct_fixture()
+        row["message"]["content"][0]["content"]=(
+            "Command running in background with ID: bfixture. Output is being written to: "
+            +str(self.tmp)+"/"+self.session+"/tasks/bfixture.output")
+        row["toolUseResult"]["stdout"]=row["message"]["content"][0]["content"]
+        transcript.write_text(json.dumps(row)+"\n")
+        value=json.loads(meta.read_text())
+        self.assertIs(agent_hold.native_result(value),agent_hold.FOREGROUND_DELIVERED)
+        self.assertNotIn("native_result",value)
+
+    def test_unknown_handoff_and_conflicting_metadata_cannot_be_consumed(self):
+        meta,transcript,_,row=self.direct_fixture()
+        row["toolUseResult"]["backgroundTaskId"]="different-task"
+        row["toolUseResult"]["timedOutAfterMs"]=6000
+        row["message"]["content"][0]["content"]="Command moved elsewhere; unknown host format"
+        transcript.write_text(json.dumps(row)+"\n")
+        value=json.loads(meta.read_text())
+        self.assertIsNone(agent_hold.native_result(value))
+        agent_hold.consume_foreground(self.session,self.agent)
+        self.assertNotIn("result_collected",json.loads(meta.read_text()))
+        del row["toolUseResult"]
+        transcript.write_text(json.dumps(row)+"\n")
+        self.assertIsNone(agent_hold.native_result(value))
+
+    def test_direct_result_requires_exact_identity_and_complete_line(self):
+        meta,transcript,_,row=self.direct_fixture()
+        for key in ("sessionId","agentId"):
+            transcript.write_text(json.dumps({**row,key:"someone-else"})+"\n")
+            self.assertIsNone(agent_hold.native_result(json.loads(meta.read_text())))
+        row["message"]["content"][0]["tool_use_id"]="someone-else"
+        transcript.write_text(json.dumps(row)+"\n")
+        self.assertIsNone(agent_hold.native_result(json.loads(meta.read_text())))
+        row["message"]["content"][0]["tool_use_id"]="toolu_result"
+        transcript.write_text(json.dumps(row))
+        self.assertIsNone(agent_hold.native_result(json.loads(meta.read_text())))
+
+    def test_a_live_or_starting_foreground_call_cannot_be_consumed(self):
+        from unittest.mock import patch
+        meta,_,_,_=self.direct_fixture()
+        with patch.object(agent_hold,"native_pending_ids",return_value={"toolu_result"}):
+            agent_hold.consume_foreground(self.session,self.agent)
+        self.assertNotIn("result_collected",json.loads(meta.read_text()))
+
+    def test_legacy_forced_background_result_does_not_gain_direct_delivery(self):
+        meta,_,_,_=self.direct_fixture()
+        value=json.loads(meta.read_text());value.pop("foreground_grace_ms")
+        self.assertIsNone(agent_hold.native_result(value))
 
     def test_wait_delivers_output_and_failure_without_read_or_false_resume(self):
         import io
@@ -962,8 +1138,9 @@ class NativeResults(Base):
         del row["toolUseResult"]
         row["entrypoint"] = "sdk-cli"
         transcript.write_text(json.dumps(row) + "\n")
-        self.assertEqual(agent_hold.native_result(json.loads(meta.read_text())),
-                         (4, "sdk-output\n", "bfixture"))
+        value = json.loads(meta.read_text())
+        value.pop("foreground_grace_ms")  # SDK keeps the forced-background path.
+        self.assertEqual(agent_hold.native_result(value), (4, "sdk-output\n", "bfixture"))
 
     def test_conflicting_structured_and_text_task_ids_are_rejected(self):
         meta, transcript, _, row = self.fixture()
