@@ -534,6 +534,44 @@ async function main() {
     assertEqual(await page.locator("#quota-account-feedback").textContent(), "", "said in passing, then gone");
     await page.close();
   });
+  // ---- Walk of nightly 36 (docs/verification/2026-10-05-nightly-36-candidate-walk.md) -------
+  // D2: the fast card's dot and the signing lane's pulse breathe by size at full opacity
+  // (the working row's 9cbdac8ea); the opacity breath measured 2.11:1 dark in the walk.
+  await run.check("D2: the fast dot and the lane pulse keep full opacity at every phase and clear 3:1 in both themes", async () => {
+    const fast = { ...quota, windows: [{ ...quota.windows[0], usedPercent: 71 }, quota.windows[1]], refreshIntervalMs: 60000,
+      speeds: { five_hour: 3 / 60000 }, rises: { five_hour: { from: 40, to: 71, ms: 12 * 60000 } }, agentsWorking: 3, actAt: { five_hour: 82 } };
+    const measured = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await open(theme, fast, 100, null, true);
+      await enableTechnical(page); await page.click("#set-quota-open");
+      await page.waitForSelector(".quota-status-dot.is-fast");
+      await page.evaluate(t => document.documentElement.setAttribute("data-theme", t), theme);
+      await page.addScriptTag({ content: contrast.pageScript() });
+      const found = await page.evaluate(() => {
+        const C = window.__contrastMath, out = [];
+        const probe = document.createElement("span"); probe.className = "quota-lane-pulse";
+        document.querySelector(".quota-lane-note, .quota-status-card").appendChild(probe);
+        for (const el of [document.querySelector(".quota-status-dot.is-fast"), probe]) {
+          const frames = el.getAnimations().flatMap(a => a.effect.getKeyframes());
+          const card = C.parseCssColor(getComputedStyle(document.getElementById("quota-status-card")).backgroundColor);
+          const surface = C.parseCssColor(getComputedStyle(document.querySelector(".quota-panel")).backgroundColor);
+          const gold = C.parseCssColor(getComputedStyle(el).backgroundColor);
+          out.push({ cls: el.className, frames: frames.length, opacities: frames.map(f => f.opacity).filter(o => o !== undefined).map(Number),
+            onCard: C.round2(C.contrastRatio(gold, C.compositeOver(card, surface))), onSurface: C.round2(C.contrastRatio(gold, surface)) });
+        }
+        probe.remove();
+        return out;
+      });
+      for (const dot of found) {
+        assert(dot.frames > 0, `${theme} ${dot.cls}: it still breathes`);
+        assertEqual(dot.opacities.filter(o => o < 1), [], `${theme} ${dot.cls}: no keyframe dims it`);
+        assert(dot.onCard >= 3 && dot.onSurface >= 3, `${theme} ${dot.cls}: 3:1 non-text floor ${JSON.stringify(dot)}`);
+        measured.push(`${theme} ${dot.cls.replace("quota-", "")}: ${dot.onCard}:1 on the card, ${dot.onSurface}:1 on the surface`);
+      }
+      await page.close();
+    }
+    return measured.join("; ");
+  });
   await run.check("no renderer errors", async () => assertEqual(errors, []));
   await browser.close();
   process.exitCode = run.report() ? 1 : 0;
