@@ -1551,7 +1551,11 @@ class Install(Fixture):
         self.install()
         self.assertEqual(self.run_(["bash", str(AUTOCHECK / "install.sh"), "--check", str(self.repo)]).returncode, 0)
         out = self.run_(["bash", str(AUTOCHECK / "install.sh"), "--uninstall", str(self.repo)])
-        self.assertEqual(out.stdout.count("REMOVED"), 6)
+        # Six hooks, and the merge driver for the verification maps the install registered
+        # (install.sh header; added in 480bf8dd5). Its repository config goes with them.
+        self.assertEqual(out.stdout.count("REMOVED"), 7)
+        self.assertIn("REMOVED    merge.richos-verification-pins", out.stdout)
+        self.git("config", "--get", "merge.richos-verification-pins.driver", expect=1)
         self.assertEqual(self.run_(["bash", str(AUTOCHECK / "install.sh"), "--check", str(self.repo)]).returncode, 1)
 
     def test_a_hooks_path_that_never_calls_the_hook_is_reported(self):
