@@ -602,6 +602,21 @@ class OutputWalk(command_walk.CommandWalk):
         return evidence
 
     # --- the Markdown file view, and the app's frame held still ------------------------------------
+    def heading(self, words):
+        """Whether a heading reading `words` is on screen, and how it was found. `present` looks
+        for an AXButton by default, which a heading never is (the first md-view walk, 2026-10-05,
+        photographed "Panel check" and reported it absent); the Markdown renderer's heading is a
+        `role="heading"` node, which WebKit names by its text, and its text is a static text whose
+        VALUE carries the words."""
+        if self.present(words, role='AXHeading'):
+            return True
+        try:
+            return bool(self.ax('find', '--value', words, '--role', 'AXStaticText', '--contains', '--first'))
+        except StepFailed as exc:
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+                return False
+            raise
+
     def md_view(self):
         """The panel's Markdown file view on the real app, after the panel step: panel-check.md
         opened from its row and photographed in both themes (nightly a1a26a615 refused its picture of
@@ -621,7 +636,7 @@ class OutputWalk(command_walk.CommandWalk):
         self.press('panel-check.md')
         self.wait_for('All output', seconds=20)
         time.sleep(2)  # the read and the view's fade, with margin
-        note(shots=self.flip_theme('md-view'), heading=self.present('Panel check'))
+        note(shots=self.flip_theme('md-view'), heading=self.heading('Panel check'))
         toggle = self.node('Hide the sidebar')
         close = self.node('Close the output panel')
         note(sidebar_toggle=toggle, panel_close=close, level_gap=round(abs(close['y'] - toggle['y']), 1))
