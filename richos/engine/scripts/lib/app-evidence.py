@@ -245,7 +245,11 @@ def witness_writes(payload, folder, excluded):
         ti = payload.get("tool_input") or {}
         raw = ti.get("file_path") or ti.get("notebook_path") or ti.get("path")
         path = _absolute(raw, payload.get("cwd"))
-        if path and not _excluded(path, excluded):
+        # No exclusion here. The data-directory and .git rules are the command witness's (c):
+        # (b) records the path the tool itself names, and a back-end worker's target worktree
+        # lives under the app's data directory (engine-state/target-worktrees), so excluding it
+        # dropped every back-end worker's write (seen on the test VM, 2026-10-05).
+        if path:
             rows.append(_write_row(payload, path, "hook", tool_use_id=tool_use_id))
     elif tool == "Bash" and isinstance(tool_use_id, str) and SAFE_NAME.fullmatch(tool_use_id):
         start = commands / f"{tool_use_id}.json"

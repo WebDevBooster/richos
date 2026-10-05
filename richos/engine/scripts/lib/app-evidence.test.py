@@ -154,6 +154,19 @@ class OutputWitnessTests(unittest.TestCase):
                           (str(self.work / "notes.md"), "hook", "agent-7", "w2")])
         self.assertNotIn("SECRET BODY", (self.state / "session-1" / "writes.jsonl").read_text(), "paths only")
 
+    def test_a_write_tool_inside_the_app_data_directory_is_still_recorded(self):
+        """A back-end worker writes inside its target worktree, which lives under the app's data
+        directory (`engine-state/target-worktrees/...`, seen on the test VM 2026-10-05). The
+        data-directory rule is the command witness's (c), never the write tools' (b): (b) records
+        the path the tool itself names."""
+        data = self.root / "data"
+        target = data / "engine-state/target-worktrees/repo/worker-sonnet-b7/notes.md"
+        adapter.capture({**self.base, "hook_event_name": "PostToolUse", "tool_use_id": "w3", "tool_name": "Write",
+                         "agent_id": "agent-7", "tool_input": {"file_path": str(target), "content": "n"}},
+                        self.state, app_data=data)
+        self.assertEqual([(r["path"], r["source"], r["agent_id"]) for r in self.rows()],
+                         [(str(target), "hook", "agent-7")])
+
     def test_a_pandoc_shaped_command_records_its_output_and_not_what_it_only_read(self):
         source = self.old("brief.md")
         self.old("unrelated.txt")
