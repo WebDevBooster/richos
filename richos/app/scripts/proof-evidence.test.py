@@ -574,7 +574,7 @@ class Evidence(unittest.TestCase):
         (previous.logdir / "plan.json").write_text(json.dumps(saved))
         with self.assertRaisesRegex(ValueError, "duplicate obligations"):
             evidence.read_plan(previous.logdir)
-        # No plan is written with one again: the planner keeps one of two identical commands...
+        # No plan is written with one again: the planner keeps one of two identical cargo commands...
         line = "cd richos/app/src-tauri && cargo test --bin richos-tauri"
         planned = runner.plan([line, line], SimpleNamespace(), str(Path(self.tmp.name) / "planned"), {})
         self.assertEqual([item.label for item in planned], ["cargo --bin richos-tauri"])

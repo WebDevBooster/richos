@@ -407,20 +407,12 @@ def supply_runtime(items):
 
 def plan(lines, args, logdir, hist):
     items, units, cargo = [], [], []
-    seen = set()
     for n, line in enumerate(lines, 1):
         s = line.strip()
         m = re.match(r"^cd (\S+) && (.+)$", s)
         if not m:
             raise SystemExit("proof-run: cannot read line %d of the selection: %r" % (n, line))
         cwd, argv = os.path.join(ROOT, m.group(1)), shlex.split(m.group(2))
-        # One command is one obligation however often the selection names it. proof-for.sh
-        # prints `cargo test --bin richos-tauri` once for src-tauri/src/main.rs and once more for
-        # src-tauri/Cargo.toml; both were planned, and the saved plan held the check twice
-        # (merge of cc/echo-opus-out3b, 2026-10-05). Record refuses a name planned twice.
-        if (cwd, tuple(argv)) in seen:
-            continue
-        seen.add((cwd, tuple(argv)))
         if argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in argv:
             units.extend(argv[argv.index("--only-units") + 1].split(","))
         elif argv and argv[0] == "scripts/run-tests.sh" and "--only" in argv:
@@ -458,8 +450,17 @@ def plan(lines, args, logdir, hist):
                 # (INVALID, land of zach-sonnet-vmvalid1, 2026-09-30).
                 label = os.path.basename(first.split("/test/")[0])
             items.append(Item(label, cwd, argv, None, default_weight(label, hist)))
-    # cargo: drop a filter a shorter filter on the same target already matches
-    keyed = [(cwd, argv, cargo_key(argv)) for cwd, argv in cargo]
+    # cargo: one target and filter is one check however many changed files selected it, and a
+    # filter a shorter filter on the same target already matches is dropped. proof-for.sh prints
+    # `cargo test --bin richos-tauri` once for src-tauri/src/main.rs and once more for
+    # src-tauri/Cargo.toml (its rows differ by kind); both were planned, and the saved plan held
+    # the check twice (attempt-keq_bkth; the merge of cc/echo-opus-out3b crashed reusing it,
+    # 2026-10-05). Only cargo is collapsed: any other line is a check of its own as printed.
+    keyed, seen = [], set()
+    for cwd, argv in cargo:
+        if (cwd, tuple(argv)) not in seen:
+            seen.add((cwd, tuple(argv)))
+            keyed.append((cwd, argv, cargo_key(argv)))
     for cwd, argv, key in keyed:
         if key is not None and key[1] and any(
                 k is not None and k != key and c == cwd and k[0] == key[0] and k[1] and k[1] in key[1]
