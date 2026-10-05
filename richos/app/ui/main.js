@@ -781,6 +781,17 @@ function setMainView(view) {
   hideWaitBandOffConversation();
   // The files on the composer belong to what it is writing TO, like its words.
   if (window.RichAttachments) window.RichAttachments.sync();
+  // And the Output buttons belong to the conversation on screen: no thread, no button, and a
+  // panel that was open closes with the conversation (output side-panel PRD §6.2, §6.7).
+  syncOutputThread();
+}
+
+/// The thread whose output the two buttons count and the panel lists: the conversation on
+/// screen (or the one opening), and nothing on the company overview or the unbound screen.
+function syncOutputThread() {
+  if (!window.RichOutput) return;
+  const showing = (mainView === "conversation" || mainView === "opening") && activeThreadId;
+  window.RichOutput.setThread(showing ? activeThreadId : null);
 }
 
 function showConversationView() {
@@ -1514,6 +1525,10 @@ function flushRender() {
       scheduleRender();
     },
     machineryRaw: fillMachineryRaw,
+    // THE OUTPUT RECORD (output side-panel PRD §6.5): a code span naming a recorded file is a
+    // link to it, a turn that wrote files says *Wrote N files*, and its produced strip names
+    // them. Read from the panel's own copy of `list_output`, never a second read.
+    output: window.RichOutput ? window.RichOutput.links : undefined,
   });
   // The DOM was just rebuilt; re-mark the open worker's chip.
   markSelectedChip();
@@ -3072,6 +3087,42 @@ if (window.RichAttachments) {
   });
 }
 
+// THE OUTPUT PANEL (output side-panel PRD §6, `output-panel.js`). It reads the record through
+// the bridge itself; what it needs from here is the conversation it sits beside.
+if (window.RichOutput) {
+  window.RichOutput.init({
+    bridge: Bridge,
+    announce,
+    isWide: () => isWide(),
+    // His words and the time for a turn's group (§6.3), read from the conversation the shell
+    // has loaded — `{turnId}:user` is the projection's id for what he said, and the turn record
+    // holds the measured time worked. Null for a turn this conversation does not hold.
+    turnInfo: (turnId) => {
+      const model = timelineModel;
+      if (!model || !turnId) return null;
+      const said = model.items.get(turnId + ":user");
+      const record = model.turns.get(turnId);
+      if (!said && !record) return null;
+      return {
+        asked: said && said.text ? said.text : null,
+        at: said && typeof said.createdAt === "number" ? said.createdAt : record && record.startedAt,
+        workedMs: record && typeof record.activeMs === "number" ? record.activeMs : null,
+      };
+    },
+    threadTitle: (threadId) => {
+      const row = threadRow(threadId);
+      return row ? row.display_title : "";
+    },
+    // One right-hand pane at a time (§6.1).
+    onOpen: () => {
+      closeSlideOver();
+      closeWorkerInspector();
+    },
+    onLinksChanged: () => scheduleRender(),
+    focusConversation: () => conversationEl.focus({ preventScroll: true }),
+  });
+}
+
 // **THE TEXT SIZE MOVES THE FIELD TOO** — Ray's candidate .13 defect R1, and the CEO's own
 // sentence about the composer is what it breaks: *"the 2 buttons at the bottom need to be
 // either vertically center aligned relative to the text input or have the same height as the
@@ -3735,6 +3786,8 @@ function refreshOpenWorkerInspector(payload) {
 
 function openWorkerInspector(worker) {
   closeSlideOver();
+  // One right-hand pane at a time (output side-panel PRD §6.1): the Output panel gives way.
+  if (window.RichOutput) window.RichOutput.close({ keepFocus: true });
   // The chip that OWNS this worker, derived from the worker itself rather than read off
   // `document.activeElement`. Measured, not assumed: clicking a button on macOS/WebKit does
   // not focus it, so activeElement at this moment is `body` and the id is the empty string —
@@ -6358,6 +6411,8 @@ function applyBreakpoint() {
   lastBreakpointNarrow = narrow;
   railScrimEl.hidden = !(railOpen && narrow);
   railEl.setAttribute("aria-hidden", String(!railOpen));
+  // The Output panel docks at 1180px and wider and overlays with a scrim below it (§6.1).
+  if (window.RichOutput) window.RichOutput.syncScrim();
 }
 
 railResizerEl.addEventListener("pointerdown", (e) => {
@@ -7955,6 +8010,16 @@ document.addEventListener("keydown", (e) => {
     toggleSidebar();
     return;
   }
+  // THE OUTPUT PANEL, ⌘⇧O (output side-panel PRD §6.8): the same as either Output button.
+  // Only while a conversation is on screen — there is no thread's output to open anywhere
+  // else, and `RichOutput.toggle` does nothing without one. No text field binds ⌘⇧O.
+  if (mod && e.shiftKey && !e.altKey && (e.key === "o" || e.key === "O" || e.code === "KeyO")) {
+    if (!window.RichOutput || !activeThreadId || (mainView !== "conversation" && mainView !== "opening")) return;
+    e.preventDefault();
+    const from = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+    window.RichOutput.toggle({ returnTo: from });
+    return;
+  }
   if (e.key === "Escape") {
     // §18 asked for "Escape closes overlays and inspector detail" and this used to BE that
     // sentence: eight `if (!someEl.hidden) return closeSomething()` lines. The CEO's rule is
@@ -8123,6 +8188,9 @@ const POPUP_CLOSERS = {
   // never took.
   "techy-scope": closeTechyScope,
   "set-menu": () => window.RichSettings && window.RichSettings.close(true),
+  // One level at a time (output side-panel PRD §6.8): a file back to the list, the list to
+  // closed. `RichOutput.escape` reads the panel's own state, so the step is the panel's.
+  outpanel: () => window.RichOutput && window.RichOutput.escape(),
 };
 
 /// Close the topmost popup. Returns whether one was on screen — NOT whether it went away:

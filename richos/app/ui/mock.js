@@ -709,6 +709,148 @@
                 firstObservedAt: "2026-08-29T04:00:02+00:00", lastObservedAt: "2026-08-29T04:07:31+00:00" } },
   ];
 
+  // =======================================================================================
+  // THE OUTPUT RECORD (`list_output`, `rich://output`) — output side-panel PRD §4.3, §6
+  // =======================================================================================
+  //
+  // `outputByThread[thread]` is the projected list `list_output` answers: Entry objects in the
+  // exact camelCase shape `richos_core::output::Entry` serializes, newest first. EMPTY BY
+  // DEFAULT for every thread, so every suite that photographs the conversation sees what a
+  // thread with no recorded files shows — the two buttons and nothing else.
+  //
+  // `window.__RICHOS_MOCK_PRESET__ = { output: "round-17" }` loads round 17's world into the
+  // `acme` thread: its nine files across four turns (two of them added here, with the
+  // mockup's own words), Rich's replies naming files in code spans as he does, and one file a
+  // worker wrote. `__RICHOS_MOCK__.outputArrive()` runs the mockup's fifth turn ("make me a
+  // one-pager for the board") through the ordinary turn path and announces its two files.
+  // `hiring` ("Q4 hiring") is the mockup's empty thread in either case.
+  const outputByThread = {};
+  let outputUnreadable = false;
+  /// VERBATIM from `RECORD_UNREADABLE` in `src-tauri/src/output_files.rs`.
+  const OUTPUT_RECORD_UNREADABLE = "I can't read this thread's output record right now.";
+  const OUTPUT_HOME = "/Users/you/FemcBoost/";
+
+  /// `out_` + 16 hex digits, stable for (thread, path) — the shape `entry_id` makes, from a
+  /// smaller hash, which is all a harness needs.
+  function outputId(threadId, path) {
+    let a = 0x811c9dc5;
+    let b = 0x01000193;
+    const s = threadId + "\u0000" + path;
+    for (let i = 0; i < s.length; i += 1) {
+      a = Math.imul(a ^ s.charCodeAt(i), 0x01000193) >>> 0;
+      b = Math.imul(b ^ s.charCodeAt(i), 0x85ebca6b) >>> 0;
+    }
+    return "out_" + a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
+  }
+
+  function outputKind(name) {
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    const kinds = {
+      md: "md", txt: "txt", json: "txt", csv: "csv", xlsx: "xlsx", numbers: "xlsx",
+      docx: "docx", pages: "docx", rtf: "docx", pptx: "pptx", key: "pptx", pdf: "pdf",
+      png: "png", jpg: "png", jpeg: "png", gif: "png", webp: "png", heic: "png", svg: "png",
+      mp4: "mp4", mov: "mp4", m4v: "mp4", webm: "mp4", m4a: "audio", mp3: "audio", wav: "audio",
+    };
+    return kinds[ext] || "other";
+  }
+
+  function outputEntry(threadId, turnId, folder, name, bytes, writtenAt, extra) {
+    const path = OUTPUT_HOME + folder + "/" + name;
+    return Object.assign(
+      {
+        id: outputId(threadId, path),
+        threadId,
+        turnId,
+        firstTurnId: turnId,
+        writes: 1,
+        path,
+        name,
+        folder: "~/FemcBoost/" + folder,
+        kind: outputKind(name),
+        actor: "rich",
+        source: "tool",
+        exists: true,
+        bytes,
+        modifiedAt: writtenAt,
+        writtenAt,
+      },
+      extra || {}
+    );
+  }
+
+  function outputListOf(threadId) {
+    const files = (outputByThread[threadId] || []).map((e) => Object.assign({}, e));
+    return { files, count: files.length, missing: files.filter((e) => !e.exists).length, corrupt: 0 };
+  }
+
+  const acmeTurn3 = uid("t");
+  const acmeTurn4 = uid("t");
+  if (preset.output === "round-17") {
+    const t1 = turnsById.get(acmeTurn1);
+    const t2 = turnsById.get(acmeTurn2);
+    const reply1 =
+      "Their counter came in this morning — 8% below list. I pulled the comparables: two deals closed in range this year and both landed above their number. The sheet is in Output, and `comps-summary.md` is the one-page read of it. Want me to draft a response, or see the comps first?";
+    const reply2 =
+      "Done — firm counter drafted, holding at list minus 3%. The letter is `counter-draft-v1.docx`, with the plain-text draft and the brief I gave the writer beside it. Nothing has been sent.";
+    t1.runs[0].text = reply1;
+    t2.runs[0].text = reply2;
+    messagesByThread.acme[1].text = reply1;
+    messagesByThread.acme[3].text = reply2;
+    const at3 = now() - 1000 * 60 * 14;
+    const at4 = now() - 1000 * 60 * 5;
+    const ask3 = "pull the signed term sheet and the Q3 numbers before I send it";
+    const ask4 = "and a 30-second walkthrough of the comps for Priya";
+    const reply3 =
+      "Both in Output. The March term sheet says 55/45 and the draft quotes it right. Q3 revenue came in 6% over plan — `q3-revenue-chart.png` is the chart to put in front of Hensley if he pushes.";
+    const reply4 =
+      "Recorded: 31 seconds, the two in-range deals called out, Acme's counter on screen at the end. It is in Output as `comps-walkthrough.mp4`. Say the word and it goes to Priya.";
+    seedTurn("acme", acmeTurn3, ask3, reply3, at3, 168000);
+    seedTurn("acme", acmeTurn4, ask4, reply4, at4, 72000);
+    messagesByThread.acme.push(
+      { role: "user", text: ask3, turn_id: acmeTurn3, at: at3 },
+      { role: "assistant", text: reply3, turn_id: acmeTurn3, at: at3 + 2000 },
+      { role: "user", text: ask4, turn_id: acmeTurn4, at: at4 },
+      { role: "assistant", text: reply4, turn_id: acmeTurn4, at: at4 + 2000 }
+    );
+    const end1 = t1.endedAt;
+    const end2 = t2.endedAt;
+    const end3 = at3 + 168000;
+    const end4 = at4 + 72000;
+    // Newest first, by latest write — the order `OutputStore::project` lists them in — and
+    // timed so each group reads in round 17's own order.
+    outputByThread.acme = [
+      outputEntry("acme", acmeTurn4, "acme/for-priya", "comps-walkthrough.mp4", 14200000, end4, { source: "command" }),
+      outputEntry("acme", acmeTurn3, "acme/reference", "term-sheet-march.pdf", 212000, end3 - 1000),
+      outputEntry("acme", acmeTurn3, "acme/reference", "q3-revenue.csv", 1100, end3 - 2000, {
+        actor: "worker", workerName: "Clark", source: "hook",
+      }),
+      outputEntry("acme", acmeTurn3, "acme/reference", "q3-revenue-chart.png", 96000, end3 - 3000, { source: "command" }),
+      outputEntry("acme", acmeTurn2, "acme/counter", "counter-draft-v1.docx", 18000, end2 - 1000, { source: "command" }),
+      outputEntry("acme", acmeTurn2, "acme/counter", "counter-draft-v1.md", 1000, end2 - 2000),
+      outputEntry("acme", acmeTurn2, "acme/counter", "brief.md", 1200, end2 - 3000),
+      outputEntry("acme", acmeTurn1, "acme/deals", "comps-2026-10-04.xlsx", 41000, end1 - 1000, { source: "command" }),
+      outputEntry("acme", acmeTurn1, "acme/deals", "comps-summary.md", 2100, end1 - 2000),
+    ];
+  }
+
+  /// Round 17's `arrives`: his fifth message, Rich's reply, and the two files that turn wrote,
+  /// appended to the front of the record and announced on `rich://output` once the turn is done.
+  function outputArrive(threadId) {
+    const thread = threadId || "acme";
+    simulateTurn(thread, "make me a one-pager for the board", {
+      reply: "Here — one page, the counter and the comps on it, as PDF for the pack and as the source beside it. Both in Output.",
+      onCompleted(turnId, endedAt) {
+        const added = [
+          outputEntry(thread, turnId, "acme/board", "board-one-pager.pdf", 88000, endedAt, { source: "command" }),
+          outputEntry(thread, turnId, "acme/board", "board-one-pager.md", 2000, endedAt - 500),
+        ];
+        outputByThread[thread] = added.concat(outputByThread[thread] || []);
+        const list = outputListOf(thread);
+        emit("rich://output", { threadId: thread, added: added.map((e) => Object.assign({}, e)), count: list.count });
+      },
+    });
+  }
+
   // WHICH COMPANY THIS COPY OF RICH WORKS FOR (`entity_choice` / `choose_entity`).
   //
   // The preview's default is CHOSEN, and deliberately so: every fixture in this harness
@@ -1283,6 +1425,9 @@
           messageCount: messagesByThread[threadId].length,
           lastActivity: endedAt, status: "idle", visibility: "ceo", at: endedAt,
         }));
+        // What the turn wrote, announced where the real record announces it: after the turn's
+        // rows are appended (`OutputStore::append` -> `rich://output`, output side-panel §6.6).
+        if (typeof opts.onCompleted === "function") opts.onCompleted(turnId, endedAt);
         return;
       }
       if (!opened) {
@@ -2643,6 +2788,12 @@
               { label: "mark-sonnet-f1: wire the tenantGuard fixture", state: "done" },
             ],
           };
+        // The output record, projected (output side-panel PRD §5.4). Refuses with the shell's
+        // own sentence when the suite has made the record unreadable.
+        case "list_output": {
+          if (outputUnreadable) return Promise.reject(OUTPUT_RECORD_UNREADABLE);
+          return outputListOf(args.threadId ?? args.thread_id);
+        }
         case "nav_state":
           return JSON.parse(JSON.stringify(navPrefs));
         case "set_sidebar_width":
@@ -3694,6 +3845,23 @@
 
   // --- dev-only test hooks, exercised by a headless check, never by real users ----------
   window.__RICHOS_MOCK__ = {
+    // ---- the output record (output side-panel PRD §6) --------------------------------------
+    /// Round 17's `arrives`: a turn that writes two files, announced on `rich://output`.
+    outputArrive(threadId) { outputArrive(threadId); },
+    /// A recorded file is no longer where it was written (§4.6): the next read says so.
+    outputMissing(threadId, name) {
+      for (const e of outputByThread[threadId] || []) {
+        if (e.name === name) {
+          e.exists = false;
+          e.bytes = null;
+          e.modifiedAt = null;
+        }
+      }
+    },
+    /// The record cannot be read: `list_output` refuses with the shell's sentence (§6.7).
+    outputUnreadable(v) { outputUnreadable = v !== false; },
+    /// What the harness's record holds for a thread, for asserting on the store.
+    outputList(threadId) { return outputListOf(threadId); },
     // ---- his team, on an operator install (the operator-client record's §7 item 1) -------
     /// His team says something: appended to the durable lane FIRST, then pushed on
     /// `rich://operator-notice`, in that order, as `DurableDelivery::say` does. `push: false`

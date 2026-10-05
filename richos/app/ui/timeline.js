@@ -1774,9 +1774,58 @@
     return -1;
   }
 
+  // ---- A FILE RICH NAMES IS A LINK TO IT (output side-panel PRD §6.5) ------------------------
+  //
+  // A code span whose text is a file the thread's OUTPUT RECORD holds — its path, its `~/` path,
+  // or its name when no other recorded file shares it — renders as round 17's file link and
+  // opens the Output panel on that file. Only recorded files become links: a name Rich mentions
+  // that nothing witnessed stays a code span, which is honest. The link READS the record
+  // (`window.RichOutput.links`, handed in as `opts.output`) and never feeds it.
+  //
+  // `outputLinks` is the module's copy of the last `opts.output` `render` was given, so the
+  // streaming path (`updateProse`, which has no `opts`) links the same names the structural
+  // path does. Clicks resolve through it at click time, so a reused node never calls a stale
+  // closure (the contract over TURN REUSE below).
+  let outputLinks = null;
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  function fileGlyph() {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    for (const d of ["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z", "M14 3v5h5"]) {
+      const p = document.createElementNS(SVG_NS, "path");
+      p.setAttribute("d", d);
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
+  /// One file link: the glyph and `label` (what Rich wrote, or the file's name in the produced
+  /// strip). The output id rides on the node; the click asks the panel to open on it.
+  function fileLink(entry, label) {
+    const b = elem("button", "tl-file-link");
+    b.type = "button";
+    b.dataset.outputId = entry.id;
+    b.appendChild(fileGlyph());
+    b.appendChild(elem("span", null, label));
+    b.addEventListener("click", () => {
+      if (outputLinks && outputLinks.openFile) outputLinks.openFile(entry.id, b);
+    });
+    return b;
+  }
+
   /// Inline spans, appended into `into` as DOM. Recurses on the INSIDE of a span, which is
-  /// always strictly shorter than what it was called with, so it terminates.
-  function markdownInline(text, into) {
+  /// always strictly shorter than what it was called with, so it terminates. `links` is the
+  /// output record's lookup (§6.5) or nothing; without it a code span is always a code span.
+  function markdownInline(text, into, links) {
     let plain = "";
     const flush = () => {
       if (!plain) return;
@@ -1790,7 +1839,9 @@
         const end = text.indexOf("`", i + 1);
         if (end > i + 1) {
           flush();
-          into.appendChild(elem("code", "tl-md-code", text.slice(i + 1, end)));
+          const code = text.slice(i + 1, end);
+          const hit = links && links.forText ? links.forText(code) : null;
+          into.appendChild(hit ? fileLink(hit, code) : elem("code", "tl-md-code", code));
           i = end + 1;
           continue;
         }
@@ -1807,7 +1858,7 @@
         if (end > i + marker.length) {
           flush();
           const node = elem(strong ? "strong" : "em", strong ? "tl-md-strong" : "tl-md-em");
-          markdownInline(text.slice(i + marker.length, end), node);
+          markdownInline(text.slice(i + marker.length, end), node, links);
           into.appendChild(node);
           i = end + marker.length;
           continue;
@@ -1826,7 +1877,10 @@
   /// existed. Consuming them here would silently reflow every answer that has ever been
   /// sent, so the only newlines this function eats are the blank lines BETWEEN blocks and
   /// the ones inside a list.
-  function renderMarkdownInto(root, text) {
+  ///
+  /// `links` (optional) is the output record's lookup, so a code span naming a recorded file is
+  /// a link to it (§6.5). Everything else about the subset is unchanged by it.
+  function renderMarkdownInto(root, text, links) {
     root.textContent = "";
     const lines = String(text == null ? "" : text).split("\n");
     let i = 0;
@@ -1845,7 +1899,7 @@
         const node = elem("div", "tl-md-h");
         node.setAttribute("role", "heading");
         node.setAttribute("aria-level", String(Math.min(6, heading[1].length + 2)));
-        markdownInline(heading[2], node);
+        markdownInline(heading[2], node, links);
         root.appendChild(node);
         i += 1;
         continue;
@@ -1860,7 +1914,7 @@
           const m = ordered ? MD_ORDERED.exec(lines[i]) : MD_BULLET.exec(lines[i]);
           if (!m) break;
           const li = elem("li", "tl-md-item");
-          markdownInline(ordered ? m[2] : m[1], li);
+          markdownInline(ordered ? m[2] : m[1], li, links);
           list.appendChild(li);
           i += 1;
         }
@@ -1874,7 +1928,7 @@
         buf.push(lines[i]);
         i += 1;
       }
-      markdownInline(buf.join("\n"), para);
+      markdownInline(buf.join("\n"), para, links);
       root.appendChild(para);
     }
   }
@@ -1914,7 +1968,7 @@
     // what he pastes should be what Rich wrote, markers and all.
     const body = elem("div", "tl-prose");
     body.id = "prose:" + item.id;
-    renderMarkdownInto(body, item.text);
+    renderMarkdownInto(body, item.text, opts.output);
     if (!item.closed && item.text) body.classList.add("is-streaming");
     art.appendChild(body);
 
@@ -2412,9 +2466,10 @@
     // Said once, in one sentence, rather than four empty sections. A pane that silently
     // omitted them would read as broken; a pane that listed four "unavailable" rows would
     // read as an apology. This states the boundary and moves on.
+    // Shortened to what is still true once the output record exists (output side-panel PRD
+    // §12.10): the files a worker touched are listed, under its name, in the Output panel.
     const gap = elem("p", "insp-note insp-gap");
-    gap.textContent =
-      "I don't have this worker's brief, its output or the files it touched — nothing records those yet, and I'd rather say so than show you a blank.";
+    gap.textContent = "I don't have this worker's brief or its output — the files it touched are in Output.";
     frag.appendChild(gap);
 
     return frag;
@@ -2471,8 +2526,39 @@
     control.title = row.note || "";
 
     wrap.appendChild(control);
+    // *Wrote N files* (output side-panel PRD §6.5): the turn's own line says what it wrote, from
+    // the output record, and opens the panel on this turn's group. A SIBLING of the disclosure,
+    // never inside it — a button in a button is not a control anybody can operate.
+    const wrote = turnFiles(opts, turn.turnId);
+    if (wrote.length) {
+      const sep = elem("span", "tl-wrote-sep", "·");
+      sep.setAttribute("aria-hidden", "true");
+      wrap.appendChild(sep);
+      const b = elem("button", "tl-wrote", wrote.length === 1 ? "Wrote 1 file" : "Wrote " + wrote.length + " files");
+      b.type = "button";
+      b.id = "wrote:" + turn.turnId;
+      b.addEventListener("click", () => {
+        if (outputLinks && outputLinks.openGroup) outputLinks.openGroup(turn.turnId, b);
+      });
+      wrap.appendChild(b);
+    }
     wrap.appendChild(elem("span", "tl-rule"));
     return { node: wrap, row, hasActivity };
+  }
+
+  /// The files the output record lists under this turn, newest first, or none.
+  function turnFiles(opts, turnId) {
+    return opts.output && opts.output.forTurn ? opts.output.forTurn(turnId) : [];
+  }
+
+  /// *Produced 3 files* and their names as links, under Rich's last words in the turn (§6.5).
+  function renderProduced(entries) {
+    const strip = elem("p", "tl-produced");
+    strip.appendChild(
+      elem("span", "tl-produced-label", entries.length === 1 ? "Produced" : "Produced " + entries.length + " files")
+    );
+    for (const e of entries) strip.appendChild(fileLink(e, e.name));
+    return strip;
   }
 
   /// **THE ONE LABEL FOR THE ONE ACTION** — the nightly's D6.
@@ -2762,6 +2848,9 @@
         lane.insertBefore(line, lane.firstChild);
       }
 
+      const produced = turnFiles(opts, turn.turnId);
+      if (produced.length) lane.appendChild(renderProduced(produced));
+
       section.appendChild(lane);
 
       if (row.tone === "stopped") section.appendChild(renderFailureCard(turn, opts));
@@ -2864,6 +2953,9 @@
       parts.push(tokenOf(item) + open);
     }
     parts.push(opts.machineryRaw ? "m1" : "m0");
+    // The output record changes what a turn draws — its links, *Wrote N files*, the produced
+    // strip — without any item changing, so its revision is part of every turn's signature.
+    parts.push(opts.output && opts.output.rev ? "f" + opts.output.rev() : "f0");
     return parts.join("|");
   }
 
@@ -2873,6 +2965,7 @@
   /// token (§15's "coalesce tiny deltas to avoid layout thrash").
   function render(model, container, opts) {
     const turns = turnsOf(model);
+    outputLinks = opts.output || null;
 
     let cache = renderCache.get(container);
     if (!cache || cache.model !== model) {
@@ -2961,7 +3054,7 @@
   function updateProse(container, messageId, text, closed) {
     const node = container.querySelector('[id="prose:' + cssEscape(messageId) + '"]');
     if (!node) return false;
-    renderMarkdownInto(node, text);
+    renderMarkdownInto(node, text, outputLinks);
     node.classList.toggle("is-streaming", !closed && !!text);
     return true;
   }
