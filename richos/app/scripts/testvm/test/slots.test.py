@@ -333,19 +333,59 @@ class Slots(unittest.TestCase):
         self.assertFalse(slots.is_held(slot), 'the slot is still released')
         self.assertEqual(slot.read_text(), '')
 
-    def test_a_caller_mid_admission_reads_as_admitting_and_a_refusal_clears_it(self):
+    def test_admission_comes_first_and_a_caller_being_sampled_holds_no_slot(self):
+        """2026-10-05: the slot was taken before the CPU sample, so with the other slot running a
+        walk, a second walk arriving during that sample was refused as if both slots ran. Now the
+        slot is taken only once the run is admitted: while the CPU and memory are sampled, every
+        slot is free and another walk takes one at once."""
+        seen = []
+
+        def admit():
+            seen.append(('cpu', [slots.is_held(p) for p in slots.slot_paths(self.root)]))
+            with self.hold(purpose='walk arriving mid-sample') as other:
+                seen.append(('other walk ran in', other.name))
+            return {}
+
+        def memory(sample, running):
+            seen.append(('memory', [slots.is_held(p) for p in slots.slot_paths(self.root)]))
+            return ''
+        with patch.dict(os.environ, {'TESTVM_SLOTS': '1'}), quiet():
+            with self.hold(purpose='walk Q', admit=admit, memory=memory) as mine:
+                self.assertEqual(mine.name, 'guest.lock')
+                self.assertTrue(slots.is_held(mine), 'held once admitted')
+        self.assertEqual(seen, [('cpu', [False]), ('other walk ran in', 'guest.lock'), ('memory', [False])])
+
+    def test_a_refused_caller_never_held_a_slot_or_left_a_record(self):
         seen = []
 
         def admit():
             seen.append(slots.describe(self.root / 'guest.lock'))
             raise BlockingIOError('total CPU is 95.0% (limit 80%)')
-        with quiet(), self.assertRaises(BlockingIOError):
+        with quiet(), self.assertRaisesRegex(BlockingIOError, 'total CPU is 95.0%'):
             with self.hold(purpose='walk Q', admit=admit):
                 self.fail('admitted')
-        self.assertIn('guest.lock: admitting, pid', seen[0])
-        self.assertIn('walk Q', seen[0])
-        self.assertEqual((self.root / 'guest.lock').read_text(), '', 'a refused caller leaves no record behind')
+        self.assertEqual(seen, ['guest.lock: free'])
         self.assertEqual(slots.describe(self.root / 'guest.lock'), 'guest.lock: free')
+
+    def test_admitted_but_every_slot_taken_meanwhile_waits_for_a_slot(self):
+        """The race the order opens: admitted, and both slots were taken during the sample. The
+        caller holds nothing and is refused (or waits) exactly as when every slot runs."""
+        self.root.mkdir(parents=True)
+        taken = []
+
+        def admit():
+            for p in slots.slot_paths(self.root):
+                h = p.open('a')
+                fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                taken.append(h)
+            return {}
+        try:
+            with quiet(), self.assertRaisesRegex(BlockingIOError, 'every slot is executing a run'):
+                with self.hold(admit=admit):
+                    self.fail('admitted without a slot')
+        finally:
+            for h in taken:
+                h.close()
 
     def test_the_holder_record_is_cleared_on_release(self):
         with quiet(), self.hold(purpose='walk X') as slot:
