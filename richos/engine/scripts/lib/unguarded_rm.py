@@ -316,6 +316,17 @@ def _strip_prefix(words):
     return os.path.basename(_unquote_word(words[i])), words[i + 1:], xargs
 
 
+def _positional_bound(vname, words):
+    """True when `sh -c` was handed `words` words after its script and they supply $vname.
+
+    The first word is $0, so $n needs n + 1 words; $@ and $* need at least one real argument."""
+    if vname.isdigit():
+        return int(vname) < words
+    if vname in ("@", "*"):
+        return words >= 2
+    return False
+
+
 def _scan_rm(name, args, ctx, bound_positional):
     recursive = False
     targets = []
@@ -341,8 +352,7 @@ def _scan_rm(name, args, ctx, bound_positional):
         info = _var_info(raw)
         if info:
             vname, guarded, rest, quoted = info
-            positional = vname.isdigit() or vname in "@*"
-            if positional and bound_positional:
+            if _positional_bound(vname, bound_positional):
                 continue
             if not guarded:
                 ctx.findings.append(
@@ -397,7 +407,7 @@ def _scan_find(args, ctx, bound_positional):
     if deletes or execs:
         for raw in roots:
             info = _var_info(raw)
-            if info and not info[1] and not (info[0].isdigit() and bound_positional):
+            if info and not info[1] and not _positional_bound(info[0], bound_positional):
                 vname, _g, rest, quoted = info
                 ctx.findings.append(
                     "`find %s ... %s`: the search root starts with the variable $%s, which can be empty "
@@ -405,7 +415,7 @@ def _scan_find(args, ctx, bound_positional):
                     % (raw, "-delete" if deletes else "-exec rm", vname, _rewrite(vname, rest, quoted)))
 
 
-def _scan_words(words, ctx, bound_positional=False):
+def _scan_words(words, ctx, bound_positional=0):
     name, args, _x = _strip_prefix(words)
     if not name:
         return
@@ -413,14 +423,16 @@ def _scan_words(words, ctx, bound_positional=False):
         for idx, a in enumerate(args):
             if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a) and idx + 1 < len(args):
                 script = args[idx + 1]
-                bound = len(args) > idx + 2
+                # Hunt P5-82 (v3): the first word after the script is $0, so `sh -c '...' sh`
+                # supplies no $1; this counts the words, $0 included.
+                bound = len(args) - (idx + 2)
                 if script.startswith("'"):
                     body, sub_bound = script[1:-1], bound
                 elif script.startswith('"'):
                     body = script[1:-1].replace('\\"', '"').replace("\\\\", "\\")
-                    sub_bound = False
+                    sub_bound = 0
                 else:
-                    body, sub_bound = script, False
+                    body, sub_bound = script, 0
                 _scan_text(body, ctx, sub_bound)
                 break
         return
@@ -430,7 +442,7 @@ def _scan_words(words, ctx, bound_positional=False):
         _scan_find(args, ctx, bound_positional)
 
 
-def _scan_text(text, ctx, bound_positional=False, depth=0):
+def _scan_text(text, ctx, bound_positional=0, depth=0):
     if depth > 6:
         return
     cmds, nested = tokenize(text)
