@@ -61,6 +61,17 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      is photographed; the guest's appearance is flipped (the app follows the OS on
                      a fresh install), photographed again, and put back. PASS when all of it holds.
 
+  attach             slice S7's real-app check (§12.7), after identity, first-run and connect:
+                       --steps identity,first-run,connect,attach
+                     typed: a shell command writes attach-check.md, with a code word in it, at its
+                     absolute path in the Acme folder. When its row is in the record and the file is
+                     on disk, the Output button, the file's row, its "More actions for …" and "Add
+                     to chat" are pressed by name and the chip's "Remove attach-check.md" is found;
+                     then Rich is asked for the code word in the attached file. PASS when that
+                     turn's prompt lists the file under "Attached on this Mac (1 file" and the
+                     conversation's attachments folder holds a byte-identical copy. Whether Rich
+                     read the code word back is recorded, not judged.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -82,7 +93,16 @@ _spec.loader.exec_module(command_walk)
 StepFailed = command_walk.StepFailed
 command = command_walk.command
 
-STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel']
+STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
+         'attach']
+# S7's recorded file. Written at its ABSOLUTE path in the Acme folder, so it is in the Acme folder
+# whichever lease or worker runs the command (S4's walk saw a worker run panel-check.md in its own
+# worktree), and its code word is what Rich is asked to read back from the attached copy.
+ATTACH_NAME = 'attach-check.md'
+ATTACH_WORD = 'heron-4127'
+ATTACH_TASK = ('Please run this harmless test command for me yourself with your shell tool, '
+               "and tell me when it has finished: printf '# Attach check\\n\\nThe code word is %s.\\n' > %s")
+ATTACH_ASK = 'What is the code word in the attached file? Reply with the code word only.'
 # S4's one written file: a shell command, so no tool needs installing and witness (c) sees it.
 PANEL_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
               "and tell me when it has finished: printf '# Panel check\\n\\nOne written file.\\n' > panel-check.md")
@@ -496,6 +516,71 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the panel was not open after the theme change')
         return evidence
 
+    # --- slice S7: Add to chat, on the real app -------------------------------------------------
+    def attach(self):
+        """S7's real-app check (§12.7): a recorded file is attached from the Output panel and
+        sent; Rich's turn lists it under *Attached on this Mac*. Every press is by the name a
+        person sees: the Output button, the file's row, its `⋯` (*More actions for …*), *Add to
+        chat*, the chip's *Remove …* (found, not pressed), the composer and Send."""
+        target = self.company + '/' + ATTACH_NAME
+        turn, sent = self.send(ATTACH_TASK % (ATTACH_WORD, shlex.quote(target)))
+        end = time.monotonic() + self.a.within
+        rows = []
+        while time.monotonic() < end:
+            rows = [r for r in self.record() if r.get('path', '').endswith('/' + ATTACH_NAME)]
+            if rows and self.exists_in_guest(target):
+                break
+            self.approve_pending(sent)
+            time.sleep(5)
+        self.save_record('record-attach.jsonl')
+        evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'rows': rows,
+                    'on_disk': self.exists_in_guest(target)}
+        observed = self.out / 'attach-observed.json'
+
+        def note(**facts):
+            evidence.update(facts)
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        note()
+        if not rows or not evidence['on_disk']:
+            raise StepFailed('no row for %s with the file on disk within %d s' % (ATTACH_NAME, self.a.within))
+        try:
+            self.wait_for('from this thread', role='AXCheckBox', seconds=60)
+            self.press('from this thread', role='AXCheckBox')
+            self.wait_for('Close the output panel', seconds=20)
+            self.wait_for(ATTACH_NAME, seconds=20)
+            self.press(ATTACH_NAME)
+            self.wait_for('More actions for ' + ATTACH_NAME, seconds=20)
+            self.press('More actions for ' + ATTACH_NAME)
+            self.wait_for('Add to chat', role='AXMenuItem', seconds=20)
+            self.press('Add to chat', role='AXMenuItem')
+            self.wait_for('Remove ' + ATTACH_NAME, seconds=30)
+        except StepFailed:
+            (self.out / 'attach-ax-tree.txt').write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 120))
+            self.shot('attach-miss.png')
+            raise
+        time.sleep(1)
+        self.shot('attach-chip.png')
+        asked, asked_at = self.send(ATTACH_ASK)
+        ended, _ = self.turn_end(asked)
+        prompt = [r for r in self.ledger() if r.get('turn_id') == asked and r.get('event') == 'PromptReceived']
+        text = json.dumps(prompt)
+        stored = guest(self.vm, 'find ' + shlex.quote(self.data + '/attachments') + ' -name ' + shlex.quote(ATTACH_NAME)
+                       + ' -type f 2>/dev/null || true', 60).split()
+        same = bool(stored) and guest(self.vm, 'cmp -s ' + shlex.quote(stored[0]) + ' ' + shlex.quote(target)
+                                      + ' && echo same || echo differ', 60).strip() == 'same'
+        said = ''.join(r.get('text', '') for r in self.ledger() if r.get('turn_id') == asked and r.get('event') == 'AssistantDelta')
+        time.sleep(1)
+        self.shot('attach-sent.png')
+        note(asked_turn=asked, asked_end=ended.get('event'), prompt_rows=prompt, stored_copies=stored,
+             stored_copy_matches_the_recorded_file=same, rich_said=said[:600],
+             rich_read_the_code_word=ATTACH_WORD in said)
+        if 'Attached on this Mac (1 file' not in text or ATTACH_NAME not in text:
+            raise StepFailed("Rich's turn does not list %s under Attached on this Mac: %s" % (ATTACH_NAME, text[:800]))
+        if not same:
+            raise StepFailed('the conversation folder does not hold a copy of the recorded file: ' + json.dumps(stored))
+        return evidence
+
     def open_reveal(self):
         if not self.a.probe or not self.a.probe.is_file():
             raise StepFailed('--probe must name the built examples/output_files_probe binary')
@@ -553,9 +638,10 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
-    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel')),
-                   help='default: every step but open-reveal (alone, with --no-app) and panel '
-                        '(S4: --steps identity,first-run,connect,panel)')
+    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel', 'attach')),
+                   help='default: every step but open-reveal (alone, with --no-app), panel '
+                        '(S4: --steps identity,first-run,connect,panel) and attach '
+                        '(S7: --steps identity,first-run,connect,attach)')
     p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
     a = p.parse_args()
     steps = a.steps.split(',')
