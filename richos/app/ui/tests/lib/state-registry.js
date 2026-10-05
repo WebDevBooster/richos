@@ -897,6 +897,17 @@ module.exports = [
   {s: "Rich text document", c: "INFORMATIONAL", why: "The first part of a QuickLook rendition's facts line for an .rtf file, beside `Word document`, `Pages document`, the spreadsheets and presentations (§6.4's facts line, §7). Names the kind; asks nothing."},
   {s: "· also written earlier in this thread", c: "FRAGMENT", why: "Appended to the file view's subline when the file's first witnessed write was in an earlier turn. INFORMATIONAL."},
   {s: "Between turns ·", c: "FRAGMENT", why: "The tooltip of the group of files written outside any turn, followed by the time. The group's visible head is `Between turns`. INFORMATIONAL."},
+
+  // ---- THE WIDE PULL (Output side panel PRD §9, slice S9; `output-panel.js` "THE WIDE PULL") -----
+  // `tests/output.js` renders every one of these ("stop and snap", "keys", "the pill", "the
+  // floating composer is THE composer").
+  {s: "Output panel width", c: "CONTROL", why: "The accessible name of the panel's divider (`#op-resizer`, role separator): drag it or use ← → End Home; its value says the width, the stop and open completely."},
+  {s: "Drag to resize; pull past the stop to open it completely", c: "CONTROL", why: "The divider's pointer tooltip. The name is the aria-label, never this (control-names.js)."},
+  {s: "Show the conversation (⌘⇧O closes the panel)", c: "CONTROL", why: "The pointer tooltip of the ‹ <thread> pill shown while the panel is open completely; the pill brings the conversation back at the stop."},
+  {s: "Show the conversation", c: "CONTROL", why: "The accessible name of the ‹ <thread> pill (`#op-conv`), followed by ` — <thread>`; pressing it brings the conversation back at the stop."},
+  {s: "pixels, at the stop; pull on to open it completely", c: "FRAGMENT", why: "The divider's spoken value at the stop, after the width in pixels. INFORMATIONAL as a whole: it says where the divider is and what pulling on does; the divider itself is the control."},
+  {s: "Open completely. The conversation is one click back, and closing the panel brings it all back.", c: "INFORMATIONAL", why: "Announced once in the polite live region when the pull opens the panel completely (round 17.1's notice). It names the ways back, which are on screen (the pill and ×); nothing is asked."},
+  {s: "The conversation is back.", c: "INFORMATIONAL", why: "Announced once in the polite live region when the conversation returns from open completely. Nothing to do."},
   {
     s: "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there.",
     c: "INFORMATIONAL",

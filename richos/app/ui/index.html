@@ -823,7 +823,25 @@
            list to closed — through `RichOutput.escape` (main.js `POPUP_CLOSERS`). -->
       <div id="outpanel-scrim" hidden></div>
       <aside id="outpanel" data-dismiss="escape" hidden aria-labelledby="op-title">
+        <!-- THE WIDE PULL (output side-panel PRD §9, slice S9; round 17.1's `#op-resizer`). The
+             CEO: "when I'm dragging up to here, then there's a stop, I'm feeling a stop. But if I
+             keep dragging … then eventually it snaps open completely the output sidebar." Free
+             from 320px up to the stop (the conversation at its narrowest); held there; pulled on
+             past it, the panel opens completely. Keyboard: ← → move it, ← at the stop and End
+             open it completely, → from there returns to the stop, Home goes back to 400px.
+             `output-panel.js` keeps its value, maximum and spoken value true. Docked widths only:
+             below 1180px the panel overlays and there is no stop to feel (§6.1). -->
+        <div id="op-resizer" role="separator" aria-orientation="vertical" aria-label="Output panel width"
+             tabindex="0" aria-valuemin="320" aria-valuemax="720" aria-valuenow="400"
+             title="Drag to resize; pull past the stop to open it completely"></div>
         <header class="op-head">
+          <!-- Open completely, the conversation is one click back (§9.4, round 17.1's `.op-conv`):
+               ‹ and the thread's own name, written by `output-panel.js`; shown only then. -->
+          <button class="op-conv" id="op-conv" type="button" hidden
+                  title="Show the conversation (⌘⇧O closes the panel)"><svg viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg><span class="op-conv-t"
+                  id="op-conv-t"></span></button>
           <span class="op-eyebrow" id="op-eyebrow"></span>
           <h2 class="op-title" id="op-title"></h2>
           <p class="op-sub" id="op-sub"></p>
@@ -834,6 +852,11 @@
           </button>
         </header>
         <div class="op-body" id="op-body" tabindex="-1"></div>
+        <!-- THE COMPOSER'S SECOND HOME (§9.4). Open completely, `#composer-zone` itself is moved
+             in here and floats at the panel's bottom right, and moved back to the conversation on
+             return: one node, two homes, so one draft, one attach tray, one voice state and one
+             send path (main.js `moveComposer`). Empty otherwise. -->
+        <div id="op-float"></div>
       </aside>
 
       <!-- THE WORKER INSPECTOR (§7.2). A SIBLING PANE, not a modal: it docks beside the

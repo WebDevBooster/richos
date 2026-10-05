@@ -3120,7 +3120,31 @@ if (window.RichOutput) {
     },
     onLinksChanged: () => scheduleRender(),
     focusConversation: () => conversationEl.focus({ preventScroll: true }),
+    moveComposer,
   });
+}
+
+// THE COMPOSER'S TWO HOMES (output side-panel PRD §9.4, slice S9). Open completely, the Output
+// panel takes the whole stage and the composer floats at its bottom right — and it is THE SAME
+// composer: this node, moved into `#op-float` and moved back, never a second form bound to the
+// same state. So there is one draft, one attach tray, one voice state, one send path, and the
+// blocked and scope lines come along unchanged; nothing below has to know which home it is in.
+// `into` is the floating home, or null for its own place in the conversation. Focus stays where
+// it was (a move takes it away), and the field is re-measured for its new width.
+const composerZoneEl = el("composer-zone");
+const composerHome = { parent: composerZoneEl.parentNode, next: composerZoneEl.nextSibling };
+function moveComposer(into) {
+  const target = into || composerHome.parent;
+  if (composerZoneEl.parentNode === target) return;
+  const focused = composerZoneEl.contains(document.activeElement) ? document.activeElement : null;
+  if (into) into.appendChild(composerZoneEl);
+  else composerHome.parent.insertBefore(composerZoneEl, composerHome.next);
+  if (focused) focused.focus({ preventScroll: true });
+  autoGrow();
+  // On the way home the conversation may still be widening from zero (the panel's .38s return
+  // to the stop), and a field measured that narrow sizes itself several lines tall. Measure again
+  // once the slide has landed.
+  if (!into) window.setTimeout(autoGrow, 450);
 }
 
 // **THE TEXT SIZE MOVES THE FIELD TOO** — Ray's candidate .13 defect R1, and the CEO's own
@@ -8453,6 +8477,7 @@ async function init() {
     navPrefs = {
       sidebar_width: RAIL_DEFAULT,
       inspector_width: INSPECTOR_DEFAULT,
+      output_width: 400,
       sidebar_collapsed: false,
       collapsed_entities: [],
       pinned_threads: [],
@@ -8462,6 +8487,8 @@ async function init() {
   applyRailWidth(navPrefs.sidebar_width || RAIL_DEFAULT);
   // §25: "Worker-pane width can be changed directly and survives relaunch."
   applyInspectorWidth(navPrefs.inspector_width || INSPECTOR_DEFAULT);
+  // The Output panel's split width (output side-panel PRD §9.5); never "open completely".
+  if (window.RichOutput && window.RichOutput.setSplitWidth) window.RichOutput.setSplitWidth(navPrefs.output_width || 400);
   // THE SIDEBAR'S DURABLE CHOICE, at every width (PRD §8). theme-boot.js already painted the
   // first frame from its mirror; nav.rs is the truth, so the mirror is corrected to it and the
   // state is applied without the slide — a launch is not a gesture.

@@ -1557,6 +1557,16 @@ async function main() {
     return "the panel and its view open without animation under prefers-reduced-motion";
   });
 
+  // ---- S9: the wide pull — the stop, the snap, open completely, the floating composer ---------
+  //
+  // The CEO: "when I'm dragging up to here, then there's a stop, I'm feeling a stop. But if I keep
+  // dragging … then eventually it snaps open completely the output sidebar." PRD §12.9 names the
+  // pointer path (100px before the stop, the stop, 44px past, 144px past, 230px back), the keys
+  // and the six round-17.1 states this block reproduces: `stop`, `snap`, `full`, `full-list`,
+  // `everything` and `wide`. A REAL POINTER throughout: `page.mouse` down on the divider, moved,
+  // up — the events WebKit delivers to a hand, not a call into the panel's code.
+  await pullChecks(run, browser, byName);
+
   await run.check("no page errors in the main walk", async () => {
     assertEqual(page.__errors, [], "the page reported errors");
     return "0 errors";
@@ -1565,6 +1575,601 @@ async function main() {
   await page.context().close();
   await browser.close();
   process.exit(run.report() > 0 ? 1 : 0);
+}
+
+// =============================================================================================
+// S9 — THE WIDE PULL (PRD §9, §12.9; round 17.1)
+// =============================================================================================
+
+const STAGE_MIN = 360; // §9.1, re-stated here so the suite derives the stop independently
+const SNAP_PAST = 120; // §9.3
+
+function near(actual, expected, tolerance, what) {
+  assert(
+    Math.abs(actual - expected) <= tolerance,
+    (what || "value") + ": " + actual + " is not within " + tolerance + " of " + expected
+  );
+}
+
+/// The width of the inset spine in a computed `box-shadow` ("rgb(…) 2.1px 0px 0px 0px inset").
+function spineWidth(shadow) {
+  const m = /(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+inset/.exec(shadow || "");
+  return m ? Number(m[1]) : 0;
+}
+
+/// Everything the pull paints, read in one frame, beside what the panel believes.
+async function pullRead(page) {
+  return page.evaluate(() => {
+    const $ = (id) => document.getElementById(id);
+    const rz = $("op-resizer");
+    const stage = $("stage");
+    const p = window.RichOutput.pull();
+    const app = $("app").getBoundingClientRect();
+    const away = document.body.classList.contains("rail-closed");
+    const pill = $("op-conv");
+    return {
+      full: p.full,
+      split: p.split,
+      max: p.max,
+      settling: p.settling,
+      appRight: app.right,
+      appWidth: app.width,
+      railWidth: away ? 0 : $("rail").getBoundingClientRect().width,
+      panel: $("outpanel").getBoundingClientRect().width,
+      open: !$("outpanel").hidden,
+      dividerLeft: rz.getBoundingClientRect().left,
+      stage: stage.getBoundingClientRect().width,
+      stageOpacity: Number(getComputedStyle(stage).opacity),
+      stageVisibility: getComputedStyle(stage).visibility,
+      spine: getComputedStyle($("outpanel")).boxShadow,
+      narrow: stage.classList.contains("narrow"),
+      valuenow: rz.getAttribute("aria-valuenow"),
+      valuemax: rz.getAttribute("aria-valuemax"),
+      valuetext: rz.getAttribute("aria-valuetext"),
+      pill: pill.hidden ? null : pill.getAttribute("aria-label"),
+      pillText: pill.hidden ? null : pill.textContent,
+      composerIn: $("composer-zone").parentElement.id,
+      arming: document.body.classList.contains("snap-arming"),
+      focus: document.activeElement ? document.activeElement.id : null,
+    };
+  });
+}
+
+/// The snap's 420 ms and every width/opacity transition on the panel and the conversation have
+/// landed — a state the page asserts, never a sleep (PRD §10, T3's harness discipline).
+async function pullSettled(page) {
+  await page.waitForFunction(() => !window.RichOutput.pull().settling);
+  await page.evaluate(() =>
+    Promise.all(
+      ["outpanel", "stage"].flatMap((id) => document.getElementById(id).getAnimations()).map((a) => a.finished)
+    )
+  );
+}
+
+async function openPanelPage(browser, opts) {
+  const page = await openApp(browser, opts);
+  await openThread(page, "acme", 9);
+  await page.click("#out-top");
+  await page.waitForSelector("#outpanel .orow");
+  await page.evaluate(() => Promise.all(document.getElementById("outpanel").getAnimations().map((a) => a.finished)));
+  return page;
+}
+
+/// What the (mocked) nav.rs holds for the split width, once it holds `want` — read through the
+/// bridge, as `inspector.js` reads its divider's, polled because the write is debounced 150 ms.
+async function persistedWidth(page, want) {
+  let got = null;
+  for (let i = 0; i < 50; i++) {
+    got = await page.evaluate(() => window.RichBridge.invoke("nav_state").then((n) => n.output_width));
+    if (Math.round(got) === want) return got;
+    await page.waitForTimeout(100);
+  }
+  throw new Error("nav.rs's output_width is " + got + ", never " + want);
+}
+
+/// The divider, focused, and one key on it.
+async function pullKey(page, key) {
+  await page.focus("#op-resizer");
+  await page.keyboard.press(key);
+  await pullSettled(page);
+  return pullRead(page);
+}
+
+async function pullChecks(run, browser, byName) {
+  await run.check("stop and snap — free to the stop and held there; 44px past it arms; 144px past it opens completely; 230px back returns", async () => {
+    const p = await openPanelPage(browser);
+    let g = await pullRead(p);
+    // The stop, derived from the DOM rather than read from the code under test.
+    const stopWidth = Math.floor(g.appWidth - g.railWidth - STAGE_MIN);
+    assertEqual(stopWidth, 780, "the stop at 1440px with the 300px rail: 1440 − 300 − 360");
+    assertEqual(g.max, stopWidth, "the panel's stop");
+    assertEqual(g.valuemax, String(stopWidth), "aria-valuemax is the stop");
+    const stopX = g.appRight - stopWidth;
+    const y = 460;
+    await p.mouse.move(g.dividerLeft + 3, y);
+    await p.mouse.down();
+    // 100px before the stop: free, and the divider under the pointer.
+    await p.mouse.move(stopX + 100, y, { steps: 12 });
+    g = await pullRead(p);
+    near(g.panel, stopWidth - 100, 1, "100px before the stop");
+    near(g.dividerLeft, stopX + 100, 1, "the divider under the pointer");
+    assert(!g.arming, "the pull armed before the stop");
+    // At the stop: the conversation at its narrowest, and the divider says so.
+    await p.mouse.move(stopX, y, { steps: 6 });
+    g = await pullRead(p);
+    near(g.panel, stopWidth, 1, "at the stop");
+    near(g.stage, STAGE_MIN, 1, "the conversation at its narrowest");
+    assertEqual(g.valuetext, stopWidth + " pixels, at the stop; pull on to open it completely");
+    // 44px past: the divider HOLDS — the stop he feels — and the pull arms.
+    await p.mouse.move(stopX - 44, y, { steps: 4 });
+    g = await pullRead(p);
+    near(g.panel, stopWidth, 1, "past the stop the panel holds");
+    near(g.dividerLeft, stopX, 1, "past the stop the divider stays at the stop");
+    assert(g.arming, "44px past the stop did not arm");
+    const armed = 44 / SNAP_PAST;
+    near(g.stageOpacity, 1 - armed * 0.62, 0.01, "the conversation dims with the pull");
+    near(spineWidth(g.spine), 1 + armed * 3, 0.06, "the gold spine thickens with the pull");
+    const arming = { opacity: g.stageOpacity, spine: spineWidth(g.spine) };
+    // 144px past: SNAP_PAST is crossed and the panel opens completely.
+    await p.mouse.move(stopX - 144, y, { steps: 10 });
+    await pullSettled(p);
+    g = await pullRead(p);
+    assert(g.full, "144px past the stop did not open it completely");
+    near(g.panel, g.appWidth - g.railWidth, 1, "open completely is the whole stage");
+    near(g.stage, 0, 0.5, "the conversation at zero width");
+    assertEqual(g.stageVisibility, "hidden", "the conversation is hidden, not removed");
+    assertEqual(g.pill, "Show the conversation — Acme deal");
+    assertEqual(g.pillText, "Acme deal");
+    assertEqual(g.composerIn, "op-float", "the composer is not in the panel");
+    assertEqual(g.valuetext, "Open completely");
+    assert(!g.arming, "still arming after the snap");
+    const full = g.panel;
+    // 230px back, read in two halves. SNAP_PAST back from where it snapped, the conversation
+    // returns at its narrowest and the divider is at the stop, under the pointer...
+    await p.mouse.move(stopX, y, { steps: 12 });
+    await pullSettled(p);
+    g = await pullRead(p);
+    assert(!g.full, "pulled back 120px from the snap, the conversation did not return");
+    near(g.panel, stopWidth, 1, "the return is at the stop");
+    near(g.dividerLeft, stopX, 4, "the divider is under the pointer at the stop");
+    assertEqual(g.composerIn, "stage", "the composer did not go home");
+    near(g.stageOpacity, 1, 0.001, "the conversation is not fully back");
+    // ...and on to 230px: the divider follows the pointer and nothing arms.
+    await p.mouse.move(stopX + 86, y, { steps: 9 });
+    g = await pullRead(p);
+    near(g.dividerLeft, stopX + 86, 1, "after the return the divider follows the pointer");
+    assert(!g.arming && !g.full);
+    await p.mouse.up();
+    // Written when the hand lets go, as nav.rs is written (the mock clamps with its rule).
+    await persistedWidth(p, stopWidth - 86);
+    assertEqual(p.__errors, [], "the page reported errors");
+    await p.context().close();
+    return (
+      "stop " + stopWidth + "px (stage 360); 44px past: opacity " + arming.opacity.toFixed(3) + ", spine " +
+      arming.spine.toFixed(2) + "px; 144px past: open completely at " + Math.round(full) + "px; back at the stop, then " +
+      (stopWidth - 86) + "px under the pointer, persisted"
+    );
+  });
+
+  await run.check("keys — End opens completely, → returns to the stop, ← at the stop snaps, Home and a double-click go to 400px", async () => {
+    const p = await openPanelPage(browser);
+    const stop = (await pullRead(p)).max;
+    let g = await pullKey(p, "End");
+    assert(g.full, "End did not open it completely");
+    g = await pullKey(p, "ArrowRight");
+    assert(!g.full, "→ from open completely did not return");
+    near(g.panel, stop, 1, "→ returns to the stop");
+    g = await pullKey(p, "ArrowLeft");
+    assert(g.full, "← at the stop did not snap");
+    g = await pullKey(p, "Home");
+    assert(!g.full, "Home from open completely did not return");
+    near(g.panel, 400, 1, "Home is the default 400px");
+    g = await pullKey(p, "ArrowLeft");
+    near(g.panel, 424, 1, "← widens by 24px");
+    g = await pullKey(p, "ArrowRight");
+    near(g.panel, 400, 1, "→ narrows by 24px");
+    g = await pullKey(p, "ArrowRight");
+    g = await pullKey(p, "ArrowRight");
+    g = await pullKey(p, "ArrowRight");
+    g = await pullKey(p, "ArrowRight");
+    near(g.panel, 320, 1, "never under 320px");
+    const box = await p.locator("#op-resizer").boundingBox();
+    await p.mouse.dblclick(box.x + 3, box.y + 300);
+    await pullSettled(p);
+    g = await pullRead(p);
+    near(g.panel, 400, 1, "a double-click goes back to 400px");
+    assertEqual(g.focus, "op-resizer");
+    await p.context().close();
+    return "End → full, → → stop (" + stop + "px), ← → full, Home → 400, ← 424, → floor 320, double-click 400";
+  });
+
+  await run.check("close brings the whole conversation back and clears open completely; reopening is at the split width", async () => {
+    const p = await openPanelPage(browser);
+    await pullKey(p, "Home");
+    for (let i = 0; i < 6; i++) await pullKey(p, "ArrowLeft"); // 400 + 6 × 24 = 544
+    let g = await pullKey(p, "End");
+    assert(g.full);
+    // ×
+    await p.click("#op-close");
+    g = await pullRead(p);
+    assert(!g.open, "× did not close the panel");
+    assert(!g.full, "closing left the panel open completely");
+    assertEqual(g.composerIn, "stage");
+    // Home again, the empty field is one line tall. Found on the real app (the S9 walk's close
+    // picture): moved into a conversation still at zero width, it measured itself 111px tall.
+    const home = await p.evaluate(() => ({
+      field: Math.round(document.getElementById("input").getBoundingClientRect().height),
+      send: Math.round(document.getElementById("send").getBoundingClientRect().height),
+    }));
+    assert(home.field <= home.send, "the field came home " + home.field + "px tall beside a " + home.send + "px Send");
+    near(g.stage, g.appWidth - g.railWidth, 1, "the whole conversation is back");
+    assertEqual(g.stageVisibility, "visible");
+    near(g.stageOpacity, 1, 0.001);
+    await p.click("#out-top");
+    await p.waitForSelector("#outpanel .orow");
+    await pullSettled(p);
+    g = await pullRead(p);
+    assert(!g.full, "reopened open completely");
+    near(g.panel, 544, 1, "reopened at the split width it had");
+    // Escape from the list, and ⌘⇧O, do the same from open completely.
+    await pullKey(p, "End");
+    await p.focus("#op-body .orow");
+    await p.keyboard.press("Escape");
+    g = await pullRead(p);
+    assert(!g.open && !g.full, "Escape from the list did not close it: " + JSON.stringify({ open: g.open, full: g.full }));
+    await p.click("#out-top");
+    await p.waitForSelector("#outpanel .orow");
+    await pullKey(p, "End");
+    await p.keyboard.press("Meta+Shift+O");
+    g = await pullRead(p);
+    assert(!g.open && !g.full, "⌘⇧O did not close it");
+    near(g.stage, g.appWidth - g.railWidth, 1);
+    await p.context().close();
+    return "× / Escape / ⌘⇧O from open completely: the conversation whole (" + Math.round(g.stage) + "px); reopened at 544px";
+  });
+
+  await run.check("the pill — ‹ Acme deal brings the conversation back at the stop and puts focus in its composer", async () => {
+    const p = await openPanelPage(browser);
+    await pullKey(p, "End");
+    await p.click("#op-conv");
+    await pullSettled(p);
+    await p.waitForFunction(() => document.activeElement && document.activeElement.id === "input");
+    const g = await pullRead(p);
+    assert(!g.full);
+    near(g.panel, g.max, 1, "the pill returns to the stop");
+    near(g.stage, STAGE_MIN, 1);
+    assertEqual(g.pill, null, "the pill is shown with the conversation back");
+    // And the field, home after the conversation's slide back from zero, is one line tall.
+    await p.waitForFunction(
+      () => document.getElementById("input").getBoundingClientRect().height <= document.getElementById("send").getBoundingClientRect().height
+    );
+    await p.context().close();
+    return "‹ Acme deal → the stop (" + Math.round(g.panel) + "px), the conversation at 360px, focus in the composer";
+  });
+
+  await run.check("sidebar away + open completely = the whole window; the sidebar back gives the room back", async () => {
+    const p = await openPanelPage(browser);
+    await pullKey(p, "End");
+    await p.keyboard.press("Meta+Shift+S");
+    await p.waitForFunction(() => document.body.classList.contains("rail-closed"));
+    await pullSettled(p);
+    let g = await pullRead(p);
+    near(g.panel, g.appWidth, 1, "sidebar away and open completely is the window");
+    assert(g.full);
+    await p.keyboard.press("Meta+Shift+S");
+    await p.waitForFunction(() => !document.body.classList.contains("rail-closed"));
+    await pullSettled(p);
+    g = await pullRead(p);
+    near(g.panel, g.appWidth - g.railWidth, 1, "the sidebar back, open completely is the stage");
+    // At the split: with the sidebar away the stop moves out to 1440 − 360.
+    await pullKey(p, "ArrowRight");
+    await p.keyboard.press("Meta+Shift+S");
+    await p.waitForFunction(() => document.body.classList.contains("rail-closed"));
+    await pullSettled(p);
+    const before = (await pullRead(p)).max;
+    assertEqual(before, Math.floor(g.appWidth - STAGE_MIN), "the stop with the sidebar away");
+    g = await pullKey(p, "End");
+    g = await pullKey(p, "ArrowRight");
+    near(g.panel, before, 1, "→ returns to the wider stop");
+    await p.keyboard.press("Meta+Shift+S");
+    await p.waitForFunction(() => !document.body.classList.contains("rail-closed"));
+    await pullSettled(p);
+    g = await pullRead(p);
+    near(g.panel, g.max, 1, "the sidebar back pulls the panel in to the new stop");
+    near(g.stage, STAGE_MIN, 1, "and the conversation keeps its 360px");
+    await p.context().close();
+    return "1440px with the sidebar away; " + Math.round(g.appWidth - g.railWidth) + "px with it; stop " + before + " → " + g.max + "px";
+  });
+
+  await run.check("the floating composer is THE composer: a message sent from it lands in the thread; Escape clears its words first", async () => {
+    const p = await openPanelPage(browser);
+    await p.fill("#input", "half a thought");
+    await pullKey(p, "End");
+    let g = await pullRead(p);
+    assertEqual(g.composerIn, "op-float");
+    const draft = await p.evaluate(() => document.getElementById("input").value);
+    assertEqual(draft, "half a thought", "the draft did not come along: one draft, two homes");
+    const placed = await p.evaluate(() => {
+      const f = document.getElementById("op-float").getBoundingClientRect();
+      const panel = document.getElementById("outpanel").getBoundingClientRect();
+      return { right: Math.round(panel.right - f.right), bottom: Math.round(panel.bottom - f.bottom), width: Math.round(f.width) };
+    });
+    assertEqual([placed.right, placed.bottom], [18, 18], "the composer floats at the panel's bottom right");
+    assertEqual(placed.width, 460);
+    // Escape with words in the floating field clears them, and only them.
+    await p.focus("#input");
+    await p.keyboard.press("Escape");
+    g = await pullRead(p);
+    assert(g.open && g.full, "Escape with words in the floating composer stepped the panel back");
+    assertEqual(await p.evaluate(() => document.getElementById("input").value), "");
+    // A send from there lands in the conversation behind.
+    const before = await p.evaluate(() => document.querySelectorAll(".tl-user-bubble").length);
+    await p.fill("#input", "add Tolliver to the comps and re-run the sheet");
+    await p.keyboard.press("Enter");
+    await p.waitForFunction((n) => document.querySelectorAll(".tl-user-bubble").length === n + 1, before);
+    const sent = await p.evaluate(() => ({
+      last: [...document.querySelectorAll(".tl-user-bubble")].pop().textContent,
+      field: document.getElementById("input").value,
+      home: document.getElementById("composer-zone").parentElement.id,
+    }));
+    assert(sent.last.includes("add Tolliver to the comps"), "the message is not in the thread: " + sent.last);
+    assertEqual(sent.field, "");
+    assertEqual(sent.home, "op-float", "sending moved the composer");
+    // With the field empty, Escape steps the panel back as everywhere else (the list → closed).
+    await p.focus("#input");
+    await p.keyboard.press("Escape");
+    g = await pullRead(p);
+    assert(!g.open && !g.full, "Escape with an empty floating composer did not close the panel");
+    assertEqual(g.composerIn, "stage");
+    assertEqual(p.__errors, [], "the page reported errors");
+    await p.context().close();
+    return "draft carried in; Escape cleared the words; the message is in the thread; Escape again closed the panel";
+  });
+
+  await run.check("the conversation at its narrowest reflows, keeps everything, and still sends", async () => {
+    const p = await openPanelPage(browser);
+    await p.evaluate(() => window.RichOutput.setSplitWidth(10000)); // as nav.rs would restore a wide window's
+    await pullSettled(p);
+    await p.waitForFunction(() => document.getElementById("stage").classList.contains("narrow"));
+    const g = await pullRead(p);
+    near(g.stage, STAGE_MIN, 1);
+    assert(g.narrow, "no `narrow` reflow at 360px of conversation");
+    const r = await p.evaluate(() => {
+      const stage = document.getElementById("stage").getBoundingClientRect();
+      // A control the conversation shows must be inside it; the talk control may be withheld
+      // when voice is unavailable on this fixture, and a control not shown cannot spill.
+      const optional = { "talk-toggle": true };
+      const inside = (id) => {
+        const b = document.getElementById(id).getBoundingClientRect();
+        if (!b.width) return !!optional[id];
+        return b.left >= stage.left - 0.5 && b.right <= stage.right + 0.5;
+      };
+      const word = document.querySelector("#out-bottom .out-word");
+      return {
+        wordShown: getComputedStyle(word).display !== "none",
+        topWordShown: getComputedStyle(document.querySelector("#out-top .out-word")).display !== "none",
+        count: document.querySelector("#out-bottom .out-count").textContent,
+        inside: ["rail-toggle", "out-top", "out-bottom", "send", "talk-toggle", "input"].filter((id) => !inside(id)),
+        name: document.getElementById("out-bottom").getAttribute("aria-label"),
+      };
+    });
+    assert(!r.wordShown, "the bottom button kept its word at 360px");
+    assert(r.topWordShown, "the top button lost its word (only the bottom one drops it)");
+    assertEqual(r.count, "9");
+    assertEqual(r.name, "Output — 9 files from this thread", "its name is unchanged");
+    assertEqual(r.inside, [], "controls spill out of the 360px conversation");
+    const before = await p.evaluate(() => document.querySelectorAll(".tl-user-bubble").length);
+    await p.fill("#input", "and the narrow one sends");
+    await p.keyboard.press("Enter");
+    await p.waitForFunction((n) => document.querySelectorAll(".tl-user-bubble").length === n + 1, before);
+    await p.context().close();
+    return "360px: the bottom button keeps icon and count, every control inside the column, a message sent";
+  });
+
+  await run.check("open completely is not persisted across a reload; the split width is", async () => {
+    const p = await openPanelPage(browser);
+    await pullKey(p, "Home");
+    for (let i = 0; i < 5; i++) await pullKey(p, "ArrowLeft"); // 520
+    await persistedWidth(p, 520);
+    await pullKey(p, "End");
+    await p.reload();
+    await leaveHome(p);
+    await p.waitForFunction(() => typeof window.RichOutput === "object" && typeof window.RichOutput.pull === "function");
+    await p.waitForSelector(".nav-thread", { state: "attached" });
+    await openThread(p, "acme", 9);
+    await p.click("#out-top");
+    await p.waitForSelector("#outpanel .orow");
+    await pullSettled(p);
+    const g = await pullRead(p);
+    assert(!g.full, "open completely survived a reload");
+    near(g.panel, 520, 1, "the split width did not survive a reload");
+    await p.context().close();
+    return "520px split, open completely, reload → 520px, not open completely";
+  });
+
+  await run.check("below 1180px there is no stop, no snap and no divider — the panel overlays at its split width", async () => {
+    const p = await openPanelPage(browser, { viewport: { width: 1000, height: 800 } });
+    const r = await p.evaluate(() => ({
+      divider: getComputedStyle(document.getElementById("op-resizer")).display,
+      width: Math.round(document.getElementById("outpanel").getBoundingClientRect().width),
+    }));
+    assertEqual(r, { divider: "none", width: 400 });
+    // A window narrowing under 1180px while open completely brings the conversation back.
+    await p.setViewportSize({ width: 1440, height: 800 });
+    await pullKey(p, "End");
+    await p.setViewportSize({ width: 1000, height: 800 });
+    await p.waitForFunction(() => !window.RichOutput.pull().full);
+    const g = await pullRead(p);
+    assertEqual(g.composerIn, "stage");
+    await p.context().close();
+    return "1000px: no divider, 400px overlay; narrowing from open completely returned the conversation";
+  });
+
+  await run.check("reduced motion: the snap and the return happen, without the dimming or the slide", async () => {
+    const p = await openPanelPage(browser, { reducedMotion: "reduce" });
+    const g0 = await pullRead(p);
+    const stopX = g0.appRight - g0.max;
+    await p.mouse.move(g0.dividerLeft + 3, 460);
+    await p.mouse.down();
+    await p.mouse.move(stopX - 60, 460, { steps: 10 });
+    const armed = await pullRead(p);
+    await p.mouse.move(stopX - 140, 460, { steps: 4 });
+    await pullSettled(p);
+    const full = await pullRead(p);
+    await p.mouse.up();
+    const t = await p.evaluate(() => getComputedStyle(document.getElementById("outpanel")).transitionDuration);
+    assertEqual(armed.stageOpacity, 1, "the conversation dimmed under reduced motion");
+    assert(full.full, "the snap did not happen under reduced motion");
+    assertEqual(t, "0s", "the panel slides under reduced motion");
+    await p.context().close();
+    return "no dimming while armed, no slide; the snap still happens";
+  });
+
+  // ---- contrast, computed, both themes; and the six round-17.1 states, photographed ----------
+  for (const theme of ["dark", "light"]) {
+    await run.check(theme + " — the wide pull's pill, its borders, the floating composer and the divider's focus mark clear WCAG AA, computed", async () => {
+      const p = await openPanelPage(browser, { theme });
+      await pullKey(p, "End");
+      await p.focus("#op-resizer");
+      const read = () =>
+        p.evaluate(() => {
+          const $ = (id) => document.getElementById(id);
+          const cs = (n) => getComputedStyle(n);
+          const plane = cs($("outpanel")).backgroundColor;
+          const pill = $("op-conv");
+          return {
+            plane,
+            pillBg: cs(pill).backgroundColor,
+            pillText: cs($("op-conv-t")).color,
+            pillSize: parseFloat(cs($("op-conv-t")).fontSize),
+            pillBorder: cs(pill).borderTopColor,
+            chevron: cs(pill.querySelector("svg")).color,
+            card: cs($("composer-zone")).borderTopColor,
+            cardBg: cs($("composer-zone")).backgroundColor,
+            focusMark: cs($("op-resizer")).boxShadow,
+          };
+        });
+      const rest = await read();
+      await p.hover("#op-conv");
+      await p.waitForFunction(() => getComputedStyle(document.getElementById("op-conv")).borderTopColor !== "");
+      const hover = await read();
+      const base = parseCssColor(theme === "dark" ? "rgb(12, 19, 34)" : "rgb(234, 230, 221)");
+      const solid = (c, under) => {
+        const x = parseCssColor(c);
+        return x.a < 1 ? compositeOver(x, under) : x;
+      };
+      const plane = solid(rest.plane, base);
+      const pillRest = solid(rest.pillBg, plane);
+      const pillHover = solid(hover.pillBg, plane);
+      const focusColor = /rgba?\([^)]*\)/.exec(rest.focusMark);
+      const pairs = [
+        ["pill text at rest (16px)", "text", solid(rest.pillText, pillRest), pillRest],
+        ["pill text hovered", "text", solid(hover.pillText, pillHover), pillHover],
+        ["pill border at rest, on the panel plane", "indicator", solid(rest.pillBorder, plane), plane],
+        ["pill border hovered (--gold-text), on the panel plane", "indicator", solid(hover.pillBorder, plane), plane],
+        ["pill chevron at rest", "indicator", solid(rest.chevron, pillRest), pillRest],
+        ["pill chevron hovered", "indicator", solid(hover.chevron, pillHover), pillHover],
+        ["floating composer's boundary, on the panel plane", "indicator", solid(rest.card, plane), plane],
+        ["divider focus mark (--gold-text), on the panel plane", "indicator", solid(focusColor ? focusColor[0] : "rgba(0,0,0,0)", plane), plane],
+      ];
+      assertEqual(rest.pillSize, 16, "the pill's words are 16px");
+      const lines = [];
+      for (const [what, kind, fg, bg] of pairs) {
+        const ratio = Math.round(contrastRatio(fg, bg) * 100) / 100;
+        const floor = kind === "indicator" ? 3 : 4.5;
+        lines.push(what + " " + hex(fg) + " on " + hex(bg) + " " + ratio + ":1");
+        assert(ratio >= floor, theme + ": " + what + " is " + ratio + ":1 against " + floor + ":1 (" + hex(fg) + " on " + hex(bg) + ")");
+      }
+      assertEqual(hex(solid(rest.cardBg, plane)), hex(solid(theme === "dark" ? "rgb(12, 19, 34)" : "rgb(234, 230, 221)", plane)), "the floating composer is not on --paper, the plane its lines were computed on");
+      await p.context().close();
+      return lines.join(" | ");
+    });
+
+    await run.check(theme + " — the six round-17.1 states, reproduced and photographed: stop, snap, full, full-list, everything, wide", async () => {
+      const made = [];
+      const picture = async (p, state, opts) => {
+        await awaitWorkerChipSettled(p);
+        const s = await shot(p, "output-" + state + "-" + theme, Object.assign({ fullPage: false, parkPointer: true }, opts || {}));
+        publishShotFile(s.file, path.join(SHOTS, "output-" + state + "-" + theme + ".png"));
+        made.push(state);
+      };
+      const fileRow = (p, name) => p.click('.orow[data-output="' + byName(name).id + '"]');
+
+      // wide — round 17's 560px, kept in 17.1: the panel restored at 560 on the sheet.
+      let p = await openPanelPage(browser, { theme });
+      await p.evaluate(() => window.RichOutput.setSplitWidth(560));
+      await fileRow(p, "comps-2026-10-04.xlsx");
+      await pullSettled(p);
+      near((await pullRead(p)).panel, 560, 1, "wide");
+      await picture(p, "wide");
+      await p.context().close();
+
+      // stop — pulled to the stop, the conversation at its narrowest, with the sheet open.
+      p = await openPanelPage(browser, { theme });
+      await fileRow(p, "comps-2026-10-04.xlsx");
+      await p.evaluate(() => window.RichOutput.setSplitWidth(10000));
+      await pullSettled(p);
+      let g = await pullRead(p);
+      near(g.stage, STAGE_MIN, 1, "stop");
+      await picture(p, "stop");
+
+      // snap — the same, held 60px past the stop with the chart open: half armed.
+      await p.click("#of-back");
+      await fileRow(p, "q3-revenue-chart.png");
+      g = await pullRead(p);
+      const stopX = g.appRight - g.max;
+      await p.mouse.move(g.dividerLeft + 3, 460);
+      await p.mouse.down();
+      await p.mouse.move(stopX - 60, 460, { steps: 8 });
+      g = await pullRead(p);
+      assert(g.arming && !g.full, "snap: not arming at 60px past the stop");
+      await picture(p, "snap", { parkPointer: false });
+      await p.mouse.move(stopX, 460, { steps: 4 });
+      await p.mouse.up();
+      await p.context().close();
+
+      // full — open completely at the sheet, a message typed in the floating composer.
+      p = await openPanelPage(browser, { theme });
+      await fileRow(p, "comps-2026-10-04.xlsx");
+      await pullKey(p, "End");
+      await p.fill("#input", "add Tolliver to the comps and re-run the sheet");
+      await p.focus("#op-body");
+      g = await pullRead(p);
+      assert(g.full && g.composerIn === "op-float", "full");
+      await picture(p, "full");
+      await p.context().close();
+
+      // full-list — open completely at the list, the sidebar still open beside it.
+      p = await openPanelPage(browser, { theme });
+      await pullKey(p, "End");
+      await p.focus("#op-body");
+      g = await pullRead(p);
+      assert(g.full && g.railWidth > 0, "full-list");
+      await picture(p, "full-list");
+      await p.context().close();
+
+      // everything — the sidebar away and open completely: the walkthrough at the window's width.
+      p = await openPanelPage(browser, { theme });
+      await fileRow(p, "comps-walkthrough.mp4");
+      await p.keyboard.press("Meta+Shift+S");
+      await p.waitForFunction(() => document.body.classList.contains("rail-closed"));
+      await pullKey(p, "End");
+      await p.focus("#op-body");
+      g = await pullRead(p);
+      near(g.panel, g.appWidth, 1, "everything");
+      // The empty floating field is one whole line tall, measured in its new home (it was once
+      // measured while that home was still `display: none`, and came out 20px with its words cut).
+      const field = await p.evaluate(() => ({
+        h: Math.round(document.getElementById("input").getBoundingClientRect().height),
+        talk: Math.round(document.getElementById("talk-toggle").getBoundingClientRect().height),
+      }));
+      assert(field.h >= field.talk - 2, "the floating field is " + field.h + "px against its " + field.talk + "px controls");
+      await picture(p, "everything");
+      assertEqual(p.__errors, [], "the page reported errors");
+      await p.context().close();
+      return made.map((s) => "shots-output/output-" + s + "-" + theme + ".png").join(", ");
+    });
+  }
 }
 
 main().catch((e) => {

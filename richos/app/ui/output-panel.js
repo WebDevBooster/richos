@@ -17,14 +17,13 @@
 // page — from `output_preview`, or says the §6.7 sentence. `viewPreview` below; `hooks.viewer`
 // still overrides it.
 //
-// THE ACTIONS (S6) AND ADD TO CHAT (S7), near the foot of this file: Open in <app>, Open with…,
+// THE WIDE PULL (S9, PRD §9, round 17.1) is its own section near the end of this file: the
+// divider, the stop, the snap, *open completely* with the conversation one click back, and the
+// composer floating in the panel. The panel's width is `--output-width`, written there.
+//
+// THE ACTIONS (S6) AND ADD TO CHAT (S7), at the foot of this file: Open in <app>, Open with…,
 // Show in Finder, Save a copy…, Copy path, through `hooks.rowActions`, `hooks.fileTools` and
 // `hooks.pathTools`; Add to chat last in the same menus, through `hooks.menuItems`.
-//
-// WHAT IT DOES NOT DO YET, said here so nobody reads a gap as a bug. A later slice of the same
-// PRD, with a named place rather than a half-built version:
-//   * the divider, the stop, the snap and the floating composer (S9): the panel's width is the
-//     `--output-width` custom property, 400px, and nothing here drags it.
 //
 // NO STRING FROM THE RECORD EVER BECOMES MARKUP. File names, folders, worker names and his own
 // words are text nodes; the only markup built here is this file's own, through `node()`.
@@ -861,6 +860,9 @@
     const panel = el("outpanel");
     if (!scrim || !panel) return;
     scrim.hidden = panel.hidden || isWide();
+    // The stop and the snap exist only where the panel docks (§6.1): a window that narrows
+    // under 1180px while it is open completely brings the conversation back.
+    pullBreakpoint();
   }
 
   /// Open the panel. `opts.returnTo` is the element focus goes back to on close, or
@@ -878,6 +880,8 @@
     panel.hidden = false;
     syncScrim();
     document.body.classList.add("output-open");
+    // Reopening is at the split width it had, never open completely (§9.4).
+    if (!already) pullPaint({ instant: true });
     if (!already) {
       panel.classList.remove("is-opening");
       void panel.offsetWidth;
@@ -892,7 +896,11 @@
     opts = opts || {};
     const panel = el("outpanel");
     const wasOpen = state.open || !panel.hidden;
+    // A menu first, without taking focus: the panel is about to hide under it (S6).
     closeMenu({ focus: false });
+    // Closing brings the WHOLE conversation back and clears *open completely* (§9.4), before
+    // the panel hides: the composer goes home first, so focus can return to it.
+    pullReset();
     state.open = false;
     state.view = "list";
     state.file = null;
@@ -918,8 +926,11 @@
   /// then the list to closed. Read off the DOM as well as the state, because the Escape rule's
   /// own suite opens a surface by un-hiding it.
   function escape() {
-    // A menu first (S6, §6.8): a submenu back to its menu, a menu closed.
+    // A menu first (S6, §6.8): a submenu back to its menu, a menu closed. It is the topmost
+    // layer, so it goes before the floating composer's words.
     if (closeMenu({ step: true })) return;
+    // From the floating composer with words in it, Escape clears the words first (§6.8).
+    if (pullEscape()) return;
     if (state.open && state.view === "file" && state.file) {
       showList({ focusFile: state.file });
       return;
@@ -1001,6 +1012,8 @@
       return;
     }
     state.thread = next;
+    // The pill names the thread the panel now shows (§9.4).
+    if (next) pullPaintPill();
     state.list = null;
     state.error = null;
     state.loading = false;
@@ -1060,7 +1073,385 @@
       if (!payload || payload.threadId !== state.thread) return;
       load({ arrival: true });
     });
+    pullInit();
     paintButtons();
+  }
+
+  // ============================================================================================
+  // THE WIDE PULL — slice S9 (PRD §9; round 17.1's `output.html:1337-1402`, taken as written)
+  // ============================================================================================
+  //
+  // The CEO, 2026-10-05: "when I'm dragging up to here, then there's a stop, I'm feeling a stop.
+  // But if I keep dragging … then eventually it snaps open completely the output sidebar. So
+  // this is the behavior we want to copy, for now." And: "if I close the output sidebar, then
+  // I'm back, I have back the whole thing."
+  //
+  // THE MATH, every width measured from the app's right edge, as the mockup measures it:
+  //   the stop        app − rail − STAGE_MIN       the conversation at its narrowest (§9.1)
+  //   open completely app − rail                   the conversation at zero width (§9.3)
+  //   the snap        SNAP_PAST px of pull on past the stop; over those px the conversation dims
+  //                   (opacity 1 − snap × .62) and the divider's gold spine thickens, so the snap
+  //                   is never a surprise; the divider lets go of the pointer for SNAP_MS
+  //   the return      SNAP_PAST px back from where the snap happened: the conversation comes back
+  //                   at its narrowest and the divider is at the stop, under the pointer; nothing
+  //                   arms again until the pointer has come back across the stop
+  // `rail` is the LIVE rail, 224–420px and 0 while the sidebar is away — not the mockup's 324px
+  // (§11 row 1). At 1440px with the default 300px rail: the stop is 1440 − 300 − 360 = 780px and
+  // open completely is 1140px; with the sidebar away, 1080px and the whole 1440px.
+  //
+  // Only where the panel docks (1180px and wider, §6.1). Below that it overlays at its split
+  // width and there is no stop to feel, so there is no divider either.
+  //
+  // `full` is never persisted; the split width is, through nav.rs `set_output_width`, which
+  // floors it at 320px and leaves the ceiling to the stop measured here (§9.5).
+
+  /// §9.1: Iris's reading of his Codex frames. A tunable constant, his to retune (§13).
+  const STAGE_MIN = 360;
+  /// §9.3: his "keep dragging" five times, tuned on a trackpad. Tunable, his to retune (§13).
+  const SNAP_PAST = 120;
+  const PANEL_MIN = 320;
+  const PANEL_DEFAULT = 400;
+  /// §9.2: under this much stage the conversation reflows to its narrowest.
+  const NARROW_STAGE = 520;
+  const KEY_STEP = 24;
+  /// The 0.38 s curve with margin: how long the snap takes, and so how long the divider lets go.
+  const SNAP_MS = 420;
+  const PERSIST_AFTER_MS = 150;
+  /// What the one polite region says when the pull changes the layout (round 17.1's notices).
+  const SAID_FULL = "Open completely. The conversation is one click back, and closing the panel brings it all back.";
+  const SAID_BACK = "The conversation is back.";
+
+  const pull = {
+    /// The split width, remembered apart from `full` (§9.5) and written to nav.rs.
+    split: PANEL_DEFAULT,
+    full: false,
+    dragging: false,
+    settling: false,
+    settleTimer: 0,
+    persistTimer: 0,
+    lastRail: null,
+  };
+
+  /// The rail's width as the layout will have it: 0 the moment the sidebar is told to go, not
+  /// when its slide ends, so the panel moves on the same curve as the rail instead of after it.
+  function pullRail() {
+    const rail = el("rail");
+    if (!rail) return 0;
+    const away =
+      document.body.classList.contains("rail-closed") || document.documentElement.getAttribute("data-sidebar") === "hidden";
+    return away ? 0 : rail.getBoundingClientRect().width;
+  }
+
+  function pullApp() {
+    const app = el("app");
+    return app ? app.clientWidth : window.innerWidth;
+  }
+
+  function pullMax() {
+    return Math.max(PANEL_MIN, Math.floor(pullApp() - pullRail() - STAGE_MIN));
+  }
+
+  function pullFullWidth() {
+    return Math.max(PANEL_MIN, pullApp() - pullRail());
+  }
+
+  function pullClamp(w) {
+    return Number.isFinite(w) ? Math.max(PANEL_MIN, Math.round(w)) : PANEL_DEFAULT;
+  }
+
+  /// What the panel is painted at: open completely, or the split width held at the stop. Below
+  /// 1180px the split width itself, which the stylesheet caps to the window (§6.1).
+  function pullWidth() {
+    if (!isWide()) return pullClamp(pull.split);
+    return pull.full ? pullFullWidth() : Math.min(pullMax(), pullClamp(pull.split));
+  }
+
+  /// No slide and no fade for the next two frames: on the panel and on the conversation.
+  function pullInstant() {
+    document.body.classList.add("pull-instant");
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => document.body.classList.remove("pull-instant")));
+  }
+
+  /// Paint the width, `full` and the divider's value. `instant` for a window resize, a launch or
+  /// an open; a drag is instant through `is-resizing`; everything else takes the rail's curve.
+  function pullPaint(opts) {
+    opts = opts || {};
+    const panel = el("outpanel");
+    const rz = el("op-resizer");
+    if (!panel || !rz) return;
+    if (opts.instant) pullInstant();
+    const w = Math.round(pullWidth());
+    panel.style.setProperty("--output-width", w + "px");
+    document.body.classList.toggle("panel-full", pull.full);
+    const max = pullMax();
+    rz.setAttribute("aria-valuemin", String(PANEL_MIN));
+    rz.setAttribute("aria-valuemax", String(max));
+    rz.setAttribute("aria-valuenow", String(w));
+    rz.setAttribute(
+      "aria-valuetext",
+      pull.full ? "Open completely" : w >= max ? w + " pixels, at the stop; pull on to open it completely" : w + " pixels"
+    );
+    pullPaintPill();
+  }
+
+  /// ‹ and the thread's own name at the head of the panel, only while it is open completely.
+  function pullPaintPill() {
+    const pill = el("op-conv");
+    if (!pill) return;
+    const title = state.thread && ctx.threadTitle ? ctx.threadTitle(state.thread) : "";
+    pill.hidden = !pull.full;
+    el("op-conv-t").textContent = title;
+    pill.setAttribute("aria-label", "Show the conversation" + (title ? " — " + title : ""));
+  }
+
+  /// The overshoot past the stop, 0 to 1: the conversation dims and the spine thickens with it.
+  function pullArm(p) {
+    p = Math.max(0, Math.min(1, p));
+    document.body.classList.toggle("snap-arming", p > 0);
+    document.body.style.setProperty("--snap", String(p));
+  }
+
+  /// The snap animates even mid-drag: the divider lets go of the pointer while it does.
+  function pullSettle() {
+    const panel = el("outpanel");
+    pull.settling = true;
+    panel.classList.remove("is-resizing");
+    window.clearTimeout(pull.settleTimer);
+    pull.settleTimer = window.setTimeout(() => {
+      pull.settling = false;
+      if (pull.dragging) panel.classList.add("is-resizing");
+    }, SNAP_MS);
+  }
+
+  /// Open completely, or back to the split. `opts.width` sets the split width it returns to
+  /// (the stop, from the pill, the pull back and →). The composer goes with it (§9.4): one node,
+  /// moved into the panel and back by main.js, so one draft, one tray and one send path.
+  function pullSetFull(on, opts) {
+    opts = opts || {};
+    if (on && (!isWide() || !state.open)) return;
+    if (opts.width != null) pull.split = pullClamp(opts.width);
+    const changed = on !== pull.full;
+    pull.full = on;
+    // The class first, so the composer lands in a home that is laid out: the field measures
+    // its height in its new width (measured into `display: none`, it came out one line short).
+    document.body.classList.toggle("panel-full", on);
+    if (changed && ctx.moveComposer) ctx.moveComposer(on ? el("op-float") : null);
+    pullPaint({ instant: !!opts.instant });
+    if (!changed) return;
+    if (!opts.instant) pullSettle();
+    if (!opts.quiet && ctx.announce) ctx.announce(on ? SAID_FULL : SAID_BACK);
+  }
+
+  /// A split width, from the keys, a double-click or Home. From open completely it is the
+  /// return (the mockup's `setWidth` clears `full`).
+  function pullSetWidth(w) {
+    if (pull.full) return pullSetFull(false, { width: Math.min(pullMax(), pullClamp(w)) });
+    pull.split = Math.min(pullMax(), pullClamp(w));
+    pullPaint();
+  }
+
+  /// Write the split width; render what the store accepted (nav.rs floors it at 320px).
+  function pullPersist() {
+    window.clearTimeout(pull.persistTimer);
+    pull.persistTimer = window.setTimeout(async () => {
+      if (!bridge) return;
+      let accepted = null;
+      try {
+        accepted = await bridge.invoke("set_output_width", { width: pull.split });
+      } catch (_e) {
+        return; // an unreadable navigation file is left as it is (nav.rs); the width still shows
+      }
+      if (typeof accepted === "number" && accepted !== pull.split) {
+        pull.split = accepted;
+        pullPaint();
+      }
+    }, PERSIST_AFTER_MS);
+  }
+
+  function pullSetSplit(w) {
+    pull.split = pullClamp(Number(w));
+    pullPaint({ instant: true });
+  }
+
+  /// The drag (`output.html:1360-1389`), on pointer capture so it holds outside the strip.
+  function pullPointerDown(e) {
+    if (!isWide() || e.button !== 0) return;
+    e.preventDefault();
+    const rz = el("op-resizer");
+    const panel = el("outpanel");
+    rz.setPointerCapture(e.pointerId);
+    panel.classList.remove("is-opening");
+    panel.classList.add("is-resizing");
+    pull.dragging = true;
+    const right = el("app").getBoundingClientRect().right;
+    // Where the pointer was when the panel went open completely: SNAP_PAST back from there
+    // returns the conversation.
+    let anchorX = e.clientX;
+    // After a return the pointer is behind the divider; nothing arms again until it has
+    // crossed back over the stop.
+    let armable = !pull.full;
+    const move = (ev) => {
+      if (pull.settling) return;
+      const want = right - ev.clientX;
+      const max = pullMax();
+      if (pull.full) {
+        if (ev.clientX - anchorX >= SNAP_PAST) {
+          armable = false;
+          pullSetFull(false, { width: max });
+        }
+        return;
+      }
+      if (want > max) {
+        // At the stop the divider holds: that hold is the stop he feels.
+        pull.split = max;
+        pullPaint();
+        if (!armable) return;
+        const over = want - max;
+        pullArm(over / SNAP_PAST);
+        if (over >= SNAP_PAST) {
+          pullArm(0);
+          anchorX = ev.clientX;
+          pullSetFull(true);
+        }
+      } else {
+        armable = true;
+        pullArm(0);
+        pull.split = Math.max(PANEL_MIN, Math.round(want));
+        pullPaint();
+      }
+    };
+    const up = () => {
+      pullArm(0);
+      pull.dragging = false;
+      panel.classList.remove("is-resizing");
+      rz.removeEventListener("pointermove", move);
+      rz.removeEventListener("pointerup", up);
+      rz.removeEventListener("pointercancel", up);
+      pullPersist();
+    };
+    rz.addEventListener("pointermove", move);
+    rz.addEventListener("pointerup", up);
+    rz.addEventListener("pointercancel", up);
+  }
+
+  /// The keys (`output.html:1390-1396`): ← at the stop snaps, End snaps from anywhere, → from
+  /// open completely returns to the stop, Home goes back to the default 400px.
+  function pullKey(e) {
+    if (!isWide()) return;
+    const max = pullMax();
+    const now = pullWidth();
+    if (e.key === "ArrowLeft") {
+      if (!pull.full) {
+        if (now >= max) pullSetFull(true);
+        else pullSetWidth(now + KEY_STEP);
+      }
+    } else if (e.key === "ArrowRight") {
+      if (pull.full) pullSetFull(false, { width: max });
+      else pullSetWidth(now - KEY_STEP);
+    } else if (e.key === "End") {
+      pullSetFull(true);
+    } else if (e.key === "Home") {
+      pullSetWidth(PANEL_DEFAULT);
+    } else {
+      return;
+    }
+    e.preventDefault();
+    pullPersist();
+  }
+
+  /// Closing clears `full` and brings the composer home (§9.4); the split width stays. The
+  /// panel is gone at once, so the whole conversation is back at once too, not faded in.
+  function pullReset() {
+    pullArm(0);
+    // The conversation gets its width back BEFORE the composer goes home — the class off and the
+    // panel painted at its split width, at once — so the field measures itself in a laid-out
+    // conversation: moved into a zero-width one, the empty field came home 111px tall (the
+    // real-app walk's close picture, 2026-10-05). The panel hides right after this.
+    const wasFull = pull.full;
+    pull.full = false;
+    document.body.classList.remove("panel-full");
+    if (wasFull) {
+      pullPaint({ instant: true });
+      if (ctx.moveComposer) ctx.moveComposer(null);
+    }
+    pullPaintPill();
+  }
+
+  /// A window crossing under 1180px while open completely: the conversation comes back.
+  function pullBreakpoint() {
+    if (pull.full && !isWide()) pullSetFull(false, { instant: true, quiet: true });
+  }
+
+  /// Escape in the floating composer clears its words before it steps the panel back (§6.8,
+  /// `output.html:1436`). The words go through the field's own `input` path, so the parked
+  /// draft and the composer's buttons follow them.
+  function pullEscape() {
+    if (!pull.full) return false;
+    const field = document.activeElement;
+    const float = el("op-float");
+    if (!field || field.tagName !== "TEXTAREA" || !float || !float.contains(field) || !field.value) return false;
+    field.value = "";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+
+  function pullInit() {
+    const rz = el("op-resizer");
+    const panel = el("outpanel");
+    if (!rz || !panel) return;
+    rz.addEventListener("pointerdown", pullPointerDown);
+    rz.addEventListener("keydown", pullKey);
+    rz.addEventListener("dblclick", () => {
+      pullSetWidth(PANEL_DEFAULT);
+      pullPersist();
+    });
+    // The conversation one click back, at the stop; focus goes to its composer once it is home.
+    el("op-conv").addEventListener("click", () => {
+      pullSetFull(false, { width: pullMax() });
+      window.setTimeout(() => {
+        const input = el("input");
+        if (input && input.getClientRects().length) input.focus({ preventScroll: true });
+      }, SNAP_MS);
+    });
+    // The opening slide is an animation on `width`; once it has run, the width is the panel's
+    // own again, so a drag or a snap is never held under an animation's fill.
+    panel.addEventListener("animationend", (e) => {
+      if (e.animationName === "op-open") panel.classList.remove("is-opening");
+    });
+    if (typeof ResizeObserver === "function") {
+      // §9.2: the conversation's own width decides its reflow, not the window's breakpoints.
+      const stage = el("stage");
+      if (stage) {
+        new ResizeObserver((entries) => {
+          const w = entries[0].contentRect.width;
+          stage.classList.toggle("narrow", w > 0 && w < NARROW_STAGE);
+        }).observe(stage);
+      }
+      // §9.1: the stop follows the window, and the rail's own divider.
+      const follow = () => {
+        if (state.open) pullPaint({ instant: true });
+      };
+      if (el("app")) new ResizeObserver(follow).observe(el("app"));
+      if (el("rail")) new ResizeObserver(follow).observe(el("rail"));
+      // The floating composer's height, so the end of the list is never under it.
+      const float = el("op-float");
+      if (float) {
+        new ResizeObserver(() => {
+          panel.style.setProperty("--op-float-h", Math.ceil(float.getBoundingClientRect().height) + "px");
+        }).observe(float);
+      }
+    }
+    // §9.1: and the sidebar. Toggling it changes the stop at once; the panel takes the rail's
+    // curve (`.38s`) unless the sidebar was applied rather than chosen (`rail-instant`).
+    new MutationObserver(() => {
+      const r = pullRail();
+      if (r === pull.lastRail) return;
+      pull.lastRail = r;
+      if (state.open) pullPaint({ instant: document.body.classList.contains("rail-instant") });
+    }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    // Nothing is painted here: `init` runs while main.js is still evaluating, before the
+    // breakpoints `isWide` reads exist. The first paint is `setSplitWidth` at launch, or `open`.
+    pull.lastRail = pullRail();
   }
 
   // ==========================================================================================
@@ -1703,6 +2094,18 @@
     links,
     hooks,
     reload: () => load(),
+    /// The split width nav.rs remembered (§9.5), applied at launch by main.js.
+    setSplitWidth: pullSetSplit,
+    /// Read-only, for the acceptance suite: the wide pull's own state beside what it painted.
+    pull: () => ({
+      full: pull.full,
+      settling: pull.settling,
+      split: pull.split,
+      painted: Math.round(el("outpanel").getBoundingClientRect().width),
+      max: pullMax(),
+      stageMin: STAGE_MIN,
+      snapPast: SNAP_PAST,
+    }),
     /// Read-only, for the acceptance suite: what the panel believes, beside what it painted.
     snapshot: () => ({
       thread: state.thread,

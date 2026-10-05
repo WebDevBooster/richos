@@ -8715,3 +8715,274 @@ body.bp-narrow #out-bottom .out-word {
     animation: none;
   }
 }
+
+/* =======================================================================================
+   THE WIDE PULL — slice S9 of the Output side panel PRD (richos-hq
+   `docs/prds/2026-10-05-output-side-panel.md` §9), round 17.1's `output.html` as drawn (its
+   lines 134-146 and 261-306), under the app's own tokens. The CEO: "when I'm dragging up to
+   here, then there's a stop, I'm feeling a stop. But if I keep dragging … then eventually it
+   snaps open completely the output sidebar."
+
+   The geometry is `output-panel.js`'s ("THE WIDE PULL"): it writes `--output-width` on the
+   panel, `--snap` on <body> while the pull is past the stop, and the classes below.
+
+   TYPE (CEO §15): the one new piece of text is the ‹ <thread> pill, 1rem (16px). The divider
+   and the floating composer carry no new text; the composer's own text is the composer's.
+
+   CONTRAST is computed, not eyeballed, in both themes by `tests/output.js` ("the wide pull …
+   WCAG AA"): the pill's text, its border at rest and hovered, its chevron, the floating
+   composer's boundary and the divider's focus mark, each on the plane it sits on. The focus
+   mark is `--gold-text`, not `--gold`: light gold on the light panel plane is round 17.1's
+   measured 2.95:1 failure. DECLARED DECORATIVE AND TRANSIENT, as round 17.1's NOTES declare
+   them: the divider's hover tint, its gold spine while dragging and arming, and the dimming of
+   the conversation while the pull arms. The stop is the divider holding and the snap is the
+   layout itself; none of those three carries information of its own.
+   ======================================================================================= */
+
+/* The panel and the conversation move on the rail's curve (.38s out-quint), so a sidebar
+   toggled while the panel is at the stop or open completely moves all three together. A drag,
+   a window resize and an open are instant (`is-resizing`, `pull-instant`). */
+@media (min-width: 1180px) {
+  #outpanel {
+    transition: width 0.38s var(--out-quint);
+  }
+
+  #stage {
+    transition: opacity 0.38s var(--out-quint), visibility 0s linear 0s;
+  }
+}
+
+#outpanel.is-resizing,
+body.pull-instant #outpanel,
+body.pull-instant #stage {
+  transition: none;
+}
+
+#outpanel.is-resizing {
+  user-select: none;
+  box-shadow: inset 1px 0 0 var(--gold);
+}
+
+/* ---- the divider (§9.1, round 17.1's `#op-resizer`) ---- */
+#op-resizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 21;
+  background: transparent;
+  touch-action: none;
+}
+
+#op-resizer:hover,
+#outpanel.is-resizing #op-resizer {
+  background: var(--gold-soft);
+}
+
+#op-resizer:focus-visible {
+  outline: none;
+  box-shadow: inset 2px 0 0 var(--gold-text);
+}
+
+/* Below 1180px the panel overlays at its split width and there is no stop to feel (§6.1). */
+@media (max-width: 1179px) {
+  #op-resizer {
+    display: none;
+  }
+}
+
+/* ---- past the stop: the conversation dims and the spine thickens with the pull (§9.3) ---- */
+body.snap-arming #stage {
+  transition: none;
+  opacity: calc(1 - var(--snap, 0) * 0.62);
+}
+
+body.snap-arming #outpanel {
+  box-shadow: inset calc(1px + var(--snap, 0) * 3px) 0 0 var(--gold);
+}
+
+/* ---- open completely (§9.3, §9.4): the conversation at zero width, hidden but kept — its
+   scroll position and its draft survive — and the panel the whole stage. ---- */
+@media (min-width: 1180px) {
+  body.panel-full #stage {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    overflow: hidden;
+    transition: opacity 0.38s var(--out-quint), visibility 0s linear 0.38s;
+  }
+
+  body.panel-full #outpanel {
+    border-left-color: transparent;
+  }
+}
+
+/* The way back: ‹ and the thread's own name, at the head of the panel. */
+.op-conv {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  min-width: 0;
+  max-width: 320px;
+  margin: 3px 6px 0 -4px;
+  padding: 0 14px 0 8px;
+  border: 1px solid var(--ctl-line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  white-space: nowrap;
+  cursor: pointer;
+  animation: op-pull-rise 0.35s var(--out-quint) both;
+}
+
+.op-conv[hidden] {
+  display: none;
+}
+
+/* `--gold-text`, not `--gold`: the pill sits on the panel plane, where light gold measures
+   2.95:1 (round 17.1 NOTES, found by its own run). */
+.op-conv:hover {
+  border-color: var(--gold-text);
+  background: var(--gold-soft);
+}
+
+.op-conv:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.op-conv svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--gold-text);
+}
+
+.op-conv-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.panel-full .op-head {
+  grid-template-columns: auto 1fr auto;
+}
+
+body.panel-full .op-eyebrow,
+body.panel-full .op-title,
+body.panel-full .op-sub {
+  grid-column: 2;
+}
+
+body.panel-full .op-close {
+  grid-column: 3;
+}
+
+@keyframes op-pull-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ---- the composer floats (§9.4): `#composer-zone` itself, moved into `#op-float` ---- */
+#op-float {
+  display: none;
+}
+
+body.panel-full #op-float {
+  display: block;
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 26;
+  width: min(460px, calc(100% - 36px));
+  animation: op-pull-rise 0.4s var(--out-quint) 0.12s both;
+}
+
+/* On `--paper`, the plane every line of the composer zone was computed against, so the waiting
+   band, the scope and blocked lines and the tray read exactly as they do in the conversation. */
+#op-float #composer-zone {
+  border: 1px solid var(--ctl-line);
+  border-radius: 16px;
+  background: var(--paper);
+  box-shadow: 0 10px 30px var(--shadow-strong);
+}
+
+#op-float #composer-row {
+  max-width: none;
+  padding: 8px;
+}
+
+/* The panel's own ×, ‹ and ⌘⇧O are right there; the Output button would only close it. */
+#op-float #out-bottom {
+  display: none;
+}
+
+body.panel-full .op-body {
+  padding-bottom: calc(var(--op-float-h, 72px) + 36px);
+}
+
+/* ---- the conversation at its narrowest (§9.2): reflowed by its own width, not the window's ---- */
+#stage.narrow #messages {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+#stage.narrow #composer-row {
+  padding-left: 16px;
+  padding-right: 16px;
+  gap: 8px;
+}
+
+#stage.narrow #out-bottom .out-word {
+  display: none;
+}
+
+#stage.narrow #out-bottom,
+#stage.narrow #out-bottom.is-empty {
+  gap: 7px;
+  padding: 0 9px 0 11px;
+}
+
+#stage.narrow #stage-header {
+  gap: 10px;
+}
+
+#stage.narrow .scope-entity {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 1180px) {
+  body.output-open #stage.narrow #stage-header {
+    padding-right: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #outpanel,
+  #stage,
+  body.panel-full #stage {
+    transition: none;
+  }
+
+  body.snap-arming #stage {
+    opacity: 1;
+  }
+
+  .op-conv,
+  body.panel-full #op-float {
+    animation: none;
+  }
+}
