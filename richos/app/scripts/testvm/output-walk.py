@@ -639,9 +639,9 @@ class OutputWalk(command_walk.CommandWalk):
                 note(failed=what)
                 raise StepFailed('%s: %.1f is not within %d px of %.1f' % (what, a, tol, b))
 
-        if not self.present('Close the output panel'):
-            self.press('1 file from this thread', role='AXCheckBox')
-            self.wait_for('Close the output panel', seconds=20)
+        # Run after previews, save-copy and attach the panel is already open and the button's name
+        # counts four files, not one: open_panel finds it by the part of its name that never moves.
+        note(panel=self.open_panel())
         time.sleep(1)
         rail = self.node('Entities and threads')
         divider = self.node('Output panel width')
@@ -708,8 +708,7 @@ class OutputWalk(command_walk.CommandWalk):
         # 6. The sidebar back and the panel reopened: a split width, never open completely.
         self.press_named('Show the sidebar')
         time.sleep(1.2)
-        self.press('1 file from this thread', role='AXCheckBox')
-        self.wait_for('Close the output panel', seconds=20)
+        note(reopen=self.open_panel())
         time.sleep(1.2)
         reopened = self.node('Output panel width')
         # Judged by the divider, not by the pill: the divider's value is the painted width
