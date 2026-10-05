@@ -1525,7 +1525,7 @@
         "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "richos/engine/scripts/lib/seat-jurisdiction.sh": "5a6c42a590bfb510dcab37039bb540c370d4aff731fd33211baf7bfe45c24fff",
         "richos/engine/scripts/hooks/notice-ceo-inputs-unheld.sh": "b0324ae5589a7116ab2416643a899de05613fda7dafb204ce56c6d6e8e784585",
-        "richos/engine/scripts/hooks/ceo-inputs.test.sh": "bbe1b287e187d07fe6d1521f0c73b0abc3bc5e74185489bcdbeb82603c27e3bc",
+        "richos/engine/scripts/hooks/ceo-inputs.test.sh": "9555e3d4581e5ee9345a20f8a8f614688947a15b43d02b6ad4b8e87e56f7b236",
         "richos/engine/scripts/lib/declaration-path.sh": "7e2801b579928d127486fb272a07e38ad54e3b12580678a4c1d6fdaa343b4205",
         "richos/engine/scripts/hooks/scan-secrets.sh": "fd488d5b07748fd41c773c80ec133eed526869534f4f1324c847a33701ae1ab1",
         "richos/engine/scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",

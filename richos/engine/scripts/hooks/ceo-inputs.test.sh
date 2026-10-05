@@ -513,11 +513,13 @@ case "$SOUT4" in *"STOOD DOWN"*) ok "H4  the partner announces its own stand-dow
 # --- P3-43: an unresolved input is still named after 500 unrelated records ---
 # The reader kept only the last 500 ledger rows, so a refusal followed by 500
 # unrelated hand-overs vanished while git still did not hold the file.
-REPO_I="$(new_repo repo-i)"
-AGED_I="$REPO_I/aged-input.md"
-printf 'aged input\n' > "$AGED_I"
-mkdir -p "$REPO_I/.claude/state"
-python3 - "$REPO_I/.claude/state/ceo-inputs.jsonl" "$AGED_I" <<'PYL'
+# Its fixture is its own (repo-p343): I1 below builds repo-i, and a shared
+# name re-initializes a repository that already holds this test's commits.
+REPO_P343="$(new_repo repo-p343)"
+AGED_P343="$REPO_P343/aged-input.md"
+printf 'aged input\n' > "$AGED_P343"
+mkdir -p "$REPO_P343/.claude/state"
+python3 - "$REPO_P343/.claude/state/ceo-inputs.jsonl" "$AGED_P343" <<'PYL'
 import json, sys
 ledger, aged = sys.argv[1], sys.argv[2]
 with open(ledger, "w") as fh:
@@ -525,11 +527,11 @@ with open(ledger, "w") as fh:
     for i in range(500):
         fh.write(json.dumps({"committed": ["/invented/unrelated-%d" % i]}) + "\n")
 PYL
-SOUT_I="$(stop_payload "$REPO_I" | RICHOS_ENTITY_ROOT="$REPO_I" bash "$STOP_HOOK" 2>/dev/null)"
-case "$SOUT_I" in
+SOUT_P343="$(stop_payload "$REPO_P343" | RICHOS_ENTITY_ROOT="$REPO_P343" bash "$STOP_HOOK" 2>/dev/null)"
+case "$SOUT_P343" in
     *"HELD BY NOTHING BUT YOUR DISK"*"aged-input.md"*)
         ok "P3-43 a refused input is still named after 500 unrelated ledger records" ;;
-    *)  bad "P3-43 a refused input is still named after 500 unrelated ledger records" "$SOUT_I" ;;
+    *)  bad "P3-43 a refused input is still named after 500 unrelated ledger records" "$SOUT_P343" ;;
 esac
 
 # --- P3-22: the commit holds the bytes the gates checked, not the live file ---
