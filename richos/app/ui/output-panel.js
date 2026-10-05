@@ -1646,9 +1646,9 @@
   // through `hooks.menuItems`. One list builder, so each menu exists once.
   //
   // WHAT IT SAYS: *brief.md is attached to your next message.*, in the panel's on-screen notice
-  // (`#op-notice`, S6's, beside every other action's sentence) and in the conversation's live
-  // region (`ctx.announce`), which still speaks when the panel has stepped aside below 1180px
-  // and its notice is off screen with it.
+  // (`#op-notice`, S6's, a live region itself, beside every other action's sentence), and ONLY
+  // there while the panel is open; below 1180px the panel steps aside, its notice is off screen
+  // and silent, so the conversation's live region (`ctx.announce`) says it instead. Never both.
   const ADD_TO_CHAT = "Add to chat";
 
   /// The menu item, in S6's shape. Attaching reads the file's bytes, as Save a copy… does, so it
@@ -1665,9 +1665,12 @@
     if (!isWide()) close({ keepFocus: true });
     const said = await window.RichAttachments.addRecorded(f);
     // A refusal is already said, and announced, by the tray's own `role="status"` line.
+    // ONE announcement: the panel's notice is itself a polite live region, so while the panel is
+    // open the sentence goes there only. Stepped aside below 1180px, the notice is off screen
+    // with the panel and does not speak, so the conversation's live region carries it instead.
     if (said && said.ok && said.sentence) {
-      notice(said.sentence);
-      if (ctx.announce) ctx.announce(said.sentence);
+      if (isWide()) notice(said.sentence);
+      else if (ctx.announce) ctx.announce(said.sentence);
     }
     const input = el("input");
     if (input) input.focus({ preventScroll: true });
