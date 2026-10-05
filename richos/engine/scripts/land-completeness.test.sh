@@ -23,8 +23,10 @@
 #   L4  A LIVE OWNER IS EXEMPT. A worktree whose owner holds a LOCKED native
 #       isolation worktree is never named, even with its branch merged. This is
 #       the false-positive class the G0 measurement found at 7.6%, and it is
-#       excluded by construction rather than by luck.
-#   L5  NO OWNERSHIP RECORD IS `unowned`, NOT `incomplete-land`. Five worktrees
+#       excluded by construction rather than by luck. L27 proves the fixture's
+#       lock records its start as the platform does, so L4 means the same in
+#       every locale and time zone (it went red only under the merge gate).
+#   L5 NO OWNERSHIP RECORD IS `unowned`, NOT `incomplete-land`. Five worktrees
 #       on this machine belong to a Codex CLI the ledger will never hear about.
 #       They are reported in the unknown column and blocked on by nothing.
 #   L6  A MERGED BRANCH WITH NO WORKTREE IS A NAMED BENIGN STATE (R4). A branch
@@ -258,8 +260,23 @@ register "$R" "$SANDBOX/mixed/live-agent"     "live-agent"     "cccc3333"
 # `stranger` gets NO record at all — the Codex case.
 # The live one is made live the way a real one is: its worktree is LOCKED by a
 # pid that is genuinely running. $$ is this suite, which is unarguably alive.
-git -C "$R" worktree lock --reason "claude agent agent-cccc3333 (pid $$ start $(ps -o lstart= -p $$ 2>/dev/null | sed 's/^ *//'))" \
-    "$SANDBOX/mixed/live-agent" 2>/dev/null
+#
+# THE START IS WRITTEN THE WAY THE PLATFORM WRITES IT: C locale, UTC. A real
+# lock reads `(pid 79887 start Mon Oct  5 00:35:58 2026)` for a session started
+# at 01:35:58 BST, and agent-liveness._parse_start (hunt part 5, P5-18) reads the
+# recorded start as a C-locale UTC string. This line used to take the caller's
+# locale and time zone, so the suite's verdict depended on the shell it ran in:
+#   - en_GB (the operator's shell): `Mon  5 Oct 02:23:03 2026` does not parse, so
+#     the start-time check was SKIPPED and L4 passed without exercising it;
+#   - LC_ALL=C (the merge gate: workspaces.py runs `git merge` with _git_env(),
+#     and pre-merge-commit inherits it) in BST: `Mon Oct  5 02:23:03 2026` parses
+#     as UTC, one hour off, so this suite's own live pid was called REUSED, L4
+#     went red and L12's gate refused on the live worktree. Refused twice on
+#     2026-10-05 (cc/zach-opus-small2), and green every time it was re-run by hand.
+# L27 pins it: the recorded start must parse and match, in any locale or zone.
+LIVE_START="$(LC_ALL=C TZ=UTC ps -o lstart= -p $$ 2>/dev/null | sed 's/^ *//; s/ *$//')"
+LIVE_REASON="claude agent agent-cccc3333 (pid $$ start $LIVE_START)"
+git -C "$R" worktree lock --reason "$LIVE_REASON" "$SANDBOX/mixed/live-agent" 2>/dev/null
 
 J="$(analyze_json "$R")"
 
@@ -282,6 +299,24 @@ if [ "$D" = "live" ]; then
     ok "L4   a worktree LOCKED by a running pid is exempt even with its branch merged"
 else
     bad "L4   live-agent -> '$D', expected live — this is the 7.6% false-positive class"
+fi
+
+# --- L27: L4's lock really exercises the start-time check ------------------
+# True = the suite's own live pid read as reused (the gate's red); None = the
+# recorded start did not parse, so the check was skipped and L4 proved less
+# than it says (the operator shell's false green). Only False is a pass.
+REUSED="$(python3 - "$SCRIPT_DIR/lib/agent-liveness.py" "$$" "$LIVE_REASON" <<'PY' 2>&1
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("al_for_l27", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod._pid_reused(int(sys.argv[2]), sys.argv[3]))
+PY
+)"
+if [ "$REUSED" = "False" ]; then
+    ok "L27  the live lock records its start as the platform does (C locale, UTC): parsed, matched, not reused"
+else
+    bad "L27  reused=<$REUSED> for lock <$LIVE_REASON> — L4 depends on the caller's locale and time zone"
 fi
 
 D="$(printf '%s' "$J" | disposition_of "stranger")"

@@ -12201,12 +12201,15 @@
     },
     "scripts/land-completeness.test.sh": {
       "source": "scripts/land-completeness.test.sh",
-      "sha256": "16038952375f14158bc05e3a20ec3da64db1faecefc027e86fc138ed8a3e1665",
-      "evidence": "Private Git/ledger/registry fixtures call analyzer, gate, report wrapper and workspace integration. Registry hygiene scanner reads sibling source as text only. Shared mutation transport retains config presence.",
+      "sha256": "a16b83babbe71a2d2e8c0f8c55f9c55dca54a275aa0bb2de5819a928a911ed09",
+      "evidence": "Private Git/ledger/registry fixtures call analyzer, gate, report wrapper and workspace integration. L27 imports agent-liveness.py by path and calls _pid_reused on the fixture's own lock line (reads ps only). Registry hygiene scanner reads sibling source as text only. Shared mutation transport retains config presence.",
       "keys": [],
       "edges": [
         {
           "to": "scripts/lib/land-completeness.py"
+        },
+        {
+          "to": "scripts/lib/agent-liveness.py"
         },
         {
           "to": "scripts/lib/land-residue-gate.py"
