@@ -7933,6 +7933,330 @@ body.bp-narrow #out-bottom .out-word {
   color: var(--ink-soft);
 }
 
+/* ---- S5: the previews, one viewer per kind (§7, §6.4, §6.7; round 17's `.md`, `.src`, `.tbl`,
+   `.img`, `.paper`, `.player`) ----
+   TYPE: every line here is 1rem (16px) or larger — the document's body, its table cells, a fenced
+   block, the source, the facts and the notes. The CEO's floor: nothing readable below 14px, and
+   text meant to be read is 16px or larger. A code span is 1em of the document, not the 0.94em the
+   18px chat prose uses, because 0.94 x 16 would put it at 15px.
+   INK: the app's tokens only (--ink, --ink-soft, --ink-faint, --surface-raised, --surface-sunk,
+   --line-soft, --gold, --on-gold, the panel's --ctl-line). The paper plane (#FDFCF8) is the
+   file's own white in both themes, scoped to `.paper`, `.of-img` and `.of-pdf` (§6.9), with the
+   file's own dark ink on it. tests/output.js computes every pair, both themes. */
+.of-view > .of-meta,
+.of-view > .of-note {
+  margin-top: 12px;
+}
+
+.of-reading,
+.of-none {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.of-view > * + .of-none {
+  margin-top: 12px;
+}
+
+.of-note {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+
+/* Preview | Source (§6.4, §11 row 11) */
+.of-seg {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--ctl-line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+}
+
+.of-seg button {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.of-seg button:hover {
+  color: var(--ink);
+}
+
+.of-seg button[aria-pressed="true"] {
+  background: var(--gold);
+  color: var(--on-gold);
+  font-weight: 600;
+}
+
+.of-seg button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Markdown, rendered: `timeline.js`'s renderer with its document extension (round 17's `.md`).
+   A paragraph keeps its own line breaks, as the chat's prose does. */
+.of-md {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.of-md .tl-md-p {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+}
+
+.of-md .tl-md-h {
+  font-weight: 600;
+  font-size: 1.0625rem;
+  line-height: 1.3;
+  margin: 18px 0 6px;
+}
+
+.of-md .tl-md-h[aria-level="3"] {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 1.625rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 6px 0 14px;
+}
+
+.of-md .tl-md-h[aria-level="4"] {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 1.3125rem;
+  line-height: 1.25;
+  margin: 22px 0 8px;
+}
+
+.of-md > :first-child {
+  margin-top: 0;
+}
+
+.of-md .tl-md-list {
+  margin: 0 0 12px;
+  padding-left: 1.4em;
+}
+
+.of-md .tl-md-item {
+  margin: 3px 0;
+}
+
+.of-md .tl-md-strong {
+  font-weight: 600;
+}
+
+.of-md .tl-md-em {
+  font-style: italic;
+}
+
+.of-md .tl-md-code {
+  font-family: var(--mono);
+  font-size: 1em;
+}
+
+.of-md .tl-md-quote {
+  margin: 0 0 12px;
+  padding: 2px 0 2px 14px;
+  /* --gold-text, not --gold: --gold on the panel plane is 2.95:1 in light (round 17.1 NOTES). */
+  border-left: 3px solid var(--gold-text);
+  color: var(--ink-soft);
+}
+
+.of-md .tl-md-quote .tl-md-p:last-child {
+  margin-bottom: 0;
+}
+
+.of-md .tl-md-rule {
+  height: 1px;
+  margin: 18px 0;
+  border: 0;
+  background: var(--line);
+}
+
+.of-md .tl-md-pre {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface-sunk);
+  font-family: var(--mono);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.of-md .tl-md-table-wrap {
+  margin: 4px 0 14px;
+  overflow-x: auto;
+}
+
+.of-md .tl-md-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.of-md .tl-md-table th,
+.of-md .tl-md-table td {
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+  vertical-align: top;
+  /* A cell wraps at its spaces, never inside `$1.9M`; the wrap scrolls when it must. */
+  overflow-wrap: normal;
+}
+
+.of-md .tl-md-table th {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.of-md .tl-md-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Source (md) and plain text (txt): one text node each. Source is the file as written, in the
+   app's monospace; plain text reads in the interface face. Both wrap; nothing scrolls sideways. */
+.of-src,
+.of-text {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface-sunk);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.of-src {
+  font-family: var(--mono);
+}
+
+.of-text {
+  font-family: inherit;
+}
+
+/* A CSV's first rows (round 17's `.tbl`) */
+.of-tbl-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  outline: none;
+}
+
+.of-tbl-wrap:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.of-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1rem;
+  background: var(--surface-raised);
+}
+
+.of-tbl th,
+.of-tbl td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.of-tbl th {
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--surface-sunk);
+}
+
+.of-tbl td {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.of-tbl tr:last-child td {
+  border-bottom: 0;
+}
+
+.of-tbl .num {
+  text-align: right;
+}
+
+/* A picture, at the panel's width and never past 980px (§7), on the paper plane so a
+   transparent PNG drawn in dark ink is seen in the dark theme too. */
+.of-img {
+  overflow: hidden;
+  border-radius: 6px;
+  background: #fdfcf8;
+  box-shadow: 0 0 0 1px var(--line-soft);
+}
+
+.of-img img {
+  display: block;
+  width: 100%;
+  max-width: 980px;
+  height: auto;
+  margin: 0 auto;
+}
+
+/* A PDF in WebKit's own viewer, scrolling (§7, §11 row 2): tall enough to read a page. */
+.of-pdf {
+  display: block;
+  width: 100%;
+  height: max(420px, calc(100vh - 300px));
+  border: 0;
+  border-radius: 3px;
+  background: #fdfcf8;
+  box-shadow: 0 0 0 1px var(--line-soft);
+}
+
+/* Video and audio: the native controls (§11 row 4) — the real file, seekable, its real length. */
+.of-video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  border-radius: 10px;
+  background: #06090f;
+}
+
+.of-audio {
+  display: block;
+  width: 100%;
+}
+
+/* An Office or iWork document's first page, as QuickLook drew it, on its own paper (§7). */
+.paper.of-rendition {
+  overflow: hidden;
+  border-radius: 3px;
+  background: #fdfcf8;
+  box-shadow: 0 0 0 1px var(--line-soft);
+}
+
+.paper.of-rendition img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 /* ---- the links in the conversation (§6.5) ---- */
 .tl-file-link {
   display: inline-flex;

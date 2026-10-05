@@ -20,8 +20,13 @@
 // read the same on every run and the committed pictures do not move with the hour of the run.
 // Timers still run, so the mock's turns still stream.
 //
-// TWO COMMITTED PICTURE PAIRS, `shots-output/output-{open,empty}-{dark,light}.png`, published
-// through `publishShot`: written only under `RICHOS_SHOTS_REGENERATE`, otherwise compared.
+// SLICE S5, THE PREVIEWS (§7, §12.5), on a page of its own: `file-md`, `file-source`,
+// `file-image`, `file-table` (CSV), `file-pdf`, `file-video` (and audio), a QuickLook rendition,
+// and the §6.7 states `too large`, `no preview`, `read failed` and a link, each the shell's own
+// sentence; every viewer `src` is the URL `output_preview` returned, never one the page built.
+//
+// FOUR COMMITTED PICTURE PAIRS, `shots-output/output-{open,empty,file-md,file-table}-{dark,light}.png`,
+// published through `publishShot`: written only under `RICHOS_SHOTS_REGENERATE`, otherwise compared.
 //
 // Run: node output.js   (or `npm test` for every suite in this directory)
 
@@ -250,6 +255,7 @@ async function main() {
     await page.waitForSelector("#outpanel .orow");
     await page.click('.orow[data-output="' + byName("q3-revenue.csv").id + '"]');
     await page.waitForSelector("#of-back");
+    await page.waitForSelector("#op-viewer[data-preview]");
     let s = await panelState(page);
     assertEqual(s.view, "file");
     assertEqual(s.title, "q3-revenue.csv");
@@ -267,7 +273,7 @@ async function main() {
     assertEqual(file.back, "All output · 9");
     assertEqual(file.k, "3 of 9");
     assertEqual(file.path, "~/FemcBoost/acme/reference/q3-revenue.csv");
-    assertEqual(file.facts, "Comma-separated·1 KB", "the S4 file view states the file's kind and size");
+    assertEqual(file.facts, "4 rows·Comma-separated·The whole sheet opens in Numbers", "the file view states what the preview shows (S5, §7)");
     assertEqual(file.focus, "of-back");
     await page.click('[aria-label="Next file"]');
     assertEqual((await panelState(page)).title, "q3-revenue-chart.png", "‹ › walk the thread's files in list order");
@@ -590,6 +596,308 @@ async function main() {
     return "fixed over the conversation with a scrim at 1000px; a click on the scrim closed it";
   });
 
+  // ---- S5: every kind in §7 shows inside the panel, or says why not (§12.5) ----------------
+  //
+  // On a page of its own, so nothing the S4 checks did (a missing brief.md) leaks in. Each check
+  // opens one file from the list and reads what `#op-viewer` drew against what the bridge
+  // answered for that id: every `src` in a viewer must be the URL the shell returned (the page
+  // never builds one), and every facts line is the §6.4/§7 sentence for its kind.
+  const s5 = await openApp(browser);
+  await openThread(s5, "acme", 9);
+
+  /// Open `name` from the list and wait for its viewer to be drawn; what the shell answered.
+  async function openPreview(p, name) {
+    if (!(await p.evaluate(() => window.RichOutput.isOpen()))) await p.click("#out-top");
+    if ((await p.evaluate(() => document.getElementById("op-body").dataset.view)) === "file") await p.click("#of-back");
+    await p.waitForSelector("#outpanel .orow");
+    const id = byName(name).id;
+    await p.click('.orow[data-output="' + id + '"]');
+    await p.waitForFunction((n) => document.getElementById("op-title").textContent === n && !!document.querySelector("#op-viewer[data-preview]"), name);
+    return p.evaluate((i) => window.RichBridge.invoke("output_preview", { outputId: i }), id);
+  }
+
+  const viewer = (p) =>
+    p.evaluate(() => {
+      const v = document.getElementById("op-viewer");
+      const facts = v.querySelector(".of-meta");
+      return {
+        view: v.dataset.preview,
+        why: v.dataset.why || null,
+        facts: facts ? facts.textContent : null,
+        factsBold: facts && facts.querySelector("b") ? facts.querySelector("b").textContent : null,
+        none: v.querySelector(".of-none") ? v.querySelector(".of-none").textContent : null,
+        note: v.querySelector(".of-note") ? v.querySelector(".of-note").textContent : null,
+        srcs: [...v.querySelectorAll("[src]")].map((n) => n.tagName.toLowerCase() + " " + n.getAttribute("src")),
+        anchors: v.querySelectorAll("a[href]").length,
+      };
+    });
+
+  await run.check("file-md — a Markdown file is rendered in the panel: its heading, table, list and quotation; the facts count its words", async () => {
+    await openPreview(s5, "comps-summary.md");
+    const r = await s5.evaluate(() => {
+      const md = document.querySelector("#op-viewer .of-md");
+      return {
+        h1: md.querySelector('[role="heading"]').textContent,
+        h1Size: parseFloat(getComputedStyle(md.querySelector('[role="heading"]')).fontSize),
+        rows: [...md.querySelectorAll("table tr")].map((tr) => [...tr.children].map((c) => c.textContent)),
+        items: [...md.querySelectorAll("li")].length,
+        quote: md.querySelector("blockquote") ? md.querySelector("blockquote").textContent : null,
+        strong: [...md.querySelectorAll("strong")].map((n) => n.textContent),
+        text: md.textContent,
+        bodySize: parseFloat(getComputedStyle(md).fontSize),
+        cellSize: parseFloat(getComputedStyle(md.querySelector("td")).fontSize),
+        pressed: [...document.querySelectorAll(".of-seg button")].map((b) => b.textContent + "=" + b.getAttribute("aria-pressed")),
+      };
+    });
+    const v = await viewer(s5);
+    assertEqual(v.view, "text");
+    assertEqual(r.h1, "Acme — comparables, 2026-10-04");
+    assertEqual(r.rows.length, 4, "the comparables table: a header and three deals");
+    assertEqual(r.rows[1], ["Northwind renewal", "Aug 14", "$1.9M", "−3%"]);
+    assertEqual(r.items, 3, "the three bullets under 'What it means'");
+    assertEqual(r.quote, "Source: the deal ledger, femcboost/deals/2026.xlsx, rows 14–41.");
+    assertEqual(r.strong, ["above Acme's counter"]);
+    assert(!/[#|]|\*\*/.test(r.text), "Markdown syntax is still on screen: " + r.text.slice(0, 120));
+    assert(r.bodySize >= 16 && r.cellSize >= 16, "§6.9: everything readable is 16px or larger: body " + r.bodySize + ", cell " + r.cellSize);
+    assertEqual(r.pressed, ["Preview=true", "Source=false"]);
+    assert(/^\d+ words·Markdown$/.test(v.facts), "the facts line: " + v.facts);
+    assertEqual(v.anchors, 0, "nothing in a preview navigates out of the panel (§7)");
+    return r.h1 + " at " + r.h1Size + "px; table 4 rows; 3 items; quotation; facts \"" + v.facts + "\"";
+  });
+
+  await run.check("file-source — Preview | Source is one switch: Source is the file as written, and it stays chosen across files", async () => {
+    // From the keyboard, so focus is the switch's own (WebKit does not focus a button on click).
+    await s5.focus('[data-seg="source"]');
+    await s5.keyboard.press("Enter");
+    await s5.waitForSelector("#op-viewer pre.of-src");
+    const source = await s5.evaluate(() => ({
+      pre: document.querySelector("#op-viewer pre.of-src") ? document.querySelector("#op-viewer pre.of-src").textContent : null,
+      md: !!document.querySelector("#op-viewer .of-md"),
+      pressed: [...document.querySelectorAll(".of-seg button")].map((b) => b.getAttribute("aria-pressed")),
+      focus: document.activeElement.dataset.seg || document.activeElement.className,
+      font: getComputedStyle(document.querySelector("#op-viewer pre.of-src")).fontFamily,
+      facts: document.querySelector("#op-viewer .of-meta").textContent,
+    }));
+    assert(source.pre && source.pre.startsWith("# Acme — comparables, 2026-10-04\n\nTwo deals"), "Source is not the file as written: " + JSON.stringify(source.pre && source.pre.slice(0, 60)));
+    assert(source.pre.indexOf("|---|---|---:|---:|") !== -1, "the table's own syntax is in the source");
+    assert(!source.md, "the rendered view is still on screen beside the source");
+    assertEqual(source.pressed, ["false", "true"]);
+    assertEqual(source.focus, "source", "the switch kept focus where it was pressed");
+    assert(/mono/i.test(source.font), "Source is drawn in the app's monospace: " + source.font);
+    // The words the facts count are the words of the file as written.
+    const words = source.pre.match(/\S+/g).length;
+    assertEqual(source.facts, words + " words·Markdown", "the facts count the file's words");
+    // Chosen once, it holds for the next Markdown file, as round 17 holds it.
+    await openPreview(s5, "brief.md");
+    const next = await s5.evaluate(() => ({
+      src: !!document.querySelector("#op-viewer pre.of-src"),
+      pressed: [...document.querySelectorAll(".of-seg button")].map((b) => b.getAttribute("aria-pressed")),
+    }));
+    assertEqual(next, { src: true, pressed: ["false", "true"] }, "brief.md did not open in Source");
+    await s5.click('[data-seg="preview"]');
+    assert(await s5.evaluate(() => !!document.querySelector("#op-viewer .of-md")), "Preview did not come back");
+    // Not offered where it means nothing: a CSV has no Source switch.
+    await openPreview(s5, "q3-revenue.csv");
+    assertEqual(await s5.evaluate(() => document.querySelectorAll(".of-seg").length), 0, "a CSV offers Preview | Source");
+    return "Source = the file verbatim in monospace (" + words + " words), focus kept, held for brief.md, and back to Preview";
+  });
+
+  await run.check("file-table — a CSV is a real table: its first rows, number columns to the right, and where the whole sheet opens", async () => {
+    await openPreview(s5, "q3-revenue.csv");
+    const t = await s5.evaluate(() => {
+      const tb = document.querySelector("#op-viewer table.of-tbl");
+      return {
+        head: [...tb.querySelectorAll("th")].map((c) => c.textContent),
+        rows: [...tb.querySelectorAll("tbody tr")].map((tr) => [...tr.children].map((c) => c.textContent)),
+        right: [...tb.querySelectorAll("th")].map((c) => getComputedStyle(c).textAlign),
+        region: document.querySelector("#op-viewer .of-tbl-wrap").getAttribute("aria-label"),
+      };
+    });
+    const v = await viewer(s5);
+    assertEqual(t.head, ["Month", "Plan", "Actual", "Variance", "Note"]);
+    assertEqual(t.rows.length, 4);
+    assertEqual(t.rows[3], ["Q3 total", "$1,950,000", "$2,067,000", "+6.0%", ""]);
+    assertEqual(t.right, ["left", "right", "right", "right", "left"], "money and percentages line up on the right");
+    assertEqual(v.facts, "4 rows·Comma-separated·The whole sheet opens in Numbers");
+    assertEqual(v.note, null, "every row is shown, so nothing says otherwise");
+    // 200 rows shown of more, from the shell's own cap: said under the table.
+    await s5.evaluate(() => {
+      const rows = [["n", "value"]];
+      for (let i = 0; i < 200; i += 1) rows.push(["r" + i, String(i)]);
+      window.__RICHOS_MOCK__.outputPreviewAs("q3-revenue.csv", { view: "table", rows, totalRows: 251, countedAll: false, bytes: 21000000, app: "Numbers" });
+    });
+    await openPreview(s5, "q3-revenue-chart.png");
+    await openPreview(s5, "q3-revenue.csv");
+    const capped = await viewer(s5);
+    await s5.evaluate(() => window.__RICHOS_MOCK__.outputPreviewAs("q3-revenue.csv", null));
+    assertEqual(capped.note, "Showing the first 200 rows");
+    assertEqual(capped.facts, "More than 250 rows·Comma-separated·The whole sheet opens in Numbers");
+    return t.head.join(" | ") + "; " + v.facts + "; over the cap: \"" + capped.note + "\"";
+  });
+
+  await run.check("file-image — a picture at the panel's width with its size and format; the src is the shell's URL", async () => {
+    const answer = await openPreview(s5, "q3-revenue-chart.png");
+    await s5.waitForFunction(() => {
+      const img = document.querySelector("#op-viewer .of-img img");
+      return img && img.complete && img.naturalWidth > 0;
+    });
+    const r = await s5.evaluate(() => {
+      const img = document.querySelector("#op-viewer .of-img img");
+      return { alt: img.alt, width: Math.round(img.getBoundingClientRect().width), box: Math.round(document.getElementById("op-viewer").clientWidth) };
+    });
+    const v = await viewer(s5);
+    assertEqual(v.srcs, ["img " + answer.url], "the page drew a URL the shell did not give it");
+    assertEqual(r.alt, "q3-revenue-chart.png");
+    assertEqual(v.facts, "1280 × 800·PNG·96 KB");
+    assert(r.width > 300 && r.width <= 980, "the picture is not at the panel's width: " + JSON.stringify(r));
+    return "the chart at " + r.width + "px; facts \"" + v.facts + "\"";
+  });
+
+  await run.check("file-pdf — a PDF in WebKit's own viewer, from the shell's URL", async () => {
+    const answer = await openPreview(s5, "term-sheet-march.pdf");
+    const v = await viewer(s5);
+    const r = await s5.evaluate(() => {
+      const f = document.querySelector("#op-viewer iframe.of-pdf");
+      return { title: f.title, h: Math.round(f.getBoundingClientRect().height) };
+    });
+    assertEqual(v.view, "pdf");
+    assertEqual(v.srcs, ["iframe " + answer.url]);
+    assertEqual(r.title, "term-sheet-march.pdf", "the frame is named for the file");
+    assert(r.h >= 420, "the PDF frame is too short to read a page: " + r.h);
+    assertEqual(v.facts, "PDF·212 KB");
+    return "iframe " + r.h + "px tall; facts \"" + v.facts + "\"";
+  });
+
+  await run.check("file-video — the native player on the real file, its length and frame size from the file's header", async () => {
+    const answer = await openPreview(s5, "comps-walkthrough.mp4");
+    const v = await viewer(s5);
+    const r = await s5.evaluate(() => {
+      const el = document.querySelector("#op-viewer video");
+      return { controls: el.controls, label: el.getAttribute("aria-label"), preload: el.preload };
+    });
+    assertEqual(v.srcs, ["video " + answer.url]);
+    assertEqual(r, { controls: true, label: "comps-walkthrough.mp4", preload: "metadata" });
+    assertEqual(v.facts, "0:31·1920 × 1080·14.2 MB");
+    // A recording: the native audio player, its length when the header gave one.
+    await s5.evaluate((url) => window.__RICHOS_MOCK__.outputPreviewAs("comps-walkthrough.mp4", { view: "audio", url, bytes: 14200000, durationMs: 130000, app: "Music" }), answer.url);
+    await openPreview(s5, "term-sheet-march.pdf");
+    await openPreview(s5, "comps-walkthrough.mp4");
+    const audio = await viewer(s5);
+    await s5.evaluate(() => window.__RICHOS_MOCK__.outputPreviewAs("comps-walkthrough.mp4", null));
+    assertEqual(audio.srcs, ["audio " + answer.url]);
+    assertEqual(audio.facts, "2:10·Audio·14.2 MB");
+    return "video controls, \"" + v.facts + "\"; audio \"" + audio.facts + "\"";
+  });
+
+  await run.check("a Word document is QuickLook's first page on its own paper, and says where the whole document opens", async () => {
+    const answer = await openPreview(s5, "counter-draft-v1.docx");
+    const v = await viewer(s5);
+    const paper = await s5.evaluate(() => getComputedStyle(document.querySelector("#op-viewer .paper.of-rendition")).backgroundColor);
+    assertEqual(v.view, "rendition");
+    assertEqual(v.srcs, ["img " + answer.url]);
+    assertEqual(v.facts, "Word document·18 KB·The whole document opens in Pages");
+    assertEqual(paper, "rgb(253, 252, 248)", "the page is the file's own white (§6.9)");
+    return "\"" + v.facts + "\" on #FDFCF8";
+  });
+
+  // The §6.7 states that are the shell's own sentences, verbatim from `output_files.rs`.
+  const STATES = [
+    ["too large", "q3-revenue-chart.png", { view: "none", why: "tooLarge", reason: "Too large to preview here (1.4 GB). Open in Preview has the whole thing." }],
+    ["no preview", "comps-2026-10-04.xlsx", { view: "none", why: "noViewer", reason: "I don't have a preview for this kind of file. Open in Numbers has it." }],
+    ["read failed", "brief.md", { view: "none", why: "readFailed", reason: "I couldn't read this file: permission denied." }],
+    ["a link", "counter-draft-v1.md", { view: "none", why: "refused", reason: "This file is a link to somewhere else, so I won't open it from here. Show in Finder still works." }],
+  ];
+  for (const [state, name, answer] of STATES) {
+    await run.check(state + " — the viewer says the shell's own sentence, and draws nothing else", async () => {
+      await s5.evaluate(({ n, a }) => window.__RICHOS_MOCK__.outputPreviewAs(n, a), { n: name, a: answer });
+      await openPreview(s5, name);
+      const v = await viewer(s5);
+      await s5.evaluate((n) => window.__RICHOS_MOCK__.outputPreviewAs(n, null), name);
+      assertEqual(v.view, "none");
+      assertEqual(v.why, answer.why);
+      assertEqual(v.none, answer.reason);
+      assertEqual(v.srcs, [], "a viewer was drawn under the sentence");
+      const seg = await s5.evaluate(() => document.querySelectorAll(".of-seg").length);
+      return name + ": \"" + v.none + "\"" + (seg ? " (Preview | Source still offered for the kind)" : "");
+    });
+  }
+
+  await run.check("a picture the webview cannot draw says so, and names where it opens", async () => {
+    await s5.evaluate(() =>
+      window.__RICHOS_MOCK__.outputPreviewAs("q3-revenue-chart.png", { view: "image", url: "data:image/png;base64,AAAA", width: null, height: null, bytes: 96000, app: "Preview" })
+    );
+    await openPreview(s5, "q3-revenue-chart.png");
+    await s5.waitForSelector("#op-viewer .of-none");
+    const v = await viewer(s5);
+    await s5.evaluate(() => window.__RICHOS_MOCK__.outputPreviewAs("q3-revenue-chart.png", null));
+    assertEqual(v.none, "I couldn't show this file here. Open in Preview has it.");
+    assertEqual(v.facts, "PNG·96 KB", "the facts stay, with no size the header did not give");
+    return "\"" + v.none + "\"";
+  });
+
+  await run.check("loading — nothing for 150 ms, then 'Reading…', never a spinner; a late answer for a file no longer shown is dropped", async () => {
+    await s5.evaluate(() => {
+      const real = window.RichBridge.invoke.bind(window.RichBridge);
+      window.__releasePreview = [];
+      window.RichBridge.invoke = (cmd, args) =>
+        cmd === "output_preview" ? new Promise((done) => window.__releasePreview.push(() => done(real(cmd, args)))) : real(cmd, args);
+      window.__restoreInvoke = () => {
+        window.RichBridge.invoke = real;
+      };
+    });
+    if ((await s5.evaluate(() => document.getElementById("op-body").dataset.view)) === "file") await s5.click("#of-back");
+    await s5.click('.orow[data-output="' + byName("brief.md").id + '"]');
+    const early = await s5.evaluate(() => document.getElementById("op-viewer").textContent);
+    await s5.waitForSelector("#op-viewer .of-reading");
+    const r = await s5.evaluate(() => ({
+      text: document.querySelector("#op-viewer .of-reading").textContent,
+      bar: !!document.getElementById("of-back") && !!document.querySelector(".of-path"),
+      spinners: document.querySelectorAll('#op-viewer [role="progressbar"], #op-viewer .spinner').length,
+    }));
+    // Step to the next file while the first answer is still out; then let both answers come.
+    await s5.click('[aria-label="Next file"]');
+    await s5.evaluate(() => window.__releasePreview.splice(0).forEach((go) => go()));
+    await s5.waitForSelector("#op-viewer[data-preview]");
+    const after = await s5.evaluate(() => ({ title: document.getElementById("op-title").textContent, md: document.querySelectorAll("#op-viewer .of-md, #op-viewer pre").length }));
+    await s5.evaluate(() => window.__restoreInvoke());
+    assertEqual(early, "", "something was said before 150 ms");
+    assertEqual(r.text, "Reading…");
+    assert(r.bar, "the bar and the path wait for the preview instead of painting at once (§6.7)");
+    assertEqual(r.spinners, 0);
+    assertEqual(after.title, "comps-2026-10-04.xlsx", "the step did not land on the next file");
+    assertEqual(after.md, 0, "brief.md's late answer was drawn into the next file's view");
+    return "'' at once, '" + r.text + "' after 150 ms, the bar and path at once; brief.md's late answer dropped";
+  });
+
+  await run.check("file content never becomes markup: a hostile Markdown file and its link are text", async () => {
+    await s5.evaluate(() =>
+      window.__RICHOS_MOCK__.outputPreviewAs("brief.md", {
+        view: "text",
+        truncated: true,
+        bytes: 3000000,
+        text: "# <img src=x onerror=alert(1)>\n\n| <script>alert(2)</script> |\n|---|\n| [go](javascript:alert(3)) |\n",
+      })
+    );
+    await openPreview(s5, "brief.md");
+    const r = await s5.evaluate(() => {
+      const v = document.getElementById("op-viewer");
+      return { img: v.querySelectorAll("img").length, script: v.querySelectorAll("script").length, a: v.querySelectorAll("a").length, text: v.textContent };
+    });
+    const v = await viewer(s5);
+    await s5.evaluate(() => window.__RICHOS_MOCK__.outputPreviewAs("brief.md", null));
+    assertEqual([r.img, r.script, r.a], [0, 0, 0]);
+    assert(r.text.indexOf("<img src=x onerror=alert(1)>") !== -1 && r.text.indexOf("<script>alert(2)</script>") !== -1, "the characters must be on screen");
+    assertEqual(v.note, "Showing the first 2 MB", "a capped text says so, under it (§6.9: a cap, not a page)");
+    assertEqual(s5.__errors, [], "something executed");
+    return "0 img, 0 script, 0 a; the link is its word; 'Showing the first 2 MB'";
+  });
+
+  await run.check("no page errors in the preview walk", async () => {
+    assertEqual(s5.__errors, [], "the page reported errors");
+    await s5.context().close();
+    return "0 errors";
+  });
+
   // ---- both themes: the computed pairs, and the committed pictures --------------------------
 
   const ratios = [];
@@ -689,6 +997,111 @@ async function main() {
       assertEqual(p.__errors, [], "the page reported errors");
       await p.context().close();
       return "shots-output/output-open-" + theme + ".png, shots-output/output-empty-" + theme + ".png";
+    });
+
+    // S5: the previews' own ink, computed in this theme, and two committed pictures of them.
+    await run.check(theme + " — S5's previews: every new text pair and indicator clears WCAG AA, computed", async () => {
+      const p = await openApp(browser, { theme });
+      await openThread(p, "acme", 9);
+      const measure = (pairs) =>
+        p.evaluate((list) => {
+          const probe = document.createElement("div");
+          probe.style.background = "var(--paper-rail)";
+          document.body.appendChild(probe);
+          const rail = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          function ground(node) {
+            for (let n = node; n; n = n.parentElement) {
+              const bg = getComputedStyle(n).backgroundColor;
+              if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") return bg;
+            }
+            return rail;
+          }
+          return list.map(([what, sel, kind, prop]) => {
+            const n = document.querySelector(sel);
+            if (!n) return { what, missing: sel };
+            const cs = getComputedStyle(n);
+            return {
+              what,
+              kind,
+              fg: prop ? cs[prop] : cs.color,
+              bg: kind === "indicator" ? ground(n.parentElement) : ground(n),
+              size: parseFloat(cs.fontSize),
+            };
+          });
+        }, pairs);
+      const raw = [];
+      await openPreview(p, "comps-summary.md");
+      raw.push(
+        ...(await measure([
+          ["document body", "#op-viewer .of-md .tl-md-p", "text"],
+          ["document title (serif)", '#op-viewer .of-md [role="heading"]', "text"],
+          ["document table header", "#op-viewer .of-md th", "text"],
+          ["document table cell", "#op-viewer .of-md td", "text"],
+          ["quotation", "#op-viewer .of-md blockquote", "text"],
+          ["quotation bar", "#op-viewer .of-md blockquote", "indicator", "borderLeftColor"],
+          ["facts, first part", "#op-viewer .of-meta b", "text"],
+          ["facts, the rest", "#op-viewer .of-meta span:last-child", "text"],
+          ["Preview, pressed", '.of-seg [aria-pressed="true"]', "text"],
+          ["Source, not pressed", '.of-seg [aria-pressed="false"]', "text"],
+          ["Preview | Source boundary", ".of-seg", "indicator", "borderTopColor"],
+        ]))
+      );
+      await p.click('[data-seg="source"]');
+      raw.push(...(await measure([["source", "#op-viewer pre.of-src", "text"]])));
+      await p.click('[data-seg="preview"]');
+      await openPreview(p, "q3-revenue.csv");
+      raw.push(
+        ...(await measure([
+          ["sheet header", "#op-viewer .of-tbl th", "text"],
+          ["sheet cell", "#op-viewer .of-tbl td", "text"],
+          ["sheet facts", "#op-viewer .of-meta span:last-child", "text"],
+        ]))
+      );
+      await p.evaluate(() => window.__RICHOS_MOCK__.outputPreviewAs("q3-revenue-chart.png", { view: "none", why: "tooLarge", reason: "Too large to preview here (1.4 GB). Open in Preview has the whole thing." }));
+      await openPreview(p, "q3-revenue-chart.png");
+      raw.push(...(await measure([["the §6.7 sentence", "#op-viewer .of-none", "text"]])));
+      await p.evaluate(() => window.__RICHOS_MOCK__.outputPreviewAs("q3-revenue-chart.png", { view: "text", text: "x", truncated: true, bytes: 3000000 }));
+      await openPreview(p, "q3-revenue-chart.png");
+      raw.push(...(await measure([["Showing the first 2 MB", "#op-viewer .of-note", "text"]])));
+      await p.evaluate(() => window.__RICHOS_MOCK__.outputPreviewAs("q3-revenue-chart.png", null));
+      const lines = [];
+      for (const r of raw) {
+        assert(!r.missing, "nothing on screen to measure for " + r.what + " (" + r.missing + ")");
+        const bg = parseCssColor(r.bg);
+        const fgRaw = parseCssColor(r.fg);
+        assert(bg && fgRaw, "could not resolve the colors of " + r.what + ": " + r.fg + " on " + r.bg);
+        const base = bg.a < 1 ? compositeOver(bg, parseCssColor(theme === "dark" ? "rgb(12, 19, 34)" : "rgb(234, 230, 221)")) : bg;
+        const fg = fgRaw.a < 1 ? compositeOver(fgRaw, base) : fgRaw;
+        const ratio = Math.round(contrastRatio(fg, base) * 100) / 100;
+        const floor = r.kind === "indicator" ? 3 : 4.5;
+        lines.push(r.what + " " + hex(fg) + " on " + hex(base) + " " + ratio + ":1" + (r.kind === "text" ? " @" + r.size + "px" : ""));
+        assert(ratio >= floor, theme + ": " + r.what + " is " + ratio + ":1 against a floor of " + floor + ":1 (" + hex(fg) + " on " + hex(base) + ")");
+        if (r.kind === "text") assert(r.size >= 16, theme + ": " + r.what + " is " + r.size + "px; text meant to be read is 16px or larger");
+      }
+      assertEqual(p.__errors, [], "the page reported errors");
+      await p.context().close();
+      return lines.join(" | ");
+    });
+
+    await run.check(theme + " — the committed pictures of the previews: file-md and file-table", async () => {
+      const p = await openApp(browser, { theme });
+      await openThread(p, "acme", 9);
+      const settle = () =>
+        p.evaluate(() => Promise.all(document.getElementById("outpanel").getAnimations({ subtree: true }).map((a) => a.finished)));
+      await openPreview(p, "comps-summary.md");
+      await settle();
+      await awaitWorkerChipSettled(p);
+      const md = await shot(p, "output-file-md-" + theme, { fullPage: false, parkPointer: true });
+      publishShotFile(md.file, path.join(SHOTS, "output-file-md-" + theme + ".png"));
+      await openPreview(p, "q3-revenue.csv");
+      await settle();
+      await awaitWorkerChipSettled(p);
+      const table = await shot(p, "output-file-table-" + theme, { fullPage: false, parkPointer: true });
+      publishShotFile(table.file, path.join(SHOTS, "output-file-table-" + theme + ".png"));
+      assertEqual(p.__errors, [], "the page reported errors");
+      await p.context().close();
+      return "shots-output/output-file-md-" + theme + ".png, shots-output/output-file-table-" + theme + ".png";
     });
   }
 
