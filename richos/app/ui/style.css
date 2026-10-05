@@ -374,10 +374,23 @@ button {
   font-family: inherit;
 }
 
+/* THE APP'S FRAME NEVER SCROLLS. `overflow: hidden` only hides the scrollbar: the box is still a
+   scroll container, and anything that asks for something to be shown (`scrollIntoView` with
+   `block: "start"` or `"center"`, a focus, the test driver's click) scrolls EVERY scrollable
+   ancestor, this one included. It had room to: the conversation's screen-reader labels ("You
+   said" / "Rich said", `.sr-only`, position: absolute) take `#stage` as their containing block,
+   not the scrolling `#conversation`, so they hang below the window and gave this box up to 417px
+   of hidden scroll range at 1440x900 once the Output panel narrowed the thread. "Wrote N files"
+   (`output-panel.js` `openGroup`) then scrolled the whole shell up by as much as that, leaving a
+   blank band at the bottom (nightly a1a26a615, `output-file-md-dark.png`). `clip` is not a
+   scroll container at all, so nothing can scroll it; `hidden` stays as the fallback for a WebKit
+   older than Safari 16, which ignores `clip`. `tests/output.js` ("the app's frame never
+   scrolls") and the frame watcher in `tests/lib/harness.js` hold it. */
 #app {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  overflow: clip;
 }
 
 /* ---------------------------------------------------------------------------------------

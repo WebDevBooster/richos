@@ -2603,6 +2603,17 @@ async function main() {
       const bad = failures(all);
       assertEqual(bad.length, 0, "under the floor in " + theme + ":\n" + reportRatios(bad));
       // The rail wordmark dims to 0.78 under the pointer (home.css `#rail-wordmark[role="button"]:hover`), so a pointer left near it by an earlier step made this picture differ under load.
+      // THE SPECKLED GROUND REPAINTS 120ms AFTER THE THEME FLIPS (speckle.js `rebuildSoon`, on its
+      // `data-theme` observer), and this check flips it from dark to light just above. Measured on
+      // a1a26a615 with an idle host: `data-theme` read light at the shutter while the ground's own
+      // report still read dark, and the picture was the light shell on the dark ground, 962828 of
+      // 1296000 pixels (74.29%) off, three runs out of four. The shutter waits for the ground to
+      // say it is painting this theme.
+      await page.waitForFunction(
+        (t) => !window.RichSpeckle || !window.RichSpeckle.state.handle || (window.RichSpeckle.report() || {}).theme === t,
+        theme,
+        { timeout: 30000 }
+      );
       await shot(page, "home-settings-" + theme, { fullPage: false, parkPointer: true });
       publishShotFile(path.join(SHOT_DIR, "home-settings-" + theme + ".png"), path.join(SHOTS, "home-settings-" + theme + ".png"));
       await page.evaluate(() => window.RichHome.closeSettings());

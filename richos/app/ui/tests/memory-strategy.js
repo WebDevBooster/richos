@@ -42,7 +42,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, awaitWorkerChipSettled, pinClock, unpinClock, SEED_THEME, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, awaitWorkerChipSettled, pinClock, unpinClock, SEED_THEME, FRAME_STILL, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 
@@ -117,6 +117,9 @@ async function openApp(browser, viewport) {
   // `SEED_THEME` writes both the mirror and the store and says why; the store is the one
   // that decides.
   await page.addInitScript(SEED_THEME, "dark");
+  // The app's frame never scrolls: a scroll of the document, `#app` or a pane is a page error,
+  // which each pass's "no page errors" check refuses (harness.js FRAME_STILL).
+  await page.addInitScript(FRAME_STILL);
   await page.goto(APP);
   // The home screen is the landing surface now; this suite is about the app UI behind it.
   await leaveHome(page);
@@ -787,13 +790,30 @@ async function main() {
   // 1730 -> 2058 over shot 8's 24 key presses) while scrollTop stays put or moves one 29px line,
   // so the reader who was at the bottom was left lines above it, with the jump-down button up.
   const d = await openApp(browser);
-  await sendTheBrief(d, ANCHOR_18S);
-  await runTo(d, 16);
-  await expandTranscript(d);
-  await d.click('[id="chip:agt_ms_sage_1"]');
-  await d.waitForSelector("#inspector:not([hidden])");
 
   await run.check("a reader at the bottom of the thread stays there through every pane and window resize", async () => {
+    await sendTheBrief(d, ANCHOR_18S);
+    await runTo(d, 16);
+    // THE TURN HAS JUST ENDED, SO ITS TRANSCRIPT IS OPEN ONLY UNTIL §6.4's SETTLE CLOSES IT, 180ms
+    // later (main.js, the `setTimeout` after a terminal status). `expandTranscript` reads "open"
+    // during that window and clicks nothing, and the chip clicked next was then taken out from
+    // under the pointer whenever the click landed after the settle: on the nightly of a1a26a615,
+    // at 87-97% CPU, the inspector never opened and the whole suite ended with no evidence.
+    // Measured on an idle host: a 120ms pause between the two was already enough to lose the
+    // chip every time. So: wait for the settle's own collapse (pass C proves it happens with the
+    // disclosure untouched), then open the transcript as the CEO does, which the settle never
+    // overrules, and only then press the chip.
+    await d.waitForFunction(
+      () => {
+        const btn = document.querySelector('.tl-turn[data-turn-id="turn_memory_01"] .tl-duration-btn');
+        return btn && btn.getAttribute("aria-expanded") === "false" && /Worked for/.test(btn.textContent);
+      },
+      null,
+      { timeout: 30000 }
+    );
+    await expandTranscript(d);
+    await d.click('[id="chip:agt_ms_sage_1"]');
+    await d.waitForSelector("#inspector:not([hidden])");
     const read = () =>
       d.evaluate(() => {
         const c = document.getElementById("conversation");

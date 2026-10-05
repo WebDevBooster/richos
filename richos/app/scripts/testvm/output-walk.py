@@ -60,6 +60,11 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      pressed, the panel's Close and the file's row are found by name, and the list
                      is photographed; the guest's appearance is flipped (the app follows the OS on
                      a fresh install), photographed again, and put back. PASS when all of it holds.
+  md-view            after panel, in the same run: --steps identity,first-run,connect,panel,md-view
+                     panel-check.md opened from its row, its Markdown view photographed in both
+                     themes. PASS when its heading "Panel check" is on screen and the app's frame
+                     has not moved: the panel's Close is level with the header's sidebar toggle
+                     (within 40 px), as it cannot be if `#app` scrolled (nightly a1a26a615).
 
   previews           slice S5's real-app check (§12.5), after identity, first-run and connect:
                        --steps identity,first-run,connect,previews
@@ -125,7 +130,7 @@ StepFailed = command_walk.StepFailed
 command = command_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
-         'previews', 'save-copy', 'attach', 'pull']
+         'md-view', 'previews', 'save-copy', 'attach', 'pull']
 # Slice S9 (PRD §9.1): the conversation at its narrowest. Restated, not imported, so the walk
 # derives the stop independently of the code under test.
 STAGE_MIN = 360
@@ -596,6 +601,55 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the panel was not open after the theme change')
         return evidence
 
+    # --- the Markdown file view, and the app's frame held still ------------------------------------
+    def heading(self, words):
+        """Whether a heading reading `words` is on screen, and how it was found. `present` looks
+        for an AXButton by default, which a heading never is (the first md-view walk, 2026-10-05,
+        photographed "Panel check" and reported it absent); the Markdown renderer's heading is a
+        `role="heading"` node, which WebKit names by its text, and its text is a static text whose
+        VALUE carries the words."""
+        if self.present(words, role='AXHeading'):
+            return True
+        try:
+            return bool(self.ax('find', '--value', words, '--role', 'AXStaticText', '--contains', '--first'))
+        except StepFailed as exc:
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+                return False
+            raise
+
+    def md_view(self):
+        """The panel's Markdown file view on the real app, after the panel step: panel-check.md
+        opened from its row and photographed in both themes (nightly a1a26a615 refused its picture of
+        this view, `output-file-md-dark.png`, because the whole shell had scrolled up). The frame is
+        judged from the accessibility tree: the sidebar toggle sits in the sticky conversation
+        header and the panel's Close in the panel's own head, both in the window's top band. Had
+        `#app` scrolled by N px, the header would have stayed and the panel's head gone up by N, so
+        the two must still be level."""
+        evidence = {'panel': self.open_panel()}
+        observed = self.out / 'md-view-observed.json'
+
+        def note(**facts):
+            evidence.update(facts)
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        self.wait_for('panel-check.md', seconds=20)
+        self.press('panel-check.md')
+        self.wait_for('All output', seconds=20)
+        time.sleep(2)  # the read and the view's fade, with margin
+        note(shots=self.flip_theme('md-view'), heading=self.heading('Panel check'))
+        toggle = self.node('Hide the sidebar')
+        close = self.node('Close the output panel')
+        note(sidebar_toggle=toggle, panel_close=close, level_gap=round(abs(close['y'] - toggle['y']), 1))
+        # Back to the list (§6.8), so a step after this one finds the panel as the panel step left it.
+        command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to key code 53'], 60)
+        time.sleep(1)
+        if evidence['heading'] is not True:
+            raise StepFailed('the Markdown view did not show the file\'s heading "Panel check"')
+        if evidence['level_gap'] > 40:
+            raise StepFailed("the app's frame moved: the panel's Close is %.0f px from the header's sidebar toggle"
+                             % evidence['level_gap'])
+        return evidence
+
     # --- slice S9: the wide pull, on the real app -------------------------------------------------
     def node(self, title, role=None):
         """The first accessibility node named `title`: its frame (x, y, w, h) and value."""
@@ -1040,11 +1094,11 @@ def main():
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
     p.add_argument('--steps', default=','.join(s for s in STEPS
-                                               if s not in ('open-reveal', 'panel', 'previews', 'save-copy', 'attach', 'pull')),
+                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull')),
                    help='default: every step but open-reveal (alone, with --no-app) and the panel steps, '
                         'which run together after identity, first-run and connect: '
                         '--steps identity,first-run,connect,tools,panel,previews,save-copy,attach,pull '
-                        '(S4 panel, S5 previews, S6 save-copy, S7 attach, S9 pull)')
+                        '(S4 panel, S5 previews, S6 save-copy, S7 attach, S9 pull); md-view runs after panel')
     p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
     a = p.parse_args()
     steps = a.steps.split(',')
