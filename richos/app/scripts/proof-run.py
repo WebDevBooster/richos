@@ -192,6 +192,7 @@ import sys
 sys.dont_write_bytecode = True
 import threading
 import time
+import traceback
 from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -449,8 +450,17 @@ def plan(lines, args, logdir, hist):
                 # (INVALID, land of zach-sonnet-vmvalid1, 2026-09-30).
                 label = os.path.basename(first.split("/test/")[0])
             items.append(Item(label, cwd, argv, None, default_weight(label, hist)))
-    # cargo: drop a filter a shorter filter on the same target already matches
-    keyed = [(cwd, argv, cargo_key(argv)) for cwd, argv in cargo]
+    # cargo: one target and filter is one check however many changed files selected it, and a
+    # filter a shorter filter on the same target already matches is dropped. proof-for.sh prints
+    # `cargo test --bin richos-tauri` once for src-tauri/src/main.rs and once more for
+    # src-tauri/Cargo.toml (its rows differ by kind); both were planned, and the saved plan held
+    # the check twice (attempt-keq_bkth; the merge of cc/echo-opus-out3b crashed reusing it,
+    # 2026-10-05). Only cargo is collapsed: any other line is a check of its own as printed.
+    keyed, seen = [], set()
+    for cwd, argv in cargo:
+        if (cwd, tuple(argv)) not in seen:
+            seen.add((cwd, tuple(argv)))
+            keyed.append((cwd, argv, cargo_key(argv)))
     for cwd, argv, key in keyed:
         if key is not None and key[1] and any(
                 k is not None and k != key and c == cwd and k[0] == key[0] and k[1] and k[1] in key[1]
@@ -2143,7 +2153,35 @@ def rotate(parent):
             lease.close()
 
 
+# The exit of a run that crashed: no verdict. Not 1 (a check failed) nor 3 (a check not run), the
+# two codes the merge gate reads a summary for, so a crash is refused as "not a verdict".
+CRASHED = 70
+
+
 def main(argv=None):
+    """A crash still leaves a readable summary.json naming every planned check CRASHED, and
+    exits CRASHED. 2026-10-05: a crash reusing a saved plan left none, and its exit was 1."""
+    run_state = {}
+    try:
+        return run_main(argv, run_state)
+    except Exception as exc:  # noqa: BLE001  (SystemExit and KeyboardInterrupt pass through)
+        traceback.print_exc()
+        reason = "%s: %s" % (type(exc).__name__, exc)
+        print("proof-run: CRASHED, which is not a verdict: %s" % reason, flush=True)
+        logdir = run_state.get("logdir")
+        if logdir and os.path.isdir(logdir):
+            rows = [{"check": it.label, "result": "crashed", "exit": None, "log": it.log}
+                    for it in run_state.get("items") or []]
+            path = os.path.join(logdir, "summary.json")
+            with open(path, "w") as fh:
+                json.dump({"crashed": reason, "checks": rows}, fh, indent=1)
+            if run_state.get("summary_out"):
+                shutil.copyfile(path, run_state["summary_out"])
+            print("    logs: %s" % logdir, flush=True)
+        return CRASHED
+
+
+def run_main(argv, run_state):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                 usage="proof-run.py [options] [proof-for arguments]")
     p.add_argument("--commands")
@@ -2209,6 +2247,7 @@ def main(argv=None):
     else:
         os.makedirs(parent, exist_ok=True)
         logdir = tempfile.mkdtemp(prefix=run_id + "-", dir=parent)
+    run_state.update(logdir=logdir, summary_out=args.summary_out)
     hist_dir = default_logdir()
     if args.resume:
         saved = proof_evidence.read_plan(args.resume)
@@ -2224,6 +2263,7 @@ def main(argv=None):
     else:
         lines = selection(args)
         items = as_printed(lines) if args.as_printed else plan(lines, args, logdir, history_weights(hist_dir))
+    run_state["items"] = items
     if not items:
         print("proof-run: the selection is empty — nothing to run. (For a documentation-only change that is"
               " the right answer; proof-for.sh says so without --quiet.)")
