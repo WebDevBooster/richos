@@ -353,7 +353,18 @@
       const w = (view.windows || []).find(x => x.id === id);
       const name = id === "five_hour" ? "five-hour" : id === "seven_day" ? "weekly" : (w?.label || id);
       const whose = many && cur ? `${poss(cur.label)} ${name} window` : `The ${name} window`;
-      const what = `${whose} is filling about ${Math.max(1, Math.round(perMs * 60000))}% a minute${w ? `, at ${pct(w.usedPercent)}` : ""}.`;
+      // Round 16: "15 agents reading at once took Home's five-hour window from 40% to 71% in
+      // 12 minutes." The rise is the two readings the speed was measured from and the count is
+      // the agents working at the last count (quota.rs view: rises, agentsWorking), the same
+      // two facts the conversation's alert says (quota.rs note_speed).
+      const rise = view.rises?.[id], n = view.agentsWorking || 0;
+      const took = whose.startsWith("The ") ? "the" + whose.slice(3) : whose; // never an account name
+      let what = `${whose} is filling about ${Math.max(1, Math.round(perMs * 60000))}% a minute${w ? `, at ${pct(w.usedPercent)}` : ""}.`;
+      if (rise) {
+        const minutes = Math.max(1, Math.round(rise.ms / 60000));
+        const span = `from ${Math.floor(rise.from)}% to ${Math.floor(rise.to)}% in ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+        what = n > 1 ? `${n} agents reading at once took ${took} ${span}.` : n === 1 ? `1 agent took ${took} ${span}.` : `${whose} went ${span}.`;
+      }
       const five = fiveLine(), week = weekLine(), moved = five !== t || (many && week !== 99);
       let then;
       if (!on && !many) then = "Automatic pause is off, so nothing acts before it reaches 100%.";

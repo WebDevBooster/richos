@@ -242,7 +242,7 @@ async function main() {
       // Fill-first, round 16: two accounts, Switch chosen, fast use (2 points a minute) with
       // both check points recalculated (plan answer 10), one account not read yet.
       // The top-level windows are the account IN USE (quota.rs view_at), here Work.
-      ["two-accounts", {...quota, windows: [{...quota.windows[0], usedPercent: 12}, {...quota.windows[1], usedPercent: 40}], refreshIntervalMs: 60000, speeds: {five_hour: 2 / 60000}, actAt: {five_hour: 92, seven_day: 96}, atThreshold: "switch", accounts: [
+      ["two-accounts", {...quota, windows: [{...quota.windows[0], usedPercent: 12}, {...quota.windows[1], usedPercent: 40}], refreshIntervalMs: 60000, speeds: {five_hour: 2 / 60000}, rises: {five_hour: {from: 40, to: 71, ms: 12 * 60000}}, agentsWorking: 15, actAt: {five_hour: 92, seven_day: 96}, atThreshold: "switch", accounts: [
         {id: "1", label: "Account 1", inUse: false, windows: quota.windows.slice(0, 2), checkedAt: now, exhaustedUntil: null, message: null},
         {id: "2", label: "Work", inUse: true, windows: [{...quota.windows[0], usedPercent: 12}, {...quota.windows[1], usedPercent: 40}], checkedAt: now, exhaustedUntil: null, message: null},
         {id: "3", label: "Spare", inUse: false, windows: [], checkedAt: null, exhaustedUntil: null, message: null}]}],
@@ -264,6 +264,9 @@ async function main() {
         assertEqual(await page.locator(".quota-pause-ghost").count(), 2, "both moved lines keep a ghost");
         assert((await page.locator(".quota-row-switch").innerText()).includes("switches at 96%"));
         assertEqual(await page.locator("#quota-hold-status").innerText(), "Usage is fast — checking every minute.");
+        // Round 16's fast card: the agents counted and the rise measured, as the alert says them.
+        assert((await page.locator("#quota-hold-detail").innerText()).startsWith("15 agents reading at once took Work’s five-hour window from 40% to 71% in 12 minutes."),
+          await page.locator("#quota-hold-detail").innerText());
         assertEqual(await page.locator('.quota-lane[data-id="1"] button').allTextContents(), [], "Account 1 has no Remove");
         assertEqual(await page.locator('.quota-lane[data-id="3"] button').allTextContents(), ["Sign in", "Remove"]);
       }

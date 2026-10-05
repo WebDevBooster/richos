@@ -70,7 +70,7 @@ pub struct Reading {
 }
 /// The two readings a window's speed was measured from: used percent then and now, and the
 /// time between them.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rise { pub from: f64, pub to: f64, pub ms: u64 }
 impl Reading {
     /// Is usage measured fast enough to check every minute (§108)?
@@ -233,6 +233,16 @@ pub struct View {
     /// normal speed, lower while a measured speed would otherwise reach 100% between checks.
     #[serde(default)]
     pub act_at: BTreeMap<String, f64>,
+    /// The rise each speed above was measured over, so the sheet's fast card says round 16's
+    /// "took Home's five-hour window from 40% to 71% in 12 minutes" with the same two readings
+    /// the conversation's alert names (`note_speed`).
+    #[serde(default)]
+    pub rises: BTreeMap<String, Rise>,
+    /// The agents working at the shell's last count (`set_agents_working`), for the same
+    /// card's "15 agents reading at once". 0 when none is counted; the card then says the
+    /// rise alone, as the alert does.
+    #[serde(default)]
+    pub agents_working: usize,
     /// The last switch between accounts (round 16's card after a switch). `None` with one
     /// account.
     #[serde(default)]
@@ -524,6 +534,8 @@ impl Snapshot {
             at_threshold: Default::default(),
             speeds: self.speeds.clone(),
             act_at,
+            rises: self.rises.clone(),
+            agents_working: 0,
             last_switch: None,
         }
     }
@@ -714,6 +726,7 @@ impl Service {
                 view.admission = Admission::Held { resets_at: until };
             }
         }
+        view.agents_working = self.agents_working.load(std::sync::atomic::Ordering::SeqCst);
         view
     }
 
@@ -1650,6 +1663,13 @@ for line in sys.stdin:
         service.note_speed();
         assert_eq!(service.take_alert().as_deref(), Some(
             "Usage is climbing fast: 15 agents reading at once took the five-hour window from 40% to 71% in 12 minutes. I'm checking every minute now and will pause them at 93%, so it never reaches 100%."));
+        // The sheet's fast card says the same rise and count, so the view carries both.
+        let view = service.view();
+        assert_eq!(view.agents_working, 15);
+        assert_eq!(view.rises.get("five_hour"), Some(&Rise { from: 40., to: 71., ms: 12 * 60_000 }));
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["agentsWorking"], 15);
+        assert_eq!(json["rises"]["five_hour"]["from"], 40.);
     }
 
     /// Clock times as round 16 writes them (`fmtWhen`), at the webview's offset, rounded to
