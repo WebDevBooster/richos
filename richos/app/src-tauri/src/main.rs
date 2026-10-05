@@ -117,6 +117,11 @@ mod phone;
 /// attachment desk, reached from the window: same storage, same limits, same words for Rich.
 mod mac_attachments;
 
+/// THE FILES A THREAD PRODUCED, REACHED SAFELY (Output side panel PRD §5): the commands take
+/// an output id, never a path, and the `richos-output` scheme serves only what the active
+/// thread's record holds.
+mod output_files;
+
 // Headless integration harness; absent from the shipped executable.
 #[cfg(test)]
 #[path = "../../../mobile/dev/mac-server.rs"]
@@ -199,6 +204,21 @@ impl MachineryObserver for TauriMachineryEmitter {
         // Best-effort, and weaker than the ledger by design (§2.2): a webview that is not
         // listening never stalls or fails a turn, and machinery is not truth.
         let _ = self.app.emit(EVENT_MACHINERY, record.event_payload());
+    }
+}
+
+/// `rich://output` (Output side panel PRD §6.6): a thread's output record gained files.
+/// Emitted after rows are appended, by the spine and by the work host through the ONE store.
+struct TauriOutputEmitter {
+    app: AppHandle,
+}
+
+impl richos_core::output::OutputObserver for TauriOutputEmitter {
+    fn on_output(&self, thread_id: &str, added: &[richos_core::output::Entry], count: usize) {
+        // Best-effort, like machinery: the record on disk is what a reopened panel reads.
+        if let Err(e) = self.app.emit(richos_core::output::EVENT_OUTPUT, richos_core::output::event_payload(thread_id, added, count)) {
+            eprintln!("[richos] output: the list could not be told about new files: {e}");
+        }
     }
 }
 
@@ -2253,6 +2273,11 @@ fn main() {
                 request_quit(app);
             }
         })
+        // THE OUTPUT PANEL'S PREVIEW SCHEME (Output side panel PRD §5.3):
+        // `richos-output://<output id>`, resolved against the active thread's record and
+        // checked before a byte is served (`output_files.rs`). Asynchronous, so a file is never
+        // read on the main thread.
+        .register_asynchronous_uri_scheme_protocol(output_files::SCHEME, output_files::scheme_handler)
         .setup(|app| {
             // Durable ledger lives in the app data dir (survives restart + rotation).
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
@@ -2779,6 +2804,14 @@ fn main() {
             spine.set_machinery_journal(journal);
             spine.set_machinery_observer(Box::new(TauriMachineryEmitter { app: app.handle().clone() }));
 
+            // THE OUTPUT RECORD (Output side panel PRD §3-§4): `<data>/output/<thread>.jsonl`,
+            // written by witnesses — Rich's own completed write-tool calls live, and at every
+            // turn end the hook's `writes.jsonl` for this lease (a front-desk worker's writes,
+            // the files a command made). The SAME store goes to the work host below.
+            let output_store = richos_core::output::OutputStore::for_data_dir(&data_dir)
+                .with_observer(Arc::new(TauriOutputEmitter { app: app.handle().clone() }));
+            spine.set_output_store(output_store.clone(), Some(data_dir.join("engine-state").join("evidence")));
+
             // The ADDITIVE §13 family (UX brief slice 3) — see `events.rs`. A THIRD sink
             // beside the two above, so the four events the shipping UI listens to are
             // untouched; `crates/richos-core/tests/live_event_tests.rs` asserts their
@@ -3031,6 +3064,9 @@ fn main() {
                 permissions.clone(),
             );
             work.set_quota(quota.clone());
+            // The back end's written files — its own, its workers', its commands' — reach the
+            // assignment's thread's output list after every back-end turn (PRD §4.1 (b)).
+            work.set_output_store(output_store.clone());
             // An assignment its back end handled itself (a command he asked for, or an answer)
             // closes its obligation in the engine on the words he was given.
             work.set_answered_close(Arc::new(richos_core::operator_runtime::EcsAnsweredClose::with(
@@ -3437,6 +3473,12 @@ fn main() {
             // attachment desk writes to (`phone/attachments.rs`). No I/O until a file arrives.
             let attachments_home = app.state::<AppState>().data_dir.clone();
             app.manage(mac_attachments::MacAttachments::open(&attachments_home));
+            // The Output panel's file commands and preview scheme (PRD §5), over the SAME store
+            // the spine and the work host write, and the published spine for the active thread.
+            // QuickLook renditions go in the app's cache directory (§4.8).
+            let output_cache = app.path().app_cache_dir().unwrap_or_else(|_| attachments_home.join("cache"));
+            let output_reader = app.state::<AppState>().reader.clone();
+            app.manage(output_files::OutputFiles::for_app(output_store, output_reader, &attachments_home, &output_cache));
 
             // ================================================================
             // THE UPDATE PATH — last in setup, and last for a reason
@@ -3693,7 +3735,12 @@ fn main() {
             mac_attachments::attach_dropped_file,
             mac_attachments::attach_pasted_file,
             mac_attachments::discard_attachment,
-            mac_attachments::commit_attachments
+            mac_attachments::commit_attachments,
+            output_files::list_output,
+            output_files::output_file,
+            output_files::output_preview,
+            output_files::output_open,
+            output_files::output_reveal
         ])
         .build(context)
         .expect("error while building RichOS")

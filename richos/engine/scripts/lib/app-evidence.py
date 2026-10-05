@@ -13,8 +13,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
+import stat
 import subprocess
 import sys
+import time
 
 
 def project(payload, instruction=None):
@@ -73,7 +76,221 @@ def append(path, value):
         os.fsync(stream.fileno())
 
 
-def capture(payload, state_root, instruction=None):
+# ---- The output record's witnesses (b) and (c) --------------------------------------
+#
+# Output side panel PRD, richos-hq docs/prds/2026-10-05-output-side-panel.md, §4.1 (b)/(c)
+# and §4.8. Two kinds of row go to evidence/<session>/writes.jsonl, PATHS ONLY (no file
+# content, no command text), and the app joins them to a thread by session:
+#   (b) a PostToolUse for Write/Edit/MultiEdit/NotebookEdit, the tool's own path;
+#   (c) a file a Bash command made, seen on the DISK: a regular file in a directory the
+#       command ran in or named, or a file it named, whose mtime is at or after the command
+#       started. A second pass at Stop / SubagentStop catches what finished in the background.
+# A pass that fails never fails the tool call: it is reported and appends nothing.
+
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+WRITES_FILE = "writes.jsonl"
+DIRECTORY_ENTRY_CAP = 2000
+NEVER_INSIDE = frozenset((".git", "node_modules", "target"))
+SAFE_NAME = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def now_ms():
+    return time.time_ns() // 1_000_000
+
+
+def _absolute(raw, cwd):
+    if not isinstance(raw, str) or not raw or "\0" in raw:
+        return None
+    path = os.path.expanduser(raw)
+    if not os.path.isabs(path):
+        if not isinstance(cwd, str) or not os.path.isabs(cwd):
+            return None
+        path = os.path.join(cwd, path)
+    return os.path.normpath(path)
+
+
+def _excluded(path, excluded):
+    """Never anything under the app's own data, never inside .git, node_modules or target."""
+    if any(part in NEVER_INSIDE for part in Path(path).parts):
+        return True
+    return any(path == root or path.startswith(root.rstrip("/") + "/") for root in excluded)
+
+
+def command_tokens(command):
+    """The command's words: split on whitespace and ; && || | > >> ( ), quotes stripped,
+    --flag=value split on '='. Bare flags are not paths."""
+    if not isinstance(command, str):
+        return []
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        words = list(lexer)
+    except ValueError:  # unbalanced quotes: fall back to the separators alone
+        words = re.split(r"[\s;&|<>()]+", command)
+    out = []
+    for word in words:
+        word = word.strip("'\"")
+        if not word or set(word) <= set(";&|<>()"):
+            continue
+        if word.startswith("-"):
+            if "=" not in word:
+                continue
+            word = word.split("=", 1)[1]
+        out.append(word)
+    return out
+
+
+def candidates(cwd, command, excluded):
+    """The call's candidate set (§4.1 (c)): the working directories (the callback's cwd and
+    every word that is an existing directory) and the explicit files (every word that is an
+    existing regular file)."""
+    dirs, files = set(), set()
+    start = _absolute(cwd, None)
+    if start and os.path.isdir(start):
+        dirs.add(os.path.realpath(start))
+    for word in command_tokens(command):
+        path = _absolute(word, cwd)
+        if not path:
+            continue
+        try:
+            st = os.lstat(path)
+        except (OSError, ValueError):
+            continue
+        if stat.S_ISDIR(st.st_mode):
+            dirs.add(os.path.realpath(path))
+        elif stat.S_ISREG(st.st_mode):
+            files.add(os.path.realpath(path))
+    return ({d for d in dirs if not _excluded(d, excluded)},
+            {f for f in files if not _excluded(f, excluded)})
+
+
+def scan(dirs, files, start_ns, excluded):
+    """Every regular file (lstat, no follow) among the explicit files and one level inside
+    each directory whose mtime is at or after the start. A directory over the entry cap is
+    not listed; dot-entries are skipped; names and lstat only, never contents.
+
+    The start is floored to its whole second: a file system that stamps whole seconds would
+    otherwise put a file written in the same second as the start before it. The cost is a
+    file changed earlier in that same second, inside the declared false-positive class."""
+    floor = start_ns - start_ns % 1_000_000_000
+    found = {}
+
+    def consider(path):
+        try:
+            st = os.lstat(path)
+        except OSError:
+            return
+        if stat.S_ISREG(st.st_mode) and st.st_mtime_ns >= floor and not _excluded(path, excluded):
+            found[path] = st.st_mtime_ns
+
+    for path in files:
+        consider(path)
+    for folder in dirs:
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue
+        if len(entries) > DIRECTORY_ENTRY_CAP:
+            continue
+        for entry in entries:
+            if not entry.name.startswith("."):
+                consider(os.path.join(folder, entry.name))
+    return found
+
+
+def _write_row(payload, path, source, tool_use_id=None, mtime_ns=None):
+    row = {"schema": 1, "session_id": payload["session_id"], "agent_id": payload.get("agent_id") or None,
+           "tool_use_id": tool_use_id, "path": path, "at": now_ms(), "source": source}
+    if mtime_ns is not None:
+        row["mtime_ns"] = mtime_ns
+    return row
+
+
+def _read_json(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    with os.fdopen(fd) as stream:
+        try:
+            return json.load(stream)
+        except ValueError:
+            return None
+
+
+def _write_json(path, value):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as stream:
+        json.dump(value, stream)
+
+
+def _actor_file(commands, agent_id):
+    """The turn-end ledger of one actor: the lead, or one worker."""
+    if agent_id:
+        return commands / f"turn-agent-{agent_id}.json" if SAFE_NAME.fullmatch(agent_id) else None
+    return commands / "turn-lead.json"
+
+
+def witness_writes(payload, folder, excluded):
+    """The rows witnesses (b) and (c) owe this callback, and the bookkeeping (c) needs.
+    Runs under the evidence folder's lock, after the callback itself is kept."""
+    event = payload.get("hook_event_name")
+    tool = payload.get("tool_name")
+    tool_use_id = payload.get("tool_use_id")
+    agent_id = payload.get("agent_id") or None
+    commands = folder / "commands"
+    rows = []
+    if event == "PostToolUse" and tool in WRITE_TOOLS:
+        ti = payload.get("tool_input") or {}
+        raw = ti.get("file_path") or ti.get("notebook_path") or ti.get("path")
+        path = _absolute(raw, payload.get("cwd"))
+        # No exclusion here. The data-directory and .git rules are the command witness's (c):
+        # (b) records the path the tool itself names, and a back-end worker's target worktree
+        # lives under the app's data directory (engine-state/target-worktrees), so excluding it
+        # dropped every back-end worker's write (seen on the test VM, 2026-10-05).
+        if path:
+            rows.append(_write_row(payload, path, "hook", tool_use_id=tool_use_id))
+    elif tool == "Bash" and isinstance(tool_use_id, str) and SAFE_NAME.fullmatch(tool_use_id):
+        start = commands / f"{tool_use_id}.json"
+        if event == "PreToolUse":
+            # Taken BEFORE the command runs, which is what makes "mtime >= start" a write.
+            commands.mkdir(mode=0o700, exist_ok=True)
+            _write_json(start, {"at_ns": time.time_ns(), "cwd": payload.get("cwd"), "agent_id": agent_id})
+        elif event in ("PostToolUse", "PostToolUseFailure"):
+            began = _read_json(start)
+            if isinstance(began, dict) and isinstance(began.get("at_ns"), int):
+                command = (payload.get("tool_input") or {}).get("command")
+                dirs, files = candidates(began.get("cwd") or payload.get("cwd"), command, excluded)
+                for path, mtime in sorted(scan(dirs, files, began["at_ns"], excluded).items()):
+                    rows.append(_write_row(payload, path, "command", tool_use_id=tool_use_id, mtime_ns=mtime))
+                # Kept for this actor's turn-end pass: its directories, and its earliest start.
+                ledger = _actor_file(commands, agent_id)
+                if ledger is not None:
+                    held = _read_json(ledger) or {}
+                    _write_json(ledger, {
+                        "at_ns": min(held.get("at_ns", began["at_ns"]), began["at_ns"]),
+                        "dirs": sorted(set(held.get("dirs", [])) | dirs),
+                        "files": sorted(set(held.get("files", [])) | files),
+                    })
+            try:
+                os.unlink(start)
+            except FileNotFoundError:
+                pass
+    elif event in ("Stop", "SubagentStop"):
+        # Stop is the lead's turn end, SubagentStop a worker's run end.
+        ledger = _actor_file(commands, agent_id if event == "SubagentStop" else None)
+        held = _read_json(ledger) if ledger is not None else None
+        if isinstance(held, dict) and isinstance(held.get("at_ns"), int):
+            dirs = {d for d in held.get("dirs", []) if isinstance(d, str)}
+            files = {f for f in held.get("files", []) if isinstance(f, str)}
+            for path, mtime in sorted(scan(dirs, files, held["at_ns"], excluded).items()):
+                rows.append(_write_row(payload, path, "command", mtime_ns=mtime))
+            os.unlink(ledger)
+    return rows
+
+
+def capture(payload, state_root, instruction=None, app_data=None):
     session = payload.get("session_id", "")
     if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session):
         raise ValueError("Invalid native session identity")
@@ -92,6 +309,13 @@ def capture(payload, state_root, instruction=None):
         append(folder / "callbacks.jsonl", {"schema": 1, "callback": payload})
         if record is not None:
             append(transcript, record)
+        # The output record's witnesses. Never the app's own data, never this evidence.
+        excluded = [os.path.realpath(root)] + ([os.path.realpath(app_data)] if app_data else [])
+        try:
+            for row in witness_writes(payload, folder, excluded):
+                append(folder / WRITES_FILE, row)
+        except (OSError, ValueError, TypeError) as error:
+            print(f"RichOS output witness skipped this callback: {error}", file=sys.stderr)
         # SessionStart/Stop may arrive without a tool event. An empty projection
         # is valid; a missing or unwritable projection is an explicit failure.
         fd = os.open(transcript, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
