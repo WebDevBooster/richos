@@ -2287,7 +2287,8 @@ body.bp-narrow .first-run {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 20px;
+  /* 16px on the left is round 17.1's, where the sidebar toggle stands (`#rail-toggle`). */
+  padding: 0 20px 0 16px;
   /* N3 (dev-walk audit, 2026-09-17): the settings gear is `position: fixed` at the SAME
      top-right corner this header reaches, and `--chrome-lane` (below, "THE TOP-RIGHT LANE
      IS RESERVED, AND THIS IS WHY") is its footprint — the same reservation
@@ -2300,6 +2301,63 @@ body.bp-narrow .first-run {
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+/* THE SIDEBAR TOGGLE (output side-panel PRD §8; round 17.1's `#rail-toggle`, taken as drawn):
+   the top left of the conversation's header, at every width. 32px, a transparent 1px border
+   that the hover lights, the 18px sidebar glyph in `--ink-soft`, and the glyph's left pane
+   filled at .28 while the sidebar is away — the state is in the picture as well as in
+   `aria-expanded`. The header's left padding is round 17.1's 16px and the 14px gap to the
+   crumb is the header's 8px plus this margin.
+   `--ctl-line` is scoped here with `.question-card`'s values (rounds 16/17's control
+   boundary): the app has no global one, and a new global token is not this slice's to add.
+   CONTRAST, COMPUTED: the glyph is a non-text indicator and owes 3:1 on the header in both
+   themes and both states. The DOM walk cannot read an SVG stroke, so `tests/contrast.js`
+   check 18 measures the painted crop; its numbers are printed there on every run. */
+#rail-toggle {
+  --ctl-line: rgba(223, 228, 238, 0.46);
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  margin-right: 6px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+:root[data-theme="light"] #rail-toggle {
+  --ctl-line: #4c6087;
+}
+
+#rail-toggle:hover {
+  border-color: var(--ctl-line);
+  color: var(--ink);
+}
+
+#rail-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#rail-toggle svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+#rail-toggle .sb-pane {
+  fill: transparent;
+}
+
+#rail-toggle[aria-expanded="false"] .sb-pane {
+  fill: currentColor;
+  fill-opacity: 0.28;
 }
 
 .scope-crumb {
@@ -3099,8 +3157,58 @@ body.bp-mid #rail-scrim {
   display: none !important;
 }
 
-body.rail-closed #rail {
+/* THE SIDEBAR GOES AWAY AT EVERY WIDTH (output side-panel PRD §8). From 820px up the rail
+   leaves the row: it slides left by its own width with round 17.1's curve (.38s out-quint,
+   `cubic-bezier(.22,1,.36,1)`, the value `--out-quint` holds at the question card, written
+   out here as S8 first wrote it) and the conversation takes the room. Its content fades first (.15s), as the
+   mockup's `.rail-inner` does, so what moves is the empty plane. `visibility` follows the
+   slide: hidden only once the slide ends, so nothing in the rail stays focusable or announced
+   while it is away, and visible at once on the way back.
+   The state has TWO selectors on purpose. `body.rail-closed` is `setRailOpen`'s; the
+   `data-sidebar="hidden"` attribute on <html> is set by theme-boot.js from the durable choice's
+   mirror BEFORE the first paint (main.js keeps both in step), so a relaunch paints the
+   sidebar away from frame one instead of opening it and then closing it. Below 820px the
+   rail is the full-height drawer and closes the way it always has (`display: none`). */
+#rail {
+  transition:
+    margin-left 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 0s;
+}
+
+body.rail-closed:not(.bp-narrow) #rail,
+:root[data-sidebar="hidden"] body:not(.bp-narrow) #rail {
+  margin-left: calc(-1 * var(--rail-width, 300px));
+  visibility: hidden;
+  transition:
+    margin-left 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 0.38s;
+}
+
+:where(#rail > :not(#rail-resizer)) {
+  opacity: 1;
+  transition: opacity 0.25s ease 0.1s;
+}
+
+:where(body.rail-closed:not(.bp-narrow) #rail > *, :root[data-sidebar="hidden"] body:not(.bp-narrow) #rail > *) {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+body.bp-narrow.rail-closed #rail {
   display: none;
+}
+
+/* A durable choice applied at launch, or a reconciliation, is not a gesture: no slide. */
+body.rail-instant #rail,
+body.rail-instant #rail > * {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #rail,
+  #rail > * {
+    transition: none !important;
+  }
 }
 
 body.bp-narrow #rail {
@@ -6722,6 +6830,15 @@ body.home-open {
   line-height: 1.4;
   color: var(--ink);
   overflow-wrap: anywhere;
+}
+
+/* The question card's curve. `.ask`, `.ask-opt`, `.ask-send` and `.ask.flash` below name
+   `var(--out-quint)` and nothing defined it, so each of those `animation` and `transition`
+   declarations was invalid at computed-value time and the card ran with none of them. This is
+   the value every round that has the card defines (round 13 and round 15's desktop.html,
+   round 12's shared/app.css): `cubic-bezier(.22,1,.36,1)`, an ease-out quint. */
+:root {
+  --out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Round 13, HQ c50ed191. The existing palette and text-scale remain authoritative.

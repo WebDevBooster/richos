@@ -61,7 +61,9 @@ pub struct NavState {
     /// Persisted left-navigation width in CSS pixels (§25: *"Left-navigation width can be
     /// changed directly and survives relaunch"*).
     pub sidebar_width: f64,
-    /// Whether the rail is collapsed (§20: collapsible between 820px and 1179px).
+    /// Whether the sidebar (the rail) is away. The CEO's choice from the toggle at the top left
+    /// of the conversation or ⌘⇧S, at every window width of 820px and wider (output side-panel
+    /// PRD §8); below 820px the rail is a drawer whose open/closed state is not written here.
     pub sidebar_collapsed: bool,
     /// Persisted worker-inspector width in CSS pixels (§7.2, §25). Its own field rather
     /// than a shared one: §2.1 calls these two dividers separately adjustable, and one

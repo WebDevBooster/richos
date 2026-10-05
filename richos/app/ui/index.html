@@ -366,7 +366,18 @@
         <!-- Sticky scope header (§4). Rendered from `active_context`, the AUTHORITATIVE
              binding, never from the renderer's own idea of what is selected. -->
         <header id="stage-header">
-          <button id="rail-toggle" class="rail-icon-btn" type="button" aria-label="Show navigation" aria-expanded="true" hidden>☰</button>
+          <!-- THE SIDEBAR TOGGLE, AT EVERY WIDTH (output side-panel PRD §8, round 17.1). The
+               CEO: "give the user the option to toggle the left sidebar". The sidebar glyph's
+               left pane fills while the sidebar is away; ⌘⇧S does the same as a click, and the
+               choice is durable (nav.rs `sidebar_collapsed`, mirrored for the first paint by
+               theme-boot.js). Labels and `aria-expanded` are kept true by `setRailOpen`. -->
+          <button id="rail-toggle" type="button" aria-label="Hide the sidebar" title="Hide the sidebar (⌘⇧S)"
+                  aria-expanded="true" aria-controls="rail" aria-keyshortcuts="Meta+Shift+S Control+Shift+S">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                 stroke-linejoin="round" aria-hidden="true" focusable="false"><rect class="sb-pane" x="3" y="4.5"
+                 width="6.5" height="15" rx="1" stroke="none"/><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path
+                 d="M9.5 4.5v15"/></svg>
+          </button>
           <div id="scope-crumb" class="scope-crumb" aria-live="polite">
             <span id="scope-entity" class="scope-entity"></span>
             <span id="scope-sep" class="scope-sep" aria-hidden="true">/</span>
