@@ -67,6 +67,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 SPEC = "docs/plans/worktree-spec-2026-09-11.md"
@@ -638,7 +639,7 @@ def _ps_env():
     return dict(os.environ, LC_ALL="C", LANG="C", TZ="UTC0")
 
 
-def process_start(pid):
+def process_start(pid, timeout=10):
     """('ok', '<lstart>') | ('gone', '') | ('unknown', why). Read from the OS.
 
     The start time is what makes the record more than a process number
@@ -653,7 +654,7 @@ def process_start(pid):
         return "unknown", "ps is not available"
     try:
         r = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True,
-                           text=True, timeout=10, env=_ps_env())
+                           text=True, timeout=timeout, env=_ps_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         return "unknown", "ps could not run: %s" % e
     text = " ".join(r.stdout.split())
@@ -664,10 +665,10 @@ def process_start(pid):
     return "unknown", "ps exited %d: %s" % (r.returncode, r.stderr.strip()[:200])
 
 
-def _ps_parent_and_comm(pid):
+def _ps_parent_and_comm(pid, timeout=10):
     try:
         r = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)], capture_output=True,
-                           text=True, timeout=10, env=_ps_env())
+                           text=True, timeout=timeout, env=_ps_env())
     except (OSError, subprocess.TimeoutExpired):
         return None, ""
     parts = r.stdout.split(None, 1)
@@ -1017,6 +1018,14 @@ def damaged_records(include_done=True):
                 continue
             if not isinstance(v, dict) or not v.get("key"):
                 out.append((path, "it is not a registry record (no key)"))
+            # A KEYED RECORD WITHOUT ITS WORKSPACE LIST IS DAMAGED TOO (hunt
+            # part 4 v3, V3-01). Every record new_record() writes carries the
+            # list, so one without it has lost the very facts that say which
+            # workspaces it owns; read as "none", the sweep made its live
+            # workspace an orphan and the automatic land deleted it.
+            elif not isinstance(v.get("workspaces"), list) or \
+                    not all(isinstance(w, dict) for w in v["workspaces"]):
+                out.append((path, "its workspace list is missing or not a list of workspaces"))
     return out
 
 
@@ -1673,7 +1682,7 @@ def register_spawn(payload, entity, dry=False):
             raise SpecError("continues: %s is ambiguous; name its exact registered key" % c)
         continuation_keys.append(match[0]["key"])
         _require_clean(load_agent(match[0]["key"]), "continue it (its workspaces are deleted when the new "
-                       "agent starts, point 7)")
+                       "agent starts, point 7)", record=not dry)
 
     ident = identity_for(sid)
     if not ident:
@@ -2789,7 +2798,7 @@ def pending(me, entity="", scan=False, auto=True, deadline=None, report=None, dr
             it = _item(rec, why, cache, me)
             if auto and not _past(deadline):
                 try:
-                    _require_landed(rec, _chain(rec), "", deadline)
+                    _require_landed(rec, _chain(rec), "", deadline, record=False)
                     it["would_land"] = True
                 except Deadline:
                     _deferred(report, rec)
@@ -2969,6 +2978,36 @@ def _bounded(deadline, cap):
     if deadline is None:
         return cap
     return max(1.0, min(float(cap), deadline - now()))
+
+
+def _within(until, fn, *args, **kw):
+    """(finished, result) of `fn(*args, **kw)`, waited for no longer than the
+    caller's deadline `until` (hunt part 4 v3, V3-02).
+
+    The container reaper and the test-instance collector run on their own
+    clocks (Docker and app timeouts this module does not set), so checking
+    the time only BEFORE calling them let one call keep a gate waiting long
+    past its budget. Here the caller stops waiting at the deadline and gets
+    (False, None): the cleanup is deferred, exactly as a stage that would
+    start late is. The helper finishes on its own in the background; both
+    are idempotent and never delete a workspace. No deadline: called inline."""
+    if until is None:
+        return True, fn(*args, **kw)
+    box = {}
+
+    def run():
+        try:
+            box["result"] = fn(*args, **kw)
+        except BaseException as e:            # re-raised in the caller below
+            box["error"] = e
+    t = threading.Thread(target=run, name="workspaces-within-deadline", daemon=True)
+    t.start()
+    t.join(max(0.0, until - now()))
+    if t.is_alive():
+        return False, None
+    if "error" in box:
+        raise box["error"]
+    return True, box.get("result")
 
 
 def _gate_deadline(default_seconds):
@@ -3332,21 +3371,26 @@ def _is_regenerable(rel, patterns):
     return False
 
 
-def _minus_regenerable(rec, w, ignored):
-    """`ignored` without what the repository declares regenerable (V2-02)."""
+def _minus_regenerable(rec, w, ignored, record=True):
+    """`ignored` without what the repository declares regenerable (V2-02).
+
+    `record=False` for a question (hunt part 4 v3, V3-06): a dry status or a
+    dry spawn check proves eligibility through this same helper, and its
+    `regenerable-not-preserved` event made every status query write cleanup
+    history although nothing was cleaned up."""
     if not ignored:
         return ignored
     pats = _regenerable_patterns(rec, w.get("repo") or "")
     if not pats:
         return ignored
     kept = [rel for rel in ignored if not _is_regenerable(rel, pats)]
-    if len(kept) != len(ignored):
+    if record and len(kept) != len(ignored):
         event("regenerable-not-preserved", key=rec.get("key"), path=w.get("path"),
               entries=[rel for rel in ignored if rel not in kept][:50])
     return kept
 
 
-def _require_clean(rec, doing, ignored_ok="", deadline=None):
+def _require_clean(rec, doing, ignored_ok="", deadline=None, record=True):
     """Refuses uncommitted work. Returns the paths it proved to be partial-
     cleanup residue whose every file is preserved (`_landed_residue`): the one
     kind of workspace directory that legitimately has no readable HEAD."""
@@ -3364,7 +3408,7 @@ def _require_clean(rec, doing, ignored_ok="", deadline=None):
                     preserved.append(w["path"])
             dirty, ignored = ([], []) if residue else uncommitted(w["path"], deadline)
             ignored = _minus_generated(w, ignored, deadline)
-            ignored = _minus_regenerable(rec, w, ignored)
+            ignored = _minus_regenerable(rec, w, ignored, record)
             if dirty:
                 problems.append("%s has %d uncommitted entr%s (%s)" % (
                     w["path"], len(dirty), "y" if len(dirty) == 1 else "ies", ", ".join(dirty[:5])))
@@ -4665,11 +4709,19 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None, keep_ignored=None
             # An explicit retry must finish failed deletion, not certify the
             # earlier eligibility receipt as completed cleanup. The canonical
             # deletion path rechecks landing after writers stop.
+            # With the caller's deadline (V3-02): this retry used to drop it
+            # and spend whatever its stages took.
             chain = _chain(rec)
-            clean = _delete_chain(chain, "landed")
+            clean = _delete_chain(chain, "landed", deadline=deadline)
             fresh = load_agent(rec["key"]) or {}
-            return {"landed": (fresh.get("disposition") or {}).get("kind") == "landed",
-                    "already": kind, "cleanup_pending": not clean}
+            # A RETRY THAT REOPENED THE LANDING IS NOT A LAND (hunt part 4 v3,
+            # V3-04). The reproof found new work, withdrew the disposition and
+            # dropped the retry; answering a dict here let the CLI print
+            # "landed ... it is retried" and exit 0. It is refused exactly as
+            # the first land refuses the same change below.
+            if (fresh.get("disposition") or {}).get("kind") != "landed":
+                raise SpecError("landing eligibility changed during cleanup; the work was preserved")
+            return {"landed": True, "already": kind, "cleanup_pending": not clean}
         return {"landed": True, "already": kind}
     chain = _chain(rec)
     # NOTHING IS STOPPED FOR WORK THAT PLAINLY CANNOT LAND (hunt part 4,
@@ -4692,6 +4744,8 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None, keep_ignored=None
         raise Deadline("the budget ran out before %s's processes were stopped" % rec["name"])
     stopped = stop_processes(paths, deadline=deadline)
     if stopped.get("survivors"):
+        if _past(deadline):
+            raise Deadline("the budget ran out while %s's processes were still stopping" % rec["name"])
         raise SpecError("cannot land %s: workspace processes are still running: %s" %
                         (rec["name"], stopped["survivors"]))
     if stopped.get("unknown"):
@@ -4700,7 +4754,9 @@ def land(ref, me="", auto=False, ignored_ok="", deadline=None, keep_ignored=None
         raise SpecError("cannot land %s: %s" % (rec["name"], stopped["unknown"]))
     if _past(deadline):
         raise Deadline("the budget ran out before %s's containers were stopped" % rec["name"])
-    containers = stop_containers(paths)
+    finished, containers = _within(deadline, stop_containers, paths)
+    if not finished:
+        raise Deadline("the budget ran out while %s's containers were being stopped" % rec["name"])
     if containers.get("failed"):
         raise SpecError("cannot land %s: workspace containers could not be stopped" % rec["name"])
     kept = ""
@@ -4765,11 +4821,12 @@ def merge_and_land(ref, me="", message=""):
     return merged, land(rec["key"], me, keep_ignored=True)
 
 
-def _require_landed(rec, chain, ignored_ok="", deadline=None):
-    """Read current work after writers stop, including on a deletion retry."""
+def _require_landed(rec, chain, ignored_ok="", deadline=None, record=True):
+    """Read current work after writers stop, including on a deletion retry.
+    `record=False`: asked by a dry question, which writes nothing (V3-06)."""
     preserved = set()
     for r in chain:
-        preserved.update(_require_clean(r, "land %s" % r["name"], ignored_ok, deadline) or [])
+        preserved.update(_require_clean(r, "land %s" % r["name"], ignored_ok, deadline, record) or [])
     missing = _not_in_integration(rec, chain, preserved, deadline)
     if missing:
         raise SpecError(_not_landed_message(rec, missing))
@@ -5028,8 +5085,12 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
     if held:
         pass
     elif processes.get("survivors"):
-        failures.append("processes still running in its workspaces: %s" % processes["survivors"])
-        held = True
+        # Still dying when the budget ran out (V3-02: the kill wait no longer
+        # outlives the deadline) is a deferral, not a failure counted toward
+        # the CEO's notice.
+        if not out_of_time("its workspaces' processes had stopped"):
+            failures.append("processes still running in its workspaces: %s" % processes["survivors"])
+            held = True
     elif processes.get("unknown"):
         # Not listed is not "none running" (V2-03): out of time, it is a
         # deferral like any other; otherwise a failure, retried.
@@ -5039,14 +5100,21 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
     elif not out_of_time("its containers were stopped"):
         # Containers first, directories second: a workspace's containers are
         # part of it, and stop_containers never raises. See stop_containers.
-        containers = stop_containers(paths)
+        # Waited for only inside the budget (V3-02): the reaper runs on
+        # Docker's clocks, not the caller's.
+        finished, containers = _within(deadline, stop_containers, paths)
+        if not finished:
+            deferred = "the budget ran out while its containers were being stopped"
+            held = True
         # §54 addendum 4, and it sits here rather than beside stop_processes
         # for the same reason containers do: it never raises and it never
         # blocks the deletion, so it cannot cost a land that would otherwise
         # have worked. A window that will not close is recorded for the alert,
         # not made into a reason to keep a landed worktree on disk.
-        if not out_of_time("its test instances were collected"):
-            stop_test_instances(paths, deadline=deadline)
+        elif not out_of_time("its test instances were collected"):
+            if not _within(deadline, stop_test_instances, paths, deadline=deadline)[0]:
+                deferred = "the budget ran out while its test instances were being collected"
+                held = True
         # A CONTAINER THAT COULD NOT BE STOPPED IS A SURVIVOR (hunt part 4,
         # finding 11). It used to be checked for a LANDED disposition only, so
         # a discard deleted the workspace, filed the record as done and left
@@ -5315,7 +5383,7 @@ def _process_cwds(timeout=60, strict=False):
     """{pid: cwd} for every process the OS will show us.
 
     `strict=True` answers None when the listing could not be made (lsof did not
-    finish in `timeout`, or could not run) instead of {}: an empty answer from
+    finish in `timeout`, could not run, is missing or failed) instead of {}: an empty answer from
     a listing that never happened would read as "nothing works there" and let
     a deletion go ahead over running writers (V2-03 bounds this call by the
     caller's deadline, which makes "did not finish" a real answer)."""
@@ -5328,21 +5396,28 @@ def _process_cwds(timeout=60, strict=False):
                 except OSError:
                     continue
         return out
-    if shutil.which("lsof"):
-        try:
-            r = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "pn", "-w"], capture_output=True, text=True,
-                               timeout=timeout, env=_ps_env())
-        except (OSError, subprocess.TimeoutExpired):
-            return None if strict else out
-        pid = None
-        for line in r.stdout.splitlines():
-            if line.startswith("p"):
-                try:
-                    pid = int(line[1:])
-                except ValueError:
-                    pid = None
-            elif line.startswith("n") and pid:
-                out[pid] = line[1:]
+    # A LISTING THAT FAILED IS NOT AN EMPTY ONE (hunt part 4 v3, V3-05). A
+    # missing lsof, or one that exited non-zero (it names no file here, so a
+    # non-zero exit is an error, never "nothing found"), used to answer {} in
+    # strict mode too, and a deletion went ahead over a running process.
+    if not shutil.which("lsof"):
+        return None if strict else out
+    try:
+        r = subprocess.run(["lsof", "-a", "-d", "cwd", "-F", "pn", "-w"], capture_output=True, text=True,
+                           timeout=timeout, env=_ps_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return None if strict else out
+    if r.returncode != 0 and strict:
+        return None
+    pid = None
+    for line in r.stdout.splitlines():
+        if line.startswith("p"):
+            try:
+                pid = int(line[1:])
+            except ValueError:
+                pid = None
+        elif line.startswith("n") and pid:
+            out[pid] = line[1:]
     return out
 
 
@@ -5355,6 +5430,8 @@ def process_table(timeout=30, strict=False):
                            timeout=timeout, env=_ps_env())
     except (OSError, subprocess.TimeoutExpired):
         return None if strict else {}
+    if r.returncode != 0 and strict:
+        return None                       # failed, not empty (V3-05)
     out = {}
     for line in r.stdout.splitlines():
         parts = line.strip().split(None, 2)
@@ -5363,8 +5440,8 @@ def process_table(timeout=30, strict=False):
     return out
 
 
-def _process_args():
-    return dict((pid, p["args"]) for pid, p in process_table().items())
+def _process_args(timeout=30):
+    return dict((pid, p["args"]) for pid, p in process_table(timeout=timeout).items())
 
 
 def _names_a_path(args, paths):
@@ -5372,16 +5449,17 @@ def _names_a_path(args, paths):
                or args.endswith(" " + p) for p in paths)
 
 
-def _protected_pids():
-    """This process, its ancestors and every claude process: never stopped."""
+def _protected_pids(deadline=None):
+    """This process, its ancestors and every claude process: never stopped.
+    Its `ps` reads are bounded by the caller's deadline (V3-02)."""
     keep = set()
     pid = os.getpid()
     for _ in range(64):
         if not pid or pid <= 1:
             break
         keep.add(pid)
-        pid, _c = _ps_parent_and_comm(pid)
-    for p, a in _process_args().items():
+        pid, _c = _ps_parent_and_comm(pid, timeout=_bounded(deadline, 10))
+    for p, a in _process_args(timeout=_bounded(deadline, 30)).items():
         if os.path.basename((a.split() or [""])[0]) == "claude":
             keep.add(p)
     return keep
@@ -5403,8 +5481,10 @@ def processes_in(paths, deadline=None):
     whose only tie is its arguments is left running and named in the record
     (`_named_only`), never signaled.
 
-    With a `deadline` (V2-03) the two listings are bounded by it, and a listing
-    that did not finish makes the answer None -- unknown, never "none".
+    With a `deadline` (V2-03) the two listings are bounded by it. A listing
+    that did not finish, could not run or FAILED makes the answer None --
+    unknown, never "none" -- with or without a deadline (V3-05): a failed `ps`
+    or `lsof` answered {} and certified a workspace empty while it ran.
 
     A GRADLE DAEMON A NATIVE BUILD KEPT WARM FOR THE WORKSPACE IS THE WORKSPACE'S OWN too
     (2026-10-02, scripts/lib/gradle_daemons.py). It works from Gradle's registry, not from
@@ -5414,9 +5494,9 @@ def processes_in(paths, deadline=None):
     paths = [realpath(p) for p in paths if p]
     if not paths:
         return []
-    keep = _protected_pids()
+    keep = _protected_pids(deadline)
     hits = set(_gradle_daemons(paths))
-    cwds = _process_cwds(timeout=_bounded(deadline, 60), strict=deadline is not None)
+    cwds = _process_cwds(timeout=_bounded(deadline, 60), strict=True)
     if cwds is None:
         return None
     for pid, cwd in cwds.items():
@@ -5424,7 +5504,7 @@ def processes_in(paths, deadline=None):
         if any(c == p or c.startswith(p + os.sep) for p in paths):
             hits.add(pid)
     hits -= keep
-    table = process_table(timeout=_bounded(deadline, 30), strict=deadline is not None)
+    table = process_table(timeout=_bounded(deadline, 30), strict=True)
     if table is None:
         return None
     grew = bool(hits)
@@ -5437,13 +5517,14 @@ def processes_in(paths, deadline=None):
     return sorted(hits)
 
 
-def _named_only(paths, owned):
+def _named_only(paths, owned, deadline=None):
     """Processes whose command line names one of `paths` and that are not the
-    workspace's own: reported, never stopped (finding 12)."""
+    workspace's own: reported, never stopped (finding 12). Bounded by the
+    caller's deadline (V3-02)."""
     paths = [realpath(p) for p in paths if p]
-    keep = _protected_pids()
+    keep = _protected_pids(deadline)
     out = []
-    for pid, args in _process_args().items():
+    for pid, args in _process_args(timeout=_bounded(deadline, 30)).items():
         if pid in owned or pid in keep:
             continue
         if _names_a_path(args, paths):
@@ -5480,10 +5561,10 @@ def stop_processes(paths, deadline=None):
     which the deleter holds on exactly as it holds on a survivor."""
     pids = processes_in(paths, deadline)
     if pids is None:
-        why = "the processes working in its workspaces could not be listed in the time the caller had"
+        why = "the processes working in its workspaces could not be listed (the listing failed or ran out of time)"
         event("processes-unknown", paths=paths or None, why=why)
         return {"stopped": [], "survivors": [], "unknown": why}
-    spared = _named_only(paths, set(pids))
+    spared = _named_only(paths, set(pids), deadline)
     if spared:
         event("processes-named-only", pids=[p for p, _a in spared], args=[a for _p, a in spared],
               why="their command line names the workspace, but nothing shows the workspace started them; "
@@ -5494,7 +5575,7 @@ def stop_processes(paths, deadline=None):
     # PIDs are reused, so the history keeps each one's start time (V2-11).
     process_start_before = {}
     for p in pids:
-        st, when = process_start(p)
+        st, when = process_start(p, timeout=_bounded(deadline, 10))
         if st == "ok":
             process_start_before[p] = when
     for p in pids:
@@ -5502,7 +5583,11 @@ def stop_processes(paths, deadline=None):
             os.kill(p, signal.SIGTERM)
         except OSError:
             pass
+    # Neither wait outlives the caller's deadline (V3-02): a process still
+    # dying then is a survivor, which the caller defers rather than fails.
     grace_until = now() + PROCESS_STOP_GRACE
+    if deadline is not None:
+        grace_until = min(grace_until, deadline)
     alive = list(pids)
     while alive and now() < grace_until:
         time.sleep(0.1)
@@ -5524,7 +5609,7 @@ def stop_processes(paths, deadline=None):
     # Inside the caller's budget too (V2-03): a process still dying when it
     # runs out is a survivor, which holds the deletion for a retry.
     kill_deadline = time.monotonic() + (PROCESS_KILL_WAIT if deadline is None
-                                        else min(PROCESS_KILL_WAIT, max(0.5, deadline - now())))
+                                        else min(PROCESS_KILL_WAIT, max(0.0, deadline - now())))
     while survivors and time.monotonic() < kill_deadline:
         time.sleep(0.05)
         survivors = [p for p in survivors if _alive(p)]
