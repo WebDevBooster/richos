@@ -12,12 +12,17 @@
 // comes from `list_output` (S3, `src-tauri/src/output_files.rs`), which converges the thread's
 // output record and re-stats every file; `rich://output` says when the record gained files.
 //
-// WHAT IT DOES NOT DO YET, said here so nobody reads a gap as a bug. Each is a later slice of
-// the same PRD, and each has a named hook below rather than a half-built version:
-//   * previews by kind (S5): the file view shows the file's facts and, for a missing file, the
-//     §6.7 sentence; `hooks.viewer(entry, box)` is where S5 renders;
-//   * the per-file actions — Open in <app>, Open with…, Show in Finder, Save a copy…, Copy path
-//     (S6) and Add to chat (S7): `hooks.rowActions(entry, row)` and `hooks.fileTools(entry, box)`;
+// PREVIEWS BY KIND (S5, §7): the file view draws the file itself — Markdown rendered, text,
+// a CSV's first rows, a picture, a PDF, a video, a recording, an Office or iWork document's first
+// page — from `output_preview`, or says the §6.7 sentence. `viewPreview` below; `hooks.viewer`
+// still overrides it.
+//
+// THE ACTIONS (S6) AND ADD TO CHAT (S7), near the foot of this file: Open in <app>, Open with…,
+// Show in Finder, Save a copy…, Copy path, through `hooks.rowActions`, `hooks.fileTools` and
+// `hooks.pathTools`; Add to chat last in the same menus, through `hooks.menuItems`.
+//
+// WHAT IT DOES NOT DO YET, said here so nobody reads a gap as a bug. A later slice of the same
+// PRD, with a named place rather than a half-built version:
 //   * the divider, the stop, the snap and the floating composer (S9): the panel's width is the
 //     `--output-width` custom property, 400px, and nothing here drags it.
 //
@@ -335,8 +340,10 @@
     body.appendChild(node("span", "opath", f.exists ? f.folder + "/" : MISSING_LINE));
     if (f.actor === "worker" && f.workerName) body.appendChild(node("span", "oby", "by " + f.workerName));
     row.appendChild(body);
-    // S6's hover actions (Open in <app>, ⋯) and the row's context menu land here.
-    if (hooks.rowActions) hooks.rowActions(f, row);
+    // S6's hover actions (Open in <app>, ⋯) and the row's context menu land here. They come back
+    // BESIDE the row, in a wrapper, never inside it: a `role="button"` row's children are
+    // presentational, so a button nested in it is invisible to VoiceOver (seen on the VM, S6).
+    const placed = hooks.rowActions ? hooks.rowActions(f, row) : null;
     row.addEventListener("click", (e) => {
       if (e.target.closest("[data-act]")) return;
       showFile(f.id);
@@ -348,7 +355,7 @@
         showFile(f.id);
       }
     });
-    return row;
+    return placed || row;
   }
 
   function setHead(eyebrow, title, sub) {
@@ -497,11 +504,10 @@
     view.appendChild(bar);
 
     // S6's Open in <app> / ▾ / Show in Finder / Save a copy… / ⋯ and S5's Preview | Source.
-    if (hooks.fileTools) {
-      const tools = node("div", "of-tools");
-      hooks.fileTools(f, tools);
-      if (tools.childNodes.length) view.appendChild(tools);
-    }
+    const tools = node("div", "of-tools");
+    if (hooks.fileTools) hooks.fileTools(f, tools);
+    if (f.exists) sourceSwitch(f, tools);
+    if (tools.childNodes.length) view.appendChild(tools);
 
     const pathLine = node("div", "of-path");
     const code = node("code");
@@ -510,24 +516,16 @@
     else code.textContent = f.folder + "/" + f.name;
     code.title = f.path;
     pathLine.appendChild(code);
+    // S6's *Copy the full path* sits at the end of the path line (§6.4).
+    if (hooks.pathTools) hooks.pathTools(f, pathLine);
     view.appendChild(pathLine);
 
     const viewer = node("div", "of-view");
     viewer.id = "op-viewer";
     if (!f.exists) {
       viewer.appendChild(node("p", "of-missing", MISSING_SENTENCE));
-    } else if (hooks.viewer) {
-      hooks.viewer(f, viewer);
     } else {
-      const facts = node("p", "of-meta");
-      facts.appendChild(node("b", null, KIND_WORD[f.kind] || (extension(f.name) ? extension(f.name).toUpperCase() : "File")));
-      if (typeof f.bytes === "number") {
-        const dot = node("span", null, "·");
-        dot.setAttribute("aria-hidden", "true");
-        facts.appendChild(dot);
-        facts.appendChild(node("span", null, humanSize(f.bytes)));
-      }
-      viewer.appendChild(facts);
+      (hooks.viewer || viewPreview)(f, viewer);
     }
     view.appendChild(viewer);
 
@@ -538,6 +536,316 @@
     if (opts.focusStep === "prev") prev.focus({ preventScroll: true });
     else if (opts.focusStep === "next") next.focus({ preventScroll: true });
     else back.focus({ preventScroll: true });
+  }
+
+  // ---- S5: THE PREVIEWS, ONE VIEWER PER KIND (§7, §6.4, §6.7, §12.5) ------------------------
+  //
+  // `output_preview(output_id)` (`src-tauri/src/output_files.rs`) answers with a tagged view:
+  // `text` (md, txt: the first 2 MiB), `table` (csv: the first 200 rows, parsed in Rust),
+  // `image`, `pdf`, `video`, `audio` and `rendition` (a scheme URL the shell checked and serves),
+  // or `none` with the §6.7 sentence and why. THE PAGE NEVER BUILDS A URL: every `src` below is
+  // the one the shell returned, so the scheme's own checks (§5.2, a bad id is a 404 with no
+  // bytes) are the only way bytes reach a viewer.
+  //
+  // NO FILE CONTENT EVER BECOMES MARKUP. Markdown goes through `timeline.js`'s DOM-only renderer
+  // with its document extension (tables, quotations, rules, fenced code; links drawn as their
+  // text); text and source are one text node in a `<pre>`; a table cell is a text node.
+  //
+  // Nothing is said for the first 150 ms of a read; after that the viewer says *Reading…* (§6.7).
+  // The last answer is kept, so the Preview | Source switch and an arriving turn's re-render of the
+  // SAME file view (§6.6) redraw from it without asking the shell again. Opening a file from the
+  // list, or stepping to it, always asks: the file may have changed or gone since it was last shown.
+
+  /// Preview or Source for `md` and `txt`, kept while the panel is open, as round 17 keeps it.
+  /// `last` is the answer the viewer on screen was drawn from: `{ key, answer }`.
+  const preview = { source: false, last: null };
+  const SOURCE_KINDS = { md: true, txt: true };
+  /// The format a picture is, for the facts line (*1280 × 800 · PNG · 96 KB*).
+  const IMAGE_WORD = { png: "PNG", jpg: "JPEG", jpeg: "JPEG", gif: "GIF", webp: "WebP", heic: "HEIC", svg: "SVG" };
+  /// What a QuickLook rendition is a page of, by the file's own extension.
+  const DOC_WORD = {
+    docx: "Word document",
+    doc: "Word document",
+    pages: "Pages document",
+    rtf: "Rich text document",
+    xlsx: "Excel spreadsheet",
+    xls: "Excel spreadsheet",
+    numbers: "Numbers spreadsheet",
+    pptx: "PowerPoint presentation",
+    ppt: "PowerPoint presentation",
+    key: "Keynote presentation",
+  };
+  /// *The whole sheet opens in Numbers* (§7): what "the whole" of each kind is called.
+  const WHOLE_WORD = { csv: "sheet", xlsx: "sheet", docx: "document", pptx: "presentation" };
+  const TEXT_CAP_LINE = "Showing the first 2 MB";
+
+  function previewKey(f) {
+    return f.id + "@" + (f.modifiedAt == null ? "" : f.modifiedAt);
+  }
+
+  /// `0:31`, `4:05`, `1:02:09` — a length as a player shows it; never a guess.
+  function clock(ms) {
+    const total = Math.round(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = String(total % 60).padStart(2, "0");
+    return h ? h + ":" + String(m).padStart(2, "0") + ":" + s : m + ":" + s;
+  }
+
+  function countWords(text) {
+    const m = String(text).match(/\S+/g);
+    return m ? m.length : 0;
+  }
+
+  function plural(n, one, many) {
+    return n.toLocaleString("en-US") + " " + (n === 1 ? one : many);
+  }
+
+  /// The facts line under a viewer (§6.4): its first part bold, the rest after a middle dot.
+  function factsLine(parts) {
+    const p = node("p", "of-meta");
+    parts.filter(Boolean).forEach((text, n) => {
+      if (n) {
+        const dot = node("span", null, "·");
+        dot.setAttribute("aria-hidden", "true");
+        p.appendChild(dot);
+      }
+      p.appendChild(node(n ? "span" : "b", null, text));
+    });
+    return p;
+  }
+
+  /// *Open in Preview*, or *Open* when Launch Services named no app (§5.4's degraded mode).
+  /// Takes the app's NAME, as `output_preview` answers it. Not `openLabel(detail)` in "THE
+  /// ACTIONS" below: the two shared one name when S5 and S6 were combined, and the later
+  /// declaration silently replaced this one, so the sentence lost its app.
+  function openInApp(app) {
+    return app ? "Open in " + app : "Open";
+  }
+
+  /// A picture, a page or a recording the webview could not draw: said, with where it opens.
+  function couldNotShow(app) {
+    return node("p", "of-none", "I couldn't show this file here. " + openInApp(app) + " has it.");
+  }
+
+  /// The hook S4 left for this slice: fill `box` (the file view's `#op-viewer`) for `f`.
+  function viewPreview(f, box) {
+    const key = previewKey(f);
+    // The view being replaced is still in the document while its successor is built: when it
+    // showed this very file at this very modification time, its answer is the one to draw.
+    const shown = el("op-viewer");
+    if (shown && shown.dataset.key === key && preview.last && preview.last.key === key) {
+      return drawPreview(f, preview.last.answer, box);
+    }
+    const reading = window.setTimeout(() => {
+      if (box.isConnected && !box.childNodes.length) box.appendChild(node("p", "of-reading", "Reading…"));
+    }, LOOKING_AFTER_MS);
+    bridge.invoke("output_preview", { outputId: f.id }).then(
+      (answer) => {
+        window.clearTimeout(reading);
+        const a = answer && typeof answer === "object" ? answer : { view: "none", why: "readFailed", reason: "" };
+        if (box.isConnected) drawPreview(f, a, box);
+      },
+      (e) => {
+        // The shell refused the id itself (not in this thread's record): its own sentence.
+        window.clearTimeout(reading);
+        if (box.isConnected) drawPreview(f, { view: "none", why: "refused", reason: String(e && e.message ? e.message : e) }, box);
+      }
+    );
+  }
+
+  function drawPreview(f, a, box) {
+    const key = previewKey(f);
+    preview.last = { key, answer: a };
+    box.textContent = "";
+    box.dataset.key = key;
+    box.dataset.preview = a.view;
+    if (a.why) box.dataset.why = a.why;
+    else delete box.dataset.why;
+    const size = typeof a.bytes === "number" ? humanSize(a.bytes) : typeof f.bytes === "number" ? humanSize(f.bytes) : "";
+    const ext = extension(f.name);
+    switch (a.view) {
+      case "text": {
+        const source = SOURCE_KINDS[f.kind] && preview.source;
+        if (f.kind === "md" && !source) {
+          const md = node("div", "of-md");
+          if (window.RichTimeline && window.RichTimeline.renderMarkdownInto) {
+            window.RichTimeline.renderMarkdownInto(md, a.text, null, { document: true });
+          } else {
+            md.textContent = a.text;
+          }
+          box.appendChild(md);
+        } else {
+          box.appendChild(node("pre", source ? "of-src" : "of-text", a.text));
+        }
+        if (a.truncated) box.appendChild(node("p", "of-note", TEXT_CAP_LINE));
+        const lines = a.text ? a.text.split("\n").length - (a.text.endsWith("\n") ? 1 : 0) : 0;
+        box.appendChild(
+          f.kind === "md"
+            ? factsLine([plural(countWords(a.text), "word", "words"), "Markdown"])
+            : factsLine([plural(lines, "line", "lines"), KIND_WORD.txt])
+        );
+        return;
+      }
+      case "table": {
+        const rows = Array.isArray(a.rows) ? a.rows : [];
+        const head = rows[0] || [];
+        const body = rows.slice(1);
+        const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
+        // A column is a number column when every filled cell in it reads as one: right-aligned.
+        const numeric = [];
+        for (let c = 0; c < width; c += 1) {
+          const cells = body.map((r) => (r[c] || "").trim()).filter(Boolean);
+          numeric[c] = cells.length > 0 && cells.every((v) => /^[-+−(]?[$€£¥]?[\d.,]+[%)]?$/.test(v));
+        }
+        const wrap = node("div", "of-tbl-wrap");
+        wrap.tabIndex = 0;
+        wrap.setAttribute("role", "region");
+        wrap.setAttribute("aria-label", f.name + ", the first rows");
+        const table = node("table", "of-tbl");
+        const thead = node("thead");
+        const htr = node("tr");
+        for (let c = 0; c < width; c += 1) {
+          const th = node("th", numeric[c] ? "num" : null, head[c] || "");
+          th.scope = "col";
+          htr.appendChild(th);
+        }
+        thead.appendChild(htr);
+        table.appendChild(thead);
+        const tbody = node("tbody");
+        for (const r of body) {
+          const tr = node("tr");
+          for (let c = 0; c < width; c += 1) tr.appendChild(node("td", numeric[c] ? "num" : null, r[c] || ""));
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        box.appendChild(wrap);
+        // `totalRows` counts the header row; the facts count the rows under it.
+        const total = Math.max(0, (a.totalRows || rows.length) - 1);
+        if (body.length < total || !a.countedAll) {
+          box.appendChild(node("p", "of-note", "Showing the first " + plural(body.length, "row", "rows")));
+        }
+        box.appendChild(
+          factsLine([
+            (a.countedAll === false ? "More than " : "") + plural(total, "row", "rows"),
+            KIND_WORD.csv,
+            a.app ? "The whole " + WHOLE_WORD.csv + " opens in " + a.app : null,
+          ])
+        );
+        return;
+      }
+      case "image": {
+        const frame = node("div", "of-img");
+        const img = node("img");
+        img.alt = f.name;
+        img.decoding = "async";
+        img.addEventListener("error", () => frame.replaceWith(couldNotShow(a.app)));
+        img.src = a.url;
+        frame.appendChild(img);
+        box.appendChild(frame);
+        box.appendChild(
+          factsLine([a.width && a.height ? a.width + " × " + a.height : null, IMAGE_WORD[ext] || ext.toUpperCase() || KIND_WORD.png, size])
+        );
+        return;
+      }
+      case "pdf": {
+        const frame = node("iframe", "of-pdf");
+        frame.title = f.name;
+        frame.src = a.url;
+        box.appendChild(frame);
+        box.appendChild(factsLine([KIND_WORD.pdf, size]));
+        return;
+      }
+      case "video": {
+        const player = node("video", "of-video");
+        player.controls = true;
+        player.preload = "metadata";
+        player.playsInline = true;
+        player.setAttribute("aria-label", f.name);
+        // The player stays, with its controls, and the sentence says why it shows nothing.
+        player.addEventListener("error", () => {
+          if (!box.querySelector(".of-none")) player.after(couldNotShow(a.app));
+        });
+        player.src = a.url;
+        box.appendChild(player);
+        box.appendChild(
+          factsLine([
+            typeof a.durationMs === "number" ? clock(a.durationMs) : KIND_WORD.mp4,
+            a.width && a.height ? a.width + " × " + a.height : null,
+            size,
+          ])
+        );
+        return;
+      }
+      case "audio": {
+        const player = node("audio", "of-audio");
+        player.controls = true;
+        player.preload = "metadata";
+        player.setAttribute("aria-label", f.name);
+        player.addEventListener("error", () => {
+          if (!box.querySelector(".of-none")) player.after(couldNotShow(a.app));
+        });
+        player.src = a.url;
+        box.appendChild(player);
+        box.appendChild(factsLine([typeof a.durationMs === "number" ? clock(a.durationMs) : null, KIND_WORD.audio, size]));
+        return;
+      }
+      case "rendition": {
+        // QuickLook's picture of the first page, on the file's own white in both themes (§6.9).
+        const paper = node("div", "paper of-rendition");
+        const img = node("img");
+        img.alt = "The first page of " + f.name;
+        img.decoding = "async";
+        img.addEventListener("error", () => paper.replaceWith(couldNotShow(a.app)));
+        img.src = a.url;
+        paper.appendChild(img);
+        box.appendChild(paper);
+        box.appendChild(
+          factsLine([
+            DOC_WORD[ext] || KIND_WORD[f.kind] || "Document",
+            size,
+            a.app ? "The whole " + (WHOLE_WORD[f.kind] || "document") + " opens in " + a.app : null,
+          ])
+        );
+        return;
+      }
+      default:
+        // none: missing, refused (a link, a swapped file, not a regular file), readFailed,
+        // tooLarge or noViewer — the shell's §6.7 sentence, verbatim.
+        box.appendChild(node("p", "of-none", a.reason || ""));
+    }
+  }
+
+  /// Preview | Source, for Markdown and plain text (§6.4, §11 row 11), in the file view's tools
+  /// row before S6's `⋯` when it is there. One switch, two pressed states; it redraws the viewer
+  /// from the kept answer and leaves focus where it was.
+  function sourceSwitch(f, tools) {
+    if (!SOURCE_KINDS[f.kind]) return;
+    const seg = node("span", "of-seg");
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", "Preview or source");
+    const make = (label, isSource) => {
+      const b = node("button", null, label);
+      b.type = "button";
+      b.dataset.seg = isSource ? "source" : "preview";
+      b.setAttribute("aria-pressed", String(preview.source === isSource));
+      b.addEventListener("click", () => {
+        if (preview.source === isSource) return;
+        preview.source = isSource;
+        for (const other of seg.querySelectorAll("button")) {
+          other.setAttribute("aria-pressed", String((other.dataset.seg === "source") === isSource));
+        }
+        const box = el("op-viewer");
+        if (box && preview.last && preview.last.key === previewKey(f)) drawPreview(f, preview.last.answer, box);
+      });
+      return b;
+    };
+    seg.appendChild(make("Preview", false));
+    seg.appendChild(make("Source", true));
+    const more = tools.querySelector('[data-act="menu"]');
+    if (more) tools.insertBefore(seg, more);
+    else tools.appendChild(seg);
   }
 
   // ---- open, close, step back ----------------------------------------------------------------
@@ -584,6 +892,7 @@
     opts = opts || {};
     const panel = el("outpanel");
     const wasOpen = state.open || !panel.hidden;
+    closeMenu({ focus: false });
     state.open = false;
     state.view = "list";
     state.file = null;
@@ -609,6 +918,8 @@
   /// then the list to closed. Read off the DOM as well as the state, because the Escape rule's
   /// own suite opens a surface by un-hiding it.
   function escape() {
+    // A menu first (S6, §6.8): a submenu back to its menu, a menu closed.
+    if (closeMenu({ step: true })) return;
     if (state.open && state.view === "file" && state.file) {
       showList({ focusFile: state.file });
       return;
@@ -670,8 +981,9 @@
     openGroup,
   };
 
-  /// The hooks the later slices fill (S5 previews, S6 actions). Empty in S4.
-  const hooks = { viewer: null, rowActions: null, fileTools: null };
+  /// The hooks the later slices fill. `viewer` overrides S5's `viewPreview`; "THE ACTIONS"
+  /// below fills `rowActions`, `fileTools` and `pathTools` (S6) and `menuItems` (S7).
+  const hooks = { viewer: null, rowActions: null, fileTools: null, pathTools: null, menuItems: null };
 
   function cssEscape(s) {
     return String(s).replace(/(["\\])/g, "\\$1");
@@ -750,6 +1062,631 @@
     });
     paintButtons();
   }
+
+  // ==========================================================================================
+  // THE ACTIONS — slice S6 of the Output side panel PRD (§5.4, §6.3, §6.4, §6.7, §6.8, §12.6)
+  // ==========================================================================================
+  //
+  // Open in <app>, Open with…, Show in Finder, Save a copy…, Copy path, and Preview from a row's
+  // menu. Their entrances: a row's hover `Open` and `⋯`, a right-click on the row (or the
+  // context-menu key and Shift+F10 on a focused row), the file view's gold *Open in <app>* with
+  // its `▾` and its `⋯`, and the path line's *Copy the full path*. EVERY ACTION SAYS WHAT IT
+  // DID in the panel's notice (`#op-notice`, `role="status"`): the shell's own sentence for the
+  // four commands (*Opening brief.md in Obsidian.*, *Finder opens acme/counter/ with brief.md
+  // selected.*, *Saved a copy of brief.md to you/Desktop/.*, *Nothing was saved.*), *Copied
+  // the path.* for the one with no command. A refused action says the shell's sentence there
+  // and nothing else changes (§6.7).
+  //
+  // THE PAGE NEVER NAMES A PATH (§5.1). Open, Open with, Show in Finder and Save a copy… send
+  // the output id; Open with sends the place of the app in the list the shell itself answered
+  // (`output_file`), which the shell recomputes and compares. When that list changed, the
+  // refusal says *Choose one again.* and the list is shown again, fresh, at the same control.
+  // Copy path has no command: the recorded path goes to the clipboard from his gesture (§5.4).
+  //
+  // WHAT IS LIT (§6.7), from the shell's `output_file.problem`, never a matched sentence: a file
+  // no longer where it was written keeps Copy path, and Preview (its own view says where it is
+  // not); a link or a swapped file keeps Show in Finder; everything else is disabled with the
+  // reason as its tooltip — `aria-disabled`, not `disabled`, so it stays focusable and the
+  // tooltip shows.
+  //
+  // ADD TO CHAT (S7) joins through `hooks.menuItems(entry, detail) -> [{ id, label, icon, act,
+  // disabled }]`, shown after a separator in the row's `⋯`, its right-click and the file view's
+  // `⋯`; its section follows the entrances below.
+
+  /// VERBATIM from `APPS_CHANGED` and `APP_NOT_OFFERED` in `src-tauri/src/output_files.rs`:
+  /// the two refusals after which the app list is shown again.
+  const APPS_CHANGED = "The apps that open this file changed since the list was shown. Choose one again.";
+  const APP_NOT_OFFERED = "That app is not one this Mac offers for this file. Choose one again.";
+  const COPIED = "Copied the path.";
+  const COPY_FAILED = "I couldn't copy the path.";
+
+  const ACT_SHAPES = {
+    open: [["path", { d: "M14 5h5v5" }], ["path", { d: "M19 5l-9 9" }], ["path", { d: "M19 14v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" }]],
+    more: [5, 12, 19].map((cx) => ["circle", { cx, cy: 12, r: 1.6, fill: "currentColor", stroke: "none" }]),
+    eye: [["path", { d: "M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
+    down: [["path", { d: "m6 9 6 6 6-6" }]],
+    right: [["path", { d: "m9 18 6-6-6-6" }]],
+    copy: [["rect", { x: 9, y: 9, width: 11, height: 11, rx: 2 }], ["path", { d: "M5 15V5a2 2 0 0 1 2-2h10" }]],
+    folder: [["path", { d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+    save: [["path", { d: "M12 4v11" }], ["path", { d: "m7 10 5 5 5-5" }], ["path", { d: "M5 20h14" }]],
+    apps: [[3, 3], [14, 3], [3, 14], [14, 14]].map(([x, y]) => ["rect", { x, y, width: 7, height: 7, rx: 1.5 }]),
+    // Round 17's `I.clip`, for Add to chat.
+    clip: [["path", { d: "m21 12-8.5 8.5a5 5 0 0 1-7-7L14 5a3.3 3.3 0 0 1 4.7 4.7L10.3 18a1.6 1.6 0 0 1-2.3-2.3L16 7.7" }]],
+  };
+
+  function actIcon(name) {
+    const svg = icon("file");
+    svg.textContent = "";
+    for (const [tag, attrs] of ACT_SHAPES[name] || []) {
+      const shape = document.createElementNS(SVG_NS, tag);
+      for (const k of Object.keys(attrs)) shape.setAttribute(k, String(attrs[k]));
+      svg.appendChild(shape);
+    }
+    return svg;
+  }
+
+  const act = {
+    /// output id -> Promise of `output_file`'s answer; emptied whenever the list is read again.
+    details: new Map(),
+    detailsRev: -1,
+    /// The open menu: { el, items, opts, opener, row, parent }, or null.
+    menu: null,
+    /// A save sheet is open: a second *Save a copy…* waits for it rather than stacking sheets.
+    saving: false,
+    noticeTimer: 0,
+    noticeHide: 0,
+  };
+
+  function said(e) {
+    return String(e && e.message ? e.message : e);
+  }
+
+  /// What the shell says about one file: its apps and whether anything may be done with it.
+  function detailOf(id, fresh) {
+    if (act.detailsRev !== state.rev) {
+      act.details.clear();
+      act.detailsRev = state.rev;
+    }
+    if (fresh) act.details.delete(id);
+    let p = act.details.get(id);
+    if (!p) {
+      p = bridge.invoke("output_file", { outputId: id }).then(
+        (d) => d || {},
+        (e) => ({ error: said(e) })
+      );
+      act.details.set(id, p);
+    }
+    return p;
+  }
+
+  /// For each action, null when it is lit, else the reason shown as its tooltip (§6.7).
+  function blockers(f, d) {
+    const problem = !f.exists ? "missing" : d && d.problem;
+    const why = (d && d.reason) || MISSING_SENTENCE;
+    if (problem === "missing") return { open: MISSING_SENTENCE, reveal: MISSING_SENTENCE, save: MISSING_SENTENCE, copy: null };
+    if (problem === "refused") return { open: why, reveal: null, save: why, copy: why };
+    if (problem === "readFailed") return { open: why, reveal: why, save: why, copy: null };
+    return { open: null, reveal: null, save: null, copy: null };
+  }
+
+  function defaultApp(d) {
+    return d && d.defaultApp && d.defaultApp.name ? d.defaultApp.name : null;
+  }
+
+  /// *Open in <app>*, or *Open* when Launch Services named no default (§5.4's degraded mode).
+  function openLabel(d) {
+    return defaultApp(d) ? "Open in " + defaultApp(d) : "Open";
+  }
+
+  function otherApps(d) {
+    return d && Array.isArray(d.otherApps) ? d.otherApps : [];
+  }
+
+  function setDisabled(control, reason) {
+    if (reason) control.setAttribute("aria-disabled", "true");
+    else control.removeAttribute("aria-disabled");
+  }
+
+  // ---- the notice: what an action did ------------------------------------------------------
+
+  /// Made empty the first time the panel shows a file, so the polite status region exists
+  /// before the first sentence is put in it — a region born with its words is not announced.
+  function ensureNotice() {
+    let n = el("op-notice");
+    if (n) return n;
+    n = node("div", "op-notice");
+    n.id = "op-notice";
+    n.setAttribute("role", "status");
+    n.setAttribute("aria-live", "polite");
+    n.setAttribute("aria-atomic", "true");
+    n.hidden = true;
+    el("outpanel").appendChild(n);
+    return n;
+  }
+
+  function notice(text) {
+    const n = ensureNotice();
+    window.clearTimeout(act.noticeTimer);
+    window.clearTimeout(act.noticeHide);
+    n.textContent = text;
+    n.classList.remove("leaving");
+    n.hidden = false;
+    n.style.animation = "none";
+    void n.offsetWidth;
+    n.style.animation = "";
+    // Long enough to read: the shell's longest sentence (the missing file's, 139 characters)
+    // stays 7.8 s; a short one 3.4 s, the mockup's.
+    const ms = Math.max(3400, 1500 + text.length * 45);
+    act.noticeTimer = window.setTimeout(() => {
+      n.classList.add("leaving");
+      act.noticeHide = window.setTimeout(() => {
+        n.hidden = true;
+        n.classList.remove("leaving");
+      }, 400);
+    }, ms);
+  }
+
+  // ---- the actions themselves ----------------------------------------------------------------
+
+  /// One shell command; its sentence in the notice either way. A file found gone reads the
+  /// list again, so its row dims where he is looking.
+  async function perform(cmd, args) {
+    try {
+      notice(String(await bridge.invoke(cmd, args)));
+      return { ok: true };
+    } catch (e) {
+      const s = said(e);
+      notice(s);
+      if (s === MISSING_SENTENCE) load();
+      return { ok: false, said: s };
+    }
+  }
+
+  function openFileInApp(f, appIndex) {
+    const args = { outputId: f.id };
+    if (typeof appIndex === "number") args.appIndex = appIndex;
+    return perform("output_open", args);
+  }
+
+  async function openWith(f, index, from) {
+    const r = await openFileInApp(f, index);
+    if (r.ok || (r.said !== APPS_CHANGED && r.said !== APP_NOT_OFFERED)) return;
+    // *Choose one again.* — the list as the Mac gives it now, at the control he used.
+    const d = await detailOf(f.id, true);
+    if (from && from.isConnected) showMenu(appMenuItems(f, d, from), { opener: from, title: "Open " + f.name + " with", kind: "open-with" });
+  }
+
+  function reveal(f) {
+    return perform("output_reveal", { outputId: f.id });
+  }
+
+  async function saveCopy(f) {
+    if (act.saving) return;
+    act.saving = true;
+    try {
+      await perform("output_save_copy", { outputId: f.id });
+    } finally {
+      act.saving = false;
+    }
+  }
+
+  /// The recorded path, from his gesture (§5.4: no command).
+  function copyPath(f) {
+    const failed = () => notice(COPY_FAILED);
+    try {
+      const clip = navigator.clipboard;
+      if (!clip || typeof clip.writeText !== "function") return failed();
+      clip.writeText(f.path).then(() => notice(COPIED), failed);
+    } catch (_e) {
+      failed();
+    }
+  }
+
+  // ---- the menus (§6.8: role="menu", arrow keys, Escape back to the opener) -------------------
+
+  /// The row's `⋯` and right-click (`withPreview`), and the file view's `⋯`: round 17's set.
+  function fileMenuItems(f, d, withPreview) {
+    const b = blockers(f, d);
+    const items = [];
+    if (withPreview) items.push({ id: "preview", icon: "eye", label: "Preview", act: () => showFile(f.id) });
+    items.push({ id: "open", icon: "open", label: openLabel(d), disabled: b.open, act: () => openFileInApp(f) });
+    // §5.4's degraded mode: no app list, no *Open with…*.
+    if (otherApps(d).length) {
+      items.push({ id: "open-with", icon: "apps", label: "Open with…", disabled: b.open, sub: (from) => openSubmenu(f, d, from) });
+    }
+    items.push({ sep: true });
+    items.push({ id: "reveal", icon: "folder", label: "Show in Finder", disabled: b.reveal, act: () => reveal(f) });
+    items.push({ id: "save", icon: "save", label: "Save a copy…", disabled: b.save, act: () => saveCopy(f) });
+    items.push({ id: "copy", icon: "copy", label: "Copy path", disabled: b.copy, act: () => copyPath(f) });
+    const extra = typeof hooks.menuItems === "function" ? hooks.menuItems(f, d) || [] : [];
+    if (extra.length) items.push({ sep: true }, ...extra);
+    return items;
+  }
+
+  /// The `▾` beside Open: the default app first, the others under it, then Finder and Save.
+  function openMenuItems(f, d, from) {
+    const b = blockers(f, d);
+    const items = [{ id: "open", icon: "open", label: openLabel(d), disabled: b.open, act: () => openFileInApp(f) }];
+    otherApps(d).forEach((app, i) => {
+      items.push({ id: "app-" + i, icon: "apps", label: "Open in " + app.name, disabled: b.open, act: () => openWith(f, i, from) });
+    });
+    items.push({ sep: true });
+    items.push({ id: "reveal", icon: "folder", label: "Show in Finder", disabled: b.reveal, act: () => reveal(f) });
+    items.push({ id: "save", icon: "save", label: "Save a copy…", disabled: b.save, act: () => saveCopy(f) });
+    return items;
+  }
+
+  /// *Open with…*'s list: every other app, by the place the shell gave it.
+  function appMenuItems(f, d, from) {
+    const b = blockers(f, d);
+    return otherApps(d).map((app, i) => ({ id: "app-" + i, icon: "apps", label: app.name, disabled: b.open, act: () => openWith(f, i, from) }));
+  }
+
+  function openSubmenu(f, d, item) {
+    const parent = act.menu;
+    if (!parent) return;
+    showMenu(appMenuItems(f, d, parent.opener || parent.row), {
+      opener: parent.opener,
+      row: parent.row,
+      at: parent.opts.at,
+      title: "Open " + f.name + " with",
+      kind: "open-with",
+      parent: { items: parent.items, opts: parent.opts, focusId: item.dataset.item },
+    });
+  }
+
+  /// Close the open menu. `step`: a submenu goes back to its menu instead (Escape, ←). Focus
+  /// returns to the control that opened it unless `focus: false`. True when a menu was open.
+  function closeMenu(opts) {
+    opts = opts || {};
+    const m = act.menu;
+    if (!m) return false;
+    if (opts.step && m.parent) {
+      showMenu(m.parent.items, Object.assign({}, m.parent.opts, { focusId: m.parent.focusId }));
+      return true;
+    }
+    m.el.remove();
+    act.menu = null;
+    if (m.opener) m.opener.setAttribute("aria-expanded", "false");
+    if (m.row) m.row.classList.remove("menu-open");
+    if (opts.focus !== false) {
+      const back = [m.opener, m.row].find((n) => n && n.isConnected && n.getClientRects().length);
+      if (back) back.focus({ preventScroll: true });
+    }
+    return true;
+  }
+
+  function showMenu(items, opts) {
+    closeMenu({ focus: false });
+    const m = node("div", "op-menu");
+    m.id = "op-menu";
+    m.setAttribute("role", "menu");
+    m.dataset.kind = opts.kind || "";
+    if (opts.title) {
+      m.setAttribute("aria-label", opts.title);
+      const head = node("div", "op-menu-head", opts.title);
+      head.setAttribute("aria-hidden", "true");
+      m.appendChild(head);
+    }
+    for (const it of items) {
+      if (it.sep) {
+        const sep = node("div", "op-menu-sep");
+        sep.setAttribute("role", "separator");
+        m.appendChild(sep);
+        continue;
+      }
+      const b = node("button", "op-menu-item");
+      b.type = "button";
+      b.tabIndex = -1;
+      b.setAttribute("role", "menuitem");
+      b.dataset.item = it.id;
+      const label = node("span", "mi");
+      if (it.icon) label.appendChild(actIcon(it.icon));
+      label.appendChild(node("span", null, it.label));
+      b.appendChild(label);
+      if (it.sub) {
+        b.setAttribute("aria-haspopup", "menu");
+        const k = node("span", "k");
+        k.appendChild(actIcon("right"));
+        b.appendChild(k);
+      }
+      setDisabled(b, it.disabled);
+      if (it.disabled) b.title = it.disabled;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        activate(it, b);
+      });
+      m.appendChild(b);
+    }
+    m.addEventListener("keydown", menuKeys);
+    el("outpanel").appendChild(m);
+    act.menu = { el: m, items, opts, opener: opts.opener || null, row: opts.row || null, parent: opts.parent || null };
+    place(m, opts);
+    if (opts.opener) opts.opener.setAttribute("aria-expanded", "true");
+    if (opts.row) opts.row.classList.add("menu-open");
+    const list = [...m.querySelectorAll(".op-menu-item")];
+    const first =
+      list.find((b) => b.dataset.item === opts.focusId) ||
+      list.find((b) => b.getAttribute("aria-disabled") !== "true") ||
+      list[0];
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  /// Under its opener, right-aligned to it, or at the pointer; never off the window.
+  function place(m, opts) {
+    const w = m.offsetWidth;
+    const h = m.offsetHeight;
+    let x;
+    let y;
+    if (opts.at) {
+      x = opts.at.x;
+      y = opts.at.y;
+    } else if (opts.opener) {
+      const r = opts.opener.getBoundingClientRect();
+      x = r.right - w;
+      y = r.bottom + 6;
+      if (y + h > window.innerHeight - 8) y = r.top - h - 6;
+    } else {
+      x = 8;
+      y = 8;
+    }
+    m.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + "px";
+    m.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + "px";
+  }
+
+  function activate(it, b) {
+    if (it.disabled) return;
+    if (it.sub) return it.sub(b);
+    closeMenu();
+    it.act();
+  }
+
+  function menuKeys(e) {
+    const m = act.menu;
+    if (!m || e.currentTarget !== m.el) return;
+    const list = [...m.el.querySelectorAll(".op-menu-item")];
+    const at = list.indexOf(document.activeElement);
+    const go = (n) => {
+      e.preventDefault();
+      if (list.length) list[(n + list.length) % list.length].focus({ preventScroll: true });
+    };
+    const current = at >= 0 ? m.items.filter((it) => !it.sep)[at] : null;
+    switch (e.key) {
+      case "ArrowDown":
+        return go(at + 1);
+      case "ArrowUp":
+        return go(at < 0 ? list.length - 1 : at - 1);
+      case "Home":
+        return go(0);
+      case "End":
+        return go(list.length - 1);
+      case "ArrowRight":
+        if (current && current.sub && !current.disabled) {
+          e.preventDefault();
+          current.sub(list[at]);
+        }
+        return;
+      case "ArrowLeft":
+        if (m.parent) {
+          e.preventDefault();
+          closeMenu({ step: true });
+        }
+        return;
+      case "Escape":
+        // Answered here, one level, and not again by the shell's Escape rule (main.js).
+        e.preventDefault();
+        e.stopPropagation();
+        closeMenu({ step: true });
+        return;
+      case "Tab":
+        e.preventDefault();
+        closeMenu();
+        return;
+      default:
+    }
+  }
+
+  async function openFileMenu(f, opts, withPreview) {
+    const d = await detailOf(f.id);
+    showMenu(fileMenuItems(f, d, withPreview), Object.assign({ title: f.name, kind: withPreview ? "row" : "file" }, opts));
+  }
+
+  function toggleFrom(opener, open) {
+    if (act.menu && act.menu.opener === opener) return closeMenu();
+    open();
+  }
+
+  // ---- the entrances --------------------------------------------------------------------------
+
+  function paintRowOpen(f, button, d) {
+    const reason = blockers(f, d).open;
+    const app = defaultApp(d);
+    button.setAttribute("aria-label", "Open " + f.name + (app ? " in " + app : ""));
+    button.title = reason || openLabel(d);
+    setDisabled(button, reason);
+  }
+
+  /// A row's hover `Open` and `⋯` (§6.3), its right-click, and the context-menu key. Returns the
+  /// wrapper the list places instead of the row: the row and its actions side by side, laid out
+  /// as round 17's one row (`.orow-wrap` in style.css), because a `role="button"` row's children
+  /// are presentational — nested inside it, Open and `⋯` reach no assistive technology at all.
+  hooks.rowActions = function (f, row) {
+    ensureNotice();
+    const wrap = node("div", "orow-wrap");
+    const acts = node("span", "oacts");
+    const open = node("button", "oact");
+    open.type = "button";
+    open.dataset.act = "open";
+    open.appendChild(actIcon("open"));
+    paintRowOpen(f, open, null);
+    const more = node("button", "oact");
+    more.type = "button";
+    more.dataset.act = "menu";
+    more.title = "More";
+    more.setAttribute("aria-label", "More actions for " + f.name);
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute("aria-expanded", "false");
+    more.appendChild(actIcon("more"));
+    acts.appendChild(open);
+    acts.appendChild(more);
+    wrap.appendChild(row);
+    wrap.appendChild(acts);
+    // The app's name, once asked: on the first hover or focus, never for every row at once.
+    const learn = () => detailOf(f.id).then((d) => open.isConnected && paintRowOpen(f, open, d));
+    wrap.addEventListener("pointerenter", learn);
+    wrap.addEventListener("focusin", learn);
+    open.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (open.getAttribute("aria-disabled") !== "true") openFileInApp(f);
+    });
+    more.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleFrom(more, () => openFileMenu(f, { opener: more, row }, true));
+    });
+    wrap.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      openFileMenu(f, { row, at: { x: e.clientX, y: e.clientY } }, true);
+    });
+    row.addEventListener("keydown", (e) => {
+      if (e.target !== row || !(e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"))) return;
+      e.preventDefault();
+      const r = row.getBoundingClientRect();
+      openFileMenu(f, { row, at: { x: r.left + 52, y: r.bottom } }, true);
+    });
+    return wrap;
+  };
+
+  /// The file view's tools (§6.4): the gold *Open in <app>* with its `▾`, and `⋯`.
+  hooks.fileTools = function (f, box) {
+    ensureNotice();
+    const pill = node("span", "of-open");
+    const main = node("button");
+    main.type = "button";
+    main.dataset.act = "open";
+    main.appendChild(actIcon("open"));
+    const word = node("span", null, "Open");
+    main.appendChild(word);
+    const down = node("button");
+    down.type = "button";
+    down.dataset.act = "open-menu";
+    down.title = "Other ways to open";
+    down.setAttribute("aria-label", "Other ways to open");
+    down.setAttribute("aria-haspopup", "menu");
+    down.setAttribute("aria-expanded", "false");
+    down.appendChild(actIcon("down"));
+    pill.appendChild(main);
+    pill.appendChild(down);
+    const more = node("button", "of-tool icon-only");
+    more.type = "button";
+    more.dataset.act = "menu";
+    more.title = "More";
+    more.setAttribute("aria-label", "More actions");
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute("aria-expanded", "false");
+    more.appendChild(actIcon("more"));
+    box.appendChild(pill);
+    box.appendChild(more);
+    const paint = (d) => {
+      const b = blockers(f, d);
+      word.textContent = openLabel(d);
+      main.title = b.open || "";
+      setDisabled(main, b.open);
+      // The `▾` holds Open, Show in Finder and Save a copy…: lit while any of them is.
+      const none = b.open && b.reveal && b.save;
+      setDisabled(down, none);
+      down.title = none || "Other ways to open";
+      pill.classList.toggle("is-disabled", !!b.open);
+    };
+    paint(null);
+    detailOf(f.id).then((d) => main.isConnected && paint(d));
+    main.addEventListener("click", () => {
+      if (main.getAttribute("aria-disabled") !== "true") openFileInApp(f);
+    });
+    down.addEventListener("click", () => {
+      if (down.getAttribute("aria-disabled") === "true") return;
+      toggleFrom(down, async () => {
+        const d = await detailOf(f.id);
+        showMenu(openMenuItems(f, d, down), { opener: down, kind: "open-menu" });
+      });
+    });
+    more.addEventListener("click", () => toggleFrom(more, () => openFileMenu(f, { opener: more }, false)));
+  };
+
+  /// *Copy the full path*, at the end of the file view's path line (§6.4).
+  hooks.pathTools = function (f, line) {
+    const copy = node("button", "oact of-copy");
+    copy.type = "button";
+    copy.dataset.act = "copy";
+    copy.setAttribute("aria-label", "Copy the full path");
+    copy.appendChild(actIcon("copy"));
+    const paint = (d) => {
+      const reason = blockers(f, d).copy;
+      copy.title = reason || "Copy the full path";
+      setDisabled(copy, reason);
+    };
+    paint(null);
+    detailOf(f.id).then((d) => copy.isConnected && paint(d));
+    copy.addEventListener("click", () => {
+      if (copy.getAttribute("aria-disabled") !== "true") copyPath(f);
+    });
+    line.appendChild(copy);
+  };
+
+  // ---- Add to chat (slice S7, PRD §12.7), the last item of every menu above ------------------
+  //
+  // A file from the panel goes into the next message through the attachment desk:
+  // `RichAttachments.addRecorded` stages it by its OUTPUT ID (`output_attach` in
+  // `mac_attachments.rs`), so the desk's limits and its sentences apply unchanged, and a refusal
+  // is said on the tray's line under the composer exactly as a dropped file's is. Then focus goes
+  // to the composer, as round 17's `addToChat` does, so his words follow the file. Below 1180px
+  // the panel lies over the composer (§6.1), so it steps aside first and the tray is seen.
+  //
+  // WHERE IT IS REACHED: round 17 puts *Add to chat* last, after a rule, in the row's `⋯`, the
+  // file view's `⋯` and the right-click (`output.html` `menuItems`) — `fileMenuItems` above,
+  // through `hooks.menuItems`. One list builder, so each menu exists once.
+  //
+  // WHAT IT SAYS: *brief.md is attached to your next message.*, in the panel's on-screen notice
+  // (`#op-notice`, S6's, beside every other action's sentence) and in the conversation's live
+  // region (`ctx.announce`), which still speaks when the panel has stepped aside below 1180px
+  // and its notice is off screen with it.
+  const ADD_TO_CHAT = "Add to chat";
+
+  /// The menu item, in S6's shape. Attaching reads the file's bytes, as Save a copy… does, so it
+  /// is lit exactly when Save a copy… is: a file no longer where it was written (§4.6), a link or
+  /// a swapped file cannot be attached, and the reason is its tooltip, the same sentence as every
+  /// other action the menu disables (§6.7). Should the file change after the menu was drawn,
+  /// the desk still refuses it in its own words on the tray's line.
+  function addToChatItem(f, d) {
+    return { id: "add", icon: "clip", label: ADD_TO_CHAT, disabled: blockers(f, d).save, act: () => addToChat(f) };
+  }
+
+  async function addToChat(f) {
+    if (!f || !f.exists || !window.RichAttachments) return;
+    if (!isWide()) close({ keepFocus: true });
+    const said = await window.RichAttachments.addRecorded(f);
+    // A refusal is already said, and announced, by the tray's own `role="status"` line.
+    if (said && said.ok && said.sentence) {
+      notice(said.sentence);
+      if (ctx.announce) ctx.announce(said.sentence);
+    }
+    const input = el("input");
+    if (input) input.focus({ preventScroll: true });
+  }
+
+  hooks.menuItems = (f, d) => [addToChatItem(f, d)];
+
+  // A menu closes when he presses anywhere else, scrolls the list under it, or resizes.
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      const m = act.menu;
+      if (!m || m.el.contains(e.target) || (m.opener && m.opener.contains(e.target))) return;
+      closeMenu({ focus: false });
+    },
+    true
+  );
+  window.addEventListener("resize", () => closeMenu({ focus: false }));
+  if (el("op-body")) el("op-body").addEventListener("scroll", () => closeMenu({ focus: false }), { passive: true });
 
   window.RichOutput = {
     init,

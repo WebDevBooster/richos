@@ -30,6 +30,13 @@
 //! * **A paste** (a screenshot on the clipboard, an image copied from Preview) arrives in the
 //!   page as a `File`, and its bytes cross the IPC once, as a raw body
 //!   ([`attach_pasted_file`]), never base64 in JSON.
+//! * **A file the thread produced** (*Add to chat* in the Output panel, richos-hq
+//!   `docs/prds/2026-10-05-output-side-panel.md` §5.4 and slice S7, §12.7). The page names an
+//!   OUTPUT ID, never a path: [`output_attach`] resolves it against the active thread's record
+//!   through `output_files.rs` (§5.1), runs its checks (§5.2: no link, no swapped file, a regular
+//!   file), and reads the canonical path with `O_NOFOLLOW`. From there it is the drop's road
+//!   exactly — the same kind by name, the same size refusal before the read, the same
+//!   [`AttachmentDesk::stage_from`] and the same sentences. There is no second desk.
 //!
 //! # What this does NOT do, said rather than left to be discovered
 //!
@@ -40,6 +47,7 @@
 //!   be a second copy of up to 25 MiB for a picture.
 //! * Thread deletion does not reach these files, for the reason the phone's module gives.
 
+use crate::output_files::{self, OutputFiles};
 use crate::phone::attachments::{self, AttachmentDesk, Origin, Upload};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -144,6 +152,18 @@ fn display_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+/// A recorded file's bytes, never through a link at the last component, whatever happened
+/// since the §5.2 checks (Output side panel PRD §5.2 step 5). At most one byte over the desk's
+/// ceiling is read, which is enough to refuse a file that grew.
+fn read_nofollow(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path)?;
+    let mut out = Vec::new();
+    file.take(attachments::MAX_FILE_BYTES as u64 + 1).read_to_end(&mut out)?;
+    Ok(out)
+}
+
 /// `%XX` decoding for the one header that carries a name. Refuses a malformed escape and
 /// anything that does not decode to UTF-8, rather than guessing.
 fn percent_decode(value: &str) -> Option<String> {
@@ -222,24 +242,58 @@ impl MacAttachments {
         if meta.is_dir() {
             return Err(NOT_A_FILE.into());
         }
-        let name = display_name(path);
-        let Some(kind) = attachments::kind_for_name(&name) else {
+        self.stage_file(draft, id, &display_name(path), meta.len(), || std::fs::read(path))
+    }
+
+    /// **The one road from a file on this Mac to the desk**, for a drop and for a recorded file
+    /// alike: the kind from the name, the size refused BEFORE the read, then the desk's own
+    /// `stage_from`. `len` is what `stat` said; `read` reads the bytes.
+    fn stage_file(
+        &self,
+        draft: &str,
+        id: &str,
+        name: &str,
+        len: u64,
+        read: impl FnOnce() -> std::io::Result<Vec<u8>>,
+    ) -> Result<AttachedView, String> {
+        let Some(kind) = attachments::kind_for_name(name) else {
             return Err(Origin::Mac.unknown_type());
         };
         // Refused BEFORE it is read: a 4 GB video dropped by mistake must not be pulled into
         // memory just to be told it is too big.
-        if meta.len() > attachments::MAX_FILE_BYTES as u64 {
+        if len > attachments::MAX_FILE_BYTES as u64 {
             return Err(Origin::Mac.too_large());
         }
-        let bytes = std::fs::read(path).map_err(|_| UNREADABLE.to_string())?;
+        let bytes = read().map_err(|_| UNREADABLE.to_string())?;
+        // A file that grew between the `stat` and the read is held to the same ceiling.
+        if bytes.len() > attachments::MAX_FILE_BYTES {
+            return Err(Origin::Mac.too_large());
+        }
         let upload = self
             .desk
-            .stage_from(Origin::Mac, MAC_DEVICE, draft, id, Some(&name), kind.media_type, &bytes)
+            .stage_from(Origin::Mac, MAC_DEVICE, draft, id, Some(name), kind.media_type, &bytes)
             .map_err(|e| {
-                eprintln!("[richos] a file dropped on the composer could not be staged: {e}");
+                eprintln!("[richos] a file for the composer could not be staged: {e}");
                 NOT_SAVED.to_string()
             })?;
         self.answer(upload)
+    }
+
+    /// **Attach a file this thread produced, by its output id** (Output side panel PRD §5.4,
+    /// slice S7). The id is resolved against the ACTIVE thread's record by `output_files.rs`
+    /// (§5.1: an id it does not hold is *"I don't have that file in this thread's output."*),
+    /// the §5.2 checks run (a link, a swapped file, a folder or a missing file is refused with
+    /// that file's own sentence), and the canonical path is read with `O_NOFOLLOW`. Everything
+    /// after that is [`Self::stage_file`], the drop's road: the desk decides, in its words.
+    pub fn attach_recorded(&self, files: &OutputFiles, draft: &str, id: &str, output_id: &str) -> Result<AttachedView, String> {
+        Self::check_ids(draft, id)?;
+        let located = files.locate(output_id)?;
+        let checked = output_files::check(&located).map_err(|problem| problem.sentence())?;
+        // The name he sees in the panel is the recorded path's last component; the canonical
+        // path differs from it only by the folders above it.
+        let name = display_name(&located.path);
+        let path = checked.path.clone();
+        self.stage_file(draft, id, &name, checked.bytes, move || read_nofollow(&path))
     }
 
     /// **Attach bytes the page already holds** (a paste). The declared type is used when it is
@@ -363,6 +417,20 @@ pub fn attach_pasted_file(state: State<'_, MacAttachments>, request: tauri::ipc:
         return Err(NOT_SAVED.into());
     }
     state.attach_bytes(&header("x-richos-draft"), &header("x-richos-attachment"), &name, &header("x-richos-type"), bytes)
+}
+
+/// *Add to chat* from the Output panel (Output side panel PRD §5.4, slice S7). The page names
+/// its draft, the attachment id it minted for the chip (as for a drop or a paste) and an
+/// output id — never a path.
+#[tauri::command(async)]
+pub fn output_attach(
+    state: State<'_, MacAttachments>,
+    files: State<'_, OutputFiles>,
+    draft_id: String,
+    attachment_id: String,
+    output_id: String,
+) -> Result<AttachedView, String> {
+    state.attach_recorded(&files, &draft_id, &attachment_id, &output_id)
 }
 
 #[tauri::command(async)]
@@ -539,6 +607,138 @@ mod tests {
         assert!(!data.0.join("attachments").join("thr_1").exists());
         let again = mac.commit("thr_1", "draft-2", "", &wanted[..1]).unwrap();
         assert_eq!(again.text.unwrap().lines().next().unwrap(), "Attached on this Mac (1 file, saved by RichOS):");
+    }
+
+    // ---- Add to chat: a recorded file through the same desk (Output side panel PRD §12.7) ----
+
+    use richos_core::output::{entry_id, Actor, OutputStore, WriteRow, WriteSource};
+
+    const THREAD: &str = "thr_s7";
+
+    /// A scratch folder by its canonical name (`/var` is `/private/var` on macOS), so a recorded
+    /// path and its canonical form agree the way they do for a file Rich wrote.
+    fn canonical_scratch(tag: &str) -> Scratch {
+        let mut s = Scratch::new(tag);
+        s.0 = std::fs::canonicalize(&s.0).unwrap();
+        s
+    }
+
+    /// Record each path as one witnessed write of [`THREAD`], and answer the file commands'
+    /// state for that thread with each path's output id.
+    fn recorded(data: &Path, paths: &[&Path]) -> (OutputFiles, Vec<String>) {
+        let rows: Vec<WriteRow> = paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| WriteRow::witnessed(format!("mach:s7-{i}"), THREAD, Some("turn_1"), &p.to_string_lossy(), Actor::Rich, WriteSource::Tool, 1))
+            .collect();
+        let ids = rows.iter().map(|r| entry_id(THREAD, r.canonical.as_deref().unwrap_or(&r.path))).collect();
+        OutputStore::for_data_dir(data).append(THREAD, &rows).unwrap();
+        (OutputFiles::for_thread(OutputStore::for_data_dir(data), THREAD, &data.join("cache")), ids)
+    }
+
+    fn staged_nothing(data: &Path, draft: &str) -> bool {
+        !data.join("phone").join("attachment-staging").join("mac").join(draft).exists()
+    }
+
+    #[test]
+    fn add_to_chat_stages_a_recorded_file_through_the_desk_and_send_carries_it() {
+        let data = canonical_scratch("data");
+        let acme = canonical_scratch("acme");
+        let brief = write(&acme.0, "brief.md", b"# Brief\n\nHold at list minus 3%.\n");
+        let (files, ids) = recorded(&data.0, &[&brief]);
+        let mac = MacAttachments::open(&data.0);
+
+        let chip = mac.attach_recorded(&files, "draft-7", "c1", &ids[0]).unwrap();
+        assert_eq!(
+            (chip.name.as_str(), chip.media_type.as_str(), chip.label.as_str(), chip.size),
+            ("brief.md", "text/markdown", "Markdown file", std::fs::metadata(&brief).unwrap().len())
+        );
+        // Staged exactly where a drop or a paste is: device `mac`, the draft as the message.
+        assert!(!staged_nothing(&data.0, "draft-7"));
+
+        let done = mac.commit("thr_s7", "draft-7", "Send this brief to Priya.", &[Wanted { id: chip.id.clone(), sha256: chip.sha256.clone() }]).unwrap();
+        let folder = data.0.join("attachments").join("thr_s7").join("draft-7");
+        assert_eq!(
+            done.text.unwrap(),
+            format!(
+                "Send this brief to Priya.\n\nAttached on this Mac (1 file, saved by RichOS):\n- {} (text/markdown, {} bytes)",
+                folder.join("brief.md").display(),
+                chip.size
+            )
+        );
+        assert_eq!(std::fs::read(folder.join("brief.md")).unwrap(), std::fs::read(&brief).unwrap());
+        // The thread's file was read, never moved: the panel still lists it where it was written.
+        assert!(brief.exists());
+    }
+
+    #[test]
+    fn add_to_chat_a_30_mib_recorded_file_is_refused_with_the_desks_sentence_verbatim() {
+        let data = canonical_scratch("data");
+        let acme = canonical_scratch("acme");
+        let big = acme.0.join("board-pack.pdf");
+        std::fs::File::create(&big).unwrap().set_len(30 * 1024 * 1024).unwrap();
+        let (files, ids) = recorded(&data.0, &[&big]);
+        let mac = MacAttachments::open(&data.0);
+        let refused = mac.attach_recorded(&files, "draft-big", "c1", &ids[0]).unwrap_err();
+        assert_eq!(refused, Origin::Mac.too_large());
+        assert_eq!(refused, "This file is larger than 25 MB, the most RichOS takes in one file. Nothing was attached.");
+        assert!(staged_nothing(&data.0, "draft-big"), "a refused file left something behind");
+    }
+
+    #[test]
+    fn add_to_chat_a_kind_the_desk_does_not_take_is_refused_in_the_desks_own_words() {
+        let data = canonical_scratch("data");
+        let acme = canonical_scratch("acme");
+        // Kinds the panel lists (an image family member, text by extension, a video) that the
+        // desk has never taken; a disguised file and an empty one, which the desk also refuses.
+        let svg = write(&acme.0, "chart.svg", b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+        let json = write(&acme.0, "comps.json", b"{\"deals\":2}");
+        let mp4 = write(&acme.0, "walkthrough.mp4", b"\0\0\0\x18ftypmp42");
+        let fake = write(&acme.0, "counter.pdf", PNG);
+        let empty = write(&acme.0, "empty.md", b"");
+        let (files, ids) = recorded(&data.0, &[&svg, &json, &mp4, &fake, &empty]);
+        let mac = MacAttachments::open(&data.0);
+        let unknown = "RichOS can't take this kind of file yet. Photos, PDFs, text and Office documents work. Nothing was attached.";
+        assert_eq!(Origin::Mac.unknown_type(), unknown);
+        for id in &ids[..3] {
+            assert_eq!(mac.attach_recorded(&files, "draft-kinds", "k", id).unwrap_err(), unknown);
+        }
+        assert_eq!(mac.attach_recorded(&files, "draft-kinds", "f", &ids[3]).unwrap_err(), "This file does not look like a PDF. Nothing was attached.");
+        assert_eq!(mac.attach_recorded(&files, "draft-kinds", "e", &ids[4]).unwrap_err(), "This file is empty. Nothing was attached.");
+        assert!(staged_nothing(&data.0, "draft-kinds"), "a refused file left something behind");
+    }
+
+    #[test]
+    fn add_to_chat_takes_only_an_output_id_of_the_active_thread_and_never_through_a_link() {
+        let data = canonical_scratch("data");
+        let acme = canonical_scratch("acme");
+        let gone = write(&acme.0, "gone.md", b"# Gone\n");
+        let real = write(&acme.0, "real.md", b"# Real\n");
+        let link = acme.0.join("link.md");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let swapped = write(&acme.0, "swapped.md", b"# Swapped\n");
+        std::fs::create_dir(acme.0.join("Reports.md")).unwrap();
+        let folder = acme.0.join("Reports.md");
+        let (files, ids) = recorded(&data.0, &[&gone, &link, &swapped, &folder]);
+        // After the witness: one deleted, one replaced by a link to another file.
+        std::fs::remove_file(&gone).unwrap();
+        std::fs::remove_file(&swapped).unwrap();
+        std::os::unix::fs::symlink(&real, &swapped).unwrap();
+        let mac = MacAttachments::open(&data.0);
+
+        assert_eq!(mac.attach_recorded(&files, "d7", "a", &ids[0]).unwrap_err(), output_files::MISSING);
+        assert_eq!(mac.attach_recorded(&files, "d7", "b", &ids[1]).unwrap_err(), output_files::LINKED);
+        assert_eq!(mac.attach_recorded(&files, "d7", "c", &ids[2]).unwrap_err(), output_files::LINKED);
+        assert_eq!(mac.attach_recorded(&files, "d7", "d", &ids[3]).unwrap_err(), output_files::NOT_A_FILE);
+        // An id the record does not hold, a path where an id belongs, and another thread's id.
+        assert_eq!(mac.attach_recorded(&files, "d7", "e", "out_0000000000000000").unwrap_err(), output_files::NOT_IN_RECORD);
+        assert_eq!(mac.attach_recorded(&files, "d7", "f", &real.to_string_lossy()).unwrap_err(), output_files::NOT_IN_RECORD);
+        let elsewhere = OutputFiles::for_thread(OutputStore::for_data_dir(&data.0), "thr_other", &data.0.join("cache"));
+        assert_eq!(mac.attach_recorded(&elsewhere, "d7", "g", &ids[2]).unwrap_err(), output_files::NOT_IN_RECORD);
+        // Hostile ids never reach the file system.
+        assert_eq!(mac.attach_recorded(&files, "../d7", "h", &ids[1]).unwrap_err(), NOT_SAVED);
+        assert_eq!(mac.attach_recorded(&files, "d7", "a/b", &ids[1]).unwrap_err(), NOT_SAVED);
+        assert!(staged_nothing(&data.0, "d7"), "a refused file left something behind");
     }
 
     #[test]

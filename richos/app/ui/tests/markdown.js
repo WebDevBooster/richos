@@ -31,6 +31,12 @@
 // frame per live message). They must agree, or an answer would change shape at the moment
 // it completed.
 //
+// THE DOCUMENT EXTENSION (checks 11-14). A Markdown FILE previewed in the Output panel (output
+// side-panel PRD §7, slice S5) is drawn by the same renderer with `{ document: true }`: tables,
+// quotations, rules and fenced code, links drawn as their text. The checks prove it renders, that
+// Rich's answers (no option) are untouched by it, that the escaping guarantee holds inside every
+// block it adds, and that no line it reads costs more than linear time.
+//
 // Run: node markdown.js   (or `npm test` for every suite in this directory)
 
 "use strict";
@@ -72,6 +78,39 @@ async function md(page, text) {
       anyElement: host.querySelectorAll("*").length,
     };
   }, text);
+}
+
+/// The same renderer with `opts` (the Output panel's `{ document: true }`, or nothing), and an
+/// inventory of the blocks the document extension can build.
+async function doc(page, text, opts) {
+  return page.evaluate(
+    ({ t, o }) => {
+      const host = document.createElement("div");
+      host.className = "of-md";
+      document.body.appendChild(host);
+      window.RichTimeline.renderMarkdownInto(host, t, null, o || undefined);
+      const out = {
+        text: host.textContent,
+        tables: Array.from(host.querySelectorAll("table")).map((tb) =>
+          Array.from(tb.querySelectorAll("tr")).map((tr) => Array.from(tr.children).map((c) => c.textContent))
+        ),
+        align: Array.from(host.querySelectorAll("table th")).map((th) => th.style.textAlign),
+        quotes: Array.from(host.querySelectorAll("blockquote")).map((q) => q.textContent),
+        quoteStrong: host.querySelectorAll("blockquote strong").length,
+        rules: host.querySelectorAll("hr").length,
+        fences: Array.from(host.querySelectorAll("pre > code")).map((c) => ({ text: c.textContent, lang: c.dataset.lang || null })),
+        anchors: host.querySelectorAll("a").length,
+        images: host.querySelectorAll("img").length,
+        scripts: host.querySelectorAll("script").length,
+        withHandlers: Array.from(host.querySelectorAll("*")).filter((n) =>
+          Array.from(n.attributes).some((at) => /^on/i.test(at.name) || at.name === "href" || at.name === "src")
+        ).length,
+      };
+      host.remove();
+      return out;
+    },
+    { t: text, o: opts || null }
+  );
 }
 
 async function main() {
@@ -282,6 +321,99 @@ async function main() {
     assertEqual(r.proseSize, 18, "§17.2: Rich's prose is 18px, and Markdown must not move it");
     assert(/mono/i.test(r.codeFamily), "a code span is distinguished by its face: " + r.codeFamily);
     return "every Markdown node inherits the prose ink (" + r.prose + ") at 18px; code differs by face only";
+  });
+
+  // ---- THE DOCUMENT EXTENSION (output side-panel PRD §7, slice S5) ---------------------------
+  // A Markdown FILE in the Output panel is drawn with `{ document: true }`: tables, quotations,
+  // rules and fenced code, links as their text. Rich's answers never pass it, and the subset
+  // above must not move — so each check below renders the same text both ways.
+  const DOC = [
+    "| Deal | Size |",
+    "|---|---:|",
+    "| Northwind | $1.9M |",
+    "",
+    "> quoted **firmly**",
+    "",
+    "---",
+    "",
+    "```js",
+    "const a = '<b>';",
+    "```",
+    "",
+    "[the ledger](https://example.com/ledger) and ![a chart](chart.png) and \\*not em\\*",
+  ].join("\n");
+
+  await run.check("11 a document: a table, a quotation, a rule, fenced code; a link is its text", async () => {
+    const r = await doc(page, DOC, { document: true });
+    assertEqual(r.tables, [[["Deal", "Size"], ["Northwind", "$1.9M"]]], "one table, header and one row");
+    assertEqual(r.align, ["", "right"], "`---:` right-aligns its column");
+    assertEqual(r.quotes, ["quoted firmly"], "one quotation, its inline Markdown rendered");
+    assertEqual(r.quoteStrong, 1, "the bold inside the quotation is a `strong`");
+    assertEqual(r.rules, 1, "one rule");
+    assertEqual(r.fences, [{ text: "const a = '<b>';", lang: "js" }], "the fenced block, verbatim, as one code node");
+    assertEqual(r.anchors, 0, "a link must not be an `a` — nothing navigates out of the panel (§7)");
+    assertEqual(r.images, 0, "an image is its alt text, never an `img`");
+    assert(r.text.indexOf("the ledger and a chart and *not em*") !== -1, "the link, the alt text and the escapes read as words: " + JSON.stringify(r.text));
+    assert(r.text.indexOf("](") === -1 && r.text.indexOf("|") === -1, "Markdown syntax is still on screen: " + JSON.stringify(r.text));
+    return "table 2x2 (right-aligned Size), quotation with bold, 1 rule, fenced js block, link and image as their words";
+  });
+
+  await run.check("12 Rich's answers are untouched by it: the same text without `document` is the old subset", async () => {
+    const r = await doc(page, DOC);
+    assertEqual([r.tables.length, r.quotes.length, r.rules, r.fences.length], [0, 0, 0, 0], "a table, quote, rule or fence leaked into the chat renderer");
+    assert(r.text.indexOf("| Deal | Size |") !== -1, "a `|` line in an answer reads as written: " + r.text);
+    assert(r.text.indexOf("> quoted firmly") !== -1, "a `>` line in an answer reads as written: " + r.text);
+    assert(r.text.indexOf("[the ledger](https://example.com/ledger)") !== -1, "a link in an answer reads as written: " + r.text);
+    return "no table, quote, rule or fence without `document`; the characters read as before";
+  });
+
+  await run.check("13 ESCAPING holds in every block the extension adds", async () => {
+    const hostile = [
+      "| <img src=x onerror=alert(1)> |",
+      "|---|",
+      "| <script>alert(2)</script> |",
+      "",
+      "> <img src=y onerror=alert(3)>",
+      "",
+      "```",
+      "<script>alert(4)</script>",
+      "```",
+      "",
+      "[<img src=z onerror=alert(5)>](javascript:alert(6))",
+    ].join("\n");
+    const r = await doc(page, hostile, { document: true });
+    assertEqual([r.images, r.scripts, r.anchors, r.withHandlers], [0, 0, 0, 0], "an element, a link or a handler was made from file text");
+    for (const s of ["<img src=x onerror=alert(1)>", "<script>alert(2)</script>", "<img src=y onerror=alert(3)>", "<script>alert(4)</script>", "<img src=z onerror=alert(5)>"]) {
+      assert(r.text.indexOf(s) !== -1, "the characters must be on screen: " + s + " in " + JSON.stringify(r.text));
+    }
+    assert(r.text.indexOf("javascript:") === -1, "a link's target is dropped, never drawn or followed");
+    assertEqual(page.__errors, [], "a page error means something executed");
+    return "hostile text in a table cell, a quotation, a fence and a link label: 0 img, 0 script, 0 a, 0 handlers";
+  });
+
+  await run.check("14 unclosed or half-formed blocks lose nothing, and no line costs more than linear time", async () => {
+    const tail = "and the rest of the file must still be here.";
+    const open = await doc(page, "intro\n\n```\nconst x = 1;\n" + tail, { document: true });
+    assertEqual(open.fences.map((f) => f.text), ["const x = 1;\n" + tail], "an unclosed fence holds the rest as code, every character kept");
+    const pipe = await doc(page, "a | b with no delimiter row\n" + tail, { document: true });
+    assertEqual(pipe.tables.length, 0, "a `|` line with no delimiter row under it is a paragraph");
+    assert(pipe.text.indexOf("a | b with no delimiter row") !== -1 && pipe.text.indexOf(tail) !== -1, "the paragraph lost words: " + pipe.text);
+    // A 200,000-character fence line with a run of spaces inside it, and the same as a rule-like
+    // line: a backtracking pattern takes seconds on these; the shipped patterns are linear.
+    const dashes = "- ".repeat(100000) + "x";
+    const delim = "a|b\n" + "|-".repeat(100000) + "x";
+    const long = "~~~ a" + " ".repeat(200000) + "b";
+    const ms = await page.evaluate(
+      (lines) => {
+        const host = document.createElement("div");
+        const t0 = performance.now();
+        window.RichTimeline.renderMarkdownInto(host, lines.join("\n\n"), null, { document: true });
+        return performance.now() - t0;
+      },
+      [dashes, delim, long]
+    );
+    assert(ms < 1500, "three long lines took " + Math.round(ms) + " ms");
+    return "unclosed fence keeps the tail; a lone `|` line is prose; 600,000 characters of worst case in " + Math.round(ms) + " ms";
   });
 
   await run.check("10 no page errors anywhere in this suite", async () => {
