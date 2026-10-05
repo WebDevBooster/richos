@@ -137,6 +137,30 @@ run_case "still blocks: real write after a read"  2 "$(json_cmd "ls $FIRST_PROTE
 run_case "still blocks: redirect into protected"  2 "$(json_cmd "python3 gen.py 2>&1 > $FIRST_PROTECTED/out.txt" "$ROOT")"
 run_case "still blocks: unrelated read + real write" 2 "$(json_cmd "cat /tmp/x && touch $FIRST_PROTECTED/y" "$ROOT")"
 
+# --- Hunt part 3 v3, finding 39: a write verb that is only PRINTED or sits in a
+# COMMENT writes nothing; the verb must be the command word of a statement.
+run_case "P3-39: printf of a touch command is not a write" 0 "$(json_cmd "printf \"%s\\n\" touch $ROOT/$FIRST_PROTECTED/file" "$ROOT")"
+run_case "P3-39: a touch in a comment is not a write"       0 "$(json_cmd "true # touch $ROOT/$FIRST_PROTECTED/file" "$ROOT")"
+run_case "P3-39: echo naming rm and a protected path"       0 "$(json_cmd "echo rm -rf $FIRST_PROTECTED/x" "$ROOT")"
+# The same verbs as real command words still block, through every wrapper.
+run_case "P3-39 still blocks: write on the line after a comment" 2 "$(json_cmd "true # a note
+touch $ROOT/$FIRST_PROTECTED/file" "$ROOT")"
+run_case "P3-39 still blocks: sudo rm"                 2 "$(json_cmd "sudo rm $ROOT/$FIRST_PROTECTED/x" "$ROOT")"
+run_case "P3-39 still blocks: env VAR=1 touch"         2 "$(json_cmd "env A=1 touch $ROOT/$FIRST_PROTECTED/x" "$ROOT")"
+run_case "P3-39 still blocks: xargs -I {} rm"          2 "$(json_cmd "ls | xargs -I {} rm $ROOT/$FIRST_PROTECTED/{}" "$ROOT")"
+run_case "P3-39 still blocks: rm inside a for loop"    2 "$(json_cmd "for d in a b; do rm $ROOT/$FIRST_PROTECTED/\$d; done" "$ROOT")"
+run_case "P3-39 still blocks: touch in \$(...)"        2 "$(json_cmd "echo \$(touch $ROOT/$FIRST_PROTECTED/x)" "$ROOT")"
+run_case "P3-39 still blocks: git rm of a protected path" 2 "$(json_cmd "git rm $FIRST_PROTECTED/x" "$ROOT")"
+run_case "P3-39 still blocks: unclosed quote falls back"  2 "$(json_cmd "touch $ROOT/$FIRST_PROTECTED/x; echo it's" "$ROOT")"
+
+# --- Hunt part 3 v3, finding 41: a relative write made FROM INSIDE a protected
+# directory of the main checkout lands in it, the same as its absolute spelling.
+run_case "P3-41: cwd inside protected + touch file"        2 "$(json_cmd "touch file" "$ROOT/$FIRST_PROTECTED")"
+run_case "P3-41: cwd deeper inside protected + redirect"    2 "$(json_cmd "echo hi > out.txt" "$ROOT/$FIRST_PROTECTED/sub")"
+run_case "P3-41 allowed: read from inside protected"        0 "$(json_cmd "cat file" "$ROOT/$FIRST_PROTECTED")"
+run_case "P3-41 allowed: absolute scratch write from inside" 0 "$(json_cmd "rm -rf /tmp/scratch/x" "$ROOT/$FIRST_PROTECTED")"
+run_case "P3-41 allowed: cd to scratch first"               0 "$(json_cmd "cd /tmp/scratch && touch file" "$ROOT/$FIRST_PROTECTED")"
+
 # --- cp/rsync only READ their sources: the destination alone decides ---
 run_case "cp OUT of protected abs into scratch"  0 "$(json_cmd "cp $ROOT/$FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
 run_case "cp OUT of protected rel into scratch"  0 "$(json_cmd "cp -r $FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
@@ -146,6 +170,7 @@ run_case "still blocks: cp INTO protected abs"   2 "$(json_cmd "cp /tmp/a $ROOT/
 run_case "still blocks: cp -t protected"         2 "$(json_cmd "cp -t $ROOT/$FIRST_PROTECTED /tmp/a" "$ROOT")"
 run_case "still blocks: rsync INTO protected"    2 "$(json_cmd "rsync -a /tmp/scratch/ $ROOT/$FIRST_PROTECTED/" "$ROOT")"
 run_case "P3-33: rsync --remove-source-files OUT of protected is blocked (deletes source)" 2 "$(json_cmd "rsync -a --remove-source-files $ROOT/$FIRST_PROTECTED/ /tmp/scratch/" "$ROOT")"
+run_case "P3-33 v3: a QUOTED --remove-source-files is the same flag and is blocked" 2 "$(json_cmd "rsync '--remove-source-files' $ROOT/$FIRST_PROTECTED/a /tmp/scratch/" "$ROOT")"
 run_case "still blocks: mv OUT of protected (removes source)" 2 "$(json_cmd "mv $ROOT/$FIRST_PROTECTED/a /tmp/scratch/a" "$ROOT")"
 
 # --- ALLOWED: scratchpad + non-source writes in main ---

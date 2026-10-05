@@ -113,7 +113,7 @@ _mutant_body() {
         printf '          %s\n' "$why"
         return 1
     fi
-    if ! grep -q "FAIL  $want" "$dir/out.txt"; then
+    if ! grep -qF "FAIL  $want" "$dir/out.txt"; then
         printf '  FAIL  %s — the suite went red, but NOT at %s (so the red is unrelated).\n' "$name" "$want"
         grep '  FAIL' "$dir/out.txt" | sed 's/^/          /'
         return 1

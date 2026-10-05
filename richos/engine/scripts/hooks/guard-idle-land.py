@@ -558,7 +558,7 @@ def _reflog(repo, refname):
     Read from git's own reflog file, which states BOTH ends of every update
     (the `git reflog` porcelain gives only the new one). None when there is no
     file to read (reflogs off, a reftable store, a ref that was never
-    updated): the caller then keeps the identity answer alone, as before.
+    updated): the caller then confirms no land (finding 2, v3).
     """
     rel = _git(repo, "rev-parse", "--git-path", "logs/" + refname)
     if not rel:
@@ -619,8 +619,9 @@ def changed_in_turn(repo, kind, ref, head, since):
 
     Without a turn start (a transcript with no timestamps) every entry is
     in the window, which is the most this can say. True/False, or None when
-    no reflog could be read, in which case the caller keeps the identity
-    answer alone rather than going quiet on a repository that keeps none.
+    no reflog could be read. The caller treats None as "not confirmed": the
+    identity answer alone is true of every no-op merge, so a repository that
+    keeps no reflog rounds to quiet (hunt part 3, finding 2, v3).
     """
     if kind == "merge":
         branch = _git(repo, "symbolic-ref", "-q", "HEAD")
@@ -687,7 +688,10 @@ def confirm_landing(repo, kind, ref, since=None):
         # AND THIS TURN MOVED THE BRANCH TO CARRY IT (finding 2). A merge of
         # something already merged passes the ancestry test above and lands
         # nothing.
-        if changed_in_turn(repo, "merge", ref, head, since) is False:
+        # No reflog to read (logging off, a reftable store) is NOT a yes: a
+        # no-op merge leaves the same inclusion as a real one, so an answer
+        # that cannot see the change rounds to quiet (finding 2, v3).
+        if changed_in_turn(repo, "merge", ref, head, since) is not True:
             return False
         # AND IT REACHED THE BRANCH THIS WORK INTEGRATES ON (point 14). HEAD
         # alone is the literal effect of `git merge` -- it merges into the
@@ -719,7 +723,8 @@ def confirm_landing(repo, kind, ref, since=None):
     # The same question for a push: did one in this turn move the upstream?
     # A push of a branch already at its upstream ("Everything up-to-date")
     # leaves HEAD equal to it and pushed nothing.
-    return changed_in_turn(repo, "push", ref, head, since) is not False
+    # As for a merge, an unreadable reflog confirms nothing (finding 2, v3).
+    return changed_in_turn(repo, "push", ref, head, since) is True
 
 
 # --------------------------------------------------------------------------

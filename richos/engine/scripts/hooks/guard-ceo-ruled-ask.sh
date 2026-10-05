@@ -198,6 +198,11 @@ if [ ! -f "$_BA_LIB" ]; then
 else
     BA_OUT="$(printf '%s' "$INPUT" | python3 "$_BA_LIB" check --entity "$ENTITY_ROOT" --engine-root "$ENGINE_ROOT" 2>/dev/null || true)"
     BA_VERDICT="$(printf '%s' "$BA_OUT" | cut -f1)"
+    # No verdict at all is a crashed checker, not an ALLOW: still fail open, but
+    # say so instead of passing for a check that ran (hunt part 3 v3, finding 28).
+    if [ "$BA_VERDICT" != "REFUSE" ] && [ "$BA_VERDICT" != "ALLOW" ]; then
+        announce_broken "DEAF-LEAD CHECK DID NOT RUN: scripts/lib/blocking_ask.py check gave no verdict, so this AskUserQuestion was not checked against live teammates."
+    fi
     if [ "$BA_VERDICT" = "REFUSE" ]; then
         BA_LIVE="$(printf '%s' "$BA_OUT" | cut -f2)"
         BA_SESSION="$(printf '%s' "$BA_OUT" | cut -f3)"

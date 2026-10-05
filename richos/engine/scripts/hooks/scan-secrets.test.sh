@@ -269,6 +269,10 @@ ca_case "hyphenated descriptive" 2 0 'token = "verification-token-alpha"'
 ca_case "P3-25: all-alpha passphrase is still blocked"  2 2 'password = "correcthorsebatterystaple"'
 ca_case "P3-25: all-digit long value is still blocked"  2 2 'secret = "839201748392017483920174"'
 
+# v3 re-check: random mixed-case letters split by an underscore are not words.
+CA_SEP="$(printf 'QqWwEeRrTtYyUuIi%sOoPpAaSsDdFfGgHh' '_')"
+ca_case "P3-25 v3: separated random alphabetic password is still blocked" 2 2 "password = \"$CA_SEP\""
+
 # What the opt-in must NEVER touch. If any of these flipped, the setting would
 # be a hole, not a filter.
 CA_DENSE="$(printf 'aZ3k%sLm7P%s' 'Q9x2' 'w5Rv8Nt1')"

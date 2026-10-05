@@ -1009,6 +1009,28 @@ TR_NOOP_PUSH="$SANDBOX/noop-push.jsonl"
 mk_tr "$TR_NOOP_PUSH" "$(printf '[{"stamp":"%s"},{"prompt":"push it"},{"bash":%s}]' "$ST" "$(jq_str "$TURN_PUSH")")"
 run_case "a4c.no-op-push-pushed-nothing" 0 "$(payload "$TR_NOOP_PUSH")"
 
+# Finding 2, v3 re-check: with NO reflog to read (logging off, the log files
+# gone) the same no-op merge and no-op push still counted as a land, because
+# an unreadable reflog fell back to inclusion. Inclusion is true of every
+# no-op, so no reflog confirms nothing. Last in the file: it removes the logs.
+git -C "$ENTITY" config core.logAllRefUpdates false
+rm -rf "$ENTITY/.git/logs"
+sleep 1
+ST="$(now_stamp)"
+HEAD_BEFORE="$(git -C "$ENTITY" rev-parse HEAD)"
+git -C "$ENTITY" merge landed-branch >"$SANDBOX/noop-merge-nolog.log" 2>&1
+TR_NOOP_NOLOG="$SANDBOX/noop-nolog.jsonl"
+mk_tr "$TR_NOOP_NOLOG" "$(printf '[{"stamp":"%s"},{"prompt":"check the merge"},{"bash":%s}]' "$ST" "$(jq_str "$NOOP_MERGE")")"
+if [ "$(git -C "$ENTITY" rev-parse HEAD)" = "$HEAD_BEFORE" ] && [ ! -e "$ENTITY/.git/logs" ]; then
+    run_case "a1g.no-reflog-no-op-merge-completed-nothing" 0 "$(payload "$TR_NOOP_NOLOG")"
+else
+    printf '  FAIL  a1g.no-reflog-no-op-merge-completed-nothing (fixture: HEAD moved or a reflog exists)\n'; FAIL=$((FAIL + 1))
+fi
+git -C "$ENTITY" push -q origin main >/dev/null 2>&1
+TR_NOOP_PUSH_NOLOG="$SANDBOX/noop-push-nolog.jsonl"
+mk_tr "$TR_NOOP_PUSH_NOLOG" "$(printf '[{"stamp":"%s"},{"prompt":"push it"},{"bash":%s}]' "$ST" "$(jq_str "$TURN_PUSH")")"
+run_case "a4d.no-reflog-no-op-push-pushed-nothing" 0 "$(payload "$TR_NOOP_PUSH_NOLOG")"
+
 # --- RECORD ----------------------------------------------------------------
 LOG="$ENTITY/.claude/state/idle-land-checks.jsonl"
 if [ -s "$LOG" ] && python3 - "$LOG" <<'PY'
