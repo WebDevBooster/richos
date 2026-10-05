@@ -2023,8 +2023,50 @@ def _record_for_agent(session_id, agent_id, name=""):
     return None
 
 
+def _running_calls(session_id, agent_id):
+    """This agent's Bash calls whose shell is still running, from agent_hold's own record (the
+    shell recorded itself at spawn: pid, parent, start time; a reused pid never matches), as
+    [(tool call id, command)]. Its wait command is not work. Any failure to read is [] (the
+    end is then recorded as it always was)."""
+    try:
+        ah = _agent_hold()
+        if not ah._valid_ids(session_id, agent_id):
+            return []
+        table = ah.snapshot()
+        return [(c["tid"], c["command"]) for c in ah.calls(session_id, agent_id, table)
+                if c["mode"] != "exempt" and not table[c["pid"]]["stat"].startswith("Z")]
+    except Exception:
+        return []
+
+
 def record_end(session_id, agent_id, signal_name, detail=""):
-    """The platform's own end-of-run signal, recorded automatically."""
+    """The platform's own end-of-run signal, recorded automatically.
+
+    A SubagentStop WHILE A COMMAND THE AGENT STARTED IS STILL RUNNING IS NOT ITS
+    END (2026-10-04: echo-opus-panel16 ended its turn at 22:39Z to wait on its own
+    background timer, was recorded finished, and was sealed out of its workspace
+    when the timer woke it; its evidence was left uncommitted). The platform
+    wakes the agent again when that command ends, so nothing is recorded here
+    and the end is taken from the SubagentStop that ends that next turn. A stop
+    (TaskStop, stoppedByUser) and its session's end still end it at once. A
+    PAUSED agent's end is recorded as before: its commands are frozen, not
+    running, and a pause already keeps it unsealed (finished_state)."""
+    if signal_name == "SubagentStop":
+        running = _running_calls(session_id, agent_id)
+        if running:
+            deferred = None
+            with Lock():
+                rec = _record_for_agent(session_id, agent_id)
+                if rec and not (rec.get("disposition") or rec.get("end") or rec.get("pause")):
+                    rec.setdefault("history", []).append({
+                        "at": iso(), "fact": "SubagentStop while its own command(s) still run: not its end",
+                        "calls": [tid for tid, _c in running]})
+                    save_agent(rec)
+                    deferred = rec
+            if deferred:
+                event("end-deferred", key=deferred["key"], signal=signal_name,
+                      detail="; ".join("%s: %s" % (tid, cmd[:80]) for tid, cmd in running))
+                return deferred
     if signal_name == "stopped":
         # A stopped agent's suspended processes would hold their termination forever.
         # Released by the ids the stop names, BEFORE any early return below: an agent
