@@ -16,8 +16,13 @@
 #   4-switched-line     ~ switched-line: Rich's one line in the conversation, with a turn in
 #                         progress and three agents working on Work (the working row)
 #   5-fast-sheet        ~ fast-switch: the moved line with its ghost, the speed on the card
-#   6-fast-alert        ~ fast-alert: Rich's alert in the conversation
-#   7-back-to-normal    ~ normal-again: Rich's line when the speed comes back down
+#   6-fast-alert        ~ fast-alert: Rich's alert in the conversation, then a turn with the
+#                         working row
+#   7-back-to-normal    ~ normal-again: Rich's line when the speed comes back down, then a
+#                         turn with the working row
+# The working row ("3 agents working on Work") exists only while a turn of this conversation
+# runs (main.rs get_worker_status reads the conversation's lease during its turn), so each
+# conversation state that round 16 draws with the row holds one turn open for its shots.
 set -u
 VM="$1"
 S="${2:?usage: round16-panel-walk.sh <vm> <out-dir>}"
@@ -162,41 +167,59 @@ sleep 8
 "$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/3-accounts-after-switch.txt" 2>&1
 pair_sheet 3-switched-sheet
 
-note "4 the panel closed: Rich's one line, and a turn in progress on Work with three agents working"
+# A turn of Rich's in this conversation, held open so the working row can be photographed.
+# fake-claude-fill-first.pl holds only the user's own turn, never the app's internal handoff
+# or re-prime (the app installs a new lease only after its priming answers, so holding that
+# kept the 2026-10-05 run's shot 4 on the old lease); it keeps each lease's evidence journal
+# as Claude Code's SessionStart hook does; on the lease's first user turn it journals one
+# background agent per line of the agents file; and it answers with reply.txt.
+put() {  # put <guest path> <text>: a file the fake reads, pushed rather than quoted
+  printf '%s\n' "$2" > "$S/.put"
+  "$T/guest.sh" "$VM" --push "$S/.put" "$1" || note "could not write $1"
+  rm -f "$S/.put"
+}
+hold_turn() {  # hold_turn <message> <reply>: send, then wait for the working row itself
+  put /Users/admin/fill-first/reply.txt "$2"
+  "$T/guest.sh" "$VM" 'touch /Users/admin/fill-first/slow'
+  ax type "$1" --role AXTextArea --first --replace || note "no composer"
+  ax click --title 'Send' --first || note "no Send"
+  for _ in $(seq 1 45); do
+    ax find --value 'agents working on' --contains --first >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  note "the working row never appeared"
+  ax tree --depth 40 > "$S/$3-no-row-ax.txt" 2>&1 || true
+}
+release_turn() {  # the fake answers; the turn has ended once Send is back
+  "$T/guest.sh" "$VM" 'rm -f /Users/admin/fill-first/slow'
+  for _ in $(seq 1 30); do
+    ax find --title 'Send' --first >/dev/null 2>&1 && break
+    sleep 2
+  done
+  sleep 3
+}
+wait_line() {  # wait_line <words>: Rich's line in the conversation, read rather than assumed
+  for _ in $(seq 1 60); do
+    ax find --value "$1" --contains --first >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  note "never appeared in the conversation: $1"
+}
+evidence() {  # every lease's journal as the app reads it, for the record of this run
+  "$T/guest.sh" "$VM" "for d in \"$DATA/engine-state/evidence\"/*/; do echo \"== \$d\"; cat \"\$d/callbacks.jsonl\"; done" > "$S/$1-evidence.txt" 2>&1 || true
+}
+
+note "4 the panel closed: Rich's switch line, then a turn on Work with three agents working"
 close_panel
 sleep 2
-# Round 16's working row ("3 agents working on Work") needs agents working in a turn of this
-# conversation. The fake holds the turn open while the slow file exists, and the provider's
-# own rows for three background agents are written into that lease session's evidence, exactly
-# the rows app_workers.rs reads (SubagentStart, and PostToolUse[Agent] "async_launched").
-"$T/guest.sh" "$VM" 'touch /Users/admin/fill-first/slow'
-ax type 'Keep going on the outbox and the pairing screens.' --role AXTextArea --first --replace || note "no composer"
-ax click --title 'Send' --first || note "no Send"
-sleep 8
-# shellcheck disable=SC2016  # expanded in the guest's shell
-SID=$("$T/guest.sh" "$VM" 'grep -o -- "--session-id [A-Za-z0-9_-]*" /Users/admin/fill-first/calls.log | tail -1 | cut -d" " -f2' | tr -d '\r' | tail -1)
-note "lease session: ${SID:-none}"
-if [ -n "$SID" ]; then
-  python3 - "$SID" > "$S/callbacks.jsonl" <<'PY'
-import json, sys
-sid = sys.argv[1]
-for n, who in enumerate(["Mark", "Andy", "Tom"], 1):
-    agent = f"walk-agent-{n}"
-    print(json.dumps({"schema": 1, "callback": {"session_id": sid, "hook_event_name": "SubagentStart", "agent_id": agent, "agent_type": who}}))
-    print(json.dumps({"schema": 1, "callback": {"session_id": sid, "hook_event_name": "PostToolUse", "tool_name": "Agent",
-        "tool_response": {"status": "async_launched", "agentId": agent}}}))
-PY
-  "$T/guest.sh" "$VM" --push "$S/callbacks.jsonl" /Users/admin/fill-first/callbacks.jsonl
-  rm -f "$S/callbacks.jsonl"
-  EV="$DATA/engine-state/evidence/$SID"
-  "$T/guest.sh" "$VM" "mkdir -p \"$EV\" && touch \"$EV/.lock\" && cp /Users/admin/fill-first/callbacks.jsonl \"$EV/callbacks.jsonl\"" || note "evidence not written"
-fi
-sleep 8
+put /Users/admin/fill-first/agents "$(printf 'Mark\nAndy\nTom')"
+hold_turn 'Keep going on the outbox and the pairing screens.' \
+  "On it. I have three people on it: Mark on the outbox retry, Andy on the pairing screens, and Tom timing the iOS handshake. I'll tell you the moment any of them needs a decision from you." 4
+evidence 4
 pair 4-switched-line
-"$T/guest.sh" "$VM" 'rm -f /Users/admin/fill-first/slow'
-sleep 6
+release_turn
 
-note "5 fast: Home back under its line (next again); Work rising 9 points a minute (five-hour) and 3 (weekly) until stopped"
+note "5 fast: Home back under its line (next again); Work rising from its own 10% and 20%, 9 and 3 points a minute"
 usage /Users/admin/fill-first/usage-1.json 41 28 "$HOME_FIVE" "$HOME_WEEK"
 # Fast mode checks every MINUTE (quota.rs FAST_REFRESH_INTERVAL_MS), and one flat reading
 # afterwards is a return to normal, so the rise has to continue through the shots (2026-10-04
@@ -213,9 +236,11 @@ done
 RISE
 "$T/guest.sh" "$VM" --push "$S/rise.sh" /Users/admin/fill-first/rise.sh
 rm -f "$S/rise.sh"
-# From 5%: 9 points a minute moves the five-hour line to about 91% (100 - 9 x the 1-minute
-# check) and stays under it through the about 9 minutes of shots 5 and 6 (5 + 81 = 86%).
-"$T/guest.sh" "$VM" "rm -f /Users/admin/fill-first/stop-rise; nohup sh /Users/admin/fill-first/rise.sh \"$WORK\" 5 20 3 1 /Users/admin/fill-first/stop-rise $WORK_FIVE $WORK_WEEK </dev/null >/dev/null 2>&1 &"
+# From Work's own 10% and 20% (the 2026-10-05 run started the five-hour at 5%: that drop left
+# only the weekly speed measured on the first rising pair, so the burst's one alert named the
+# weekly window). 9 points a minute moves the five-hour line to 91% (100 - 9 x the 1-minute
+# check); the rise stops after shot 5, about 4 minutes in, near 46%, far under that line.
+"$T/guest.sh" "$VM" "rm -f /Users/admin/fill-first/stop-rise; nohup sh /Users/admin/fill-first/rise.sh \"$WORK\" 10 20 3 1 /Users/admin/fill-first/stop-rise $WORK_FIVE $WORK_WEEK </dev/null >/dev/null 2>&1 &"
 open_panel
 ax click --title 'Refresh' --first || true
 sleep 35
@@ -223,20 +248,26 @@ ax click --title 'Refresh' --first || true
 sleep 6
 pair_sheet 5-fast-sheet
 
-note "6 the panel closed: Rich's alert"
+note "6 the panel closed: Rich's alert with the agents counted, then a turn with the working row"
 close_panel
-sleep 1
-pair 6-fast-alert
-
-note "7 the rise stopped; flat readings: back to normal"
+wait_line 'Usage is climbing fast'
+# The rise stops here, so nothing reaches the moved line while the turns below are held; the
+# way back ("Usage is back to normal") is said at the end of this turn or between turns.
 "$T/guest.sh" "$VM" 'touch /Users/admin/fill-first/stop-rise'
-sleep 90
+hold_turn 'How are the three of them doing?' 'All three are still working. Nothing needs you right now.' 6
+pair 6-fast-alert
+release_turn
+
+note "7 flat readings: Rich's line back to normal, then a turn with the working row"
 open_panel
 ax click --title 'Refresh' --first || true
 sleep 6
 close_panel
-sleep 2
+wait_line 'Usage is back to normal'
+hold_turn 'Thanks. Keep me posted.' 'Will do.' 7
+evidence 7
 pair 7-back-to-normal
+release_turn
 "$T/guest.sh" "$VM" 'cat /Users/admin/fill-first/calls.log' > "$S/calls.log" 2>&1
 note "done"
 exit 0
