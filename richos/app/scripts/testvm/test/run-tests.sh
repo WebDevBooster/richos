@@ -1697,6 +1697,10 @@ t "steps-walk: steps run in order and are recorded, the first failure stops the 
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/steps-walk.test.py" >"$TMP/steps-walk.log" 2>&1; ok $? "$(cat "$TMP/steps-walk.log")"
 t_done
 
+t "fill-first-walk: a walk whose guest operations or captures fail exits nonzero; a complete one exits 0 with every frame (R37)"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/fill-first-walk.test.py" >"$TMP/fill-first-walk.log" 2>&1; ok $? "$(cat "$TMP/fill-first-walk.log")"
+t_done
+
 t "adopt-walk: phone-only, left Registered at the boundary, each way to fail named"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/adopt-walk.test.py" >"$TMP/adopt-walk.log" 2>&1; ok $? "$(cat "$TMP/adopt-walk.log")"
 t_done

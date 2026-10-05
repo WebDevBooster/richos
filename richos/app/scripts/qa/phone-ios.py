@@ -987,7 +987,18 @@ def switch_wifi_off(out, device):
     """The cable check, then the switch read and turned off when on (ensure_wifi). Raises CannotAnswer off the cable,
     before Settings is opened."""
     require_cable(device)
-    result = ensure_wifi(out, on=False)
+    # ONE PHONE (hunt part 2 v3, V05): the step runner (_run, and the rios it starts) selects the phone from
+    # RICHOS_IOS_DEVICE alone, so the phone whose cable was just checked is the one it is told to switch.
+    # `--device A` with RICHOS_IOS_DEVICE=B used to check A's cable and turn B's Wi-Fi off.
+    saved = os.environ.get("RICHOS_IOS_DEVICE")
+    os.environ["RICHOS_IOS_DEVICE"] = device
+    try:
+        result = ensure_wifi(out, on=False)
+    finally:
+        if saved is None:
+            os.environ.pop("RICHOS_IOS_DEVICE", None)
+        else:
+            os.environ["RICHOS_IOS_DEVICE"] = saved
     result["putBack"] = "rios device wifi-on --out DIR, then rios device net"
     return result
 
@@ -1119,6 +1130,13 @@ def _run(args):
                "secondsToFirstStep": round(first - started, 1) if isinstance(first, (int, float)) else None,
                "automationEnableWaitSeconds": session and session["enableWaitSeconds"],
                "passcodeConfigured": session and session["passcodeConfigured"]}
+    # A list that keeps a shot, tree or audit asked for those files; when their export fails they are not
+    # in the output offered as evidence, so the run is not a pass (hunt part 2 v3, N07: the recording option
+    # had this guard, an ordinary shot did not).
+    if exported.returncode != 0 and any(s.get("do") in KEEPS_SCREEN for s in steps):
+        summary["passed"] = False
+        summary["error"] = ("the requested shots, trees or audits could not be exported from the result bundle: "
+                            + (summary["attachmentsError"] or f"xcresulttool exit {exported.returncode}"))
     if getattr(args, "screen_recording", False):
         summary["screenRecordings"] = screen_recordings(attachments) if exported.returncode == 0 else []
         if not summary["screenRecordings"]:
@@ -1412,6 +1430,11 @@ def net_reading(lines, leases=""):
             others[key] = others.get(key, 0) + 1
     timed_via = {}
     for line in re.findall(r"[^\n]*event: flow:failed_connect @[\d.]+s, error Operation timed out", text):
+        # Only Safari's own timeouts are the phone's internet timing out, the same filter as the completed
+        # connections above: a developer service's timeout over the tunnel is not (hunt part 2 v3, V06).
+        event = CONNECT_EVENT.search(line)
+        if not event or event.group(1) not in BROWSER:
+            continue
         iface = re.search(r"interface: (\w+)", line)
         key = iface.group(1) if iface else "?"
         timed_via[key] = timed_via.get(key, 0) + 1
@@ -1449,6 +1472,14 @@ def wifi_link(text):
     up, channel, rssi, snr, beacons = stats[-1]
     return {"joinedSeconds": float(up), "channel": int(channel), "rssi": int(rssi), "snr": int(snr),
             "beaconLossPercent": float(beacons)}
+
+
+def wifi_carries(path_ok, internet):
+    """The exit-0 claim of `net`: this Mac reaches the phone's Wi-Fi address, Safari reached the internet, and
+    that internet did not go out over another interface. A primary route iOS names as not its Wi-Fi (the cable, a
+    second interface) is never a Wi-Fi pass, whatever Safari reached that way (hunt part 2 v3, V06). Pure."""
+    primary = internet.get("primary")
+    return bool(path_ok and internet["reached"] and not (primary and not primary["wifi"]))
 
 
 def net_verdict(path_ok, internet):
@@ -1542,7 +1573,7 @@ def net(args):
         leases = ""
     internet = {"safariOpened": opened, **net_reading(kept, leases)}
     out.write_text("\n".join(kept) + "\n")
-    ok = path_ok and internet["reached"]
+    ok = wifi_carries(path_ok, internet)
     return emit({"wifiPath": {"ok": path_ok, "detail": path_detail}, "internet": internet,
                  "verdict": net_verdict(path_ok, internet), "log": str(out)}, 0 if ok else 1)
 

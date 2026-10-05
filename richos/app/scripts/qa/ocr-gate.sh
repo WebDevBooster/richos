@@ -60,8 +60,8 @@ usage() {
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help)     usage; exit 0 ;;
-        --control)     CONTROL="${2:-}"; shift 2 ;;
-        --no-control)  NO_CONTROL="${2:-}"; shift 2 ;;
+        --control)     CONTROL="${2:-}"; shift 2 || { echo "ocr-gate.sh: $1 needs a value" >&2; exit 2; } ;;
+        --no-control)  NO_CONTROL="${2:-}"; shift 2 || { echo "ocr-gate.sh: $1 needs a value" >&2; exit 2; } ;;
         -*)            echo "ocr-gate.sh: unknown option '$1'. --help" >&2; exit 2 ;;
         *)             TARGETS+=("$1"); shift ;;
     esac

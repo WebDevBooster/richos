@@ -67,13 +67,13 @@ app=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --label)   label="${2:-}"; shift 2 ;;
+    --label)   label="${2:-}"; shift 2 || { echo "rebuild-survival.sh: $1 needs a value" >&2; exit 2; } ;;
     --label=*) label="${1#*=}"; shift ;;
-    --a)       label_a="${2:-}"; shift 2 ;;
+    --a)       label_a="${2:-}"; shift 2 || { echo "rebuild-survival.sh: $1 needs a value" >&2; exit 2; } ;;
     --a=*)     label_a="${1#*=}"; shift ;;
-    --b)       label_b="${2:-}"; shift 2 ;;
+    --b)       label_b="${2:-}"; shift 2 || { echo "rebuild-survival.sh: $1 needs a value" >&2; exit 2; } ;;
     --b=*)     label_b="${1#*=}"; shift ;;
-    --dir)     state_dir="${2:-}"; shift 2 ;;
+    --dir)     state_dir="${2:-}"; shift 2 || { echo "rebuild-survival.sh: $1 needs a value" >&2; exit 2; } ;;
     --dir=*)   state_dir="${1#*=}"; shift ;;
     -*) echo "error: unknown argument: $1 (try --help)" >&2; exit 2 ;;
     *)  app="$1"; shift ;;
