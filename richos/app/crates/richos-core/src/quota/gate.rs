@@ -47,6 +47,9 @@ pub(super) fn admission(state: &Path, now: u64) -> Admission {
         retry_at: view.retry_at,
         error: view.message.map(|_| ReadError::Failed),
         speeds: view.speeds,
+        // A check that came back with no figures lets work run (`Admission::NoReading`); the
+        // gate decides from the same fact the service does.
+        empty_at: view.empty_at,
         ..Default::default()
     }
     .view(policy, now)
