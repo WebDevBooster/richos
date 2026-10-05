@@ -707,9 +707,38 @@
     load();
   }
 
+  /// THE TOP BUTTON IS NEVER UNDER THE SETTINGS CLUSTER. `#stage-header` reserves the settings
+  /// button's 40px lane (`--chrome-lane`, 66px), and the cluster grows LEFTWARD when the update
+  /// cue arrives beside the button (`.settings` is a fixed row, `.update-cue` up to 22rem) — which
+  /// put the cue straight over `#out-top`, so the button could be neither seen nor pressed
+  /// (found in `shots-updates`). The cluster's measured width is published as
+  /// `--chrome-lane-live`, and the header reserves whichever lane is wider.
+  function watchChromeLane() {
+    const settings = document.querySelector(".settings");
+    if (!settings || typeof ResizeObserver !== "function") return false;
+    const publish = () => {
+      const box = settings.getBoundingClientRect();
+      const lane = box.width > 0 ? Math.ceil(window.innerWidth - box.left + 8) : 0;
+      document.documentElement.style.setProperty("--chrome-lane-live", lane + "px");
+    };
+    new ResizeObserver(publish).observe(settings);
+    window.addEventListener("resize", publish);
+    publish();
+    return true;
+  }
+
   function init(options) {
     bridge = options.bridge;
     ctx = options;
+    if (!watchChromeLane()) {
+      // `settings-button.js` mounts the cluster on its own schedule; look again once it has.
+      let tries = 0;
+      const retry = () => {
+        if (watchChromeLane() || ++tries > 120) return;
+        window.requestAnimationFrame(retry);
+      };
+      window.requestAnimationFrame(retry);
+    }
     for (const b of buttons()) {
       b.addEventListener("click", () => toggle({ returnTo: b }));
     }
