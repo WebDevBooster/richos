@@ -340,7 +340,11 @@ class DesktopHookHandOff(unittest.TestCase):
             "RICHOS_ENGINE_ROOT": str(ENGINE), "RICHOS_SA_ENTITY_ROOT": str(self.coordination),
             "RICHOS_SA_TEAMS_DIR": str(self.root / "teams"),
             "RICHOS_WORKSPACES_DIR": str(self.root / "workspaces"),
-            "CLAUDE_PROJECT_DIR": str(self.coordination), "PYTHONDONTWRITEBYTECODE": "1"}
+            "CLAUDE_PROJECT_DIR": str(self.coordination), "PYTHONDONTWRITEBYTECODE": "1",
+            # The real hook runs workspaces.py and the guards, which write <home>/.claude/state.
+            # Run by hand, the inherited HOME is the operator's record: never write it.
+            "HOME": str(self.root / "home"), "CLAUDE_CONFIG_DIR": str(self.root / "home/.claude")}
+        (self.root / "home").mkdir()
         subprocess.run(["git", "init", "-q", str(self.coordination)], check=True, capture_output=True)
         past = time.time() - 60
         os.utime(self.coordination / "orchestration.config", (past, past))
