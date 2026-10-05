@@ -190,6 +190,14 @@ engine units included); a check never measured here keeps its dated row
 (`lib/ci-unit-weights.tsv` for an engine unit), and the engine lanes are packed with the same
 numbers (`ci-units.sh`, `CI_UNIT_WEIGHTS_MEASURED`).
 
+**A refusal names the command that reruns the check as the gate ran it (2026-10-05).** The gate's
+checks inherit `LC_ALL=C` from the merge (and the nightly's conditions, and what the runner sets),
+where a shell has its own locale, so a hand rerun could pass where the gate failed
+(`land-completeness.test.sh`, fixed in 3c0383fba). Every check's exact directory, environment
+(`env -i`) and command are written to `<run>/rerun/<nn>-<check>.sh` when it starts; the summary
+prints `rerun as the gate ran it: sh <file>` with its locale and time zone beside every check that
+did not pass, `summary.json` carries it as `rerun`, and the refusal banner repeats it.
+
 **What blocks**: a check that failed (`failed`), an unchanged failure the runner refuses to
 run again (`blocked`), and an `invalid` result for any reason except inputs that changed while
 the gate ran (an invalid result can hide a failure, for example a UI suite whose ledger

@@ -890,6 +890,44 @@ try:
           "P43c under the gate's caps the longest measured check starts first and finishes inside the round",
           [(i.label, i.state, i.notes[-1:] if i.notes else []) for i in lane])
 
+    # P44 — A CHECK THAT DID NOT PASS CARRIES THE COMMAND THAT RERUNS IT AS THE GATE RAN IT
+    # (2026-10-05). The merge gate's checks inherit LC_ALL=C (workspaces.py _git_env) where a shell
+    # has en_GB.UTF-8: land-completeness.test.sh failed only in the gate and passed every hand rerun
+    # (3c0383fba). A check that fails only under the gate's locale and time zone: run as the gate
+    # runs it, then rerun from a shell with another locale, by hand (passes) and through the file
+    # the summary names (fails, as in the gate).
+    import re as re44
+    import shlex as shlex44
+    d44 = os.path.join(tmp, "p44")
+    os.makedirs(d44)
+    gate_only = pr.Item("gate-only", os.path.join(pr.ROOT, "richos/app"),
+                        ["bash", "-c", '[ "${LC_ALL:-}" != C ] && [ "${TZ:-}" != UTC0 ]'], None, 1.0)
+    saved44 = {k: os.environ.get(k) for k in ("LC_ALL", "LANG", "TZ")}
+    os.environ.update(LC_ALL="C", LANG="C", TZ="UTC0")       # what `git merge` hands the gate
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            pr.run([gate_only], Args(), d44, sampler=idle)
+    finally:
+        for k, v in saved44.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    out44 = io.StringIO()
+    with contextlib.redirect_stdout(out44):
+        pr.summarize([gate_only], 1.0, d44)
+    shell44 = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/"), "LC_ALL": "en_US.UTF-8",
+               "LANG": "en_US.UTF-8", "TZ": "Europe/London"}
+    by_hand44 = subprocess.run(gate_only.argv, cwd=gate_only.cwd, env=shell44).returncode
+    m44 = re44.search(r"rerun as the gate ran it: sh (\S+)", out44.getvalue())
+    rerun44 = subprocess.run(["sh", shlex44.split(m44.group(1))[0]], env=shell44,
+                             capture_output=True).returncode if m44 else None
+    check(gate_only.state == "failed" and m44 is not None and by_hand44 == 0 and rerun44 == 1
+          and "LC_ALL=C" in out44.getvalue() and "TZ=UTC0" in out44.getvalue(),
+          "P44 a failed check names the file that reruns it as the gate ran it: by hand it passes, through the file "
+          "it fails as in the gate, and the line shows the locale and time zone",
+          (gate_only.state, by_hand44, rerun44, out44.getvalue()[-400:]))
+
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.
     class Held:

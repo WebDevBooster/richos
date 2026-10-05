@@ -810,6 +810,46 @@ def finish_attempt(item):
     return True
 
 
+# A REFUSED CHECK CARRIES THE COMMAND THAT RERUNS IT AS THE GATE RAN IT (2026-10-05).
+# The merge gate runs `git merge` with LC_ALL=C (workspaces.py _git_env), its hooks inherit it, and
+# so does every check; a shell has en_GB.UTF-8. land-completeness.test.sh failed only in the gate
+# and passed every hand rerun by silently skipping its check (fixed in 3c0383fba), because nobody
+# could rerun it the way the gate had. So each check's exact environment, directory and command
+# are written to <run>/rerun/<nn>-<check>.sh when it starts (`env -i`, every variable it got), and
+# a check that did not pass is printed with that file and the locale and time zone it ran under.
+# Left out: what ties a process to THIS run (worker tokens and their locks, the proof-run slot's
+# descriptors, the verification controller's state, this run's evidence paths), which a rerun by
+# hand must not borrow and does not need.
+RERUN_RUN_SCOPED = ("RICHOS_WORKER_TOKENS", "RICHOS_WORKER_TOKENS_TOOL", "RICHOS_WORKER_TOKENS_RESERVED",
+                    "RICHOS_MACHINE_WORKERS", "RICHOS_WORKER_SLOT_HELD", "RICHOS_WORKER_BORROW_LOCK",
+                    "RICHOS_CPU_GUARD_STATE", "RICHOS_VERIFICATION_RUNNER_WAIT", "RICHOS_VERIFICATION_CONTAMINATION",
+                    "RICHOS_TEST_RESULTS_ROOT", "RICHOS_UI_TESTS_LEDGER", "RICHOS_TEST_DEVICE_RUN_ID",
+                    "RICHOS_PROOF_RUN_SLOT_HELD", "RICHOS_PROOF_RUN_SLOT_FDS")
+RERUN_SHOWN = ("LC_ALL", "LANG", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES", "TZ", "TMPDIR")
+
+
+def write_rerun(item, n, logdir, env):
+    """<logdir>/rerun/<nn>-<check>.sh: this check, as this run started it. None if it cannot be written."""
+    scoped = set(RERUN_RUN_SCOPED) | set(SLOT.env() if SLOT else ()) | {getattr(proc_tree, "SCOPE_ENV", "")}
+    kept = sorted((k, v) for k, v in env.items() if k not in scoped and "\n" not in v)
+    path = os.path.join(os.path.realpath(logdir), "rerun", "%02d-%s.sh" % (n, slug(item.label)))
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as out:
+            out.write("#!/bin/sh\n# %s, exactly as proof-run started it: the same directory, the same environment "
+                      "(env -i: nothing from the shell that runs this) and the same command.\n" % item.label)
+            out.write("cd %s || exit 2\n" % shlex.quote(item.cwd))
+            out.write("exec env -i \\\n")
+            for key, value in kept:
+                out.write("  %s \\\n" % shlex.quote("%s=%s" % (key, value)))
+            out.write("  %s\n" % " ".join(shlex.quote(a) for a in item.argv))
+        os.chmod(path, 0o755)
+    except OSError:
+        return None
+    item.rerun_shown = " ".join("%s=%s" % (k, env.get(k, "(unset)")) for k in RERUN_SHOWN if k in env or k in ("LC_ALL", "TZ"))
+    return path
+
+
 def launch(item, n, logdir, tokens_dir, reserved):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
     # Its own per-test results folder, in this run's evidence: run-tests.sh gives each suite a
@@ -859,6 +899,7 @@ def launch(item, n, logdir, tokens_dir, reserved):
     # during the check". Set here, like the ledger path below, so it is not part of any input
     # identity. A check that needs bytecode (a test of the bytecode cache itself) sets its own.
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    item.rerun = write_rerun(item, n, logdir, env)
     item.state, item.started = "running", time.monotonic()
     evidence = getattr(item, "evidence", None)
     if evidence:
@@ -1924,6 +1965,10 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
         kept = it.results if it.results and os.path.isdir(it.results) and os.listdir(it.results) else None
         if kept and it.state != "passed":
             print("      per-test results: %s" % kept)
+        rerun = getattr(it, "rerun", None)
+        if rerun and it.state not in ("passed", "not-run"):
+            print("      rerun as the gate ran it: sh %s" % shlex.quote(rerun))
+            print("        (%s)" % getattr(it, "rerun_shown", ""))
         rows.append({"check": it.label, "result": it.state, "seconds": round(it.total_seconds, 1),
                      "last_attempt_seconds": round(it.seconds, 1),
                      "admission_wait": round(it.admission_wait, 1),  # legacy field: total queue
@@ -1939,6 +1984,7 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                      "repeated_cpu_seconds": attempt_cpu(it.previous_attempts),
                      "failing_tests": list(it.failing), "results": kept,
                      "not_run": getattr(it, "not_run", None),
+                     "rerun": getattr(it, "rerun", None),
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
         json.dump({"wall_seconds": round(wall, 1), "serial_seconds": round(serial, 1), "host": list(monitor_lines),
