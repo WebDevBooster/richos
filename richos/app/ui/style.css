@@ -8475,11 +8475,13 @@ body.bp-narrow #out-bottom .out-word {
   transition: filter 0.15s;
 }
 
-/* The line between Open and `▾` is decoration: the chevron, at the text's contrast, is what
-   says the second part is its own control. */
+/* The line between Open and `▾` is the boundary of the second control, so it is a non-text
+   indicator held to 3:1 (contrast.js measures it): drawn in the pill's own ink, `--on-gold`,
+   the words' color. The earlier rgba(12, 19, 34, 0.28) read 1.57:1 on light gold (#9c7c34) and
+   1.71:1 on dark gold (#c2a35c), found when the combined panel's walk first reached it. */
 .of-open > button + button {
   padding: 0 9px 0 8px;
-  border-left: 1px solid rgba(12, 19, 34, 0.28);
+  border-left: 1px solid var(--on-gold);
 }
 
 .of-open > button:hover {
@@ -8507,7 +8509,7 @@ body.bp-narrow #out-bottom .out-word {
 }
 
 .of-open.is-disabled > button + button {
-  border-left-color: var(--line-soft);
+  border-left-color: var(--ctl-line);
 }
 
 .of-open > button[aria-disabled="true"] {
