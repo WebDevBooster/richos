@@ -577,7 +577,7 @@ class OutputWalk(command_walk.CommandWalk):
         prompt = [r for r in self.ledger() if r.get('turn_id') == asked and r.get('event') == 'PromptReceived']
         text = json.dumps(prompt)
         stored = guest(self.vm, 'find ' + shlex.quote(self.data + '/attachments') + ' -name ' + shlex.quote(ATTACH_NAME)
-                       + ' -type f 2>/dev/null || true', 60).split()
+                       + ' -type f 2>/dev/null || true', 60).splitlines()  # one path a line: "Application Support"
         same = bool(stored) and guest(self.vm, 'cmp -s ' + shlex.quote(stored[0]) + ' ' + shlex.quote(target)
                                       + ' && echo same || echo differ', 60).strip() == 'same'
         said = ''.join(r.get('text', '') for r in self.ledger() if r.get('turn_id') == asked and r.get('event') == 'AssistantDelta')
