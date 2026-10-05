@@ -7321,7 +7321,11 @@ body.bp-narrow #rail,
   color: var(--ink);
   white-space: nowrap;
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s;
+  /* NO background or border transition. With `transition: border-color 0.15s,
+     background-color 0.15s` a theme switch flipped `color` at once while the background eased
+     from the old theme's surface: light to dark read `#dfe4ee` on `#f7f5ef`, 1.17:1, for 150 ms
+     (`tests/voice-model.js`, "the refused state meets WCAG AA in BOTH themes"). The text and
+     the plane it sits on change together, so the label is readable on every frame. */
 }
 
 .out-btn:hover {
