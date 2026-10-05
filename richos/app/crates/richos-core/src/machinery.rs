@@ -515,6 +515,20 @@ pub struct MachineryRecord {
     pub summary: Option<String>,
     /// File paths touched. Extracted from the wire's `[{path, line?}]` objects.
     pub locations: Vec<String>,
+    /// **The frame's `parent_tool_use_id`: set when this record came from a WORKER's frame
+    /// nested under the lead's `Agent` call**, `None` for the lead's own (Output side panel PRD
+    /// §4.1 (a), richos-hq `docs/prds/2026-10-05-output-side-panel.md`).
+    ///
+    /// It has to be a field because the retained `tool_use` and `tool_result` records keep the
+    /// BLOCK, not the frame, as their payload, and the merge keeps the last payload — so after
+    /// the merge nothing else says whose call it was. Witness (a) skips any merged call that
+    /// carries one: a nested worker's `Write` is not Rich's, and witness (b) records it under
+    /// the worker's name.
+    ///
+    /// `None` on every row written before the field existed (`serde(default)`), and omitted
+    /// when `None`, so a lead's record serializes byte-for-byte as it did before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_use_id: Option<String>,
     /// `true` ⇒ never rendered in a thread view (§1.5): re-prime traffic, handoff
     /// summaries, crash-recovery machinery. Mirrors `ActionVisibility::Internal`
     /// (`ledger.rs:119-133`) and honours the standing order that Rich never reveals
@@ -542,6 +556,15 @@ impl MachineryRecord {
     /// (the spine); the driver knows only the session and the seq.
     pub fn from_native_event(frame: &Value, session_id: &str, seq: u64) -> Vec<MachineryRecord> {
         let ty = frame.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        // Whose frame this is, stamped on EVERY record it yields (the `content_block_start`,
+        // `tool_use`, `tool_result` and `text` routes alike). Not on `tool_progress`: there the
+        // field names the tool call the heartbeat BELONGS to (DEVIATION 1 below), which is the
+        // lead's own call as often as not, so reading it as "nested" would be wrong.
+        let parent_tool_use_id = if ty == "tool_progress" {
+            None
+        } else {
+            frame.get("parent_tool_use_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_string)
+        };
         let mut out: Vec<MachineryRecord> = Vec::new();
         let mut push = |kind, tool_call_id, status, title: String, summary, locations, body: &Value| {
             let (payload, truncated) = cap_payload(body);
@@ -558,6 +581,7 @@ impl MachineryRecord {
                 title,
                 summary,
                 locations,
+                parent_tool_use_id: parent_tool_use_id.clone(),
                 internal: false,
                 payload,
                 truncated,
@@ -848,6 +872,7 @@ impl MachineryRecord {
             title: CONTEXT_USAGE.to_string(),
             summary: Some(format!("{used} / {size} tokens")),
             locations: Vec::new(),
+            parent_tool_use_id: None,
             internal: false,
             payload,
             truncated,
@@ -927,6 +952,7 @@ impl MachineryRecord {
             title,
             summary: Some(format!("permission decision: {chosen}")),
             locations: input_locations(request.get("input").unwrap_or(&Value::Null)),
+            parent_tool_use_id: None,
             internal: false,
             payload,
             truncated,
@@ -963,6 +989,7 @@ impl MachineryRecord {
             title: format!("{method} {path}"),
             summary: None,
             locations: if path.is_empty() { Vec::new() } else { vec![path.to_string()] },
+            parent_tool_use_id: None,
             internal: false,
             payload,
             truncated,
@@ -1012,6 +1039,7 @@ impl MachineryRecord {
                 title: title.to_string(),
                 summary: summarize(text),
                 locations: Vec::new(),
+                parent_tool_use_id: None,
                 internal: false,
                 payload,
                 truncated,
@@ -1028,7 +1056,10 @@ impl MachineryRecord {
                     let text = block.get("text").and_then(|v| v.as_str()).unwrap_or("");
                     out.push(orphan("assistant:text", text, block, seq + out.len() as u64));
                 } else {
-                    let one = serde_json::json!({ "type": "assistant", "message": { "content": [block] } });
+                    // The frame's parent travels with the block, so a background worker's call
+                    // arriving between turns is still recognizably not the lead's.
+                    let one = serde_json::json!({ "type": "assistant", "message": { "content": [block] },
+                                                  "parent_tool_use_id": frame.get("parent_tool_use_id") });
                     for r in MachineryRecord::from_native_event(&one, session_id, seq + out.len() as u64) {
                         out.push(r);
                     }
@@ -1073,6 +1104,7 @@ impl MachineryRecord {
                 "{dropped} update(s) arrived between turns and were not kept"
             )),
             locations: Vec::new(),
+            parent_tool_use_id: None,
             internal: false,
             payload,
             truncated,
@@ -1364,6 +1396,11 @@ pub(crate) fn merge_into(base: &mut MachineryRecord, incoming: MachineryRecord) 
     if incoming.payload.is_some() {
         base.payload = incoming.payload;
         base.truncated = incoming.truncated;
+    }
+    // Kept when ANY frame of the call said it was nested: a worker's call stays a worker's
+    // whichever of its frames arrives last (Output side panel PRD §4.1 (a)).
+    if incoming.parent_tool_use_id.is_some() {
+        base.parent_tool_use_id = incoming.parent_tool_use_id;
     }
     // machinery_id / seq / at / turn_id / thread_id / session_id / internal keep the
     // OPENING record's values — see the `project` doc.
@@ -2085,4 +2122,64 @@ mod tests {
         .stamp("thr", Some("t3"), false)
     }
 
+    // ---- whose call it was: parent_tool_use_id (Output side panel PRD §4.1 (a), S2) ------
+
+    /// `frame` as a WORKER's: the same three frames nested under the lead's `Agent` call,
+    /// `parent_tool_use_id` on every one of them, the `user` frame included — the shape the
+    /// captured wire shows (`docs/verification/claude-md-sentinel-2026-09-06/README.md`, a
+    /// `user` frame carrying a `tool_result` and `"parent_tool_use_id":"toolu_…"`).
+    fn nested(mut frame: Value) -> Value {
+        frame["parent_tool_use_id"] = json!("toolu_AGENT");
+        frame
+    }
+
+    fn merged(frames: &[Value]) -> MachineryRecord {
+        let mut records = frames.iter().enumerate().map(|(i, f)| one(f, i as u64));
+        let mut base = records.next().unwrap();
+        for r in records {
+            merge_into(&mut base, r);
+        }
+        base
+    }
+
+    #[test]
+    fn machinery_a_lead_write_as_three_frames_merges_with_no_parent() {
+        let call = merged(&[open_write(), assistant_tool_use(), tool_result_ok()]);
+        assert_eq!(call.status, Some(ToolStatus::Completed));
+        assert_eq!(call.locations, vec!["/private/tmp/claude-501/rust-probe-out.txt".to_string()]);
+        assert_eq!(call.parent_tool_use_id, None);
+        // And the lead's record serializes exactly as it did before the field existed.
+        assert!(!serde_json::to_string(&call).unwrap().contains("parentToolUseId"));
+    }
+
+    #[test]
+    fn machinery_a_nested_worker_write_as_three_frames_keeps_its_parent_through_the_merge() {
+        let frames = [nested(open_write()), nested(assistant_tool_use()), nested(tool_result_ok())];
+        // Stamped from the frame on every route: the open, the arguments and the close.
+        for (i, f) in frames.iter().enumerate() {
+            assert_eq!(one(f, i as u64).parent_tool_use_id.as_deref(), Some("toolu_AGENT"), "{f}");
+        }
+        let call = merged(&frames);
+        assert_eq!(call.status, Some(ToolStatus::Completed));
+        assert_eq!(call.parent_tool_use_id.as_deref(), Some("toolu_AGENT"));
+        // Kept even when a later frame (here the close, without the field) says nothing.
+        let mut close = tool_result_ok();
+        close.as_object_mut().unwrap().remove("parent_tool_use_id");
+        let call = merged(&[nested(open_write()), nested(assistant_tool_use()), close]);
+        assert_eq!(call.parent_tool_use_id.as_deref(), Some("toolu_AGENT"));
+        // A heartbeat's parent field names the call it belongs to, not a worker: never stamped.
+        let beat = json!({"type":"tool_progress","tool_use_id":"toolu_A-heartbeat-1",
+                          "parent_tool_use_id":"toolu_A","elapsed_time_seconds":30});
+        assert_eq!(one(&beat, 0).parent_tool_use_id, None);
+    }
+
+    #[test]
+    fn machinery_a_journal_row_written_before_the_field_reads_back_as_none() {
+        let mut row = serde_json::to_value(one(&open_write(), 0)).unwrap();
+        row.as_object_mut().unwrap().remove("parentToolUseId");
+        let back: MachineryRecord = serde_json::from_value(row).unwrap();
+        assert_eq!(back.parent_tool_use_id, None);
+        let nested_row = serde_json::to_value(one(&nested(open_write()), 0)).unwrap();
+        assert_eq!(nested_row["parentToolUseId"], json!("toolu_AGENT"));
+    }
 }

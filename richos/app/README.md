@@ -237,7 +237,7 @@ richos/app/
     tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
                               at runtime; CEO-facing actions cross a rotation; machinery
                               stays out of every priming prompt)
-    tests/machinery_tests.rs 15 machinery routing/retention tests, driven by native wire
+    tests/machinery_tests.rs 16 machinery routing/retention tests, driven by native wire
                               frames actually measured against the binary
     tests/steering_tests.rs  16 stop/steer tests (UX §9.2/§9.3). Includes the CONCURRENCY
                               proof: the spine goes behind an Arc<Mutex<..>> exactly as the
@@ -659,6 +659,15 @@ richos/app/
                               the REAL decision, printing what the window would open at,
                               swept across menu-bar/Dock models. Opens no window
     src/nav.rs               durable rail VIEW state: width, pin, rename, archive (not evidence)
+    src/output_files.rs      THE FILES A THREAD PRODUCED, REACHED SAFELY (Output side panel PRD
+                              §5, slice S3): list, describe, preview, open and show in Finder by
+                              OUTPUT ID only, resolved in the active thread's record and checked
+                              before every read or act (no link, a regular file, the canonical
+                              path it was witnessed at, O_NOFOLLOW reads); the Launch Services
+                              app list; and the `richos-output://` scheme that serves media, PDF
+                              and QuickLook renditions with Range, and a bad id a 404 with no bytes
+    examples/output_files_probe.rs  the same commands from a command line, for the test VM's
+                              open-and-reveal check until the panel has its buttons (slice S4)
     src/updates.rs           THE UPDATE PATH (RICH-TODOs rows 12 and u1): check, download with
                               throttled progress, VERIFY, install, relaunch; a nine-state
                               view emitted as `rich://update`; and the failure classifier
@@ -1108,7 +1117,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1785 tests + 5 doc-tests (1781 direct, 4 ignored)
+cargo test -p richos-core                       # 1809 tests + 5 doc-tests (1805 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -1813,7 +1822,7 @@ the spine-seams + rotation brief, 2026-08-24.
 routed into a second event family (`rich://machinery`) and retained in a separate
 per-thread, day-sharded journal, on ONE per-turn `seq` shared with the assistant text so
 "he said X, then ran Y, then said Z" is reconstructible. Proven headless
-(`tests/machinery_tests.rs`, 15 tests, driven by wire frames measured against the real
+(`tests/machinery_tests.rs`, 16 tests, driven by wire frames measured against the real
 binary) and live (`examples/machinery_roundtrip.rs` — one real tool-using turn, 24 journal
 lines projecting to 9 rows, positions 0..=34 used exactly once across both families; the run
 is kept at `docs/verification/machinery-roundtrip-2026-08-28.txt`). The emission set the

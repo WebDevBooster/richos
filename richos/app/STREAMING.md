@@ -838,3 +838,20 @@ page already holds the bytes, and `attach_pasted_file` takes them as a raw body.
 remove control per chip, and on Send `commit_attachments`, which moves the files into the
 conversation's folder and returns the words Rich receives, in the same shape the phone's
 attachments reach him (`phone/attachments.rs`, `describe_from`).
+
+## A thread's output record: `rich://output`
+
+The eleventh family, added 2026-10-05 for the Output side panel (its PRD of that date, §6.6, is
+in the private record, not in this repository). Source of truth:
+`richos/app/crates/richos-core/src/output.rs`, the constant `EVENT_OUTPUT`, emitted by the shell's
+`TauriOutputEmitter` from the ONE `OutputStore` the spine and the work host share, after rows are
+appended to `<app-data>/output/<thread_id>.jsonl`.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://output` | A witness recorded a file this thread produced that the record did not hold yet: Rich's own write, the back end's, a worker's, or a file a command made. | `{ threadId, added: [Entry], count }`: the entries the new rows touched, re-stated from the disk, and the thread's file count after the append |
+
+**Witnessed, never inferred.** Nothing Rich says reaches this event; a file is listed because a
+witness saw the write (§4.1). An append that holds nothing new emits nothing. The record on disk
+is the truth and this event is a nudge: a reopened panel reads the record, not past events.
+As of 2026-10-05 nothing in `richos/app/ui/` listens to it yet; the panel is slice S4.

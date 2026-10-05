@@ -614,6 +614,11 @@ pub struct Spine {
     /// families means the default UI's subscription list is the proof that the calm view
     /// carries no machinery (§3.3).
     machinery_observer: Option<Box<dyn MachineryObserver>>,
+    /// THE OUTPUT RECORD (Output side panel PRD §3-§4) and the evidence folder its witnesses
+    /// (b) and (c) read, `<app-data>/engine-state/evidence`. `None` — every test and headless
+    /// run — records nothing and behaves exactly as before; the shell sets both
+    /// ([`Spine::set_output_store`]).
+    output: Option<(crate::output::OutputStore, Option<PathBuf>)>,
     /// The THIRD live sink: the additive §13 event family (`live.rs`). Separate from
     /// `observer` on purpose — the four `stream.rs` events are unchanged and a UI that
     /// listens only to them is unaffected by anything on this one.
@@ -811,6 +816,7 @@ impl Spine {
             last_rotation_reason: None,
             machinery_journal: None,
             machinery_observer: None,
+            output: None,
             live: None,
             candidates: None,
             heard: None,
@@ -1008,6 +1014,28 @@ impl Spine {
     /// nothing listening, and per §2.2 a UI that isn't listening never stalls a turn.
     pub fn set_machinery_observer(&mut self, observer: Box<dyn MachineryObserver>) {
         self.machinery_observer = Some(observer);
+    }
+
+    /// Attach the output record (Output side panel PRD §3) and the evidence folder,
+    /// `<app-data>/engine-state/evidence`, its hook witnesses write to.
+    ///
+    /// With it, witness (a) records each of Rich's own completed write-tool calls at the live
+    /// merge, and at the end of every turn this lease's `writes.jsonl` is projected (witnesses
+    /// (b) and (c): a front-desk worker's writes and the files Rich's commands made).
+    pub fn set_output_store(&mut self, store: crate::output::OutputStore, evidence_root: Option<PathBuf>) {
+        self.output = Some((store, evidence_root));
+    }
+
+    /// Witnesses (b) and (c) for the lease that just ran a turn of `thread_id`: its session's
+    /// `writes.jsonl`, joined through the ledger's `TurnStarted` rows (one lease serves one
+    /// thread). A failure is logged and never fails the turn (§4.7).
+    fn project_output_evidence(&self, thread_id: &str) {
+        let Some((store, Some(root))) = self.output.as_ref() else { return };
+        let Some(session) = self.lease_session_id() else { return };
+        let join = crate::output::SessionJoin::new(self.ledger.turns(), &[]);
+        if let Err(e) = store.project_session(thread_id, root, session, &join) {
+            eprintln!("[richos] output: this turn's hook witnesses could not be recorded: {e}");
+        }
     }
 
     /// Attach the correction-staging desk. **This is what makes the flywheel's trigger
@@ -2774,6 +2802,9 @@ impl Spine {
         let journal = self.machinery_journal.as_ref();
         let machinery_observer = self.machinery_observer.as_deref();
         let live_observer = self.live.as_deref();
+        // The output record, so witness (a) can record a file the moment the call that wrote
+        // it completes (Output side panel PRD §4.1 (a)).
+        let output_store = self.output.as_ref().map(|(store, _)| store);
         // The engine's worker-lifecycle stream, borrowed as a distinct field so the closure
         // below can re-read it DURING the turn — that is what makes a delegation reach the
         // screen while it is happening rather than at the next `get_timeline`. It is read
@@ -2858,6 +2889,15 @@ impl Spine {
                     let runs = ledger.turn(turn_id).map(|t| t.text_runs.as_slice()).unwrap_or(&[]);
                     Self::forward_live(live_observer, live_turn.close_open_message(runs, now_millis()));
                     Self::forward_live(live_observer, live_turn.on_machinery(&record, &|| worker_source.read(worker_session.as_deref())));
+                    // Witness (a): a write-tool call of Rich's that just completed. Recorded
+                    // here, live, so the count ticks while the turn is still running; a
+                    // failure is logged and never fails the turn (§4.7).
+                    let written = live_turn.take_output_writes();
+                    if let (Some(store), false) = (output_store, written.is_empty()) {
+                        if let Err(e) = store.append(thread_id, &written) {
+                            eprintln!("[richos] output: a file Rich wrote could not be recorded: {e}");
+                        }
+                    }
                     Self::retain_and_emit_machinery(journal, machinery_observer, record);
                 }
             };
@@ -2866,6 +2906,11 @@ impl Spine {
         // `ledger` / `lease` / `observer` / `machinery_*` borrows end here.
 
         self.turn_in_progress = false;
+        // Witnesses (b) and (c) of the Output side panel PRD, for the lease that just ran this
+        // turn: a front-desk worker's writes (nested inside the lead's turn) and the files the
+        // turn's commands made. Whatever the outcome — a stopped turn's files were still
+        // written. Before any rotation, so the session is still the one that ran the turn.
+        self.project_output_evidence(thread_id);
         // The turn is over, so anything still arriving has no turn to belong to (§1.5).
         // Pumped HONESTLY here, and pumped here rather than only at the next turn's start
         // for one ordering reason: a rotation may follow immediately, and the rotation path

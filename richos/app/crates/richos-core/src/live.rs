@@ -633,6 +633,12 @@ pub(crate) struct LiveTurn {
     /// nothing new emits nothing. §13's contract is *"emit on any observed state change"*,
     /// not "emit on every tick".
     emitted_workers: HashMap<String, WorkerActivityItem>,
+    /// WITNESS (a) of the Output side panel PRD (§4.1 (a), richos-hq
+    /// `docs/prds/2026-10-05-output-side-panel.md`): the tool calls already recorded as
+    /// written files, so a call is recorded once however many frames follow its completion.
+    output_witnessed: std::collections::HashSet<String>,
+    /// Rows witnessed since the spine last took them ([`LiveTurn::take_output_writes`]).
+    output_writes: Vec<crate::output::WriteRow>,
 }
 
 impl LiveTurn {
@@ -648,7 +654,40 @@ impl LiveTurn {
             order: Vec::new(),
             agent_ids: HashMap::new(),
             emitted_workers: HashMap::new(),
+            output_witnessed: std::collections::HashSet::new(),
+            output_writes: Vec::new(),
         }
+    }
+
+    /// **Witness (a), at the live merge**: the moment a merged call becomes a COMPLETED
+    /// write-tool call with locations and no parent, it is a file Rich wrote.
+    ///
+    /// Evaluated on the merged row, because on the native wire the name, the arguments and
+    /// the completion are three different frames (Frank's minor 1). A call with a
+    /// `parent_tool_use_id` is a front-desk WORKER's — witness (b) records it under the
+    /// worker's name — and an internal turn's call is not the thread's work.
+    fn witness_output(&mut self, key: &str) {
+        let Some(row) = self.merged.get(key) else { return };
+        let Some(id) = row.tool_call_id.clone() else { return };
+        let is_write = self.tool_names.get(&id).is_some_and(|n| crate::output::WRITE_TOOLS.contains(&n.as_str()));
+        if !is_write
+            || row.internal
+            || row.kind != crate::machinery::MachineryKind::ToolCall
+            || row.status != Some(crate::machinery::ToolStatus::Completed)
+            || row.locations.is_empty()
+            || row.parent_tool_use_id.is_some()
+        {
+            return;
+        }
+        if self.output_witnessed.insert(id) {
+            self.output_writes.extend(crate::output::tool_call_rows(row));
+        }
+    }
+
+    /// The written-file rows witnessed since the last call, for the spine to append to the
+    /// thread's output record.
+    pub(crate) fn take_output_writes(&mut self) -> Vec<crate::output::WriteRow> {
+        std::mem::take(&mut self.output_writes)
     }
 
     fn message_id(&self, run_index: usize) -> String {
@@ -822,6 +861,7 @@ impl LiveTurn {
                 self.order.push(key.clone());
             }
         }
+        self.witness_output(&key);
 
         let rows = if self.agent_ids.is_empty() { Vec::new() } else { worker_rows() };
 
@@ -1285,6 +1325,53 @@ mod tests {
         let events = turn.on_machinery(&rec, &none);
         assert_eq!(events.len(), 1, "the event exists, so the gate is what stops it");
         assert!(!events[0].may_reach_webview(), "an internal turn's compaction must stop at the gate");
+    }
+
+    /// The three wire frames of one `Write`, as the native driver hands them over; `parent`
+    /// makes them a front-desk WORKER's, nested under the lead's `Agent` call.
+    fn write_frames(id: &str, path: &str, parent: Option<&str>) -> Vec<crate::machinery::MachineryRecord> {
+        let parent = json!(parent);
+        [
+            json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                   "content_block":{"type":"tool_use","id":id,"name":"Write","input":{}}},"parent_tool_use_id":parent}),
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":id,"name":"Write",
+                   "input":{"file_path":path,"content":"x"}}]},"parent_tool_use_id":parent}),
+            json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":id,"content":"ok"}]},
+                   "tool_use_result":{"type":"create","filePath":path},"parent_tool_use_id":parent}),
+        ]
+        .iter()
+        .enumerate()
+        .flat_map(|(i, f)| crate::machinery::MachineryRecord::from_native_event(f, "sess", i as u64))
+        .map(|r| r.stamp("thr", Some("turn_1"), false))
+        .collect()
+    }
+
+    /// Witness (a) at the live merge (Output side panel PRD §4.1 (a), S2): a lead `Write` as
+    /// three frames is ONE row the moment it completes; a nested worker `Write` as three frames
+    /// is none — that file is the worker's, and witness (b) names it.
+    #[test]
+    fn output_witness_a_takes_a_lead_write_once_and_never_a_nested_worker_write() {
+        let mut turn = LiveTurn::new(fence(), false);
+        let none = || Vec::new();
+        let mut taken = Vec::new();
+        for r in write_frames("toolu_L", "/Users/ceo/acme/brief.md", None) {
+            turn.on_machinery(&r, &none);
+            taken.extend(turn.take_output_writes());
+        }
+        assert_eq!(taken.len(), 1, "{taken:?}");
+        assert_eq!(taken[0].key, "mach:toolu_L");
+        assert_eq!(taken[0].actor, crate::output::Actor::Rich);
+        assert_eq!((taken[0].thread_id.as_str(), taken[0].turn_id.as_deref()), ("thr", Some("turn_1")));
+        // A late duplicate of the close records nothing more.
+        for r in write_frames("toolu_L", "/Users/ceo/acme/brief.md", None).into_iter().skip(2) {
+            turn.on_machinery(&r, &none);
+        }
+        assert!(turn.take_output_writes().is_empty());
+
+        for r in write_frames("toolu_W", "/Users/ceo/acme/worker.md", Some("toolu_AGENT")) {
+            turn.on_machinery(&r, &none);
+        }
+        assert!(turn.take_output_writes().is_empty(), "a nested worker's write is never Rich's");
     }
 
 }
