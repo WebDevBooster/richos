@@ -5917,38 +5917,9 @@ def lead_recovery_call(payload):
     return ""
 
 
-def _hands_back_after_its_run(rec):
-    """Is this a finished agent whose ONLY ending is its own run's end, so its
-    report may still be handed back?
-
-    THE REPORT IS NOT A WRITE (walk 6, 2026-10-05, walk-10608166d53f,
-    esc-20261005T151403Z-2f5c3737). Point 9 refuses a restarted agent every tool
-    "so it cannot write anywhere". The platform restarts an agent whose run ended
-    without handing its report back, and the one thing that restart is for is
-    SubagentHandback: the reviewer's verdict, written to nothing in any workspace.
-    Refusing it left the back end with "changes-requested" and no reason, three
-    times over, while its reviewer's own last words said the handback had been
-    refused. So that one tool passes when the agent's end is its own SubagentStop
-    and nothing else: not stopped, not disposed of, not an orphan, not of a
-    session that has ended, and not one that already handed in its work. Every
-    other tool stays refused, exactly as before."""
-    end = rec.get("end") or {}
-    if end.get("signal") != "SubagentStop" or rec.get("handed_in"):
-        return False
-    if rec.get("disposition") or rec.get("orphan") or rec.get("creation_failed"):
-        return False
-    if rec.get("session_id"):
-        state, _why = session_state(rec["session_id"], rec.get("session_identity"))
-        if state == "ended":
-            return False
-    return True
-
-
 def barrier(payload):
     """Verdict for guard-sealed-worktree.sh: (kind, detail).
     FINISHED        a finished agent: refused every tool (point 9)
-    HANDBACK        a finished agent's SubagentHandback, when its only ending is
-                    its own run's end: its report is not a write (point 9's reason)
     FORBIDDEN       the lead of a claude --worktree session (point 3)
     RECOVERY        that lead stopping its agents: never refused
     REGISTERED      a registered, unfinished worker (paused included)
@@ -5977,9 +5948,6 @@ def barrier(payload):
     # own record here too, rather than waiting to be told.
     rec = observe_platform_end(rec)
     fin, _paused, why = finished_state(rec)
-    if fin and str(payload.get("tool_name") or "") == "SubagentHandback" and _hands_back_after_its_run(rec):
-        return "HANDBACK", "agent %s (%s) hands its report back after its run ended: %s" % (
-            aid, rec.get("name"), why)
     if fin:
         return "FINISHED", "agent %s (%s) is finished: %s" % (aid, rec.get("name"), why)
     # POINT 2, AT THE TOOL: "An agent never works inside a codex/ workspace."
