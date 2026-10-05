@@ -7036,6 +7036,13 @@ body.home-open {
 
 .quota-toolbar { flex-wrap: wrap; gap: 8px; }
 .quota-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+/* Round 16's reading row (quota.html .reading, a row that never wraps): + Add account and
+   Refresh keep their place beside the reading, and a long reading ("Checked under a minute
+   ago · every minute — usage is fast") wraps inside its own column instead of pushing them
+   to a second row, which also made the fast sheet scroll at 1680 x 1050 (VM walk, shot 5,
+   2026-10-05). The row still wraps as a whole once the reading cannot keep 12em. */
+#quota-freshness { flex: 1 1 0; min-width: 12em; }
+.quota-toolbar-actions { flex: none; }
 
 /* ---------------------------------------------------------------------------------------
    THE SPECKLED GROUND — THE GROUND PLANES. At the END of the file on purpose: these replace

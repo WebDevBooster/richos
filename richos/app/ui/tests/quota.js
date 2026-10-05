@@ -267,6 +267,10 @@ async function main() {
         // Round 16's fast card: the agents counted and the rise measured, as the alert says them.
         assert((await page.locator("#quota-hold-detail").innerText()).startsWith("15 agents reading at once took Work’s five-hour window from 40% to 71% in 12 minutes."),
           await page.locator("#quota-hold-detail").innerText());
+        // Round 16's reading line keeps + Add account and Refresh on its row; a long reading
+        // wraps inside its own column (quota.html .reading, no wrap) instead of pushing them down.
+        assert(await page.evaluate(() => document.querySelector(".quota-toolbar-actions").getBoundingClientRect().top
+          < document.getElementById("quota-freshness").getBoundingClientRect().bottom), "Add account and Refresh stay on the reading's row");
         assertEqual(await page.locator('.quota-lane[data-id="1"] button').allTextContents(), [], "Account 1 has no Remove");
         assertEqual(await page.locator('.quota-lane[data-id="3"] button').allTextContents(), ["Sign in", "Remove"]);
       }
