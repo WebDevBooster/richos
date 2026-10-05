@@ -78,6 +78,7 @@ report whether company interview tools loaded."). That was a fixture gap, not an
 ## Proof
 
 - `node ui/tests/quota.js`: 26 PASS, 0 FAIL, including the dark and light state matrices' fit and contrast checks.
-- `cargo test -p richos-core --lib -- quota claude_accounts`: 73 passed. `--test rotation_tests`: 31 passed (at `665d0765a`).
+- `cargo test -p richos-core --lib -- quota claude_accounts`: 73 passed. `--test rotation_tests`: 31 passed (at `665d0765a`, the walked build).
+- After merging main `065021f15`: `--lib -- switch work_host quota claude_accounts`: 155 passed; `--test rotation_tests`: 32 passed. Three switch tests needed the automatic switch on, and two of them round 16's words. One of the three, main's earlier `a_long_background_run_…`, had failed on this branch unseen since an earlier merge, because the old proof filter never selected `work_host`.
 - `scripts/testvm/test/fake-claude-fill-first.test.py`: 9 ok.
 - Walks: walk 1 (echo-opus-panel16c's, `walk-c9dcf2ba1a38`), walk 2 (`walk-2b34a9ca8b95`) and walk 3 (`walk-5c66807272b3`); each report says `cleanup_complete: true`.
