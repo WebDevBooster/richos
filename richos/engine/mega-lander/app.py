@@ -370,6 +370,47 @@ def merge_commit(repo, tip, commit, branch, reviewer_id):
                          % (commit[:12], repo, str(error).strip()[-2000:]))
 
 
+def landed_files(repo, before, landed):
+    """The files a land wrote into the checkout: added, copied, modified or renamed (its new
+    name) between the commit the ref left and the one it moved to. A Git fact about the move
+    just made, never a scan; a deleted file is not one of them. NUL-separated, so no path is
+    quoted or trimmed."""
+    result = _git_answer(repo, "diff", "--name-only", "-z", "--diff-filter=ACMR", before, landed)
+    if result.returncode:
+        raise ValueError("Git could not list the landed files: " + (result.stderr or "").strip()[-500:])
+    return [name for name in result.stdout.split("\0") if name]
+
+
+def witness_land(scope, worker, targets, plan):
+    """WITNESS (d), THE LAND (Output side panel PRD §4.1 (d), slice S2b). A worker writes in its
+    own worktree, which cleanup deletes minutes after this; the landed copy in the connected
+    repository is written by the merge above and by nothing the hook sees. So the land itself
+    records, for every repository whose ref it moved, one row per landed file: the landed path,
+    the worktree path it came from (which the app's record then retires), the commit and the
+    worker named by its own receipt. Into the BACK-END session's `writes.jsonl`, through the
+    hook's own appender, so the app joins it to the thread like every other row of the job.
+
+    A history is never worth failing a land for (the land record's rule, workspaces.py): any
+    failure here is reported on stderr, appends nothing and returns. A repeated integrate merges
+    nothing (`already`) and records nothing."""
+    try:
+        evidence = load("richos_app_evidence", ENGINE / "scripts/lib/app-evidence.py")
+        who = {"name": worker["name"], "agent_id": worker.get("agent_id") or None}
+        rows = []
+        for repo, step in plan.items():
+            if step["already"]:
+                continue
+            # The worktree still exists here (cleanup is after), so its real path is the one
+            # the hook's command witness recorded (it resolves every directory it lists).
+            worktree = os.path.realpath(targets[repo]["path"])
+            for name in landed_files(repo, step["tip"], step["landed"]):
+                rows.append({"path": os.path.join(repo, name), "from": os.path.join(worktree, name),
+                             "commit": step["landed"], "worker": who})
+        evidence.append_land_rows(state() / "evidence", scope["binding"]["session_id"], rows)
+    except Exception as error:  # noqa: BLE001 -- a history never fails a land
+        print("RichOS output: the landed files were not recorded: %s" % str(error)[-500:], file=sys.stderr)
+
+
 def ever_dispatched(record, canonical=None):
     """Any sign that this receipt's worker was handed to the provider: the
     receipt's own tool call or agent id, or the spawn evidence the canonical
@@ -1450,6 +1491,9 @@ def integrate(scope_path,scope,args):
                 worker["integration"]["verified"]=True
                 worker["status"]="integrated"
                 save(path,worker)
+                # Every ref has moved and every land lock is still held; the worktrees are
+                # not yet cleaned up. Never fails the land.
+                witness_land(scope,worker,targets,plan)
             # Cleanup remains canonical Mega Lander. Its result is separate from Git
             # integration; partial cleanup never rolls back a verified target commit.
             # A revision can leave earlier review workspaces outside the worker's
