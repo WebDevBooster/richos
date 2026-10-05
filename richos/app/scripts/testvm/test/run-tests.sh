@@ -1701,6 +1701,10 @@ t "steps-walk-refused: an until step whose ax.sh request is refused fails after 
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/steps-walk-refused.test.py" >"$TMP/steps-walk-refused.log" 2>&1; ok $? "$(cat "$TMP/steps-walk-refused.log")"
 t_done
 
+t "fill-first-walk: a walk whose guest operations or captures fail exits nonzero; a complete one exits 0 with every frame (R37)"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/fill-first-walk.test.py" >"$TMP/fill-first-walk.log" 2>&1; ok $? "$(cat "$TMP/fill-first-walk.log")"
+t_done
+
 t "adopt-walk: phone-only, left Registered at the boundary, each way to fail named"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/adopt-walk.test.py" >"$TMP/adopt-walk.log" 2>&1; ok $? "$(cat "$TMP/adopt-walk.log")"
 t_done

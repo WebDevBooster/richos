@@ -33,11 +33,11 @@ OUT=""; REGION=""; EVERY=5; COUNT=40; UNTIL=""; STOP_REPEAT=0
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help)        usage; exit 0 ;;
-        --region)         REGION="${2:-}"; shift 2 ;;
-        --every)          EVERY="${2:-}"; shift 2 ;;
-        --count)          COUNT="${2:-}"; shift 2 ;;
-        --until)          UNTIL="${2:-}"; shift 2 ;;
-        --stop-on-repeat) STOP_REPEAT="${2:-}"; shift 2 ;;
+        --region)         REGION="${2:-}"; shift 2 || { echo "ocr-watch.sh: $1 needs a value" >&2; exit 2; } ;;
+        --every)          EVERY="${2:-}"; shift 2 || { echo "ocr-watch.sh: $1 needs a value" >&2; exit 2; } ;;
+        --count)          COUNT="${2:-}"; shift 2 || { echo "ocr-watch.sh: $1 needs a value" >&2; exit 2; } ;;
+        --until)          UNTIL="${2:-}"; shift 2 || { echo "ocr-watch.sh: $1 needs a value" >&2; exit 2; } ;;
+        --stop-on-repeat) STOP_REPEAT="${2:-}"; shift 2 || { echo "ocr-watch.sh: $1 needs a value" >&2; exit 2; } ;;
         -*)               echo "ocr-watch.sh: unknown option '$1'. --help" >&2; exit 2 ;;
         *)                OUT="$1"; shift ;;
     esac

@@ -146,5 +146,47 @@ class NetReading(unittest.TestCase):
         self.assertIn("carries traffic", phone_ios.net_verdict(True, r))
 
 
+class WifiVerdict(unittest.TestCase):
+    """V06 (hunt part 2 v3): `net` exits 0 only for Wi-Fi traffic, and only Safari's timeouts are the internet's."""
+    RANK_OTHER = T + "configd[8] <Notice>: 1. en7 serviceID=SVC-OTHER addr=192.0.2.2 rank=0x1000001"
+    ELECTED_OTHER = T + "configd[8] <Notice>: SVC-OTHER is the new primary IPv4"
+    VIA_OTHER = T + ("MobileSafari(Network)[5] <Notice>: [C4 IPv4#e:443 ready channel-flow (satisfied (Path is "
+                     "satisfied), viable, interface: en7, ipv4, dns)] event: flow:finish_connect @0.050s")
+    DEVELOPER_TIMEOUT = T + ("dtappserviced(Network)[9] <Notice>: [C5 IPv4#f:62000 failed socket-flow (satisfied, "
+                             "interface: utun0)] event: flow:failed_connect @1.000s, error Operation timed out")
+
+    def net_exit(self, lines, path_ok=True):
+        from types import SimpleNamespace
+        from unittest import mock
+        import contextlib
+        import io
+        import sys
+        import tempfile
+        with tempfile.TemporaryDirectory(dir="/Volumes/E1TB/tmp") as tmp, \
+                mock.patch.dict(sys.modules, {"phone_net": SimpleNamespace(wifi_path=lambda _d: (path_ok, "fixture"))}), \
+                mock.patch.object(phone_ios, "hardware_udid", return_value="FIXTURE"), \
+                mock.patch.object(phone_ios, "_safari_load", return_value=(True, lines)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            return phone_ios.net(SimpleNamespace(device="fixture", out=f"{tmp}/net.log", url="fixture", seconds=1, raw=False))
+
+    def test_internet_over_another_interface_is_not_a_wifi_pass(self):
+        r = phone_ios.net_reading([self.RANK_OTHER, self.ELECTED_OTHER, self.VIA_OTHER])
+        self.assertTrue(r["reached"])
+        self.assertIs(r["primary"]["wifi"], False)
+        self.assertEqual(self.net_exit([self.RANK_OTHER, self.ELECTED_OTHER, self.VIA_OTHER]), 1,
+                         "`net` exited 0 for internet it names as not the phone's Wi-Fi")
+        self.assertFalse(phone_ios.wifi_carries(True, r))
+
+    def test_internet_over_wifi_is_still_a_pass(self):
+        elected_wifi = ELECTED.replace("SVC-CABLE", "SVC-WIFI")
+        self.assertEqual(self.net_exit([RANK_CABLE, RANK_WIFI, elected_wifi, CONNECTED]), 0)
+
+    def test_another_process_timing_out_is_not_the_phones_internet(self):
+        r = phone_ios.net_reading([self.DEVELOPER_TIMEOUT])
+        self.assertEqual((r["tcpTimedOut"], r["timedOutVia"]), (0, {}))
+        self.assertIn("not measured", phone_ios.net_verdict(True, r))
+        self.assertEqual(phone_ios.net_reading([CONNECT_TIMEOUT, self.DEVELOPER_TIMEOUT])["tcpTimedOut"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
