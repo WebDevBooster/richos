@@ -636,7 +636,7 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "4aa6ed235ef130b97adfd1f899ab37196561a0e576c32ad9afbb28af5155c9fb",
+      "sha256": "08669e6cfecd3c81018d0ea9092eff7e7f2b17f6397f1333e61bdf628cf4f51b",
       "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
       "keys": [],
       "edges": [
@@ -1094,7 +1094,7 @@
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "4aa6ed235ef130b97adfd1f899ab37196561a0e576c32ad9afbb28af5155c9fb",
+      "sha256": "08669e6cfecd3c81018d0ea9092eff7e7f2b17f6397f1333e61bdf628cf4f51b",
       "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations. Renewed 2026-09-28: ordinary selection also names scripts/verification-inputs.test.sh for a path this same declaration pins (pinned_sources reads the already-loaded declaration only; no new file, setting or subprocess). Renewed 2026-10-01: ordinary selection also reads the change's base side through the same read-only Snapshot (a path the base had and the selected tree lacks is listed as removed, never unmapped), and an unmapped path is listed once; no new file, setting or subprocess kind.",
       "keys": [],
       "edges": [

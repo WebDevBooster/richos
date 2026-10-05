@@ -8,6 +8,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 
@@ -21,6 +22,72 @@ GLOBAL_CONFIG = "scripts/verification-config.test.sh"
 # that made it stale, not at the next nightly (2026-09-28: 33 sources had gone stale on
 # main, one land at a time, because nothing that checks pins was ever selected).
 PIN_CHECK = "scripts/verification-inputs.test.sh"
+
+
+# A HOOK TIMEOUT EDIT SELECTS THAT HOOK'S CONSUMERS, NOT EVERY MANIFEST READER (2026-10-05).
+#
+# The hold-leak merge (34c54f9f4) changed one hook's timeout from 5 to 86400 in hooks/hooks.json
+# and in .claude/settings.local.json. Those two lines alone selected 54 and 29 engine units: a
+# timeout is a field of a registration, so the event counted as changed and every inventory
+# reader of PreToolUse was selected with all its sections, and every suite whose text names
+# settings.local.json was selected by basename. No selected suite read the real value (richos-hq
+# docs/operations/2026-10-04-merge-check-speed.md, section 1). So when the ONLY difference
+# between the two documents is the `timeout` of one or more registrations (same commands,
+# matchers, events, order and every other field), the change selects what the changed commands
+# themselves select (their sibling suites and the suites that name them) and the suites that
+# declare they read hook timeouts with this line of their own:
+TIMEOUT_READER_MARKER = "# verification: reads hook timeouts"
+
+
+def _without_timeouts(document):
+    """The document with every registration's `timeout` removed, or None for an unknown shape."""
+    if not isinstance(document, dict) or not isinstance(document.get("hooks"), dict):
+        return None
+    out = dict(document)
+    out["hooks"] = {}
+    for event, groups in document["hooks"].items():
+        if not isinstance(groups, list):
+            return None
+        kept = []
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                return None
+            kept.append(dict(group, hooks=[{k: v for k, v in command.items() if k != "timeout"}
+                                           if isinstance(command, dict) else command
+                                           for command in group["hooks"]]))
+        out["hooks"][event] = kept
+    return out
+
+
+def timeout_only_commands(before, after, settings=False):
+    """The commands whose registrations differ ONLY in `timeout`; None when anything else differs."""
+    if not isinstance(before, str) or not isinstance(after, str) or before == after:
+        return None
+    try:
+        old, new = hook_entries(before, settings=settings), hook_entries(after, settings=settings)
+        stripped = [_without_timeouts(json.loads(text)) for text in (before, after)]
+    except (Unsupported, ValueError):
+        return None
+    if None in stripped or stripped[0] != stripped[1] or old.keys() != new.keys():
+        return None
+    changed = sorted({new[key]["command"] for key in new if old[key] != new[key]})
+    return changed or None
+
+
+def settings_command_path(command):
+    """An engine-relative script for a settings.local.json command, or None for an inline echo."""
+    try:
+        words = shlex.split(command)
+    except ValueError as exc:
+        raise Unsupported("unparseable hook command: " + str(exc)) from None
+    if words[:1] in (["bash"], ["python3"]):
+        words = words[1:]
+    match = re.fullmatch(r"\$\{?CLAUDE_PROJECT_DIR\}?/([A-Za-z0-9_./+-]+)", words[0]) if len(words) == 1 else None
+    if match:
+        if ".." in Path(match[1]).parts:
+            raise Unsupported("hook command escapes the engine: " + command)
+        return match[1]
+    return hook_command_path(command)
 
 
 def pinned_sources(declaration):
@@ -176,7 +243,35 @@ class Selection:
         except Unsupported:
             return False
 
+    def timeout_edit(self, source, commands, resolve, before, after, needle_key):
+        """Select a timeout-only edit of `source` (see TIMEOUT_READER_MARKER); False to fall back."""
+        try:
+            paths = sorted({path for command in commands if (path := resolve(command)) is not None})
+        except Unsupported:
+            return False
+        for path in paths:
+            self.ordinary(path)
+        for suite, text in self.suites.items():
+            if any(line.strip() == TIMEOUT_READER_MARKER for line in text.splitlines()):
+                self.suite(suite, source, "declared hook-timeout reader", all_sections=True)
+        # A qualified reader's raw-text assertions keep their own rule: a changed line it greps for
+        # still selects it, whatever the change means.
+        for suite in self.suites:
+            row = self.declaration.get("hook_readers", {}).get(suite)
+            needles = row.get(needle_key, []) if isinstance(row, dict) else []
+            if isinstance(needles, list) and any(
+                    isinstance(needle, str) and needle and
+                    [line for line in before.splitlines() if needle in line] !=
+                    [line for line in after.splitlines() if needle in line] for needle in needles):
+                self.suite(suite, source, "changed text consumed by registration assertions", all_sections=True)
+        return True
+
     def ordinary(self, path, before=None, after=None):
+        if path == '.claude/settings.local.json':
+            commands = timeout_only_commands(before, after, settings=True)
+            if commands and self.timeout_edit(path, commands, settings_command_path, before, after,
+                                              'seated_text_needles'):
+                return
         basename, stem = Path(path).name, str(Path(path).with_suffix(""))
         if path.startswith("voice/") and Path(path).suffix in (".js", ".mjs", ".json", ".sh"):
             self.suite("voice/tests/run.test.sh", path, "voice component inputs")
@@ -238,6 +333,11 @@ class Selection:
             change.update(content=True, fallback='path-only request has no before/after hook identity')
         if not change['content']:
             return
+        if not unknown and not change['fallback']:
+            commands = timeout_only_commands(before, after)
+            if commands and self.timeout_edit('hooks/hooks.json', commands, hook_command_path, before, after,
+                                              'text_needles'):
+                return
         paths = set()
         if not change['fallback']:
             try:

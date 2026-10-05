@@ -29,6 +29,9 @@
 #        registered and undeclared (found by zach-opus-canary3 at fff77cb0)
 #        because neither file's basename appeared, as a literal string, in any
 #        *.test.sh — the wrapper only execed the .py that actually checks them.
+#   A11  A committed range whose only change is one hook's timeout, in hooks.json
+#        and settings.local.json, selects at most what that hook's script selects;
+#        any other registration change keeps the inventory readers (2026-10-05).
 #
 # A NOTE ON THE FIXTURES FOR A6 AND A7: the invented file names are assembled
 # from fragments at runtime rather than written as literals. Written out, they
@@ -201,6 +204,69 @@ if printf '%s\n' "$OUT" | grep -qxF 'scripts/lib/spawn-guard-audience.test.sh'; 
     ok "A10b a change to spawn-guard-audience.declaration selects spawn-guard-audience.test.sh"
 else
     bad "A10b spawn-guard-audience.declaration did not select spawn-guard-audience.test.sh — got: $OUT"
+fi
+
+# --- A11: A TIMEOUT-ONLY HOOK EDIT SELECTS THAT HOOK'S CONSUMERS (2026-10-05) ---
+# The hold-leak merge (34c54f9f4) changed shell-evidence.sh's timeout from 5 to 86400 in
+# hooks/hooks.json and .claude/settings.local.json. Those two lines selected 54 and 29 units,
+# every PreToolUse inventory reader with all its sections and every suite naming
+# settings.local.json, though no suite reads the value. The same edit, committed in a private
+# copy of this engine, must select at most what the hook's own script selects. A positive
+# control keeps the wide rule for a change that is NOT timeout-only (a new statusMessage).
+A11="$SANDBOX/a11"
+mkdir -p "$A11/richos/engine"
+( cd "$ENGINE_ROOT" && git ls-files -z --cached --others --exclude-standard ) | python3 -c '
+import os, shutil, sys
+source, target = sys.argv[1], sys.argv[2]
+for rel in sys.stdin.buffer.read().decode().split("\0"):
+    path, copy = os.path.join(source, rel), os.path.join(target, rel)
+    if rel and (os.path.islink(path) or os.path.isfile(path)):
+        os.makedirs(os.path.dirname(copy), exist_ok=True)
+        if os.path.islink(path):
+            os.symlink(os.readlink(path), copy)
+        else:
+            shutil.copy2(path, copy)
+' "$ENGINE_ROOT" "$A11/richos/engine"
+a11git() { git -C "$A11" -c core.hooksPath=/dev/null -c user.name=fixture -c user.email=fixture@example.invalid "$@"; }
+a11git init -q && a11git add -A && a11git commit -qm base
+a11_edit() { # <file> timeout|status — one textual edit of shell-evidence.sh's registration, as a person makes it
+    python3 - "$1" "$2" <<'PY'
+import re, sys
+path, mode = sys.argv[1], sys.argv[2]
+text = open(path).read()
+pattern = re.compile(r'(shell-evidence\.sh[^\n]*\n[ \t]*"timeout":[ \t]*)([0-9]+)')
+if mode == "timeout":
+    text, n = pattern.subn(lambda m: m.group(1) + str(int(m.group(2)) + 7), text, count=1)
+else:
+    text, n = pattern.subn(lambda m: m.group(1) + m.group(2) + ',\n            "statusMessage": "fixture"', text, count=1)
+if n != 1:
+    sys.exit("fixture: no shell-evidence.sh registration with a timeout in " + path)
+open(path, "w").write(text)
+PY
+}
+a11_edit "$A11/richos/engine/hooks/hooks.json" timeout
+a11_edit "$A11/richos/engine/.claude/settings.local.json" timeout
+a11git commit -qam "timeout only"
+A11_SEL="$A11/richos/engine/scripts/ci-affected-units.sh"
+A11_RANGE="$(bash "$A11_SEL" --range HEAD^..HEAD 2>"$SANDBOX/a11.err")"
+A11_OWN="$(bash "$A11_SEL" --paths richos/engine/scripts/hooks/shell-evidence.sh 2>/dev/null)"
+A11_EXTRA="$(comm -23 <(printf '%s\n' "$A11_RANGE" | grep . | LC_ALL=C sort) <(printf '%s\n' "$A11_OWN" | grep . | LC_ALL=C sort))"
+A11_N="$(printf '%s\n' "$A11_RANGE" | grep -c . || true)"
+if [ -n "$A11_RANGE" ] && [ -z "$A11_EXTRA" ]; then
+    ok "A11a a timeout-only edit of one hook selects only that hook's consumers ($A11_N unit(s))"
+else
+    bad "A11a a timeout-only edit selected $A11_N unit(s), these beyond shell-evidence.sh's own consumers: $(printf '%s' "$A11_EXTRA" | tr '\n' ' ')"
+    sed 's/^/          /' "$SANDBOX/a11.err" | tail -5
+fi
+a11git reset -q --hard HEAD^
+a11_edit "$A11/richos/engine/hooks/hooks.json" status
+a11git commit -qam "a registration field that is not the timeout"
+A11_WIDE="$(bash "$A11_SEL" --range HEAD^..HEAD 2>/dev/null)"
+if printf '%s\n' "$A11_WIDE" | grep -qxF 'scripts/lib/spawn-guard-audience.test.sh' \
+   && [ "$(printf '%s\n' "$A11_WIDE" | grep -c .)" -gt "$(printf '%s\n' "$A11_OWN" | grep -c .)" ]; then
+    ok "A11b POSITIVE CONTROL: any other registration change keeps the inventory readers"
+else
+    bad "A11b a statusMessage change no longer selects the inventory readers: $(printf '%s' "$A11_WIDE" | tr '\n' ' ')"
 fi
 
 # Voice imports cross directories inside the component; metadata must select code tests.
