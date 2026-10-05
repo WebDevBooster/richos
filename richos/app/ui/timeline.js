@@ -1825,7 +1825,9 @@
   /// Inline spans, appended into `into` as DOM. Recurses on the INSIDE of a span, which is
   /// always strictly shorter than what it was called with, so it terminates. `links` is the
   /// output record's lookup (§6.5) or nothing; without it a code span is always a code span.
-  function markdownInline(text, into, links) {
+  /// `doc` is the document extension (below `renderMarkdownInto`): a FILE in the Output panel,
+  /// never Rich's answer. It adds backslash escapes and `[label](target)` drawn as its label.
+  function markdownInline(text, into, links, doc) {
     let plain = "";
     const flush = () => {
       if (!plain) return;
@@ -1835,6 +1837,25 @@
     let i = 0;
     while (i < text.length) {
       const c = text[i];
+      if (doc && c === "\\" && MD_ESCAPABLE.test(text[i + 1] || "")) {
+        plain += text[i + 1];
+        i += 2;
+        continue;
+      }
+      if (doc && (c === "[" || (c === "!" && text[i + 1] === "["))) {
+        const link = mdLinkAt(text, c === "!" ? i + 1 : i);
+        if (link) {
+          flush();
+          // §7: "links render as their text (no navigation out of the panel)". The label is
+          // drawn and the target is dropped — there is no `href`, so nothing here can leave
+          // the panel. An image is its alt text, said as one.
+          const span = elem("span", c === "!" ? "tl-md-alt" : "tl-md-link");
+          markdownInline(link.label, span, null, doc);
+          into.appendChild(span);
+          i = link.end;
+          continue;
+        }
+      }
       if (c === "`") {
         const end = text.indexOf("`", i + 1);
         if (end > i + 1) {
@@ -1858,7 +1879,7 @@
         if (end > i + marker.length) {
           flush();
           const node = elem(strong ? "strong" : "em", strong ? "tl-md-strong" : "tl-md-em");
-          markdownInline(text.slice(i + marker.length, end), node, links);
+          markdownInline(text.slice(i + marker.length, end), node, links, doc);
           into.appendChild(node);
           i = end + marker.length;
           continue;
@@ -1880,8 +1901,12 @@
   ///
   /// `links` (optional) is the output record's lookup, so a code span naming a recorded file is
   /// a link to it (§6.5). Everything else about the subset is unchanged by it.
-  function renderMarkdownInto(root, text, links) {
+  ///
+  /// `opts.document` turns on THE DOCUMENT EXTENSION below, for a file previewed in the Output
+  /// panel. Without it — every call that draws Rich's answers — not one branch below changes.
+  function renderMarkdownInto(root, text, links, opts) {
     root.textContent = "";
+    const doc = !!(opts && opts.document);
     const lines = String(text == null ? "" : text).split("\n");
     let i = 0;
     while (i < lines.length) {
@@ -1889,6 +1914,15 @@
       if (!line.trim()) {
         i += 1;
         continue;
+      }
+
+      if (doc) {
+        const block = mdDocumentBlock(lines, i, opts);
+        if (block) {
+          root.appendChild(block.node);
+          i = block.next;
+          continue;
+        }
       }
 
       const heading = MD_HEADING.exec(line);
@@ -1899,7 +1933,7 @@
         const node = elem("div", "tl-md-h");
         node.setAttribute("role", "heading");
         node.setAttribute("aria-level", String(Math.min(6, heading[1].length + 2)));
-        markdownInline(heading[2], node, links);
+        markdownInline(heading[2], node, links, doc);
         root.appendChild(node);
         i += 1;
         continue;
@@ -1911,10 +1945,11 @@
         const list = elem(ordered ? "ol" : "ul", "tl-md-list");
         if (ordered && ordered[1] !== "1") list.setAttribute("start", ordered[1]);
         while (i < lines.length) {
+          if (doc && MD_RULE.test(lines[i])) break;
           const m = ordered ? MD_ORDERED.exec(lines[i]) : MD_BULLET.exec(lines[i]);
           if (!m) break;
           const li = elem("li", "tl-md-item");
-          markdownInline(ordered ? m[2] : m[1], li, links);
+          markdownInline(ordered ? m[2] : m[1], li, links, doc);
           list.appendChild(li);
           i += 1;
         }
@@ -1924,13 +1959,171 @@
 
       const para = elem("div", "tl-md-p");
       const buf = [];
-      while (i < lines.length && lines[i].trim() && !MD_HEADING.test(lines[i]) && !MD_ORDERED.test(lines[i]) && !MD_BULLET.test(lines[i])) {
+      while (
+        i < lines.length &&
+        lines[i].trim() &&
+        !MD_HEADING.test(lines[i]) &&
+        !MD_ORDERED.test(lines[i]) &&
+        !MD_BULLET.test(lines[i]) &&
+        !(doc && mdStartsDocumentBlock(lines, i))
+      ) {
         buf.push(lines[i]);
         i += 1;
       }
-      markdownInline(buf.join("\n"), para, links);
+      markdownInline(buf.join("\n"), para, links, doc);
       root.appendChild(para);
     }
+  }
+
+  // ---- THE DOCUMENT EXTENSION (output side-panel PRD §7, slice S5) ---------------------------
+  //
+  // A Markdown FILE in the Output panel is a document, not an answer: Rich writes briefs and
+  // summaries with tables, quotations, rules and fenced code, and §7 asks for "the app's
+  // DOM-only renderer extended with tables, blockquotes, horizontal rules and fenced code; links
+  // render as their text (no navigation out of the panel)". These four blocks, backslash
+  // escapes and `[label](target)` are drawn ONLY under `opts.document`; Rich's answers keep the
+  // subset above exactly as it was, which `markdown.js` checks both ways.
+  //
+  // THE SAME GUARANTEE HOLDS: every leaf is a text node, every container `createElement`. A
+  // fenced block's contents are one text node inside `<pre><code>`, a table cell is inline
+  // Markdown through `markdownInline`, a quotation's inside is this renderer again. A link has
+  // no `href` — there is no element here that can navigate — and an image is its alt text.
+  //
+  // UNCLOSED IS LITERAL OR RUNS TO THE END, NEVER LOST: a fence with no closer holds the rest of
+  // the file as code (CommonMark's rule, and every character is still on screen); a `|` line
+  // with no delimiter row under it is a paragraph.
+
+  const MD_ESCAPABLE = /^[!-/:-@[-`{-~]$/;
+  // Linear on any line: the info word is one run of non-space, and the rest is not captured.
+  const MD_FENCE_OPEN = /^[ \t]{0,3}(`{3,}|~{3,})[ \t]*([^`\s]*)[^`]*$/;
+  const MD_RULE = /^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+  const MD_QUOTE = /^[ \t]{0,3}>[ \t]?(.*)$/;
+  const MD_TABLE_DELIM = /^[ \t]*\|?(?:[ \t]*:?-+:?[ \t]*\|)*[ \t]*:?-+:?[ \t]*\|?[ \t]*$/;
+
+  /// `[label](target)` starting at `at` (the `[`): the label and where the link ends, or null.
+  /// The label may not hold another `[` or `]`; the target may not hold a space-free `)`.
+  function mdLinkAt(text, at) {
+    if (text[at] !== "[") return null;
+    const close = text.indexOf("]", at + 1);
+    if (close < 0 || text[close + 1] !== "(") return null;
+    const label = text.slice(at + 1, close);
+    if (label.indexOf("[") >= 0) return null;
+    const end = text.indexOf(")", close + 2);
+    if (end < 0 || /\s/.test(text.slice(close + 2, end).trim()) || end === close + 2) return null;
+    return { label, end: end + 1 };
+  }
+
+  /// A table row's cells: outer pipes dropped, split on every `|` not escaped as `\|`.
+  function mdCells(line) {
+    let t = line.trim();
+    if (t.startsWith("|")) t = t.slice(1);
+    if (t.endsWith("|") && !t.endsWith("\\|")) t = t.slice(0, -1);
+    const cells = [];
+    let cur = "";
+    for (let k = 0; k < t.length; k += 1) {
+      if (t[k] === "\\" && t[k + 1] === "|") {
+        cur += "|";
+        k += 1;
+      } else if (t[k] === "|") {
+        cells.push(cur.trim());
+        cur = "";
+      } else {
+        cur += t[k];
+      }
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+
+  /// A GFM table starts here: a line with a `|`, and under it a delimiter row with as many cells.
+  function mdTableAt(lines, i) {
+    const head = lines[i];
+    const delim = lines[i + 1];
+    if (head.indexOf("|") < 0 || delim == null || !MD_TABLE_DELIM.test(delim) || delim.indexOf("-") < 0) return false;
+    return mdCells(head).length === mdCells(delim).length;
+  }
+
+  function mdStartsDocumentBlock(lines, i) {
+    const line = lines[i];
+    return MD_FENCE_OPEN.test(line) || MD_RULE.test(line) || MD_QUOTE.test(line) || mdTableAt(lines, i);
+  }
+
+  /// One document block starting at `lines[i]`, or null when none does: `{ node, next }`.
+  function mdDocumentBlock(lines, i, opts) {
+    const line = lines[i];
+
+    const fence = MD_FENCE_OPEN.exec(line);
+    if (fence) {
+      const mark = fence[1];
+      const closer = new RegExp("^[ \\t]{0,3}" + (mark[0] === "`" ? "`" : "~") + "{" + mark.length + ",}[ \\t]*$");
+      const body = [];
+      let k = i + 1;
+      while (k < lines.length && !closer.test(lines[k])) {
+        body.push(lines[k]);
+        k += 1;
+      }
+      const pre = elem("pre", "tl-md-pre");
+      const code = elem("code", "tl-md-fence", body.join("\n"));
+      if (fence[2]) code.dataset.lang = fence[2].split(/\s+/)[0];
+      pre.appendChild(code);
+      return { node: pre, next: Math.min(lines.length, k + 1) };
+    }
+
+    if (MD_RULE.test(line)) {
+      return { node: elem("hr", "tl-md-rule"), next: i + 1 };
+    }
+
+    if (MD_QUOTE.test(line)) {
+      const inner = [];
+      let k = i;
+      let m;
+      while (k < lines.length && (m = MD_QUOTE.exec(lines[k]))) {
+        inner.push(m[1]);
+        k += 1;
+      }
+      const quote = elem("blockquote", "tl-md-quote");
+      // Each line lost its `>`, so the inside is strictly shorter: the recursion ends.
+      renderMarkdownInto(quote, inner.join("\n"), null, opts);
+      return { node: quote, next: k };
+    }
+
+    if (mdTableAt(lines, i)) {
+      const head = mdCells(line);
+      const align = mdCells(lines[i + 1]).map((c) =>
+        c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""
+      );
+      const wrap = elem("div", "tl-md-table-wrap");
+      const table = elem("table", "tl-md-table");
+      const thead = elem("thead");
+      const tr = elem("tr");
+      head.forEach((c, n) => {
+        const th = elem("th");
+        if (align[n]) th.style.textAlign = align[n];
+        markdownInline(c, th, null, true);
+        tr.appendChild(th);
+      });
+      thead.appendChild(tr);
+      table.appendChild(thead);
+      const tbody = elem("tbody");
+      let k = i + 2;
+      while (k < lines.length && lines[k].trim() && lines[k].indexOf("|") >= 0 && !MD_FENCE_OPEN.test(lines[k])) {
+        const cells = mdCells(lines[k]);
+        const row = elem("tr");
+        for (let n = 0; n < head.length; n += 1) {
+          const td = elem("td");
+          if (align[n]) td.style.textAlign = align[n];
+          markdownInline(cells[n] || "", td, null, true);
+          row.appendChild(td);
+        }
+        tbody.appendChild(row);
+        k += 1;
+      }
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return { node: wrap, next: k };
+    }
+
+    return null;
   }
 
   /// §5.2/§5.4 — Rich's prose. ONE treatment for every run, because `phase` is unknown.

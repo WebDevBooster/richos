@@ -866,6 +866,302 @@
     });
   }
 
+  // ---- THE PREVIEWS (`output_preview`) — output side-panel PRD §7, slice S5 ------------------
+  //
+  // What the shell answers for each of round 17's files, in the exact tagged shape
+  // `output_files::Preview` serializes (`view` + camelCase). The words are the mockup's own
+  // (`output.html`'s COMPS_SUMMARY, COUNTER_MD, BRIEF_MD, ONEPAGER_MD, CSV_ROWS, CHART_SVG), so a
+  // preview here reads as the round reads. Media cross as `data:` URLs where the app serves
+  // `richos-output://<id>`: the chart is the round's SVG, the PDF a one-page PDF of the term
+  // sheet (1,092 bytes), the walkthrough a one-second 320 x 180 stand-in clip (1,859 bytes) —
+  // the FACTS are the round's (0:31, 1920 x 1080), because in the app they come from the file's
+  // own header (`media_facts`), never from what the player loaded. The two documents are drawn as
+  // SVG pages where the app shows QuickLook's PNG of the first page.
+  //
+  // `__RICHOS_MOCK__.outputPreviewAs(name, answer)` makes one file answer something else — too
+  // large, no preview, a read that failed — so every §6.7 state is reachable from a suite.
+  const OUTPUT_MD = {
+    "comps-summary.md": [
+      "# Acme — comparables, 2026-10-04",
+      "",
+      "Two deals in range closed in the last ninety days. Both landed **above Acme's counter**.",
+      "",
+      "| Deal | Closed | Size | Off list |",
+      "|---|---|---:|---:|",
+      "| Northwind renewal | Aug 14 | $1.9M | −3% |",
+      "| Bellweather new | Sep 2 | $2.4M | −5% |",
+      "| Acme (counter) | — | $2.1M | −8% |",
+      "",
+      "## What it means",
+      "",
+      "- Their 8% is below anything that closed this year. It is an anchor, not a number.",
+      "- Holding at list minus 3% keeps the margin and matches Northwind, which they know about.",
+      "- Meeting at minus 5% gives up about $84,000 and closes faster.",
+      "",
+      "> Source: the deal ledger, `femcboost/deals/2026.xlsx`, rows 14–41.",
+    ].join("\n"),
+    "counter-draft-v1.md": [
+      "# Counter to Acme — draft 1",
+      "",
+      "**To:** Mark Hensley, Acme  ",
+      "**From:** Alex Booster  ",
+      "**Re:** Your proposal of October 3",
+      "",
+      "Mark —",
+      "",
+      "Thank you for the proposal. We have read it carefully and we want to do this deal.",
+      "",
+      "We cannot do it at eight percent below list. Two comparable agreements closed this year, and both landed within five percent of list; our pricing has held because the service behind it has.",
+      "",
+      "Here is where we can go: **three percent below list**, with the onboarding fee waived and the first quarterly review brought forward to week six. That is the firmest offer we will make, and it is a good one.",
+      "",
+      "If that works, we can have paper to you by Friday and your team live before your board meets on the 14th.",
+      "",
+      "Alex",
+      "",
+      "---",
+      "",
+      "*Draft 1 · held at list minus 3% · 168 words*",
+    ].join("\n"),
+    "brief.md": [
+      "# Brief — the Acme counter",
+      "",
+      "Written for the writer before the draft. Kept beside it so the reasoning is on the record.",
+      "",
+      "## The ask",
+      "",
+      "\"Draft it, keep it firm.\" A counter to Acme's proposal of October 3, which came in at 8% below list.",
+      "",
+      "## The position",
+      "",
+      "1. Hold at **list minus 3%** — the number the comparables support.",
+      "2. Give something that costs us little: waive onboarding, pull the first review forward.",
+      "3. Name the deadline they care about: their board on the 14th.",
+      "",
+      "## Tone",
+      "",
+      "- Warm, short, no hedging. One number, said once.",
+      "- Never mention the 55/45 split; the term sheet handles it.",
+      "- Under 200 words. It is read on a phone.",
+    ].join("\n"),
+    "board-one-pager.md": [
+      "# Acme — the one page for the board",
+      "",
+      "**Where it stands:** Acme countered at 8% below list on October 3. Our reply holds at 3% below, with onboarding waived.",
+      "",
+      "## The numbers",
+      "",
+      "| | List | Their counter | Our reply |",
+      "|---|---:|---:|---:|",
+      "| Annual contract | $2.10M | $1.93M | $2.04M |",
+      "| First-year margin | 41% | 36% | 40% |",
+      "| Close by | — | Oct 14 | Oct 14 |",
+      "",
+      "## Why 3%",
+      "",
+      "- Northwind closed at −3% in August; Bellweather at −5% in September. Both are above Acme's number.",
+      "- Q3 revenue came in 6% over plan. We do not need this at any price.",
+      "- Their board meets on the 14th. The deadline is theirs, which is why the offer can be firm.",
+    ].join("\n"),
+  };
+  const OUTPUT_CSV = [
+    ["Month", "Plan", "Actual", "Variance", "Note"],
+    ["July", "$640,000", "$668,000", "+4.4%", "Northwind renewal landed"],
+    ["August", "$650,000", "$702,000", "+8.0%", "Two expansions"],
+    ["September", "$660,000", "$697,000", "+5.6%", "Bellweather new"],
+    ["Q3 total", "$1,950,000", "$2,067,000", "+6.0%", ""],
+  ];
+  const OUTPUT_CHART_SVG =
+    '<svg viewBox="0 0 640 400" xmlns="http://www.w3.org/2000/svg">' +
+    '<rect width="640" height="400" fill="#FDFCF8"/>' +
+    '<text x="40" y="44" font-family="Newsreader, serif" font-size="26" fill="#0C1322">Q3 revenue — plan and actual</text>' +
+    '<text x="40" y="70" font-family="Inter, sans-serif" font-size="15" fill="#4A4E56">In thousands of dollars. Actual beat plan every month; +6.0% for the quarter.</text>' +
+    '<g font-family="Inter, sans-serif" font-size="14" fill="#4A4E56">' +
+    '<line x1="80" y1="330" x2="600" y2="330" stroke="#B8B2A5" stroke-width="1"/>' +
+    '<line x1="80" y1="250" x2="600" y2="250" stroke="#E2DDD1" stroke-width="1"/><text x="40" y="254">650</text>' +
+    '<line x1="80" y1="170" x2="600" y2="170" stroke="#E2DDD1" stroke-width="1"/><text x="40" y="174">700</text>' +
+    '<line x1="80" y1="90" x2="600" y2="90" stroke="#E2DDD1" stroke-width="1"/><text x="40" y="94">750</text>' +
+    '<text x="40" y="334">600</text>' +
+    '<rect x="120" y="266" width="52" height="64" fill="#C8C2B4"/><rect x="178" y="221" width="52" height="109" fill="#9C7C34"/><text x="175" y="358" text-anchor="middle" font-size="15" fill="#0C1322">July</text>' +
+    '<rect x="290" y="250" width="52" height="80" fill="#C8C2B4"/><rect x="348" y="167" width="52" height="163" fill="#9C7C34"/><text x="345" y="358" text-anchor="middle" font-size="15" fill="#0C1322">August</text>' +
+    '<rect x="460" y="234" width="52" height="96" fill="#C8C2B4"/><rect x="518" y="175" width="52" height="155" fill="#9C7C34"/><text x="515" y="358" text-anchor="middle" font-size="15" fill="#0C1322">September</text>' +
+    '<rect x="420" y="30" width="14" height="14" fill="#C8C2B4"/><text x="440" y="42">Plan</text>' +
+    '<rect x="500" y="30" width="14" height="14" fill="#9C7C34"/><text x="520" y="42">Actual</text>' +
+    "</g></svg>";
+  /// A first page as QuickLook draws one: the file's own white, its lines in the file's ink.
+  function outputPageSvg(lines) {
+    let y = 70;
+    let body = "";
+    for (const [size, text] of lines) {
+      body += '<text x="60" y="' + y + '" font-family="Newsreader, serif" font-size="' + size + '" fill="#0C1322">' + text + "</text>";
+      y += size + 18;
+    }
+    return '<svg viewBox="0 0 612 792" xmlns="http://www.w3.org/2000/svg"><rect width="612" height="792" fill="#FDFCF8"/>' + body + "</svg>";
+  }
+  const svgUrl = (svg) => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  const OUTPUT_TERM_PDF = "data:application/pdf;base64,JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA1IDAgUiA+PiA+PiAvQ29udGVudHMgNCAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA1NDcgPj4Kc3RyZWFtCkJUCi9GMSAxMSBUZgo1NiA3NjAgVGQKL0YxIDI0IFRmCihUZXJtIHNoZWV0IC0gc2lnbmVkIE1hcmNoIDEyLCAyMDI2KSBUagowIC0yNiBUZAovRjEgMTIgVGYKKFBhcnRpZXM6IEZlbWNCb29zdCBhbmQgRGVlcGx5IFBhcnRuZXJzKSBUagowIC0yOCBUZAovRjEgMTQgVGYKKDMuIFJldmVudWUgc3BsaXQpIFRqCjAgLTE2IFRkCi9GMSAxMSBUZgooTmV0IHJldmVudWUgZnJvbSBqb2ludCBlbmdhZ2VtZW50cyBpcyBzcGxpdCA1NSAvIDQ1IGluIGZhdm9yIG9mIEZlbWNCb29zdCwpIFRqCjAgLTE2IFRkCi9GMSAxMSBUZgooY2FsY3VsYXRlZCBxdWFydGVybHksIHNldHRsZWQgd2l0aGluIHRoaXJ0eSBkYXlzIG9mIHF1YXJ0ZXIgZW5kLikgVGoKMCAtMjggVGQKL0YxIDE0IFRmCig0LiBUZXJtKSBUagowIC0xNiBUZAovRjEgMTEgVGYKKFR3ZW50eS1mb3VyIG1vbnRocyBmcm9tIHNpZ25hdHVyZSwgcmVuZXdpbmcgYW5udWFsbHkgdW5sZXNzIGVpdGhlciBwYXJ0eSkgVGoKMCAtMTYgVGQKL0YxIDExIFRmCihnaXZlcyBuaW5ldHkgZGF5cycgbm90aWNlLikgVGoKRVQKZW5kc3RyZWFtCmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL0hlbHZldGljYSA+PgplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDExNSAwMDAwMCBuIAowMDAwMDAwMjQxIDAwMDAwIG4gCjAwMDAwMDA4MzkgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA2IC9Sb290IDEgMCBSID4+CnN0YXJ0eHJlZgo5MDkKJSVFT0YK";
+  const OUTPUT_CLIP_MP4 = "data:video/mp4;base64,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";
+  const outputPreviewOverrides = new Map();
+
+  function outputFixturePreview(e) {
+    if (outputPreviewOverrides.has(e.name)) return Object.assign({}, outputPreviewOverrides.get(e.name));
+    if (!e.exists) {
+      return { view: "none", why: "missing", reason: "This file is no longer where it was written. If it was moved, open it from its new place; if Rich writes it again, it will be listed here." };
+    }
+    const bytes = e.bytes;
+    if (OUTPUT_MD[e.name] != null) return { view: "text", text: OUTPUT_MD[e.name], truncated: false, bytes };
+    switch (e.name) {
+      case "q3-revenue.csv":
+        return { view: "table", rows: OUTPUT_CSV.map((r) => r.slice()), totalRows: OUTPUT_CSV.length, countedAll: true, bytes, app: "Numbers" };
+      case "q3-revenue-chart.png":
+        return { view: "image", url: svgUrl(OUTPUT_CHART_SVG), width: 1280, height: 800, bytes, app: "Preview" };
+      case "term-sheet-march.pdf":
+      case "board-one-pager.pdf":
+        return { view: "pdf", url: OUTPUT_TERM_PDF, bytes, app: "Preview" };
+      case "comps-walkthrough.mp4":
+        return { view: "video", url: OUTPUT_CLIP_MP4, bytes, durationMs: 31000, width: 1920, height: 1080, app: "QuickTime Player" };
+      case "counter-draft-v1.docx":
+        return {
+          view: "rendition", bytes, app: "Pages",
+          url: svgUrl(outputPageSvg([[26, "Counter to Acme — draft 1"], [15, "To: Mark Hensley, Acme"], [15, "From: Alex Booster"], [15, "Mark —"], [15, "Thank you for the proposal. We want to do this deal."], [15, "Here is where we can go: three percent below list."]])),
+        };
+      case "comps-2026-10-04.xlsx":
+        return {
+          view: "rendition", bytes, app: "Numbers",
+          url: svgUrl(outputPageSvg([[22, "Deals 2026"], [15, "Northwind renewal   2026-08-14   $1,900,000   −3%"], [15, "Bellweather new   2026-09-02   $2,400,000   −5%"], [15, "Harbor expansion   2026-07-30   $880,000   0%"], [15, "Acme   —   $2,100,000   −8% asked"]])),
+        };
+      default:
+        return { view: "none", why: "noViewer", reason: "I don't have a preview for this kind of file. Open has it." };
+    }
+  }
+
+  /// `output_preview(output_id)`: the id resolves only in the thread the conversation shows, as
+  /// the shell's `locate` does (§5.1, §5.2 step 1).
+  function outputPreviewOf(outputId) {
+    const thread = activeThreadId;
+    const e = (outputByThread[thread] || []).find((f) => f.id === outputId);
+    if (!e) return Promise.reject("I don't have that file in this thread's output.");
+    return outputFixturePreview(e);
+  }
+
+  // ---- THE ACTIONS (slice S6): `output_file`'s app list and problem, `output_open`,
+  // `output_reveal`, `output_save_copy` — the shell's contract and its sentences, VERBATIM from
+  // `src-tauri/src/output_files.rs`, with nothing opened and nothing written. Every call is
+  // kept in `outputActionCalls` for the suite to read (`__RICHOS_MOCK__.outputCalls()`).
+  //
+  // The apps are round 17's (`output.html` FILES), as Launch Services would give them: the
+  // default, then the others without it, ordered by name.
+  const OUTPUT_APPS = {
+    md: ["Obsidian", "TextEdit", "Visual Studio Code"],
+    txt: ["TextEdit", "Visual Studio Code"],
+    csv: ["Numbers", "Microsoft Excel", "TextEdit"],
+    xlsx: ["Numbers", "Google Sheets", "Microsoft Excel"],
+    docx: ["Pages", "Google Docs", "Microsoft Word"],
+    pdf: ["Preview", "Adobe Acrobat", "Safari"],
+    png: ["Preview", "Photos", "Pixelmator Pro"],
+    mp4: ["QuickTime Player", "IINA", "VLC"],
+  };
+  const OUTPUT_SAID = {
+    notInRecord: "I don't have that file in this thread's output.",
+    linked: "This file is a link to somewhere else, so I won't open it from here. Show in Finder still works.",
+    missing: "This file is no longer where it was written. If it was moved, open it from its new place; if Rich writes it again, it will be listed here.",
+    appsChanged: "The apps that open this file changed since the list was shown. Choose one again.",
+    appNotOffered: "That app is not one this Mac offers for this file. Choose one again.",
+    nothingSaved: "Nothing was saved.",
+  };
+  const outputActionCalls = [];
+  /// output id -> the app list `output_file` last showed (the shell's `shown`).
+  const outputShown = new Map();
+  /// Names whose recorded path is now a link (`__RICHOS_MOCK__.outputLinked`).
+  const outputLinks = new Set();
+  /// The next answer of the save sheet: a path, or null for Cancel. Undefined: the Desktop.
+  let outputSheetAnswer;
+  /// One app list change on this Mac, taken by the next `output_open` that names an app.
+  let outputAppsChangeOnce = false;
+
+  function outputFind(id) {
+    for (const thread of Object.keys(outputByThread)) {
+      const e = (outputByThread[thread] || []).find((x) => x.id === id);
+      if (e) return e;
+    }
+    return null;
+  }
+
+  function outputApps(e) {
+    const names = OUTPUT_APPS[e.kind] || [];
+    const app = (name) => ({ name, bundleId: "com.example." + name.toLowerCase().replace(/[^a-z]+/g, "") });
+    return { defaultApp: names.length ? app(names[0]) : null, otherApps: names.slice(1).map(app) };
+  }
+
+  /// `null` | `missing` | `refused`, as §5.2 answers it.
+  function outputProblem(e) {
+    if (!e.exists) return "missing";
+    if (outputLinks.has(e.name)) return "refused";
+    return null;
+  }
+
+  /// `acme/counter/` — the last two folders, as the shell's `folder_label` names them.
+  function outputFolderLabel(path) {
+    const parts = path.split("/").filter(Boolean);
+    parts.pop();
+    return parts.slice(-2).join("/") + "/";
+  }
+
+  function outputAction(cmd, args) {
+    const id = args.outputId ?? args.output_id;
+    outputActionCalls.push({ cmd, args: Object.assign({}, args) });
+    const e = outputFind(id);
+    if (!e) return Promise.reject(OUTPUT_SAID.notInRecord);
+    const problem = outputProblem(e);
+    const refusal = problem === "missing" ? OUTPUT_SAID.missing : OUTPUT_SAID.linked;
+    switch (cmd) {
+      case "output_file": {
+        const apps = problem ? { defaultApp: null, otherApps: [] } : outputApps(e);
+        outputShown.set(id, apps.otherApps.map((a) => a.name));
+        return Object.assign({}, e, apps, {
+          previewable: "none",
+          reason: problem ? refusal : null,
+          problem,
+        });
+      }
+      case "output_open": {
+        if (problem) return Promise.reject(refusal);
+        const apps = outputApps(e);
+        const index = args.appIndex ?? args.app_index;
+        if (typeof index !== "number") {
+          return apps.defaultApp ? "Opening " + e.name + " in " + apps.defaultApp.name + "." : "Opening " + e.name + ".";
+        }
+        const shown = outputShown.get(id);
+        if (!shown) return Promise.reject(OUTPUT_SAID.appsChanged);
+        if (index < 0 || index >= shown.length) return Promise.reject(OUTPUT_SAID.appNotOffered);
+        if (outputAppsChangeOnce) {
+          outputAppsChangeOnce = false;
+          const names = OUTPUT_APPS[e.kind];
+          if (names && names.length > 2) OUTPUT_APPS[e.kind] = [names[0]].concat(names.slice(1).reverse());
+          return Promise.reject(OUTPUT_SAID.appsChanged);
+        }
+        return "Opening " + e.name + " in " + shown[index] + ".";
+      }
+      case "output_reveal": {
+        if (problem === "missing") return Promise.reject(OUTPUT_SAID.missing);
+        return "Finder opens " + outputFolderLabel(e.path) + " with " + e.name + " selected.";
+      }
+      case "output_save_copy": {
+        if (problem) return Promise.reject(refusal);
+        const answer = outputSheetAnswer;
+        outputSheetAnswer = undefined;
+        if (answer === null) return OUTPUT_SAID.nothingSaved;
+        const dest = answer || "/Users/you/Desktop/" + e.name;
+        const given = dest.split("/").pop();
+        return (
+          "Saved a copy of " + e.name + " to " + outputFolderLabel(dest) + (given === e.name ? "." : " as " + given + ".")
+        );
+      }
+      default:
+        return Promise.reject(OUTPUT_SAID.notInRecord);
+    }
+  }
+
   // WHICH COMPANY THIS COPY OF RICH WORKS FOR (`entity_choice` / `choose_entity`).
   //
   // The preview's default is CHOSEN, and deliberately so: every fixture in this harness
@@ -2185,6 +2481,25 @@
           if (file.folder) return Promise.reject("This is a folder, not a file. Drop the files inside it instead. Nothing was attached.");
           return mockStage(args.draftId, args.attachmentId, file.name, "", file.bytes);
         }
+        // Add to chat from the Output panel (output side-panel PRD §12.7): `output_attach` in
+        // `mac_attachments.rs`. The id resolves in the ACTIVE thread's record only (§5.1); a file
+        // no longer there is refused with `output_files.rs`'s MISSING; the size is refused before
+        // anything is read; then it is the drop's road (`mockStage`), on bytes of the entry's size
+        // that open with the kind's own magic, so the desk's sniffing passes as it does on disk.
+        case "output_attach": {
+          mockAttach.calls.push({ cmd, draftId: args.draftId, attachmentId: args.attachmentId, outputId: args.outputId });
+          const recorded = (outputByThread[activeThreadId] || []).find((e) => e.id === args.outputId);
+          if (!recorded) return Promise.reject("I don't have that file in this thread's output.");
+          if (!recorded.exists) {
+            return Promise.reject("This file is no longer where it was written. If it was moved, open it from its new place; if Rich writes it again, it will be listed here.");
+          }
+          const kind = mockKindFor("", recorded.name);
+          if (!kind) return Promise.reject(MOCK_ATTACH_SAYS.unknownType);
+          if (recorded.bytes > 25 * 1024 * 1024) return Promise.reject(MOCK_ATTACH_SAYS.tooLarge);
+          const body = new Uint8Array(Math.max(0, recorded.bytes || 0));
+          (kind.magic || []).forEach((b, i) => { if (i < body.length) body[i] = b; });
+          return mockStage(args.draftId, args.attachmentId, recorded.name, "", body);
+        }
         case "discard_attachment": {
           mockAttach.calls.push({ cmd, draftId: args.draftId, attachmentId: args.attachmentId });
           return mockAttach.staged.delete(args.draftId + "/" + args.attachmentId);
@@ -2809,6 +3124,15 @@
           if (outputUnreadable) return Promise.reject(OUTPUT_RECORD_UNREADABLE);
           return outputListOf(args.threadId ?? args.thread_id);
         }
+        // One file's preview (output side-panel PRD §5.4, §7, slice S5), by its output id.
+        case "output_preview":
+          return outputPreviewOf(args.outputId ?? args.output_id);
+        // The actions (S6): the shell's contract, nothing opened and nothing written.
+        case "output_file":
+        case "output_open":
+        case "output_reveal":
+        case "output_save_copy":
+          return outputAction(cmd, args);
         case "nav_state":
           return JSON.parse(JSON.stringify(navPrefs));
         case "set_sidebar_width":
@@ -3884,10 +4208,28 @@
         }
       }
     },
+    /// A recorded file grew on disk (S7: the desk's 25 MB ceiling); the next read re-stats it.
+    outputResize(threadId, name, bytes) {
+      for (const e of outputByThread[threadId] || []) if (e.name === name) e.bytes = bytes;
+    },
     /// The record cannot be read: `list_output` refuses with the shell's sentence (§6.7).
     outputUnreadable(v) { outputUnreadable = v !== false; },
     /// What the harness's record holds for a thread, for asserting on the store.
     outputList(threadId) { return outputListOf(threadId); },
+    /// One file answers `output_preview` with `answer` (a `Preview` shape) until set back with
+    /// `null`: too large, no preview, a read that failed (S5, §6.7).
+    outputPreviewAs(name, answer) {
+      if (answer == null) outputPreviewOverrides.delete(name);
+      else outputPreviewOverrides.set(name, answer);
+    },
+    /// The actions (S6): every `output_*` call the panel made, in order.
+    outputCalls() { return outputActionCalls.map((c) => ({ cmd: c.cmd, args: Object.assign({}, c.args) })); },
+    /// The recorded path of `name` is now a link (§5.2 step 2): refused, Show in Finder lit.
+    outputLinked(name) { outputLinks.add(name); },
+    /// The save sheet's next answer: a path, or null for Cancel.
+    outputSaveSheet(answer) { outputSheetAnswer = answer; },
+    /// This Mac's app list for a file changes once, under the next *Open with…* choice.
+    outputAppsChange() { outputAppsChangeOnce = true; },
     // ---- his team, on an operator install (the operator-client record's §7 item 1) -------
     /// His team says something: appended to the durable lane FIRST, then pushed on
     /// `rich://operator-notice`, in that order, as `DurableDelivery::say` does. `push: false`

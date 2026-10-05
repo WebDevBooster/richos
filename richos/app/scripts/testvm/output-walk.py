@@ -61,8 +61,37 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      is photographed; the guest's appearance is flipped (the app follows the OS on
                      a fresh install), photographed again, and put back. PASS when all of it holds.
 
-  pull               slice S9's real-app check (§12.9), right after panel, in the same run:
-                       --steps identity,first-run,connect,panel,pull
+  previews           slice S5's real-app check (§12.5), after identity, first-run and connect:
+                       --steps identity,first-run,connect,previews
+                     typed: a shell command prints a text file to preview-brief.pdf (cupsfilter) and
+                     draws its first page as preview-page.png (sips). When both rows are in the
+                     record, the Output button opens the panel; each file is opened from the list
+                     and its view photographed in both themes (the guest's appearance flipped and
+                     put back). PASS when the picture is an image named for the file and the PDF
+                     frame is found by its title; what each view shows is read off the photographs.
+  save-copy          slice S6's real-app check (§12.6), after the panel step:
+                       --steps identity,first-run,connect,panel,save-copy
+                     on the panel's one file: its row's More actions, Save a copy…, and the system
+                     save sheet that opens on the app's window. The sheet must offer the file's own
+                     name; the walk gives it SAVE_AS instead, reads its Where folder, presses Save.
+                     PASS when exactly one file named SAVE_AS exists in the guest, in the folder the
+                     sheet named, with the recorded file's bytes. Both moments are photographed
+                     (save-copy-1-sheet.png; save-copy-2-saved.png 1.5 s after Save, while the
+                     notice is up), and whether an accessibility search read the notice is recorded.
+  attach             slice S7's real-app check (§12.7), after identity, first-run and connect:
+                       --steps identity,first-run,connect,attach
+                     typed: a shell command writes attach-check.md, with a code word in it, at its
+                     absolute path in the Acme folder. When its row is in the record and the file is
+                     on disk, the Output button, the row's own "More actions for …" (S6's menu) and
+                     its last item "Add to chat" are pressed by name and the chip's "Remove
+                     attach-check.md" is found;
+                     then Rich is asked for the code word in the attached file. PASS when that
+                     turn's prompt lists the file under "Attached on this Mac (1 file" and the
+                     conversation's attachments folder holds a byte-identical copy. Whether Rich
+                     read the code word back is recorded, not judged.
+  pull               slice S9's real-app check (§12.9), after panel, in the same run; run last when
+                     previews, save-copy and attach run too, so they find the panel at its split:
+                       --steps identity,first-run,connect,tools,panel,previews,save-copy,attach,pull
                      The divider is dragged with the real mouse (pointer-drag.sh): 50 px past the
                      stop and let go — it holds at the stop (photographed); pulled 180 px past it —
                      it opens completely, ‹ <thread> appears (photographed); the pill brings the
@@ -78,6 +107,7 @@ Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -94,10 +124,19 @@ _spec.loader.exec_module(command_walk)
 StepFailed = command_walk.StepFailed
 command = command_walk.command
 
-STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel', 'pull']
+STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
+         'previews', 'save-copy', 'attach', 'pull']
 # Slice S9 (PRD §9.1): the conversation at its narrowest. Restated, not imported, so the walk
 # derives the stop independently of the code under test.
 STAGE_MIN = 360
+# S7's recorded file. Written at its ABSOLUTE path in the Acme folder, so it is in the Acme folder
+# whichever lease or worker runs the command (S4's walk saw a worker run panel-check.md in its own
+# worktree), and its code word is what Rich is asked to read back from the attached copy.
+ATTACH_NAME = 'attach-check.md'
+ATTACH_WORD = 'heron-4127'
+ATTACH_TASK = ('Please run this harmless test command for me yourself with your shell tool, '
+               "and tell me when it has finished: printf '# Attach check\\n\\nThe code word is %s.\\n' > %s")
+ATTACH_ASK = 'What is the code word in the attached file? Reply with the code word only.'
 # S4's one written file: a shell command, so no tool needs installing and witness (c) sees it.
 PANEL_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
               "and tell me when it has finished: printf '# Panel check\\n\\nOne written file.\\n' > panel-check.md")
@@ -111,6 +150,16 @@ PDF_TASK = ('Please run this harmless test command for me yourself with your she
             "and tell me when it has finished: printf '# Acme launch brief\\n\\nDraft for the walk test.\\n' > "
             'launch-brief.md && /opt/homebrew/bin/pandoc launch-brief.md -o launch-brief.pdf '
             '--pdf-engine=/opt/homebrew/bin/typst')
+# S5's real PDF and real PNG (§12.5), made with what every Mac has, so nothing needs installing:
+# cupsfilter prints the text to a PDF, and sips draws that PDF's first page as a PNG.
+PREVIEW_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
+                "and tell me when it has finished: printf 'Preview brief\\n\\nA real PDF for the walk test.\\n' > preview-brief.txt "
+                '&& /usr/sbin/cupsfilter preview-brief.txt > preview-brief.pdf 2>/dev/null '
+                '&& /usr/bin/sips -s format png preview-brief.pdf --out preview-page.png')
+# The PNG first: with WebKit's PDF view on screen a find through the window's accessibility tree
+# outlives ax.sh's 20 s guest deadline (the third walk, 2026-10-05, pressing "All output"), so
+# the PDF is the last view the step opens and nothing is looked up after it.
+PREVIEW_FILES = (('preview-page.png', 'png'), ('preview-brief.pdf', 'pdf'))
 APPROVALS = 6
 # Slice S2b (PRD §12.2b): the worker also makes a file with a command in its own worktree, which
 # is under the app's data directory, and both files are landed. The PRD names pandoc; a WORKER's
@@ -158,6 +207,42 @@ status = None if before else CS.LSSetDefaultRoleHandlerForContentType(uti, ALL, 
 print(json.dumps({'type': text(uti), 'before': before, 'set_status': status,
                   'after': text(CS.LSCopyDefaultRoleHandlerForContentType(uti, ALL))}))
 """
+
+
+# Slice S6: the name the walk gives the copy in the save sheet, so exactly one file in the guest
+# can be the copy, and the AppleScript that drives the sheet. The sheet is found on the app's own
+# window (bundle com.richos.app). Its controls are the sheet's own children, as the walk's AX tree
+# showed them (attempt 4): text field 1 is Save As, pop up button 1 is Where, then the Save button. Prints SHEET<tab>offered<tab>typed<tab>where.
+SAVE_AS = 'panel-check copy from the walk.md'
+SAVE_SHEET = r'''
+tell application "System Events"
+  set p to first process whose bundle identifier is "com.richos.app"
+  set found to false
+  repeat 80 times
+    if exists sheet 1 of window 1 of p then
+      set found to true
+      exit repeat
+    end if
+    delay 0.25
+  end repeat
+  if not found then return "NOSHEET"
+  set s to sheet 1 of window 1 of p
+  delay 1
+  set nameField to text field 1 of s
+  set offered to value of nameField
+  set whereName to value of pop up button 1 of s
+  set value of nameField to "@NAME@"
+  delay 0.5
+  return "SHEET" & tab & offered & tab & (value of nameField) & tab & whereName
+end tell
+'''
+SAVE_PRESS = r'''
+tell application "System Events"
+  set p to first process whose bundle identifier is "com.richos.app"
+  click button "Save" of sheet 1 of window 1 of p
+  return "pressed"
+end tell
+'''
 
 
 def project(rows):
@@ -638,6 +723,265 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the panel reopened open completely: ' + json.dumps(reopened))
         return evidence
 
+    def open_panel(self):
+        """Open the Output panel unless a step before this one left it open: the Output button is a
+        toggle (`aria-pressed`, an AXCheckBox), so pressing it on an open panel CLOSES it. The steps
+        were written one slice at a time, each starting from a closed panel; run together (panel,
+        previews, save-copy, attach) they inherit each other's open panel, and the button's name
+        carries the count ("3 files from this thread"), so it is found by the part that never moves."""
+        if self.present('Close the output panel'):
+            return 'already open'
+        self.wait_for('from this thread', role='AXCheckBox', seconds=60)
+        self.press('from this thread', role='AXCheckBox')
+        self.wait_for('Close the output panel', seconds=20)
+        return 'opened'
+
+    # --- slice S5: a real PDF and a real PNG previewed in the panel -----------------------------
+    def flip_theme(self, stem):
+        """Photograph the screen in the guest's appearance, flip it, photograph again, put it back.
+        The app follows the OS on a fresh install (theme-boot), so this is both themes."""
+        first_dark = 'Dark' in guest(self.vm, 'defaults read -g AppleInterfaceStyle 2>/dev/null || true')
+        first = 'dark' if first_dark else 'light'
+        second = 'light' if first_dark else 'dark'
+        self.shot(stem + '-' + first + '.png')
+        command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to tell appearance preferences '
+                 'to set dark mode to ' + ('false' if first_dark else 'true')], 60)
+        try:
+            time.sleep(3)  # theme-boot follows the OS appearance live; give the repaint time
+            self.shot(stem + '-' + second + '.png')
+        finally:
+            command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to tell appearance preferences '
+                     'to set dark mode to ' + ('true' if first_dark else 'false')], 60)
+            time.sleep(2)
+        return [stem + '-' + first + '.png', stem + '-' + second + '.png']
+
+    def previews(self):
+        """S5's real-app check (§12.5): a real PDF and a real PNG written by Rich preview in the
+        panel, photographed in both themes."""
+        turn, sent = self.send(PREVIEW_TASK)
+        end = time.monotonic() + self.a.within
+        rows = {}
+        while time.monotonic() < end:
+            record = self.record()
+            rows = {n: [r for r in record if r.get('path', '').endswith('/' + n)] for n, _ in PREVIEW_FILES}
+            if all(rows.values()):
+                break
+            self.approve_pending(sent)
+            time.sleep(5)
+        self.save_record('record-previews.jsonl')
+        evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'rows': rows, 'files': {}}
+        observed = self.out / 'previews-observed.json'
+
+        def note():
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        note()
+        missing = [n for n, found in rows.items() if not found]
+        if missing:
+            raise StepFailed('no row reached the record within %d s for: %s' % (self.a.within, ', '.join(missing)))
+        evidence['on_disk'] = {n: guest(self.vm, 'ls -l ' + shlex.quote(rows[n][-1]['path']) + ' 2>&1 | head -1', 60).strip()
+                               for n, _ in PREVIEW_FILES}
+        note()
+        self.open_panel()
+        failures = []
+        for name, kind in PREVIEW_FILES:
+            self.wait_for(name, seconds=20)
+            # The row, or the conversation's link to the same file: either opens its file view.
+            self.press(name)
+            self.wait_for('All output', seconds=20)
+            time.sleep(4)  # the read, the decode and WebKit's PDF view; the viewer says Reading… meanwhile
+            # The pictures first: they are the evidence, and nothing after them can lose them.
+            shots = self.flip_theme('preview-' + kind)
+            # Then the viewer, by name, through targeted finds: a whole-tree read of this window
+            # outlived ax.sh's 20 s guest deadline on the second walk (2026-10-05). The picture is
+            # an AXImage described by its alt text, the file's name; the PDF frame is named by its
+            # title, and the role WebKit gives a frame holding its PDF view is recorded as found.
+            seen = {}
+            roles = ('AXImage',) if kind == 'png' else ('AXGroup', 'AXWebArea', 'AXScrollArea')
+            for role in roles:
+                try:
+                    seen[role] = self.present(name, role=role)
+                except StepFailed as exc:
+                    seen[role] = 'unknown: ' + str(exc).splitlines()[0][:160]
+                if seen[role] is True:
+                    break
+            evidence['files'][name] = {'shots': shots, 'viewer_found_as': seen}
+            note()
+            if not any(v is True for v in seen.values()):
+                failures.append(name + ': no ' + '/'.join(roles) + ' named for the file in its view: ' + json.dumps(seen))
+            # Back to the list with Escape (§6.8: the file view steps back to the list), a key
+            # press that needs no lookup in the window's tree.
+            command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to key code 53'], 60)
+            time.sleep(1)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    # --- slice S6: Save a copy…, on the real app -------------------------------------------------
+    def press_any(self, title, roles, contains=True):
+        """Press the first control named `title` in any of `roles`, in that order: WebKit names
+        an `aria-haspopup` button and a `role=menuitem` its own way, and the walk records which."""
+        for role in roles:
+            if self.present(title, role):
+                self.press(title, role=role, contains=contains)
+                return role
+        (self.out / ('ax-tree-' + title.split()[0].lower() + '.txt')).write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 120))
+        raise StepFailed('no control named %r in any of %s' % (title, roles))
+
+    def save_copy(self):
+        """Slice S6's real-app check (§12.6): *Save a copy…* writes the copy where the sheet
+        pointed. Run after the panel step, on its one file: the row's More actions, Save a copy…,
+        the system save sheet (a sheet on the app's window, `tauri-plugin-dialog` run from Rust)
+        given a name of the walk's own, its folder read from its Where control, Save pressed.
+        PASS when the sheet offered the file's own name, exactly one file of the walk's name exists
+        in the guest's home, it is in the folder the sheet named, and its bytes are the recorded
+        file's. The notice is photographed and, when a search catches it, read."""
+        os.environ['TESTVM_AX_TIMEOUT'] = '90'  # a save panel's whole tree is read once below
+        rows = self.record()
+        listed = [k for k in project(rows) if Path(k).name == 'panel-check.md' and self.exists_in_guest(k)]
+        evidence = {'listed_sources': listed}
+        observed = self.out / 'save-copy-observed.json'
+
+        def note(**facts):
+            evidence.update(facts)
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        note()
+        if not listed:
+            raise StepFailed('no recorded panel-check.md exists in the guest: run after the panel step')
+        source = listed[0]
+        self.open_panel()
+        more = self.press_any('More actions for panel-check.md', ['AXPopUpButton', 'AXMenuButton', 'AXButton'])
+        time.sleep(1)
+        item = self.press_any('Save a copy', ['AXMenuItem', 'AXButton'])
+        note(more_role=more, item_role=item)
+        raw = command([HERE / 'ax.sh', self.vm, SAVE_SHEET.replace('@NAME@', SAVE_AS)], 120)
+        # ax.sh prints its own timing lines as JSON around the script's answer.
+        sheet = next((l for l in raw.splitlines() if l.startswith(('SHEET', 'NOSHEET'))), raw.strip())
+        note(sheet=sheet)
+        self.shot('save-copy-1-sheet.png')
+        parts = sheet.split('\t')
+        if parts[0] != 'SHEET':
+            (self.out / 'save-copy-ax-tree.txt').write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 120))
+            raise StepFailed('the save sheet was not driven: ' + sheet)
+        offered, typed, where = parts[1], parts[2], parts[3]
+        note(offered_name=offered, typed_name=typed, where=where)
+        clicked = next((l for l in command([HERE / 'ax.sh', self.vm, SAVE_PRESS], 60).splitlines() if l == 'pressed'), None)
+        note(save_pressed=clicked)
+        # The notice stays about 5 s for this sentence; under load one accessibility search takes
+        # longer than that (attempt 5 searched for 20 s and photographed after it had gone), so the
+        # picture is taken first and the search is one try, kept as evidence beside it.
+        time.sleep(1.5)
+        self.shot('save-copy-2-saved.png')
+        said = None
+        try:
+            hits = self.ax('find', '--value', 'Saved a copy of panel-check.md', '--role', 'AXStaticText', '--contains', '--first')
+            said = hits[0].get('value') if hits else None
+        except StepFailed as exc:
+            said = None
+            note(notice_search=str(exc)[-300:])
+        found = [l for l in guest(self.vm, 'find /Users -path "*/Library" -prune -o -type f -name ' + shlex.quote(SAVE_AS)
+                                  + ' -print 2>/dev/null || true', 120).splitlines() if l.strip()]
+        same = [guest(self.vm, 'cmp -s ' + shlex.quote(source) + ' ' + shlex.quote(f) + ' && echo same || echo differ', 60).strip()
+                for f in found]
+        note(notice=said, copies_found=found, bytes_match=same, source=source)
+        if offered != 'panel-check.md':
+            raise StepFailed('the sheet was not offered the file\'s own name: ' + offered)
+        if typed != SAVE_AS:
+            raise StepFailed('the sheet did not take the walk\'s name: ' + typed)
+        if len(found) != 1:
+            raise StepFailed('expected exactly one copy named %r, found %s' % (SAVE_AS, found))
+        if Path(found[0]).parent.name != where:
+            raise StepFailed('the copy is in %s, not in the folder the sheet pointed at (%s)' % (Path(found[0]).parent, where))
+        if same != ['same']:
+            raise StepFailed('the copy\'s bytes are not the recorded file\'s')
+        # The notice's words are proven by tests/output.js against the shell's sentence; here they
+        # are recorded when the search catches them, and the picture shows them either way.
+        note(notice_read_by_accessibility=bool(said and SAVE_AS in said))
+        return evidence
+
+    # --- slice S7: Add to chat, on the real app -------------------------------------------------
+    def attach(self):
+        """S7's real-app check (§12.7): a recorded file is attached from the Output panel and
+        sent; Rich's turn lists it under *Attached on this Mac*. Every press is by the name a
+        person sees: the Output button, the row's `⋯` (*More actions for …*, S6's menu), its last
+        item *Add to chat*, the chip's *Remove …* (found, not pressed), the composer and Send."""
+        target = self.company + '/' + ATTACH_NAME
+        turn, sent = self.send(ATTACH_TASK % (ATTACH_WORD, shlex.quote(target)))
+        end = time.monotonic() + self.a.within
+        rows = []
+        while time.monotonic() < end:
+            rows = [r for r in self.record() if r.get('path', '').endswith('/' + ATTACH_NAME)]
+            if rows and self.exists_in_guest(target):
+                break
+            self.approve_pending(sent)
+            time.sleep(5)
+        self.save_record('record-attach.jsonl')
+        evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'rows': rows,
+                    'on_disk': self.exists_in_guest(target)}
+        observed = self.out / 'attach-observed.json'
+
+        def note(**facts):
+            evidence.update(facts)
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        note()
+        if not rows or not evidence['on_disk']:
+            raise StepFailed('no row for %s with the file on disk within %d s' % (ATTACH_NAME, self.a.within))
+        # Each press by name, in order; the one that missed is named in the evidence. On a miss the
+        # screenshot is kept, and the original failure is the one reported: a slow tree dump
+        # (ax.sh tree hit its own deadline on the first S7 walk) must not replace it.
+        try:
+            opened = self.open_panel()
+        except (StepFailed, RuntimeError, subprocess.TimeoutExpired) as exc:
+            note(presses_done=[], missed={'verb': 'open', 'title': 'the Output panel', 'error': str(exc)[:600]})
+            raise StepFailed('the Output panel did not open: %s' % str(exc)[:300])
+        note(panel=opened)
+        presses = [('wait', ATTACH_NAME, 'AXButton', 20),
+                   # The ROW's `⋯` (S6's, beside the row in the list), not the file view's: the row is
+                   # not pressed. aria-haspopup="menu" makes WebKit expose the `⋯` as AXPopUpButton,
+                   # not AXButton (the second S7 walk waited 20 s for an AXButton that was on screen).
+                   ('wait', 'More actions for ' + ATTACH_NAME, 'AXPopUpButton', 20),
+                   ('press', 'More actions for ' + ATTACH_NAME, 'AXPopUpButton', 0), ('wait', 'Add to chat', 'AXMenuItem', 20),
+                   ('press', 'Add to chat', 'AXMenuItem', 0), ('wait', 'Remove ' + ATTACH_NAME, 'AXButton', 30)]
+        done = []
+        for verb, title, role, seconds in presses:
+            try:
+                if verb == 'wait':
+                    self.wait_for(title, role=role, seconds=seconds)
+                else:
+                    self.press(title, role=role)
+            except (StepFailed, RuntimeError, subprocess.TimeoutExpired) as exc:
+                note(presses_done=done, missed={'verb': verb, 'title': title, 'role': role, 'error': str(exc)[:600]})
+                try:
+                    self.shot('attach-miss.png')
+                except (StepFailed, RuntimeError, subprocess.TimeoutExpired):
+                    pass
+                raise StepFailed('%s %s "%s" failed: %s' % (verb, role, title, str(exc)[:300]))
+            done.append(verb + ' ' + title)
+        note(presses_done=done)
+        time.sleep(1)
+        self.shot('attach-chip.png')
+        asked, asked_at = self.send(ATTACH_ASK)
+        ended, _ = self.turn_end(asked)
+        prompt = [r for r in self.ledger() if r.get('turn_id') == asked and r.get('event') == 'PromptReceived']
+        text = json.dumps(prompt)
+        stored = guest(self.vm, 'find ' + shlex.quote(self.data + '/attachments') + ' -name ' + shlex.quote(ATTACH_NAME)
+                       + ' -type f 2>/dev/null || true', 60).splitlines()  # one path a line: "Application Support"
+        same = bool(stored) and guest(self.vm, 'cmp -s ' + shlex.quote(stored[0]) + ' ' + shlex.quote(target)
+                                      + ' && echo same || echo differ', 60).strip() == 'same'
+        said = ''.join(r.get('text', '') for r in self.ledger() if r.get('turn_id') == asked and r.get('event') == 'AssistantDelta')
+        time.sleep(1)
+        self.shot('attach-sent.png')
+        note(asked_turn=asked, asked_end=ended.get('event'), prompt_rows=prompt, stored_copies=stored,
+             stored_copy_matches_the_recorded_file=same, rich_said=said[:600],
+             rich_read_the_code_word=ATTACH_WORD in said)
+        if 'Attached on this Mac (1 file' not in text or ATTACH_NAME not in text:
+            raise StepFailed("Rich's turn does not list %s under Attached on this Mac: %s" % (ATTACH_NAME, text[:800]))
+        if not same:
+            raise StepFailed('the conversation folder does not hold a copy of the recorded file: ' + json.dumps(stored))
+        return evidence
+
     def open_reveal(self):
         if not self.a.probe or not self.a.probe.is_file():
             raise StepFailed('--probe must name the built examples/output_files_probe binary')
@@ -695,9 +1039,12 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
-    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel', 'pull')),
-                   help='default: every step but open-reveal (alone, with --no-app), panel '
-                        '(S4: --steps identity,first-run,connect,panel) and pull (S9: ...,panel,pull)')
+    p.add_argument('--steps', default=','.join(s for s in STEPS
+                                               if s not in ('open-reveal', 'panel', 'previews', 'save-copy', 'attach', 'pull')),
+                   help='default: every step but open-reveal (alone, with --no-app) and the panel steps, '
+                        'which run together after identity, first-run and connect: '
+                        '--steps identity,first-run,connect,tools,panel,previews,save-copy,attach,pull '
+                        '(S4 panel, S5 previews, S6 save-copy, S7 attach, S9 pull)')
     p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
     a = p.parse_args()
     steps = a.steps.split(',')

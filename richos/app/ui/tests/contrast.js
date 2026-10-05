@@ -765,15 +765,19 @@ const SURFACES = [
   },
   {
     name: "output-file",
-    what: "one file's own view in the Output panel: the way back, k of N, its path and facts",
+    what: "one file's own view in the Output panel: the way back, k of N, Preview | Source, its path, a Markdown preview (S5: a heading, a table, a list, a quotation) and its facts",
     preset: { output: "round-17" },
     drive: async (p) => {
       await p.click('.nav-thread[data-thread-id="acme"]');
       await p.waitForFunction(() => window.RichOutput.snapshot().thread === "acme" && window.RichOutput.snapshot().count === 9);
       await p.click("#out-top");
       await p.waitForSelector("#outpanel .orow");
-      await p.click("#outpanel .orow");
+      // comps-summary.md: the preview with the most kinds of ink (S5, §7). By its name: since S6
+      // each row sits in its own `.orow-wrap` beside its actions, so `.orow:last-of-type` matched
+      // every row and the click landed on the group's first file, a spreadsheet.
+      await p.click('#outpanel .orow:has(.oname:text-is("comps-summary.md"))');
       await p.waitForSelector("#of-back");
+      await p.waitForSelector("#op-viewer[data-preview] .of-md");
       await overlaySettled(p, "#outpanel");
       await pageSettled(p);
     },

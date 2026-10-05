@@ -1,0 +1,2 @@
+# Walk attempt 2, app 8b241645b: the Output row as the guest accessibility tree showed it, Open and More actions nested inside a role=button row and flattened into its name (fixed in 7a5dec2d5).
+              AXButton title='panel-check.md ~/Acme/Open panel-check.md More actions for panel-check.md' desc='' value='' enabled=yes pos=1141 259 size=399 55

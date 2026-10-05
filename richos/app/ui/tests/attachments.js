@@ -38,14 +38,17 @@ const SRC = path.resolve(UI_DIR, "..", "src-tauri", "src");
 const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52];
 const PDF = Array.from(Buffer.from("%PDF-1.7\n%\xE2\xE3\xCF\xD3\n1 0 obj\n", "latin1"));
 
-async function openApp(browser) {
-  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+async function openApp(browser, opts) {
+  opts = opts || {};
+  const page = await browser.newPage({ viewport: opts.viewport || { width: 1400, height: 900 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
   page.__errors = errors;
+  // Round 17's world for the Output panel's checks (10–12): the `acme` thread's nine files.
+  if (opts.preset) await page.addInitScript((v) => (window.__RICHOS_MOCK_PRESET__ = v), opts.preset);
   await page.goto(APP);
   await leaveHome(page);
   await bootSettled(page);
@@ -119,6 +122,63 @@ async function sendAndWaitForBubble(page, marker) {
     marker,
     { timeout: 8000 }
   );
+}
+
+// ---- Add to chat from the Output panel (Output side panel PRD §12.7, slice S7) ----------------
+
+const ROUND_17 = { output: "round-17" };
+
+/// The `acme` thread with its record read and the Output panel open on its list.
+async function openPanel(page) {
+  await openThread(page, "acme");
+  await page.waitForFunction(() => window.RichOutput.snapshot().thread === "acme" && window.RichOutput.snapshot().count === 9);
+  await page.click("#out-top");
+  await page.waitForSelector("#outpanel:not([hidden]) .orow");
+}
+
+function row(page, name) {
+  return page.locator("#op-body .orow", { has: page.locator(".oname", { hasText: new RegExp("^" + name.replace(/\./g, "\\.") + "$") }) });
+}
+
+/// The menu as he sees it: its name, its last item (Add to chat, after a rule, as round 17 puts
+/// it in slice S6's menus) and whether it can be pressed, and what has focus.
+async function readMenu(page) {
+  return page.evaluate(() => {
+    const m = document.getElementById("op-menu");
+    if (!m) return null;
+    const items = [...m.querySelectorAll('[role="menuitem"]')];
+    const last = items[items.length - 1];
+    const sepBeforeLast = last && last.previousElementSibling && last.previousElementSibling.getAttribute("role") === "separator";
+    return {
+      role: m.getAttribute("role"),
+      name: m.getAttribute("aria-label"),
+      last: last ? { label: last.textContent, disabled: last.getAttribute("aria-disabled") === "true", title: last.title || null, afterRule: !!sepBeforeLast } : null,
+      count: items.filter((b) => b.textContent === "Add to chat").length,
+      focus: document.activeElement && m.contains(document.activeElement) ? document.activeElement.textContent : null,
+    };
+  });
+}
+
+/// The ROW's `⋯`, beside the row in the list (S6's `.oacts`, never inside the role=button row).
+async function rowMenu(page, name) {
+  const wrap = page.locator("#op-body .orow-wrap", { has: page.locator(".orow .oname", { hasText: new RegExp("^" + name.replace(/\./g, "\\.") + "$") }) });
+  await wrap.hover();
+  await wrap.locator('.oacts [data-act="menu"]').click();
+  await page.waitForSelector("#op-menu");
+}
+
+/// Open a file's own view, then its `⋯` (S6's, `More actions`).
+async function fileMenu(page, name) {
+  await row(page, name).click();
+  await page.waitForSelector('#op-body[data-view="file"]');
+  await page.click('.of-tools [data-act="menu"]');
+  await page.waitForSelector("#op-menu");
+}
+
+/// Press Add to chat in the open menu. `force` presses it while it is aria-disabled, which
+/// Playwright otherwise waits out: the press must reach the page and do nothing.
+async function pressAdd(page, opts) {
+  await page.click('#op-menu [data-item="add"]', opts && opts.force ? { force: true } : undefined);
 }
 
 async function main() {
@@ -450,6 +510,208 @@ async function main() {
     }
     await page.close();
     return out.join(" | ");
+  });
+
+  await run.check("10. add-to-chat: from the row's ⋯ a file goes on the tray with its remove, says so, and the next message carries it", async () => {
+    const page = await openApp(browser, { preset: ROUND_17 });
+    await openPanel(page);
+    await rowMenu(page, "brief.md");
+    const menu = await readMenu(page);
+    // Slice S6's menu, named for the file; Add to chat last, after a rule, once (round 17).
+    assertEqual(
+      menu,
+      { role: "menu", name: "brief.md", last: { label: "Add to chat", disabled: false, title: null, afterRule: true }, count: 1, focus: "Preview" },
+      "the row's menu"
+    );
+    // BY KEYBOARD, as a menu is used: End to the last item, Enter.
+    await page.keyboard.press("End");
+    assertEqual((await readMenu(page)).focus, "Add to chat", "End did not reach Add to chat");
+    await page.keyboard.press("Enter");
+    await readyChips(page, 1);
+    let tray = await readTray(page);
+    assertEqual(tray.chips.map((c) => [c.name, c.meta, c.remove]), [["brief.md", "Markdown file · 1 KB", "Remove brief.md"]], "the chip");
+    assertEqual(tray.note, null, "a line under the composer after a file was attached");
+    assertEqual(await page.evaluate(() => document.getElementById("op-menu")), null, "the menu stayed open");
+    assertEqual(await page.evaluate(() => document.activeElement.id), "input", "focus did not move to the composer");
+    assertEqual(await page.evaluate(() => window.RichOutput.isOpen()), true, "the panel closed beside a wide conversation");
+    // WHAT IT SAYS: the actions' on-screen notice, and the conversation's live region.
+    const SAID = "brief.md is attached to your next message.";
+    await page.waitForFunction((s) => document.getElementById("live-region").textContent === s, SAID);
+    const notice = await page.evaluate(() => {
+      const n = document.getElementById("op-notice");
+      return { text: n.textContent, shown: !n.hidden && n.getClientRects().length > 0, role: n.getAttribute("role") };
+    });
+    assertEqual(notice, { text: SAID, shown: true, role: "status" }, "the panel's notice");
+    // The page named the file by its OUTPUT ID, never a path.
+    const calls = await page.evaluate(() => window.__RICHOS_MOCK__.attachCalls());
+    const asked = calls.filter((c) => c.cmd === "output_attach");
+    const brief = await page.evaluate(() => window.__RICHOS_MOCK__.outputList("acme").files.find((f) => f.name === "brief.md"));
+    assertEqual(asked.map((c) => c.outputId), [brief.id], "what the page asked the shell for");
+    assert(!JSON.stringify(asked).includes(brief.path), "a path crossed the bridge: " + JSON.stringify(asked));
+
+    // Asked again, it is the same file: no second chip.
+    await rowMenu(page, "brief.md");
+    await pressAdd(page);
+    await page.waitForFunction(() => document.activeElement.id === "input");
+    assertEqual((await readTray(page)).chips.length, 1, "the same file attached twice");
+
+    // ITS REMOVE, and the way back in.
+    await page.click('button[aria-label="Remove brief.md"]');
+    await page.waitForFunction(() => document.querySelectorAll("#attach-list .attach-chip").length === 0);
+    assert((await page.evaluate(() => window.__RICHOS_MOCK__.attachCalls())).some((c) => c.cmd === "discard_attachment"), "the removed file was never discarded on the Mac");
+    await rowMenu(page, "brief.md");
+    await pressAdd(page);
+    await readyChips(page, 1);
+
+    // THE NEXT MESSAGE CARRIES IT, under Attached on this Mac.
+    await page.fill("#input", "Send this brief to Priya with the draft.");
+    await sendAndWaitForBubble(page, "Attached on this Mac");
+    const text = await lastUserText(page);
+    assert(
+      text.startsWith("Send this brief to Priya with the draft.\n\nAttached on this Mac (1 file, saved by RichOS):\n- /mock/"),
+      "what Rich receives: " + JSON.stringify(text)
+    );
+    assert(text.endsWith("/brief.md (text/markdown, 1200 bytes)"), "the file line: " + JSON.stringify(text));
+    tray = await readTray(page);
+    assertEqual([tray.trayHidden, tray.chips.length], [true, 0], "the tray after Send");
+    // ONE MENU: the interim menu S7 built for itself before S6's existed is gone.
+    const interim = await page.evaluate(() => document.querySelectorAll(".menu-item, .of-more, [data-dismiss=\"escape\"].op-menu").length);
+    assertEqual(interim, 0, "S7's interim menu or its ⋯ is still on the page");
+    assertEqual(page.__errors, [], "the page logged errors");
+    await page.close();
+    return "row ⋯ → End → Enter: chip 'brief.md · Markdown file · 1 KB' with its remove, '" + SAID + "' in the notice and the live region, focus in the composer, panel still open; asked by output id only; no duplicate; removed and re-added; Send carried it under 'Attached on this Mac (1 file…)'";
+  });
+
+  await run.check("11. a refused kind and a 30 MiB file are refused in the desk's own words; a file no longer there cannot be added", async () => {
+    const page = await openApp(browser, { preset: ROUND_17 });
+    await openPanel(page);
+    // The round's own video: the panel lists it, the desk has never taken a video. Right-click.
+    await row(page, "comps-walkthrough.mp4").click({ button: "right" });
+    await page.waitForSelector("#op-menu");
+    const video = await readMenu(page);
+    assertEqual([video.name, video.last.label, video.count], ["comps-walkthrough.mp4", "Add to chat", 1], "the row's right-click menu");
+    await pressAdd(page);
+    await page.waitForFunction(() => document.getElementById("attach-note").textContent.startsWith("comps-walkthrough.mp4: "));
+    let tray = await readTray(page);
+    assertEqual(
+      tray.note,
+      "comps-walkthrough.mp4: RichOS can't take this kind of file yet. Photos, PDFs, text and Office documents work. Nothing was attached.",
+      "the kind refusal"
+    );
+    assertEqual(tray.chips.length, 0, "a refused file stayed on the tray");
+
+    // A PDF that is now 30 MiB on disk.
+    await page.evaluate(() => window.__RICHOS_MOCK__.outputResize("acme", "term-sheet-march.pdf", 30 * 1024 * 1024));
+    await page.evaluate(() => window.RichOutput.reload());
+    await row(page, "term-sheet-march.pdf").click({ button: "right" });
+    await page.waitForSelector("#op-menu");
+    await pressAdd(page);
+    await page.waitForFunction(() => document.getElementById("attach-note").textContent.startsWith("term-sheet-march.pdf: "));
+    tray = await readTray(page);
+    assertEqual(tray.note, "term-sheet-march.pdf: This file is larger than 25 MB, the most RichOS takes in one file. Nothing was attached.", "the size refusal");
+    assertEqual([tray.chips.length, await page.evaluate(() => window.__RICHOS_MOCK__.attachStagedCount())], [0, 0], "a refused file was staged");
+
+    // A file no longer where it was written: the item is there, disabled, its reason the
+    // tooltip — the same sentence as the other actions the menu disables (S6, §6.7).
+    const MISSING = "This file is no longer where it was written. If it was moved, open it from its new place; if Rich writes it again, it will be listed here.";
+    await page.evaluate(() => window.__RICHOS_MOCK__.outputMissing("acme", "brief.md"));
+    await page.evaluate(() => window.RichOutput.reload());
+    await page.waitForSelector("#op-body .orow.is-missing");
+    await fileMenu(page, "brief.md");
+    assertEqual(
+      await readMenu(page),
+      { role: "menu", name: "brief.md", last: { label: "Add to chat", disabled: true, title: MISSING, afterRule: true }, count: 1, focus: "Copy path" },
+      "the missing file's menu"
+    );
+    // Pressed anyway: nothing reaches the desk, and the menu stays.
+    await pressAdd(page, { force: true });
+    assert(await readMenu(page), "activating the disabled Add to chat closed the menu");
+    // Escape closes the menu alone and gives focus back to its opener (§6.8).
+    await page.keyboard.press("Escape");
+    assertEqual(await page.evaluate(() => [!!document.getElementById("op-menu"), document.activeElement.getAttribute("aria-label"), window.RichOutput.snapshot().view]), [false, "More actions", "file"], "after Escape");
+    const asked = (await page.evaluate(() => window.__RICHOS_MOCK__.attachCalls())).filter((c) => c.cmd === "output_attach").length;
+    assertEqual(asked, 2, "output_attach calls (the video, the PDF; never the missing file)");
+
+    // The mock refuses with the shell's sentences, read from the Rust.
+    const shell = fs.readFileSync(path.join(SRC, "output_files.rs"), "utf8");
+    const mock = fs.readFileSync(path.join(UI_DIR, "mock.js"), "utf8");
+    for (const marker of ["I don't have that file in this thread", "This file is no longer where it was written."]) {
+      const said = rustSentenceAfter(shell, marker);
+      assert(said && mock.includes(JSON.stringify(said)), "mock.js's output_attach does not carry output_files.rs's: " + said);
+    }
+    assertEqual(page.__errors, [], "the page logged errors");
+    await page.close();
+    return "video refused with the unknown-type sentence, 30 MiB PDF with the 25 MB sentence, nothing staged; the missing file's Add to chat disabled with the missing sentence as its tooltip; Escape back to ⋯";
+  });
+
+  await run.check("12. below 1180px the panel steps aside for the tray and the live region says it; Add to chat and the ⋯ clear WCAG AA in both themes", async () => {
+    const page = await openApp(browser, { preset: ROUND_17, viewport: { width: 1100, height: 820 } });
+    await openPanel(page);
+    await fileMenu(page, "comps-summary.md");
+    const out = [];
+    for (const theme of ["dark", "light"]) {
+      await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+      await page.waitForTimeout(80);
+      await page.evaluate(C.pageScript());
+      const measured = await page.evaluate(() => {
+        const M = window.__contrastMath;
+        const ground = (node) => {
+          const b = node.getBoundingClientRect();
+          const layers = [];
+          for (const e of document.elementsFromPoint(b.left + 2, b.top + b.height / 2)) {
+            if (e === node || node.contains(e)) {
+              const own = M.parseCssColor(getComputedStyle(e).backgroundColor);
+              if (own && own.a > 0) layers.push(own);
+              if (own && own.a >= 1) break;
+              continue;
+            }
+            const c = M.parseCssColor(getComputedStyle(e).backgroundColor);
+            if (!c || c.a === 0) continue;
+            layers.push(c);
+            if (c.a >= 1) break;
+          }
+          let g = layers[layers.length - 1];
+          for (let k = layers.length - 2; k >= 0; k--) g = M.compositeOver(layers[k], g);
+          return g;
+        };
+        const ratio = (node) => {
+          const fg = M.parseCssColor(getComputedStyle(node).color);
+          const bg = ground(node);
+          return M.round2(M.contrastRatio(fg.a < 1 ? M.compositeOver(fg, bg) : fg, bg));
+        };
+        const item = document.querySelector('#op-menu [data-item="add"]');
+        const word = [...item.querySelectorAll("span")].find((s) => s.textContent === "Add to chat") || item;
+        const more = document.querySelector('.of-tools [data-act="menu"]');
+        return {
+          item: ratio(word),
+          itemPx: parseFloat(getComputedStyle(word).fontSize),
+          // The ⋯ glyph is a non-text indicator: its color against what is painted under it.
+          more: ratio(more),
+        };
+      });
+      assert(measured.item >= 4.5, `${theme}: Add to chat is ${measured.item}:1, under 4.5:1`);
+      assert(measured.itemPx >= 16, `${theme}: Add to chat is ${measured.itemPx}px`);
+      assert(measured.more >= 3, `${theme}: the ⋯ glyph is ${measured.more}:1, under the 3:1 non-text floor`);
+      out.push(`${theme}: Add to chat ${measured.item}:1 at ${measured.itemPx}px, ⋯ ${measured.more}:1`);
+    }
+    await pressAdd(page);
+    await readyChips(page, 1);
+    const SAID = "comps-summary.md is attached to your next message.";
+    await page.waitForFunction((s) => document.getElementById("live-region").textContent === s, SAID);
+    const after = await page.evaluate(() => ({
+      panelOpen: window.RichOutput.isOpen(),
+      chipOnScreen: (() => {
+        const c = document.querySelector("#attach-list .attach-chip");
+        const b = c.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return !!hit && c.contains(hit);
+      })(),
+      focus: document.activeElement.id,
+    }));
+    assertEqual(after, { panelOpen: false, chipOnScreen: true, focus: "input" }, "at 1100px, after Add to chat");
+    assertEqual(page.__errors, [], "the page logged errors");
+    await page.close();
+    return out.join(" | ") + " | 1100px: the panel closed, the chip is painted on top, the live region said it, focus in the composer";
   });
 
   const failed = run.report();
