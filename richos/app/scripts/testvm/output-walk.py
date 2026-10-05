@@ -581,6 +581,19 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the panel was not open after the theme change')
         return evidence
 
+    def open_panel(self):
+        """Open the Output panel unless a step before this one left it open: the Output button is a
+        toggle (`aria-pressed`, an AXCheckBox), so pressing it on an open panel CLOSES it. The steps
+        were written one slice at a time, each starting from a closed panel; run together (panel,
+        previews, save-copy, attach) they inherit each other's open panel, and the button's name
+        carries the count ("3 files from this thread"), so it is found by the part that never moves."""
+        if self.present('Close the output panel'):
+            return 'already open'
+        self.wait_for('from this thread', role='AXCheckBox', seconds=60)
+        self.press('from this thread', role='AXCheckBox')
+        self.wait_for('Close the output panel', seconds=20)
+        return 'opened'
+
     # --- slice S5: a real PDF and a real PNG previewed in the panel -----------------------------
     def flip_theme(self, stem):
         """Photograph the screen in the guest's appearance, flip it, photograph again, put it back.
@@ -627,9 +640,7 @@ class OutputWalk(command_walk.CommandWalk):
         evidence['on_disk'] = {n: guest(self.vm, 'ls -l ' + shlex.quote(rows[n][-1]['path']) + ' 2>&1 | head -1', 60).strip()
                                for n, _ in PREVIEW_FILES}
         note()
-        self.wait_for('files from this thread', role='AXCheckBox', seconds=60)
-        self.press('files from this thread', role='AXCheckBox')
-        self.wait_for('Close the output panel', seconds=20)
+        self.open_panel()
         failures = []
         for name, kind in PREVIEW_FILES:
             self.wait_for(name, seconds=20)
@@ -697,9 +708,7 @@ class OutputWalk(command_walk.CommandWalk):
         if not listed:
             raise StepFailed('no recorded panel-check.md exists in the guest: run after the panel step')
         source = listed[0]
-        if not self.present('Close the output panel'):
-            self.press('1 file from this thread', role='AXCheckBox')
-            self.wait_for('Close the output panel', seconds=20)
+        self.open_panel()
         more = self.press_any('More actions for panel-check.md', ['AXPopUpButton', 'AXMenuButton', 'AXButton'])
         time.sleep(1)
         item = self.press_any('Save a copy', ['AXMenuItem', 'AXButton'])
@@ -780,8 +789,13 @@ class OutputWalk(command_walk.CommandWalk):
         # Each press by name, in order; the one that missed is named in the evidence. On a miss the
         # screenshot is kept, and the original failure is the one reported: a slow tree dump
         # (ax.sh tree hit its own deadline on the first S7 walk) must not replace it.
-        presses = [('wait', 'from this thread', 'AXCheckBox', 60), ('press', 'from this thread', 'AXCheckBox', 0),
-                   ('wait', 'Close the output panel', 'AXButton', 20), ('wait', ATTACH_NAME, 'AXButton', 20),
+        try:
+            opened = self.open_panel()
+        except (StepFailed, RuntimeError, subprocess.TimeoutExpired) as exc:
+            note(presses_done=[], missed={'verb': 'open', 'title': 'the Output panel', 'error': str(exc)[:600]})
+            raise StepFailed('the Output panel did not open: %s' % str(exc)[:300])
+        note(panel=opened)
+        presses = [('wait', ATTACH_NAME, 'AXButton', 20),
                    # The ROW's `⋯` (S6's, beside the row in the list), not the file view's: the row is
                    # not pressed. aria-haspopup="menu" makes WebKit expose the `⋯` as AXPopUpButton,
                    # not AXButton (the second S7 walk waited 20 s for an AXButton that was on screen).
