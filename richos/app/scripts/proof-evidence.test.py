@@ -594,7 +594,9 @@ class Evidence(unittest.TestCase):
                 shutil.copy2(path, engine / "scripts/lib" / path.name)
         for name in ("ci-shard.sh", "ci-units.sh"):
             shutil.copy2(source_engine / name, engine / "scripts" / name)
-        for name in ("proof_evidence.py", "proof_slots.py", "test_results.py", "cargo_identity.py"):
+        # Every lib/ module proof-run.py imports, rerun_tree.py included (write_rerun needs it).
+        for name in ("proof_evidence.py", "proof_slots.py", "test_results.py", "cargo_identity.py",
+                     "rerun_tree.py"):
             shutil.copy2(HERE / "lib" / name, app / "lib" / name)
         shutil.copy2(HERE / "testvm/reserve.py", app / "testvm/reserve.py")
         shutil.copy2(HERE / "proof-run.py", app / "proof-run.py")
