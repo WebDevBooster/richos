@@ -989,6 +989,146 @@
     return String(s).replace(/(["\\])/g, "\\$1");
   }
 
+  // ---- Add to chat (slice S7, PRD §12.7) ----------------------------------------------------------
+  //
+  // A file from the panel goes into the next message through the attachment desk:
+  // `RichAttachments.addRecorded` stages it by its OUTPUT ID (`output_attach` in
+  // `mac_attachments.rs`), so the desk's limits and its sentences apply unchanged, and a refusal
+  // is said on the tray's line under the composer exactly as a dropped file's is. Then focus goes
+  // to the composer, as round 17's `addToChat` does, so his words follow the file. Below 1180px
+  // the panel lies over the composer (§6.1), so it steps aside first and the tray is seen.
+  //
+  // WHERE IT IS REACHED. Round 17 puts *Add to chat* last in the row's `⋯` menu, the file's `⋯`
+  // menu and the right-click, after a rule (`output.html` `menuItems`). Those menus are slice
+  // S6's, built beside this one. Until they are here, this section gives the file view a `⋯`
+  // holding the one item, and the row's right-click opens the same. `addToChatItem(f)` is the
+  // item S6's menus take; when they land, they take it and `openAddMenu` and its `⋯` go.
+  const ADD_TO_CHAT = "Add to chat";
+  let addMenu = null; // { node, opener } while the menu is open
+
+  /// The menu item, as round 17's `menuItems` shapes one. A file no longer where it was written
+  /// cannot be attached (§4.6); the reason is its tooltip (§6.7).
+  function addToChatItem(f) {
+    return { label: ADD_TO_CHAT, disabled: !f.exists, reason: f.exists ? null : MISSING_LINE, act: () => addToChat(f) };
+  }
+
+  async function addToChat(f) {
+    if (!f || !f.exists || !window.RichAttachments) return;
+    if (!isWide()) close({ keepFocus: true });
+    const said = await window.RichAttachments.addRecorded(f);
+    // A refusal is already said, and announced, by the tray's own `role="status"` line.
+    if (said && said.ok && said.sentence && ctx.announce) ctx.announce(said.sentence);
+    const input = el("input");
+    if (input) input.focus({ preventScroll: true });
+  }
+
+  function dotsIcon() {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "currentColor");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    for (const cx of [5, 12, 19]) {
+      const c = document.createElementNS(SVG_NS, "circle");
+      c.setAttribute("cx", String(cx));
+      c.setAttribute("cy", "12");
+      c.setAttribute("r", "1.75");
+      svg.appendChild(c);
+    }
+    return svg;
+  }
+
+  function closeAddMenu(opts) {
+    if (!addMenu) return;
+    const { node: menu, opener } = addMenu;
+    addMenu = null;
+    menu.remove();
+    if (opener.hasAttribute("aria-expanded")) opener.setAttribute("aria-expanded", "false");
+    if (!(opts && opts.keepFocus) && opener.isConnected) opener.focus({ preventScroll: true });
+  }
+
+  /// The interim `⋯` menu: one `menuitem`, under its opener or at the pointer. `Esc` closes it and
+  /// returns focus to the opener (§6.8); a click anywhere else closes it.
+  function openAddMenu(f, opener, at) {
+    closeAddMenu({ keepFocus: true });
+    const menu = node("div", "menu op-menu");
+    menu.id = "op-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Actions for " + f.name);
+    menu.setAttribute("data-dismiss", "escape");
+    menu.tabIndex = -1;
+    const item = addToChatItem(f);
+    const b = node("button", "menu-item", item.label);
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    if (item.disabled) {
+      b.disabled = true;
+      b.title = item.reason;
+    }
+    b.addEventListener("click", () => {
+      closeAddMenu({ keepFocus: true });
+      item.act();
+    });
+    menu.appendChild(b);
+    menu.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closeAddMenu();
+      } else if (e.key === "Tab") {
+        closeAddMenu({ keepFocus: true });
+      }
+    });
+    document.body.appendChild(menu);
+    let x;
+    let y;
+    if (at) {
+      x = at.x;
+      y = at.y;
+    } else {
+      const r = opener.getBoundingClientRect();
+      x = r.right - menu.offsetWidth;
+      y = r.bottom + 6;
+    }
+    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + "px";
+    menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + "px";
+    if (opener.hasAttribute("aria-expanded")) opener.setAttribute("aria-expanded", "true");
+    addMenu = { node: menu, opener };
+    (item.disabled ? menu : b).focus({ preventScroll: true });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (addMenu && !addMenu.node.contains(e.target) && !addMenu.opener.contains(e.target)) closeAddMenu({ keepFocus: true });
+  });
+
+  /// The file view's `⋯` (§6.4's tools, last).
+  function addToChatTools(f, box) {
+    const more = node("button", "of-step of-more");
+    more.type = "button";
+    more.setAttribute("aria-label", "More actions for " + f.name);
+    more.title = "More actions";
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute("aria-expanded", "false");
+    more.appendChild(dotsIcon());
+    more.addEventListener("click", () => {
+      if (addMenu && addMenu.opener === more) closeAddMenu();
+      else openAddMenu(f, more);
+    });
+    box.appendChild(more);
+  }
+
+  /// The row's right-click (§6.3).
+  function addToChatRow(f, row) {
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      openAddMenu(f, row, { x: e.clientX, y: e.clientY });
+    });
+  }
+
+  const chainHook = (prior, mine) => (prior ? (f, n) => (prior(f, n), mine(f, n)) : mine);
+  hooks.fileTools = chainHook(hooks.fileTools, addToChatTools);
+  hooks.rowActions = chainHook(hooks.rowActions, addToChatRow);
+
   // ---- the thread ------------------------------------------------------------------------------
 
   /// The thread the conversation shows, or null when none is (the home screen, a company's

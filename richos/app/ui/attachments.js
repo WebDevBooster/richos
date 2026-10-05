@@ -3,7 +3,8 @@
 // His daily-driver app has to take what he hands Rich all day in the terminal: a screenshot, a
 // PDF, a CEO input file (`richos-hq/docs/plans/2026-09-24-daily-driver-readiness.md` §4 X3). The
 // phone already could; the Mac window could not. This file is the window's half: the tray above
-// the composer, paste, drop, remove, and the refusal line. Everything about what a file IS —
+// the composer, paste, drop, a file the thread produced (Add to chat from the Output panel,
+// `addRecorded`), remove, and the refusal line. Everything about what a file IS —
 // type, size, bytes, where it is kept and the words Rich reads — is the phone's attachment desk
 // in Rust (`src-tauri/src/phone/attachments.rs`), reached through `src-tauri/src/mac_attachments.rs`.
 // Nothing here decides whether a file is acceptable except to save a 25 MB round trip, and that
@@ -309,6 +310,35 @@
     }
   }
 
+  // ---- a file the thread produced (Add to chat, Output side panel PRD §12.7) --------------
+
+  /// The sentence the panel says when a file is on the tray (PRD §6.7, "Action succeeded").
+  const ATTACHED = " is attached to your next message.";
+
+  /// **A file from the Output panel goes on the tray of the composer on screen**, through the
+  /// same desk as a drop (`output_attach` in `mac_attachments.rs`): the page names the file's
+  /// OUTPUT ID, never a path, and the desk's refusal comes back in its own words on the tray's
+  /// line, with the file's name, exactly as a dropped file's does. A file already on the tray
+  /// is not added twice. Answers `{ ok, sentence }` — what the panel says it did — or a null
+  /// sentence when no composer is on screen to take it.
+  async function addRecorded(entry) {
+    const tray = trayFor(composerKey(), true);
+    if (!tray || !entry || !entry.id) return { ok: false, sentence: null };
+    clearNote();
+    const name = entry.name || "This file";
+    if (tray.items.some((i) => i.outputId === entry.id)) return { ok: true, sentence: name + ATTACHED };
+    const item = { seq: ++nextSeq, id: null, name, label: "", size: 0, sha256: null, state: "adding", thumb: null, outputId: entry.id };
+    if (!place(tray, item)) return { ok: false, sentence: noteLines[noteLines.length - 1] || null };
+    try {
+      const answer = await bridge.invoke("output_attach", { draftId: tray.draftId, attachmentId: freshId(), outputId: entry.id });
+      settle(tray, item, answer);
+      return { ok: true, sentence: item.name + ATTACHED };
+    } catch (e) {
+      fail(tray, item, e);
+      return { ok: false, sentence: noteLines[noteLines.length - 1] || null };
+    }
+  }
+
   function setDragging(on) {
     if (dragging === on) return;
     dragging = on;
@@ -377,6 +407,7 @@
       });
       changed();
     },
+    addRecorded,
     note,
     STILL_ADDING,
   };

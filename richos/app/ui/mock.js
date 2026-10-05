@@ -2469,6 +2469,25 @@
           if (file.folder) return Promise.reject("This is a folder, not a file. Drop the files inside it instead. Nothing was attached.");
           return mockStage(args.draftId, args.attachmentId, file.name, "", file.bytes);
         }
+        // Add to chat from the Output panel (output side-panel PRD §12.7): `output_attach` in
+        // `mac_attachments.rs`. The id resolves in the ACTIVE thread's record only (§5.1); a file
+        // no longer there is refused with `output_files.rs`'s MISSING; the size is refused before
+        // anything is read; then it is the drop's road (`mockStage`), on bytes of the entry's size
+        // that open with the kind's own magic, so the desk's sniffing passes as it does on disk.
+        case "output_attach": {
+          mockAttach.calls.push({ cmd, draftId: args.draftId, attachmentId: args.attachmentId, outputId: args.outputId });
+          const recorded = (outputByThread[activeThreadId] || []).find((e) => e.id === args.outputId);
+          if (!recorded) return Promise.reject("I don't have that file in this thread's output.");
+          if (!recorded.exists) {
+            return Promise.reject("This file is no longer where it was written. If it was moved, open it from its new place; if Rich writes it again, it will be listed here.");
+          }
+          const kind = mockKindFor("", recorded.name);
+          if (!kind) return Promise.reject(MOCK_ATTACH_SAYS.unknownType);
+          if (recorded.bytes > 25 * 1024 * 1024) return Promise.reject(MOCK_ATTACH_SAYS.tooLarge);
+          const body = new Uint8Array(Math.max(0, recorded.bytes || 0));
+          (kind.magic || []).forEach((b, i) => { if (i < body.length) body[i] = b; });
+          return mockStage(args.draftId, args.attachmentId, recorded.name, "", body);
+        }
         case "discard_attachment": {
           mockAttach.calls.push({ cmd, draftId: args.draftId, attachmentId: args.attachmentId });
           return mockAttach.staged.delete(args.draftId + "/" + args.attachmentId);
@@ -4165,6 +4184,10 @@
           e.modifiedAt = null;
         }
       }
+    },
+    /// A recorded file grew on disk (S7: the desk's 25 MB ceiling); the next read re-stats it.
+    outputResize(threadId, name, bytes) {
+      for (const e of outputByThread[threadId] || []) if (e.name === name) e.bytes = bytes;
     },
     /// The record cannot be read: `list_output` refuses with the shell's sentence (§6.7).
     outputUnreadable(v) { outputUnreadable = v !== false; },
