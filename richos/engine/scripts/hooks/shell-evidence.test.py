@@ -22,7 +22,8 @@ PREFIX = "set -e -o pipefail\n"
 class ShellEvidence(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="shell-evidence-test.")
-        self.env = {**os.environ, "RICHOS_AGENT_HOLD_DIR": os.path.join(self.tmp, "hold")}
+        self.env = {**os.environ, "RICHOS_AGENT_HOLD_DIR": os.path.join(self.tmp, "hold"),
+                    "RICHOS_AGENT_BASH_FOREGROUND":"1", "CLAUDE_CODE_ENTRYPOINT":"cli"}
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -49,7 +50,7 @@ class ShellEvidence(unittest.TestCase):
     def test_already_rewritten_call_is_left_alone(self):
         self.assertEqual(self.run_hook(self.bash(PREFIX + "true")), {})
         out = self.run_hook(self.bash(PREFIX + "true", agent_id="afixture1"))
-        self.assertTrue(out["hookSpecificOutput"]["updatedInput"]["run_in_background"])
+        self.assertFalse(out["hookSpecificOutput"]["updatedInput"]["run_in_background"])
 
     def test_other_tools_are_untouched(self):
         self.assertEqual(self.run_hook({"tool_name": "Read", "tool_input": {"file_path": "/x"}}), {})
@@ -68,9 +69,10 @@ class ShellEvidence(unittest.TestCase):
         self.assertIn("export RICHOS_AGENT_OWNER=afixture1", cmd)
         self.assertNotIn("kill -STOP $$", cmd, "a held agent's call is refused, never self-suspended")
         self.assertNotIn("USR1", cmd)
-        self.assertTrue(out["hookSpecificOutput"]["updatedInput"]["run_in_background"])
+        self.assertFalse(out["hookSpecificOutput"]["updatedInput"]["run_in_background"])
         record = Path(self.tmp, "hold", "shells", "fixture-session", "afixture1", "toolu_fixture.json")
         self.assertEqual(json.loads(record.read_text())["mode"], "native")
+        self.assertEqual(out["hookSpecificOutput"]["updatedInput"]["timeout"], 6000)
 
     def test_background_call_is_not_wrapped(self):
         payload = self.bash("echo hi", agent_id="afixture1")
