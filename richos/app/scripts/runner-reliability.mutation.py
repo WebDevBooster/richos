@@ -22,11 +22,8 @@ Invoked by proof-run.test.sh. Exit 0 = every property proven load-bearing.
 """
 # THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
 # gate runs the suite with RICHOS_MUTATION_PASSES=0; the app nightly's script suites run it.
-if __import__("os").environ.get("RICHOS_MUTATION_PASSES") == "0":
-    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"
-          % __file__.rsplit("/", 1)[-1])
-    raise SystemExit(0)
-
+# The gate still runs text_only() below: no case runs, but a mutant that no longer matches its
+# source, or names a case that is gone, is refused there instead of at the nightly.
 import json
 import os
 from pathlib import Path
@@ -127,11 +124,15 @@ def passes(lib, case, edit, env, log):
     return result.returncode == 0
 
 
+def read_sources():
+    return {"operator_fences.py": (LIB / "operator_fences.py").read_text(),
+            "worker_tokens.py": (LIB / "worker_tokens.py").read_text(),
+            "proc_tree.py": (LIB / "proc_tree.py").read_text(),
+            TEST.name: TEST.read_text()}
+
+
 def main():
-    sources = {"operator_fences.py": (LIB / "operator_fences.py").read_text(),
-               "worker_tokens.py": (LIB / "worker_tokens.py").read_text(),
-               "proc_tree.py": (LIB / "proc_tree.py").read_text(),
-               TEST.name: TEST.read_text()}
+    sources = read_sources()
     print("=== runner-reliability: SIGKILL lease + borrow, each property proven load-bearing ===")
     with tempfile.TemporaryDirectory(prefix="runner-reliability-mutation.") as tmp:
         tmp = Path(tmp)
@@ -199,5 +200,31 @@ def main():
     return 1 if failed else 0
 
 
+def text_only():
+    """What the merge gate checks while it skips this pass: each mutant's text appears exactly
+    once in its file, and each case it names is a test in Reliability. A text search; no case
+    runs (2026-10-05: nightly-local.mutation.py drifted from its source and only the nightly
+    refused, df0feab6e; every app harness got this check)."""
+    sources = read_sources()
+    tests = sources[TEST.name]
+    start = tests.find("\nclass Reliability(")
+    end = tests.find("\nclass ", start + 1) if start >= 0 else -1
+    cases = tests[start:end if end >= 0 else len(tests)] if start >= 0 else ""
+    problems = []
+    for name, target, case, old, *_ in MUTANTS:
+        if sources[target].count(old) != 1:
+            problems.append(f"{name}: the text to mutate appears {sources[target].count(old)} times in {target}, not once")
+        if f"    def {case}(" not in cases:
+            problems.append(f"{name}: {case} is not a test in Reliability ({TEST.name})")
+    for problem in problems:
+        print(f"  FAIL  {problem}")
+    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it); "
+          "text check of its %d mutants: %s" % (Path(__file__).name, len(MUTANTS),
+                                                "%d problem(s)" % len(problems) if problems else "all match"))
+    return 1 if problems else 0
+
+
 if __name__ == "__main__":
+    if os.environ.get("RICHOS_MUTATION_PASSES") == "0":
+        sys.exit(text_only())
     sys.exit(main())

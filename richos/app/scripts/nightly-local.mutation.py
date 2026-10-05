@@ -16,13 +16,11 @@ Invoked by nightly-local.test.sh. Exit 0 = every property proven load-bearing.
 """
 # THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
 # gate runs the suite with RICHOS_MUTATION_PASSES=0; the app nightly's script suites run it.
-if __import__("os").environ.get("RICHOS_MUTATION_PASSES") == "0":
-    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"
-          % __file__.rsplit("/", 1)[-1])
-    raise SystemExit(0)
-
+# The gate still runs text_only() below: no case runs, but a mutant that no longer matches its
+# source, or names a case that is gone, is refused there instead of at the nightly.
 import importlib.util
 import io
+import os
 from pathlib import Path
 import sys
 import time
@@ -31,6 +29,7 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "nightly-local.py"
+TESTS = HERE / "nightly-local.test.py"
 
 # (name, case in GatesAtOnceTests, old text, new text, what the build would do without it)
 MUTANTS = (
@@ -98,8 +97,7 @@ def load(text):
 
 
 def tests_against(module):
-    spec = importlib.util.spec_from_file_location("nightly_local_tests",
-                                                  HERE / "nightly-local.test.py")
+    spec = importlib.util.spec_from_file_location("nightly_local_tests", TESTS)
     tests = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tests)
     tests.m = module
@@ -142,5 +140,31 @@ def main():
     return 1 if failed else 0
 
 
+def text_only():
+    """What the merge gate checks while it skips this pass: each mutant's text appears exactly
+    once in nightly-local.py, and each case it names is a test in GatesAtOnceTests. A text
+    search; no case runs. Until 2026-10-05 the gate checked nothing here, so 419e71e71 renamed
+    a case and the text a mutant read, and only the nightly refused (fixed in df0feab6e)."""
+    shipped = SOURCE.read_text()
+    tests = TESTS.read_text()
+    start = tests.find("\nclass GatesAtOnceTests(")
+    end = tests.find("\nclass ", start + 1) if start >= 0 else -1
+    cases = tests[start:end if end >= 0 else len(tests)] if start >= 0 else ""
+    problems = []
+    for name, case, old, *_ in MUTANTS:
+        if shipped.count(old) != 1:
+            problems.append(f"{name}: the text to mutate appears {shipped.count(old)} times in {SOURCE.name}, not once")
+        if f"    def {case}(" not in cases:
+            problems.append(f"{name}: {case} is not a test in GatesAtOnceTests ({TESTS.name})")
+    for problem in problems:
+        print(f"  FAIL  {problem}")
+    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it); "
+          "text check of its %d mutants: %s" % (Path(__file__).name, len(MUTANTS),
+                                                "%d problem(s)" % len(problems) if problems else "all match"))
+    return 1 if problems else 0
+
+
 if __name__ == "__main__":
+    if os.environ.get("RICHOS_MUTATION_PASSES") == "0":
+        sys.exit(text_only())
     sys.exit(main())
