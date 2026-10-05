@@ -1229,6 +1229,8 @@ fn an_account_switch_waits_for_a_command_the_conversation_started() {
         fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> { self.lease.prompt(text, on_item) }
     }
     let (dir, quota) = two_accounts("switch-waits", 60.);
+    // The five-hour switch acts only while the automatic switch is on (e1ac24d27).
+    quota.set_policy(richos_core::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
     quota.set_at_threshold(richos_core::claude_accounts::AtThreshold::Switch).unwrap();
     let (path, ledger) = tmp_ledger("fill-first-switch-waits");
     let mut spine = support::spine(ledger);
