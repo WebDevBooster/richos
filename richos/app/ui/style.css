@@ -7391,6 +7391,14 @@ body.bp-narrow #rail,
   margin-left: 8px;
 }
 
+/* Below 1180px with the technical-view badge on, the header cannot hold the badge's longer
+   sentence and the whole button (`tests/techy.js` check 22, at the 1024px minimum window): the
+   top button keeps its icon and count and gives the badge the word's room. Its name is unchanged
+   (`aria-label`), and the bottom button still says `Output`. */
+body:not(.bp-wide) #techy-chip:not([hidden]) ~ #out-top .out-word {
+  display: none;
+}
+
 /* At the bottom: the right of the composer, as tall as the field, the talk control and Send —
    the CEO's rule for the composer's buttons (`#composer-row`'s header). */
 #out-bottom {
