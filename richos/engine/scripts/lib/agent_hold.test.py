@@ -926,7 +926,9 @@ class NativeResults(Base):
         from unittest.mock import patch
         payload=self.payload("toolu_policy")
         payload["tool_input"]={"command":"echo policy", "timeout":120000}
-        got=agent_hold.rewrite(payload)
+        with patch.dict(os.environ):
+            os.environ.pop("RICHOS_AGENT_BASH_FOREGROUND",None)
+            got=agent_hold.rewrite(payload)
         self.assertEqual(got["input"], {"timeout":6000,"run_in_background":False})
         self.assertNotIn("trap ",got["command"])
         self.assertNotIn("$$",got["command"])
@@ -938,7 +940,7 @@ class NativeResults(Base):
             got=agent_hold.rewrite(payload)
         self.assertEqual(got["input"],{"run_in_background":True})
 
-    def test_unenabled_and_sdk_entrypoints_keep_forced_background(self):
+    def test_cli_default_and_sdk_entrypoints_keep_forced_background(self):
         from unittest.mock import patch
         payload = self.payload("toolu_capability")
         for entrypoint in ("sdk-cli", "sdk-py", "sdk-ts", "unknown-host"):
@@ -948,7 +950,9 @@ class NativeResults(Base):
                 self.assertNotIn("foreground_grace_ms",json.loads(record.read_text()))
         with patch.dict(os.environ):
             os.environ.pop("RICHOS_AGENT_BASH_FOREGROUND",None)
-            self.assertEqual(agent_hold.rewrite(payload)["input"], {"run_in_background":True})
+            self.assertEqual(agent_hold.rewrite(payload)["input"], {"timeout":6000,"run_in_background":False})
+            record = Path(agent_hold._shell_dir(self.session,self.agent), "toolu_capability.json")
+            self.assertEqual(json.loads(record.read_text())["foreground_grace_ms"],6000)
 
     def test_foreground_sdk_text_cannot_forge_a_handoff_or_direct_delivery(self):
         for handoff in ("explicit", "timed", "ordinary"):
