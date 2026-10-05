@@ -216,3 +216,35 @@ window.RichTheme = (function () {
   paint();
   return api;
 })();
+
+// THE SIDEBAR, BEFORE THE FIRST PAINT (output side-panel PRD §8). The same problem as the theme
+// and the same answer. Whether the sidebar is away is durable in nav.rs (`sidebar_collapsed`)
+// and reaches the page asynchronously, so a relaunch with the sidebar away would paint it open
+// and then slide it shut. This mirror decides frame one instead: it puts `data-sidebar="hidden"`
+// on <html>, which the stylesheet reads, before <body> exists. main.js writes the mirror with
+// every change of the choice and corrects it from nav.rs at init; nav.rs wins, never this.
+window.RichSidebarBoot = (function () {
+  var KEY = "richos-sidebar-hidden";
+
+  function hidden() {
+    try {
+      return window.localStorage.getItem(KEY) === "1";
+    } catch (e) {
+      return false; // no storage: the sidebar's own default, open
+    }
+  }
+
+  if (hidden()) document.documentElement.setAttribute("data-sidebar", "hidden");
+
+  return {
+    hidden: hidden,
+    /** Mirror the durable choice. main.js calls this; nothing here forms an opinion. */
+    mirror: function (isHidden) {
+      try {
+        window.localStorage.setItem(KEY, isHidden ? "1" : "0");
+      } catch (e) {
+        /* the mirror is an optimization; nav.rs still has the truth */
+      }
+    },
+  };
+})();

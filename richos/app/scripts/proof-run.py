@@ -827,26 +827,109 @@ RERUN_RUN_SCOPED = ("RICHOS_WORKER_TOKENS", "RICHOS_WORKER_TOKENS_TOOL", "RICHOS
                     "RICHOS_PROOF_RUN_SLOT_HELD", "RICHOS_PROOF_RUN_SLOT_FDS")
 RERUN_SHOWN = ("LC_ALL", "LANG", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES", "TZ", "TMPDIR")
 
+# NOR A CREDENTIAL (2026-10-05). The file is plain text under proof-runs/ and it wrote
+# CLAUDE_CODE_MESSAGING_TOKEN, a live session token, into every rerun of every run. So no value
+# of a variable that carries a credential or a per-session secret is ever written: by its name (a
+# word of it says token, secret, password, passphrase, credential, cookie, API key, private key or
+# key) or by its value (a URL with a password in it). The rule is the kind, not a list of names,
+# so a credential nobody has met yet is left out by construction. Its NAME stays in the file, as
+# ${NAME+"NAME=$NAME"}: the rerun takes it from the shell that runs the file when that shell has
+# it, and otherwise runs without it; the file says which names those are.
+RERUN_CREDENTIAL_WORDS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "PASSPHRASE", "CREDENTIAL", "APIKEY",
+                          "ACCESSKEY", "PRIVATEKEY", "COOKIE", "AUTHORIZATION", "BEARER")
+RERUN_CREDENTIAL_PARTS = frozenset(("KEY", "KEYS", "PASS", "PW", "PAT", "PSK", "CREDS", "AUTH"))
+RERUN_CREDENTIAL_SAFE = frozenset(("SSH_AUTH_SOCK",))   # a socket path, and git over ssh needs it
+RERUN_URL_PASSWORD = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]*:[^/\s@]+@")
+RERUN_SHELL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def rerun_credential(name, value):
+    """True when a rerun file must not carry this variable's value."""
+    if name in RERUN_CREDENTIAL_SAFE:
+        return False
+    upper = name.upper()
+    squashed = re.sub(r"[^A-Z0-9]", "", upper)
+    parts = set(re.split(r"[^A-Z0-9]+", re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).upper()))
+    return (any(word in squashed for word in RERUN_CREDENTIAL_WORDS) or bool(parts & RERUN_CREDENTIAL_PARTS)
+            or bool(RERUN_URL_PASSWORD.search(value)))
+
+# AND ON THE SAME TREE (2026-10-05). The file above did `cd <checkout>`: the merge gate runs in
+# the main checkout while the merge is in progress, a refused merge is aborted, and that checkout
+# is back on main. A front-door.js A1 failure (attempt-ioj6a1_a) "passed" its rerun on main and
+# proved nothing. So the tree each checkout held when this run started is recorded once
+# (lib/rerun_tree.py capture), and the file runs a copy of rerun_tree.py kept beside it, which
+# runs the check in the checkout while it still holds that tree and otherwise in a scratch
+# checkout of it. Where no tree can be recorded, the file says so and runs in the checkout.
+RERUN_TREES = {}
+
+
+def rerun_tree_of(cwd):
+    """(capture dict or None, why not) for the checkout holding cwd, recorded once per run."""
+    import rerun_tree  # noqa: E402  (lib/, already on sys.path; only a run that writes reruns needs it)
+    try:
+        root = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                              timeout=60, env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, str(exc)
+    key = os.path.realpath(root.stdout.strip()) if root.returncode == 0 else ""
+    if not key:
+        return None, "%s is not in a git checkout" % cwd
+    if key not in RERUN_TREES:
+        try:
+            RERUN_TREES[key] = (rerun_tree.capture(key), "")
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            RERUN_TREES[key] = (None, str(exc)[:300])
+    return RERUN_TREES[key]
+
 
 def write_rerun(item, n, logdir, env):
     """<logdir>/rerun/<nn>-<check>.sh: this check, as this run started it. None if it cannot be written."""
     scoped = set(RERUN_RUN_SCOPED) | set(SLOT.env() if SLOT else ()) | {getattr(proc_tree, "SCOPE_ENV", "")}
     kept = sorted((k, v) for k, v in env.items() if k not in scoped and "\n" not in v)
+    withheld = [k for k, v in kept if rerun_credential(k, v)]
+    kept = [(k, v) for k, v in kept if k not in withheld]
     path = os.path.join(os.path.realpath(logdir), "rerun", "%02d-%s.sh" % (n, slug(item.label)))
+    tree, why = rerun_tree_of(item.cwd)
+    rel = os.path.relpath(os.path.realpath(item.cwd), tree["root"]) if tree else ""
+    if tree and (rel == ".." or rel.startswith(".." + os.sep)):
+        tree, why = None, "%s is outside its checkout %s" % (item.cwd, tree["root"])
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        helper = os.path.join(os.path.dirname(path), "rerun_tree.py")
+        if tree and not os.path.isfile(helper):
+            shutil.copyfile(os.path.join(HERE, "lib", "rerun_tree.py"), helper + ".new")
+            os.replace(helper + ".new", helper)
         with open(path, "w") as out:
-            out.write("#!/bin/sh\n# %s, exactly as proof-run started it: the same directory, the same environment "
-                      "(env -i: nothing from the shell that runs this) and the same command.\n" % item.label)
-            out.write("cd %s || exit 2\n" % shlex.quote(item.cwd))
-            out.write("exec env -i \\\n")
+            out.write("#!/bin/sh\n# %s, exactly as proof-run started it: the same tree, the same directory, the same "
+                      "environment (env -i: nothing from the shell that runs this) and the same command.\n" % item.label)
+            if withheld:
+                out.write("# Credentials the gate had, never written here: %s. Each is passed on only when the shell\n"
+                          "# that runs this file has it.\n" % " ".join(withheld))
+            if tree:
+                out.write("# The tree it ran on: %s, in %s (HEAD %s%s). Where that checkout no longer holds it (a refused\n"
+                          "# merge is aborted, so the main checkout is back on main), it runs in a scratch checkout of it.\n" % (
+                              tree["tree"], tree["root"], tree["head"] or "(none)",
+                              ", merging %s" % tree["merge_head"] if tree["merge_head"] else ""))
+                out.write("exec %s %s --root %s --tree %s --head %s --merge-head %s --cwd %s -- \\\n" % (
+                    shlex.quote(sys.executable), shlex.quote(helper), shlex.quote(tree["root"]), tree["tree"],
+                    shlex.quote(tree["head"]), shlex.quote(tree["merge_head"]), shlex.quote(rel)))
+                out.write("  env -i \\\n")
+            else:
+                out.write("# The tree it ran on could not be recorded (%s): this runs in whatever %s holds now.\n" % (
+                    why.replace("\n", " "), item.cwd))
+                out.write("cd %s || exit 2\n" % shlex.quote(item.cwd))
+                out.write("exec env -i \\\n")
             for key, value in kept:
                 out.write("  %s \\\n" % shlex.quote("%s=%s" % (key, value)))
+            for key in withheld:
+                if RERUN_SHELL_NAME.match(key):
+                    out.write('  ${%s+"%s=$%s"} \\\n' % (key, key, key))
             out.write("  %s\n" % " ".join(shlex.quote(a) for a in item.argv))
         os.chmod(path, 0o755)
     except OSError:
         return None
     item.rerun_shown = " ".join("%s=%s" % (k, env.get(k, "(unset)")) for k in RERUN_SHOWN if k in env or k in ("LC_ALL", "TZ"))
+    item.rerun_shown += " tree=%s" % (tree["tree"][:12] if tree else "(not recorded: the checkout as it is now)")
     return path
 
 

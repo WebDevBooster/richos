@@ -10,5 +10,11 @@
     "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/stall-watch.sh --monitor",
     "description": "Wakes the lead the moment teammate work stalls or a teammate escalates: a resource wait over 10 minutes, a live teammate with no commit and no transcript activity for 20 minutes, a teammate waiting on a slot its own process holds, or a new teammate escalation (again every 10 minutes while one needs the CEO at a device). Looks every 60 s, tells each once, and only reports",
     "when": "always"
+  },
+  {
+    "name": "codex-watch",
+    "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/codex-watch.sh --monitor",
+    "description": "Wakes the lead when Codex writes to it: each new entry in ~/.richos-coordination/rich-codex/to-rich.md or rich-codex-questions/to-rich.md is told once, with every one of its lines. Looks every 15 s and only reads",
+    "when": "always"
   }
 ]

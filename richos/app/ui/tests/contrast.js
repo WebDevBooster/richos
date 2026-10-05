@@ -3297,6 +3297,52 @@ async function main() {
     );
   });
 
+  // ---- 18: the sidebar toggle's glyph (output side-panel PRD §8, slice S8) ------------------
+  //
+  // The toggle at the top left of the conversation is a glyph and nothing else: an SVG stroke
+  // in `currentColor`, transparent fill and border. The walk above files it `textOnly` (no fill,
+  // no border, no text) and check 15 says why it cannot read a stroke at all. So it is measured
+  // where it is painted, as check 17 measures the technical view's chevron: a crop of the
+  // control, on the plain ground with the speckle hidden, the ink resolved by the same
+  // `measureIndicatorCrop`. Both states, because the glyph changes with them (its left pane
+  // fills at .28 while the sidebar is away), and at rest, not hovered. A non-text indicator owes
+  // 3:1 (WCAG 1.4.11); round 17.1 measured 6.69:1 light and 7.91:1 dark on its own tokens.
+  await run.check("18  the sidebar toggle's glyph, open and away, both themes, as painted", async () => {
+    const FLOOR = 3.0;
+    const lines = [];
+    const plainGround = { shots: 0, hidden: 0 };
+    for (const theme of THEMES) {
+      const page = await openApp(browser, theme);
+      for (const state of ["open", "away"]) {
+        if (state === "away") {
+          await page.click("#rail-toggle");
+          await page
+            .waitForFunction(() => getComputedStyle(document.getElementById("rail")).visibility === "hidden", null, { timeout: 60000 })
+            .catch(() => {
+              throw new Error(theme + ": the sidebar never went away after the toggle was clicked (60 s hang guard)");
+            });
+        }
+        await page.mouse.move(700, 600);
+        await awaitSettled(page);
+        const btn = await page.$("#rail-toggle");
+        assert(btn, theme + ": there is no #rail-toggle on the shell");
+        const expanded = await btn.getAttribute("aria-expanded");
+        assertEqual(expanded, state === "open" ? "true" : "false", theme + ": the toggle's state");
+        const buf = await onPlainGround(page, () => btn.screenshot(), plainGround);
+        const m = C.measureIndicatorCrop(buf, 3);
+        assert(!m.unresolvable, theme + " " + state + ": " + m.unresolvable + ", which is a failure to prove and never a pass");
+        assert(
+          m.ratio >= FLOOR,
+          theme + " " + state + ": the sidebar toggle's glyph PAINTS " + m.ratio + ":1 (" + m.ink + " on " + m.ground +
+            "), under the " + FLOOR + ":1 a non-text indicator owes"
+        );
+        lines.push(theme + " " + state + " " + m.ratio + ":1 (" + m.ink + " on " + m.ground + ", " + m.inkSamples + " px of ink)");
+      }
+      await page.close();
+    }
+    return lines.join("; ") + ". Crops on the plain ground: " + plainGround.shots + ", speckle hidden for " + plainGround.hidden;
+  });
+
   // ---- the run's own numbers, printed whether it passes or fails ---------------------------
 
   const t = seen.totals;
@@ -3494,3 +3540,8 @@ main().catch((e) => {
 //      an OFFSET is not a ring)
 //        -> the inner band is no longer counted, and the check falls back to the outline
 //           against the fill: 1.00:1 again
+//  18  style.css: `#rail-toggle { color: rgba(127, 127, 127, 0.25) }` in place of `--ink-soft`
+//        -> "light open: the sidebar toggle's glyph PAINTS 1.29:1 (#cfccc6 on #eae6dd), under
+//           the 3:1 a non-text indicator owes." RUN (2026-10-05, S8): `node contrast.js` exited
+//           1 on check 18 alone, and the color was put back. Green it measures 5.83:1 light /
+//           6.48:1 dark open, 6.6:1 / 7.23:1 away.

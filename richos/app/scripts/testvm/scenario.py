@@ -9,9 +9,10 @@ OUTCOMES=('PASS','product failure','harness failure','prerequisite unavailable')
 
 
 class Failure(Exception):
-    def __init__(self,outcome,detail):
+    def __init__(self,outcome,detail,status=None):
         if outcome not in OUTCOMES[1:]: raise ValueError('invalid failure outcome')
         self.outcome=outcome
+        self.status=status or outcome
         super().__init__(detail)
 
 
@@ -20,7 +21,7 @@ class TurnBudget:
     limit:int=6
     used:int=0
     def take(self):
-        if self.used>=self.limit: raise Failure('prerequisite unavailable','model-turn budget exhausted')
+        if self.used>=self.limit: raise Failure('prerequisite unavailable','model-turn budget exhausted',status='budget_exhausted')
         self.used+=1
         return self.used
 
@@ -39,15 +40,15 @@ def run(manifest,actions,report,identity,budget=None):
     began=time.monotonic()
     for step in steps:
         start=time.monotonic()
-        row={'id':step['id'],'outcome':'PASS'}
+        row={'id':step['id'],'outcome':'PASS','category':'PASS','status':'verified'}
         blocked=[d for d in step.get('requires',[]) if statuses[d]!='PASS']
         try:
             if blocked:raise Failure('prerequisite unavailable','dependencies did not pass: '+', '.join(blocked))
             row['evidence']=actions[step['action']](step,budget)
         except Failure as exc:
-            row.update(outcome=exc.outcome,detail=str(exc))
+            row.update(outcome=exc.outcome,category=exc.outcome,status=exc.status,detail=str(exc))
         except Exception as exc:
-            row.update(outcome='harness failure',detail=type(exc).__name__+': '+str(exc))
+            row.update(outcome='harness failure',category='harness failure',status='exception',detail=type(exc).__name__+': '+str(exc))
         row['elapsed_seconds']=round(time.monotonic()-start,3)
         statuses[step['id']]=row['outcome'];result['steps'].append(row)
         result['model_turns']=budget.used

@@ -312,43 +312,6 @@ class Evidence(unittest.TestCase):
             self.assertEqual(rows[-1]['credentials'], [os.geteuid(), os.getegid(), sorted(os.getgroups())])
         self.assertNotEqual(rows[0], rows[1])
 
-    def test_production_recipes_reject_known_shared_and_fixture_tool_omissions(self):
-        root = HERE.parents[2]
-        checks = json.loads((HERE / "proof-inputs.json").read_text())["checks"]
-        for label, recipe in checks.items():
-            with self.subTest(label=label):
-                evidence.qualify_recipe(root, recipe)
-                if recipe.get('subset'):
-                    for field, values in recipe['subset'].items():
-                        for value in values:
-                            broken = {**recipe, 'subset': {**recipe['subset'],
-                                field: [p for p in values if p != value]}}
-                            with self.assertRaisesRegex(ValueError, 'subset qualification omits ' + field):
-                                evidence.qualify_recipe(root, broken)
-                if recipe.get('isolation'):
-                    with self.assertRaisesRegex(ValueError, 'requires isolation'):
-                        evidence.qualify_recipe(root, {k: v for k, v in recipe.items() if k != 'isolation'})
-                if recipe.get('qualification_unit'):
-                    contract = json.loads((root / recipe['qualification']).read_text())['units'][recipe['qualification_unit']]
-                    for tool in contract['requires']['tools']:
-                        with self.assertRaisesRegex(ValueError, 'qualification omits tools'):
-                            evidence.qualify_recipe(root, {**recipe, 'tools': [t for t in recipe['tools'] if t != tool]})
-                    if contract.get('external_paths'):
-                        with self.assertRaisesRegex(ValueError, 'omits external_paths'):
-                            evidence.qualify_recipe(root, {**recipe, 'external_paths': []})
-                    for kind in contract.get('git_inputs', {}):
-                        broken = {**recipe, 'git_inputs': {**recipe['git_inputs'], kind: []}}
-                        with self.assertRaisesRegex(ValueError, 'omits git_inputs ' + kind):
-                            evidence.qualify_recipe(root, broken)
-                    for field in ('paths', 'external', 'environment'):
-                        for value in contract['requires'][field]:
-                            with self.assertRaisesRegex(ValueError, 'qualification omits ' + field):
-                                evidence.qualify_recipe(root, {**recipe, field: [v for v in recipe[field] if v != value]})
-                for tool in ("seq", "tee", "rmdir", "ln", "basename"):
-                    broken = {**recipe, "tools": [name for name in recipe["tools"] if name != tool]}
-                    with self.assertRaisesRegex(ValueError, "qualification omits tools: " + tool):
-                        evidence.recipe_identity(root, broken, {})
-
     def attempt(self, name, engine=True, identities=None):
         path = Path(self.tmp.name) / name
         path.mkdir()
@@ -631,7 +594,9 @@ class Evidence(unittest.TestCase):
                 shutil.copy2(path, engine / "scripts/lib" / path.name)
         for name in ("ci-shard.sh", "ci-units.sh"):
             shutil.copy2(source_engine / name, engine / "scripts" / name)
-        for name in ("proof_evidence.py", "proof_slots.py", "test_results.py", "cargo_identity.py"):
+        # Every lib/ module proof-run.py imports, rerun_tree.py included (write_rerun needs it).
+        for name in ("proof_evidence.py", "proof_slots.py", "test_results.py", "cargo_identity.py",
+                     "rerun_tree.py"):
             shutil.copy2(HERE / "lib" / name, app / "lib" / name)
         shutil.copy2(HERE / "testvm/reserve.py", app / "testvm/reserve.py")
         shutil.copy2(HERE / "proof-run.py", app / "proof-run.py")

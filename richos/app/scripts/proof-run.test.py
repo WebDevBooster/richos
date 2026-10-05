@@ -928,6 +928,143 @@ try:
           "it fails as in the gate, and the line shows the locale and time zone",
           (gate_only.state, by_hand44, rerun44, out44.getvalue()[-400:]))
 
+    # P45 — THE RERUN RUNS ON THE TREE THE GATE TESTED, NOT ON WHAT THE CHECKOUT HOLDS LATER
+    # (2026-10-05). The gate runs in the main checkout while the merge is in progress; a refused
+    # merge is aborted, so that checkout is back on main. A front-door.js A1 failure
+    # (attempt-ioj6a1_a) "passed" its rerun on main. Here: a check that fails only on the merged
+    # tree (it reads a file the branch changed, through the checkout's absolute path) is run
+    # mid-merge, the merge is aborted, and the rerun file still fails it, from a scratch checkout
+    # of the merged tree that is gone afterwards; by hand on main it passes.
+    repo45 = os.path.join(os.path.realpath(tmp), "p45-checkout")
+    os.makedirs(os.path.join(repo45, "sub"))
+    ident45 = [] if subprocess.run(["git", "config", "--get", "user.email"], capture_output=True).stdout.strip() \
+        else ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"]
+    env45 = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    def git45(*args):
+        return subprocess.run(["git", *ident45, "-C", repo45, *args], env=env45, capture_output=True, text=True)
+    git45("init", "-q", "-b", "main")
+    open(os.path.join(repo45, "value"), "w").write("main\n")
+    open(os.path.join(repo45, "sub", "keep"), "w").write("x\n")
+    git45("add", "-A"); git45("commit", "-q", "-m", "main")
+    git45("checkout", "-q", "-b", "side")
+    open(os.path.join(repo45, "value"), "w").write("branch\n")
+    git45("commit", "-q", "-am", "side")
+    git45("checkout", "-q", "main")
+    git45("merge", "-q", "--no-ff", "--no-commit", "side")
+    merged45 = open(os.path.join(repo45, "value")).read().strip()
+    on_main45 = ["bash", "-c", 'test "$(cat %s/value)" = main' % repo45]
+    check45 = pr.Item("merged-only", os.path.join(repo45, "sub"), on_main45, None, 1.0)
+    d45 = os.path.join(tmp, "p45")
+    os.makedirs(d45)
+    with contextlib.redirect_stdout(io.StringIO()):
+        pr.run([check45], Args(), d45, sampler=idle)
+    out45 = io.StringIO()
+    with contextlib.redirect_stdout(out45):
+        pr.summarize([check45], 1.0, d45)
+    m45 = re44.search(r"rerun as the gate ran it: sh (\S+)", out45.getvalue())
+    file45 = shlex44.split(m45.group(1))[0] if m45 else ""
+    shell45 = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/")}
+    mid45 = subprocess.run(["sh", file45], env=shell45, capture_output=True, text=True) if m45 else None
+    git45("merge", "--abort")
+    by_hand45 = subprocess.run(on_main45, cwd=check45.cwd).returncode
+    rerun45 = subprocess.run(["sh", file45], env=shell45, capture_output=True, text=True) if m45 else None
+    trees45 = git45("worktree", "list", "--porcelain").stdout.count("worktree ")
+    check(merged45 == "branch" and check45.state == "failed" and m45 is not None
+          and mid45.returncode == 1 and "holds the tree the check ran on" in mid45.stderr
+          and by_hand45 == 0 and rerun45.returncode == 1 and "scratch checkout" in rerun45.stderr
+          and trees45 == 1,
+          "P45 a check that failed on a merged tree reruns on that tree after the merge is aborted: by hand on "
+          "main it passes, through the file it fails as in the gate, and the scratch checkout is gone",
+          (merged45, check45.state, mid45 and (mid45.returncode, mid45.stderr[-300:]), by_hand45,
+           rerun45 and (rerun45.returncode, rerun45.stderr[-400:]), trees45, out45.getvalue()[-300:]))
+
+    # P46 — A RERUN FILE NEVER CARRIES A CREDENTIAL'S VALUE, AND STILL REPRODUCES THE CHECK
+    # (2026-10-05). The file is plain text under proof-runs/, and it wrote CLAUDE_CODE_MESSAGING_TOKEN,
+    # a live session token, into every rerun. Here: the gate's environment holds that token, an API
+    # key, a camelCase auth token and a URL with a password in it, beside the variable the check fails
+    # on. None of the four values is in the file; the rerun still fails as in the gate; the token
+    # reaches the rerun only from a shell that has it.
+    import uuid as uuid46
+    d46 = os.path.join(tmp, "p46")
+    os.makedirs(d46)
+    mark46 = os.path.join(d46, "token-seen")
+    secrets46 = {"CLAUDE_CODE_MESSAGING_TOKEN": "p46-" + uuid46.uuid4().hex,
+                 "RICHOS_FIXTURE_API_KEY": "p46-" + uuid46.uuid4().hex,
+                 "fixture46_authToken": "p46-" + uuid46.uuid4().hex,
+                 "FIXTURE46_URL": "https://fixture:p46%s@example.invalid/db" % uuid46.uuid4().hex}
+    plain46 = {"FIXTURE46": "gate", "FIXTURE46_MARK": mark46}
+    gate46 = pr.Item("gate-secrets", os.path.join(pr.ROOT, "richos/app"),
+                     ["bash", "-c", 'printf %s "${CLAUDE_CODE_MESSAGING_TOKEN:-}" > "$FIXTURE46_MARK"; '
+                                    'test "${FIXTURE46:-}" != gate'], None, 1.0)
+    saved46 = {k: os.environ.get(k) for k in [*secrets46, *plain46]}
+    os.environ.update(secrets46)
+    os.environ.update(plain46)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            pr.run([gate46], Args(), d46, sampler=idle)
+    finally:
+        for k, v in saved46.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    seen_gate46 = open(mark46).read() if exists(mark46) else None
+    file46 = getattr(gate46, "rerun", None) or ""
+    text46 = open(file46).read() if file46 and exists(file46) else ""
+    leaked46 = sorted(k for k, v in secrets46.items() if v in text46)
+    shell46 = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/")}
+    os.unlink(mark46) if exists(mark46) else None
+    bare46 = subprocess.run(["sh", file46], env=shell46, capture_output=True, text=True) if text46 else None
+    seen_bare46 = open(mark46).read() if exists(mark46) else None
+    token46 = secrets46["CLAUDE_CODE_MESSAGING_TOKEN"]
+    held46 = subprocess.run(["sh", file46], env={**shell46, "CLAUDE_CODE_MESSAGING_TOKEN": token46},
+                            capture_output=True, text=True) if text46 else None
+    seen_held46 = open(mark46).read() if exists(mark46) else None
+    check(gate46.state == "failed" and seen_gate46 == token46 and text46 and not leaked46
+          and "FIXTURE46=gate" in text46 and all(k in text46 for k in secrets46)
+          and bare46.returncode == 1 and seen_bare46 == ""
+          and held46.returncode == 1 and seen_held46 == token46,
+          "P46 a rerun file holds no credential's value (a token, an API key, a camelCase auth token, a URL "
+          "password), still fails as in the gate, and passes the token on only from a shell that has it",
+          (gate46.state, seen_gate46 == token46, bool(text46), leaked46,
+           bare46 and (bare46.returncode, bare46.stderr[-300:]), seen_bare46 == "",
+           held46 and held46.returncode, seen_held46 == token46))
+
+    # P46b — rerun-scrub.py takes the values out of a file written before P46: the old file (the
+    # values put back in, as the writer did before 2026-10-05) is rewritten in place, keeps its mode
+    # and every other line, still fails as in the gate, and --check then finds nothing left.
+    import importlib.util as ilu46
+    spec46 = ilu46.spec_from_file_location("rerun_scrub_t", os.path.join(HERE, "rerun-scrub.py"))
+    rs46 = ilu46.module_from_spec(spec46)
+    spec46.loader.exec_module(rs46)
+    old46 = os.path.join(d46, "old", "rerun", os.path.basename(file46) if file46 else "x.sh")
+    os.makedirs(os.path.dirname(old46))
+    lines46 = []
+    for line in text46.splitlines(True):
+        name = line.strip().split('"', 1)[0][2:-1] if line.strip().startswith("${") else ""
+        if line.startswith("# Credentials the gate had"):
+            continue
+        if line.startswith("# that runs this file has it."):
+            continue
+        lines46.append("  %s \\\n" % shlex44.quote("%s=%s" % (name, secrets46[name])) if name in secrets46 else line)
+    open(old46, "w").write("".join(lines46))
+    os.chmod(old46, 0o755)
+    planted46 = sum(v in open(old46).read() for v in secrets46.values())
+    with contextlib.redirect_stdout(io.StringIO()):
+        rs46.main([os.path.join(d46, "old")])
+        still46 = rs46.main(["--check", os.path.join(d46, "old")])
+    after46 = open(old46).read()
+    os.unlink(mark46) if exists(mark46) else None
+    scrubbed_run46 = subprocess.run(["sh", old46], env=shell46, capture_output=True, text=True)
+    check(planted46 == 4 and not any(v in after46 for v in secrets46.values()) and still46 == 0
+          and os.stat(old46).st_mode & 0o777 == 0o755 and "FIXTURE46=gate" in after46
+          and all(k in after46 for k in secrets46) and scrubbed_run46.returncode == 1
+          and open(mark46).read() == "",
+          "P46b rerun-scrub.py takes the four values out of a file written before the fix, keeps its mode and "
+          "its other lines, the file still fails as in the gate, and --check finds nothing left",
+          (planted46, [k for k, v in secrets46.items() if v in after46], still46,
+           oct(os.stat(old46).st_mode & 0o777), scrubbed_run46.returncode, scrubbed_run46.stderr[-300:]))
+
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.
     class Held:
