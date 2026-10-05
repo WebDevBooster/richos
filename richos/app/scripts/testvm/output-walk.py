@@ -39,13 +39,14 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                            output-walk.py --out DIR --expect-sha SHA --steps open-reveal --probe PROBE
                      PROBE is `examples/output_files_probe` built from the same tree. There is no
                      button for output_open or output_reveal until slice S4 builds the panel, so the
-                     probe calls the very functions those commands call. In the guest it records a
+                     probe calls the very functions those commands call. The guest image has no app
+                     for Markdown, so the step first makes TextEdit its handler (MARKDOWN_HANDLER,
+                     recorded in the evidence). Then it records a
                      Markdown file it wrote as one witnessed write, opens it by its output id (the
                      default app), screenshots, shows it in Finder by the same id, screenshots.
                      PASS when both say what they did, the default app has a window named for the
-                     file and Finder has one named for its folder; whether Finder's selection is the
-                     file is read from Finder when the guest allows it, and is always in the second
-                     screenshot.
+                     file and Finder has one named for its folder. Finder's selection is seen in the
+                     second screenshot: the guest grants no Apple Events to Finder to read it.
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -86,6 +87,37 @@ FRONT_DESK_TASK = ('This is a test of your own Agent tool. Do not register an as
                    'use your Agent tool yourself to start one worker that writes a file named direct.md '
                    'containing the word direct in my Acme folder.')
 OPEN = command_walk.OPEN
+# The guest image has no app for Markdown: a fresh macOS maps `.md` to a type nothing claims, so
+# Finder draws a blank icon and `open` has nothing to open it with (seen on the first S3 walk,
+# 2026-10-05). The CEO's Mac has one (Launch Services answers Code there). The open-reveal step
+# gives the guest one the way a user's choice in Finder's Get Info does, and records it.
+MARKDOWN_HANDLER = r"""
+import ctypes, json
+CF = ctypes.cdll.LoadLibrary('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+CS = ctypes.cdll.LoadLibrary('/System/Library/Frameworks/CoreServices.framework/CoreServices')
+vp, UTF8, ALL = ctypes.c_void_p, 0x08000100, 0xFFFFFFFF
+CF.CFStringCreateWithCString.restype = vp
+CF.CFStringCreateWithCString.argtypes = [vp, ctypes.c_char_p, ctypes.c_uint32]
+CF.CFStringGetCString.restype = ctypes.c_bool
+CF.CFStringGetCString.argtypes = [vp, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+CS.UTTypeCreatePreferredIdentifierForTag.restype = vp
+CS.UTTypeCreatePreferredIdentifierForTag.argtypes = [vp, vp, vp]
+CS.LSCopyDefaultRoleHandlerForContentType.restype = vp
+CS.LSCopyDefaultRoleHandlerForContentType.argtypes = [vp, ctypes.c_uint32]
+CS.LSSetDefaultRoleHandlerForContentType.restype = ctypes.c_int32
+CS.LSSetDefaultRoleHandlerForContentType.argtypes = [vp, ctypes.c_uint32, vp]
+cf = lambda s: CF.CFStringCreateWithCString(None, s.encode(), UTF8)
+def text(ref):
+    if not ref:
+        return None
+    buf = ctypes.create_string_buffer(1024)
+    return buf.value.decode() if CF.CFStringGetCString(ref, buf, 1024, UTF8) else None
+uti = CS.UTTypeCreatePreferredIdentifierForTag(cf('public.filename-extension'), cf('md'), None)
+before = text(CS.LSCopyDefaultRoleHandlerForContentType(uti, ALL))
+status = None if before else CS.LSSetDefaultRoleHandlerForContentType(uti, ALL, cf('com.apple.TextEdit'))
+print(json.dumps({'type': text(uti), 'before': before, 'set_status': status,
+                  'after': text(CS.LSCopyDefaultRoleHandlerForContentType(uti, ALL))}))
+"""
 
 
 class OutputWalk(command_walk.CommandWalk):
@@ -292,6 +324,15 @@ class OutputWalk(command_walk.CommandWalk):
         text = command([HERE / 'ax.sh', self.vm, script], 60)
         return [tuple(l.split('\t', 1)) for l in text.splitlines() if '\t' in l]
 
+    def wait_for_window(self, wanted, seconds=20):
+        """Poll the guest's windows until one matches, at most `seconds`; the last listing."""
+        end = time.monotonic() + seconds
+        while True:
+            listing = self.windows()
+            if any(wanted(p, w) for p, w in listing) or time.monotonic() > end:
+                return listing
+            time.sleep(2)
+
     def open_reveal(self):
         if not self.a.probe or not self.a.probe.is_file():
             raise StepFailed('--probe must name the built examples/output_files_probe binary')
@@ -302,40 +343,46 @@ class OutputWalk(command_walk.CommandWalk):
         thread = 'thr_walk_open_reveal'
         guest(self.vm, 'chmod +x output_files_probe && mkdir -p ' + shlex.quote(folder) + ' ' + shlex.quote(data)
               + " && printf '# Walk brief\\n\\nOpened by its output id.\\n' > " + shlex.quote(brief))
+        evidence = {}
+        observed = self.out / 'open-reveal-observed.json'
+
+        def note(**facts):
+            evidence.update(facts)
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        handler = guest(self.vm, 'python3 -c ' + shlex.quote(MARKDOWN_HANDLER), 60)
+        note(markdown_handler=json.loads(handler.splitlines()[-1]))
         recorded = self.probe('record', data, thread, brief)
+        note(recorded=recorded)
         if 'ok' not in recorded:
             raise StepFailed('the file could not be recorded: ' + json.dumps(recorded))
         output_id = recorded['ok']['id']
         detail = self.probe('file', data, thread, output_id)
+        note(output_id=output_id, detail=detail,
+             default_app=((detail.get('ok') or {}).get('defaultApp') or {}).get('name'))
         opened = self.probe('open', data, thread, output_id)
-        time.sleep(4)
+        note(opened=opened)
+        after_open = self.wait_for_window(lambda p, w: p != 'Finder' and 'walk-brief.md' in w)
         self.shot('open-reveal-1-opened.png')
-        after_open = self.windows()
+        note(windows_after_open=after_open)
         revealed = self.probe('reveal', data, thread, output_id)
-        time.sleep(4)
+        note(revealed=revealed)
+        after_reveal = self.wait_for_window(lambda p, w: p == 'Finder' and w == 'Acme')
         self.shot('open-reveal-2-revealed.png')
-        after_reveal = self.windows()
-        try:
-            selection = guest(self.vm, 'osascript -e ' + shlex.quote('tell application "Finder" to get name of selection'), 30)
-        except RuntimeError as exc:
-            selection = 'not readable here: ' + str(exc).strip().splitlines()[-1]
-        default_app = ((detail.get('ok') or {}).get('defaultApp') or {}).get('name')
-        evidence = {'output_id': output_id, 'recorded': recorded, 'detail': detail, 'opened': opened,
-                    'windows_after_open': after_open, 'revealed': revealed, 'windows_after_reveal': after_reveal,
-                    'finder_selection': selection, 'default_app': default_app}
-        (self.out / 'open-reveal-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        note(windows_after_reveal=after_reveal)
+        # Finder's selection is not read through Apple Events: the guest has no Automation grant,
+        # and the consent prompt that asking would raise holds the call open. The second
+        # screenshot is where the selection is seen (§12.3: "observed through the walk
+        # harness's screenshot").
         if 'ok' not in opened:
             raise StepFailed('output_open refused: ' + json.dumps(opened))
         if 'ok' not in revealed:
             raise StepFailed('output_reveal refused: ' + json.dumps(revealed))
-        if not any('walk-brief.md' in w for p, w in after_open if p != 'Finder'):
+        if not any(p != 'Finder' and 'walk-brief.md' in w for p, w in after_open):
             raise StepFailed('no app shows a window for walk-brief.md after output_open: ' + json.dumps(after_open))
         if not any(p == 'Finder' and w == 'Acme' for p, w in after_reveal):
             raise StepFailed('Finder shows no window for the folder after output_reveal: ' + json.dumps(after_reveal))
-        if 'walk-brief.md' not in selection and not selection.startswith('not readable'):
-            raise StepFailed("Finder's selection is not the file: " + selection)
         return evidence
-
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
