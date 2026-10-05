@@ -2,7 +2,8 @@
 """Preserve ordinary Bash command failures before output filters can hide them.
 
 PreToolUse preserves failure propagation and records subagent ownership. Subagent
-commands use native background execution; wait calls remain foreground. Held
+CLI commands opt into a six-second foreground grace and native handoff; wait
+calls remain foreground and explicit background calls remain background. Held
 calls are denied. No shell parsing, command execution or auto-approval.
 Expected failures belong in explicit if/else or || branches. This covers the
 calling shell; scripts and explicit failure handling retain their own semantics.

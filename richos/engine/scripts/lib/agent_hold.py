@@ -72,7 +72,13 @@ constructs for worktree-isolated agents. New calls retain the original command
 at top level after a literal helper invocation and owner exports. The helper
 records its own parent; it never reads or executes the user's command.
 
-Ordinary subagent Bash calls use the harness's native run_in_background mode.
+With RICHOS_AGENT_BASH_FOREGROUND=1, ordinary CLI subagent Bash calls get six
+seconds to deliver their result in the foreground, then use the harness's
+automatic native background handoff. This remains opt-in pending installed
+acceptance. SDK callers and explicit background calls keep their existing path.
+RICHOS_AGENT_BASH_FOREGROUND=0 restores forced background execution. This is a handoff grace, not a process execution deadline;
+the host's own background limits still apply. A directly delivered result needs
+no collector call and is marked consumed at the next tool boundary.
 The agent waits with this module's foreground `wait` command, which checks for
 new holds every half second. A hold freezes the native task's entire owned tree;
 the wait returns promptly so the queued WAIT message reaches the agent. The next
@@ -142,6 +148,8 @@ WAIT_MARGIN_SECONDS = 15       # the wait returns this long before its call's ti
 # This bound now applies only to an agent that is NOT held (waiting for its own running task): a
 # held agent's wait is held by gate() before it starts and makes no model call until its release.
 WAIT_CACHE_SECONDS = 270
+FOREGROUND_GRACE_MS = 6000
+FOREGROUND_DELIVERED = object()  # Host already delivered the result; no invented exit code.
 GATE_POLL_SECONDS = 1.0
 HOW_TO_WAIT = ("To wait, run this command with the Bash tool's timeout input set to 600000 (do not type a shell timeout prefix), and run it again each time it prints "
                "STILL WAITING: " + WAIT_COMMAND)
@@ -283,7 +291,7 @@ def is_wait_call(command):
     return isinstance(command, str) and bool(WAIT_CALL.match(command))
 
 
-def _record(payload, mode, command):
+def _record(payload, mode, command, foreground=False):
     """Writes the call's record; returns (pid path, hold path) or None when it is not a subagent's call."""
     agent_id = payload.get("agent_id")
     session_id = payload.get("session_id")
@@ -294,9 +302,12 @@ def _record(payload, mode, command):
     now = time.time()
     try:
         os.makedirs(directory, mode=0o700, exist_ok=True)
+        consume_foreground(session_id, agent_id)
         _prune(directory, now)
         meta = {"at": now, "tool_use_id": tool_use_id, "cwd": str(payload.get("cwd") or ""),
                 "mode": mode, "command": (command or "")[:300]}
+        if foreground:
+            meta["foreground_grace_ms"] = FOREGROUND_GRACE_MS
         transcript = payload.get("transcript_path")
         if mode == "native" and isinstance(transcript, str) and os.path.isabs(transcript):
             if os.path.basename(transcript) == session_id + ".jsonl":
@@ -412,7 +423,12 @@ def rewrite(payload):
         return None
     command = ti["command"]
     mode = "exempt" if is_wait_call(command) else "bg" if ti.get("run_in_background") else "native"
-    rec = _record(payload, mode, command)
+    # Only the CLI transcript has authoritative structured handoff metadata.
+    # Keep SDK/other hosts on their established background path. Acceptance
+    # enables this opt-in in an isolated session before changing the default.
+    foreground = (mode == "native" and os.environ.get("RICHOS_AGENT_BASH_FOREGROUND", "0") == "1"
+                  and os.environ.get("CLAUDE_CODE_ENTRYPOINT", "cli") == "cli")
+    rec = _record(payload, mode, command, foreground=foreground)
     if rec is None:
         return None
     stem, held = rec
@@ -428,6 +444,15 @@ def rewrite(payload):
     if os.path.exists(held):
         _unlink_call(stem)  # the hook refuses this call, so no native task can start
         return {"command": command, "input": {}, "deny": REFUSED_TEXT}
+    if foreground:
+        return {"command": head + command,
+                "input": {"run_in_background": False, "timeout": FOREGROUND_GRACE_MS},
+                "context": ("This command has a six-second foreground grace. Use a directly delivered result "
+                "without an extra wait. A command exceeding the grace continues as a native background task; "
+                "do not restart it. Only after a background handoff, before dependent work or your final reply, run "
+                + WAIT_COMMAND + " with Bash timeout 600000 to collect its output and exit status. "
+                "Repeat on STILL RUNNING or STILL WAITING. A hold freezes owned work; follow its WAIT instructions. "
+                "A missing result is never a task pass.")}
     return {"command": head + command, "input": {"run_in_background": True},
             "context": ("This command runs as a native background task so WAIT can freeze it immediately. "
             "Before dependent work or your final reply, run " + WAIT_COMMAND +
@@ -1127,9 +1152,40 @@ def _native_ready(session, agent, pending):
 NATIVE_OUTPUT_LIMIT = 64000
 NATIVE_TRANSCRIPT_LIMIT = 4 * 1024 * 1024
 NATIVE_FOOTER = re.compile(rb"\n\[(?:exited with code ([0-9]+)|killed)\]\n\Z")
+NATIVE_HANDOFF = re.compile(
+    r"(?:Command running in background with ID: (?P<explicit>[A-Za-z0-9_-]+)\. "
+    r"|Command did not complete within its [0-9]+(?:\.[0-9]+)?s timeout and was moved to the background "
+    r"\(ID: (?P<timed>[A-Za-z0-9_-]+)\)\. "
+    r"|Command was moved to the background \(ID: (?P<message>[A-Za-z0-9_-]+)\) "
+    r"so that a message that arrived while it was running can reach you; it was not interrupted\. "
+    r"|Command was manually backgrounded by user with ID: (?P<manual>[A-Za-z0-9_-]+)\. )"
+    r"Output is being written to: (?P<path>.+?\.output)(?:\. |\n|$)")
 
 
-def native_result(meta):
+def consume_foreground(session, agent):
+    """A later tool boundary consumes direct delivery without another model/tool round.
+
+    Never read background output here or consume a live/starting command.
+    """
+    records = [(p, m) for p, m in _native_uncollected(session, agent)
+               if m.get("foreground_grace_ms") and m.get("result_source") and not m.get("native_result")]
+    if not records:
+        return
+    pending = native_pending_ids(session, agent)
+    for path, meta in records:
+        if meta.get("tool_use_id") in pending:
+            continue
+        try:
+            if native_result(meta, binding_only=True) is FOREGROUND_DELIVERED:
+                meta["result_collected"] = True
+                _write_json(path, meta)
+            elif meta.get("native_result"):
+                _write_json(path, meta)  # Cache the handoff binding, without reading task output.
+        except (OSError, ValueError, TypeError, KeyError):
+            continue  # Unknown results remain available to the ordinary collector.
+
+
+def native_result(meta, binding_only=False):
     """Read this call's host-owned result, never a guessed task directory.
 
     Claude Code 2.1.283 records the task id and output path in the subagent's
@@ -1156,7 +1212,10 @@ def native_result(meta):
             content = row.get("message", {}).get("content")
             if not isinstance(content, list):
                 continue
-            response = row.get("toolUseResult") or {}
+            if (row.get("toolUseResult") is not None and row.get("tool_use_result") is not None
+                    and row["toolUseResult"] != row["tool_use_result"]):
+                continue
+            response = row.get("toolUseResult", row.get("tool_use_result")) or {}
             structured_task = response.get("backgroundTaskId") if isinstance(response, dict) else None
             for item in content:
                 if not isinstance(item, dict) or item.get("type") != "tool_result" or item.get("tool_use_id") != meta["tool_use_id"]:
@@ -1164,14 +1223,30 @@ def native_result(meta):
                 text = item.get("content")
                 if not isinstance(text, str):
                     continue
+                # The original host tool result already reached the model. Do not
+                # replay its output or infer a task exit code from arbitrary prose.
+                direct = (isinstance(response, dict) and
+                          isinstance(response.get("stdout"), str) and
+                          isinstance(response.get("stderr"), str) and
+                          isinstance(response.get("interrupted"), bool) and
+                          not structured_task and "timedOutAfterMs" not in response)
+                match = NATIVE_HANDOFF.match(text)
+                if (meta.get("foreground_grace_ms") and isinstance(item.get("is_error"), bool)
+                        and direct):
+                    meta["foreground_delivery"] = {"is_error": item["is_error"] or response.get("interrupted") is True}
+                    return FOREGROUND_DELIVERED
                 if item.get("is_error"):
                     return (2, "Host refused or failed this call:\n" + text, None)
-                # sdk-cli omits toolUseResult. Both entrypoints include this
-                # host-generated result text; bind its id and path together.
-                match = re.match(r"Command running in background with ID: ([A-Za-z0-9_-]+)\. Output is being written to: (.+?\.output)(?:\. |\n|$)", text)
+                # Foreground stdout can imitate the entire host handoff receipt,
+                # including an owned output file. Require a structured host task
+                # id. The established forced-background SDK path is unambiguous:
+                # its initial tool result is always a host background receipt.
+                if meta.get("foreground_grace_ms") and not structured_task:
+                    continue
                 if not match:
                     continue
-                task, path = match[1], match[2]
+                task = next(match[k] for k in ("explicit", "timed", "message", "manual") if match[k])
+                path = match["path"]
                 if not _valid_ids(task) or (structured_task is not None and structured_task != task):
                     continue
                 if (not os.path.isabs(path) or os.path.basename(path) != task + ".output" or
@@ -1181,6 +1256,8 @@ def native_result(meta):
                 binding = meta["native_result"] = {"task": task, "path": path}
         if not binding:
             return None
+    if binding_only:
+        return None
     fd = os.open(binding["path"], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as stream:
         before = os.fstat(stream.fileno())
@@ -1243,6 +1320,14 @@ def collect_native(session, agent, deadline, out, pending=frozenset()):
             out.write("NATIVE RESULT UNAVAILABLE for %s: %s. No task success is established; "
                       "check its native completion notification.\n" % (meta["tool_use_id"], reason))
             result_code = result_code or 2
+            continue
+        if result is FOREGROUND_DELIVERED:
+            failed = meta["foreground_delivery"]["is_error"]
+            out.write("ALREADY DELIVERED: tool %s foreground result%s; output is not repeated and "
+                      "no task exit code is inferred.\n" % (meta["tool_use_id"], " reported failure" if failed else ""))
+            meta["result_collected"] = True
+            _write_json(path, meta)
+            result_code = result_code or (2 if failed else 0)
             continue
         code, body, task = result
         out.write("TASK %s (tool %s) EXIT STATUS %d\n" % (task or "refused", meta["tool_use_id"], code))
