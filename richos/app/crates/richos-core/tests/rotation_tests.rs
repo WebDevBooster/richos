@@ -1280,8 +1280,11 @@ fn an_account_switch_waits_for_a_command_the_conversation_started() {
 #[test]
 fn the_switch_notice_waits_until_a_turn_really_runs_under_the_new_account() {
     use richos_core::lease_commands::CommandReading;
-    const NOTICE: &str = "Switched to Work: Account 1 is at 93% of its five-hour limit.";
+    // Round 16's words for the switch ("The switch"), held until a turn runs under Work.
+    const NOTICE: &str = "Switched to Work — Account 1 reached 93% of its five-hour window. Nothing stopped.";
     let (dir, quota) = two_accounts("notice-waits", 60.);
+    // The five-hour switch acts only while the automatic switch is on (e1ac24d27).
+    quota.set_policy(richos_core::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
     quota.set_at_threshold(richos_core::claude_accounts::AtThreshold::Switch).unwrap();
     let (path, ledger) = tmp_ledger("fill-first-notice-waits");
     let mut spine = support::spine(ledger);

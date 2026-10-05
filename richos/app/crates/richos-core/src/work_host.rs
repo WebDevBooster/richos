@@ -5205,6 +5205,8 @@ mod tests {
         crate::quota::tests::usage(&h.root.join("usage-1.json"), 60., 40., "2099-01-05T00:00:00Z");
         crate::quota::tests::usage(&work.folder.clone().unwrap().join("usage.json"), 5., 10., "2099-01-06T00:00:00Z");
         quota.refresh(&bin, true);
+        // The five-hour switch acts only while the automatic switch is on (e1ac24d27).
+        quota.set_policy(crate::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
         quota.set_at_threshold(crate::claude_accounts::AtThreshold::Switch).unwrap();
         assert_eq!(quota.lease_account().id, "1");
         h.fill.lock().unwrap().quota = Some(quota.clone());
@@ -5287,6 +5289,8 @@ mod tests {
         crate::quota::tests::usage(&h.root.join("usage-1.json"), 60., 40., "2099-01-05T00:00:00Z");
         crate::quota::tests::usage(&work.folder.clone().unwrap().join("usage.json"), 5., 10., "2099-01-06T00:00:00Z");
         quota.refresh(&bin, true);
+        // The five-hour switch acts only while the automatic switch is on (e1ac24d27).
+        quota.set_policy(crate::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
         quota.set_at_threshold(crate::claude_accounts::AtThreshold::Switch).unwrap();
         h.fill.lock().unwrap().quota = Some(quota.clone());
         h.host.set_quota(quota.clone());
@@ -5316,7 +5320,7 @@ mod tests {
         run(3);
         assert_eq!(h.fill.lock().unwrap().turns.last(), Some(&Some("2".to_string())), "the job ran under Work");
         assert_eq!(quota.accounts.take_notice().as_deref(),
-            Some("Switched to Work: Account 1 is at 93% of its five-hour limit."));
+            Some("Switched to Work — Account 1 reached 93% of its five-hour window. Nothing stopped."));
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }
