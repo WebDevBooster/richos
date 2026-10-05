@@ -3190,7 +3190,11 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
     }, settle);
     const t = timelineModel.turns.get(payload.turnId);
     const row = t ? window.RichTimeline.durationRow(t, Date.now()) : null;
-    announce(
+    // A line Rich raised himself (a switch, a fast-usage alert) is its own turn, completed
+    // as it is written, and may arrive while his reply is still being worked on. Its text was
+    // announced by `message-completed`; "Rich finished" would be false beside a running turn.
+    const proactive = [...timelineModel.items.values()].some((i) => i.turnId === payload.turnId && i.phase === "proactive");
+    if (!proactive) announce(
       payload.status === "completed"
         ? "Rich finished. " + (row ? row.label : "")
         : payload.status === "stopped"
