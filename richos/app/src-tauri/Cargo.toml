@@ -177,6 +177,14 @@ base64 = "0.22"
 # beneath tokio, tao and ring (`cargo tree -i libc`); naming it adds no package.
 libc = "0.2"
 
+# THE OUTPUT PANEL'S *SAVE A COPY…* (src/output_files.rs `output_save_copy`, Output side panel
+# PRD §5.4 and slice S6 §12.6): the system save sheet. Tauri's own first-party plugin, run from
+# Rust only; NONE of its commands is granted in capabilities/default.json (the updater's
+# posture), which `output_files_the_dialog_plugin_is_never_granted_to_the_webview` reads and
+# enforces. Pinned to the version in the local registry and resolved in Cargo.lock beside its
+# one new sibling, tauri-plugin-fs (its `FilePath` type) and rfd (the native sheet).
+tauri-plugin-dialog = "2.7.1"
+
 # THE OUTPUT FILES' APP LIST (src/output_files.rs, Output side panel PRD §5.4): Launch
 # Services' default application and *Open with…* candidates for a file, and each bundle's
 # name. The PRD's `unverified:` is settled by `cargo tree -i core-foundation@0.10.1`: Tauri

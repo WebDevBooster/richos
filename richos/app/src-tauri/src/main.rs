@@ -3563,6 +3563,9 @@ fn main() {
             Ok(())
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // The Output panel's save sheet (output side-panel PRD §5.4, S6). Run from Rust inside
+        // `output_files::output_save_copy` only; its commands are not granted to the page.
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             question_host::answer_question, question_host::question_shown, question_host::open_question_counts,
             claude_quota,
@@ -3740,7 +3743,8 @@ fn main() {
             output_files::output_file,
             output_files::output_preview,
             output_files::output_open,
-            output_files::output_reveal
+            output_files::output_reveal,
+            output_files::output_save_copy
         ])
         .build(context)
         .expect("error while building RichOS")

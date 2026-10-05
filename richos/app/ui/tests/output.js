@@ -27,6 +27,12 @@
 //
 // FOUR COMMITTED PICTURE PAIRS, `shots-output/output-{open,empty,file-md,file-table}-{dark,light}.png`,
 // published through `publishShot`: written only under `RICHOS_SHOTS_REGENERATE`, otherwise compared.
+// Since slice S6 the `open` pair shows the focused first row's Open and ⋯, as round 17 draws a row
+// that has focus.
+//
+// SLICE S6 (§12.6) has its own block below, "S6: the actions": the `menu` and `open-menu` states,
+// arrow keys and Escape in menus, every action's notice sentence, and the disabled actions on a
+// missing file and a link, with their contrast computed in both themes.
 //
 // Run: node output.js   (or `npm test` for every suite in this directory)
 
@@ -526,7 +532,11 @@ async function main() {
       return {
         name: r.querySelector(".oname").textContent,
         line: r.querySelector(".opath").textContent,
-        controls: [...r.querySelectorAll("button, a[href], [data-act]")].filter((c) => !c.disabled).length,
+        // S6: the row's Open is disabled (aria-disabled, its reason as the tooltip) and its menu
+        // stays lit, because Copy path is (§6.7) — the menu's own contents are checked below.
+        controls: [...r.parentElement.querySelectorAll("button, a[href], [data-act]")]
+          .filter((c) => !c.disabled && c.getAttribute("aria-disabled") !== "true")
+          .map((c) => c.dataset.act),
         nameColor: getComputedStyle(r.querySelector(".oname")).color,
         okColor: getComputedStyle(document.querySelector(".orow:not(.is-missing) .oname")).color,
         title: document.getElementById("op-title").textContent,
@@ -534,7 +544,7 @@ async function main() {
     });
     assertEqual(row.name, "brief.md");
     assertEqual(row.line, "No longer where it was written");
-    assertEqual(row.controls, 0, "an action is enabled on a missing file's row");
+    assertEqual(row.controls, ["menu"], "an action other than the menu is lit on a missing file's row");
     assert(row.nameColor !== row.okColor, "the missing row is not dimmed");
     assertEqual(row.title, "9 files from this thread · 1 no longer where it was written", "the count includes it and the header says so (§4.6)");
     await page.click(".orow.is-missing");
@@ -546,7 +556,7 @@ async function main() {
     );
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
-    return "dimmed, 'No longer where it was written', no enabled action; its view says the §6.7 sentence";
+    return "dimmed, 'No longer where it was written', only its menu lit; its view says the §6.7 sentence";
   });
 
   await run.check("a record that cannot be read: no count, the shell's sentence and Try again", async () => {
@@ -895,6 +905,412 @@ async function main() {
   await run.check("no page errors in the preview walk", async () => {
     assertEqual(s5.__errors, [], "the page reported errors");
     await s5.context().close();
+    return "0 errors";
+  });
+
+  // ---- S6: the actions (PRD §12.6) ------------------------------------------------------------
+  //
+  // round 17's `menu` and `open-menu` states, the arrow keys and Escape in menus, every action's
+  // notice sentence, and the disabled actions on a missing file and a link. A page of its own,
+  // so nothing above changes what these see. Nothing is opened and nothing written: the mock's
+  // `output_*` commands answer with the shell's own sentences and keep every call, which is how
+  // these checks also prove the page never sends a path (§5.1).
+
+  const S6_HOME = "/Users/you/FemcBoost/";
+  const ap = await openApp(browser);
+  await ap.evaluate(() => {
+    // The clipboard, observed: Copy path is the one action with no shell command (§5.4).
+    window.__copied = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (t) => (window.__copied.push(t), Promise.resolve()) },
+    });
+  });
+  await openThread(ap, "acme", 9);
+  await ap.click("#out-top");
+  await ap.waitForSelector("#outpanel .orow");
+  const rowOf = (name) => '.orow[data-output="' + byName(name).id + '"]';
+  const menuState = () =>
+    ap.evaluate(() => {
+      const m = document.getElementById("op-menu");
+      if (!m) return null;
+      const a = document.activeElement;
+      return {
+        kind: m.dataset.kind,
+        role: m.getAttribute("role"),
+        head: m.querySelector(".op-menu-head") ? m.querySelector(".op-menu-head").textContent : null,
+        items: [...m.querySelectorAll(".op-menu-item")].map((b) => b.textContent + (b.getAttribute("aria-disabled") === "true" ? " (off)" : "")),
+        roles: [...m.querySelectorAll(".op-menu-item")].every((b) => b.getAttribute("role") === "menuitem"),
+        seps: m.querySelectorAll('[role="separator"]').length,
+        titles: Object.fromEntries([...m.querySelectorAll(".op-menu-item")].map((b) => [b.textContent, b.title])),
+        focus: a && m.contains(a) ? a.textContent : null,
+      };
+    });
+  const pick = (label) =>
+    ap.evaluate((l) => {
+      const b = [...document.querySelectorAll("#op-menu .op-menu-item")].find((x) => x.textContent === l);
+      if (!b) throw new Error("no menu item " + JSON.stringify(l));
+      b.click();
+    }, label);
+  const noticeSays = async (text) => {
+    await ap.waitForFunction((t) => {
+      const n = document.getElementById("op-notice");
+      return n && !n.hidden && n.textContent === t;
+    }, text);
+    return ap.evaluate(() => {
+      const n = document.getElementById("op-notice");
+      return { role: n.getAttribute("role"), live: n.getAttribute("aria-live") };
+    });
+  };
+  const calls = () => ap.evaluate(() => window.__RICHOS_MOCK__.outputCalls().filter((c) => c.cmd !== "output_file"));
+  const openRowMenu = async (name) => {
+    await ap.hover(rowOf(name));
+    await ap.click(rowOf(name) + ' + .oacts [data-act="menu"]');
+    await ap.waitForSelector("#op-menu");
+  };
+
+  await run.check("menu — a row's ⋯ opens round 17's set, named for the file, focus on its first item", async () => {
+    await openRowMenu("brief.md");
+    const m = await menuState();
+    assertEqual(m.kind, "row");
+    assertEqual(m.role, "menu");
+    assert(m.roles, "every item is a menuitem");
+    assertEqual(m.head, "brief.md");
+    assertEqual(m.items, ["Preview", "Open in Obsidian", "Open with…", "Show in Finder", "Save a copy…", "Copy path"]);
+    assertEqual(m.seps, 1);
+    assertEqual(m.focus, "Preview", "focus did not move into the menu");
+    const opener = await ap.evaluate((sel) => {
+      const b = document.querySelector(sel + ' + .oacts [data-act="menu"]');
+      return { expanded: b.getAttribute("aria-expanded"), haspopup: b.getAttribute("aria-haspopup"), label: b.getAttribute("aria-label"), rowOpen: b.closest(".orow-wrap").querySelector(".orow").classList.contains("menu-open") };
+    }, rowOf("brief.md"));
+    assertEqual(opener, { expanded: "true", haspopup: "menu", label: "More actions for brief.md", rowOpen: true });
+    // A role=button row's children are presentational: an action nested inside one reaches no
+    // assistive technology (the VM walk's accessibility tree showed the row as one button).
+    const nested = await ap.evaluate(() => document.querySelectorAll('.orow[role="button"] [data-act]').length);
+    assertEqual(nested, 0, "an action is nested inside a role=button row, where VoiceOver cannot reach it");
+    return m.items.join(" · ");
+  });
+
+  await run.check("arrow keys walk the menu; → opens Open with…, ← and Escape step back one level, then to the ⋯", async () => {
+    const focus = async () => (await menuState()).focus;
+    await ap.keyboard.press("ArrowDown");
+    assertEqual(await focus(), "Open in Obsidian");
+    await ap.keyboard.press("End");
+    assertEqual(await focus(), "Copy path");
+    await ap.keyboard.press("ArrowDown");
+    assertEqual(await focus(), "Preview", "ArrowDown does not wrap");
+    await ap.keyboard.press("ArrowUp");
+    assertEqual(await focus(), "Copy path", "ArrowUp does not wrap");
+    await ap.keyboard.press("Home");
+    await ap.keyboard.press("ArrowDown");
+    await ap.keyboard.press("ArrowDown");
+    assertEqual(await focus(), "Open with…");
+    await ap.keyboard.press("ArrowRight");
+    let m = await menuState();
+    assertEqual([m.kind, m.head, m.items, m.focus], ["open-with", "Open brief.md with", ["TextEdit", "Visual Studio Code"], "TextEdit"]);
+    await ap.keyboard.press("ArrowLeft");
+    m = await menuState();
+    assertEqual([m.kind, m.focus], ["row", "Open with…"], "← did not go back to the menu at Open with…");
+    await ap.keyboard.press("Enter");
+    assertEqual((await menuState()).kind, "open-with", "Enter on Open with… did not open its list");
+    await ap.keyboard.press("Escape");
+    m = await menuState();
+    assertEqual([m.kind, m.focus], ["row", "Open with…"], "Escape in Open with… must step back to the menu");
+    await ap.keyboard.press("Escape");
+    const after = await ap.evaluate((sel) => ({
+      menu: !!document.getElementById("op-menu"),
+      focus: document.activeElement.getAttribute("aria-label"),
+      expanded: document.querySelector(sel + ' + .oacts [data-act="menu"]').getAttribute("aria-expanded"),
+      panel: !document.getElementById("outpanel").hidden,
+      view: document.getElementById("op-body").dataset.view,
+    }), rowOf("brief.md"));
+    assertEqual(after, { menu: false, focus: "More actions for brief.md", expanded: "false", panel: true, view: "list" }, "Escape closed more than the menu, or lost focus");
+    // Escape reaching the shell's own rule (focus outside the menu) steps the menu first too.
+    await openRowMenu("brief.md");
+    await ap.evaluate(() => document.getElementById("op-body").focus());
+    await ap.keyboard.press("Escape");
+    assert(!(await menuState()) && (await panelState(ap)).open, "the shell's Escape closed the panel before the menu");
+    // A press anywhere else closes it, and so does the ⋯ that opened it.
+    await openRowMenu("brief.md");
+    await ap.click("#op-title");
+    assert(!(await menuState()), "a press outside did not close the menu");
+    await openRowMenu("brief.md");
+    await ap.click(rowOf("brief.md") + ' + .oacts [data-act="menu"]');
+    assert(!(await menuState()), "the ⋯ did not close its own menu");
+    return "↓ End ↓(wraps) ↑(wraps) → ← Enter Esc Esc; the shell's Escape, a press outside and the ⋯ each close it";
+  });
+
+  await run.check("every action says what it did — Open, Open with…, Show in Finder, Save a copy… (and Cancel), Copy path", async () => {
+    const lines = [];
+    const say = async (text) => {
+      const n = await noticeSays(text);
+      assertEqual(n, { role: "status", live: "polite" }, "the notice is not a polite status");
+      lines.push(text);
+    };
+    await openRowMenu("brief.md");
+    await pick("Open in Obsidian");
+    await say("Opening brief.md in Obsidian.");
+    await openRowMenu("brief.md");
+    await pick("Open with…");
+    await pick("Visual Studio Code");
+    await say("Opening brief.md in Visual Studio Code.");
+    await openRowMenu("brief.md");
+    await pick("Show in Finder");
+    await say("Finder opens acme/counter/ with brief.md selected.");
+    await openRowMenu("brief.md");
+    await pick("Save a copy…");
+    await say("Saved a copy of brief.md to you/Desktop/.");
+    await ap.evaluate(() => window.__RICHOS_MOCK__.outputSaveSheet("/Users/you/Documents/Board/brief for the board.md"));
+    await openRowMenu("brief.md");
+    await pick("Save a copy…");
+    await say("Saved a copy of brief.md to Documents/Board/ as brief for the board.md.");
+    await ap.evaluate(() => window.__RICHOS_MOCK__.outputSaveSheet(null));
+    await openRowMenu("brief.md");
+    await pick("Save a copy…");
+    await say("Nothing was saved.");
+    await openRowMenu("brief.md");
+    await pick("Copy path");
+    await say("Copied the path.");
+    assertEqual(await ap.evaluate(() => window.__copied), [S6_HOME + "acme/counter/brief.md"], "the clipboard does not hold the recorded path");
+    // The row's own Open, named for the app once the shell has said which.
+    await ap.hover(rowOf("brief.md"));
+    await ap.waitForFunction((sel) => document.querySelector(sel + ' + .oacts [data-act="open"]').title === "Open in Obsidian", rowOf("brief.md"));
+    assertEqual(await ap.getAttribute(rowOf("brief.md") + ' + .oacts [data-act="open"]', "aria-label"), "Open brief.md in Obsidian");
+    await ap.click(rowOf("brief.md") + ' + .oacts [data-act="open"]');
+    await say("Opening brief.md in Obsidian.");
+    // A right-click opens the same menu where the pointer is.
+    const box = await ap.locator(rowOf("comps-summary.md")).boundingBox();
+    await ap.mouse.click(box.x + 60, box.y + 10, { button: "right" });
+    await ap.waitForSelector("#op-menu");
+    const m = await menuState();
+    const at = await ap.evaluate(() => document.getElementById("op-menu").getBoundingClientRect().left);
+    assertEqual([m.kind, m.head], ["row", "comps-summary.md"]);
+    assert(Math.abs(at - (box.x + 60)) <= 1, "the context menu is not at the pointer: " + at);
+    await pick("Preview");
+    assertEqual((await panelState(ap)).view, "file", "Preview did not show the file");
+    assertEqual((await panelState(ap)).title, "comps-summary.md");
+    // §5.1: no command was ever given a path, only the id and (for Open with) the app's place.
+    const sent = await calls();
+    const keys = [...new Set(sent.flatMap((c) => Object.keys(c.args)))].sort();
+    assertEqual(keys, ["appIndex", "outputId"], "a command was sent something other than an id and an index");
+    assertEqual(sent[1], { cmd: "output_open", args: { outputId: byName("brief.md").id, appIndex: 1 } }, "Open with… did not send the app's place");
+    await ap.keyboard.press("Escape");
+    return lines.join(" | ");
+  });
+
+  await run.check("open-menu — the file view's gold Open in <app>, its ▾ (the others, Finder, Save), its ⋯ and Copy the full path", async () => {
+    await ap.click(rowOf("counter-draft-v1.docx"));
+    await ap.waitForFunction(() => document.querySelector('.of-open [data-act="open"]') && document.querySelector('.of-open [data-act="open"]').textContent === "Open in Pages");
+    const tools = await ap.evaluate(() => ({
+      down: document.querySelector('[data-act="open-menu"]').getAttribute("aria-label"),
+      more: document.querySelector('.of-tools [data-act="menu"]').getAttribute("aria-label"),
+      copy: document.querySelector('.of-path [data-act="copy"]').getAttribute("aria-label"),
+    }));
+    assertEqual(tools, { down: "Other ways to open", more: "More actions", copy: "Copy the full path" });
+    await ap.click('[data-act="open-menu"]');
+    await ap.waitForSelector("#op-menu");
+    let m = await menuState();
+    assertEqual([m.kind, m.head, m.focus], ["open-menu", null, "Open in Pages"]);
+    assertEqual(m.items, ["Open in Pages", "Open in Google Docs", "Open in Microsoft Word", "Show in Finder", "Save a copy…"]);
+    await pick("Open in Microsoft Word");
+    await noticeSays("Opening counter-draft-v1.docx in Microsoft Word.");
+    await ap.click('.of-open [data-act="open"]');
+    await noticeSays("Opening counter-draft-v1.docx in Pages.");
+    await ap.click('.of-tools [data-act="menu"]');
+    await ap.waitForSelector("#op-menu");
+    m = await menuState();
+    assertEqual([m.kind, m.items], ["file", ["Open in Pages", "Open with…", "Show in Finder", "Save a copy…", "Copy path"]], "the file view's ⋯ is the row's set without Preview");
+    await ap.keyboard.press("Escape");
+    assertEqual(await ap.evaluate(() => document.activeElement.getAttribute("aria-label")), "More actions", "Escape did not return focus to the file view's ⋯");
+    await ap.click('.of-path [data-act="copy"]');
+    await noticeSays("Copied the path.");
+    assertEqual((await ap.evaluate(() => window.__copied)).pop(), S6_HOME + "acme/counter/counter-draft-v1.docx");
+    // The Mac's list changed under the page: the shell refuses and says to choose again; the
+    // list is shown again, fresh, at the same control (ACTIONABLE: the control is right there).
+    await ap.evaluate(() => window.__RICHOS_MOCK__.outputAppsChange());
+    await ap.click('[data-act="open-menu"]');
+    await ap.waitForSelector("#op-menu");
+    await pick("Open in Google Docs");
+    await noticeSays("The apps that open this file changed since the list was shown. Choose one again.");
+    await ap.waitForFunction(() => document.getElementById("op-menu") && document.getElementById("op-menu").dataset.kind === "open-with");
+    m = await menuState();
+    assertEqual([m.items, m.focus], [["Microsoft Word", "Google Docs"], "Microsoft Word"], "the list was not shown again as the Mac gives it now");
+    await pick("Google Docs");
+    await noticeSays("Opening counter-draft-v1.docx in Google Docs.");
+    return "▾: " + "Open in Pages · Open in Google Docs · Open in Microsoft Word · Show in Finder · Save a copy…; a changed list re-shown and chosen from";
+  });
+
+  await run.check("disabled actions on a missing file and a link: only what still works is lit, each refusal its reason", async () => {
+    const MISSING = "This file is no longer where it was written. If it was moved, open it from its new place; if Rich writes it again, it will be listed here.";
+    const LINKED = "This file is a link to somewhere else, so I won't open it from here. Show in Finder still works.";
+    await ap.keyboard.press("Escape"); // the file view back to the list
+    await ap.evaluate(() => window.__RICHOS_MOCK__.outputMissing("acme", "brief.md"));
+    await ap.evaluate(() => window.RichOutput.reload());
+    await ap.waitForSelector(".orow.is-missing");
+    const before = (await calls()).length;
+    const rowOpen = await ap.evaluate((sel) => {
+      const b = document.querySelector(sel + ' + .oacts [data-act="open"]');
+      return { disabled: b.getAttribute("aria-disabled"), title: b.title };
+    }, rowOf("brief.md"));
+    assertEqual(rowOpen, { disabled: "true", title: MISSING });
+    await ap.click(rowOf("brief.md") + ' + .oacts [data-act="open"]', { force: true });
+    await openRowMenu("brief.md");
+    let m = await menuState();
+    assertEqual(m.items, ["Preview", "Open (off)", "Show in Finder (off)", "Save a copy… (off)", "Copy path"]);
+    assertEqual([m.titles["Open"], m.titles["Show in Finder"], m.titles["Save a copy…"], m.titles["Copy path"]], [MISSING, MISSING, MISSING, ""], "each disabled action's tooltip is its reason");
+    assertEqual(m.focus, "Preview", "focus landed on a disabled item");
+    await ap.keyboard.press("ArrowDown");
+    assertEqual((await menuState()).focus, "Open", "the arrows skipped a disabled item; it stays reachable, its reason in the tooltip");
+    await ap.keyboard.press("Enter");
+    assert(await menuState(), "activating a disabled item closed the menu");
+    assertEqual((await calls()).length, before, "a disabled action reached the shell");
+    await pick("Copy path");
+    await noticeSays("Copied the path.");
+    // Its own view: the pill leaves gold, Open and ▾ are off with the reason, Copy is lit.
+    await ap.click(rowOf("brief.md"));
+    await ap.waitForSelector(".of-missing");
+    const view = await ap.evaluate(() => ({
+      pill: document.querySelector(".of-open").classList.contains("is-disabled"),
+      open: document.querySelector('.of-open [data-act="open"]').getAttribute("aria-disabled"),
+      down: document.querySelector('[data-act="open-menu"]').getAttribute("aria-disabled"),
+      downTitle: document.querySelector('[data-act="open-menu"]').title,
+      copy: document.querySelector('.of-path [data-act="copy"]').getAttribute("aria-disabled"),
+    }));
+    assertEqual(view, { pill: true, open: "true", down: "true", downTitle: MISSING, copy: null });
+    await ap.keyboard.press("Escape");
+    // A link: Show in Finder lit, the rest off with the link sentence (§6.7).
+    await ap.evaluate(() => window.__RICHOS_MOCK__.outputLinked("term-sheet-march.pdf"));
+    await openRowMenu("term-sheet-march.pdf");
+    m = await menuState();
+    assertEqual(m.items, ["Preview", "Open (off)", "Show in Finder", "Save a copy… (off)", "Copy path (off)"]);
+    assertEqual([m.titles["Open"], m.titles["Copy path"], m.titles["Show in Finder"]], [LINKED, LINKED, ""]);
+    await pick("Show in Finder");
+    await noticeSays("Finder opens acme/reference/ with term-sheet-march.pdf selected.");
+    // A file that went after its menu was drawn: the shell's sentence, and its row dims.
+    await openRowMenu("comps-summary.md");
+    await ap.evaluate(() => window.__RICHOS_MOCK__.outputMissing("acme", "comps-summary.md"));
+    await pick("Open in Obsidian");
+    await noticeSays(MISSING);
+    await ap.waitForSelector(rowOf("comps-summary.md") + ".is-missing");
+    return "missing: Preview and Copy path lit; link: Preview and Show in Finder lit; a vanished file's refusal dims its row";
+  });
+
+  for (const theme of ["dark", "light"]) {
+    await run.check(theme + " — the actions' text and indicators clear WCAG AA, computed", async () => {
+      const p = await openApp(browser, { theme });
+      await openThread(p, "acme", 9);
+      await p.evaluate(() => window.__RICHOS_MOCK__.outputMissing("acme", "brief.md"));
+      await p.click("#out-top");
+      await p.waitForSelector("#outpanel .orow");
+      const row = '.orow[data-output="' + byName("q3-revenue.csv").id + '"]';
+      await p.hover(row);
+      await p.click(row + ' + .oacts [data-act="menu"]');
+      await p.waitForSelector("#op-menu");
+      await p.keyboard.press("ArrowDown"); // a focused item, ringed
+      // Each pair is read as the browser resolved it: the foreground, its font size, and every
+      // background from the node up to the first opaque one (composited in order below), so a
+      // translucent hover or fill is measured on what is really under it.
+      const PAIRS = () => {
+        window.__s6pair = (what, kind, n, fg, from) => {
+          const stack = [];
+          for (let x = from || n; x; x = x.parentElement) {
+            const bg = getComputedStyle(x).backgroundColor;
+            if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+              stack.push(bg);
+              if (!/rgba\(.*,\s*0?\.\d+\)$/.test(bg)) break;
+            }
+          }
+          return { what, kind, fg, stack, size: parseFloat(getComputedStyle(n).fontSize) };
+        };
+      };
+      await p.evaluate(PAIRS);
+      const menu = await p.evaluate(() => {
+        const pair = window.__s6pair;
+        const cs = (n) => getComputedStyle(n);
+        const m = document.getElementById("op-menu");
+        const item = m.querySelector(".op-menu-item:not(:focus)");
+        const focused = m.querySelector(".op-menu-item:focus");
+        const ring = cs(focused).boxShadow.match(/rgba?\([^)]*\)/);
+        const rowOpen = document.querySelector('.orow-wrap:hover [data-act="open"]');
+        return [
+          pair("menu item", "text", item, cs(item).color),
+          pair("menu head (the file's name)", "text", m.querySelector(".op-menu-head"), cs(m.querySelector(".op-menu-head")).color),
+          pair("menu item icon", "indicator", item, cs(item.querySelector("svg")).color),
+          pair("focused item's ring", "indicator", focused, ring ? ring[0] : ""),
+          pair("row Open icon, hovered row", "indicator", rowOpen, cs(rowOpen).color, rowOpen.closest(".orow-wrap").querySelector(".orow")),
+        ];
+      });
+      await p.keyboard.press("Escape");
+      // A disabled item, on the missing file's menu.
+      const miss = '.orow[data-output="' + byName("brief.md").id + '"]';
+      await p.hover(miss);
+      await p.click(miss + ' + .oacts [data-act="menu"]');
+      await p.waitForSelector('#op-menu [aria-disabled="true"]');
+      const off = await p.evaluate(() => {
+        const b = document.querySelector('#op-menu [aria-disabled="true"]');
+        return window.__s6pair("disabled menu item (still read)", "text", b, getComputedStyle(b).color, document.getElementById("op-menu"));
+      });
+      await p.keyboard.press("Escape");
+      // The file view's tools, a notice, and the refused pill.
+      await p.click(row);
+      await p.waitForFunction(() => document.querySelector('.of-open [data-act="open"]').textContent.startsWith("Open in"));
+      await p.click('.of-path [data-act="copy"]');
+      await p.waitForSelector("#op-notice:not([hidden])");
+      await p.evaluate(() => Promise.all(document.getElementById("op-notice").getAnimations().map((a) => a.finished)));
+      const tools = await p.evaluate(() => {
+        const pair = window.__s6pair;
+        const cs = (n) => getComputedStyle(n);
+        const panel = document.getElementById("outpanel");
+        const pill = document.querySelector(".of-open");
+        const word = pill.querySelector("button");
+        const tool = document.querySelector(".of-tool");
+        const copy = document.querySelector(".of-copy");
+        const n = document.getElementById("op-notice");
+        return [
+          pair("gold Open's words", "text", word, cs(pill).color),
+          pair("gold Open's edge on the panel", "indicator", pill, cs(pill).borderTopColor, panel),
+          pair("⋯ tool's edge on the panel", "indicator", tool, cs(tool).borderTopColor, panel),
+          pair("⋯ tool's glyph", "indicator", tool, cs(tool.querySelector("svg")).color),
+          pair("copy button glyph", "indicator", copy, cs(copy).color),
+          pair("notice words", "text", n, cs(n).color),
+          pair("notice rule", "indicator", n, cs(n).borderLeftColor),
+        ];
+      });
+      await p.keyboard.press("Escape");
+      await p.click(miss);
+      await p.waitForSelector(".of-open.is-disabled");
+      const refused = await p.evaluate(() => {
+        const pill = document.querySelector(".of-open");
+        return [
+          window.__s6pair("refused Open's words", "text", pill.querySelector("button"), getComputedStyle(pill).color),
+          window.__s6pair("refused Open's edge on the panel", "indicator", pill, getComputedStyle(pill).borderTopColor, document.getElementById("outpanel")),
+        ];
+      });
+      const lines = [];
+      for (const r of [...menu, off, ...tools, ...refused]) {
+        assert(r.stack.length, "no background under " + r.what);
+        const layers = r.stack.map(parseCssColor).reverse();
+        assert(layers.every(Boolean), "could not resolve the background of " + r.what + ": " + r.stack.join(" over "));
+        let base = layers[0].a < 1 ? compositeOver(layers[0], parseCssColor(theme === "dark" ? "rgb(12, 19, 34)" : "rgb(234, 230, 221)")) : layers[0];
+        for (const layer of layers.slice(1)) base = compositeOver(layer, base);
+        const fgRaw = parseCssColor(r.fg);
+        assert(fgRaw, "could not resolve the color of " + r.what + ": " + r.fg);
+        const fg = fgRaw.a < 1 ? compositeOver(fgRaw, base) : fgRaw;
+        const ratio = Math.round(contrastRatio(fg, base) * 100) / 100;
+        const floor = r.kind === "indicator" ? 3 : 4.5;
+        lines.push(r.what + " " + hex(fg) + " on " + hex(base) + " " + ratio + ":1");
+        assert(ratio >= floor, theme + ": " + r.what + " is " + ratio + ":1 against a floor of " + floor + ":1 (" + hex(fg) + " on " + hex(base) + ")");
+        if (r.kind === "text") assert(r.size >= 16, theme + ": " + r.what + " is " + r.size + "px; text meant to be read is 16px or larger");
+      }
+      assertEqual(p.__errors, [], "the page reported errors");
+      await p.context().close();
+      return lines.join(" | ");
+    });
+  }
+
+  await run.check("S6: no page errors", async () => {
+    assertEqual(ap.__errors, [], "the page reported errors");
+    await ap.context().close();
     return "0 errors";
   });
 

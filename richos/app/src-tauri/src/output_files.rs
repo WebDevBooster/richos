@@ -35,11 +35,25 @@
 //!
 //! Here: `list_output`, `output_file` (with the Launch Services app list), `output_preview`
 //! (capped text, a parsed CSV, image header dimensions, a QuickLook rendition with its seven-day
-//! cache sweep, scheme URLs for media and PDF), `output_open`, `output_reveal`, and the
-//! `richos-output` scheme with `Range`. Not here, because their slices name them: *Save a
-//! copy…* (S6, it needs `tauri-plugin-dialog`), *Add to chat* (S7, `mac_attachments.rs`) and
-//! the split width (S9, `nav.rs`). `capabilities/default.json` is unchanged: app commands need
-//! no capability, and nothing here is a plugin.
+//! cache sweep, scheme URLs for media and PDF), `output_open`, `output_reveal`, the
+//! `richos-output` scheme with `Range`, and (slice S6, §12.6) `output_save_copy`. Not here,
+//! because their slices name them: *Add to chat* (S7, `mac_attachments.rs`) and the split
+//! width (S9, `nav.rs`). `capabilities/default.json` is unchanged: app commands need no
+//! capability.
+//!
+//! # The save sheet is Rust's, never the page's (§5.4)
+//!
+//! *Save a copy…* shows the system save sheet through `tauri-plugin-dialog`, Tauri's own
+//! plugin, run from Rust inside `output_save_copy`. Its commands are **not** granted in
+//! `capabilities/default.json` — the updater's posture — so the page can ask for a copy of a
+//! RECORDED file and nothing else: it cannot open a picker, choose a path or name one. A test
+//! in this file reads the capability files and fails if any of them grants `dialog:`.
+//!
+//! Said, not hidden: registering the plugin also injects its `init-iife.js` into the webview,
+//! which replaces `window.alert` and `window.confirm` with calls to `plugin:dialog|message` and
+//! `plugin:dialog|confirm`. Ungranted, those calls are refused, so an `alert()` or `confirm()`
+//! in the page would silently do nothing. No shipped UI file calls either (the same test
+//! checks), and `window.prompt` — which the rail's rename uses — is not replaced.
 //!
 //! # Said, not hidden
 //!
@@ -88,6 +102,33 @@ pub const WOULD_NOT_OPEN: &str = "This Mac would not open it.";
 pub const APPS_CHANGED: &str = "The apps that open this file changed since the list was shown. Choose one again.";
 /// *Open with…* asked for a place the shown list does not have.
 pub const APP_NOT_OFFERED: &str = "That app is not one this Mac offers for this file. Choose one again.";
+/// *Save a copy…*: the save sheet was dismissed with Cancel (S6). The action says what it did.
+pub const NOTHING_SAVED: &str = "Nothing was saved.";
+/// *Save a copy…*: the sheet pointed at the recorded file itself. Copying a file onto itself
+/// truncates it first, so this is refused before a byte is written.
+pub const SAME_FILE: &str = "That is the file itself, so nothing was copied.";
+/// *Save a copy…*: the sheet answered something that is not a file's place (no folder, not
+/// absolute). The system sheet never does; said rather than assumed.
+pub const NOT_A_PLACE: &str = "I couldn't save the copy there: that is not a place a file can be saved.";
+/// *Save a copy…*: the work behind the sheet stopped before it answered (a panic in the
+/// blocking task).
+pub const WOULD_NOT_SAVE: &str = "I couldn't save the copy.";
+
+/// *Save a copy…* could not write the copy: *I couldn't save the copy: <OS sentence>.*
+pub fn copy_failed(error: &std::io::Error) -> String {
+    format!("I couldn't save the copy: {}.", os_sentence(error))
+}
+
+/// *Saved a copy of brief.md to alex/Desktop/.*, and *… as brief 2.md.* when the sheet named it
+/// differently. The folder is named the way *Show in Finder*'s sentence names one.
+pub fn saved_copy(name: &str, dest: &Path) -> String {
+    let given = file_name(dest);
+    if given == name {
+        format!("Saved a copy of {name} to {}.", folder_label(dest))
+    } else {
+        format!("Saved a copy of {name} to {} as {given}.", folder_label(dest))
+    }
+}
 
 /// *I couldn't read this file: <OS sentence>.* (§6.7)
 pub fn read_failed(error: &std::io::Error) -> String {
@@ -424,6 +465,11 @@ pub struct EntryDetail {
     pub previewable: &'static str,
     /// Why, when `previewable` is `none`: the §6.7 sentence the viewer shows.
     pub reason: Option<String>,
+    /// Why nothing may be done with the file right now, when that is so (S6, §6.7): `missing`,
+    /// `refused` (a link, a swapped file, not a regular file) or `readFailed`. `None` when the
+    /// file passed §5.2 — over the preview cap or without a viewer still opens. The panel
+    /// disables its actions from this, never by matching a sentence.
+    pub problem: Option<&'static str>,
 }
 
 /// One row of a CSV, as text cells.
@@ -615,7 +661,9 @@ impl OutputFiles {
         let located = self.locate(output_id)?;
         let listed = self.store.project(&located.thread_id).map_err(|_| RECORD_UNREADABLE.to_string())?;
         let entry = listed.files.into_iter().find(|e| e.id == output_id).ok_or_else(|| NOT_IN_RECORD.to_string())?;
-        let (apps, previewable, reason) = match check(&located) {
+        let checked = check(&located);
+        let problem = checked.as_ref().err().map(|p| p.why());
+        let (apps, previewable, reason) = match checked {
             Err(problem) => (Apps::default(), "none", Some(problem.sentence())),
             Ok(checked) => {
                 let apps = (self.lister)(&checked.path);
@@ -631,7 +679,7 @@ impl OutputFiles {
             }
         };
         self.shown.lock().unwrap().insert(output_id.to_string(), apps.clone());
-        Ok(EntryDetail { entry, default_app: apps.default, other_apps: apps.others, previewable, reason })
+        Ok(EntryDetail { entry, default_app: apps.default, other_apps: apps.others, previewable, reason, problem })
     }
 
     /// `output_preview(output_id)` (§5.4, §7).
@@ -729,6 +777,24 @@ impl OutputFiles {
             return Err(WOULD_NOT_OPEN.into());
         }
         Ok(format!("Finder opens {} with {} selected.", folder_label(&located.path), file_name(&located.path)))
+    }
+
+    /// `output_save_copy(output_id)` (§5.4, slice S6): §5.2 first — a missing file, a link or
+    /// a swapped file is refused with its sentence and no sheet is shown — then `choose` shows
+    /// the save sheet with the file's sanitized name and answers where it pointed, then the
+    /// checks run AGAIN (the sheet can stay open for minutes) and the bytes are copied there.
+    ///
+    /// `choose` is the system save sheet in the app ([`output_save_copy`]) and a closure in the
+    /// tests. `None` is Cancel: nothing is written and the action says so.
+    pub fn save_copy(&self, output_id: &str, choose: impl FnOnce(&str) -> Option<PathBuf>) -> Result<String, String> {
+        let located = self.locate(output_id)?;
+        check(&located).map_err(|p| p.sentence())?;
+        let name = file_name(&located.path);
+        let Some(dest) = choose(&suggested_name(&name)) else { return Ok(NOTHING_SAVED.into()) };
+        let located = self.locate(output_id)?;
+        let checked = check(&located).map_err(|p| p.sentence())?;
+        copy_to(&checked.path, &dest)?;
+        Ok(saved_copy(&name, &dest))
     }
 
     // ---- the QuickLook rendition (§7) -----------------------------------------------------
@@ -908,6 +974,78 @@ fn empty(status: StatusCode) -> Response<Vec<u8>> {
 
 fn file_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+/// The name the save sheet is opened with (§5.5: "the save sheet gets a sanitized name"). The
+/// PRD cites "the desk's `sanitize_title` rule"; the attachments desk's rule is
+/// `sanitize_name` (`phone/attachments.rs`) — `sanitize_title` is the assignment title's, in
+/// `richos-core` — and this is that rule without its kind check, because a copy keeps its own
+/// extension: only the last path component, no control or direction-override characters, no
+/// leading dots or surrounding space (so the name is neither hidden nor `..`), the stem at most
+/// 100 bytes, and `copy` when nothing is left. It is written out rather than called because
+/// this file is also compiled by path into `examples/output_files_probe.rs`.
+pub fn suggested_name(raw: &str) -> String {
+    let last = raw.rsplit(['/', '\\', ':']).next().unwrap_or("");
+    let bidi = |c: char| matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
+    let cleaned: String = last.chars().filter(|c| !c.is_control() && !bidi(*c)).collect();
+    let cleaned = cleaned.trim().trim_start_matches('.').trim();
+    let (stem, ext) = match cleaned.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => (stem, Some(ext)),
+        _ => (cleaned, None),
+    };
+    let mut end = stem.len().min(100);
+    while !stem.is_char_boundary(end) {
+        end -= 1;
+    }
+    let stem = stem[..end].trim();
+    match (stem.is_empty(), ext) {
+        (true, Some(ext)) => format!("copy.{ext}"),
+        (true, None) => "copy".to_string(),
+        (false, Some(ext)) => format!("{stem}.{ext}"),
+        (false, None) => stem.to_string(),
+    }
+}
+
+/// Copy the checked file to where the sheet pointed. The source is read through
+/// [`open_nofollow`] (§5.2 step 5), never `std::fs::copy`, which follows a link. The bytes go
+/// to a new hidden file in the destination folder first and are renamed over the name the
+/// sheet gave, so a copy that fails part-way leaves nothing half-written under that name. The
+/// sheet already asked him before replacing an existing file, so the rename replaces it.
+fn copy_to(source: &Path, dest: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let (Some(folder), Some(given)) = (dest.parent(), dest.file_name()) else { return Err(NOT_A_PLACE.into()) };
+    if !dest.is_absolute() {
+        return Err(NOT_A_PLACE.into());
+    }
+    let folder = std::fs::canonicalize(folder).map_err(|e| copy_failed(&e))?;
+    let target = folder.join(given);
+    // The file itself — by the same path, a link to it, or a hard link — is never the target:
+    // writing over it would destroy the original before a byte of the copy existed.
+    let original = std::fs::metadata(source).map_err(|e| read_failed(&e))?;
+    if let Ok(there) = std::fs::metadata(&target) {
+        if there.dev() == original.dev() && there.ino() == original.ino() {
+            return Err(SAME_FILE.into());
+        }
+    }
+    let mut from = open_nofollow(source).map_err(|p| p.sentence())?;
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let partial = folder.join(format!(".{}.richos-copy-{}-{nanos}", given.to_string_lossy(), std::process::id()));
+    let written = (|| -> std::io::Result<()> {
+        let mut to = std::fs::OpenOptions::new().write(true).create_new(true).open(&partial)?;
+        std::io::copy(&mut from, &mut to)?;
+        to.set_permissions(original.permissions())?;
+        to.sync_all()?;
+        std::fs::rename(&partial, &target)
+    })();
+    if let Err(e) = written {
+        if let Err(gone) = std::fs::remove_file(&partial) {
+            if gone.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("[richos] output: a part-written copy was not removed: {gone}");
+            }
+        }
+        return Err(copy_failed(&e));
+    }
+    Ok(())
 }
 
 /// The last two folders above a file, as the notice names them: `acme/counter/` (§6.7).
@@ -1301,6 +1439,48 @@ pub fn output_open(files: State<'_, OutputFiles>, output_id: String, app_index: 
 #[tauri::command(async)]
 pub fn output_reveal(files: State<'_, OutputFiles>, output_id: String) -> Result<String, String> {
     files.reveal(&output_id)
+}
+
+/// `output_save_copy(output_id)` (§5.4, slice S6): the system save sheet, attached to the
+/// window that asked, then the copy. The sheet is `tauri-plugin-dialog` run HERE, from Rust;
+/// none of its commands is granted to the page (see the module header).
+///
+/// The sheet blocks until he answers it, so it is waited for on the blocking pool, never on
+/// the main thread (the plugin's own rule for `blocking_save_file`) and never on an async
+/// worker.
+///
+/// Every setting of the sheet, chosen rather than inherited (CEO, 2026-09-10: no third-party
+/// default stands unproven):
+/// - parent: the asking window, so it is a SHEET on the app, as §5.4 says;
+/// - title: *Save a copy of <name>*, which says what Save will do;
+/// - file name: [`suggested_name`] of the recorded name;
+/// - can create folders: yes, as every Mac save sheet lets you;
+/// - starting folder: NOT set. macOS then opens the sheet where this app last saved, which is
+///   the system's own per-app memory of where he keeps things; a fixed folder would override
+///   his last choice every time;
+/// - filters: none — a copy keeps whatever extension the file has.
+#[tauri::command]
+pub async fn output_save_copy(app: tauri::AppHandle, window: tauri::WebviewWindow, output_id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        use tauri_plugin_dialog::DialogExt;
+        let Some(files) = app.try_state::<OutputFiles>() else { return Err(NOT_IN_RECORD.to_string()) };
+        files.save_copy(&output_id, |name| {
+            app.dialog()
+                .file()
+                .set_parent(&window)
+                .set_title(format!("Save a copy of {name}"))
+                .set_file_name(name)
+                .set_can_create_directories(true)
+                .blocking_save_file()
+                .and_then(|chosen| chosen.into_path().ok())
+        })
+    })
+    .await
+    .map_err(|e| {
+        eprintln!("[richos] output: the save sheet's task did not finish: {e}");
+        WOULD_NOT_SAVE.to_string()
+    })?
 }
 
 /// The scheme's handler, registered on the builder for every webview. The file is read off
@@ -1949,6 +2129,209 @@ mod tests {
         assert_ne!(first, second, "the ?v= cache-buster follows the modification time");
         assert_eq!(get(&files, &id, None).body(), b"PNG2", "the scheme serves the new one");
         assert_eq!(std::fs::read_to_string(&count).unwrap().trim(), "2");
+    }
+
+    // ---- slice S6: Save a copy…, and the dialog plugin's posture -------------------------------
+
+    fn listing(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn output_files_a_saved_copy_lands_where_the_sheet_pointed_with_the_name_it_gave() {
+        use std::os::unix::fs::PermissionsExt;
+        let data = Dir::new("data");
+        let work = Dir::new("work");
+        let elsewhere = Dir::new("copies");
+        let (files, ran) = files(&data);
+        let body = b"# Brief\n\nHold at list minus 3%.\n";
+        let brief = work.file("brief.md", body);
+        std::fs::set_permissions(&brief, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let id = record(&files, &brief);
+        let two = |p: &Path| {
+            let parent = p.parent().unwrap();
+            format!("{}/{}/", parent.parent().unwrap().file_name().unwrap().to_string_lossy(), parent.file_name().unwrap().to_string_lossy())
+        };
+
+        // The sheet opens with the file's own name and answers a different one: the copy has it.
+        let offered = std::cell::RefCell::new(String::new());
+        let renamed = elsewhere.0.join("brief copy.md");
+        let said = files
+            .save_copy(&id, |name| {
+                *offered.borrow_mut() = name.to_string();
+                Some(renamed.clone())
+            })
+            .unwrap();
+        assert_eq!(*offered.borrow(), "brief.md", "the sheet is offered the file's own name");
+        assert_eq!(said, format!("Saved a copy of brief.md to {} as brief copy.md.", two(&renamed)));
+        assert_eq!(std::fs::read(&renamed).unwrap(), body);
+        assert_eq!(std::fs::metadata(&renamed).unwrap().permissions().mode() & 0o777, 0o640, "the copy keeps the file's permissions");
+        assert_eq!(listing(&elsewhere.0), ["brief copy.md"], "nothing part-written is left beside it");
+        assert_eq!(std::fs::read(&brief).unwrap(), body, "the original is untouched");
+
+        // The same name somewhere else, over a file that is already there (the sheet asked him).
+        let same = elsewhere.0.join("brief.md");
+        std::fs::write(&same, b"an older brief").unwrap();
+        assert_eq!(files.save_copy(&id, |_| Some(same.clone())).unwrap(), format!("Saved a copy of brief.md to {}.", two(&same)));
+        assert_eq!(std::fs::read(&same).unwrap(), body, "the copy replaces what the sheet agreed to replace");
+
+        // Cancel: nothing written, and the action says so.
+        assert_eq!(files.save_copy(&id, |_| None).unwrap(), NOTHING_SAVED);
+        assert_eq!(listing(&elsewhere.0), ["brief copy.md", "brief.md"]);
+
+        // The sheet pointed at the file itself — by its path, or by a link to it: refused before
+        // a byte is written, because a copy onto itself truncates the original first.
+        assert_eq!(files.save_copy(&id, |_| Some(brief.clone())).unwrap_err(), SAME_FILE);
+        let alias = elsewhere.0.join("alias.md");
+        std::os::unix::fs::symlink(&brief, &alias).unwrap();
+        assert_eq!(files.save_copy(&id, |_| Some(alias.clone())).unwrap_err(), SAME_FILE);
+        assert_eq!(std::fs::read(&brief).unwrap(), body, "the original survives being chosen as its own copy");
+
+        // A folder that is not there: the OS's own words, and nothing left behind.
+        let nowhere = elsewhere.0.join("no-such-folder").join("brief.md");
+        let refused = files.save_copy(&id, |_| Some(nowhere.clone())).unwrap_err();
+        assert!(refused.starts_with("I couldn't save the copy: "), "{refused}");
+        assert_eq!(files.save_copy(&id, |_| Some(PathBuf::from("brief.md"))).unwrap_err(), NOT_A_PLACE);
+
+        assert!(ran.lock().unwrap().is_empty(), "saving a copy runs /usr/bin/open never");
+    }
+
+    #[test]
+    fn output_files_save_a_copy_refuses_before_the_sheet_and_again_after_it() {
+        let data = Dir::new("data");
+        let work = Dir::new("work");
+        let copies = Dir::new("copies");
+        let (files, _) = files(&data);
+        let asked = std::cell::Cell::new(0);
+        let dest = copies.0.join("copy.md");
+        let sheet = |_: &str| {
+            asked.set(asked.get() + 1);
+            Some(dest.clone())
+        };
+
+        // An id the record does not hold: no sheet.
+        assert_eq!(files.save_copy("out_0000000000000000", sheet).unwrap_err(), NOT_IN_RECORD);
+        // A missing file: its sentence, no sheet.
+        let gone = work.file("gone.md", b"x");
+        let gone_id = record(&files, &gone);
+        std::fs::remove_file(&gone).unwrap();
+        assert_eq!(files.save_copy(&gone_id, sheet).unwrap_err(), MISSING);
+        // A link: its sentence, no sheet.
+        let target = work.file("target.md", b"elsewhere");
+        let link = work.0.join("link.md");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let link_id = record(&files, &link);
+        assert_eq!(files.save_copy(&link_id, sheet).unwrap_err(), LINKED);
+        assert_eq!(asked.get(), 0, "the sheet was shown for a file that cannot be copied");
+
+        // The file goes while the sheet is open: checked again, refused, nothing written.
+        let brief = work.file("brief.md", b"# Brief\n");
+        let id = record(&files, &brief);
+        let dest = copies.0.join("brief.md");
+        let vanished = files.save_copy(&id, |_| {
+            std::fs::remove_file(&brief).unwrap();
+            Some(dest.clone())
+        });
+        assert_eq!(vanished.unwrap_err(), MISSING);
+        assert!(listing(&copies.0).is_empty(), "a copy was written of a file that was gone");
+    }
+
+    #[test]
+    fn output_files_the_save_sheet_is_offered_a_sanitized_name() {
+        assert_eq!(suggested_name("brief.md"), "brief.md");
+        assert_eq!(suggested_name("counter-draft v1.docx"), "counter-draft v1.docx");
+        assert_eq!(suggested_name(".env"), "env", "a leading dot would hide the copy");
+        assert_eq!(suggested_name("..."), "copy");
+        assert_eq!(suggested_name("a/b\\c:report.pdf"), "report.pdf", "only the last component");
+        assert_eq!(suggested_name("\u{7}bell\u{1b}.txt"), "bell.txt", "control characters go");
+        assert_eq!(suggested_name("invoice\u{202E}fdp.exe"), "invoicefdp.exe", "a direction override cannot disguise the extension");
+        let long = format!("{}.md", "é".repeat(80));
+        let kept = suggested_name(&long);
+        assert!(kept.ends_with(".md") && kept.len() <= 103, "the stem is capped at 100 bytes: {} bytes", kept.len());
+        assert!(kept.trim_end_matches(".md").chars().all(|c| c == 'é'), "cut at a character boundary");
+    }
+
+    /// THE DIALOG PLUGIN IS RUST'S, NEVER THE PAGE'S (§5.4, §12.6 "Done when"). The plugin is
+    /// registered in the builder, so the only thing standing between the webview and a file
+    /// picker is that no capability grants its commands. This reads every capability file the
+    /// app ships and the config's own list, and fails on any `dialog:` permission.
+    #[test]
+    fn output_files_the_dialog_plugin_is_never_granted_to_the_webview() {
+        fn identifiers(value: &serde_json::Value, out: &mut Vec<String>) {
+            match value {
+                serde_json::Value::String(s) => out.push(s.clone()),
+                serde_json::Value::Object(map) => {
+                    if let Some(id) = map.get("identifier").and_then(|v| v.as_str()) {
+                        out.push(id.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut granted = Vec::new();
+        let mut read = 0;
+        for entry in std::fs::read_dir(root.join("capabilities")).unwrap().flatten() {
+            let text = std::fs::read_to_string(entry.path()).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", entry.path().display()));
+            for p in json["permissions"].as_array().cloned().unwrap_or_default() {
+                identifiers(&p, &mut granted);
+            }
+            read += 1;
+        }
+        assert_eq!(read, 1, "a capability file was added; this test must read it on purpose");
+        assert_eq!(granted, ["core:default"], "capabilities/default.json is not what it was: {granted:?}");
+        let conf: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("tauri.conf.json")).unwrap()).unwrap();
+        let inline = conf["app"]["security"]["capabilities"].as_array().cloned().unwrap_or_default();
+        let inline_text = serde_json::to_string(&inline).unwrap();
+        assert!(!inline_text.contains("dialog"), "tauri.conf.json grants a dialog permission inline: {inline_text}");
+
+        // The plugin replaces `window.alert` and `window.confirm` with its refused commands, so
+        // a page that called either would silently get nothing (module header).
+        let ui = root.join("../ui");
+        for entry in std::fs::read_dir(&ui).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("js") {
+                continue;
+            }
+            for (n, line) in std::fs::read_to_string(&path).unwrap().lines().enumerate() {
+                let code = line.trim_start();
+                if code.starts_with("//") || code.starts_with('*') {
+                    continue;
+                }
+                for call in ["alert(", "confirm("] {
+                    let hit = code.match_indices(call).any(|(at, _)| {
+                        at == 0 || !code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '-')
+                    });
+                    assert!(!hit, "{}:{} calls {call}…) — refused under the dialog plugin: {line}", path.display(), n + 1);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn output_files_a_missing_or_linked_file_names_its_problem_for_the_panel() {
+        let data = Dir::new("data");
+        let work = Dir::new("work");
+        let (files, _) = files(&data);
+        let fine = work.file("fine.md", b"ok");
+        let fine_id = record(&files, &fine);
+        assert_eq!(files.file(&fine_id).unwrap().problem, None);
+        let big = work.0.join("huge.png");
+        std::fs::File::create(&big).unwrap().set_len(IMAGE_CAP + 1).unwrap();
+        let big_id = record(&files, &big);
+        assert_eq!(files.file(&big_id).unwrap().problem, None, "too large to preview is not a problem: Open is lit");
+        let target = work.file("target.md", b"x");
+        let link = work.0.join("link.md");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let link_id = record(&files, &link);
+        assert_eq!(files.file(&link_id).unwrap().problem, Some("refused"));
+        std::fs::remove_file(&fine).unwrap();
+        assert_eq!(files.file(&fine_id).unwrap().problem, Some("missing"));
+        let json = serde_json::to_value(files.file(&fine_id).unwrap()).unwrap();
+        assert_eq!(json["problem"], "missing", "serialized for the page as `problem`");
     }
 
     #[test]
