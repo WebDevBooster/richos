@@ -818,15 +818,16 @@ fn no_event_ever_carries_one_entitys_content_under_another_entitys_fence() {
 }
 
 #[test]
-fn a_deferred_proactive_emit_keeps_the_entity_it_was_written_under() {
+fn a_proactive_emit_during_a_turn_keeps_the_entity_it_was_written_under() {
     // THE NEGATIVE CONTROL WITH TEETH. A proactive message raised on entity B's thread
-    // while entity A's thread is the active context is DEFERRED to the next turn boundary
-    // (it must not collide with a working row). At flush time the active context is A.
+    // while entity A's thread is the active context and a turn is in flight is sent at once
+    // (round 16 draws Rich's line beside the working row), stamped with the binding it was
+    // WRITTEN under.
     //
-    // Point `emit_proactive_live` at the ACTIVE binding instead of the carried one — a
-    // one-line change, and exactly the kind a future refactor makes to "simplify" the
-    // queue struct — and this test fails: deeply's sentence is emitted stamped femcboost.
-    let (path, ledger) = tmp_ledger("deferred");
+    // Point `emit_proactive_live` at the ACTIVE binding instead of the written one — a
+    // one-line change, and exactly the kind a future refactor makes to "simplify" it — and
+    // this test fails: deeply's sentence is emitted stamped femcboost.
+    let (path, ledger) = tmp_ledger("mid-turn-proactive");
     let mut spine = support::spine(ledger);
     let femc_thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
     let deeply_thread = spine.create_thread("Pricing", &deeply()).unwrap();
@@ -835,15 +836,14 @@ fn a_deferred_proactive_emit_keeps_the_entity_it_was_written_under() {
     spine.set_live_observer(Box::new(live.clone()));
 
     spine.switch_thread(&femc_thread).unwrap();
-    // Pretend a turn is in flight, so the proactive emit is deferred rather than immediate.
+    // Pretend a turn is in flight.
     spine.debug_set_turn_in_progress(true);
     spine
         .raise_proactive(Some(&deeply_thread), AttentionTier::Digest, "DEEPLY-ONLY: the pricing page is down.")
         .unwrap();
-    assert!(live.payloads().is_empty(), "deferred: nothing is emitted while a turn is in flight");
-
-    // Now let a real turn run on femcboost's thread; its boundary flushes the deferred emit.
     spine.debug_set_turn_in_progress(false);
+
+    // A real turn on femcboost's thread afterwards sends nothing more of it.
     spine.submit_prompt("status", Source::Text).unwrap();
 
     let proactive: Vec<Value> = live
@@ -851,7 +851,7 @@ fn a_deferred_proactive_emit_keeps_the_entity_it_was_written_under() {
         .into_iter()
         .filter(|p| p["phase"] == json!("proactive"))
         .collect();
-    assert_eq!(proactive.len(), 1, "the deferred message was flushed exactly once");
+    assert_eq!(proactive.len(), 1, "the message was sent exactly once");
     assert_eq!(
         proactive[0]["entityId"],
         json!("deeply"),

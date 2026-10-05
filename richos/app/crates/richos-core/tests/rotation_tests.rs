@@ -921,12 +921,13 @@ fn proactive_silent_tier_never_renders_but_stays_durable() {
 }
 
 #[test]
-fn proactive_message_raised_mid_turn_is_durable_immediately_but_ui_event_waits_for_the_boundary() {
-    // Never collide with the "Rich is working" row: the WRITE is immediate/durable
-    // (never lost), but the live-UI-visible event is deferred until the turn boundary
-    // clears. This spine is fully synchronous/single-threaded (module doc), so the test
-    // uses the documented test-only seam to force the in-flight state deterministically.
-    let (path, ledger) = tmp_ledger("proactive-deferred");
+fn proactive_message_raised_mid_turn_is_durable_and_shown_at_once() {
+    // Round 16 draws Rich's line beside the "working" row, so a message raised while a turn
+    // is in flight is written AND sent to the window at once, exactly once — the next turn
+    // boundary does not send it again. This spine is fully synchronous/single-threaded
+    // (module doc), so the test uses the documented test-only seam to force the in-flight
+    // state deterministically.
+    let (path, ledger) = tmp_ledger("proactive-mid-turn");
     let mut spine = support::spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["a reply"])));
@@ -935,23 +936,16 @@ fn proactive_message_raised_mid_turn_is_durable_immediately_but_ui_event_waits_f
     spine.set_observer(Box::new(observer.clone()));
 
     spine.debug_set_turn_in_progress(true);
-    let proactive_turn_id = spine.raise_proactive(None, AttentionTier::Digest, "queued while busy").unwrap();
-    assert!(observer.events().is_empty(), "no live event fires while a turn is (simulated) in flight");
-    // But durability doesn't wait for the boundary.
+    let proactive_turn_id = spine.raise_proactive(None, AttentionTier::Digest, "said while busy").unwrap();
+    let sent = |events: &[StreamEvent]| events.iter().filter(|e| matches!(
+        e, StreamEvent::ProactiveMessage { turn_id, .. } if turn_id == &proactive_turn_id)).count();
+    assert_eq!(sent(&observer.events()), 1, "sent to the window while the turn is (simulated) in flight");
     assert_eq!(spine.messages(&thread).unwrap().len(), 1, "the message is already durable/readable");
     spine.debug_set_turn_in_progress(false);
 
-    // Drive a REAL turn boundary — its own after_turn_boundary() flushes the deferred emit.
+    // A REAL turn boundary does not send it a second time.
     spine.submit_prompt("hi", Source::Text).unwrap();
-
-    let events = observer.events();
-    assert!(
-        events.iter().any(|e| matches!(
-            e,
-            StreamEvent::ProactiveMessage { turn_id, .. } if turn_id == &proactive_turn_id
-        )),
-        "the deferred proactive event was flushed at the next turn boundary"
-    );
+    assert_eq!(sent(&observer.events()), 1, "the boundary sent the message again");
     let _ = std::fs::remove_file(&path);
 }
 
@@ -1318,6 +1312,50 @@ fn the_switch_notice_waits_until_a_turn_really_runs_under_the_new_account() {
     assert_eq!(spine.rotation_count(), 1);
     assert!(prompts.lock().unwrap().contains(&("2".to_string(), "It finished".to_string())));
     assert_eq!(notices(&spine), vec![NOTICE.to_string()], "said once, once the turn ran under Work");
+    drop(std::fs::remove_file(&path));
+    drop(std::fs::remove_dir_all(dir));
+}
+
+/// **"Switched to" is drawn while the turn on the new account is still running** (round 16,
+/// state `switched-line`: Rich's switch line, then "• 3 agents working on Work", a row that
+/// exists only during a turn). The notice is raised inside his turn (`prepare_request`, once
+/// the lease on Work is in the chair), so the window's signal to draw it,
+/// `rich://proactive-message`, must leave the spine during that turn: after his turn started
+/// (never before a turn runs on Work, `f2d3ab1c4`) and before it completed.
+///
+/// RED on `40de1962f` (main's deferral): the notice's event was held to the turn's boundary
+/// and left after `turn-completed`, so the line appeared only once the turn was over.
+#[test]
+fn the_switch_notice_is_drawn_while_the_turn_on_the_new_account_runs() {
+    let (dir, quota) = two_accounts("notice-during-turn", 60.);
+    quota.set_policy(richos_core::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
+    quota.set_at_threshold(richos_core::claude_accounts::AtThreshold::Switch).unwrap();
+    let (path, ledger) = tmp_ledger("fill-first-notice-during-turn");
+    let mut spine = support::spine(ledger);
+    spine.create_thread("General", &femcboost()).unwrap();
+    let streamed = Arc::new(Mutex::new(Some(streamed_five_hour(93., richos_core::util::now_millis() + 1_000))));
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    spine.attach_lease(Box::new(AccountLease { session_id: "sess-account-1".into(), account: "1".into(),
+        streamed: streamed.clone(), fail_with: None, prompts: prompts.clone() }));
+    spine.set_lease_factory(Box::new(AccountFactory { quota: quota.clone(), spawned: Arc::new(Mutex::new(Vec::new())),
+        streamed: Arc::new(Mutex::new(None)), prompts: prompts.clone() }));
+    let observer = RecordingObserver::default();
+    spine.set_observer(Box::new(observer.clone()));
+
+    spine.submit_prompt("What is on my plate?", Source::Text).unwrap();
+
+    assert!(prompts.lock().unwrap().contains(&("2".to_string(), "What is on my plate?".to_string())), "his turn ran under Work");
+    let turns = spine.ledger().turns();
+    let his = turns.iter().find(|t| t.user_text == "What is on my plate?").expect("his turn").id.clone();
+    let notice = turns.iter().find(|t| t.assistant_text.starts_with("Switched to Work")).expect("the switch notice").id.clone();
+    let events = observer.events();
+    let at = |wanted: &dyn Fn(&StreamEvent) -> bool| events.iter().position(wanted);
+    let started = at(&|e| matches!(e, StreamEvent::TurnStarted { turn_id, .. } if *turn_id == his)).expect("his turn started");
+    let completed = at(&|e| matches!(e, StreamEvent::TurnCompleted { turn_id, .. } if *turn_id == his)).expect("his turn completed");
+    let drawn = at(&|e| matches!(e, StreamEvent::ProactiveMessage { turn_id, .. } if *turn_id == notice))
+        .expect("the switch notice was never sent to the window");
+    assert!(started < drawn, "the switch line was sent before a turn ran on Work: {events:?}");
+    assert!(drawn < completed, "the switch line was held until his turn ended: {events:?}");
     drop(std::fs::remove_file(&path));
     drop(std::fs::remove_dir_all(dir));
 }
