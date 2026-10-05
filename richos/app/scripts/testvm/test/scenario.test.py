@@ -16,6 +16,17 @@ from scenario import Failure, TurnBudget, run
 
 
 
+# How a test reads a process's nice value: os.getpriority, a read. os.nice(0) is a read and a
+# WRITE (getpriority, then setpriority to the same value), and at macOS's ceiling, nice 20, that
+# write is refused: PermissionError. A run that is already niced (a low-priority caller, a
+# reniced verification) puts `reserve.py --low-priority`'s child at the ceiling, and the probe
+# raised there (merge gate, 2026-10-02 23:52; reproduced 2026-10-05: after `renice 20` of its
+# own process os.nice(0) raises and getpriority reads 20). The nice value is capped there too.
+NICE_CEILING=20
+def own_priority():
+    return os.getpriority(os.PRIO_PROCESS,0)
+PRIORITY_PROBE='import os;print(os.getpriority(os.PRIO_PROCESS,0))'
+
 def S(user,sys_=5.0,pressure='normal',swapout=0.0):
     """A host_sample() result."""
     return {'cpu_user_percent':user,'cpu_system_percent':sys_,'cpu_idle_percent':max(0.0,100-user-sys_),
@@ -160,16 +171,25 @@ class ScenarioTests(unittest.TestCase):
         return subprocess.run([sys.executable,'-c',bootstrap,*args],capture_output=True,text=True,
                               timeout=120,start_new_session=True)
     def test_low_priority_runs_the_command_niced_and_says_so(self):
-        probe=[sys.executable,'-c','import os;print(os.nice(0))']
+        probe=[sys.executable,'-c',PRIORITY_PROBE]
         run_=self.reserve_cli('--low-priority','--max-swapout-mb-s','100000','--',*probe)
         self.assertEqual(run_.returncode,0,run_.stderr)
-        self.assertGreaterEqual(int(run_.stdout.strip()),os.nice(0)+reserve.LOW_PRIORITY_NICE)
+        self.assertGreaterEqual(int(run_.stdout.strip()),min(NICE_CEILING,own_priority()+reserve.LOW_PRIORITY_NICE))
         self.assertIn('LOW PRIORITY (CEO ruling §78)',run_.stderr)
         self.assertIn('memory rule was applied',run_.stderr)
         plain=self.reserve_cli('--max-swapout-mb-s','100000','--',*probe)
         self.assertEqual(plain.returncode,0,plain.stderr)
-        self.assertEqual(int(plain.stdout.strip()),os.nice(0),plain.stderr)
+        self.assertEqual(int(plain.stdout.strip()),own_priority(),plain.stderr)
         self.assertNotIn('LOW PRIORITY',plain.stderr)
+
+    def test_the_priority_probe_reads_a_process_at_the_nice_ceiling(self):
+        # The low-priority test's probe in a process already at nice 20, where a caller that was
+        # niced puts `--low-priority`'s child: it must still read the value (see own_priority).
+        child=('import os,subprocess,sys;'
+               'subprocess.run(["renice",sys.argv[2],"-p",str(os.getpid())],stdout=subprocess.DEVNULL,check=True);'
+               'exec(sys.argv[1])')
+        done=subprocess.run([sys.executable,'-c',child,PRIORITY_PROBE,str(NICE_CEILING)],capture_output=True,text=True)
+        self.assertEqual((done.returncode,done.stdout.strip()),(0,str(NICE_CEILING)),done.stderr[-300:])
 
     def test_admission_wait_rechecks_and_records_delay(self):
         with patch('reserve.host_sample',side_effect=[S(40,sys_=55),S(20)]),patch('reserve.time.monotonic',side_effect=[0,1,31]),patch('reserve.time.sleep') as sleep,patch('reserve.os.getloadavg',return_value=(20,20,20)):
