@@ -3736,6 +3736,8 @@ fn main() {
             mac_attachments::attach_pasted_file,
             mac_attachments::discard_attachment,
             mac_attachments::commit_attachments,
+            // Add to chat from the Output panel (output side-panel PRD §12.7): the same desk.
+            mac_attachments::output_attach,
             output_files::list_output,
             output_files::output_file,
             output_files::output_preview,
