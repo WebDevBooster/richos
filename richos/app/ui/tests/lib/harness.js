@@ -1067,6 +1067,48 @@ const SEED_THEME = (theme) => {
   }
 };
 
+/// THE APP'S FRAME NEVER SCROLLS — WATCHED ON EVERY PAGE THAT INSTALLS THIS.
+///
+/// Use as `await page.addInitScript(FRAME_STILL)`, next to the suite's page-error listener.
+///
+/// The shell's frame is the document, `#app` and the two side panes. None of them is meant to
+/// scroll; only the regions inside them do (`#conversation`, `#rail-nav`, `.op-body`, the
+/// inspector's body). A frame box that CAN scroll will, the first time anything asks for an
+/// element to be shown: `scrollIntoView` aligns it in every scrollable ancestor, a focus without
+/// `preventScroll` does the same, and so does the test driver's own click. Nightly `a1a26a615`
+/// photographed exactly that: `#app` (overflow: hidden, so still a scroll container) scrolled
+/// 417px by "Wrote N files", the whole shell shifted up, a blank band at the bottom, 39.96% of
+/// `output-file-md-dark.png` changed — and no check said why, because nothing looked.
+///
+/// So a scroll of any frame box to a non-zero offset is reported the way every suite here already
+/// fails on: as a console error, which each suite's `pageerror`/`console` listener collects and
+/// its "no page errors" checks refuse. Scroll events do not bubble, so this listens in the
+/// capture phase on the document, which every element's scroll passes through.
+const FRAME_STILL = () => {
+  const FRAME = ["app", "stage", "outpanel", "inspector", "rail"];
+  document.addEventListener(
+    "scroll",
+    (e) => {
+      const t = e.target;
+      let what = null;
+      let box = null;
+      if (t === document) {
+        what = "the document";
+        box = document.scrollingElement;
+      } else if (t && t.id && FRAME.includes(t.id)) {
+        what = "#" + t.id;
+        box = t;
+      }
+      if (!box || (box.scrollTop === 0 && box.scrollLeft === 0)) return;
+      console.error(
+        "FRAME SCROLLED: " + what + " scrolled to top " + box.scrollTop + "px, left " + box.scrollLeft +
+          "px; the app's frame never scrolls (style.css `#app`, tests/lib/harness.js FRAME_STILL)"
+      );
+    },
+    true
+  );
+};
+
 const HOLD_CURTAIN = () => {
   let real;
   // `armedAt` is the page's own clock at the instant the ceiling would have been armed, which
@@ -1583,6 +1625,7 @@ module.exports = {
   assertOnThread,
   SLOW_BRIDGE,
   SEED_THEME,
+  FRAME_STILL,
   HOLD_CURTAIN,
   assertCurtainHeld,
   skipSuite,

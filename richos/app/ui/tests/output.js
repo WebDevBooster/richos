@@ -48,6 +48,7 @@ const {
   shot,
   publishShotFile,
   awaitWorkerChipSettled,
+  FRAME_STILL,
   UI_DIR,
 } = require("./lib/harness");
 const { parseCssColor, compositeOver, contrastRatio, hex } = require("./lib/contrast");
@@ -83,6 +84,9 @@ async function openApp(browser, opts) {
       /* storage unavailable: the shipped default */
     }
   }, theme);
+  // The app's frame never scrolls: a scroll of the document, `#app` or a pane is a page error,
+  // which every "no page errors" check below refuses (harness.js FRAME_STILL).
+  await page.addInitScript(FRAME_STILL);
   // A repeatable stream for the mock's ids and canned replies.
   await page.addInitScript(() => {
     let state = 0x6a09e667;
@@ -373,6 +377,78 @@ async function main() {
     assert(g.focus, "focus is not in that turn's group");
     await page.keyboard.press("Escape");
     return "'Wrote 3 files' → the list, \"draft it, keep it firm\" pulsed and focused";
+  });
+
+  // THE APP'S FRAME NEVER SCROLLS (nightly a1a26a615). `#app` was `overflow: hidden`, which is
+  // still a scroll container, and the thread's screen-reader labels hang below the window once
+  // the panel narrows it, so it had 417px of hidden range. "Wrote N files" (`openGroup`'s
+  // `scrollIntoView({ block: "start" })`) scrolled the whole shell up by up to that much, and so
+  // did the test driver's click when it retried with a forced alignment: the conversation, the
+  // rail and the panel all started partway down, with a blank band at the bottom. Driven here
+  // through the app's own click (not the driver's, which scrolls on its own account), every
+  // turn's digest, then every row shown at every alignment, then the frame asked to scroll
+  // outright: the document, `#app` and the panel stay at 0 throughout.
+  await run.check("the app's frame never scrolls — 'Wrote N files' on every turn, any row shown at any alignment", async () => {
+    const frame = () =>
+      page.evaluate(() => ({
+        doc: document.scrollingElement.scrollTop,
+        app: document.getElementById("app").scrollTop,
+        panel: document.getElementById("outpanel").scrollTop,
+      }));
+    const still = { doc: 0, app: 0, panel: 0 };
+    try {
+      return await frameWalk();
+    } finally {
+      // Whatever it found, the next check starts where it expects: the frame at 0, the panel closed.
+      await page.evaluate(() => {
+        document.scrollingElement.scrollTop = 0;
+        document.getElementById("app").scrollTop = 0;
+        document.getElementById("outpanel").scrollTop = 0;
+      });
+      if (await page.evaluate(() => window.RichOutput.isOpen())) {
+        await page.keyboard.press("Escape");
+        if (await page.evaluate(() => window.RichOutput.isOpen())) await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.getElementById("outpanel").hidden);
+      }
+    }
+    async function frameWalk() {
+      const digests = await page.evaluate(() => [...document.querySelectorAll('[id^="wrote:"]')].map((n) => n.id));
+      assert(digests.length >= 3, "the fixture's turns have no 'Wrote N files' to press: " + JSON.stringify(digests));
+      for (const id of digests) {
+        await page.evaluate((i) => document.getElementById(i).click(), id);
+        await page.waitForSelector("#outpanel .orow");
+        await page.evaluate(() => Promise.all(document.getElementById("outpanel").getAnimations().map((a) => a.finished)));
+        assertEqual(await frame(), still, "pressing " + id + " scrolled the app's frame");
+      }
+      const aligned = await page.evaluate(() => {
+        const moved = [];
+        const rows = [...document.querySelectorAll("#outpanel .orow")];
+        for (const row of rows) {
+          for (const block of ["start", "center", "end", "nearest"]) {
+            row.scrollIntoView({ block });
+            const app = document.getElementById("app").scrollTop;
+            const doc = document.scrollingElement.scrollTop;
+            const panel = document.getElementById("outpanel").scrollTop;
+            if (app || doc || panel) moved.push(row.querySelector(".oname").textContent + " " + block + ": app " + app + ", document " + doc + ", panel " + panel);
+          }
+        }
+        document.getElementById("op-body").scrollTop = 0;
+        return { rows: rows.length, moved };
+      });
+      assertEqual(aligned.moved, [], "showing a row scrolled the app's frame");
+      const forced = await page.evaluate(() => {
+        const boxes = { doc: document.scrollingElement, app: document.getElementById("app"), panel: document.getElementById("outpanel") };
+        const out = {};
+        for (const [k, b] of Object.entries(boxes)) {
+          b.scrollTop = 100000;
+          out[k] = b.scrollTop;
+          b.scrollTop = 0;
+        }
+        return out;
+      });
+      assertEqual(forced, still, "the app's frame can be scrolled at all");
+      return digests.length + " digests pressed; " + aligned.rows + " rows x 4 alignments; asked to scroll outright: document, #app and the panel all held at 0";
+    }
   });
 
   await run.check("⌘⇧O toggles the panel, as either button does", async () => {
