@@ -15778,6 +15778,13 @@
           "to": "scripts/lib/operator-fences-holders.test.py"
         }
       ]
+    },
+    "scripts/lib/merge-verification-pins.test.sh": {
+      "source": "scripts/lib/merge-verification-pins.test.sh",
+      "sha256": "84279a45ed2a4da86eaa233aec553c7927f231ec57ef1b99870b031c576920e8",
+      "evidence": "Reviewed 2026-10-05: builds a private repository under TMPDIR with its own fixture maps, readers and git configuration (GIT_CONFIG_GLOBAL in the sandbox, no system config), runs the repository's install.sh and the merge driver there, and reads nothing from orchestration.config.",
+      "keys": [],
+      "edges": []
     }
   },
   "units": {
@@ -15960,7 +15967,8 @@
     "scripts/hooks/by-reference-2.test.sh": "scripts/hooks/by-reference-2.test.sh",
     "scripts/hooks/by-reference-3.test.sh": "scripts/hooks/by-reference-3.test.sh",
     "scripts/hooks/by-reference-4.test.sh": "scripts/hooks/by-reference-4.test.sh",
-    "scripts/operator-fences-second-git.test.sh": "scripts/operator-fences-second-git.test.sh"
+    "scripts/operator-fences-second-git.test.sh": "scripts/operator-fences-second-git.test.sh",
+    "scripts/lib/merge-verification-pins.test.sh": "scripts/lib/merge-verification-pins.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

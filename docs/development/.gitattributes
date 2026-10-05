@@ -1,0 +1,4 @@
+# The reviewed checks' reader pins are merged as JSON and their pins regenerated from the merged
+# files (richos/engine/scripts/lib/merge-verification-pins.py), never line by line. The driver is
+# registered by richos/app/scripts/autocheck/install.sh.
+verification-input-qualifications.json merge=richos-verification-pins

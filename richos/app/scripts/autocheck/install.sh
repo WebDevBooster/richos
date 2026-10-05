@@ -21,6 +21,9 @@
 #
 # A hook file that this did not write is never overwritten: it is reported and the install
 # refuses, because replacing it would silently remove somebody else's check.
+#
+# It also registers the merge driver for the two verification maps (merge.richos-verification-pins,
+# see below), which --check reports and --uninstall removes.
 
 set -uo pipefail
 
@@ -33,7 +36,7 @@ MODE=install
 case "${1:-}" in
     --check) MODE=check; shift ;;
     --uninstall) MODE=uninstall; shift ;;
-    -h|--help) sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "${BASH_SOURCE[0]}"; exit 0 ;;
 esac
 REPO="${1:-$SELF_DIR}"
 
@@ -59,6 +62,39 @@ reachable() {
 ours() { [ -f "$1" ] && grep -q "$MARKER" "$1" 2>/dev/null; }
 
 rc=0
+
+# THE MERGE DRIVER FOR THE TWO VERIFICATION MAPS (2026-10-05). Every branch that changes a pinned
+# reader renews its sha256 pin, so two branches built in parallel conflicted in
+# docs/development/verification-input-qualifications.json and
+# richos/engine/scripts/lib/verification-dependencies.json on every merge, and each time somebody
+# took one side and re-ran renew-verification-pins.py by hand. The .gitattributes beside each map
+# names this driver; it merges them as JSON, keeps every entry from both sides and regenerates
+# the pins from the merged files (merge-verification-pins.py). Repository config, so it reaches
+# every linked worktree, like the hooks.
+DRIVER="merge.richos-verification-pins"
+DRIVER_NAME="verification maps: JSON merge, pins regenerated from the merged files"
+# shellcheck disable=SC2016 # the $(...) is for git's shell when it runs the driver, never this one
+DRIVER_CMD='python3 "$(git rev-parse --show-toplevel)/richos/engine/scripts/lib/merge-verification-pins.py" %O %A %B %P'
+case "$MODE" in
+    install)
+        if git -C "$REPO" config "$DRIVER.name" "$DRIVER_NAME" && git -C "$REPO" config "$DRIVER.driver" "$DRIVER_CMD"; then
+            printf 'INSTALLED  %s.driver\n' "$DRIVER"
+        else
+            printf 'FAILED     %s.driver\n' "$DRIVER"; rc=1
+        fi
+        ;;
+    check)
+        if [ "$(git -C "$REPO" config --get "$DRIVER.driver" 2>/dev/null)" = "$DRIVER_CMD" ]; then
+            printf 'INSTALLED  %s.driver\n' "$DRIVER"
+        else
+            printf 'MISSING    %s.driver (run install.sh)\n' "$DRIVER"; rc=1
+        fi
+        ;;
+    uninstall)
+        git -C "$REPO" config --remove-section "$DRIVER" 2>/dev/null && printf 'REMOVED    %s\n' "$DRIVER"
+        ;;
+esac
+
 for name in $HOOKS; do
     target="$DEST/$name"
     case "$MODE" in

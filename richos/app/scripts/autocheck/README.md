@@ -63,6 +63,17 @@ every stale pin in the file. It parses the declaration only when a changed path 
 and takes under a second on a branch that renewed 274 pins. `../dependency-pins.test.sh` proves
 it with throwaway repositories and checks its digests against `verification_inputs.py`.
 
+**Two branches that renewed pins merge by themselves (2026-10-05).** Because every branch renews
+the pins of the readers it changed, any two branches built in parallel used to conflict in both
+maps, and somebody took one side and re-ran `renew-verification-pins.py` by hand. A `.gitattributes`
+beside each map names the merge driver `richos-verification-pins`
+(`richos/engine/scripts/lib/merge-verification-pins.py`), which `install.sh` registers: it merges
+the two maps as JSON, keeps every entry from both sides, and sets a pin both sides changed to the
+sha256 of the merged file (the three versions merged with `git merge-file`), which is what renewing
+it by hand after the merge gives. A value both sides changed that is not a pin (a review) is still
+a conflict with git's markers. `install.sh --check` reports the driver;
+`richos/engine/scripts/lib/merge-verification-pins.test.sh` proves it in a throwaway repository.
+
 ## The merge gate: small, capped, and blocking only on a failure (2026-09-30)
 
 The CEO, after a day of 25-71 minute merge checks that failed on everything but the fixes:
