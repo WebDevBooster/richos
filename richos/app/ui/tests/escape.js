@@ -43,6 +43,7 @@
 //   B6  the home screen's own dialog, on a copy with no companies
 //   B7  Escape at the home screen cannot answer a surface painted BEHIND it   [derived]
 //   B8  the machinery itself: a named control is not pressed on a popup nobody can see
+//   B9  the Output panel: a file back to its list, the list to closed, a popup above it first
 //   C1  Escape with nothing open moves nothing and steals no key
 //   C2  this suite actually checked something
 //
@@ -629,6 +630,52 @@ async function main() {
     );
   });
 
+  await run.check("B9  the Output panel steps back one level per Escape, under anything above it", async () => {
+    // Output side panel PRD §6.8: "Esc steps back: a menu, then the file view to the list (row
+    // kept selected), then the panel." The panel is a declared surface (`data-dismiss="escape"`)
+    // so B1 already closes it from outside; this is the layer B1 cannot see — the panel's own
+    // step from a file back to its list — and the order against a popup painted above it.
+    const page = await openApp(browser, { output: "round-17" });
+    await page.click('.nav-thread[data-thread-id="acme"]');
+    await page.waitForFunction(() => window.RichOutput.snapshot().count === 9);
+    await page.click("#out-top");
+    await page.waitForSelector("#outpanel .orow");
+    await page.click("#outpanel .orow");
+    await page.waitForSelector("#of-back");
+    // A popup ABOVE the panel: the thread's own menu, opened by its real control (its `⋯`).
+    await page.evaluate(() => {
+      const row = document.querySelector('.nav-thread[data-thread-id="acme"]').closest(".nav-thread-row");
+      row.querySelector(".nav-thread-more").click();
+    });
+    await page.waitForSelector("#thread-menu:not([hidden])");
+    const read = () =>
+      page.evaluate(() => ({
+        menu: !document.getElementById("thread-menu").hidden,
+        panel: !document.getElementById("outpanel").hidden,
+        view: document.getElementById("op-body").dataset.view,
+        selected: document.querySelector(".orow.is-open") ? document.querySelector(".orow.is-open").dataset.output : null,
+      }));
+    const steps = [];
+    await focusTheComposer(page);
+    await page.keyboard.press("Escape");
+    let s = await read();
+    assert(!s.menu && s.panel && s.view === "file", "the first Escape did not take the menu above the panel first: " + JSON.stringify(s));
+    steps.push("menu");
+    await page.keyboard.press("Escape");
+    s = await read();
+    assert(s.panel && s.view === "list", "Escape from a file did not step back to the list: " + JSON.stringify(s));
+    assert(s.selected, "the file's row was not kept selected");
+    steps.push("file→list");
+    await page.keyboard.press("Escape");
+    s = await read();
+    assert(!s.panel, "Escape from the list did not close the panel");
+    steps.push("list→closed");
+    bump(4);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return steps.join(", ");
+  });
+
   // =======================================================================================
   // C — AND IT TAKES NOTHING IT WAS NOT GIVEN
   // =======================================================================================
@@ -706,5 +753,7 @@ main().catch((e) => {
 // B8b  main.js `isPainted`: return `hit === node` without `node.contains(hit)`
 //        -> a popup whose center lands on its own panel reads as covered, and Escape stops
 //           closing every sheet in the window
+// B9   output-panel.js `escape`: call `close()` unconditionally
+//        -> "Escape from a file did not step back to the list"
 // C1   main.js: make `dismissTopmostPopup` return true unconditionally
 //        -> Escape starts eating keystrokes with nothing on screen
