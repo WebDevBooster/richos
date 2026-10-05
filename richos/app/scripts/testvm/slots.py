@@ -27,11 +27,14 @@ SLOT 1 KEEPS THE OLD NAME, `<TESTVM_ROOT>/guest.lock`, on purpose: a run-walk.py
 checkout older than this file still takes that lock, so it still counts as one slot, and the
 new code can never put a third guest beside it. Slot 2 is `guest-2.lock`.
 
-ADMISSION, in order, every attempt: a free slot (a nonblocking flock, no sample spent); fewer
-guests running than there are slots (tart's own list, so a guest booted by an old checkout
-is counted); reserve.py's CPU and memory rule (CEO ruling §77); then THE GUEST'S OWN MEMORY.
-A refused sample RELEASES the slot before waiting, so nobody queues behind a caller that is
-itself waiting. `--wait SECONDS` bounds the whole admission; 0, the default, refuses at once.
+ADMISSION, in order, every attempt: a slot that is free (a probe that holds nothing, so no
+sample is spent while every slot executes a run); fewer guests running than there are slots
+(tart's own list, so a guest booted by an old checkout is counted); reserve.py's CPU and memory
+rule (CEO ruling §77); then THE GUEST'S OWN MEMORY. ONLY THEN is a slot taken: a caller being
+sampled, refused or waiting holds no slot, so no walk queues behind one that is not admitted
+(2026-10-05; until then a slot was held through the one-second CPU sample, and a walk arriving
+in that second was refused as if both slots ran). `--wait SECONDS` bounds the whole admission;
+0, the default, refuses at once.
 From the first refusal until the caller is admitted or refused for good, the wait is RECORDED
 (the engine's resource_waits.py, through reserve.py), so the lead's turn end is refused once
 any caller has waited past ten minutes (the engine's guard-resource-waits.sh).
@@ -323,18 +326,11 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
     try:
         while True:
             handle = path = None
-            for candidate in paths:
-                handle = _try(candidate)
-                if handle:
-                    path = candidate
-                    # Said at once, so `status` never mistakes a caller mid-admission for an older
-                    # checkout's run (seen 2026-09-27 20:41Z).
-                    _write(handle, {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose,
-                                    'slot': path.name, 'state': 'admitting',
-                                    'owner': os.environ.get('RICHOS_AGENT_OWNER', '')})
-                    break
             pause = SLOT_POLL_SECONDS
-            if handle is None:
+            # Admission first, holding nothing: a caller being sampled for CPU or memory, or
+            # refused, never holds a slot another walk could have run in. A slot is taken only
+            # once the run is admitted. The probe below holds nothing and spends no sample.
+            if all(is_held(candidate) for candidate in paths):
                 mine = own_holder(paths)
                 if mine:
                     raise BlockingIOError(f'guest slot refused: your own run (pid {mine[0]}, {mine[1]}) holds it, '
@@ -350,14 +346,20 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
                         sample = admit()
                         reason = memory(sample, busy)
                         if not reason:
-                            break
-                        pause = reserve.MIN_RETRY_SECONDS
+                            for candidate in paths:
+                                handle = _try(candidate)
+                                if handle:
+                                    path = candidate
+                                    break
+                            if handle:
+                                break
+                            # Admitted, but every slot was taken while this caller was sampled.
+                            reason = f'every slot is executing a run ({describe_holders(paths)})'
+                        else:
+                            pause = reserve.MIN_RETRY_SECONDS
                 except BlockingIOError as refused:
                     reason = str(refused)
                     pause = reserve.MIN_RETRY_SECONDS
-                _write(handle, None)
-                fcntl.flock(handle, fcntl.LOCK_UN)
-                handle.close()
             elapsed = clock() - started
             remaining = wait_seconds - elapsed
             if remaining <= 0:
