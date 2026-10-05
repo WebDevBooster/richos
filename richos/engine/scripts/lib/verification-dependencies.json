@@ -13705,7 +13705,7 @@
     },
     "mega-lander/tests/path-spaces.test.py": {
       "source": "mega-lander/tests/path-spaces.test.py",
-      "sha256": "a552c63a16b60facb0cdf42593f4a8aebf76358d3ce0ce06f7e298855e474908",
+      "sha256": "8f98b1246f6d18ea02e42f2fd06deab3fe8eb8923101b841ef8bf0c6de222007",
       "evidence": "Private Git/registry fixture invokes integration, SessionStart hook, register-spawn, the plain-repo creator, preparation CLI and actual isolation guard. Retain the full existing guard and workspace dependency keys conservatively, including real engine model/cleanup settings.",
       "keys": [],
       "edges": [

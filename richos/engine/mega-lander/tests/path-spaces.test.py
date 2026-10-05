@@ -21,7 +21,11 @@ class WorkspacePathTests(unittest.TestCase):
                    "RICHOS_SESSION_ID": "path-probe", "RICHOS_SESSION_PID": str(os.getpid()),
                    "RICHOS_ENTITY_ROOT": str(seat), "CLAUDE_PROJECT_DIR": str(seat),
                    "RICHOS_ENGINE_ROOT": str(ENGINE), "CLAUDE_PLUGIN_ROOT": str(ENGINE),
-                   "GUARD_ISOLATION_TEAMS_DIR": str(root / "teams")}
+                   "GUARD_ISOLATION_TEAMS_DIR": str(root / "teams"),
+                   # workspaces.py and the guard write CLAUDE_CONFIG_DIR (else ~/.claude)/state:
+                   # run by hand, the inherited HOME is the operator's record. Never write it.
+                   "HOME": str(root / "home"), "CLAUDE_CONFIG_DIR": str(root / "home/.claude")}
+            (root / "home").mkdir()
             def run(args, payload=None, ok=True):
                 result = subprocess.run([str(a) for a in args], env=env, input=payload,
                                         capture_output=True, text=True)
