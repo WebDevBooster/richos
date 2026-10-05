@@ -17,15 +17,19 @@ class WorkspacePathTests(unittest.TestCase):
             root = Path(temporary).resolve()
             seat, target = root / "coordination", root / "target project"
             tree = root / "target worktrees/worker-sonnet-spaces"
-            env = {**os.environ, "RICHOS_WORKSPACES_DIR": str(root / "state"),
+            # HOME and CLAUDE_CONFIG_DIR are this folder's own: the SessionStart hook collects test
+            # devices machine-wide (workspaces.py collect_test_devices, apply=True) under
+            # <config>/state/test-devices, and the ownership ledger resolves from HOME. Run by
+            # hand with the operator's HOME, both were the operator's record (the gate's record
+            # canary, 2026-10-05: <HOME>/.claude/state/test-devices/.lock appeared).
+            home = root / "home"
+            home.mkdir()
+            env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+                   "RICHOS_WORKSPACES_DIR": str(root / "state"),
                    "RICHOS_SESSION_ID": "path-probe", "RICHOS_SESSION_PID": str(os.getpid()),
                    "RICHOS_ENTITY_ROOT": str(seat), "CLAUDE_PROJECT_DIR": str(seat),
                    "RICHOS_ENGINE_ROOT": str(ENGINE), "CLAUDE_PLUGIN_ROOT": str(ENGINE),
-                   "GUARD_ISOLATION_TEAMS_DIR": str(root / "teams"),
-                   # workspaces.py and the guard write CLAUDE_CONFIG_DIR (else ~/.claude)/state:
-                   # run by hand, the inherited HOME is the operator's record. Never write it.
-                   "HOME": str(root / "home"), "CLAUDE_CONFIG_DIR": str(root / "home/.claude")}
-            (root / "home").mkdir()
+                   "GUARD_ISOLATION_TEAMS_DIR": str(root / "teams")}
             def run(args, payload=None, ok=True):
                 result = subprocess.run([str(a) for a in args], env=env, input=payload,
                                         capture_output=True, text=True)

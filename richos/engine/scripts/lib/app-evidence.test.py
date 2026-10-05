@@ -22,6 +22,15 @@ def load(name, path):
     return module
 
 
+def own_home(root):
+    """The environment for a real engine script this suite runs: HOME and CLAUDE_CONFIG_DIR in the
+    test's own temporary folder, so run by hand it can never write the operator's record
+    (<HOME>/.claude/state, the record canary's watch)."""
+    home = Path(root) / "home"
+    home.mkdir(exist_ok=True)
+    return {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
+
+
 adapter = load("app_evidence", ENGINE / "scripts/lib/app-evidence.py")
 manifest = load("turn_manifest", ENGINE / "scripts/hooks/turn-manifest.py")
 
@@ -95,7 +104,7 @@ class EvidenceTests(unittest.TestCase):
         (agents / "worker.md").write_text("---\nname: worker\n---\n")
         self.event("UserPromptSubmit", prompt="Implement the synthetic fixture.")
         stop = self.event("Stop", last_assistant_message="Worker builds it tomorrow.", stop_hook_active=False)
-        env = {**os.environ, "RICHOS_SA_ENTITY_ROOT": str(self.root),
+        env = {**own_home(self.root), "RICHOS_SA_ENTITY_ROOT": str(self.root),
                "RICHOS_SA_TEAMS_DIR": str(self.root / "teams")}
         def check():
             return subprocess.run([sys.executable, str(ENGINE / "ass-kicker/guard-stated-actions.py")],
@@ -335,16 +344,12 @@ class DesktopHookHandOff(unittest.TestCase):
         self.data.mkdir()
         self.scope = self.root / "scope.json"
         self.scope.write_text(json.dumps({"version": 1, "actions_allowed": True}))
-        self.env = {**os.environ, "RICHOS_APP_STATE": str(self.data / "engine-state"),
+        self.env = {**own_home(self.root), "RICHOS_APP_STATE": str(self.data / "engine-state"),
             "RICHOS_APP_SCOPE": str(self.scope), "RICHOS_ENTITY_ROOT": str(self.coordination),
             "RICHOS_ENGINE_ROOT": str(ENGINE), "RICHOS_SA_ENTITY_ROOT": str(self.coordination),
             "RICHOS_SA_TEAMS_DIR": str(self.root / "teams"),
             "RICHOS_WORKSPACES_DIR": str(self.root / "workspaces"),
-            "CLAUDE_PROJECT_DIR": str(self.coordination), "PYTHONDONTWRITEBYTECODE": "1",
-            # The real hook runs workspaces.py and the guards, which write <home>/.claude/state.
-            # Run by hand, the inherited HOME is the operator's record: never write it.
-            "HOME": str(self.root / "home"), "CLAUDE_CONFIG_DIR": str(self.root / "home/.claude")}
-        (self.root / "home").mkdir()
+            "CLAUDE_PROJECT_DIR": str(self.coordination), "PYTHONDONTWRITEBYTECODE": "1"}
         subprocess.run(["git", "init", "-q", str(self.coordination)], check=True, capture_output=True)
         past = time.time() - 60
         os.utime(self.coordination / "orchestration.config", (past, past))
