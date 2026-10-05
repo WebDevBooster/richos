@@ -158,8 +158,8 @@ print(json.dumps({'type': text(uti), 'before': before, 'set_status': status,
 
 # Slice S6: the name the walk gives the copy in the save sheet, so exactly one file in the guest
 # can be the copy, and the AppleScript that drives the sheet. The sheet is found on the app's own
-# window (bundle com.richos.app); its name field is the one holding the offered name, its Where
-# control is its first pop-up button. Prints SHEET<tab>offered<tab>typed<tab>where.
+# window (bundle com.richos.app). Its controls are the sheet's own children, as the walk's AX tree
+# showed them (attempt 4): text field 1 is Save As, pop up button 1 is Where, then the Save button. Prints SHEET<tab>offered<tab>typed<tab>where.
 SAVE_AS = 'panel-check copy from the walk.md'
 SAVE_SHEET = r'''
 tell application "System Events"
@@ -175,24 +175,9 @@ tell application "System Events"
   if not found then return "NOSHEET"
   set s to sheet 1 of window 1 of p
   delay 1
-  set nameField to missing value
-  set offered to ""
-  set whereName to "?"
-  repeat with e in (entire contents of s)
-    try
-      set r to role of e
-      if r is "AXTextField" and nameField is missing value then
-        set v to value of e
-        if v starts with "panel-check" then
-          set nameField to e
-          set offered to v
-        end if
-      else if r is "AXPopUpButton" and whereName is "?" then
-        set whereName to value of e
-      end if
-    end try
-  end repeat
-  if nameField is missing value then return "NOFIELD"
+  set nameField to text field 1 of s
+  set offered to value of nameField
+  set whereName to value of pop up button 1 of s
   set value of nameField to "@NAME@"
   delay 0.5
   return "SHEET" & tab & offered & tab & (value of nameField) & tab & whereName
@@ -201,16 +186,8 @@ end tell
 SAVE_PRESS = r'''
 tell application "System Events"
   set p to first process whose bundle identifier is "com.richos.app"
-  set s to sheet 1 of window 1 of p
-  repeat with e in (entire contents of s)
-    try
-      if role of e is "AXButton" and (title of e is "Save") then
-        click e
-        return "pressed"
-      end if
-    end try
-  end repeat
-  return "NOSAVE"
+  click button "Save" of sheet 1 of window 1 of p
+  return "pressed"
 end tell
 '''
 
@@ -605,7 +582,9 @@ class OutputWalk(command_walk.CommandWalk):
         time.sleep(1)
         item = self.press_any('Save a copy', ['AXMenuItem', 'AXButton'])
         note(more_role=more, item_role=item)
-        sheet = command([HERE / 'ax.sh', self.vm, SAVE_SHEET.replace('@NAME@', SAVE_AS)], 120).strip()
+        raw = command([HERE / 'ax.sh', self.vm, SAVE_SHEET.replace('@NAME@', SAVE_AS)], 120)
+        # ax.sh prints its own timing lines as JSON around the script's answer.
+        sheet = next((l for l in raw.splitlines() if l.startswith(('SHEET', 'NOSHEET'))), raw.strip())
         note(sheet=sheet)
         self.shot('save-copy-1-sheet.png')
         parts = sheet.split('\t')
@@ -614,7 +593,7 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the save sheet was not driven: ' + sheet)
         offered, typed, where = parts[1], parts[2], parts[3]
         note(offered_name=offered, typed_name=typed, where=where)
-        clicked = command([HERE / 'ax.sh', self.vm, SAVE_PRESS], 60).strip()
+        clicked = next((l for l in command([HERE / 'ax.sh', self.vm, SAVE_PRESS], 60).splitlines() if l == 'pressed'), None)
         note(save_pressed=clicked)
         said = None
         end = time.monotonic() + 20
