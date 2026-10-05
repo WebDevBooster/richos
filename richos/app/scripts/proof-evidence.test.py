@@ -48,6 +48,16 @@ def idle_proof_run(script):
 
 
 class Evidence(unittest.TestCase):
+    def test_pin_validator_stays_fresh_instead_of_using_whole_checkout_reuse(self):
+        item = SimpleNamespace(label='engine scripts/verification-pins.test.sh', argv=['bash', 'pins'])
+        with patch.object(runner, 'execution_environment', return_value={}), \
+                patch.object(evidence, 'contract_for', return_value={'fresh': 'pin validator'}), \
+                patch.object(evidence, 'command_identity', return_value={}), \
+                patch.object(evidence, 'checkout_identity') as checkout:
+            identity = runner.input_identity(item, SimpleNamespace(), str(self.root))
+        self.assertEqual(identity['fresh'], 'pin validator')
+        checkout.assert_not_called()
+
     def setUp(self):
         # The runner resolves its log and root paths. macOS's default TMPDIR is under /var,
         # a link to /private/var, so an unresolved fixture root compared as a different

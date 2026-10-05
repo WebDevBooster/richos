@@ -21,7 +21,9 @@ GLOBAL_CONFIG = "scripts/verification-config.test.sh"
 # readers' bytes. A change to a pinned reader selects it, so a stale pin fails at the land
 # that made it stale, not at the next nightly (2026-09-28: 33 sources had gone stale on
 # main, one land at a time, because nothing that checks pins was ever selected).
-PIN_CHECK = "scripts/verification-inputs.test.sh"
+FULL_INPUT_CHECK = "scripts/verification-inputs.test.sh"
+PIN_CHECK = "scripts/verification-pins.test.sh"
+DEPENDENCY_MAP = "scripts/lib/verification-dependencies.json"
 
 
 # A HOOK TIMEOUT EDIT SELECTS THAT HOOK'S CONSUMERS, NOT EVERY MANIFEST READER (2026-10-05).
@@ -134,6 +136,52 @@ def validate_config(engine):
     if unknown:
         raise Unsupported("unknown config keys require reader declarations: " + ", ".join(sorted(unknown)))
     return len(parsed)
+
+
+def digest_only_change(before, after):
+    """Only existing, well-formed reader digests may differ. Unknown shapes stay full."""
+    def unique(pairs):
+        out = {}
+        for key, value in pairs:
+            if key in out:
+                raise ValueError("duplicate declaration key")
+            out[key] = value
+        return out
+
+    def mask(text):
+        def invalid_constant(value):
+            raise ValueError("invalid declaration constant: " + value)
+        document = json.loads(text, object_pairs_hook=unique,
+                              parse_constant=invalid_constant)
+        if document.get("schema") != 1:
+            raise ValueError("unknown declaration schema")
+        def pin(value):
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError("invalid reader digest")
+            return "$DIGEST"
+        for row in document["nodes"].values():
+            row["sha256"] = pin(row["sha256"])
+            for external in row.get("external", []):
+                external["sha256"] = pin(external["sha256"])
+        for row in document.get("hook_readers", {}).values():
+            row["sources"] = {path: pin(value) for path, value in row["sources"].items()}
+        return document
+
+    try:
+        return isinstance(before, str) and isinstance(after, str) and mask(before) == mask(after)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
+def validate_pins(engine):
+    """Use the selector's existing reader validation, without running parser fixtures."""
+    document = json.loads((engine / DEPENDENCY_MAP).read_text())
+    graph = Dependencies(engine, document)
+    for name in document["nodes"]:
+        graph.node(name)
+    for row in document.get("hook_readers", {}).values():
+        hook_reader(row, graph.read)
+    return len(document["nodes"]), len(document.get("hook_readers", {}))
 
 
 class Selection:
@@ -272,6 +320,11 @@ class Selection:
             if commands and self.timeout_edit(path, commands, settings_command_path, before, after,
                                               'seated_text_needles'):
                 return
+        pin_check = PIN_CHECK if PIN_CHECK in self.units else FULL_INPUT_CHECK
+        renewal = (path == DEPENDENCY_MAP and PIN_CHECK in self.units
+                   and digest_only_change(before, after))
+        if renewal:
+            self.add(PIN_CHECK, path + ": existing reader digests renewed; dependency semantics unchanged")
         basename, stem = Path(path).name, str(Path(path).with_suffix(""))
         if path.startswith("voice/") and Path(path).suffix in (".js", ".mjs", ".json", ".sh"):
             self.suite("voice/tests/run.test.sh", path, "voice component inputs")
@@ -282,6 +335,8 @@ class Selection:
                 self.suite(sibling, path, "sibling suite")
         for suite, text in self.suites.items():
             if basename in text:
+                if renewal and suite == FULL_INPUT_CHECK:
+                    continue
                 if path == '.claude/settings.local.json' and self.unchanged_seated_reader(suite, before, after):
                     continue
                 if path == 'scripts/hooks/contract-integrity-probe.sh' and self.unchanged_probe_reader(suite, before, after):
@@ -308,8 +363,8 @@ class Selection:
                 listed.append(path)
         # Decided AFTER `matched`: the pin check proves the pin, not the reader's behavior,
         # so it never turns an unmapped executable into a mapped one.
-        if path in self.pinned and PIN_CHECK in self.units:
-            self.add(PIN_CHECK, path + ": pinned reader in verification-dependencies.json "
+        if path in self.pinned and pin_check in self.units:
+            self.add(pin_check, path + ": pinned reader in verification-dependencies.json "
                      "(renew its pin after review, in the same land)")
 
     def configuration(self, before, after, unknown=False):
@@ -405,11 +460,16 @@ def main(argv=None):
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--explain", action="store_true")
     parser.add_argument("--validate-config", action="store_true")
+    parser.add_argument("--validate-pins", action="store_true")
     args = parser.parse_args(argv)
     engine = Path(__file__).resolve().parents[2]
     try:
         if args.validate_config:
             print("PASS: global config syntax and declarations (%d keys)" % validate_config(engine))
+            return 0
+        if args.validate_pins:
+            nodes, hooks = validate_pins(engine)
+            print("PASS: reviewed dependency pins and reader floors (%d nodes, %d hook readers)" % (nodes, hooks))
             return 0
         root = Path(git(engine, "rev-parse", "--show-toplevel").strip())
         prefix = engine.relative_to(root).as_posix()
@@ -458,7 +518,7 @@ def main(argv=None):
             elif relative == 'hooks/hooks.json':
                 before = Snapshot(root, old).read(path) if old else None
                 selection.hooks(before, read(relative), unknown=old is None)
-            elif relative in ('.claude/settings.local.json', 'scripts/hooks/contract-integrity-probe.sh'):
+            elif relative in ('.claude/settings.local.json', 'scripts/hooks/contract-integrity-probe.sh', DEPENDENCY_MAP):
                 before = Snapshot(root, old).read(path) if old else None
                 selection.ordinary(relative, before, read(relative))
             else:
