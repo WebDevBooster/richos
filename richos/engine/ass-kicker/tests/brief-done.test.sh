@@ -120,6 +120,10 @@ ACKLOG="$SESSION/.claude/state/already-done-acks.log"
 
 # --- the briefs ------------------------------------------------------------------
 # The 2026-09-28 brief, reconstructed: same structure, same claim, same command shape.
+# The --since value carries a time and a zone. Git reads a bare date ("--since=2026-09-24")
+# as that date at the CURRENT time of day, so once the clock passed the fixture's
+# 2026-09-24 commit times the command printed nothing and D1f, D1g, D14 and D18b failed
+# every evening (seen 2026-10-04 22:04Z). Midnight UTC keeps every 2026-09-24 commit in.
 cat >"$T/andy.md" <<EOF
 cross-repo-worktree: $WS
 
@@ -132,7 +136,7 @@ Each defect is written up, with its reproduction, in the private record (read ea
 - D03: \`docs/defects/D03-android-denied-microphone-does-nothing.md\`
 - D04: \`docs/defects/D04-android-read-reply-notifications-stay-in-the-shade.md\`
 
-\`git -C $REPO log --oneline main --since=2026-09-24 -- richos/mobile/native-android\` shows no fix for any of them (checked 2026-09-28). Re-check each defect against current \`main\` first.
+\`git -C $REPO log --oneline main --since=2026-09-24T00:00:00Z -- richos/mobile/native-android\` shows no fix for any of them (checked 2026-09-28). Re-check each defect against current \`main\` first.
 
 One commit per defect, each with a test that fails before and passes after.
 EOF

@@ -429,6 +429,39 @@ def classify(path):
     return ("indeterminate", top, "check-ignore rc=%d" % rc)
 
 
+def companion_files(path, repo):
+    """Untracked, unignored files that belong with `path`, as absolute paths.
+
+    One rule: an input under `wiki/raw/` ends its stem in an id (the video id
+    in `...-watch-this-D8PikZ1KhUo.md`), and the run that produced it wrote
+    `wiki/raw/assets/<id>-<anything>/`. Those folders are its companions.
+    """
+    rel = os.path.relpath(path, repo)
+    parts = rel.split(os.sep)
+    if len(parts) != 3 or parts[:1] != ["wiki"] or parts[1] != "raw":
+        return []
+    stem = os.path.splitext(parts[2])[0]
+    vid = stem.rsplit("-", 1)[-1]
+    if not re.fullmatch(r"[A-Za-z0-9_]{6,}", vid):
+        return []
+    assets = os.path.join(repo, "wiki", "raw", "assets")
+    if not os.path.isdir(assets):
+        return []
+    out = []
+    for name in sorted(os.listdir(assets)):
+        if not name.startswith(vid + "-"):
+            continue
+        d = os.path.join(assets, name)
+        if os.path.islink(d) or not os.path.isdir(d):
+            continue
+        rc, listing, undecided = git(
+            ["ls-files", "--others", "--exclude-standard", "-z", "--", d], repo)
+        if undecided or rc != 0:
+            continue
+        out += [os.path.join(repo, f) for f in listing.split("\0") if f]
+    return out
+
+
 # ---------------------------------------------------------------------------
 # GATES
 # ---------------------------------------------------------------------------
@@ -600,11 +633,14 @@ def detectors_only(stderr_text):
 INDEX_STALE = "INDEX-STALE: "
 
 
-def commit(path, repo, session, stamp, data=None):
+def commit(path, repo, session, stamp, data=None, extras=()):
     """Commit one file, unmodified, via plumbing. (ok, sha_or_reason).
 
     (False, INDEX_STALE + ...) means the commit WAS made but the real index
-    could not be brought in step with it."""
+    could not be brought in step with it.
+
+    `extras` is [(path, bytes)]: the input's companion files, committed in the
+    SAME commit from the bytes the gates checked."""
     rel = os.path.relpath(path, repo)
     # BELT AND BRACES, and it is here because the first field replay produced
     # exactly this state and reported it as a bare `update-index rc=128`. A
@@ -618,6 +654,22 @@ def commit(path, repo, session, stamp, data=None):
                        "refused rather than committing something it could not "
                        "name" % (path, repo))
     mode = "100755" if os.access(path, os.X_OK) else "100644"
+    entries = []   # (mode, blob, rel) for every extra; the main file is appended below
+
+    for xpath, xdata in extras:
+        xrel = os.path.relpath(xpath, repo)
+        if xrel.startswith("..") or os.path.isabs(xrel):
+            return (False, "a companion file's path and its repository's path are in "
+                           "different spellings, so nothing was committed")
+        xr = subprocess.run(
+            ["git", "--no-optional-locks", "hash-object", "-w", "--stdin"],
+            cwd=repo, input=xdata, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=GIT_TIMEOUT_S,
+        )
+        xblob = xr.stdout.decode("utf-8", "replace").strip()
+        if xr.returncode != 0 or not xblob:
+            return (False, "hash-object failed for a companion file (rc=%d)" % xr.returncode)
+        entries.append(("100755" if os.access(xpath, os.X_OK) else "100644", xblob, xrel))
 
     if data is not None:
         # P3-22: commit the BYTES THE GATES CHECKED, never a re-read of the live
@@ -636,6 +688,7 @@ def commit(path, repo, session, stamp, data=None):
         rc, blob, undecided = git(["hash-object", "-w", "--", path], repo)
     if undecided or rc != 0 or not blob:
         return (False, "hash-object failed (%s)" % (undecided or "rc=%d" % rc))
+    entries.append((mode, blob, rel))
 
     rc, old, undecided = git(["rev-parse", "--verify", "HEAD"], repo)
     if undecided or rc != 0 or not old:
@@ -671,11 +724,12 @@ def commit(path, repo, session, stamp, data=None):
         rc, _o, err = gi(["read-tree", old])
         if rc != 0:
             return (False, "read-tree failed (%s)" % (err or "rc=%d" % rc))
-        rc, _o, err = gi(
-            ["update-index", "--add", "--cacheinfo", "%s,%s,%s" % (mode, blob, rel)]
-        )
-        if rc != 0:
-            return (False, "update-index failed (%s)" % (err or "rc=%d" % rc))
+        for emode, eblob, erel in entries:
+            rc, _o, err = gi(
+                ["update-index", "--add", "--cacheinfo", "%s,%s,%s" % (emode, eblob, erel)]
+            )
+            if rc != 0:
+                return (False, "update-index failed (%s)" % (err or "rc=%d" % rc))
         rc, tree, err = gi(["write-tree"])
         if rc != 0 or not tree:
             return (False, "write-tree failed (%s)" % (err or "rc=%d" % rc))
@@ -697,6 +751,9 @@ def commit(path, repo, session, stamp, data=None):
         "Path:        %s\n"
         "Hook:        engine/scripts/hooks/commit-ceo-inputs.sh\n"
     ) % (rel, stamp, session or "unknown", path)
+    if extras:
+        message += "Companions:  %d file(s) under %s\n" % (
+            len(extras), os.path.dirname(os.path.relpath(extras[0][0], repo)))
 
     try:
         r = subprocess.run(
@@ -740,16 +797,19 @@ def commit(path, repo, session, stamp, data=None):
     # does not, so the next ordinary commit would record the file's deletion.
     # The capture stands (the commit is made and is not undone), but it is not
     # reported as a clean capture; the failure is named with the repair.
-    rc, _o, undecided = git(
-        ["update-index", "--add", "--cacheinfo", "%s,%s,%s" % (mode, blob, rel)], repo
-    )
+    for emode, eblob, erel in entries:
+        rc, _o, undecided = git(
+            ["update-index", "--add", "--cacheinfo", "%s,%s,%s" % (emode, eblob, erel)], repo
+        )
+        if undecided or rc != 0:
+            break
     if undecided or rc != 0:
         return (False, INDEX_STALE + (
             "the file IS captured in commit %s, but updating the real index "
             "failed (%s), so `git status` will show it as a staged deletion "
             "and the next ordinary commit would delete it. Repair: git "
             "update-index --add --cacheinfo %s,%s,%s"
-            % (new[:12], undecided or "rc=%d" % rc, mode, blob, rel)))
+            % (new[:12], undecided or "rc=%d" % rc, emode, eblob, erel)))
 
     return (True, new)
 
@@ -995,12 +1055,32 @@ def main():
             refused.append({"path": p, "repo": repo, "why": why})
             continue
 
+        # Companion files go through the same two gates; one refusal and
+        # nothing at all is committed.
+        extras = []
+        for cp in companion_files(p, repo):
+            cbody, cwhy = read_text(cp)
+            if cbody is None or os.path.islink(cp):
+                why = cwhy or "a companion is a symbolic link"
+                break
+            extras.append((cp, cbody))
+        else:
+            why = ""
+        if why:
+            refused.append({"path": p, "repo": repo,
+                            "why": "a companion file could not be committed with it (%s)" % why})
+            continue
+
         blocked = False
         for name, script in (
             ("credential scanner", os.path.join(engine_root, "scripts/hooks/scan-secrets.sh")),
             ("publication boundary", os.path.join(engine_root, "scripts/hooks/guard-publication-writes.sh")),
         ):
             verdict, detail = run_gate(script, repo, p, body, seat_root)
+            for cp, cbody in extras:
+                if verdict != "pass":
+                    break
+                verdict, detail = run_gate(script, repo, cp, cbody, seat_root)
             if verdict == "refuse":
                 refused.append(
                     {
@@ -1051,7 +1131,8 @@ def main():
                                 "why": "the land lease could not be taken, so nothing was committed (%s)"
                                        % detail})
                 continue
-        ok, result = commit(p, repo, session, stamp, data=body.encode("utf-8"))
+        ok, result = commit(p, repo, session, stamp, data=body.encode("utf-8"),
+                         extras=[(cp, cb.encode("utf-8")) for cp, cb in extras])
         if lease == "acquired":
             release_lease(repo, engine_root)
         if ok:

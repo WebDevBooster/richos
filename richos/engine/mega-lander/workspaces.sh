@@ -11,6 +11,11 @@
 #   workspaces.sh land <agent> [--ignored-not-needed '<why>']
 #       its branches are already in main and nothing is uncommitted (point 8):
 #       stop its processes and delete every workspace and branch (points 4, 9, 10)
+#   workspaces.sh merge <agent> [-m '<merge message>']
+#       THE LAND COMMAND: merge every branch of a finished teammate that is not
+#       yet in its integration branch (git merge --no-ff, in that repository's
+#       main checkout, with git's own checks), then land it as above. Ignored
+#       files it left are kept under <state>/kept/, never a reason to stay.
 #   workspaces.sh discard <agent> --reason '<why>' (--ceo-word '<his words>' | --not-ceo-ordered '<why>')
 #       work that must not go into main: every workspace and branch deleted,
 #       the reason and the branch tips recorded (point 7)

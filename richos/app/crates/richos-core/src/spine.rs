@@ -4265,11 +4265,25 @@ impl Spine {
     /// lease's own streamed reading to the quota service, which decides on the freshest
     /// readings and the measured speed (`claude_accounts.rs`), and answers whether the account
     /// now in use differs from the lease's. A lease that cannot say its account never moves.
+    ///
+    /// **Nor does one with a command it started still running, or unreadable** (hunt part 1
+    /// v3, finding 50): retiring the lease would end that command, and a switch happens only
+    /// at a boundary where nothing is running. The check is asked again at the next turn, as
+    /// the work host's is (`work_host.rs`, `account_switch_due`); the limit backstop covers a
+    /// turn that runs out meanwhile.
     fn account_switch_due(&mut self) -> bool {
+        use crate::lease_commands::CommandReading;
         let Some(quota) = self.quota_service() else { return false };
         let Some(lease) = self.lease.as_ref() else { return false };
         let Some(account) = lease.account().map(str::to_string) else { return false };
-        quota.before_turn(&account, lease.streamed_usage()) != account
+        if quota.before_turn(&account, lease.streamed_usage()) == account {
+            return false;
+        }
+        if matches!(lease.running_commands(), Some(CommandReading::Running(_) | CommandReading::Unreadable)) {
+            eprintln!("[richos] front desk: its Claude account is to be left; the switch waits while a command it started may still be running");
+            return false;
+        }
+        true
     }
 
     /// **The one-line switch notice and the high-speed alert, in the conversation** (plan §15

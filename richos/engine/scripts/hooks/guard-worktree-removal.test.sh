@@ -137,6 +137,12 @@ NATIVE_WT="$FIX/agent-native"
 git -C "$MAINREPO" worktree add -q -b worktree-agent-native "$NATIVE_WT" >/dev/null 2>&1
 CODEX_WT="$FIX/codex-work"
 git -C "$MAINREPO" worktree add -q -b codex/some-task "$CODEX_WT" >/dev/null 2>&1
+# A DETACHED worktree under a Codex worktree root: Codex's own, with no
+# codex/ branch to read (2026-10-04). The guard is told where the roots are.
+export WTR_CODEX_WORKTREE_ROOTS="$FIX/codex-home/worktrees"
+CODEX_DETACHED_WT="$FIX/codex-home/worktrees/06e6/mainrepo"
+mkdir -p "$FIX/codex-home/worktrees/06e6"
+git -C "$MAINREPO" worktree add -q --detach "$CODEX_DETACHED_WT" >/dev/null 2>&1
 
 # A plain directory that merely LOOKS like the old convention.
 DECOY_WT="$FIX/not-a-worktree-wt"
@@ -194,6 +200,18 @@ run_case "S12 control: git branch -D of an ordinary branch -> allow" 0 \
     "$(bash_payload "git branch -D linked-old")"
 run_case "S13 a trailing ack comment is not read as a worktree-* branch name -> allow" 0 \
     "$(bash_payload "git branch -D linked-old # worktree-remove-ack: my own branch")"
+# 2026-10-04: the lead removed dozens of Codex worktrees with an ack, because
+# the path was a loop variable the guard could not read. No ack lets these by.
+run_case "S14 a loop removing \"\$d\" (a codex/ workspace) + ack -> refuse" 2 \
+    "$(bash_payload ": \"worktree-remove-ack: clean and merged\"; for d in $CODEX_WT $REAL_WT; do git worktree remove \"\$d\"; done")"
+run_case "S15 a DETACHED worktree under a Codex worktree root + ack -> refuse" 2 \
+    "$(bash_payload "git -C $MAINREPO worktree remove $CODEX_DETACHED_WT # worktree-remove-ack: clean and merged")"
+run_case "S16 git branch -d of a variable + ack -> refuse (cannot be proved not codex/)" 2 \
+    "$(bash_payload "while read p b; do git branch -d \"\${b#refs/heads/}\"; done < list.txt # worktree-remove-ack: merged")"
+run_case "S17 xargs git worktree remove (no path in the text) + ack -> refuse" 2 \
+    "$(bash_payload "cat paths.txt | xargs -n1 git worktree remove # worktree-remove-ack: merged")"
+run_case "S18 git branch -D \$(...) + ack -> refuse" 2 \
+    "$(bash_payload "git branch -D \$(git for-each-ref --format='%(refname:short)' refs/heads/codex/) # worktree-remove-ack: merged")"
 
 echo "  -- precision (must NOT fire) --"
 run_case "g1 git worktree list -> allow" 0 "$(bash_payload 'git worktree list --porcelain')"

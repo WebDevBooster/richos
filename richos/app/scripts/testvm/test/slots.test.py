@@ -65,6 +65,7 @@ class Slots(unittest.TestCase):
         self.env.start()
         os.environ.pop('TESTVM_SLOTS', None)
         os.environ.pop(slots.ENV, None)
+        os.environ.pop('RICHOS_AGENT_OWNER', None)  # these tests wait on runs of one owner (this agent's)
 
     def tearDown(self):
         self.env.stop()

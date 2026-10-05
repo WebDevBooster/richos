@@ -225,6 +225,21 @@ def _write(handle, record):
     handle.flush()
 
 
+def own_holder(paths, owner=None):
+    """(pid, slot name) of a slot held by a run of the SAME owner as this caller, else None. The owner is
+    $RICHOS_AGENT_OWNER (one agent's name for itself); no owner, no match. A caller that queues
+    behind its own earlier walk can only wait for itself (2026-10-04: four minutes)."""
+    owner = os.environ.get('RICHOS_AGENT_OWNER', '') if owner is None else owner
+    if not owner:
+        return None
+    for path in paths:
+        if is_held(path):
+            h = holder(path)
+            if h.get('owner') == owner and h.get('pid') and h['pid'] != os.getpid():
+                return h['pid'], path.name
+    return None
+
+
 def describe(path):
     """One slot, in words: free, admitting, running (whose, for how long), or an older checkout's."""
     if not is_held(path):
@@ -315,10 +330,15 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
                     # Said at once, so `status` never mistakes a caller mid-admission for an older
                     # checkout's run (seen 2026-09-27 20:41Z).
                     _write(handle, {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose,
-                                    'slot': path.name, 'state': 'admitting'})
+                                    'slot': path.name, 'state': 'admitting',
+                                    'owner': os.environ.get('RICHOS_AGENT_OWNER', '')})
                     break
             pause = SLOT_POLL_SECONDS
             if handle is None:
+                mine = own_holder(paths)
+                if mine:
+                    raise BlockingIOError(f'guest slot refused: your own run (pid {mine[0]}, {mine[1]}) holds it, '
+                                          f'same owner; end that run first, it would only wait for itself')
                 reason = f'every slot is executing a run ({describe_holders(paths)})'
             else:
                 try:
@@ -353,7 +373,7 @@ def guest_slot(root=None, wait_seconds=0, purpose='', max_cpu=reserve.DEFAULT_MA
             recorded.close()
     waited = clock() - started
     _write(handle, {'pid': os.getpid(), 'since': time.time(), 'purpose': purpose, 'slot': path.name,
-                    'state': 'running'})
+                    'state': 'running', 'owner': os.environ.get('RICHOS_AGENT_OWNER', '')})
     previous = os.environ.get(ENV)
     os.environ[ENV] = str(path)
     # `waited` is time spent waiting for a slot or for admission; the checks themselves (one

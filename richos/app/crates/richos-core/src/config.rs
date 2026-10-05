@@ -632,6 +632,11 @@ impl RetentionChoice {
 pub struct ConfigStore {
     path: PathBuf,
     config: StoredConfig,
+    /// The settings as last read or written. A change that is not saved puts `config` back
+    /// to this ([`ConfigStore::persist`]), so memory never holds a preference the file does
+    /// not, and an identical retry is refused again rather than found "already set" (hunt
+    /// part 1 v3, finding 38).
+    saved: StoredConfig,
     /// **The document exactly as it was read**, kept so [`ConfigStore::persist`] can write
     /// back a value this build cannot represent instead of flattening it to a placeholder.
     /// `None` when there was no file, or when the file could not be read at all — in which
@@ -726,7 +731,7 @@ impl ConfigStore {
                 ),
             },
         };
-        Ok(ConfigStore { path, config, raw, readable, unreadable_reason: reason })
+        Ok(ConfigStore { path, saved: config.clone(), config, raw, readable, unreadable_reason: reason })
     }
 
     /// Whether the file on disk is one this build could read.
@@ -1205,7 +1210,16 @@ impl ConfigStore {
     /// The restore can only ever fire on a key that came off disk: `Unknown` has no other
     /// source. [`ConfigStore::set_theme`] and [`ConfigStore::set_assertiveness`] refuse it by
     /// name, so there is no path by which this build invents one.
-    fn persist(&self) -> io::Result<()> {
+    fn persist(&mut self) -> io::Result<()> {
+        let result = self.write();
+        match result {
+            Ok(()) => self.saved = self.config.clone(),
+            Err(_) => self.config = self.saved.clone(),
+        }
+        result
+    }
+
+    fn write(&self) -> io::Result<()> {
         if !self.readable {
             // Not written, and SAID: an `Ok` here told the caller "saved" about a change that
             // is gone at the next launch (hunt part 1, finding 38).
@@ -2405,6 +2419,28 @@ mod tests {
             "five writes later, the file is byte-for-byte what it was"
         );
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// **Hunt part 1 v3, finding 38.** A refused change leaves memory as it was, so an
+    /// identical retry is refused too instead of finding "already set" and answering `Ok`
+    /// about a preference that was never written. Theme, type size and splash skip an
+    /// unchanged value, which is where the false success came from.
+    #[test]
+    fn a_refused_change_is_refused_again_on_an_identical_retry_and_memory_keeps_the_old_value() {
+        let path = tmp_path("refused-retry");
+        let original = "not JSON";
+        std::fs::write(&path, original).unwrap();
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert!(store.set_theme(Theme::Light).is_err());
+        assert_eq!(store.theme(), Theme::System, "a refused change still changed memory");
+        assert!(store.set_theme(Theme::Light).is_err(), "the identical retry reported 'saved'");
+        assert!(store.set_font_scale(120).is_err());
+        assert!(store.set_font_scale(120).is_err(), "the identical type-size retry reported 'saved'");
+        assert!(store.set_splash_enabled(false, 1).is_err());
+        assert!(store.set_splash_enabled(false, 2).is_err(), "the identical splash retry reported 'saved'");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(ConfigStore::open(&path).unwrap().theme(), Theme::System);
+        drop(std::fs::remove_file(&path));
     }
 
     /// The positive control for the test above, and it is load-bearing: every one of those

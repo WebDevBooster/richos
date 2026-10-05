@@ -55,6 +55,9 @@ Classes (each named in the log line, so every deletion says why):
   tmp-workspace    a $TMPDIR directory matching a declared pattern that no
                    process holds open
   nightly-release  / nightly-log  beyond the declared retention
+  land-kept        a <workspaces state>/kept/<key>-<time> directory an
+                   automatic land moved ignored files into, older than
+                   SCRATCH_KEPT_RETENTION_DAYS
 
 Walls, applied to every candidate, in order, after the verdict and before the
 unlink. Any wall that trips makes the entry INDETERMINATE — never a silent
@@ -2323,6 +2326,39 @@ class Reaper(object):
                          "#%d newest of %d, and the declared retention is %d"
                          % (i + 1, len(items), keep))
 
+    def scan_kept(self, walls):
+        """WHAT AN AUTOMATIC LAND KEPT, DELETED AFTER THE DECLARED RETENTION
+        (2026-10-04, §54). The land moves a merged, ended workspace's ignored
+        files into <workspaces state>/kept/<key>-<time>/ instead of waiting for
+        a waiver; nothing else ever removed them. Each such directory is aged
+        from its own mtime, which is when the land made it: the files inside
+        keep the mtimes they had in the workspace."""
+        base = self.cfg.get("kept_dir") or ""
+        if not base or not os.path.isdir(base):
+            return
+        self.roots.append(base)
+        retention = self.cfg["kept_retention_days"] * 86400
+        for name in sorted(os.listdir(base)):
+            check_deadline()
+            path = os.path.join(base, name)
+            try:
+                age = self.now - os.lstat(path).st_mtime
+            except OSError:
+                continue
+            size, _newest, has_git = measure(path)
+            if age < retention:
+                self.add(path, "land-kept", size, KEEP,
+                         "kept by a land %d d ago; the declared retention is %d d"
+                         % (age // 86400, retention // 86400))
+                continue
+            refused = walls.check(path, has_git)
+            if refused:
+                self.add(path, "land-kept", size, INDETERMINATE, refused)
+                continue
+            self.add(path, "land-kept", size, DELETE,
+                     "kept by a land %d d ago, past the declared retention of %d d"
+                     % (age // 86400, retention // 86400))
+
     # --- running it ------------------------------------------------------
 
     def scan(self):
@@ -2331,7 +2367,8 @@ class Reaper(object):
         nightly = [os.path.join(self.cfg["nightly_dir"], s)
                    for s in ("releases", "logs")]
         shared = [r for r in self.cfg["shared_tmp_roots"] if os.path.isdir(r)]
-        walls = Walls(roots + [tmp] + nightly + shared)
+        kept = [self.cfg["kept_dir"]] if self.cfg.get("kept_dir") else []
+        walls = Walls(roots + [tmp] + nightly + shared + kept)
         # FIRST, so the other arms can skip what it has already claimed. A path
         # decided twice would be counted twice in the verdict, and a standing
         # failure is precisely a path another arm would otherwise report as KEEP.
@@ -2343,6 +2380,7 @@ class Reaper(object):
         self.scan_tmp(walls)
         self.scan_shared_tmp(walls)
         self.scan_nightly(walls)
+        self.scan_kept(walls)
         self.scan_campaign_roots(walls)
         self.scan_docker_containers(walls)
         # LAST, ALWAYS. It is the only expensive arm and the only one that may be
@@ -3545,6 +3583,11 @@ def config_from_env():
         # predates the key deletes no named directory there.
         "agent_roots": [os.path.realpath(p) for p in
                         opt("SCRATCH_AGENT_ROOTS", "").split()],
+        # What an automatic land kept (2026-10-04). Empty fallback: an engine
+        # whose config predates the key deletes nothing there.
+        "kept_dir": os.path.realpath(os.path.expanduser(opt("SCRATCH_KEPT_DIR", "")))
+                    if opt("SCRATCH_KEPT_DIR", "") else "",
+        "kept_retention_days": opt_number("SCRATCH_KEPT_RETENTION_DAYS", 7),
     }
 
 
