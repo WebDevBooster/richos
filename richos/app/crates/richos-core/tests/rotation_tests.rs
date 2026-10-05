@@ -1215,18 +1215,20 @@ fn a_turn_that_starts_at_93_percent_runs_under_the_next_account() {
 /// leave its account while its lease reports a command running or cannot say. The turn runs
 /// on the account it is on (the limit backstop covers it); the switch happens at the first
 /// boundary after the command ends.
+/// An [`AccountLease`] whose supervisor reports the commands it started as the test says.
+struct Busy { lease: AccountLease, commands: Arc<Mutex<Option<richos_core::lease_commands::CommandReading>>> }
+impl Cognition for Busy {
+    fn session_id(&self) -> &str { self.lease.session_id() }
+    fn account(&self) -> Option<&str> { self.lease.account() }
+    fn streamed_usage(&self) -> Option<richos_core::quota::StreamedReading> { self.lease.streamed_usage() }
+    fn running_commands(&self) -> Option<richos_core::lease_commands::CommandReading> { *self.commands.lock().unwrap() }
+    fn reprime(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> { self.lease.reprime(text, on_item) }
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> { self.lease.prompt(text, on_item) }
+}
+
 #[test]
 fn an_account_switch_waits_for_a_command_the_conversation_started() {
     use richos_core::lease_commands::CommandReading;
-    struct Busy { lease: AccountLease, commands: Arc<Mutex<Option<CommandReading>>> }
-    impl Cognition for Busy {
-        fn session_id(&self) -> &str { self.lease.session_id() }
-        fn account(&self) -> Option<&str> { self.lease.account() }
-        fn streamed_usage(&self) -> Option<richos_core::quota::StreamedReading> { self.lease.streamed_usage() }
-        fn running_commands(&self) -> Option<CommandReading> { *self.commands.lock().unwrap() }
-        fn reprime(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> { self.lease.reprime(text, on_item) }
-        fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> { self.lease.prompt(text, on_item) }
-    }
     let (dir, quota) = two_accounts("switch-waits", 60.);
     quota.set_at_threshold(richos_core::claude_accounts::AtThreshold::Switch).unwrap();
     let (path, ledger) = tmp_ledger("fill-first-switch-waits");
@@ -1259,6 +1261,57 @@ fn an_account_switch_waits_for_a_command_the_conversation_started() {
     let ran: Vec<_> = prompts.lock().unwrap().iter().filter(|(_, t)| !t.is_empty()).cloned().collect();
     assert!(ran.contains(&("1".to_string(), "Is the build done?".to_string())), "{ran:?}");
     assert!(ran.contains(&("2".to_string(), "It finished".to_string())), "{ran:?}");
+    drop(std::fs::remove_file(&path));
+    drop(std::fs::remove_dir_all(dir));
+}
+
+/// **"Switched to" only once the switch has happened.** The switch is decided (Account 1's
+/// lease streams 93% of its five-hour window, setting on Switch) while the lease has a
+/// command running, so the turn stays on Account 1 (finding 50). While that switch waits, the
+/// conversation must not say "Switched to Work": not at that turn, not from the desktop's
+/// quota monitor (`raise_quota_notices(None)`). Once the command ends, the next turn runs
+/// under Work and the notice is said, once.
+///
+/// RED on main at `442b60f9e`: the notice was written the moment the switch was decided, so
+/// it was in the conversation while his turn was still running on Account 1.
+#[test]
+fn the_switch_notice_waits_until_a_turn_really_runs_under_the_new_account() {
+    use richos_core::lease_commands::CommandReading;
+    const NOTICE: &str = "Switched to Work: Account 1 is at 93% of its five-hour limit.";
+    let (dir, quota) = two_accounts("notice-waits", 60.);
+    quota.set_at_threshold(richos_core::claude_accounts::AtThreshold::Switch).unwrap();
+    let (path, ledger) = tmp_ledger("fill-first-notice-waits");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
+    let streamed = Arc::new(Mutex::new(Some(streamed_five_hour(93., richos_core::util::now_millis() + 1_000))));
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let commands = Arc::new(Mutex::new(Some(CommandReading::Running(1))));
+    spine.attach_lease(Box::new(Busy {
+        lease: AccountLease { session_id: "sess-account-1".into(), account: "1".into(),
+            streamed: streamed.clone(), fail_with: None, prompts: prompts.clone() },
+        commands: commands.clone(),
+    }));
+    spine.set_lease_factory(Box::new(AccountFactory { quota: quota.clone(), spawned: Arc::new(Mutex::new(Vec::new())),
+        streamed: Arc::new(Mutex::new(None)), prompts: prompts.clone() }));
+    let notices = |spine: &richos_core::spine::Spine| spine.messages(&thread).unwrap().iter()
+        .filter(|m| m.text.starts_with("Switched to")).map(|m| m.text.clone()).collect::<Vec<_>>();
+
+    // ---- the switch is decided, and waits: the turn runs on Account 1 -------------------
+    spine.submit_prompt("Is the build done?", Source::Text).unwrap();
+    assert_eq!(quota.lease_account().id, "2", "the switch was decided");
+    assert_eq!(spine.rotation_count(), 0, "the switch is still waiting on the command");
+    assert!(prompts.lock().unwrap().contains(&("1".to_string(), "Is the build done?".to_string())));
+    assert_eq!(notices(&spine), Vec::<String>::new(), "\"Switched to\" was said while the turn ran on Account 1");
+    // The desktop's quota monitor says pending notices whenever the spine is free.
+    spine.raise_quota_notices(None);
+    assert_eq!(notices(&spine), Vec::<String>::new(), "the monitor said \"Switched to\" before the switch happened");
+
+    // ---- the command ends: the next turn runs under Work, and the notice is said --------
+    *commands.lock().unwrap() = Some(CommandReading::Clear);
+    spine.submit_prompt("It finished", Source::Text).unwrap();
+    assert_eq!(spine.rotation_count(), 1);
+    assert!(prompts.lock().unwrap().contains(&("2".to_string(), "It finished".to_string())));
+    assert_eq!(notices(&spine), vec![NOTICE.to_string()], "said once, once the turn ran under Work");
     drop(std::fs::remove_file(&path));
     drop(std::fs::remove_dir_all(dir));
 }

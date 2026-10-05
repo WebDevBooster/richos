@@ -4363,7 +4363,6 @@ impl Spine {
         if self.pending_rotation_reason.is_none() && self.account_switch_due() {
             self.pending_rotation_reason = Some(ACCOUNT_SWITCH.to_string());
         }
-        self.raise_quota_notices(Some(binding.thread_id()));
         if let Some(reason) = self.pending_rotation_reason.take() {
             // **A WATERMARK RENEWAL WAITS FOR A COMMAND THE LEASE STARTED** (reap gap C6).
             // Retiring the lease ends its tool commands, and a renewal is invisible, so one due
@@ -4394,6 +4393,14 @@ impl Spine {
                 self.ledger.mark_turn_started(&active.turn_id, &session)?;
             }
         }
+        // **THE SWITCH NOTICE ONLY ONCE THE SWITCH HAS HAPPENED.** The lease that takes this
+        // turn is in the chair now; if it is on the account a switch went to, that switch is
+        // real and its notice is said. A switch still waiting on a command this lease started
+        // (`account_switch_due`) leaves the turn on the old account and says nothing.
+        if let (Some(quota), Some(account)) = (self.quota_service(), self.lease.as_ref().and_then(|l| l.account())) {
+            quota.accounts.ran_on(account);
+        }
+        self.raise_quota_notices(Some(binding.thread_id()));
         if self.control.stop_claim().is_some() { return Ok(spawned); }
         self.prime_lease_if_needed(binding).map(|()| spawned)
     }

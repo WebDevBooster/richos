@@ -1550,6 +1550,13 @@ impl WorkHost {
             if !self.quota_gate(backend, record, confirmed) {
                 return Err(CognitionError::Protocol("The waiting assignment was stopped.".into()));
             }
+            // The switch notice only once this work really runs under the account a switch
+            // went to (`claude_accounts.rs`, `ran_on`); a switch still waiting on a command
+            // this back end started says nothing yet.
+            let quota = self.quota.lock().unwrap().clone();
+            if let (Some(quota), Some(account)) = (quota, lease.account()) {
+                quota.accounts.ran_on(account);
+            }
             lease.prompt(text, &mut |item: TurnItem| {
                 *items += 1;
                 // The back end has his answers: its first item of the turn that carried them.
@@ -5256,6 +5263,60 @@ mod tests {
         let notices = until_notices(&h, 3);
         let said: Vec<&str> = notices.iter().map(|n| n.text.as_str()).collect();
         assert_eq!(said, vec![STARTED, SECOND, FINISHED], "never cut off: {notices:?}");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **Background work: "Switched to" only once a job really runs under the new account.**
+    /// The back end's lease on Account 1 streams 93% of its five-hour window (setting on
+    /// Switch), so before the second job the switch is decided; but a command the back end
+    /// started is still running, so that job runs on Account 1 (finding 50) and no notice may
+    /// be pending for the conversation. Once the command ends, the third job runs under Work
+    /// and the notice is there to be said.
+    ///
+    /// RED on main at `442b60f9e`: the notice was written when the switch was decided.
+    #[test]
+    #[cfg(unix)]
+    fn background_work_says_the_switch_only_once_a_job_runs_under_the_new_account() {
+        use crate::lease_commands::CommandReading;
+        let h = harness(5);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        let quota = Arc::new(crate::quota::Service::open(&h.root).unwrap());
+        let work = quota.accounts.add("Work").unwrap();
+        let bin = crate::quota::tests::fake_claude(&h.root);
+        crate::quota::tests::usage(&h.root.join("usage-1.json"), 60., 40., "2099-01-05T00:00:00Z");
+        crate::quota::tests::usage(&work.folder.clone().unwrap().join("usage.json"), 5., 10., "2099-01-06T00:00:00Z");
+        quota.refresh(&bin, true);
+        quota.set_at_threshold(crate::claude_accounts::AtThreshold::Switch).unwrap();
+        h.fill.lock().unwrap().quota = Some(quota.clone());
+        h.host.set_quota(quota.clone());
+        h.host.start();
+        let run = |n: u64| {
+            h.host
+                .register(&h.binding, &Registration { obligation_id: format!("obligation-notice-{n}"), ..registration(&h) })
+                .unwrap();
+            assert!(h.host.wait_for_completed(n, std::time::Duration::from_secs(10)));
+        };
+        run(1);
+        assert_eq!(h.fill.lock().unwrap().turns, vec![Some("1".to_string())]);
+
+        // Account 1 crosses its check point (2099-01-01T00:00:00Z is the fake's five-hour
+        // reset, so it is the same window) while a command the back end started is running.
+        let crossed = (vec![crate::quota::Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: 93.,
+            resets_at: Some(4_070_908_800_000), duration_ms: 5 * 3_600_000 }], crate::util::now_millis() + 1_000);
+        h.fill.lock().unwrap().streamed.insert("1".into(), crossed);
+        *h.commands.lock().unwrap() = Some(CommandReading::Running(1));
+        run(2);
+        assert_eq!(quota.lease_account().id, "2", "the switch was decided");
+        assert_eq!(h.fill.lock().unwrap().turns.last(), Some(&Some("1".to_string())), "the job ran on Account 1");
+        assert_eq!(quota.accounts.take_notice(), None, "\"Switched to\" was pending while the job ran on Account 1");
+
+        // The command ends: the next job runs under Work, and the switch is now real.
+        *h.commands.lock().unwrap() = Some(CommandReading::Clear);
+        run(3);
+        assert_eq!(h.fill.lock().unwrap().turns.last(), Some(&Some("2".to_string())), "the job ran under Work");
+        assert_eq!(quota.accounts.take_notice().as_deref(),
+            Some("Switched to Work: Account 1 is at 93% of its five-hour limit."));
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }
