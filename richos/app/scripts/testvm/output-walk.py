@@ -544,21 +544,32 @@ class OutputWalk(command_walk.CommandWalk):
         note()
         if not rows or not evidence['on_disk']:
             raise StepFailed('no row for %s with the file on disk within %d s' % (ATTACH_NAME, self.a.within))
-        try:
-            self.wait_for('from this thread', role='AXCheckBox', seconds=60)
-            self.press('from this thread', role='AXCheckBox')
-            self.wait_for('Close the output panel', seconds=20)
-            self.wait_for(ATTACH_NAME, seconds=20)
-            self.press(ATTACH_NAME)
-            self.wait_for('More actions for ' + ATTACH_NAME, seconds=20)
-            self.press('More actions for ' + ATTACH_NAME)
-            self.wait_for('Add to chat', role='AXMenuItem', seconds=20)
-            self.press('Add to chat', role='AXMenuItem')
-            self.wait_for('Remove ' + ATTACH_NAME, seconds=30)
-        except StepFailed:
-            (self.out / 'attach-ax-tree.txt').write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 120))
-            self.shot('attach-miss.png')
-            raise
+        # Each press by name, in order; the one that missed is named in the evidence. On a miss the
+        # screenshot is kept, and the original failure is the one reported: a slow tree dump
+        # (ax.sh tree hit its own deadline on the first S7 walk) must not replace it.
+        presses = [('wait', 'from this thread', 'AXCheckBox', 60), ('press', 'from this thread', 'AXCheckBox', 0),
+                   ('wait', 'Close the output panel', 'AXButton', 20), ('wait', ATTACH_NAME, 'AXButton', 20),
+                   # aria-haspopup="menu" makes WebKit expose the `⋯` as AXPopUpButton, not AXButton
+                   # (the second S7 walk waited 20 s for an AXButton that was on screen).
+                   ('press', ATTACH_NAME, 'AXButton', 0), ('wait', 'More actions for ' + ATTACH_NAME, 'AXPopUpButton', 20),
+                   ('press', 'More actions for ' + ATTACH_NAME, 'AXPopUpButton', 0), ('wait', 'Add to chat', 'AXMenuItem', 20),
+                   ('press', 'Add to chat', 'AXMenuItem', 0), ('wait', 'Remove ' + ATTACH_NAME, 'AXButton', 30)]
+        done = []
+        for verb, title, role, seconds in presses:
+            try:
+                if verb == 'wait':
+                    self.wait_for(title, role=role, seconds=seconds)
+                else:
+                    self.press(title, role=role)
+            except (StepFailed, RuntimeError, subprocess.TimeoutExpired) as exc:
+                note(presses_done=done, missed={'verb': verb, 'title': title, 'role': role, 'error': str(exc)[:600]})
+                try:
+                    self.shot('attach-miss.png')
+                except (StepFailed, RuntimeError, subprocess.TimeoutExpired):
+                    pass
+                raise StepFailed('%s %s "%s" failed: %s' % (verb, role, title, str(exc)[:300]))
+            done.append(verb + ' ' + title)
+        note(presses_done=done)
         time.sleep(1)
         self.shot('attach-chip.png')
         asked, asked_at = self.send(ATTACH_ASK)
