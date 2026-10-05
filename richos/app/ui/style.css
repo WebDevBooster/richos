@@ -4193,7 +4193,7 @@ body.bp-narrow .tl-user-bubble {
 
 .inspector-eyebrow {
   grid-column: 1;
-  font-size: 0.6875rem;
+  font-size: 0.875rem; /* 14px: nothing readable sits below 14px (CEO §15), as .quota-eyebrow */
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-faint);
@@ -7286,8 +7286,9 @@ body.bp-narrow #rail,
    counts, the title (17px), the group lines, the file names and folders, the file view.
    DECLARED BELOW 16px, and nothing else: the kind tile's letters at 0.875rem (14px), the
    skippable tier — the name beside the tile carries the real extension, so the tile is a glyph
-   with letters in it; and the OUTPUT eyebrow at 0.6875rem (11px), the all-caps micro-label class
-   the worker inspector's eyebrow already uses.
+   with letters in it; and the OUTPUT eyebrow at 0.875rem (14px), the skippable tier as well —
+   the title under it says what the panel holds. Nothing here is below 14px (CEO §15: nothing
+   readable sits below 14px; round 17 drew the eyebrow at 11px and that one is not copied).
 
    CONTRAST is computed, not eyeballed: every text pair and indicator here is walked by
    `tests/contrast.js` (surfaces `output-open`, `output-file` and `output-empty`) in both
@@ -7501,7 +7502,7 @@ body.bp-narrow #out-bottom .out-word {
 
 .op-eyebrow {
   grid-column: 1;
-  font-size: 0.6875rem; /* the 11px all-caps micro-label, declared above */
+  font-size: 0.875rem; /* 14px: nothing readable sits below 14px (CEO §15), as .quota-eyebrow */
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;

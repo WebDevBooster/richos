@@ -1557,8 +1557,6 @@ async function main() {
       ".nav-group-label": { kind: "caps", why: "the company eyebrow over a group of conversations — all caps, letter-spaced, the app's standard micro-label" },
       ".entity-block-title": { kind: "caps", why: "the entity view's section eyebrow — all caps, letter-spaced" },
       ".result-group": { kind: "caps", why: "the search results' group eyebrow — all caps, letter-spaced" },
-      ".inspector-eyebrow": { kind: "caps", why: "the worker inspector's eyebrow over its title — all caps, letter-spaced" },
-      ".op-eyebrow": { kind: "caps", why: "the Output panel's OUTPUT eyebrow over its title (round 17's `.op-eyebrow`) — all caps, letter-spaced, the inspector eyebrow's class; the title under it is 17px" },
       ".insp-label": { kind: "caps", why: "the worker inspector's field labels — all caps, letter-spaced, each one word over the value it names" },
     };
 

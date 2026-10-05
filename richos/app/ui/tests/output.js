@@ -635,7 +635,7 @@ async function main() {
           text("count numeral", "#out-top .out-count"),
           text("panel title", "#op-title"),
           text("panel subline", "#op-sub"),
-          text("OUTPUT eyebrow (11px micro-label)", "#op-eyebrow"),
+          text("OUTPUT eyebrow (14px)", "#op-eyebrow"),
           text("group words", ".og-words"),
           text("group time", ".og-head time"),
           text("file name", ".oname"),
