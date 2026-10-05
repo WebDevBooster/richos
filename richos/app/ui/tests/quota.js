@@ -572,6 +572,8 @@ async function main() {
         assert(await page.locator("#quota-message").isHidden(), "nothing is reported as broken");
         assert((await page.locator("#quota-empty").innerText()).includes("Claude Code answered without its usage figures this time"));
         assert((await page.locator("#quota-empty").innerText()).includes("RichOS asks again in 5 min"));
+        // Round 16's `.empty-body + .empty-body`: the second paragraph is the smaller one.
+        assertEqual(await page.locator("#quota-empty-next").evaluate(e => getComputedStyle(e).fontSize), "16px");
         assertEqual(await page.locator("#quota-hold-status").innerText(), "No current reading, so nothing is held.");
         assert(await page.locator("#quota-release").isHidden(), "nothing is held, so nothing to release");
       } else {

@@ -6868,7 +6868,10 @@ body.home-open {
 .quota-legend b { color: var(--ink); }
 #quota-empty { padding: 26px 0; }
 #quota-empty h3 { font: 400 2.5rem/1.1 var(--font-serif); color: var(--ink-soft); margin-bottom: 12px; }
-#quota-empty p { font-size: 1.125rem; line-height: 1.55; }
+#quota-empty p { font-size: 1.125rem; line-height: 1.55; max-width: 48ch; }
+/* Round 16's `.empty-body + .empty-body`: the second paragraph (what to do, or when RichOS asks
+   again) is 16px ink-soft (6.08:1 dark / 6.22:1 light on the surface, round 16 NOTES.md). */
+#quota-empty p + p { margin-top: 8px; font-size: 1rem; color: var(--ink-soft); }
 .quota-policy > h3 { font-size: 1.125rem; font-weight: 600; }
 .quota-switch-row { display: flex; gap: 14px; align-items: flex-start; }
 .quota-switch { position: relative; width: 46px; height: 26px; flex: none; border: 1px solid var(--line-control); border-radius: 999px; background: var(--gold-soft); margin-top: 2px; }
