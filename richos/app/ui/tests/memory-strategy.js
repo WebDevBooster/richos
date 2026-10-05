@@ -652,9 +652,39 @@ async function main() {
     )} -> ${Math.round(after.insp)}px, both persisted (nav_state agrees)`;
   });
 
-  await run.check("SCREENSHOT 8/9: resized left navigation and resized worker pane", async () =>
-    evidence(b, "ms-08-resized-panes", "§26 shot 8")
-  );
+  await run.check("SCREENSHOT 8/9: resized left navigation and resized worker pane", async () => {
+    // WHERE THE CONVERSATION SITS AFTER THE RESIZE WAS DECIDED BY TIMING, NOT BY THE APP'S STATE,
+    // and this shot took whichever position the run happened to land on. Measured 2026-10-05 on
+    // 3cc31f313 with a per-key probe: the thread is at its bottom after shot 7 (scrollTop 941,
+    // scrollHeight 1730, clientHeight 789), the 24 key presses narrow the column so the text
+    // rewraps (scrollHeight 1730 -> 2058), and WebKit moves scrollTop by one 29px line at some
+    // of the intermediate widths it lays out (941 -> 970 -> 999) with no app code writing it.
+    // Which widths get a layout depends on how the presses fall into frames, and the shell's
+    // 3s `pollWorkerStatus` render (main.js) re-pins to the bottom only while `followBottom`
+    // still holds. Three runs of this one commit gave three positions 29px apart: the committed
+    // reference, the per-key probe (+29px) and nightly run 20261005T094008Z (+58px). The
+    // pointer, left where shot 5 clicked Sage's chip, then sits over whichever message moved
+    // under it, and `.tl-rich:hover` reveals that message's `Copy` (style.css `.tl-rich-actions`),
+    // which is the "Copy" under "…nothing resets." in the refused picture.
+    //
+    // So the shot is taken from a stated state: the conversation scrolled to its end (the
+    // scroll the CEO does himself; the shell's own scroll listener sets `followBottom` from it,
+    // so the 3s render keeps it there), and the pointer resting on the empty lower half of the
+    // worker pane, with every message's hover row faded out before the picture.
+    await b.evaluate(() => {
+      const c = document.getElementById("conversation");
+      c.scrollTop = c.scrollHeight;
+    });
+    await b.mouse.move(1220, 700);
+    await b.waitForFunction(() => {
+      const c = document.getElementById("conversation");
+      const atEnd = c.scrollHeight - c.scrollTop - c.clientHeight <= 1;
+      const rows = Array.from(document.querySelectorAll(".tl-rich-actions, .tl-user-actions"));
+      return atEnd && rows.every((r) => getComputedStyle(r).opacity === "0");
+    });
+    await settle(b);
+    return evidence(b, "ms-08-resized-panes", "§26 shot 8");
+  });
 
   // The snapshot as it stands, for the reload comparison below.
   const snapBefore = await snapshot(b);
