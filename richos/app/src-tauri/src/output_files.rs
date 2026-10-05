@@ -431,6 +431,11 @@ pub type Row = Vec<String>;
 
 /// `output_preview` (§5.4, §7). Media, PDF and renditions come back as a scheme URL and
 /// cross as bytes once (§5.3); text and tables come back here, capped.
+///
+/// `app` (S5) is the name of the application Launch Services opens the file with, or `None`
+/// when it names none (§5.4's degraded mode). The panel's facts line says *The whole sheet
+/// opens in Numbers* (§7) and a picture the webview could not draw says *Open in Preview has
+/// it*; the preview carries the name so the viewer never asks a second command for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "view", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Preview {
@@ -438,14 +443,17 @@ pub enum Preview {
     Text { text: String, truncated: bool, bytes: u64 },
     /// `csv`: the first [`CSV_ROWS`] rows; `total_rows` counts every row read, which is all of
     /// them when `counted_all`.
-    Table { rows: Vec<Row>, total_rows: usize, counted_all: bool, bytes: u64 },
+    Table { rows: Vec<Row>, total_rows: usize, counted_all: bool, bytes: u64, app: Option<String> },
     /// The `png` family; dimensions from the header, never by decoding (§7).
-    Image { url: String, width: Option<u32>, height: Option<u32>, bytes: u64 },
-    Video { url: String, bytes: u64 },
-    Audio { url: String, bytes: u64 },
-    Pdf { url: String, bytes: u64 },
+    Image { url: String, width: Option<u32>, height: Option<u32>, bytes: u64, app: Option<String> },
+    /// The `mp4` family. Length and frame size from the container's `moov` header when it is
+    /// cheap to reach ([`media_facts`]); otherwise `None`, never guessed (§7).
+    Video { url: String, bytes: u64, duration_ms: Option<u64>, width: Option<u32>, height: Option<u32>, app: Option<String> },
+    /// `audio`. The length is read the same way, from an MPEG-4 container (`.m4a`) only.
+    Audio { url: String, bytes: u64, duration_ms: Option<u64>, app: Option<String> },
+    Pdf { url: String, bytes: u64, app: Option<String> },
     /// Office and iWork: the QuickLook PNG of the first page.
-    Rendition { url: String, bytes: u64 },
+    Rendition { url: String, bytes: u64, app: Option<String> },
     /// Nothing to show, and why: `missing`, `refused`, `readFailed`, `tooLarge` or `noViewer`.
     None { why: &'static str, reason: String },
 }
@@ -641,6 +649,9 @@ impl OutputFiles {
             return Ok(Preview::None { why: "tooLarge", reason: too_large(bytes, &(self.lister)(&checked.path)) });
         }
         let failed = |problem: Problem| Preview::None { why: problem.why(), reason: problem.sentence() };
+        // The default app's name, for the facts line and a picture the webview cannot draw.
+        // Asked of Launch Services only by the kinds that say it; text never does.
+        let app = || (self.lister)(&checked.path).default.map(|a| a.name);
         Ok(match view {
             "text" => match read_part(&checked.path, 0, TEXT_CAP) {
                 Ok(raw) => Preview::Text { text: text_of(&raw, bytes > TEXT_CAP), truncated: bytes > TEXT_CAP, bytes },
@@ -650,22 +661,25 @@ impl OutputFiles {
                 Ok(raw) => {
                     let counted_all = bytes <= CSV_READ_CAP;
                     let (rows, total_rows) = parse_csv(&text_of(&raw, !counted_all), CSV_ROWS);
-                    Preview::Table { rows, total_rows, counted_all, bytes }
+                    Preview::Table { rows, total_rows, counted_all, bytes, app: app() }
                 }
                 Err(problem) => failed(problem),
             },
             "image" => match read_part(&checked.path, 0, HEADER_BYTES) {
                 Ok(head) => {
                     let size = image_size(&head);
-                    Preview::Image { url, width: size.map(|s| s.0), height: size.map(|s| s.1), bytes }
+                    Preview::Image { url, width: size.map(|s| s.0), height: size.map(|s| s.1), bytes, app: app() }
                 }
                 Err(problem) => failed(problem),
             },
-            "pdf" => Preview::Pdf { url, bytes },
-            "video" => Preview::Video { url, bytes },
-            "audio" => Preview::Audio { url, bytes },
+            "pdf" => Preview::Pdf { url, bytes, app: app() },
+            "video" => {
+                let facts = media_facts(&checked.path);
+                Preview::Video { url, bytes, duration_ms: facts.duration_ms, width: facts.width, height: facts.height, app: app() }
+            }
+            "audio" => Preview::Audio { url, bytes, duration_ms: media_facts(&checked.path).duration_ms, app: app() },
             "rendition" => match self.rendition(output_id, &checked) {
-                Some(_) => Preview::Rendition { url, bytes },
+                Some(_) => Preview::Rendition { url, bytes, app: app() },
                 None => Preview::None { why: "noViewer", reason: no_preview(&(self.lister)(&checked.path)) },
             },
             _ => Preview::None { why: "noViewer", reason: no_preview(&(self.lister)(&checked.path)) },
@@ -1127,6 +1141,139 @@ pub fn image_size(head: &[u8]) -> Option<(u32, u32)> {
         }
     }
     None
+}
+
+/// What the facts line says about a video or a recording (§7: *0:31 · 1920 × 1080 · 14.2 MB*).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MediaFacts {
+    pub duration_ms: Option<u64>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+}
+
+/// The most of a `moov` box that is read. A `moov` is the index of the file (a few KB to a few
+/// hundred KB for the clips Rich makes); one larger than this is not "cheap" and is left alone.
+const MOOV_CAP: u64 = 4 * MIB;
+/// How many top-level boxes are stepped over looking for `moov` before giving up.
+const TOP_BOXES: usize = 64;
+
+/// **The length and frame size from an MPEG-4 container's own header** (`.mp4`, `.mov`,
+/// `.m4v`, `.m4a`), §7's "from the container's header where cheap; otherwise omitted, never
+/// guessed". Nothing is decoded: the top-level boxes are stepped over by their sizes (a seek
+/// each, so a `moov` written after a 2 GB `mdat` costs the same as one before it), and inside
+/// `moov` the movie header gives the length (`mvhd`: duration ÷ timescale) and the first track
+/// header with a picture gives the size (`tkhd`: width and height in 16.16 fixed point). Any
+/// other container (WebM, MP3, WAV) and any header that does not parse is all `None`.
+pub fn media_facts(path: &Path) -> MediaFacts {
+    let Ok(mut file) = open_nofollow(path) else { return MediaFacts::default() };
+    let Ok(len) = file.seek(SeekFrom::End(0)) else { return MediaFacts::default() };
+    let mut at = 0u64;
+    for _ in 0..TOP_BOXES {
+        if at + 8 > len || file.seek(SeekFrom::Start(at)).is_err() {
+            break;
+        }
+        let mut head = [0u8; 16];
+        if file.read_exact(&mut head[..8]).is_err() {
+            break;
+        }
+        let small = u64::from(u32::from_be_bytes(head[0..4].try_into().unwrap()));
+        let (size, header) = match small {
+            0 => (len - at, 8),
+            1 => {
+                if file.read_exact(&mut head[8..16]).is_err() {
+                    break;
+                }
+                (u64::from_be_bytes(head[8..16].try_into().unwrap()), 16)
+            }
+            n => (n, 8),
+        };
+        if size < header || at + size > len {
+            break;
+        }
+        if &head[4..8] == b"moov" {
+            let body = size - header;
+            if body > MOOV_CAP {
+                break;
+            }
+            let mut moov = vec![0u8; body as usize];
+            if file.read_exact(&mut moov).is_err() {
+                break;
+            }
+            return moov_facts(&moov);
+        }
+        at += size;
+    }
+    MediaFacts::default()
+}
+
+/// The children of one box's body: `(type, body)` in order. Stops at the first box whose size
+/// does not fit, rather than reading past what the parent holds.
+fn boxes(body: &[u8]) -> Vec<(&[u8], &[u8])> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while at + 8 <= body.len() {
+        let small = u32::from_be_bytes(body[at..at + 4].try_into().unwrap()) as u64;
+        let kind = &body[at + 4..at + 8];
+        let (size, header) = match small {
+            0 => ((body.len() - at) as u64, 8usize),
+            1 if at + 16 <= body.len() => (u64::from_be_bytes(body[at + 8..at + 16].try_into().unwrap()), 16),
+            1 => break,
+            n => (n, 8),
+        };
+        if size < header as u64 || size > (body.len() - at) as u64 {
+            break;
+        }
+        let size = size as usize;
+        out.push((kind, &body[at + header..at + size]));
+        at += size;
+    }
+    out
+}
+
+fn moov_facts(moov: &[u8]) -> MediaFacts {
+    let be32 = |b: &[u8], i: usize| -> Option<u64> { Some(u64::from(u32::from_be_bytes(b.get(i..i + 4)?.try_into().ok()?))) };
+    let be64 = |b: &[u8], i: usize| -> Option<u64> { Some(u64::from_be_bytes(b.get(i..i + 8)?.try_into().ok()?)) };
+    let mut facts = MediaFacts::default();
+    for (kind, body) in boxes(moov) {
+        match kind {
+            b"mvhd" => {
+                // version 0: creation(4) modification(4) timescale(4) duration(4) after the
+                // version and flags word; version 1 widens the times and the duration to 8.
+                let (scale, duration) = match body.first() {
+                    Some(0) => (be32(body, 12), be32(body, 16).filter(|d| *d != u64::from(u32::MAX))),
+                    Some(1) => (be32(body, 20), be64(body, 24).filter(|d| *d != u64::MAX)),
+                    _ => (None, None),
+                };
+                if let (Some(scale), Some(duration)) = (scale, duration) {
+                    if scale > 0 {
+                        facts.duration_ms = duration.checked_mul(1000).map(|d| d / scale);
+                    }
+                }
+            }
+            b"trak" if facts.width.is_none() => {
+                for (inner, tkhd) in boxes(body) {
+                    if inner != b"tkhd" {
+                        continue;
+                    }
+                    // width and height close the box: at 76/80 in version 0, 88/92 in version 1.
+                    let at = match tkhd.first() {
+                        Some(0) => 76,
+                        Some(1) => 88,
+                        _ => continue,
+                    };
+                    let (Some(w), Some(h)) = (be32(tkhd, at), be32(tkhd, at + 4)) else { continue };
+                    let (w, h) = ((w >> 16) as u32, (h >> 16) as u32);
+                    // A sound track's header says 0 × 0; only a picture has a size.
+                    if w > 0 && h > 0 {
+                        facts.width = Some(w);
+                        facts.height = Some(h);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    facts
 }
 
 // ---- the commands (§5.4) ------------------------------------------------------------------
@@ -1607,6 +1754,201 @@ mod tests {
         sweep(&dir.0, RENDITION_KEEP);
         assert!(!old.exists());
         assert!(fresh.exists());
+    }
+
+    // ---- S5: the previews (§7, §12.5) ------------------------------------------------------
+
+    /// One MPEG-4 box: its 32-bit size, its type, its body.
+    fn mp4_box(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(body);
+        out
+    }
+
+    /// `mvhd` version 0: timescale and duration after creation and modification times.
+    fn mvhd_v0(scale: u32, duration: u32) -> Vec<u8> {
+        let mut body = vec![0u8; 4 + 4 + 4];
+        body.extend(scale.to_be_bytes());
+        body.extend(duration.to_be_bytes());
+        body.extend(vec![0u8; 80]);
+        mp4_box(b"mvhd", &body)
+    }
+
+    /// `mvhd` version 1: 64-bit times and duration.
+    fn mvhd_v1(scale: u32, duration: u64) -> Vec<u8> {
+        let mut body = vec![1u8, 0, 0, 0];
+        body.extend(vec![0u8; 16]);
+        body.extend(scale.to_be_bytes());
+        body.extend(duration.to_be_bytes());
+        body.extend(vec![0u8; 80]);
+        mp4_box(b"mvhd", &body)
+    }
+
+    /// A `trak` holding only a version-0 `tkhd` with this size (16.16 fixed point at 76/80).
+    fn trak(width: u32, height: u32) -> Vec<u8> {
+        let mut tkhd = vec![0u8; 76];
+        tkhd.extend((width << 16).to_be_bytes());
+        tkhd.extend((height << 16).to_be_bytes());
+        mp4_box(b"trak", &mp4_box(b"tkhd", &tkhd))
+    }
+
+    #[test]
+    fn output_files_media_facts_come_from_the_moov_header_wherever_it_sits() {
+        let work = Dir::new("media");
+        let ftyp = mp4_box(b"ftyp", b"isom\0\0\x02\0isomiso2mp41");
+        let mdat = mp4_box(b"mdat", &vec![0xAB; 50_000]);
+        // A sound track first (0 x 0, as a sound track's header says), then the picture.
+        let mut moov_body = mvhd_v0(600, 18_600);
+        moov_body.extend(trak(0, 0));
+        moov_body.extend(trak(1920, 1080));
+        let moov = mp4_box(b"moov", &moov_body);
+
+        // moov AFTER the media data, as a recorder writes it: stepped over by a seek.
+        let tail: Vec<u8> = [ftyp.clone(), mdat.clone(), moov.clone()].concat();
+        let late = work.file("walkthrough.mp4", &tail);
+        // 18,600 ticks / 600 per second = 31.000 s = 31,000 ms; 1920 x 1080 from the second track.
+        assert_eq!(media_facts(&late), MediaFacts { duration_ms: Some(31_000), width: Some(1920), height: Some(1080) });
+
+        // moov first ("fast start"): the same answer.
+        let early = work.file("fast.mov", &[ftyp.clone(), moov, mdat.clone()].concat());
+        assert_eq!(media_facts(&early).duration_ms, Some(31_000));
+
+        // Version 1 header, audio only (.m4a): a length, no size.
+        let mut audio = mvhd_v1(44_100, 44_100 * 130);
+        audio.extend(trak(0, 0));
+        let m4a = work.file("note.m4a", &[ftyp.clone(), mp4_box(b"moov", &audio)].concat());
+        assert_eq!(media_facts(&m4a), MediaFacts { duration_ms: Some(130_000), width: None, height: None });
+
+        // No moov, a box that claims more than the file holds, and not MPEG-4 at all: all None,
+        // never a guess.
+        let none = MediaFacts::default();
+        assert_eq!(media_facts(&work.file("cut.mp4", &[ftyp.clone(), mdat].concat())), none);
+        let mut lying = ftyp.clone();
+        lying.extend(0x00FF_FFFFu32.to_be_bytes());
+        lying.extend(b"moov\0\0\0\0");
+        assert_eq!(media_facts(&work.file("lying.mp4", &lying)), none, "a box larger than the file is not followed");
+        assert_eq!(media_facts(&work.file("junk.mp4", &[ftyp, mp4_box(b"moov", &[0xFF; 4])].concat())), none);
+        assert_eq!(media_facts(&work.file("song.mp3", b"ID3\x04\0\0\0\0\0\0")), none);
+
+        // Through the preview: the facts and the default app ride on the Video answer.
+        let data = Dir::new("data");
+        let (files, _) = files(&data);
+        let id = record(&files, &late);
+        let Preview::Video { url, bytes, duration_ms, width, height, app } = files.preview(&id).unwrap() else { panic!("not a video") };
+        assert!(url.starts_with(&format!("{SCHEME}://{id}?v=")));
+        assert_eq!((bytes, duration_ms, width, height), (tail.len() as u64, Some(31_000), Some(1920), Some(1080)));
+        assert_eq!(app.as_deref(), Some("TextEdit"));
+        let audio_id = record(&files, &m4a);
+        let Preview::Audio { duration_ms, .. } = files.preview(&audio_id).unwrap() else { panic!("not audio") };
+        assert_eq!(duration_ms, Some(130_000));
+    }
+
+    #[test]
+    fn output_files_every_kind_in_section_7_has_its_viewer_and_its_cap() {
+        // §7's table, row by row: the view each kind is previewed as and the cap it is held to.
+        let table: [(&str, &str, Option<u64>); 10] = [
+            ("md", "text", None),
+            ("txt", "text", None),
+            ("csv", "table", None),
+            ("xlsx", "rendition", Some(200 * MIB)),
+            ("docx", "rendition", Some(200 * MIB)),
+            ("pptx", "rendition", Some(200 * MIB)),
+            ("pdf", "pdf", Some(200 * MIB)),
+            ("png", "image", Some(80 * MIB)),
+            ("mp4", "video", None),
+            ("audio", "audio", None),
+        ];
+        for (kind, view, cap) in table {
+            assert_eq!(plan(kind), (view, cap), "{kind}");
+        }
+        assert_eq!(plan("other"), ("none", None), "other: no viewer, the §6.7 sentence");
+        // The text kinds have their own caps, applied by the read rather than refused.
+        assert_eq!((TEXT_CAP, CSV_READ_CAP, CSV_ROWS), (2 * MIB, 20 * MIB, 200));
+    }
+
+    #[test]
+    fn output_files_a_pdf_and_a_document_over_their_caps_are_too_large_with_open_lit() {
+        let data = Dir::new("data");
+        let work = Dir::new("work");
+        let (files, _) = files(&data);
+        for name in ["huge.pdf", "huge.docx"] {
+            let big = work.0.join(name);
+            std::fs::File::create(&big).unwrap().set_len(200 * MIB + 1).unwrap();
+            let id = record(&files, &big);
+            // 200 MiB + 1 = 209,715,201 bytes = 209.7 MB in Finder's decimal units.
+            let reason = "Too large to preview here (209.7 MB). Open in TextEdit has the whole thing.";
+            assert_eq!(files.preview(&id).unwrap(), Preview::None { why: "tooLarge", reason: reason.into() }, "{name}");
+            let served = get(&files, &id, None);
+            assert!(served.status().is_client_error() && served.body().is_empty(), "{name}: the scheme serves no bytes over the cap");
+            assert!(files.open(&id, None).is_ok(), "{name}: over the cap, Open still works");
+        }
+        // At the cap exactly, a PDF is served.
+        let edge = work.0.join("edge.pdf");
+        std::fs::File::create(&edge).unwrap().set_len(200 * MIB).unwrap();
+        let edge_id = record(&files, &edge);
+        assert!(matches!(files.preview(&edge_id).unwrap(), Preview::Pdf { .. }));
+    }
+
+    #[test]
+    fn output_files_a_csv_shows_its_first_200_rows_and_counts_the_rest() {
+        let data = Dir::new("data");
+        let work = Dir::new("work");
+        let (files, _) = files(&data);
+        let mut text = String::from("month,revenue\n");
+        for i in 0..249 {
+            text.push_str(&format!("m{i},{i}\n"));
+        }
+        let sheet = work.file("long.csv", text.as_bytes());
+        let id = record(&files, &sheet);
+        let Preview::Table { rows, total_rows, counted_all, app, .. } = files.preview(&id).unwrap() else { panic!("not a table") };
+        // 1 header + 249 rows = 250 read, 200 kept.
+        assert_eq!((rows.len(), total_rows, counted_all), (200, 250, true));
+        assert_eq!(rows[0], ["month", "revenue"]);
+        assert_eq!(rows[199], ["m198", "198"]);
+        assert_eq!(app.as_deref(), Some("TextEdit"), "the facts line names the app the whole sheet opens in");
+
+        // Over the 20 MiB read: what was read is counted, and the count says it is not all.
+        // 21 MiB of 8-byte rows = 2,752,512 rows on disk; at most 20 MiB / 8 = 2,621,440 read.
+        let row = "abc,123\n";
+        let big = work.file("big.csv", row.repeat((21 * MIB as usize) / row.len()).as_bytes());
+        let big_id = record(&files, &big);
+        let Preview::Table { rows, total_rows, counted_all, .. } = files.preview(&big_id).unwrap() else { panic!("not a table") };
+        assert_eq!(rows.len(), 200);
+        assert!(!counted_all);
+        assert_eq!(total_rows as u64, CSV_READ_CAP / row.len() as u64);
+    }
+
+    #[test]
+    fn output_files_a_rendition_is_made_again_when_the_file_changes() {
+        let data = Dir::new("data");
+        let work = Dir::new("work");
+        // A stand-in qlmanage that stamps each rendition with a counter it keeps beside itself.
+        let count = work.0.join("runs");
+        let script = format!(
+            "#!/bin/sh\nn=$(cat '{c}' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '{c}'\nprintf \"PNG$n\" > \"$5/$(basename \"$6\").png\"\n",
+            c = count.display()
+        );
+        let fake = work.file("qlmanage", script.as_bytes());
+        std::fs::set_permissions(&fake, <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755)).unwrap();
+        let (files, _) = files(&data);
+        let files = files.with_qlmanage(&fake);
+        let deck = work.file("deck.pptx", b"PK\x03\x04 v1");
+        let id = record(&files, &deck);
+        let Preview::Rendition { url: first, app, .. } = files.preview(&id).unwrap() else { panic!("no rendition") };
+        assert_eq!(app.as_deref(), Some("TextEdit"));
+        assert_eq!(get(&files, &id, None).body(), b"PNG1");
+        // Asked again with the file unchanged: the cached one, qlmanage not run.
+        assert!(matches!(files.preview(&id).unwrap(), Preview::Rendition { .. }));
+        assert_eq!(std::fs::read_to_string(&count).unwrap().trim(), "1");
+
+        // The file is written again (a new modification time): a new rendition, a new URL.
+        let later = SystemTime::now() + Duration::from_secs(120);
+        std::fs::File::options().write(true).open(&deck).unwrap().set_modified(later).unwrap();
+        let Preview::Rendition { url: second, .. } = files.preview(&id).unwrap() else { panic!("no rendition") };
+        assert_ne!(first, second, "the ?v= cache-buster follows the modification time");
+        assert_eq!(get(&files, &id, None).body(), b"PNG2", "the scheme serves the new one");
+        assert_eq!(std::fs::read_to_string(&count).unwrap().trim(), "2");
     }
 
     #[test]
