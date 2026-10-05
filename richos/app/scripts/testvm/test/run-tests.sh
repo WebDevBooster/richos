@@ -1028,6 +1028,16 @@ KEEP_HOME="/Users/admin/testvm/richos-test-a/home"
 # The same words login_env prints, as an array: nothing to word-split.
 LOGIN_ENV=("TESTVM_HOST_SECURITY=$TMP/host-security.sh" "TESTVM_HOST_CLAUDE_RENEW=$TMP/host-renew.sh")
 
+# The mutation pass below is run by hand, so a change to claude-login.sh or to these cases
+# reaches the merge only through this runner: its text check (each mutant's text found once,
+# each case it names still here) runs no case and takes well under a second. Not named
+# "claude login", so the pass's own `run-tests.sh "claude login"` never runs it.
+t "mutation pass: claude-login.mutation.py still matches claude-login.sh and the cases it names"
+  out="$(RICHOS_MUTATION_PASSES=0 python3 "$TESTVM_DIR/test/claude-login.mutation.py" 2>&1)"
+  ok $? "$out"
+  has "$out" "all match"
+t_done
+
 t "claude login: a token inside the renewal window is renewed by THIS Mac first, and the fresh one crosses"
   cred_at "$TMP/cred-short.json" "short-lived-token-0123456789" 120
   cred_at "$TMP/cred-renewed.json" "renewed-access-token-0123456789" 28800

@@ -16,11 +16,8 @@ Invoked by phone-apps-independent.test.sh. Exit 0 = every rule proven load-beari
 """
 # THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
 # gate runs the suite with RICHOS_MUTATION_PASSES=0; the app nightly's script suites run it.
-if __import__("os").environ.get("RICHOS_MUTATION_PASSES") == "0":
-    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"
-          % __file__.rsplit("/", 1)[-1])
-    raise SystemExit(0)
-
+# The gate still runs text_only() below: no rule runs, but a mutant whose edit no longer
+# applies to its file is refused there instead of at the nightly.
 import os
 from pathlib import Path
 import shutil
@@ -146,5 +143,48 @@ def main():
     return 1 if failed else 0
 
 
+def text_only():
+    """What the merge gate checks while it skips this pass: each mutant's edit still applies to
+    its file exactly as the pass would make it (a suite with one inputs row, a row with the
+    prefix, a test text found once, the file a tie is added to), on private copies; no rule
+    runs. The line a mutant expects is formatted at run time, so it has no literal to search
+    for and only the pass can check it (2026-10-05: nightly-local.mutation.py drifted from its
+    source and only the nightly refused, df0feab6e; every app harness got this check)."""
+    problems = []
+    base = Path(tempfile.mkdtemp(prefix="phone-apps-mutation-text.", dir=os.environ.get("TMPDIR") or None))
+    try:
+        for number, (name, scripts_edit, tie, test_edit, _expected) in enumerate(MUTANTS):
+            if scripts_edit:
+                scripts = base / ("m%d" % number)
+                scripts.mkdir()
+                files = list(HERE.glob("*.test.sh")) + [HERE / "phone-app-suites.tsv"]
+                for file in files:
+                    shutil.copy2(file, scripts / file.name)
+                try:
+                    scripts_edit(scripts)
+                except (AssertionError, OSError) as error:
+                    problems.append("%s: its edit does not apply (%s)" % (name, error or "no single row"))
+                else:
+                    if all((scripts / f.name).read_text() == f.read_text() for f in files):
+                        problems.append("%s: its edit changed nothing" % name)
+            if test_edit:
+                try:
+                    test_edit(TEST.read_text())
+                except AssertionError:
+                    problems.append("%s: the text to mutate does not appear once in %s" % (name, TEST.name))
+            if tie and not (ROOT / "richos/mobile/test/client-part2.test.js").is_file():
+                problems.append("%s: richos/mobile/test/client-part2.test.js is not in the tree" % name)
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+    for problem in problems:
+        print("  FAIL  %s" % problem)
+    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it); "
+          "text check of its %d mutants: %s" % (Path(__file__).name, len(MUTANTS),
+                                                "%d problem(s)" % len(problems) if problems else "all match"))
+    return 1 if problems else 0
+
+
 if __name__ == "__main__":
+    if os.environ.get("RICHOS_MUTATION_PASSES") == "0":
+        sys.exit(text_only())
     sys.exit(main())

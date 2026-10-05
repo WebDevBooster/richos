@@ -23,6 +23,7 @@ scratch ledger through the real escalate.sh. Nothing touches this repository or 
   INSTALL  install, --check and --uninstall, a foreign hook left alone, a chain that
            would never call the hook reported.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -1536,6 +1537,78 @@ class Tables(unittest.TestCase):
             out = subprocess.run([sys.executable, str(harness)], env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
             self.assertIn("NOT RUN: " + harness.name, out.stdout)
+
+    def test_with_passes_off_a_mutant_that_no_longer_matches_its_source_refuses_the_merge(self):
+        # 2026-10-05: 419e71e71 renamed a nightly-local case and the text a mutant read. The merge
+        # ran nightly-local.mutation.py with RICHOS_MUTATION_PASSES=0, the harness checked nothing,
+        # and only the nightly refused (df0feab6e). With passes off each app harness still
+        # searches its source: every mutant's text exactly once, every case it names present.
+        # Each drift is made in a private copy of what the harness reads; nothing shipped is written.
+        root = HERE.parents[2]
+        s = "richos/app/scripts/"
+
+        def first_mutant(rel):
+            spec = importlib.util.spec_from_file_location("harness_under_test", root / rel)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module.MUTANTS[0]
+
+        nl = first_mutant(s + "nightly-local.mutation.py")      # (name, case, old, ...)
+        rr = first_mutant(s + "runner-reliability.mutation.py")  # (name, file, case, old, ...)
+        cl = first_mutant(s + "testvm/test/claude-login.mutation.py")  # (name, file, old, new, case)
+        nl_reads = [s + "nightly-local.py", s + "nightly-local.test.py"]
+        rr_reads = [s + "runner-reliability.test.py"] + [
+            "richos/engine/scripts/lib/" + n for n in ("proc_tree.py", "worker_tokens.py", "operator_fences.py")]
+        pa_reads = ([str(p.relative_to(root)) for p in HERE.glob("*.test.sh")]
+                    + [s + "phone-app-suites.tsv", s + "phone-apps-independent.test.py",
+                       "richos/mobile/test/client-part2.test.js"])
+        cl_reads = [s + "testvm/claude-login.sh", s + "testvm/test/run-tests.sh"]
+        self.assertEqual(rr[1], "proc_tree.py", "the drift below edits the file runner-reliability's first mutant reads")
+        # A mutant's text drifts the way an edit drifts it: one space after the indentation is
+        # doubled, so the file still parses (runner-reliability imports proc_tree before it reads
+        # anything) and the old text is no longer inside the new.
+        def drift(old):
+            i = old.index(" ", len(old) - len(old.lstrip()))
+            return old[:i] + " " + old[i:]
+
+        # (harness, what it reads, the file drifted, old text, new text (None empties it), the refusal)
+        drifts = [
+            (s + "nightly-local.mutation.py", nl_reads, s + "nightly-local.py", nl[2], drift(nl[2]),
+             f"{nl[0]}: the text to mutate appears 0 times"),
+            (s + "nightly-local.mutation.py", nl_reads, s + "nightly-local.test.py",
+             f"def {nl[1]}(", f"def {nl[1]}_renamed(", f"{nl[1]} is not a test"),
+            (s + "runner-reliability.mutation.py", rr_reads, "richos/engine/scripts/lib/proc_tree.py", rr[3], drift(rr[3]),
+             f"{rr[0]}: the text to mutate appears 0 times"),
+            (s + "runner-reliability.mutation.py", rr_reads, s + "runner-reliability.test.py",
+             f"def {rr[2]}(", f"def {rr[2]}_renamed(", f"{rr[2]} is not a test"),
+            (s + "phone-apps-independent.mutation.py", pa_reads, s + "phone-app-suites.tsv", None, None,
+             "its edit changed nothing"),
+            (s + "testvm/test/claude-login.mutation.py", cl_reads, s + "testvm/" + cl[1], cl[2], drift(cl[2]),
+             f"{cl[0]}: the text to mutate appears 0 times"),
+            (s + "testvm/test/claude-login.mutation.py", cl_reads, s + "testvm/test/run-tests.sh", cl[4], "a renamed case",
+             f'no case in test/run-tests.sh is named "{cl[4]}"'),
+        ]
+        env = {**os.environ, "RICHOS_MUTATION_PASSES": "0", "PYTHONDONTWRITEBYTECODE": "1"}
+        for harness, reads, drifted, old, new, refusal in drifts:
+            with self.subTest(harness=harness, drifted=drifted), tempfile.TemporaryDirectory() as top:
+                for rel in [harness] + reads:
+                    (Path(top) / rel).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(root / rel, Path(top) / rel)
+                run = [sys.executable, str(Path(top) / harness)]
+                clean = subprocess.run(run, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(clean.returncode, 0, "the undrifted copy must pass: " + clean.stdout + clean.stderr)
+                target = Path(top) / drifted
+                text = target.read_text()
+                if old is None:
+                    text = ""
+                else:
+                    self.assertEqual(text.count(old), 1, old)
+                    text = text.replace(old, new)
+                target.write_text(text)
+                out = subprocess.run(run, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(out.returncode, 1, "a drifted mutant passed the merge: " + out.stdout + out.stderr)
+                self.assertIn(refusal, out.stdout)
+                self.assertIn("NOT RUN: " + Path(harness).name, out.stdout)
 
 
 class Install(Fixture):

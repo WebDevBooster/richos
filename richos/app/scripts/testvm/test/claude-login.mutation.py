@@ -14,11 +14,8 @@ any change to claude-login.sh's push or keep.
 """
 # THE MERGE GATE LEAVES THIS PASS TO THE NIGHTLY (richos/app/scripts/autocheck/README.md): the
 # gate runs every check with RICHOS_MUTATION_PASSES=0; this pass is run by hand (above).
-if __import__("os").environ.get("RICHOS_MUTATION_PASSES") == "0":
-    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it)"
-          % __file__.rsplit("/", 1)[-1])
-    raise SystemExit(0)
-
+# The gate still runs text_only() below: no case runs, but a mutant that no longer matches its
+# source, or names a case that is gone, is refused there.
 import os
 import shutil
 import subprocess
@@ -86,5 +83,30 @@ def main():
     return 1 if survived else 0
 
 
+def text_only():
+    """What the merge gate checks while it skips this pass: each mutant's text appears exactly
+    once in its file, and each case it names is in a `t "..."` line of test/run-tests.sh. A
+    text search; no case runs (2026-10-05: nightly-local.mutation.py drifted from its source
+    and only the nightly refused, df0feab6e; every app harness got this check)."""
+    with open(os.path.join(HERE, "run-tests.sh"), encoding="utf-8") as fh:
+        cases = [l for l in fh.read().splitlines() if l.startswith('t "')]
+    problems = []
+    for name, rel, old, _new, case in MUTANTS:
+        with open(os.path.join(TESTVM, rel), encoding="utf-8") as fh:
+            count = fh.read().count(old)
+        if count != 1:
+            problems.append("%s: the text to mutate appears %d times in %s, not once" % (name, count, rel))
+        if not any(case in l for l in cases):
+            problems.append("%s: no case in test/run-tests.sh is named \"%s\"" % (name, case))
+    for problem in problems:
+        print("  FAIL  %s" % problem)
+    print("NOT RUN: %s, a mutation pass (RICHOS_MUTATION_PASSES=0, the merge gate; the nightly runs it); "
+          "text check of its %d mutants: %s" % (os.path.basename(__file__), len(MUTANTS),
+                                                "%d problem(s)" % len(problems) if problems else "all match"))
+    return 1 if problems else 0
+
+
 if __name__ == "__main__":
+    if os.environ.get("RICHOS_MUTATION_PASSES") == "0":
+        sys.exit(text_only())
     sys.exit(main())
