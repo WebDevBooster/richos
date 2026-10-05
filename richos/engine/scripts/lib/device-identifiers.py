@@ -20,7 +20,8 @@ THE FOUR VERDICTS (first line of output, tab-separated):
           caller announces it. A public clone has no list and must not be blocked
           by that, but must be told.
   BROKEN  a list that cannot be trusted (inside a work tree, unreadable, entry
-          shorter than MIN_LEN, or no entries). The caller refuses.
+          shorter than MIN_LEN, or no entries), or a staged blob the scan could
+          not read. The caller refuses.
 
 MATCH RULE. Case-insensitive substring, over the file's text AND its path. An
 identifier shorter than MIN_LEN (8) is BROKEN rather than matched, because a
@@ -105,6 +106,7 @@ def scan_manifest(manifest):
         return 0
     wanted = [(i, i.lower()) for i in payload]
     found = []
+    unread = []
     with open(manifest, encoding='utf-8') as fh:
         for row in fh:
             row = row.rstrip('\n')
@@ -116,7 +118,10 @@ def scan_manifest(manifest):
                 with open(blob, 'rb') as bh:
                     raw = bh.read()
             except OSError:
-                continue
+                # Hunt P5-08 (v3): a blob that could not be read was not checked, so
+                # the scan cannot say CLEAN; its path is still matched below.
+                unread.append(label)
+                raw = b''
             haystacks = [label.lower(), raw.decode('utf-8', 'ignore').lower(),
                          raw.decode('utf-16', 'ignore').lower() if raw[:2] in (b'\xff\xfe', b'\xfe\xff') else '']
             for original, low in wanted:
@@ -127,6 +132,9 @@ def scan_manifest(manifest):
         print('FOUND')
         for label, preview in found:
             print('%s\t%s' % (label, preview))
+    elif unread:
+        print('BROKEN\t%d staged file(s) could not be read, so they were not checked: %s'
+              % (len(unread), ', '.join(unread[:5])))
     else:
         print('CLEAN')
     return 0
