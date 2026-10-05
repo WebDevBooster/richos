@@ -370,6 +370,25 @@
     renamed_threads: {},
   };
 
+  // WHETHER THE SIDEBAR IS AWAY SURVIVES A RELOAD, as `navigation.json` survives a relaunch
+  // (output side-panel PRD §8: "the choice survives a relaunch"). Its own key, kept beside
+  // `richos-mock-config` the same way, and NOT the page's first-paint mirror
+  // (`richos-sidebar-hidden`): a suite must be able to set one without the other to prove that
+  // nav.rs, not the mirror, decides. A fresh browser context has neither, and boots open.
+  const MOCK_SIDEBAR_KEY = "richos-mock-sidebar-collapsed";
+  try {
+    navPrefs.sidebar_collapsed = window.localStorage.getItem(MOCK_SIDEBAR_KEY) === "1";
+  } catch (e) {
+    /* storage unavailable: the shipped default, open */
+  }
+  const persistMockSidebar = () => {
+    try {
+      window.localStorage.setItem(MOCK_SIDEBAR_KEY, navPrefs.sidebar_collapsed ? "1" : "0");
+    } catch (e) {
+      /* storage unavailable; the in-memory value still serves this session */
+    }
+  };
+
   function displayTitleOf(t) {
     return navPrefs.renamed_threads[t.id] || t.title;
   }
@@ -2636,6 +2655,7 @@
           return navPrefs.inspector_width;
         case "set_sidebar_collapsed":
           navPrefs.sidebar_collapsed = !!args.collapsed;
+          persistMockSidebar();
           return null;
         case "set_entity_collapsed":
           setMembership(navPrefs.collapsed_entities, args.entityId ?? args.entity_id, !!args.collapsed);

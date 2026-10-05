@@ -27,6 +27,7 @@ and never prints a number it did not measure.
 
 | Tool | The job |
 |---|---|
+| `episode-counter.py` | Read-only Claude/Codex episode accounting: request usage, tool-time unions, non-tool gaps and unresolved verification candidates. Emits numeric aggregates and source locators only. |
 | `contrast.py` | WCAG ratio of two colors, or of a region of a frame. One estimator, stated in the file, printed with every answer. |
 | `frame.py` | Read the frame: `px`, `crop`, `extent`, `inset`, `box`, `edges`, `motion`. `inset` is the four-sided gap measurement behind the 18/18 settings-button check. |
 | `ocr-gate.sh` | The privacy gate: no frame enters the record carrying an address, a home path or a listed person's name. Refuses to report clean until a positive control proves the reader works. |
@@ -52,7 +53,7 @@ and never prints a number it did not measure.
 | `pair-words.py` | The six pairing words under **pairing v2**, both sides: `mac` derives the isolated lab Mac's words from its own files (origin, CA, the key the phone registered; refused without the lab's owner marker), `phone` reads the words the phone showed from its PHONE_STEP log, `check` **exits 1 when any word differs**. The lab's `ready.json` still prints the v1 words, so going by it gives a false mismatch. Use with `phone-ios.py pair-steps --v2-hold S`: check during the hold, stop your run on anything but exit 0. |
 | `usage-shape.sh` | What shape is Claude Code's usage answer, and could RichOS read it? Asks a `claude` (`--claude`, `--home`/`--config-dir` for its login) exactly as the quota reader does (`quota/probe.rs`: same flags, `initialize` then `get_usage`) and prints only keys, booleans and whether each window's utilization is a number, never a figure, token or session field. **Exit 1 when the reader gets no figures from the answer**, naming the rule: `NO READING` for `rate_limits is null` (the reader's `NoReading`, no figures this time, since `2bb7359ad`), `UNREADABLE` for a shape it refuses; 2 when there is no binary or no answer. Run it in the guest with a steps-walk `push` and `guest` step (added with the candidate 36 walk, where the panel said "could not read" for a real account). |
 | `fixtures/make-fixtures.py` | Regenerate the committed fixtures, or `--check` that they still match. |
-| **guest screen and shell:** `../testvm/ax.sh`, `../testvm/guest.sh` | Not in this directory, and looked for here first every time. `ax.sh <vm> tree\|find\|click` is the guest's accessibility tree with real geometry and a press by title or description; `guest.sh <vm> <command>` is one word into the guest, with `--pull`/`--push`. They live beside the VM they need (`scripts/testvm/`, documented in `docs/testvm.md`); twenty-five throwaways were written before they existed. `../testvm/steps-walk.py <vm> --steps FILE.json --out DIR` runs a JSON list of those operations (`ax`, `shot`, `tree`, `guest`, `push`, `handfile`, `until`, `wait`) as one walk inside `run-walk.py`, recording every step; a walk's clicks are data, not a new script (added with the candidate 33 walk). |
+| **guest screen and shell:** `../testvm/ax.sh`, `../testvm/guest.sh` | Not in this directory, and looked for here first every time. `ax.sh <vm> tree\|find\|click` is the guest's accessibility tree with real geometry and a press by title or description; `guest.sh <vm> <command>` is one word into the guest, with `--pull`/`--push`. They live beside the VM they need (`scripts/testvm/`, documented in `docs/testvm.md`); twenty-five throwaways were written before they existed. `../testvm/steps-walk.py <vm> --steps FILE.json --out DIR` runs a JSON list of those operations (`ax`, `shot`, `tree`, `guest`, `push`, `handfile`, `until`, `wait`, and `relaunch`, which is `../testvm/relaunch.py` on the walk's own guest) as one walk inside `run-walk.py`, recording every step; a walk's clicks are data, not a new script (added with the candidate 33 walk; `relaunch` with S8, so "survives a relaunch" is a step too). |
 
 `lib/qaimg.py` and `lib/qaocr.py` are the shared halves: one PNG reader (Pillow
 when it imports, a built-in decoder when it does not — the candidate .11 walk
@@ -96,3 +97,50 @@ One job per file. `--help` that says what it does. A non-zero exit with a
 sentence when it cannot answer. A case in `scripts/qa.test.sh` that proves both
 the answer and the refusal. Add the row to the table above, and add the path to
 this suite's `# run-tests: inputs` line if it lands outside `scripts/qa`.
+
+## Read-only execution episode accounting
+
+`episode-counter.py` accepts explicit local transcript roots and inclusive/exclusive
+UTC bounds. Redirect its JSON output to a private report, never a public fixture:
+
+```sh
+python3 -B scripts/qa/episode-counter.py --claude-root "$CLAUDE_CONFIG_DIR/projects" \
+  --codex-root "$CODEX_HOME/sessions" --since 2026-09-20 --until 2026-09-27 \
+  > "$PRIVATE_REPORT"
+```
+
+The tool reads a fixed byte extent of each selected file, deduplicates streamed
+Claude usage by response ID and supports Codex response-ID usage records. Older
+Codex usage without response IDs remains unknown. Input-token semantics differ:
+Claude uncached input and Codex total input must not be added as equivalent values.
+A background tool result measures handoff latency, not its process lifetime.
+Non-tool gaps include scheduling and user pauses, not just inference.
+
+UI candidates require three consecutive tool calls that execute screen/OCR tools.
+An intervening image-read call ends that strict sequence. Verification candidates
+require two recognized runner calls in a task with no more than 30 minutes between
+calls; source equality is unknown until full source receipts are reviewed.
+Observation candidates require three consecutive polling calls with the same
+command/arguments and byte-identical text output. Different output is not assumed
+unchanged. Shell matching is conservative and lexical, not a complete shell parser;
+Codex JavaScript wrappers require literal double-quoted command arguments.
+
+Per-episode timing includes intervening tools in the selected span. Different
+families can overlap; never sum them as disjoint total session cost. Canary
+mentions and claims that only the canary failed are separate unresolved evidence,
+not passing verification and not established agent waste. The reference interval
+option `--reference FILE FIRST LAST` reproduces a manually selected episode.
+No state is written, no commands are executed and no transcript text is printed.
+Default per-file pacing targets light CPU use; run at low scheduling priority on
+an already busy host. This counter does not bypass test resource admission.
+
+Episode accounting schema 2 treats `agent_hold.py wait` as collection rather
+than a new logical operation. It links explicit native task receipts, preserves
+missing completion as unknown and reports foreground tool time separately from
+the upper bound between background launch and collection. Help invocations are
+excluded. Scripted walk invocations are candidates in `scripted_ui`; their inner
+calls can be counted from explicitly supplied `--walk-evidence steps.json` or
+`screen.json`. These records contain no model usage and are never added to model
+request totals. The miner does not evaluate commands or read paths from transcript
+arguments. Verification candidates still require qualified source evidence before
+being called unchanged-source retries or avoidable waste.
