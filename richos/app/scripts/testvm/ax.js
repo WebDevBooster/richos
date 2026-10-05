@@ -79,6 +79,7 @@ function axTextHit(P, hay, want) {
 }
 
 function axMatches(P, n) {
+  if (P.id && n.id !== P.id) return false;
   if (P.role && n.role !== P.role) return false;
   if (P.sub && n.sub !== P.sub) return false;
   if (P.text !== null && P.text !== undefined) {
@@ -94,7 +95,7 @@ function axMatches(P, n) {
 // every message. Matching reads only the attributes actually requested.
 function axSearch(roots, P, api) {
   var queue = roots.map(function(e) { return {el:e, d:0, parent:null}; });
-  var head = 0, count = 0, hits = [], shallow = [], truncated = false, stoppedEarly = false;
+  var head = 0, count = 0, hits = [], near = [], shallow = [], truncated = false, stoppedEarly = false;
   var limit = P.first ? 1 : (P.nth !== null && P.nth !== undefined ? P.nth + 1 : null);
   // "window" and "menubar" choose the ROOTS (run() below); nothing inside them needs finding.
   var scoped = !P.scope || P.scope === "window" || P.scope === "menubar";
@@ -111,6 +112,9 @@ function axSearch(roots, P, api) {
     } else if (P.mode === "tree" || api.matches(q.el)) {
       hits.push(q);
       if (limit !== null && hits.length >= limit) { stoppedEarly = true; break; }
+    } else if (api.near && near.length < 3 && api.near(q.el)) {
+      // Same traversal and caps. A hint never becomes an actionable match.
+      near.push(q);
     }
     if (q.d < P.depth) {
       var kids = api.children(q.el);
@@ -119,7 +123,7 @@ function axSearch(roots, P, api) {
       truncated = true;
     }
   }
-  return {hits:hits, shallow:shallow, count:count, truncated:truncated, scoped:scoped,
+  return {hits:hits, near:near, shallow:shallow, count:count, truncated:truncated, scoped:scoped,
           exhaustive:head >= queue.length && !truncated && !stoppedEarly};
 }
 
@@ -141,7 +145,11 @@ function run() {
     catch(e) { return null; }
   }
   function attr(el, name, fallback) { try { return el.attributes.byName(name).value(); } catch(e) { return fallback; } }
-  function error(code, detail) { return JSON.stringify({error:code, detail:String(detail)}); }
+  function error(code, detail, extra) {
+    var record = {error:code, detail:String(detail)};
+    if (extra) Object.keys(extra).forEach(function(k) { record[k]=extra[k]; });
+    return JSON.stringify(record);
+  }
   try {
     proc = P.app ? se.processes.byName(P.app) : se.processes.whose({unixId:P.pid})[0];
     P.pid = proc.unixId();
@@ -176,8 +184,9 @@ function run() {
     catch(e) { return error("clickfailed", e); }
     return JSON.stringify({clicked:true, at:true, x:P.atx, y:P.aty});
   }
-  function match(el) {
-    if (P.role && get(el,"role","") !== P.role) return false;
+  function match(el, relaxRole) {
+    if (P.id && scalar(el,"AXDOMIdentifier","",true) !== P.id) return false;
+    if (!relaxRole && P.role && get(el,"role","") !== P.role) return false;
     if (P.sub && get(el,"subrole","") !== P.sub) return false;
     if (P.text !== null && !axTextHit(P, text(el,"title"), P.text) && !axTextHit(P, text(el,"description"), P.text)) return false;
     if (P.value !== null && !axTextHit(P, text(el,"value"), P.value)) return false;
@@ -189,6 +198,14 @@ function run() {
     if (which === "composer") return role === "AXTextArea" || (role === "AXGroup" && attr(el,"AXDOMIdentifier","") === "composer");
     if (which === "sidebar") return role === "AXGroup" && (text(el,"description") === "Entities and threads" || attr(el,"AXDOMIdentifier","") === "rail");
     return false;
+  }
+  function children(el) {
+    // JXA may return named specifiers from uiElements(). Distinct controls
+    // with the same accessibility name can then resolve to the same element.
+    // Keep the collection's positional reference rather than that name alias.
+    return get(el,"uiElements",[]).map(function(child,index) {
+      try { return el.uiElements[index] || child; } catch(e) { return child; }
+    });
   }
   function full(q) {
     var el=q.el;
@@ -221,14 +238,21 @@ function run() {
     }
     return error("notfound",detail);
   }
-  var result = axSearch(roots, P, {matches:match, scope:scope, scopeRoot:function(el,parent,which) { return which === "composer" && get(el,"role","") === "AXTextArea" && parent ? parent : el; }, children:function(el) { return get(el,"uiElements",[]); }});
+  var result = axSearch(roots, P, {matches:match, near:function(el) { return !!(P.role && (P.id || P.text) && match(el,true)); }, scope:scope, scopeRoot:function(el,parent,which) { return which === "composer" && get(el,"role","") === "AXTextArea" && parent ? parent : el; }, children:children});
   var hits = result.hits;
   var meta = JSON.stringify({meta:true,app:name,pid:P.pid,windows:wins.length,nodes:result.count,
     truncated:result.truncated,mode:P.mode,matches:hits.length,exhaustive:result.exhaustive});
   if (!result.scoped) return meta+"\n"+missing("scope is absent: "+P.scope);
   if (result.truncated) return meta+"\n"+error("incomplete", "node/depth cap reached; absence or uniqueness is not established");
   if (P.mode === "tree") return meta+"\n"+hits.map(function(q) { return JSON.stringify(full(q)); }).join("\n");
-  if (!hits.length) return meta+"\n"+missing("nothing matched");
+  if (!hits.length) {
+    var failure=JSON.parse(missing("nothing matched"));
+    if (result.near.length) failure.near_matches=result.near.map(function(q) {
+      return {role:text(q.el,"role"),sub:text(q.el,"subrole"),title:text(q.el,"title"),
+              desc:text(q.el,"description"),id:scalar(q.el,"AXDOMIdentifier","",true)};
+    });
+    return meta+"\n"+JSON.stringify(failure);
+  }
   if (P.mode === "find") {
     if (P.nth !== null) hits = hits.slice(P.nth,P.nth+1);
     if (!hits.length) return meta+"\n"+error("notfound", "requested match index is absent");
@@ -237,23 +261,59 @@ function run() {
   if (!P.first && P.nth === null && hits.length !== 1) return meta+"\n"+error("ambiguous", "multiple matches; specify --first or --nth (zero based)");
   var target = hits[P.nth || 0];
   if (!target) return meta+"\n"+error("notfound", "requested match index is absent");
-  var el=target.el;
+  var el=target.el, pressSent=false;
+  function expectation() {
+    var observed={}, satisfied=true;
+    Object.keys(P.expect || {}).forEach(function(k) {
+      observed[k]=k === "current" ? scalar(el,"AXARIACurrent",null,true) : scalar(el,k,null);
+      if (observed[k] === null || String(observed[k]) !== P.expect[k]) satisfied=false;
+    });
+    return {satisfied:satisfied,observed:observed};
+  }
   try {
+    // A retried toggle must not undo a state already established by the first press.
+    var before = P.mode === "click" && P.expect ? expectation() : null;
+    if (before && before.satisfied)
+      return meta+"\n"+JSON.stringify({action:"click",verified:true,already_satisfied:true,observed:before.observed});
     if (!get(el,"enabled",false)) return meta+"\n"+error("disabled", "matched element is disabled");
     if (P.mode === "click") {
       var actions=el.actions().map(function(a) { return a.name(); });
       if (actions.indexOf("AXPress") < 0) return meta+"\n"+error("noaction", "element has no AXPress; actions="+actions.join(","));
-      var pressedNode=full(target); // A dismissal can invalidate this AX node.
-      // Timed HERE, on the guest's clock, immediately around the press: a caller that reads
-      // the clock before ax.sh also measures the SSH trip and this search (2.6-5.6 s).
+      var pressedNode=P.expect ? {role:text(el,"role"),title:text(el,"title"),id:P.id || null} : full(target);
+      // Preserve guest-clock receipts used by reap-walk. Verified actions also
+      // avoid a geometry dump and never press again after an unknown effect.
       var pressedAt=Date.now();
+      pressSent=true;
       el.actions.byName("AXPress").perform();
       var returnedAt=Date.now();
+      if (P.expect) {
+        var check;
+        for (var attempt=0; attempt<20; attempt++) {
+          check=expectation();
+          if (check.satisfied) return meta+"\n"+JSON.stringify({clicked:true,verified:true,node:pressedNode,matches:hits.length,observed:check.observed,
+            pressed_at_ms:pressedAt,returned_at_ms:returnedAt});
+          delay(0.05);
+        }
+        return meta+"\n"+error("effect_unknown","press sent once; postcondition not observed; inspect before retrying",
+          {expected:P.expect,observed:check.observed,press_sent:true,pressed_at_ms:pressedAt,returned_at_ms:returnedAt});
+      }
       return meta+"\n"+JSON.stringify({clicked:true,node:pressedNode,matches:hits.length,
         pressed_at_ms:pressedAt,returned_at_ms:returnedAt});
     }
+    // Focusing can rebuild WebKit's AX tree and invalidate an index path.
+    // Pin the discovered DOM identity before sending focus. Rebind that identity
+    // only on a failed read, never send focus twice or type into another match.
+    var focusID=scalar(el,"AXDOMIdentifier","",true);
     proc.frontmost = true;
     el.focused = true;
+    if (front() && !get(el,"focused",false) && focusID) {
+      var refreshed=axSearch(roots,{mode:"find",scope:P.scope,max:P.max,depth:P.depth,first:false,nth:null},
+        {matches:function(candidate) { return scalar(candidate,"AXDOMIdentifier","",true) === focusID; },
+         scope:scope,scopeRoot:function(candidate,parent,which) { return which === "composer" && get(candidate,"role","") === "AXTextArea" && parent ? parent : candidate; },children:children});
+      if (refreshed.exhaustive && refreshed.hits.length === 1) {
+        target=refreshed.hits[0];el=target.el;
+      }
+    }
     if (!front() || !get(el,"focused",false)) return meta+"\n"+error("focusfailed", "target did not receive focus; no text sent");
     if (P.mode === "type") {
       // Paste literal text so macOS smart quotes cannot rewrite instructions.
@@ -286,7 +346,7 @@ function run() {
       } finally { clipboardApp.setTheClipboardTo(savedClipboard); }
     }
     return meta+"\n"+JSON.stringify({action:P.mode,verified:true,node:full(target)});
-  } catch(e) { return meta+"\n"+error(P.mode+"failed", e); }
+  } catch(e) { return meta+"\n"+error(pressSent ? "effect_unknown" : P.mode+"failed", e, {press_sent:pressSent}); }
 }
 
 if (typeof module !== "undefined" && module.exports) {

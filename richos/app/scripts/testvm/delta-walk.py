@@ -67,10 +67,22 @@ class Walk:
     def ax(self,mode,*args,app=None):
         argv=[HERE/'ax.sh',self.vm,mode,*args,'--json']
         if app:argv+=['--app',app]
-        out=command(argv,25)
-        return [json.loads(s) for s in out.splitlines() if s.startswith('{')]
-    def press(self,title,app=None,role='AXButton'):
-        return self.ax('click','--title',title,'--role',role,'--contains','--first',app=app)
+        result=subprocess.run(list(map(str,argv)),capture_output=True,text=True,timeout=25)
+        rows=[json.loads(s) for s in result.stdout.splitlines() if s.startswith('{')]
+        failure=next((r for r in rows if r.get('error')),None)
+        if failure:
+            raise Failure('harness failure',json.dumps(failure),status=failure['error'])
+        if result.returncode:
+            raise Failure('harness failure',result.stdout+'\n'+result.stderr,status='transport_failure')
+        return rows
+    def press(self,title,app=None,role=None):
+        selector=['--title',title]
+        if role:selector+=['--role',role]
+        return self.ax('click',*selector,app=app)
+    def select_tailnet_route(self):
+        # Explicit managed-route fixture only. A selected-value receipt is local
+        # evidence; live acceptance also checks the resulting route/Connect state.
+        return self.ax('click','--id','phone-use-tailnet','--in','dialog','--expect','value=1')
     def press_when_present(self,title,app=None,budget=20):
         # Safari has just been asked to open a URL: press the moment the button exists, looking
         # first, instead of sleeping a fixed 2 s that costs full price when Safari is already up
@@ -79,12 +91,13 @@ class Walk:
         while True:
             try:return self.press(title,app=app)
             except Failure as exc:
-                if 'notfound' not in str(exc) or time.monotonic()>=end:raise
+                if exc.status != 'notfound' or time.monotonic()>=end:raise
             time.sleep(.5)
+
     def optional_press(self,title):
         try:self.press(title)
         except Failure as exc:
-            if 'notfound' not in str(exc):raise
+            if exc.status != 'notfound':raise
     def tree(self,app=None):return self.ax('tree',app=app)
     def strings(self,rows):return '\n'.join(str(row.get(k,'')) for row in rows for k in ('title','desc','value'))
     def settings(self):self.press('Settings',role='AXPopUpButton')
@@ -114,7 +127,9 @@ class Walk:
             time.sleep(.5)
         raise Failure('product failure','no pairing URL/code rendered within 25 seconds')
     def pair(self,step,budget):
-        self.settings();self.press('Use Rich from your phone',role='AXMenuItem');self.press('Set my phone up')
+        self.settings();self.press('Use Rich from your phone',role='AXMenuItem')
+        if self.a.tailnet_route_choice:self.select_tailnet_route()
+        self.press('Set my phone up')
         self.url=self.pairing_url()
         guest(self.vm,shlex.join(['open','-a','Safari',self.url]))
         self.press_when_present('They match',app='Safari')
@@ -300,6 +315,7 @@ def main():
     p.add_argument('--current',required=True);p.add_argument('--previous',required=True);p.add_argument('--endpoint',required=True)
     p.add_argument('--keychain-endurance',action='store_true',help='pair then idle/relaunch for 30 minutes; no test sends (app initialization may use the model)')
     p.add_argument('--previous-app');p.add_argument('--thread-a',default='Scenario A');p.add_argument('--thread-b',default='Scenario B')
+    p.add_argument('--tailnet-route-choice',action='store_true',help='fixture has a visible managed route choice; select Tailscale by DOM ID and verify its value')
     p.add_argument('--admission-wait-seconds',type=float,default=0,
                    help='bounded wait for CPU below 80% busy before each attempt; excludes at most 5s final probe; recorded separately from capture')
     p.add_argument('--band-side',choices=['mac','phone'],default='mac')
