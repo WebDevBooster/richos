@@ -8,13 +8,15 @@
 //! # Witnessed, never inferred
 //!
 //! A file is listed because something SAW the thread write it, never because Rich said so
-//! (§1.6, §4.1). Three witnesses feed the record and nothing else may:
+//! (§1.6, §4.1). Four witnesses feed the record and nothing else may:
 //!
 //! - **(a)** the front desk's own completed `Write`/`Edit`/`MultiEdit`/`NotebookEdit` calls,
 //!   merged per call from the machinery journal ([`witness_tool_calls`]);
 //! - **(b)** the app hook's `PostToolUse` rows for the same four tools, in both leases and every
 //!   worker (slice S2);
-//! - **(c)** files a shell command made, seen on the disk by the hook (slice S2).
+//! - **(c)** files a shell command made, seen on the disk by the hook (slice S2);
+//! - **(d)** a worker's files landed into the connected repository, written by `integrate` itself
+//!   (slice S2b). A land row retires the worktree copy it came from ([`project`]).
 //!
 //! # Identity
 //!
@@ -71,7 +73,7 @@ pub enum Actor {
     Worker,
 }
 
-/// Which witness saw it (§4.2): (a), (b) or (c).
+/// Which witness saw it (§4.2): (a), (b), (c) or (d).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WriteSource {
@@ -81,6 +83,9 @@ pub enum WriteSource {
     Hook,
     /// (c) a file a shell command made, seen on the disk by the app hook.
     Command,
+    /// (d) a worker's file landed into the connected repository by `integrate` (slice S2b).
+    /// The row carries the worktree copy it retires in [`WriteRow::landed_from`].
+    Land,
 }
 
 /// One witnessed write (§4.2). No file content, no tool input, no command text — paths and
@@ -89,8 +94,8 @@ pub enum WriteSource {
 #[serde(rename_all = "camelCase")]
 pub struct WriteRow {
     pub schema: u32,
-    /// The idempotency key (§4.4): `mach:<toolCallId>`, `hook:<session>:<toolUseId>` or
-    /// `cmd:<session>:<canonical>:<mtimeNs>`.
+    /// The idempotency key (§4.4): `mach:<toolCallId>`, `hook:<session>:<toolUseId>`,
+    /// `cmd:<session>:<canonical>:<mtimeNs>` or `land:<session>:<commit>:<path>`.
     pub key: String,
     pub thread_id: String,
     /// `None` for a write between turns or one no turn could be named for.
@@ -106,6 +111,10 @@ pub struct WriteRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
     pub source: WriteSource,
+    /// A `land` row only: the worker's worktree copy this row retires (§4.3), canonical when it
+    /// still existed at witness time, else as written. Absent on every row written before S2b.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub landed_from: Option<String>,
     /// Epoch millis. A LABEL; order is append order.
     pub at: u64,
 }
@@ -133,6 +142,7 @@ impl WriteRow {
             worker_name: None,
             agent_id: None,
             source,
+            landed_from: None,
             at,
         }
     }
@@ -309,28 +319,70 @@ fn restat(path: &str, canonical: Option<&str>) -> (bool, Option<u64>, Option<u64
     (true, Some(meta.len()), modified, None)
 }
 
+/// The landed entry a worktree row is folded into, if a land row retired its path. A land row
+/// itself is never folded.
+fn retiring_key<'a>(row: &'a WriteRow, retired: &HashMap<&'a str, &'a str>) -> Option<&'a str> {
+    if row.source == WriteSource::Land {
+        return None;
+    }
+    retired
+        .get(row.path.as_str())
+        .or_else(|| row.canonical.as_deref().and_then(|c| retired.get(c)))
+        .copied()
+}
+
 /// Fold rows (append order) into entries, newest first. Pure apart from the re-stat.
+///
+/// **A land row retires the entry at its `landedFrom`** (§4.3, slice S2b): every row whose path
+/// or canonical path is a land row's `landedFrom` is folded into that land row's entry — counted
+/// in its `writes`, eligible as its `firstTurnId` — and is never an entry of its own, so the
+/// worker's deleted worktree copy is neither listed nor counted missing. The landed entry's
+/// latest row is still its own (the land row, or a later write at the landed path), so its
+/// actor, worker and group are the land's. The rule reads the whole slice first, so it holds
+/// whatever order the land row and the worktree rows arrived in.
 pub fn project(thread_id: &str, rows: &[WriteRow]) -> Vec<Entry> {
-    // file key -> (index of first row, index of latest row, write count)
+    // A worktree path -> the file key of the land row that retires it (the latest such land).
+    let mut retired: HashMap<&str, &str> = HashMap::new();
+    for row in rows.iter().filter(|r| r.source == WriteSource::Land) {
+        if let Some(from) = row.landed_from.as_deref().filter(|f| *f != row.file_key()) {
+            retired.insert(from, row.file_key());
+        }
+    }
+    // file key -> (indexes of its rows, index of its latest OWN row, whether any row was folded in)
     let mut order: Vec<&str> = Vec::new();
-    let mut spans: HashMap<&str, (usize, usize, usize)> = HashMap::new();
+    let mut spans: HashMap<&str, (Vec<usize>, Option<usize>, bool)> = HashMap::new();
     for (i, row) in rows.iter().enumerate() {
-        let key = row.file_key();
-        match spans.get_mut(key) {
-            Some(span) => {
-                span.1 = i;
-                span.2 += 1;
-            }
-            None => {
-                order.push(key);
-                spans.insert(key, (i, i, 1));
-            }
+        let (key, own) = match retiring_key(row, &retired) {
+            Some(landed) => (landed, false),
+            None => (row.file_key(), true),
+        };
+        let span = spans.entry(key).or_insert_with(|| {
+            order.push(key);
+            (Vec::new(), None, false)
+        });
+        span.0.push(i);
+        if own {
+            span.1 = Some(i);
+        } else {
+            span.2 = true;
         }
     }
     let mut keyed: Vec<(usize, Entry)> = order
         .into_iter()
         .map(|key| {
-            let (first, last, writes) = spans[key];
+            let (members, last, folded) = &spans[key];
+            let writes = members.len();
+            // The first write: append order, as S1 — except on a landed entry, whose worktree
+            // rows may be appended after its land row by a later convergence. There the
+            // earliest witnessed write is the earliest `at`, index breaking a tie, so the same
+            // rows give the same entry in either order (§4.3).
+            let first = if *folded {
+                *members.iter().min_by_key(|&&i| (rows[i].at, i)).unwrap()
+            } else {
+                members[0]
+            };
+            // Every retiring key has its land row as an own row; the fallback is never taken.
+            let last = last.unwrap_or(first);
             let latest = &rows[last];
             let (exists, bytes, modified_at, refused) = restat(&latest.path, latest.canonical.as_deref());
             let name = Path::new(&latest.path)
@@ -893,11 +945,34 @@ struct EvidenceWrite {
     tool_use_id: Option<String>,
     path: String,
     at: u64,
-    /// `hook` (b) or `command` (c).
+    /// `hook` (b), `command` (c) or `land` (d).
     source: String,
     /// (c) only: the write's mtime, which is half of its key.
     #[serde(default)]
     mtime_ns: Option<u64>,
+    /// (d) only: the worker's worktree copy the landed file came from.
+    #[serde(default, rename = "from")]
+    landed_from: Option<String>,
+    /// (d) only: the commit the land moved the ref to, which is half of its key.
+    #[serde(default)]
+    commit: Option<String>,
+    /// (d) only: the worker, read off its own receipt by the land step.
+    #[serde(default)]
+    worker: Option<LandWorker>,
+}
+
+/// The worker a land row names (§4.1 (d)): the receipt's `name` and `agent_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct LandWorker {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+/// A commit id as Git prints it in full: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits.
+fn usable_commit(commit: &str) -> bool {
+    matches!(commit.len(), 40 | 64) && commit.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// A session id that can name exactly one evidence folder (`app_workers.rs`'s rule).
@@ -1015,11 +1090,27 @@ pub fn evidence_rows(
         if joined.thread_id != thread_id {
             continue;
         }
-        let (source, key) = match (w.source.as_str(), &w.tool_use_id, w.mtime_ns) {
-            ("hook", Some(id), _) => (WriteSource::Hook, format!("hook:{session_id}:{id}")),
-            ("command", _, Some(mtime)) => (WriteSource::Command, format!("cmd:{session_id}:{}:{mtime}", w.path)),
+        let (source, key) = match (w.source.as_str(), &w.tool_use_id, w.mtime_ns, w.commit.as_deref()) {
+            ("hook", Some(id), _, _) => (WriteSource::Hook, format!("hook:{session_id}:{id}")),
+            ("command", _, Some(mtime), _) => (WriteSource::Command, format!("cmd:{session_id}:{}:{mtime}", w.path)),
+            ("land", _, _, Some(commit)) if usable_commit(commit) => {
+                (WriteSource::Land, format!("land:{session_id}:{commit}:{}", w.path))
+            }
             _ => continue,
         };
+        if source == WriteSource::Land {
+            // (d): the worker is the one its own receipt names, so no `Agent` callback is
+            // needed to name it — but a land row with no name or no worktree copy is not one.
+            let Some(worker) = w.worker.as_ref() else { continue };
+            let Some(name) = worker.name.as_deref().filter(|s| !s.is_empty()) else { continue };
+            let Some(from) = w.landed_from.as_deref().filter(|f| Path::new(f).is_absolute()) else { continue };
+            let mut row = WriteRow::witnessed(key, thread_id, joined.turn_id.as_deref(), &w.path, Actor::Worker, source, w.at);
+            row.worker_name = Some(name.to_string());
+            row.agent_id = worker.agent_id.clone().filter(|s| !s.is_empty());
+            row.landed_from = Some(canonical_of(from).unwrap_or_else(|| from.to_string()));
+            out.push(row);
+            continue;
+        }
         let (actor, worker_name) = match w.agent_id.as_deref().filter(|s| !s.is_empty()) {
             Some(agent) => match names.get(agent) {
                 Some(name) => (Actor::Worker, name.clone()),
@@ -1406,6 +1497,12 @@ mod tests {
             self.line(session, WRITES_FILE, json!({"schema":1,"session_id":session,"agent_id":agent,
                 "tool_use_id":"tu-bash","path":path,"at":crate::util::now_millis(),"source":"command","mtime_ns":mtime_ns}));
         }
+        /// A land row as `app-evidence.py`'s `append_land_rows` writes it (§4.1 (d)).
+        fn landed(&self, session: &str, path: &str, from: &str, commit: Option<&str>, name: &str, agent: Option<&str>) {
+            self.line(session, WRITES_FILE, json!({"schema":1,"session_id":session,"agent_id":null,"tool_use_id":null,
+                "path":path,"from":from,"commit":commit,"worker":{"name":name,"agent_id":agent},
+                "at":crate::util::now_millis(),"source":"land"}));
+        }
         fn sources(&self) -> (Vec<Assignment>, PathBuf) {
             (vec![self.assignment.clone()], self.evidence.clone())
         }
@@ -1572,5 +1669,110 @@ mod tests {
         .collect();
         records.extend(read);
         assert!(witness_tool_calls(&records).is_empty());
+    }
+
+    // ---- S2b: witness (d), the land ---------------------------------------------------------
+
+    const LANDED: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    /// A worker's worktree copy and the connected repository's landed copy of one file.
+    fn worktree_and_landed(w: &World, name: &str) -> (String, String) {
+        let worktree = w.dir.0.join("engine-state/target-worktrees/scope/worker-sonnet-f9");
+        let acme = w.dir.0.join("Acme");
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::create_dir_all(&acme).unwrap();
+        let (from, path) = (worktree.join(name), acme.join(name));
+        std::fs::write(&from, "Notes for the walk test.").unwrap();
+        std::fs::write(&path, "Notes for the walk test.").unwrap();
+        (from.to_string_lossy().into_owned(), path.to_string_lossy().into_owned())
+    }
+
+    /// §12.2b: a `hook` row at a worktree path followed by a `land` row with that `landedFrom` is
+    /// one entry at the landed path, `writes: 2`, the worker's, not counted twice, and nothing
+    /// is missing after the worktree file is deleted — the walk-3 record's third row (a worker
+    /// file at a worktree path, nothing at the landed path) cannot be produced again.
+    #[test]
+    fn output_a_land_row_retires_the_worktree_entry_and_lists_the_file_once_at_the_landed_path() {
+        let w = world("output-s2b-land");
+        let (from, landed) = worktree_and_landed(&w, "notes.md");
+        w.created("work-1", "agent-w", "worker-sonnet-f9");
+        w.wrote("work-1", Some("agent-w"), "tu-1", &from);
+        let (assignments, evidence) = w.sources();
+        let store = OutputStore::for_data_dir(&w.dir.0);
+        let sources = Sources { turns: w.ledger.turns(), assignments: &assignments, evidence_root: Some(&evidence), machinery: None };
+        // Before the land: listed at the worktree path, by the worker.
+        let before = store.list(&w.thread, &sources).unwrap();
+        assert_eq!((before.count, before.files[0].path.as_str()), (1, from.as_str()));
+
+        w.landed("work-1", &landed, &from, Some(LANDED), "worker-sonnet-f9", Some("agent-w"));
+        let list = store.list(&w.thread, &sources).unwrap();
+        assert_eq!((list.count, list.missing), (1, 0), "{list:?}");
+        let e = &list.files[0];
+        assert_eq!(e.path, landed, "listed at the copy that opens");
+        assert_eq!((e.actor, e.worker_name.as_deref(), e.source, e.writes), (Actor::Worker, Some("worker-sonnet-f9"), WriteSource::Land, 2));
+        assert_eq!(e.turn_id.as_deref(), Some(w.turn.as_str()), "the group of his request");
+        let key = store.read(&w.thread).unwrap().rows.iter().find(|r| r.source == WriteSource::Land).unwrap().key.clone();
+        assert_eq!(key, format!("land:work-1:{LANDED}:{landed}"));
+
+        // The app deletes the worktree after the land: still one entry, nothing missing.
+        std::fs::remove_file(&from).unwrap();
+        let after = store.list(&w.thread, &sources).unwrap();
+        assert_eq!((after.count, after.missing, after.files[0].id.as_str()), (1, 0, e.id.as_str()));
+        // A repeated projection appends nothing: the land row's key is the commit and the path.
+        assert_eq!(store.read(&w.thread).unwrap().rows.len(), 2);
+    }
+
+    /// §12.2b: the same two rows in the other order (a convergence that appends the worktree row
+    /// after its land row) project to the same list.
+    #[test]
+    fn output_a_land_row_and_its_worktree_row_project_the_same_in_either_order() {
+        let w = world("output-s2b-order");
+        let (from, landed) = worktree_and_landed(&w, "notes.pdf");
+        let mut hook = WriteRow::witnessed("hook:work-1:tu-1".into(), &w.thread, Some("turn_a"), &from, Actor::Worker, WriteSource::Hook, 10);
+        hook.worker_name = Some("worker-sonnet-f9".into());
+        let mut land = WriteRow::witnessed(format!("land:work-1:{LANDED}:{landed}"), &w.thread, Some("turn_b"), &landed, Actor::Worker, WriteSource::Land, 20);
+        land.worker_name = Some("worker-sonnet-f9".into());
+        land.landed_from = canonical_of(&from);
+        let forward = project(&w.thread, &[hook.clone(), land.clone()]);
+        let backward = project(&w.thread, &[land, hook]);
+        assert_eq!(forward, backward);
+        assert_eq!(forward.len(), 1);
+        let e = &forward[0];
+        assert_eq!((e.writes, e.turn_id.as_deref(), e.first_turn_id.as_deref()), (2, Some("turn_b"), Some("turn_a")));
+        assert_eq!((e.name.as_str(), e.source), ("notes.pdf", WriteSource::Land));
+    }
+
+    /// §12.2b: a `land` row whose `landedFrom` matches nothing (the worktree write was never
+    /// witnessed) retires nothing and is listed on its own; an unrelated file stays listed.
+    #[test]
+    fn output_a_land_row_whose_landed_from_matches_nothing_is_listed_on_its_own() {
+        let w = world("output-s2b-alone");
+        let (from, landed) = worktree_and_landed(&w, "notes.md");
+        let other = w.dir.file("other.md", "o");
+        w.created("work-1", "agent-w", "worker-sonnet-f9");
+        w.wrote("work-1", Some("agent-w"), "tu-1", &other);
+        w.landed("work-1", &landed, &from, Some(LANDED), "worker-sonnet-f9", None);
+        let (assignments, evidence) = w.sources();
+        let store = OutputStore::for_data_dir(&w.dir.0);
+        let sources = Sources { turns: w.ledger.turns(), assignments: &assignments, evidence_root: Some(&evidence), machinery: None };
+        let list = store.list(&w.thread, &sources).unwrap();
+        assert_eq!(list.count, 2, "{list:?}");
+        let notes = by_name(&list, "notes.md");
+        assert_eq!((notes.writes, notes.worker_name.as_deref(), notes.source), (1, Some("worker-sonnet-f9"), WriteSource::Land));
+        assert_eq!(by_name(&list, "other.md").source, WriteSource::Hook);
+    }
+
+    /// §12.2b: a `land` row with no commit is not a land row and is skipped (as is one with no
+    /// worker name, or a relative worktree path): nothing is attributed on a guess.
+    #[test]
+    fn output_a_land_row_without_a_commit_or_a_worker_name_is_skipped() {
+        let w = world("output-s2b-bad");
+        let (from, landed) = worktree_and_landed(&w, "notes.md");
+        w.landed("work-1", &landed, &from, None, "worker-sonnet-f9", None);
+        w.landed("work-1", &landed, &from, Some("not-a-commit"), "worker-sonnet-f9", None);
+        w.landed("work-1", &landed, &from, Some(LANDED), "", None);
+        w.landed("work-1", &landed, "notes.md", Some(LANDED), "worker-sonnet-f9", None);
+        let rows = evidence_rows(&w.evidence, "work-1", &w.join(), &w.thread, &[]);
+        assert!(rows.is_empty(), "{rows:?}");
     }
 }
