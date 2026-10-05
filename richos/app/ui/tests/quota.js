@@ -511,6 +511,15 @@ async function main() {
     // The preview's worker status has one agent active (mock.js get_worker_status).
     await page.waitForFunction(() => !document.getElementById("quota-work-status").hidden);
     assertEqual(await page.locator("#quota-work-status").innerText(), "1 agent working on Home");
+    // Round 16 draws the row in the message column with a gold dot before it, not at the pane's edge.
+    const row = await page.evaluate(() => {
+      const box = e => { const r = e.getBoundingClientRect(), s = getComputedStyle(e); return {left: r.left + parseFloat(s.paddingLeft), width: r.width}; };
+      const dot = getComputedStyle(document.getElementById("quota-work-status"), "::before");
+      return {row: box(document.getElementById("quota-work-status")), messages: box(document.getElementById("messages")),
+        dot: dot.content !== "none" && dot.width === "8px"};
+    });
+    assert(row.messages.width > 0 && Math.abs(row.row.left - row.messages.left) < 1, `the row starts at the message column's text edge: ${JSON.stringify(row)}`);
+    assert(row.dot, `the working row has round 16's 8 px dot: ${JSON.stringify(row)}`);
     await page.click("#set-btn"); await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForSelector(".quota-lane");
     await page.click('.quota-lane[data-id="2"] .quota-lane-remove');

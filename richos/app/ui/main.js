@@ -3459,6 +3459,7 @@ function renderQuotaWorkStatus() {
   // account they are working on ("3 agents working on Work"). `account` is set only then.
   const on = !n && quotaWorking && quotaActivity.account ? quotaActivity.account : null;
   status.hidden = !n && !on;
+  status.dataset.state = n ? "paused" : on ? "working" : "";
   status.textContent = n ? counted(n, "agent", "agents") + " paused" + (techyOn() ? " for the quota" : ". Their work is saved.")
     : on ? counted(quotaWorking, "agent", "agents") + " working on " + on : "";
   if (n && techyOn() && quotaActivity.resumesAt) status.textContent += " · can resume just after " + new Date(quotaActivity.resumesAt).toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});

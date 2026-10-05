@@ -3119,6 +3119,7 @@ body.bp-narrow #rail-resizer {
 }
 
 body.bp-narrow #messages,
+body.bp-narrow #quota-work-status,
 body.bp-narrow .pane-inner {
   padding-left: 18px;
   padding-right: 18px;
@@ -6896,7 +6897,40 @@ body.home-open {
 .quota-boundary b { color: var(--ink); }
 .quota-boundary p + p { margin-top: 6px; }
 #quota-sheet [hidden], #quota-draft-actions[hidden], .quota-mini[hidden] { display: none !important; }
-#quota-work-status { color: var(--ink-soft); font-size: 1rem; margin-bottom: 8px; }
+/* Round 16's working row ("• 3 agents working on Work", quota.html `.working-row`): it sits in
+   the message column, so it takes the column rules `#messages` and `#drill-chip-zone` use
+   (reading width, centered, 28px sides); before, it spanned the composer zone from the pane's
+   edge. Its side padding steps with `#messages`' (24px under 1180px, 20px under 820px, 18px
+   in `bp-narrow`), so the text edge stays on the message text's at every width. Its color is
+   round 16's `--trim-text`: 5.91:1 dark, 5.90:1 light on `--ground`.
+   The dot is round 16's gold, but at FULL opacity, breathing by size the way `.tl-pulse`
+   does: round 16 breathes its opacity down to .35, which is 1.95:1 dark and 1.43:1 light, under
+   the 3:1 owed by a non-text indicator; full gold is 7.68:1 dark and 3.15:1 light. Only the
+   working row has the dot (`data-state`, main.js `renderQuotaWorkStatus`); a paused row does not. */
+#quota-work-status {
+  max-width: var(--reading-width);
+  margin: 0 auto;
+  padding: 0 28px 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--trim-text);
+  font-size: 1rem;
+}
+@media (max-width: 1179px) { #quota-work-status { padding-left: 24px; padding-right: 24px; } }
+@media (max-width: 819px) { #quota-work-status { padding-left: 20px; padding-right: 20px; } }
+#quota-work-status[hidden] { display: none; }
+#quota-work-status[data-state="working"]::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: quota-work-breathe 1.6s ease-in-out infinite;
+}
+@keyframes quota-work-breathe { 0%, 100% { transform: scale(0.85); } 50% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { #quota-work-status::before { animation: none; } }
 #set-quota-open .set-row-text { min-width: 0; }
 #set-quota-state { font-size: 1rem; }
 .quota-mini { position: relative; width: 36px; height: 6px; flex: none; border-radius: 3px; background: var(--line-control); overflow: hidden; margin-left: auto; }
