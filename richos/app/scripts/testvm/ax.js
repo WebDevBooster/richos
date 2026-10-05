@@ -199,6 +199,14 @@ function run() {
     if (which === "sidebar") return role === "AXGroup" && (text(el,"description") === "Entities and threads" || attr(el,"AXDOMIdentifier","") === "rail");
     return false;
   }
+  function children(el) {
+    // JXA may return named specifiers from uiElements(). Distinct controls
+    // with the same accessibility name can then resolve to the same element.
+    // Keep the collection's positional reference rather than that name alias.
+    return get(el,"uiElements",[]).map(function(child,index) {
+      try { return el.uiElements[index] || child; } catch(e) { return child; }
+    });
+  }
   function full(q) {
     var el=q.el;
     return {d:q.d,role:text(el,"role"),sub:text(el,"subrole"),title:text(el,"title"),
@@ -230,7 +238,7 @@ function run() {
     }
     return error("notfound",detail);
   }
-  var result = axSearch(roots, P, {matches:match, near:function(el) { return !!(P.role && (P.id || P.text) && match(el,true)); }, scope:scope, scopeRoot:function(el,parent,which) { return which === "composer" && get(el,"role","") === "AXTextArea" && parent ? parent : el; }, children:function(el) { return get(el,"uiElements",[]); }});
+  var result = axSearch(roots, P, {matches:match, near:function(el) { return !!(P.role && (P.id || P.text) && match(el,true)); }, scope:scope, scopeRoot:function(el,parent,which) { return which === "composer" && get(el,"role","") === "AXTextArea" && parent ? parent : el; }, children:children});
   var hits = result.hits;
   var meta = JSON.stringify({meta:true,app:name,pid:P.pid,windows:wins.length,nodes:result.count,
     truncated:result.truncated,mode:P.mode,matches:hits.length,exhaustive:result.exhaustive});
@@ -292,8 +300,20 @@ function run() {
       return meta+"\n"+JSON.stringify({clicked:true,node:pressedNode,matches:hits.length,
         pressed_at_ms:pressedAt,returned_at_ms:returnedAt});
     }
+    // Focusing can rebuild WebKit's AX tree and invalidate an index path.
+    // Pin the discovered DOM identity before sending focus. Rebind that identity
+    // only on a failed read, never send focus twice or type into another match.
+    var focusID=scalar(el,"AXDOMIdentifier","",true);
     proc.frontmost = true;
     el.focused = true;
+    if (front() && !get(el,"focused",false) && focusID) {
+      var refreshed=axSearch(roots,{mode:"find",scope:P.scope,max:P.max,depth:P.depth,first:false,nth:null},
+        {matches:function(candidate) { return scalar(candidate,"AXDOMIdentifier","",true) === focusID; },
+         scope:scope,scopeRoot:function(candidate,parent,which) { return which === "composer" && get(candidate,"role","") === "AXTextArea" && parent ? parent : candidate; },children:children});
+      if (refreshed.exhaustive && refreshed.hits.length === 1) {
+        target=refreshed.hits[0];el=target.el;
+      }
+    }
     if (!front() || !get(el,"focused",false)) return meta+"\n"+error("focusfailed", "target did not receive focus; no text sent");
     if (P.mode === "type") {
       // Paste literal text so macOS smart quotes cannot rewrite instructions.

@@ -40,6 +40,12 @@ When an explicit role excludes a title/ID match, failure includes up to three
 A role-less exact selector still requires uniqueness. Do not silently resolve a
 collision by adding `--contains --first`.
 
+Traversal uses collection indexes so JXA's same-name references cannot turn
+different controls into repeated matches. Focusing can rebuild WebKit's AX tree
+and invalidate an index. If the subsequent focus read fails, the tool may refresh
+the original DOM ID within the same scope, requiring a complete traversal and
+one match. It never resends focus; a missing ID or uncertain refresh refuses text.
+
 `click --expect value=1` resolves, presses and observes the postcondition in one
 guest invocation. Repeated `--expect` options may check `value`, `enabled`,
 `selected`, `current`, `title` or `description`. A state already satisfied returns
