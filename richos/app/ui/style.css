@@ -8032,17 +8032,48 @@ body.bp-narrow #out-bottom .out-word {
    `#toast`, under the app's tokens). Every text pair and indicator here is computed in both
    themes by `tests/output.js` ("the actions' text and indicators"); nothing is declared exempt.
    A disabled action keeps readable ink (`--ink-soft`) and says why in its tooltip. ---- */
+/* A row and its actions are siblings in `.orow-wrap`, laid out as round 17's one row: the
+   actions sit where its third column did, and the row keeps that column's room (72px = the
+   two 30px buttons, their 2px gap and the 10px edge, less the 12px column gap the empty
+   third column still has), so a name ellipsizes exactly where it did. Siblings, not
+   children, because a `role="button"` row's children are presentational: nested, Open and
+   `⋯` reached no assistive technology (the VM walk's tree showed one button). */
+.orow-wrap {
+  position: relative;
+}
+
+.orow-wrap > .orow {
+  padding-right: 72px;
+}
+
+.orow-wrap:hover > .orow {
+  background: var(--line-soft);
+}
+
+.orow-wrap:hover > .orow.is-open {
+  background: var(--surface-raised);
+}
+
+.orow-wrap:hover > .orow .okind {
+  border-color: var(--ctl-line);
+  color: var(--ink);
+}
+
 .oacts {
+  position: absolute;
+  top: 50%;
+  right: 10px;
   display: flex;
   gap: 2px;
   opacity: 0;
+  transform: translateY(-50%);
   transition: opacity 0.15s;
 }
 
-.orow:hover .oacts,
-.orow:focus-within .oacts,
-.orow.is-open .oacts,
-.orow.menu-open .oacts {
+.orow-wrap:hover > .oacts,
+.orow-wrap:focus-within > .oacts,
+.orow.is-open + .oacts,
+.orow.menu-open + .oacts {
   opacity: 1;
 }
 

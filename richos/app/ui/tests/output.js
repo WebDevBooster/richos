@@ -528,7 +528,7 @@ async function main() {
         line: r.querySelector(".opath").textContent,
         // S6: the row's Open is disabled (aria-disabled, its reason as the tooltip) and its menu
         // stays lit, because Copy path is (§6.7) — the menu's own contents are checked below.
-        controls: [...r.querySelectorAll("button, a[href], [data-act]")]
+        controls: [...r.parentElement.querySelectorAll("button, a[href], [data-act]")]
           .filter((c) => !c.disabled && c.getAttribute("aria-disabled") !== "true")
           .map((c) => c.dataset.act),
         nameColor: getComputedStyle(r.querySelector(".oname")).color,
@@ -657,7 +657,7 @@ async function main() {
   const calls = () => ap.evaluate(() => window.__RICHOS_MOCK__.outputCalls().filter((c) => c.cmd !== "output_file"));
   const openRowMenu = async (name) => {
     await ap.hover(rowOf(name));
-    await ap.click(rowOf(name) + ' [data-act="menu"]');
+    await ap.click(rowOf(name) + ' + .oacts [data-act="menu"]');
     await ap.waitForSelector("#op-menu");
   };
 
@@ -672,10 +672,14 @@ async function main() {
     assertEqual(m.seps, 1);
     assertEqual(m.focus, "Preview", "focus did not move into the menu");
     const opener = await ap.evaluate((sel) => {
-      const b = document.querySelector(sel + ' [data-act="menu"]');
-      return { expanded: b.getAttribute("aria-expanded"), haspopup: b.getAttribute("aria-haspopup"), label: b.getAttribute("aria-label"), rowOpen: b.closest(".orow").classList.contains("menu-open") };
+      const b = document.querySelector(sel + ' + .oacts [data-act="menu"]');
+      return { expanded: b.getAttribute("aria-expanded"), haspopup: b.getAttribute("aria-haspopup"), label: b.getAttribute("aria-label"), rowOpen: b.closest(".orow-wrap").querySelector(".orow").classList.contains("menu-open") };
     }, rowOf("brief.md"));
     assertEqual(opener, { expanded: "true", haspopup: "menu", label: "More actions for brief.md", rowOpen: true });
+    // A role=button row's children are presentational: an action nested inside one reaches no
+    // assistive technology (the VM walk's accessibility tree showed the row as one button).
+    const nested = await ap.evaluate(() => document.querySelectorAll('.orow[role="button"] [data-act]').length);
+    assertEqual(nested, 0, "an action is nested inside a role=button row, where VoiceOver cannot reach it");
     return m.items.join(" · ");
   });
 
@@ -708,7 +712,7 @@ async function main() {
     const after = await ap.evaluate((sel) => ({
       menu: !!document.getElementById("op-menu"),
       focus: document.activeElement.getAttribute("aria-label"),
-      expanded: document.querySelector(sel + ' [data-act="menu"]').getAttribute("aria-expanded"),
+      expanded: document.querySelector(sel + ' + .oacts [data-act="menu"]').getAttribute("aria-expanded"),
       panel: !document.getElementById("outpanel").hidden,
       view: document.getElementById("op-body").dataset.view,
     }), rowOf("brief.md"));
@@ -723,7 +727,7 @@ async function main() {
     await ap.click("#op-title");
     assert(!(await menuState()), "a press outside did not close the menu");
     await openRowMenu("brief.md");
-    await ap.click(rowOf("brief.md") + ' [data-act="menu"]');
+    await ap.click(rowOf("brief.md") + ' + .oacts [data-act="menu"]');
     assert(!(await menuState()), "the ⋯ did not close its own menu");
     return "↓ End ↓(wraps) ↑(wraps) → ← Enter Esc Esc; the shell's Escape, a press outside and the ⋯ each close it";
   });
@@ -762,9 +766,9 @@ async function main() {
     assertEqual(await ap.evaluate(() => window.__copied), [S6_HOME + "acme/counter/brief.md"], "the clipboard does not hold the recorded path");
     // The row's own Open, named for the app once the shell has said which.
     await ap.hover(rowOf("brief.md"));
-    await ap.waitForFunction((sel) => document.querySelector(sel + ' [data-act="open"]').title === "Open in Obsidian", rowOf("brief.md"));
-    assertEqual(await ap.getAttribute(rowOf("brief.md") + ' [data-act="open"]', "aria-label"), "Open brief.md in Obsidian");
-    await ap.click(rowOf("brief.md") + ' [data-act="open"]');
+    await ap.waitForFunction((sel) => document.querySelector(sel + ' + .oacts [data-act="open"]').title === "Open in Obsidian", rowOf("brief.md"));
+    assertEqual(await ap.getAttribute(rowOf("brief.md") + ' + .oacts [data-act="open"]', "aria-label"), "Open brief.md in Obsidian");
+    await ap.click(rowOf("brief.md") + ' + .oacts [data-act="open"]');
     await say("Opening brief.md in Obsidian.");
     // A right-click opens the same menu where the pointer is.
     const box = await ap.locator(rowOf("comps-summary.md")).boundingBox();
@@ -837,11 +841,11 @@ async function main() {
     await ap.waitForSelector(".orow.is-missing");
     const before = (await calls()).length;
     const rowOpen = await ap.evaluate((sel) => {
-      const b = document.querySelector(sel + ' [data-act="open"]');
+      const b = document.querySelector(sel + ' + .oacts [data-act="open"]');
       return { disabled: b.getAttribute("aria-disabled"), title: b.title };
     }, rowOf("brief.md"));
     assertEqual(rowOpen, { disabled: "true", title: MISSING });
-    await ap.click(rowOf("brief.md") + ' [data-act="open"]', { force: true });
+    await ap.click(rowOf("brief.md") + ' + .oacts [data-act="open"]', { force: true });
     await openRowMenu("brief.md");
     let m = await menuState();
     assertEqual(m.items, ["Preview", "Open (off)", "Show in Finder (off)", "Save a copy… (off)", "Copy path"]);
@@ -892,7 +896,7 @@ async function main() {
       await p.waitForSelector("#outpanel .orow");
       const row = '.orow[data-output="' + byName("q3-revenue.csv").id + '"]';
       await p.hover(row);
-      await p.click(row + ' [data-act="menu"]');
+      await p.click(row + ' + .oacts [data-act="menu"]');
       await p.waitForSelector("#op-menu");
       await p.keyboard.press("ArrowDown"); // a focused item, ringed
       // Each pair is read as the browser resolved it: the foreground, its font size, and every
@@ -919,20 +923,20 @@ async function main() {
         const item = m.querySelector(".op-menu-item:not(:focus)");
         const focused = m.querySelector(".op-menu-item:focus");
         const ring = cs(focused).boxShadow.match(/rgba?\([^)]*\)/);
-        const rowOpen = document.querySelector('.orow:hover [data-act="open"]');
+        const rowOpen = document.querySelector('.orow-wrap:hover [data-act="open"]');
         return [
           pair("menu item", "text", item, cs(item).color),
           pair("menu head (the file's name)", "text", m.querySelector(".op-menu-head"), cs(m.querySelector(".op-menu-head")).color),
           pair("menu item icon", "indicator", item, cs(item.querySelector("svg")).color),
           pair("focused item's ring", "indicator", focused, ring ? ring[0] : ""),
-          pair("row Open icon, hovered row", "indicator", rowOpen, cs(rowOpen).color),
+          pair("row Open icon, hovered row", "indicator", rowOpen, cs(rowOpen).color, rowOpen.closest(".orow-wrap").querySelector(".orow")),
         ];
       });
       await p.keyboard.press("Escape");
       // A disabled item, on the missing file's menu.
       const miss = '.orow[data-output="' + byName("brief.md").id + '"]';
       await p.hover(miss);
-      await p.click(miss + ' [data-act="menu"]');
+      await p.click(miss + ' + .oacts [data-act="menu"]');
       await p.waitForSelector('#op-menu [aria-disabled="true"]');
       const off = await p.evaluate(() => {
         const b = document.querySelector('#op-menu [aria-disabled="true"]');

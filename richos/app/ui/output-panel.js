@@ -337,8 +337,10 @@
     body.appendChild(node("span", "opath", f.exists ? f.folder + "/" : MISSING_LINE));
     if (f.actor === "worker" && f.workerName) body.appendChild(node("span", "oby", "by " + f.workerName));
     row.appendChild(body);
-    // S6's hover actions (Open in <app>, ⋯) and the row's context menu land here.
-    if (hooks.rowActions) hooks.rowActions(f, row);
+    // S6's hover actions (Open in <app>, ⋯) and the row's context menu land here. They come back
+    // BESIDE the row, in a wrapper, never inside it: a `role="button"` row's children are
+    // presentational, so a button nested in it is invisible to VoiceOver (seen on the VM, S6).
+    const placed = hooks.rowActions ? hooks.rowActions(f, row) : null;
     row.addEventListener("click", (e) => {
       if (e.target.closest("[data-act]")) return;
       showFile(f.id);
@@ -350,7 +352,7 @@
         showFile(f.id);
       }
     });
-    return row;
+    return placed || row;
   }
 
   function setHead(eyebrow, title, sub) {
@@ -1199,9 +1201,13 @@
     setDisabled(button, reason);
   }
 
-  /// A row's hover `Open` and `⋯` (§6.3), its right-click, and the context-menu key.
+  /// A row's hover `Open` and `⋯` (§6.3), its right-click, and the context-menu key. Returns the
+  /// wrapper the list places instead of the row: the row and its actions side by side, laid out
+  /// as round 17's one row (`.orow-wrap` in style.css), because a `role="button"` row's children
+  /// are presentational — nested inside it, Open and `⋯` reach no assistive technology at all.
   hooks.rowActions = function (f, row) {
     ensureNotice();
+    const wrap = node("div", "orow-wrap");
     const acts = node("span", "oacts");
     const open = node("button", "oact");
     open.type = "button";
@@ -1218,11 +1224,12 @@
     more.appendChild(actIcon("more"));
     acts.appendChild(open);
     acts.appendChild(more);
-    row.appendChild(acts);
+    wrap.appendChild(row);
+    wrap.appendChild(acts);
     // The app's name, once asked: on the first hover or focus, never for every row at once.
     const learn = () => detailOf(f.id).then((d) => open.isConnected && paintRowOpen(f, open, d));
-    row.addEventListener("pointerenter", learn);
-    row.addEventListener("focusin", learn);
+    wrap.addEventListener("pointerenter", learn);
+    wrap.addEventListener("focusin", learn);
     open.addEventListener("click", (e) => {
       e.stopPropagation();
       if (open.getAttribute("aria-disabled") !== "true") openFileInApp(f);
@@ -1231,7 +1238,7 @@
       e.stopPropagation();
       toggleFrom(more, () => openFileMenu(f, { opener: more, row }, true));
     });
-    row.addEventListener("contextmenu", (e) => {
+    wrap.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       openFileMenu(f, { row, at: { x: e.clientX, y: e.clientY } }, true);
     });
@@ -1241,6 +1248,7 @@
       const r = row.getBoundingClientRect();
       openFileMenu(f, { row, at: { x: r.left + 52, y: r.bottom } }, true);
     });
+    return wrap;
   };
 
   /// The file view's tools (§6.4): the gold *Open in <app>* with its `▾`, and `⋯`.
