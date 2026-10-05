@@ -1338,7 +1338,8 @@ for line in sys.stdin:
     /// **His answer 2, both settings, on readings taken by the real probe under each folder.**
     /// Account 1's five-hour window is at 93%; Account 2 ("Work") is at 10%. With Pause (the
     /// default) nothing moves: the 93% rule pauses exactly as before. With Switch, Account 2
-    /// is put in use, the one-line notice is written, and the top-level reading every existing
+    /// is put in use, the one-line notice is written once something runs under it, and the
+    /// top-level reading every existing
     /// reader uses now describes Account 2.
     #[test]
     #[cfg(unix)]
@@ -1360,6 +1361,8 @@ for line in sys.stdin:
         assert_eq!(service.accounts.in_use().id, work.id, "Switch moves to the account with room");
         assert_eq!(view.windows[0].used_percent, 10., "the published reading is the account in use");
         assert!(view.accounts[1].in_use && !view.accounts[0].in_use);
+        assert_eq!(service.accounts.take_notice(), None, "nothing has run under Work yet");
+        service.accounts.ran_on(&work.id);
         assert_eq!(service.accounts.take_notice().as_deref(),
             Some("Switched to Work: Account 1 is at 93% of its five-hour limit."));
         let published: View = gate::read_json(&root.path().join("engine-state/claude-quota.json")).unwrap();

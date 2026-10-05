@@ -183,10 +183,22 @@ pub fn parse_usage_limit(error: &str) -> Option<Option<u64>> {
         .and_then(|n| n.parse().ok()))
 }
 
+/// A switch that is decided but has not happened yet: no turn or job has run under `to`.
+struct PendingSwitch {
+    /// The account the leases were on before this switch (before any chain of switches that
+    /// nothing ran under).
+    from: String,
+    to: String,
+    text: String,
+}
+
 pub struct Accounts {
     path: PathBuf,
     root: PathBuf,
     state: Mutex<Stored>,
+    /// The switch notice waits here until a turn or job really runs under the new account
+    /// ([`Accounts::ran_on`]). A switch that waits on a running command shows nothing.
+    pending: Mutex<Option<PendingSwitch>>,
     notice: Mutex<Option<String>>,
 }
 
@@ -206,7 +218,7 @@ impl Accounts {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Stored::default(),
             Err(e) => return Err(e),
         };
-        Ok(Self { path, root: data_dir.join("claude-accounts"), state: Mutex::new(state), notice: Mutex::new(None) })
+        Ok(Self { path, root: data_dir.join("claude-accounts"), state: Mutex::new(state), pending: Mutex::new(None), notice: Mutex::new(None) })
     }
 
     fn save(&self, state: &Stored) -> io::Result<()> {
@@ -282,6 +294,7 @@ impl Accounts {
     fn switch_to(&self, state: &mut Stored, to: &str, why: Gone) -> io::Result<()> {
         let from = state.accounts.iter().find(|a| a.id == state.in_use).map(|a| a.label.clone()).unwrap_or_default();
         let to_label = state.accounts.iter().find(|a| a.id == to).map(|a| a.label.clone()).unwrap_or_default();
+        let leaving = state.in_use.clone();
         let mut next = state.clone();
         next.in_use = to.into();
         self.save(&next)?;
@@ -291,8 +304,29 @@ impl Accounts {
             Gone::FiveHour(used) => format!("is at {}% of its five-hour limit", used.floor()),
             Gone::Limit => "reached a usage limit".to_string(),
         };
-        *self.notice.lock().unwrap() = Some(format!("Switched to {to_label}: {from} {reason}."));
+        // Deciding is not switching: running leases move at their next turn boundary, and one
+        // with a command running waits longer (`spine.rs` / `work_host.rs`,
+        // `account_switch_due`). The notice is held until a turn or job runs under `to`. A
+        // switch back to the account nothing ever left is no switch at all.
+        let mut pending = self.pending.lock().unwrap();
+        let origin = pending.as_ref().map_or(leaving, |p| p.from.clone());
+        *pending = (origin != to).then(|| PendingSwitch {
+            from: origin,
+            to: to.into(),
+            text: format!("Switched to {to_label}: {from} {reason}."),
+        });
         Ok(())
+    }
+
+    /// **A turn or job is about to run on a lease under `account`.** If that is the account a
+    /// switch went to, the switch has now actually happened and its notice is released for
+    /// [`Accounts::take_notice`]. Called by the conversation (`spine.rs`, `prepare_request`)
+    /// and the work host (`work_host.rs`, before each work turn).
+    pub fn ran_on(&self, account: &str) {
+        let mut pending = self.pending.lock().unwrap();
+        if pending.as_ref().is_some_and(|p| p.to == account) {
+            *self.notice.lock().unwrap() = pending.take().map(|p| p.text);
+        }
     }
 
     /// **The switch decision, on the freshest readings.** `readings` holds every account that
@@ -375,7 +409,8 @@ impl Accounts {
         soonest
     }
 
-    /// The one-line switch notice, taken once by whoever shows it.
+    /// The one-line switch notice, taken once by whoever shows it. `None` while a switch is
+    /// only decided ([`Accounts::ran_on`]).
     pub fn take_notice(&self) -> Option<String> { self.notice.lock().unwrap().take() }
 }
 
@@ -419,6 +454,11 @@ pub(crate) mod tests {
         ].into_iter().map(|(id, r)| (id.to_string(), r)).collect();
         assert!(accounts.evaluate(&readings, 93, NOW).unwrap());
         assert_eq!(accounts.in_use().id, "3");
+        // Decided is not switched: the notice waits until something runs under Personal.
+        assert_eq!(accounts.take_notice(), None);
+        accounts.ran_on("1");
+        assert_eq!(accounts.take_notice(), None, "a turn on the account being left says nothing");
+        accounts.ran_on("3");
         assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal: Account 1 is at 99% of its weekly limit."));
         // Staying is fill-first: Personal has room, so nothing moves, even though Work is
         // earlier in the list.
