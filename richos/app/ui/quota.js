@@ -706,9 +706,13 @@
       // The cadence: every 5 minutes at every level of use; every MINUTE while usage is fast or
       // a rise is expected, in gold (round 16's reading line, the app's measured interval).
       // Round 16's words: "Checked 3 min ago", or "Last reading 47 min ago — stale".
+      // Two parts that each keep together, so the line wraps between them and never leaves a
+      // lone word ("usage is / fast", "every 5 / min": walk of nightly 36, D4).
       const quick = fastNow() ? "every minute — usage is fast" : expectedNow() ? "every minute — a rise is expected" : null;
-      freshness.replaceChildren(node("b", "", stale() ? `Last reading ${age} — stale` : `Checked ${age}`), " · ",
-        quick ? node("span", "quota-fast", quick) : `checks every ${Math.round(view.refreshIntervalMs / 60000)} min`);
+      const when = node("span", "quota-reading-part");
+      when.append(node("b", "", stale() ? `Last reading ${age} — stale` : `Checked ${age}`), " ·");
+      freshness.replaceChildren(when, " ",
+        quick ? node("span", "quota-reading-part quota-fast", quick) : node("span", "quota-reading-part", `checks every ${Math.round(view.refreshIntervalMs / 60000)} min`));
     }
     // Round 16's `refresh-failed` notice: what happened, how old the figures are, when RichOS
     // tries again, and that Refresh asks sooner. The same shape says a null answer over figures

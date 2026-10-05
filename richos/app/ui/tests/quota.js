@@ -661,6 +661,41 @@ async function main() {
       await text("#quota-hold-detail"));
     await page.close();
   });
+  // D4: the reading line wraps between its two parts, never leaving one word on a line
+  // ("usage is / fast", "every 5 / min"), at the walk's widths and every width between.
+  await run.check("D4: the reading line never leaves a lone word on a line", async () => {
+    const fast = { ...twoAccounts({ refreshIntervalMs: 60000, speeds: { five_hour: 9 / 60000 }, actAt: { five_hour: 91, seven_day: 97 }, atThreshold: "switch" }), checkedAt: Date.now() - 20000 };
+    const staleOne = { ...quota, state: "stale", checkedAt: Date.now() - 60000 };
+    const lone = [];
+    for (const [name, fixture] of [["fast-two", fast], ["stale-one", staleOne]]) {
+      const page = await open("light", fixture, 100, null, true, { viewport: { width: 1400, height: 864 } });
+      await enableTechnical(page); await page.click("#set-quota-open");
+      await page.waitForSelector(".quota-window");
+      for (let width = 860; width <= 1680; width += 10) {
+        await page.setViewportSize({ width, height: 864 });
+        const lines = await page.evaluate(() => {
+          const box = document.getElementById("quota-freshness"), rows = new Map();
+          const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            for (const m of n.textContent.matchAll(/\S+/g)) {
+              const r = document.createRange(); r.setStart(n, m.index); r.setEnd(n, m.index + m[0].length);
+              const top = Math.round(r.getBoundingClientRect().top);
+              rows.set(top, [...(rows.get(top) || []), m[0]]);
+            }
+          }
+          const col = box.closest(".quota-windows-col");
+          // Measured in fractional pixels: integer scrollWidth rounds a fitting line up by 1-2px.
+          const edge = box.getBoundingClientRect().right;
+          const parts = [...box.querySelectorAll(".quota-reading-part, b")].some(p => p.getBoundingClientRect().right > edge + 0.5);
+          return { lines: [...rows.values()].map(w => w.join(" ")), overflow: parts || col.scrollWidth > col.clientWidth + 1 };
+        });
+        if (lines.lines.length > 1 && lines.lines.some(l => !l.includes(" "))) lone.push(`${name} @${width}: ${JSON.stringify(lines.lines)}`);
+        if (lines.overflow) lone.push(`${name} @${width}: the reading overflows its column`);
+      }
+      await page.close();
+    }
+    assertEqual(lone, [], "a line holding one word");
+  });
   await run.check("no renderer errors", async () => assertEqual(errors, []));
   await browser.close();
   process.exitCode = run.report() ? 1 : 0;

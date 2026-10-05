@@ -7085,6 +7085,17 @@ body.home-open {
    2026-10-05). The row still wraps as a whole once the reading cannot keep 12em. */
 #quota-freshness { flex: 1 1 0; min-width: 12em; }
 .quota-toolbar-actions { flex: none; }
+/* The reading line is two parts, "Checked 3 min ago ·" and the cadence, each kept on one line:
+   when the column is too narrow for both, the cadence moves down whole instead of leaving a
+   lone word ("usage is / fast", "every 5 / min": walk of nightly 36, D4). The reading keeps at
+   least its longer part's width (min-content), so where even that does not fit beside
+   + Add account and Refresh, those two move to the next row rather than the words breaking.
+   tests/quota.js "D4" sweeps 860-1680px and checks both: no lone word, no overflow.
+   The 4px right padding is slack for WebKit's line breaker, which measured "Last reading
+   1 min ago — stale · checks every 5 min" as fitting a 388.4px box that its painted text
+   overran by 2.06px (1210px wide, measured with getBoundingClientRect). */
+.quota-reading-part { white-space: nowrap; }
+#quota-freshness { min-width: min-content; padding-right: 4px; }
 
 /* ---------------------------------------------------------------------------------------
    THE SPECKLED GROUND — THE GROUND PLANES. At the END of the file on purpose: these replace
