@@ -147,6 +147,21 @@ for t in Write Bash Read; do
     fi
 done
 
+# G05b/G05c walk 6 (2026-10-05): a finished worker's report is not a write. Its
+# SubagentHandback passes when its only ending is its own run's end; a STOPPED
+# worker's does not, and neither does anything else the finished worker tries.
+run "$(payload SubagentHandback a00000000000reg1)"
+[ "$RC" -eq 0 ] && ok "G05b a worker whose run ended may still hand its report back (SubagentHandback)" || bad "G05b finished handback rc=$RC: $OUT"
+run "$(payload Bash a00000000000reg1)"
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "finished agent" \
+    && ok "G05c CONTROL: the same finished worker's Bash is still refused after its handback passed" || bad "G05c finished Bash rc=$RC: $OUT"
+spawn_agent "a00000000000stp1" dev-opus-g5d
+printf '{"hook_event_name":"PostToolUse","session_id":"%s","tool_name":"TaskStop","tool_input":{"task_id":"a00000000000stp1"},"tool_response":{"task_id":"a00000000000stp1"}}' "$SID" \
+    | python3 "$WS_PY" --entity "$ENTITY" hook >/dev/null
+run "$(payload SubagentHandback a00000000000stp1)"
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "finished agent" \
+    && ok "G05d CONTROL: a STOPPED worker's SubagentHandback is refused (a stop still stops it)" || bad "G05d stopped handback rc=$RC: $OUT"
+
 # G06 a finished worker of a read-only TYPE is still refused
 spawn_agent "a00000000000exp1" explore-opus-g6
 stop_agent "a00000000000exp1"
