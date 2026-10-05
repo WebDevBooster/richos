@@ -2858,6 +2858,40 @@ class UnknownIsNeverClean(Base):
         self.finish(aid)
         self.assertEqual(self.created("zach-opus-bge"), ["bg/while-running"])
 
+    def test_point_09_a_subagentstop_while_its_own_command_runs_does_not_seal_it(self):
+        """2026-10-04: echo-opus-panel16 ended its turn to wait on its own background
+        timer; SubagentStop recorded it finished and the lock-out sealed it out of its
+        workspace when the timer woke it. While a command the agent started is still
+        running (agent_hold's own record of that call's shell), that SubagentStop is not
+        its end; the one after the command has ended is."""
+        hold_env = patch.dict(os.environ, {"RICHOS_AGENT_HOLD_DIR": os.path.join(self.env.root, "agent-hold")})
+        hold_env.start()                                    # the fixture's own, never the operator's
+        self.addCleanup(hold_env.stop)
+        aid, _npath = self.spawn("echo-opus-timer")
+        ah = ws._agent_hold()
+        call = "tu-timer"
+        payload = {"session_id": self.sid, "agent_id": aid, "tool_use_id": call, "tool_name": "Bash",
+                   "tool_input": {"command": "sleep 30", "run_in_background": True}}
+        stem, _held = ah._record(payload, "native", "sleep 30")
+        shell = subprocess.Popen(["bash", "-c", "%s %s mark --state %s %s && exec sleep 30"
+                                  % (sys.executable, ah.__file__, ah.state_dir(), stem)])
+        self.env.procs.append(shell)
+        for _ in range(100):
+            if os.path.exists(stem + ".pid"):
+                break
+            time.sleep(0.05)
+        self.assertTrue(os.path.exists(stem + ".pid"), "agent_hold's mark never recorded the shell")
+        self.finish(aid)                                    # it ends its turn; the timer still runs
+        fin, _paused, why = ws.finished_state(self.rec("echo-opus-timer"))
+        self.assertFalse(fin, why)
+        self.assertEqual(self.pre(aid, "tu-woken")[0], "REGISTERED", "woken by its timer, it may still work")
+        shell.kill()
+        shell.wait()                                        # the timer ends; the agent's next turn ends
+        self.finish(aid)
+        fin, _paused, why = ws.finished_state(self.rec("echo-opus-timer"))
+        self.assertTrue(fin, why)
+        self.assertEqual(self.pre(aid, "tu-after")[0], "FINISHED")
+
     def test_point_03_a_known_stray_in_one_repository_never_hides_one_in_another(self):
         """Finding 7. A stray already known in the first repository must not
         narrow the scan of the repositories it was asked to look at."""
