@@ -99,6 +99,8 @@ assert.equal(inWindows.pressed, 0); assert.equal(inWindows.records.at(-1).error,
 const inMenuBar = menuExercise({scope:'menubar'});
 assert.equal(inMenuBar.pressed, 1, JSON.stringify(inMenuBar.records));
 assert.equal(inMenuBar.records.at(-1).node.title, 'Quit RichOS');
+assert.equal(typeof inMenuBar.records.at(-1).pressed_at_ms, 'number');
+assert.ok(inMenuBar.records.at(-1).returned_at_ms >= inMenuBar.records.at(-1).pressed_at_ms);
 console.log('AX menu bar: a menu item is in no window, and --in menubar finds and presses it');
 // Stable selectors and role hints must never change which element is acted on.
 assert.equal(exercise('find',{id:'route-choice'}).records.at(-1).role,'AXTextArea');
@@ -118,4 +120,3 @@ assert.equal(lost.records.at(-1).error,'effect_unknown');assert.equal(lost.press
 assert.equal(exercise('click',{expect:{value:'1'},toxicValue:true}).records.at(-1).error,'effect_unknown');
 assert.equal(exercise('click',{id:'route-choice',first:false,max:1}).records.at(-1).error,'incomplete');
 console.log('AX IDs, role hints, ambiguity, delayed click verification and unknown-effect refusal passed');
-
