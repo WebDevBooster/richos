@@ -1,4 +1,6 @@
 import argparse
+import contextlib
+import io
 import json
 import fcntl
 import os
@@ -105,9 +107,28 @@ class Execution(unittest.TestCase):
              patch('fcntl.flock', side_effect=AssertionError('parent lock probe')), \
              patch('os.getloadavg', side_effect=AssertionError('parent load probe')), \
              patch('driver.inventory', return_value={}), patch('driver.versions', return_value={}), \
-             patch('driver.fast_was_run', return_value=True), patch('driver.tauri') as check:
+             patch('driver.fast_was_run', return_value=False), patch('driver.static_full'), \
+             patch('driver.rust_fast'), patch('driver.tauri') as check:
             self.assertEqual(driver.main(['--all', '--suite-results', 'fixture.json']), 0)
             check.assert_called_once()
+
+    def test_a_nightly_whose_suites_passed_lint_all_runs_no_lint_again(self):
+        """R47 (hunt part 2 v3): lint.test.sh's `lint.sh --all` already ran Tauri Clippy in this run."""
+        with patch.dict(os.environ, {'RICHOS_NIGHTLY_RUN_ID': 'fixture'}), \
+             patch('driver.inventory', return_value={}), patch('driver.versions', return_value={}), \
+             patch('driver.fast_was_run', return_value=True), patch('driver.static_full') as static, \
+             patch('driver.rust_fast') as fast, patch('driver.tauri') as clippy, \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(driver.main(['--all', '--suite-results', 'fixture.json']), 0)
+        self.assertEqual((static.call_count, fast.call_count, clippy.call_count), (0, 0, 0),
+                         'Tauri Clippy ran again after lint.test.sh had passed `lint.sh --all` in this run')
+        with patch.dict(os.environ, {'RICHOS_NIGHTLY_RUN_ID': 'fixture'}), \
+             patch('driver.inventory', return_value={}), patch('driver.versions', return_value={}), \
+             patch('driver.fast_was_run', return_value=False), patch('driver.static_full') as static, \
+             patch('driver.rust_fast') as fast, patch('driver.tauri') as clippy, \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(driver.main(['--all', '--suite-results', 'fixture.json']), 0)
+        self.assertEqual((static.call_count, fast.call_count, clippy.call_count), (1, 1, 1))
 
     def test_deadline_stops_owned_child(self):
         with tempfile.TemporaryDirectory(prefix='lint-owned-') as tmp:

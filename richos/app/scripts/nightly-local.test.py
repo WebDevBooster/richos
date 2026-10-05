@@ -2128,19 +2128,14 @@ class GatesAtOnceTests(unittest.TestCase):
             m.main()
         return stop.exception.code, err.getvalue()
 
-    def test_a_build_that_does_not_name_both_numbers_does_not_start(self):
+    def test_a_build_that_does_not_name_the_gates_at_once_does_not_start(self):
         stable = ["--from-nightly", "v1.2.0-nightly.20260916.1"]
         for command, extra in (("build", []), ("release", []), ("stable", stable)):
-            for given, missing in (([], ("--gates-at-once", "--simulated-phones")),
-                                   (["--gates-at-once", "all"], ("--simulated-phones",)),
-                                   (["--simulated-phones", "2"], ("--gates-at-once",))):
+            for given in ([], ["--simulated-phones", "2"]):
                 with self.subTest(command=command, given=given):
                     code, err = self.main_refusal(command, *extra, *given)
                     self.assertEqual(code, 2)
-                    # The refusal names BOTH flags, and says which one this line lacks.
-                    self.assertIn("refuses to start without --gates-at-once and "
-                                  "--simulated-phones", err)
-                    self.assertIn("missing " + " and ".join(missing), err)
+                    self.assertIn("refuses to start without --gates-at-once", err)
                     # Refused before anything: no state, no lock, no log.
                     self.assertFalse((self.root / "state").exists())
         # A number that is not one is refused, never read as a default.
@@ -2155,6 +2150,26 @@ class GatesAtOnceTests(unittest.TestCase):
         code, err = self.main_refusal("check", "--gates-at-once", "all")
         self.assertEqual(code, 2)
         self.assertIn("mean nothing to check", err)
+
+    def test_a_desktop_build_is_not_made_to_name_a_simulated_phone_count(self):
+        """R48 (hunt part 2 v3): no gate of the desktop build leases a simulated iPhone, so a build,
+        release or stable that names only --gates-at-once starts; the log says no count was named
+        and the script suites are told one at a time, literally."""
+        for command in ("build", "release"):
+            with self.subTest(command=command):
+                kwargs, _ = self.main_with(command, "--gates-at-once", "2")
+                self.assertIsNone(kwargs["simulated_phones"])
+        kwargs, _ = self.main_with("build", *self.NUMBERS)
+        self.assertEqual(kwargs["simulated_phones"], 1)
+        log = io.StringIO()
+        r = m.Runner(self.root, self.root / "state", {}, log, gates_at_once="all",
+                     simulated_phones=None, chosen_by="fixture-user on the command line")
+        r.record_settings()
+        self.assertIn("Simulated phones at once: not named", log.getvalue())
+        events = self.run_gates_recording(self.runner("all", simulated_phones=None))
+        suites = [env for e, p, argv, env in events
+                  if e == "start" and any(a.endswith("run-tests.sh") for a in argv)]
+        self.assertEqual([env[m.SIMULATED_PHONES_ENV] for env in suites], ["1"])
 
     def test_the_chosen_numbers_and_who_chose_them_are_the_logs_first_lines(self):
         log = io.StringIO()

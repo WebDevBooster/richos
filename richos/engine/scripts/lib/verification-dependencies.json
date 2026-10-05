@@ -14576,13 +14576,13 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/run-tests.sh",
-          "sha256": "15fac1e4a8a0eb3cdcf02a94d7d7bf030f55728e29fa53541652077d12cfcf22",
+          "sha256": "c6bb9397806274cf1d2de0500044dff01933678c0b369367ca3e46088fed5f47",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "13daa124cdd5f32982e3047b1461349319687cb5e610bcbbf061f76da87981c8",
+          "sha256": "aad82c209362f9568e9897322923c6d54ff4fc54343f93a583230fa1a8072032",
           "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         },
         {

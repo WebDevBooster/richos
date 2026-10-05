@@ -19,19 +19,19 @@ between the candidate being built and it becoming installable:
 python3 richos/app/scripts/nightly-local.py release --gates-at-once all --simulated-phones 2
 ```
 
-`build`, `release` and `stable` refuse to start unless both of these are on the
+`build`, `release` and `stable` refuse to start unless `--gates-at-once` is on the
 command line, because nobody should wait an hour on a free Mac for a default nobody
-chose (CEO, 2026-09-25). The run log's first lines record both values and who chose them.
+chose (CEO, 2026-09-25). The run log's first lines record the values and who chose them.
 
 - `--gates-at-once N|all` -- how many gates run at the same time. `1` is the old
   order, one after another; `all` starts every gate whose inputs are ready (the lint
   waits for the script suites' receipt, the privacy sweep for the UI suite to put
   the tree back). One failing gate refuses the build and stops the others.
-- `--simulated-phones N` -- how many simulated iPhones the suites may use at once,
-  one per device type. The machine still boots at most two simulators at a time.
+- `--simulated-phones N` -- optional: how many simulated iPhones the suites may use at
+  once, one per device type. No suite in the desktop build leases one, so it is not
+  required; the machine still boots at most two simulators at a time.
 
-Choose both from what else is running: `all` and `2` on a free Mac, fewer when
-engineers are busy. The worker-token, simulator and CPU/memory admission checks
+Choose from what else is running: `all` on a free Mac, fewer when engineers are busy. The worker-token, simulator and CPU/memory admission checks
 still refuse what the Mac cannot carry.
 
 The command builds the current remote `main`, not uncommitted work or the current

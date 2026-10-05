@@ -1045,10 +1045,16 @@ retry_alone() {
     lease=(python3 "${RICHOS_WORKER_TOKENS_TOOL:-$WORKER_TOOL}" run "$RICHOS_WORKER_TOKENS"
            --free "$WORK/suite-free.lock" --)
   fi
+  # SUPERVISED LIKE THE FIRST RUN (hunt part 2 v3, R15): launched in the background and recorded
+  # in PIDS, then waited for. A foreground command defers the TERM trap until it ends and is not in
+  # PIDS, so stopping the runner left the retry running past cleanup; `wait` returns at once on a
+  # trapped signal, and cleanup stops this pid's whole tree like any other launch.
   case "${RUNNER[$idx]}" in
-    vm:*) RICHOS_TEST_RESULTS_DIR="$results" ${lease[@]+"${lease[@]}"} "$DIR/testvm/run-suite.sh" "${RUNNER[$idx]#vm:}" "$t" > "$WORK/$idx.retry.out" 2>&1 && code=0 || code=$? ;;
-    *)    RICHOS_TEST_RESULTS_DIR="$results" ${lease[@]+"${lease[@]}"} bash "$t" > "$WORK/$idx.retry.out" 2>&1 && code=0 || code=$? ;;
+    vm:*) RICHOS_TEST_RESULTS_DIR="$results" ${lease[@]+"${lease[@]}"} "$DIR/testvm/run-suite.sh" "${RUNNER[$idx]#vm:}" "$t" > "$WORK/$idx.retry.out" 2>&1 & ;;
+    *)    RICHOS_TEST_RESULTS_DIR="$results" ${lease[@]+"${lease[@]}"} bash "$t" > "$WORK/$idx.retry.out" 2>&1 & ;;
   esac
+  PIDS[idx]=$!
+  wait "${PIDS[idx]}" && code=0 || code=$?
   echo "$code" > "$WORK/$idx.rc"
   date +%s > "$WORK/$idx.end"
   RETRY_OUT="$(cat "$WORK/$idx.retry.out" 2>/dev/null)"
