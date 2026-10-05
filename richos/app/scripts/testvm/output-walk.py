@@ -53,6 +53,14 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      file and Finder has one named for its folder. Finder's selection is seen in the
                      second screenshot: the guest grants no Apple Events to Finder to read it.
 
+  panel              slice S4's real-app check (§12.4), after identity, first-run and connect:
+                       --steps identity,first-run,connect,panel
+                     typed: a shell command writes panel-check.md in the Acme folder. When its row
+                     is in the record, the button named "Output — 1 file from this thread" is
+                     pressed, the panel's Close and the file's row are found by name, and the list
+                     is photographed; the guest's appearance is flipped (the app follows the OS on
+                     a fresh install), photographed again, and put back. PASS when all of it holds.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -74,7 +82,10 @@ _spec.loader.exec_module(command_walk)
 StepFailed = command_walk.StepFailed
 command = command_walk.command
 
-STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal']
+STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel']
+# S4's one written file: a shell command, so no tool needs installing and witness (c) sees it.
+PANEL_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
+              "and tell me when it has finished: printf '# Panel check\\n\\nOne written file.\\n' > panel-check.md")
 # Every word of each file is given, so nothing has to be known about Acme: the first run of this
 # walk asked for "two sentences about the Acme launch", and Rich rightly asked what they should say
 # instead of making them up (stop_reason question_asked, no assignment).
@@ -428,6 +439,63 @@ class OutputWalk(command_walk.CommandWalk):
                 return listing
             time.sleep(2)
 
+    # --- slice S4: the panel itself, on the real app ---------------------------------------------
+    def panel(self):
+        """S4's real-app check (§12.4): a thread with one written file; the Output button opens
+        the panel on it; the list is photographed in both themes. The file is made by a shell
+        command, so it reaches the record through witness (c) whichever lease runs it."""
+        turn, sent = self.send(PANEL_TASK)
+        end = time.monotonic() + self.a.within
+        rows = []
+        while time.monotonic() < end:
+            rows = [r for r in self.record() if r.get('path', '').endswith('/panel-check.md')]
+            if rows:
+                break
+            self.approve_pending(sent)
+            time.sleep(5)
+        self.save_record('record-panel.jsonl')
+        evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'rows': rows}
+        observed = self.out / 'panel-observed.json'
+
+        def note(**facts):
+            evidence.update(facts)
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        note()
+        if not rows:
+            raise StepFailed('no row for panel-check.md reached the record within %d s' % self.a.within)
+        # The count reaches the buttons from list_output (or rich://output); their name says it.
+        try:
+            # aria-pressed makes each Output button a toggle: AXCheckBox/AXToggle in the guest's tree.
+            self.wait_for('1 file from this thread', role='AXCheckBox', seconds=60)
+        except StepFailed:
+            # What the window shows instead, kept as evidence: the tree as text, and the picture.
+            (self.out / 'panel-ax-tree.txt').write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 120))
+            self.shot('panel-no-count.png')
+            raise
+        self.press('1 file from this thread', role='AXCheckBox')
+        self.wait_for('Close the output panel', seconds=20)
+        self.wait_for('panel-check.md', seconds=20)
+        time.sleep(1.5)  # the panel's 0.38 s slide and the view's fade, with margin
+        first_dark = 'Dark' in guest(self.vm, 'defaults read -g AppleInterfaceStyle 2>/dev/null || true')
+        first = 'dark' if first_dark else 'light'
+        self.shot('panel-' + first + '.png')
+        second = 'light' if first_dark else 'dark'
+        command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to tell appearance preferences '
+                 'to set dark mode to ' + ('false' if first_dark else 'true')], 60)
+        try:
+            time.sleep(3)  # theme-boot follows the OS appearance live; give the repaint time
+            self.shot('panel-' + second + '.png')
+            still_open = self.present('Close the output panel')
+        finally:
+            command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to tell appearance preferences '
+                     'to set dark mode to ' + ('true' if first_dark else 'false')], 60)
+        note(first_theme=first, shots=['panel-' + first + '.png', 'panel-' + second + '.png'],
+             open_after_theme_change=still_open)
+        if not still_open:
+            raise StepFailed('the panel was not open after the theme change')
+        return evidence
+
     def open_reveal(self):
         if not self.a.probe or not self.a.probe.is_file():
             raise StepFailed('--probe must name the built examples/output_files_probe binary')
@@ -485,8 +553,9 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
-    p.add_argument('--steps', default=','.join(s for s in STEPS if s != 'open-reveal'),
-                   help='default: every step but open-reveal, which runs alone with --no-app')
+    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel')),
+                   help='default: every step but open-reveal (alone, with --no-app) and panel '
+                        '(S4: --steps identity,first-run,connect,panel)')
     p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
     a = p.parse_args()
     steps = a.steps.split(',')
