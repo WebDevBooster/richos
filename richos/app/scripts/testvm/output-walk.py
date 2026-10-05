@@ -61,6 +61,18 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      is photographed; the guest's appearance is flipped (the app follows the OS on
                      a fresh install), photographed again, and put back. PASS when all of it holds.
 
+  pull               slice S9's real-app check (§12.9), right after panel, in the same run:
+                       --steps identity,first-run,connect,panel,pull
+                     The divider is dragged with the real mouse (pointer-drag.sh): 50 px past the
+                     stop and let go — it holds at the stop (photographed); pulled 180 px past it —
+                     it opens completely, ‹ <thread> appears (photographed); the pill brings the
+                     conversation back at the stop; the sidebar is hidden and the divider pulled
+                     past the new stop — the whole window (photographed); the panel is closed —
+                     the whole conversation is back (photographed); the sidebar comes back and the
+                     panel reopens at a split width. PASS when every position is where the
+                     geometry says (the stop is the rail's right edge + 360 px, read off the
+                     accessibility tree) and every control is found by its name.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -82,7 +94,10 @@ _spec.loader.exec_module(command_walk)
 StepFailed = command_walk.StepFailed
 command = command_walk.command
 
-STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel']
+STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel', 'pull']
+# Slice S9 (PRD §9.1): the conversation at its narrowest. Restated, not imported, so the walk
+# derives the stop independently of the code under test.
+STAGE_MIN = 360
 # S4's one written file: a shell command, so no tool needs installing and witness (c) sees it.
 PANEL_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
               "and tell me when it has finished: printf '# Panel check\\n\\nOne written file.\\n' > panel-check.md")
@@ -496,6 +511,117 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the panel was not open after the theme change')
         return evidence
 
+    # --- slice S9: the wide pull, on the real app -------------------------------------------------
+    def node(self, title, role=None):
+        """The first accessibility node named `title`: its frame (x, y, w, h) and value."""
+        args = ['--title', title, '--contains', '--first']
+        if role:
+            args += ['--role', role]
+        hits = [n for n in self.ax('find', *args) if 'x' in n and not n.get('meta')]
+        if not hits:
+            raise StepFailed('nothing on screen is named "%s"' % title)
+        return hits[0]
+
+    def drag(self, *points):
+        """A real mouse drag through `points` (pointer-drag.sh), in guest screen coordinates."""
+        out = command([HERE / 'pointer-drag.sh', self.vm, *['%.0f,%.0f' % p for p in points]], 90)
+        return json.loads(out.strip().splitlines()[-1])
+
+    def pull(self):
+        """S9's real-app check (§12.9): the drag on the VM, a picture at the stop and one with the
+        panel open completely; then the CEO's other two sentences — the sidebar toggled away with
+        the panel pulled to the whole window, and closing brings the whole conversation back."""
+        evidence = {}
+        observed = self.out / 'pull-observed.json'
+
+        def note(**facts):
+            evidence.update(facts)
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        def near(a, b, tol, what):
+            if abs(a - b) > tol:
+                note(failed=what)
+                raise StepFailed('%s: %.1f is not within %d px of %.1f' % (what, a, tol, b))
+
+        if not self.present('Close the output panel'):
+            self.press('1 file from this thread', role='AXCheckBox')
+            self.wait_for('Close the output panel', seconds=20)
+        time.sleep(1)
+        rail = self.node('Entities and threads')
+        divider = self.node('Output panel width')
+        rail_right = rail['x'] + rail['w']
+        stop = rail_right + STAGE_MIN
+        y = divider['y'] + divider['h'] / 2
+        grab = divider['x'] + divider['w'] / 2
+        note(rail=rail, divider_before=divider, stop_x=stop)
+        if divider['x'] - stop < 40:
+            raise StepFailed('the window is too narrow to pull: the divider is %.0f px from the stop' % (divider['x'] - stop))
+
+        # 1. Pulled 50 px past the stop and let go: the divider held at the stop.
+        note(drag_to_stop=self.drag((grab, y), (stop + 60, y), (stop, y), (stop - 50, y)))
+        time.sleep(1.2)
+        at_stop = self.node('Output panel width')
+        note(divider_at_stop=at_stop)
+        near(at_stop['x'], stop, 4, 'the divider at the stop after a 50 px overshoot')
+        self.shot('pull-stop.png')
+
+        # 2. Pulled 180 px past it: open completely, ‹ <thread> at the head.
+        grab = at_stop['x'] + at_stop['w'] / 2
+        note(drag_past_stop=self.drag((grab, y), (stop - 60, y), (stop - 180, y)))
+        time.sleep(1.5)
+        self.wait_for('Show the conversation', seconds=10)
+        full = self.node('Output panel width')
+        note(divider_full=full, pill=self.node('Show the conversation'))
+        near(full['x'], rail_right, 4, 'open completely, the divider at the rail')
+        self.shot('pull-full.png')
+
+        # 3. The pill: the conversation one click back, at the stop.
+        self.press('Show the conversation')
+        time.sleep(1.2)
+        back = self.node('Output panel width')
+        note(divider_after_pill=back, pill_after=self.present('Show the conversation'))
+        near(back['x'], stop, 4, 'the pill returns to the stop')
+
+        # 4. The sidebar away, and the divider pulled past the new stop: the whole window.
+        self.press('Hide the sidebar')
+        time.sleep(1.2)
+        left = rail['x']
+        new_stop = left + STAGE_MIN
+        moved = self.node('Output panel width')
+        grab = moved['x'] + moved['w'] / 2
+        note(divider_sidebar_away=moved, new_stop_x=new_stop,
+             drag_everything=self.drag((grab, y), (new_stop, y), (new_stop - 60, y), (new_stop - 180, y)))
+        time.sleep(1.5)
+        self.wait_for('Show the conversation', seconds=10)
+        everything = self.node('Output panel width')
+        note(divider_everything=everything)
+        near(everything['x'], left, 4, 'sidebar away and open completely, the divider at the window edge')
+        self.shot('pull-everything.png')
+
+        # 5. Closing brings the whole conversation back.
+        self.press('Close the output panel')
+        time.sleep(1.2)
+        whole = self.node('Message to Rich', role='AXTextArea')
+        note(composer_after_close=whole, panel_after_close=self.present('Close the output panel'))
+        if evidence['panel_after_close']:
+            raise StepFailed('the panel did not close')
+        if whole['x'] > left + 400:
+            raise StepFailed('the composer is not back in the whole conversation: ' + json.dumps(whole))
+        self.shot('pull-closed.png')
+
+        # 6. The sidebar back and the panel reopened: a split width, never open completely.
+        self.press('Show the sidebar')
+        time.sleep(1.2)
+        self.press('1 file from this thread', role='AXCheckBox')
+        self.wait_for('Close the output panel', seconds=20)
+        time.sleep(1.2)
+        reopened = self.node('Output panel width')
+        note(divider_reopened=reopened, pill_reopened=self.present('Show the conversation'))
+        if evidence['pill_reopened']:
+            raise StepFailed('the panel reopened open completely')
+        near(reopened['x'], stop, 4, 'reopened at the split width, held at the stop')
+        return evidence
+
     def open_reveal(self):
         if not self.a.probe or not self.a.probe.is_file():
             raise StepFailed('--probe must name the built examples/output_files_probe binary')
@@ -553,9 +679,9 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
-    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel')),
-                   help='default: every step but open-reveal (alone, with --no-app) and panel '
-                        '(S4: --steps identity,first-run,connect,panel)')
+    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel', 'pull')),
+                   help='default: every step but open-reveal (alone, with --no-app), panel '
+                        '(S4: --steps identity,first-run,connect,panel) and pull (S9: ...,panel,pull)')
     p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
     a = p.parse_args()
     steps = a.steps.split(',')
