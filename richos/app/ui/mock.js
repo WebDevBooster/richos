@@ -821,8 +821,11 @@
     outputByThread.acme = [
       outputEntry("acme", acmeTurn4, "acme/for-priya", "comps-walkthrough.mp4", 14200000, end4, { source: "command" }),
       outputEntry("acme", acmeTurn3, "acme/reference", "term-sheet-march.pdf", 212000, end3 - 1000),
+      // A worker's file that was LANDED (S2b, `WriteSource::Land`): one entry at the path that
+      // opens, the worker's name on it, its worktree write folded in (`writes: 2`) and the
+      // earlier of the two turns as `firstTurnId`.
       outputEntry("acme", acmeTurn3, "acme/reference", "q3-revenue.csv", 1100, end3 - 2000, {
-        actor: "worker", workerName: "Clark", source: "hook",
+        actor: "worker", workerName: "Clark", source: "land", writes: 2, firstTurnId: acmeTurn2,
       }),
       outputEntry("acme", acmeTurn3, "acme/reference", "q3-revenue-chart.png", 96000, end3 - 3000, { source: "command" }),
       outputEntry("acme", acmeTurn2, "acme/counter", "counter-draft-v1.docx", 18000, end2 - 1000, { source: "command" }),

@@ -253,6 +253,10 @@ async function main() {
     let s = await panelState(page);
     assertEqual(s.view, "file");
     assertEqual(s.title, "q3-revenue.csv");
+    // A LANDED file (`source: "land"`, S2b): rendered like any other, by its worker, and its
+    // earlier write is said — the panel reads `source` nowhere, so there is no unknown-source path.
+    assertEqual(byName("q3-revenue.csv").source, "land", "the fixture's landed file is not a land entry");
+    assertEqual(s.sub, "Written today 9:33 AM · 1 KB · also written earlier in this thread");
     const file = await page.evaluate(() => ({
       back: document.getElementById("of-back").textContent,
       k: document.querySelector(".of-k").textContent,
