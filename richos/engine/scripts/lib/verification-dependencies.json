@@ -1366,7 +1366,7 @@
     },
     "scripts/app-engine-hook.py#pause-rejection": {
       "source": "scripts/app-engine-hook.py",
-      "sha256": "3015106cb719bc4a5e00d7f8bd36b62cced1df4362695c0b0e99d434e047b8bf",
+      "sha256": "ec78a5c2d97afff0de172e3dadfd8f0fca16781715ff82b53e4941616d407c46",
       "evidence": "The fixture loads the standard-library-only module, supplies explicit roots and calls handle with PreToolUse SendMessage. Invalid pause fails before scope; valid pause reaches the mocked scope exception. No evidence/workspace helper is loaded.",
       "keys": [],
       "edges": [
@@ -13678,15 +13678,15 @@
     },
     "scripts/lib/app-evidence.py#capture": {
       "source": "scripts/lib/app-evidence.py",
-      "sha256": "0605ab704aeb667095ee9720f0c0d004e802d40d747d5e34bb9ca73296c80899",
-      "evidence": "Reviewed project, capture and append entrypoints only: JSON transformation, fixed regex/hash checks and private locked record writes. The general CLI subprocess-forwarding path is not entered by this source-bound fixture. No config or engine helper read.",
+      "sha256": "89edddd1877e0e0761e7b8ceb80275f1e0d33205964b6897ed83a9c51cc23aec",
+      "evidence": "Reviewed project, capture and append entrypoints only: JSON transformation, fixed regex/hash checks and private locked record writes. The general CLI subprocess-forwarding path is not entered by this source-bound fixture. No config or engine helper read. Since the Output side panel's witnesses (2026-10-05) capture also writes evidence/<session>/writes.jsonl and its own commands/*.json bookkeeping, and reads directory listings and lstat of the paths a Bash call ran in or named (names and metadata only, never contents); still no config key, environment variable or engine helper.",
       "keys": [],
       "edges": []
     },
     "scripts/lib/app-evidence.test.py": {
       "source": "scripts/lib/app-evidence.test.py",
-      "sha256": "4461f1a8a25db2edcbcccc201cec643cf9064b4aa1835cc1dc94ec396ba57388",
-      "evidence": "Calls adapter.project/capture and turn-manifest.read_turn on private synthetic callbacks, plus actual stated-actions analyzer with explicit private entity/teams. No adapter CLI forwarding, model dispatch or transcript command executes.",
+      "sha256": "e8bb997de70134abcf25dd45c9d881ab0a503ad3a4c113f3bf3e3d94083b7639",
+      "evidence": "Calls adapter.project/capture and turn-manifest.read_turn on private synthetic callbacks, plus actual stated-actions analyzer with explicit private entity/teams. No adapter CLI forwarding, model dispatch or transcript command executes. OutputWitnessTests drive capture's output witnesses with synthetic Bash and write-tool callbacks over files the test itself creates in a private temporary directory; no command named in a callback is run. DesktopHookHandOff runs the real app-engine-hook.py as a subprocess (PreToolUse and PostToolUse for Bash) in test-app-engine-hook.py's sandbox shape, with explicit RICHOS_APP_STATE, RICHOS_APP_SCOPE, RICHOS_ENTITY_ROOT and RICHOS_ENGINE_ROOT; its guards and workspace hook run as the hook runs them.",
       "keys": [],
       "edges": [
         {
@@ -13697,6 +13697,9 @@
         },
         {
           "to": "ass-kicker/guard-stated-actions.py"
+        },
+        {
+          "to": "scripts/app-engine-hook.py#pause-rejection"
         }
       ]
     },
@@ -13725,7 +13728,7 @@
     },
     "scripts/lib/app-evidence.test.sh": {
       "source": "scripts/lib/app-evidence.test.sh",
-      "sha256": "a7a694dc0c5cc30a67954afcca0cb2ed54fb438a86b617417e074e2c4a0410f5",
+      "sha256": "e843d8fc41d924da1ec74dd7ed85a778e5b1f30b0d0eea86b5c96c6ab91398ae",
       "evidence": "Fixed two-entrypoint wrapper. Both the callback fixture and path-with-spaces workspace fixture are bound; neither is omitted from this suite contract.",
       "keys": [],
       "edges": [

@@ -237,7 +237,7 @@ richos/app/
     tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
                               at runtime; CEO-facing actions cross a rotation; machinery
                               stays out of every priming prompt)
-    tests/machinery_tests.rs 15 machinery routing/retention tests, driven by native wire
+    tests/machinery_tests.rs 16 machinery routing/retention tests, driven by native wire
                               frames actually measured against the binary
     tests/steering_tests.rs  16 stop/steer tests (UX §9.2/§9.3). Includes the CONCURRENCY
                               proof: the spine goes behind an Arc<Mutex<..>> exactly as the
@@ -1108,7 +1108,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1792 tests + 5 doc-tests (1788 direct, 4 ignored)
+cargo test -p richos-core                       # 1804 tests + 5 doc-tests (1800 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
@@ -1813,7 +1813,7 @@ the spine-seams + rotation brief, 2026-08-24.
 routed into a second event family (`rich://machinery`) and retained in a separate
 per-thread, day-sharded journal, on ONE per-turn `seq` shared with the assistant text so
 "he said X, then ran Y, then said Z" is reconstructible. Proven headless
-(`tests/machinery_tests.rs`, 15 tests, driven by wire frames measured against the real
+(`tests/machinery_tests.rs`, 16 tests, driven by wire frames measured against the real
 binary) and live (`examples/machinery_roundtrip.rs` — one real tool-using turn, 24 journal
 lines projecting to 9 rows, positions 0..=34 used exactly once across both families; the run
 is kept at `docs/verification/machinery-roundtrip-2026-08-28.txt`). The emission set the

@@ -375,17 +375,48 @@ fn invalid(what: &str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidInput, what.to_string())
 }
 
+/// The Tauri event a thread's new files are announced on (§6.6): `{threadId, added, count}`.
+pub const EVENT_OUTPUT: &str = "rich://output";
+
+/// Where an append is announced (§6.6). MUST be non-blocking and infallible from the
+/// writer's view: a UI that is not listening never fails a turn.
+pub trait OutputObserver: Send + Sync {
+    /// `added` is the entries the appended rows touched, projected and re-stated; `count` is
+    /// the thread's entry count after the append.
+    fn on_output(&self, thread_id: &str, added: &[Entry], count: usize);
+}
+
+/// The `rich://output` payload, camelCase: `{threadId, added, count}`.
+pub fn event_payload(thread_id: &str, added: &[Entry], count: usize) -> serde_json::Value {
+    serde_json::json!({ "threadId": thread_id, "added": added, "count": count })
+}
+
 /// The record store: `<app-data>/output/`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OutputStore {
     root: PathBuf,
+    /// Announces every append that wrote something. One store, cloned into the spine and the
+    /// work host, so every writer announces through the same chokepoint.
+    observer: Option<std::sync::Arc<dyn OutputObserver>>,
+}
+
+impl std::fmt::Debug for OutputStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutputStore").field("root", &self.root).field("observed", &self.observer.is_some()).finish()
+    }
 }
 
 impl OutputStore {
     /// A store rooted at `root` (normally `<app-data>/output`). Nothing is created until the
     /// first append.
     pub fn new(root: impl AsRef<Path>) -> Self {
-        OutputStore { root: root.as_ref().to_path_buf() }
+        OutputStore { root: root.as_ref().to_path_buf(), observer: None }
+    }
+
+    /// The same store, announcing every append that wrote something.
+    pub fn with_observer(mut self, observer: std::sync::Arc<dyn OutputObserver>) -> Self {
+        self.observer = Some(observer);
+        self
     }
 
     /// The store for an app data directory: `<data_dir>/output`.
@@ -449,7 +480,21 @@ impl OutputStore {
             // flush, NOT sync_data — the machinery journal's posture (§4.7).
             file.flush()?;
         }
+        drop(_lock);
+        if !added.is_empty() {
+            self.announce(thread_id, &added);
+        }
         Ok(added)
+    }
+
+    /// `rich://output` after rows are appended (§6.6): the entries the new rows touched, and
+    /// the thread's count. A record that cannot be projected announces nothing.
+    fn announce(&self, thread_id: &str, added: &[WriteRow]) {
+        let Some(observer) = self.observer.as_ref() else { return };
+        let Ok(list) = self.project(thread_id) else { return };
+        let ids: HashSet<String> = added.iter().map(|r| entry_id(thread_id, r.file_key())).collect();
+        let touched: Vec<Entry> = list.files.iter().filter(|e| ids.contains(&e.id)).cloned().collect();
+        observer.on_output(thread_id, &touched, list.count);
     }
 
     /// Every row the record holds, in append order. A line that will not parse, carries
@@ -502,6 +547,35 @@ impl OutputStore {
             rows.extend(witness_tool_calls(&journal.read_thread(thread_id)));
         }
         rows.retain(|r| r.thread_id == thread_id);
+        // Witnesses (b) and (c): the `writes.jsonl` of EVERY session the thread names — each
+        // `TurnStarted` session and each assignment's `work_session` (§4.7). Witness (a)'s
+        // rows go first and are offered as "already known", so a lead's own `Write` the hook
+        // also saw is recorded once, by (a).
+        if let Some(root) = sources.evidence_root {
+            let join = SessionJoin::new(sources.turns, sources.assignments);
+            let mut known = self.read(thread_id)?.rows;
+            known.extend(rows.iter().cloned());
+            for session in join.sessions_of(thread_id) {
+                let found = evidence_rows(root, &session, &join, thread_id, &known);
+                known.extend(found.iter().cloned());
+                rows.extend(found);
+            }
+        }
+        self.append(thread_id, &rows)
+    }
+
+    /// Project one session's `writes.jsonl` into this thread's record: the live trigger the
+    /// spine runs at the end of each front-desk turn and the work host after each back-end
+    /// turn (§4.1 (b), "who projects, and when"). Returns the rows appended.
+    pub fn project_session(
+        &self,
+        thread_id: &str,
+        evidence_root: &Path,
+        session_id: &str,
+        join: &SessionJoin,
+    ) -> std::io::Result<Vec<WriteRow>> {
+        let known = self.read(thread_id)?.rows;
+        let rows = evidence_rows(evidence_root, session_id, join, thread_id, &known);
         self.append(thread_id, &rows)
     }
 
@@ -608,6 +682,12 @@ pub fn witness_tool_calls(records: &[MachineryRecord]) -> Vec<WriteRow> {
         let call = &merged[&id];
         let is_write = names.get(&id).is_some_and(|n| WRITE_TOOLS.contains(&n.as_str()));
         if !is_write || call.status != Some(ToolStatus::Completed) || call.locations.is_empty() {
+            continue;
+        }
+        // A front-desk WORKER's call, nested under the lead's `Agent` call (§4.1 (a)): not
+        // Rich's. Witness (b) records it under the worker's name. A row journaled before the
+        // field existed reads `None` and is taken as the thread's (§4.7).
+        if call.parent_tool_use_id.is_some() {
             continue;
         }
         rows.extend(tool_call_rows(call));
@@ -763,6 +843,209 @@ impl SessionJoin {
             }
         }
     }
+}
+
+impl SessionJoin {
+    /// Every session that joins `thread_id` and nothing else.
+    pub fn sessions_of(&self, thread_id: &str) -> Vec<String> {
+        self.sessions()
+            .into_iter()
+            .filter(|s| self.resolve(s, u64::MAX).is_some_and(|j| j.thread_id == thread_id))
+            .collect()
+    }
+}
+
+impl BackendWork {
+    /// The one assignment a back-end turn is working, on `session_id` — what the work host
+    /// knows at its per-turn reader, whether or not `work_session` was written down yet.
+    pub fn for_assignment(assignment: &Assignment, session_id: &str) -> BackendWork {
+        BackendWork {
+            session_id: session_id.to_string(),
+            thread_id: assignment.thread_id.clone(),
+            turn_id: assignment
+                .instruction_ledger_ref
+                .strip_prefix(&format!("ledger:{}:", assignment.thread_id))
+                .filter(|t| !t.is_empty())
+                .map(str::to_string),
+            registered_at: 0,
+        }
+    }
+}
+
+// ---- witnesses (b) and (c): the app hook's evidence ---------------------------------
+
+/// The file `app-evidence.py` appends one line to per witnessed write (§4.8): paths only.
+pub const WRITES_FILE: &str = "writes.jsonl";
+
+/// One line of `evidence/<session>/writes.jsonl`, as `app-evidence.py` writes it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct EvidenceWrite {
+    schema: u32,
+    session_id: String,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    tool_use_id: Option<String>,
+    path: String,
+    at: u64,
+    /// `hook` (b) or `command` (c).
+    source: String,
+    /// (c) only: the write's mtime, which is half of its key.
+    #[serde(default)]
+    mtime_ns: Option<u64>,
+}
+
+/// A session id that can name exactly one evidence folder (`app_workers.rs`'s rule).
+fn usable_session(session: &str) -> bool {
+    !session.is_empty()
+        && session.len() <= 128
+        && session.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+fn read_writes(evidence_root: &Path, session: &str) -> Vec<EvidenceWrite> {
+    let Ok(file) = std::fs::File::open(evidence_root.join(session).join(WRITES_FILE)) else {
+        return Vec::new();
+    };
+    // A torn last line (the hook mid-append) does not parse and is read on the next pass.
+    BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|l| serde_json::from_str::<EvidenceWrite>(&l).ok())
+        .filter(|w| w.schema == 1 && w.session_id == session)
+        .collect()
+}
+
+/// The `agentId` the platform's own response to an `Agent` call names: the structured field,
+/// else `agentId: <id>` in the flattened text — the two shapes `app_workers.rs` and
+/// `worker-created-handoff.sh` read.
+fn agent_id_of(response: &serde_json::Value) -> Option<String> {
+    if let Some(id) = response.get("agentId").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        return Some(id.to_string());
+    }
+    let text = match response {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    let rest = &text[text.find("agentId:")? + "agentId:".len()..];
+    let id: String = rest
+        .trim_start_matches([' ', '\t'])
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    (!id.is_empty()).then_some(id)
+}
+
+/// The workers this session dispatched, by `agent_id`, with the name they were given.
+///
+/// **Read from the app's own callback journal, not from the team-dir `worker-events.jsonl`
+/// the PRD names.** That stream is written by the engine's `worker-*-handoff.sh` emitters,
+/// which the app does not register — its plugin registers only `app-engine-hook.py`
+/// (`engine_profile.rs:222`), and the lease runs with `--setting-sources ""` (`native.rs`), so
+/// no user-scope hook writes one either. The `created` row those emitters write IS a
+/// projection of this callback — `PostToolUse[Agent]`, the `agentId` in the platform's
+/// response, the name from `tool_input.name` (`worker-created-handoff.sh`) — and that callback
+/// is already in `evidence/<session>/callbacks.jsonl`, whole. Same witness, the source the app
+/// actually has. A worker with no such row joins nothing yet (§4.1 (b)).
+fn worker_names(evidence_root: &Path, session: &str) -> HashMap<String, Option<String>> {
+    let mut out = HashMap::new();
+    let Ok(file) = std::fs::File::open(evidence_root.join(session).join("callbacks.jsonl")) else {
+        return out;
+    };
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        // Cheap filter first: a `Write` callback carries the whole file it wrote.
+        if !line.contains("\"Agent\"") {
+            continue;
+        }
+        let Ok(row) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let callback = &row["callback"];
+        if row["schema"] != 1
+            || callback["hook_event_name"] != "PostToolUse"
+            || callback["tool_name"] != "Agent"
+            || callback["session_id"].as_str() != Some(session)
+        {
+            continue;
+        }
+        if let Some(id) = agent_id_of(&callback["tool_response"]) {
+            let name = callback["tool_input"]["name"].as_str().filter(|s| !s.is_empty()).map(str::to_string);
+            out.insert(id, name);
+        }
+    }
+    out
+}
+
+/// Witnesses (b) and (c) for one session, joined to `thread_id` (§4.1 (b), (c); §4.4 keys).
+///
+/// - A row whose session joins no thread, or another thread, is not written.
+/// - A row with an `agent_id` is a worker's: its name comes from the `Agent` call that
+///   created it in the same session; with no such call yet, it is not written — the next
+///   projection or convergence takes it (a misattributed row is worse than a missing one).
+/// - A row without one is the lease's own: `backend` on a back-end session, `rich` on a
+///   front-desk one. A front-desk `hook` row is Rich's own write seen a second time and is
+///   skipped when witness (a) already holds that file in that turn (`known`).
+pub fn evidence_rows(
+    evidence_root: &Path,
+    session_id: &str,
+    join: &SessionJoin,
+    thread_id: &str,
+    known: &[WriteRow],
+) -> Vec<WriteRow> {
+    if !usable_session(session_id) {
+        return Vec::new();
+    }
+    let writes = read_writes(evidence_root, session_id);
+    if writes.is_empty() {
+        return Vec::new();
+    }
+    let names = if writes.iter().any(|w| w.agent_id.is_some()) {
+        worker_names(evidence_root, session_id)
+    } else {
+        HashMap::new()
+    };
+    let mut out = Vec::new();
+    for w in writes {
+        if !Path::new(&w.path).is_absolute() {
+            continue;
+        }
+        let Some(joined) = join.resolve(session_id, w.at) else { continue };
+        if joined.thread_id != thread_id {
+            continue;
+        }
+        let (source, key) = match (w.source.as_str(), &w.tool_use_id, w.mtime_ns) {
+            ("hook", Some(id), _) => (WriteSource::Hook, format!("hook:{session_id}:{id}")),
+            ("command", _, Some(mtime)) => (WriteSource::Command, format!("cmd:{session_id}:{}:{mtime}", w.path)),
+            _ => continue,
+        };
+        let (actor, worker_name) = match w.agent_id.as_deref().filter(|s| !s.is_empty()) {
+            Some(agent) => match names.get(agent) {
+                Some(name) => (Actor::Worker, name.clone()),
+                None => continue,
+            },
+            None => match joined.lease {
+                Lease::Backend => (Actor::Backend, None),
+                Lease::FrontDesk => (Actor::Rich, None),
+            },
+        };
+        let mut row = WriteRow::witnessed(key, thread_id, joined.turn_id.as_deref(), &w.path, actor, source, w.at);
+        let held_in_turn = |by: &[WriteSource]| {
+            known
+                .iter()
+                .chain(out.iter())
+                .any(|k: &WriteRow| by.contains(&k.source) && k.file_key() == row.file_key() && k.turn_id == row.turn_id)
+        };
+        // Rich's own write tool, seen a second time by the hook: (a) owns it.
+        if actor == Actor::Rich && source == WriteSource::Hook && held_in_turn(&[WriteSource::Tool]) {
+            continue;
+        }
+        // A write tool's file seen again by the turn-end command pass (its mtime is after the
+        // turn's first command): the write is already recorded by the witness that saw it.
+        if source == WriteSource::Command && held_in_turn(&[WriteSource::Tool, WriteSource::Hook]) {
+            continue;
+        }
+        row.worker_name = worker_name;
+        row.agent_id = w.agent_id.filter(|s| !s.is_empty());
+        out.push(row);
+    }
+    out
 }
 
 fn single_thread<'a>(mut threads: impl Iterator<Item = &'a str>) -> Option<String> {
@@ -1037,6 +1320,207 @@ mod tests {
         assert!(store.converge("thr_out", &sources).unwrap().is_empty());
         let replayed = OutputStore::for_data_dir(&data).project("thr_out").unwrap();
         assert_eq!(replayed, list);
+    }
+
+    // ---- S2: witnesses (b) and (c), the join, and the nested worker ---------------------
+
+    /// A thread with one front-desk turn on session `desk-1` and one assignment worked on
+    /// session `work-1`, in the REAL ledger and assignment shapes.
+    struct World {
+        dir: Dir,
+        ledger: crate::ledger::Ledger,
+        thread: String,
+        turn: String,
+        assignment: Assignment,
+        evidence: PathBuf,
+    }
+
+    fn world(tag: &str) -> World {
+        let dir = Dir::new(tag);
+        let mut ledger = crate::ledger::Ledger::open(dir.0.join("ledger.jsonl")).unwrap();
+        let entity = crate::entity::EntityId::parse("femcboost").unwrap();
+        let thread = ledger.create_thread("acme", &entity).unwrap();
+        let binding = ledger.thread_binding(&thread).unwrap();
+        let turn = ledger.record_prompt_received(&binding, "make the brief", crate::ledger::Source::Text).unwrap();
+        ledger.mark_turn_started(&turn, "desk-1").unwrap();
+        let assignment: Assignment = serde_json::from_value(json!({
+            "schema":1,"id":"asg-1","obligation_id":"obl-1","seat":"work-seat:obl-1","entity_id":"femcboost",
+            "thread_id":thread,"instruction_ledger_ref":format!("ledger:{thread}:{turn}"),"instruction_sha256":"a",
+            "title":"the brief","repositories":[],"state":"registered","detail":"","registered_at_ms":5,
+            "updated_at_ms":5,"work_session":"work-1"}))
+        .unwrap();
+        let evidence = dir.0.join("engine-state/evidence");
+        World { dir, ledger, thread, turn, assignment, evidence }
+    }
+
+    impl World {
+        fn line(&self, session: &str, file: &str, value: serde_json::Value) {
+            let folder = self.evidence.join(session);
+            std::fs::create_dir_all(&folder).unwrap();
+            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(folder.join(file)).unwrap();
+            writeln!(f, "{value}").unwrap();
+        }
+        /// `PostToolUse[Agent]` as `app-evidence.py` keeps it: the whole callback, with the
+        /// platform's async-launch answer naming the worker's id.
+        fn created(&self, session: &str, agent: &str, name: &str) {
+            self.line(session, "callbacks.jsonl", json!({"schema":1,"callback":{
+                "hook_event_name":"PostToolUse","session_id":session,"tool_name":"Agent","tool_use_id":format!("tu-agent-{agent}"),
+                "tool_input":{"name":name,"subagent_type":"worker","prompt":"write it"},
+                "tool_response":{"isAsync":true,"status":"async_launched","agentId":agent}}}));
+        }
+        fn wrote(&self, session: &str, agent: Option<&str>, tool_use: &str, path: &str) {
+            self.line(session, WRITES_FILE, json!({"schema":1,"session_id":session,"agent_id":agent,
+                "tool_use_id":tool_use,"path":path,"at":crate::util::now_millis(),"source":"hook"}));
+        }
+        fn command_made(&self, session: &str, agent: Option<&str>, path: &str, mtime_ns: u64) {
+            self.line(session, WRITES_FILE, json!({"schema":1,"session_id":session,"agent_id":agent,
+                "tool_use_id":"tu-bash","path":path,"at":crate::util::now_millis(),"source":"command","mtime_ns":mtime_ns}));
+        }
+        fn sources(&self) -> (Vec<Assignment>, PathBuf) {
+            (vec![self.assignment.clone()], self.evidence.clone())
+        }
+        fn join(&self) -> SessionJoin {
+            SessionJoin::new(self.ledger.turns(), std::slice::from_ref(&self.assignment))
+        }
+    }
+
+    fn by_name<'a>(list: &'a OutputList, name: &str) -> &'a Entry {
+        list.files.iter().find(|e| e.name == name).unwrap_or_else(|| panic!("{name} not listed: {list:?}"))
+    }
+
+    /// S2's "Done when" (§12.2): a worker's `Write` in fixture `callbacks.jsonl` + `writes.jsonl`
+    /// — once under a `work_session`, once under a `TurnStarted.session_id` — appears in
+    /// `list(thread)` with `actor: worker` and its name; a command-made file appears with
+    /// `source: command`; an unjoinable row does not appear.
+    #[test]
+    fn output_done_when_worker_writes_under_both_leases_and_a_command_file_are_listed_and_strays_are_not() {
+        let w = world("output-s2-done");
+        let (back, front, pdf) = (w.dir.file("back.md", "b"), w.dir.file("front.md", "f"), w.dir.file("brief.pdf", "%PDF"));
+        let stray = w.dir.file("stray.md", "s");
+        w.created("work-1", "agent-back", "mark-sonnet-f1");
+        w.wrote("work-1", Some("agent-back"), "tu-1", &back);
+        w.created("desk-1", "agent-front", "norm-sonnet-a");
+        w.wrote("desk-1", Some("agent-front"), "tu-2", &front);
+        w.command_made("desk-1", None, &pdf, 1_759_660_800_123_000_000);
+        // A session this thread never names, and a line in desk-1's folder claiming another session.
+        w.wrote("nobody", None, "tu-4", &stray);
+        w.line("desk-1", WRITES_FILE, json!({"schema":1,"session_id":"intruder","path":stray,"at":1,"source":"hook","tool_use_id":"tu-5"}));
+
+        let (assignments, evidence) = w.sources();
+        let store = OutputStore::for_data_dir(&w.dir.0);
+        let sources = Sources { turns: w.ledger.turns(), assignments: &assignments, evidence_root: Some(&evidence), machinery: None };
+        let list = store.list(&w.thread, &sources).unwrap();
+        assert_eq!(list.count, 3, "{list:?}");
+
+        let b = by_name(&list, "back.md");
+        assert_eq!((b.actor, b.worker_name.as_deref(), b.source), (Actor::Worker, Some("mark-sonnet-f1"), WriteSource::Hook));
+        assert_eq!(b.turn_id.as_deref(), Some(w.turn.as_str()), "a back-end file sits in the turn he gave the work");
+        let f = by_name(&list, "front.md");
+        assert_eq!((f.actor, f.worker_name.as_deref()), (Actor::Worker, Some("norm-sonnet-a")), "not Rich");
+        let p = by_name(&list, "brief.pdf");
+        assert_eq!((p.actor, p.source), (Actor::Rich, WriteSource::Command));
+        assert!(list.files.iter().all(|e| e.name != "stray.md"));
+        assert!(evidence_rows(&evidence, "nobody", &w.join(), &w.thread, &[]).is_empty(), "an unjoinable session writes nothing");
+
+        // Convergence is idempotent: the second list appends nothing.
+        assert!(store.converge(&w.thread, &sources).unwrap().is_empty());
+    }
+
+    #[test]
+    fn output_a_nested_worker_write_on_a_fixture_wire_produces_no_rich_row() {
+        let dir = Dir::new("output-nested");
+        let file = dir.file("worker.md", "w");
+        let records: Vec<MachineryRecord> = write_call("toolu_W", &file, "turn_1")
+            .into_iter()
+            .map(|mut r| {
+                r.parent_tool_use_id = Some("toolu_AGENT".into());
+                r
+            })
+            .collect();
+        assert!(witness_tool_calls(&records).is_empty());
+        // The lead's own call beside it still is one.
+        let mut both = records;
+        both.extend(write_call("toolu_L", &file, "turn_1"));
+        let rows = witness_tool_calls(&both);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].key.as_str(), rows[0].actor), ("mach:toolu_L", Actor::Rich));
+    }
+
+    #[test]
+    fn output_a_lead_write_the_hook_also_saw_is_recorded_once_by_witness_a() {
+        let w = world("output-lead-twice");
+        let (seen_twice, hook_only) = (w.dir.file("plan.md", "p"), w.dir.file("notes.md", "n"));
+        let store = OutputStore::for_data_dir(&w.dir.0);
+        store.append(&w.thread, &[WriteRow::witnessed("mach:toolu_P".into(), &w.thread, Some(&w.turn), &seen_twice, Actor::Rich, WriteSource::Tool, 1)]).unwrap();
+        w.wrote("desk-1", None, "toolu_P", &seen_twice);
+        w.wrote("desk-1", None, "toolu_N", &hook_only);
+        let added = store.project_session(&w.thread, &w.evidence, "desk-1", &w.join()).unwrap();
+        assert_eq!(added.len(), 1, "{added:?}");
+        assert_eq!((added[0].path.as_str(), added[0].actor, added[0].source), (hook_only.as_str(), Actor::Rich, WriteSource::Hook));
+        let list = store.project(&w.thread).unwrap();
+        assert_eq!(by_name(&list, "plan.md").writes, 1, "one write, not two");
+    }
+
+    #[test]
+    fn output_a_worker_row_before_its_created_row_waits_and_is_written_at_convergence() {
+        let w = world("output-late-created");
+        let file = w.dir.file("late.md", "l");
+        let store = OutputStore::for_data_dir(&w.dir.0);
+        w.wrote("work-1", Some("agent-late"), "tu-late", &file);
+        assert!(store.project_session(&w.thread, &w.evidence, "work-1", &w.join()).unwrap().is_empty());
+        w.created("work-1", "agent-late", "zach-opus-x");
+        let (assignments, evidence) = w.sources();
+        let sources = Sources { turns: w.ledger.turns(), assignments: &assignments, evidence_root: Some(&evidence), machinery: None };
+        let list = store.list(&w.thread, &sources).unwrap();
+        assert_eq!(by_name(&list, "late.md").worker_name.as_deref(), Some("zach-opus-x"));
+    }
+
+    #[test]
+    fn output_the_turn_end_command_pass_does_not_count_a_tool_write_twice() {
+        let w = world("output-cmd-dup");
+        let (written, made) = (w.dir.file("w.md", "w"), w.dir.file("chart.png", "png"));
+        w.created("work-1", "agent-1", "mark-sonnet-f2");
+        w.wrote("work-1", Some("agent-1"), "tu-w", &written);
+        w.command_made("work-1", Some("agent-1"), &written, 42);
+        w.command_made("work-1", Some("agent-1"), &made, 43);
+        w.command_made("work-1", Some("agent-1"), &made, 43); // the per-call and turn-end passes: one key
+        let store = OutputStore::for_data_dir(&w.dir.0);
+        let added = store.project_session(&w.thread, &w.evidence, "work-1", &w.join()).unwrap();
+        assert_eq!(added.len(), 2, "{added:?}");
+        let list = store.project(&w.thread).unwrap();
+        assert_eq!(by_name(&list, "w.md").writes, 1);
+        let chart = by_name(&list, "chart.png");
+        assert_eq!((chart.source, chart.actor, chart.kind.as_str()), (WriteSource::Command, Actor::Worker, "png"));
+    }
+
+    #[test]
+    fn output_an_append_that_wrote_something_is_announced_once_with_the_count() {
+        #[derive(Default)]
+        struct Heard(std::sync::Mutex<Vec<(String, Vec<String>, usize)>>);
+        impl OutputObserver for Heard {
+            fn on_output(&self, thread_id: &str, added: &[Entry], count: usize) {
+                self.0.lock().unwrap().push((thread_id.into(), added.iter().map(|e| e.name.clone()).collect(), count));
+            }
+        }
+        let dir = Dir::new("output-announce");
+        let (a, b) = (dir.file("a.md", "a"), dir.file("b.md", "b"));
+        let heard = std::sync::Arc::new(Heard::default());
+        let store = OutputStore::new(dir.0.join("output")).with_observer(heard.clone());
+        store.append("thr_out", &[row("mach:a", Some("t1"), &a)]).unwrap();
+        store.append("thr_out", &[row("mach:a", Some("t1"), &a)]).unwrap(); // nothing new: silent
+        store.append("thr_out", &[row("mach:b", Some("t2"), &b)]).unwrap();
+        let heard = heard.0.lock().unwrap();
+        assert_eq!(*heard, vec![("thr_out".to_string(), vec!["a.md".to_string()], 1), ("thr_out".to_string(), vec!["b.md".to_string()], 2)]);
+        let payload = event_payload("thr_out", &[], 2);
+        assert_eq!((payload["threadId"].as_str(), payload["count"].as_u64()), (Some("thr_out"), Some(2)));
+    }
+
+    #[test]
+    fn output_the_agent_id_is_read_from_either_response_shape() {
+        assert_eq!(agent_id_of(&json!({"status":"async_launched","agentId":"a1b2"})).as_deref(), Some("a1b2"));
+        assert_eq!(agent_id_of(&json!("Async agent launched successfully.\nagentId: a7f-9_x (internal)")).as_deref(), Some("a7f-9_x"));
+        assert_eq!(agent_id_of(&json!([{"type":"text","text":"done\nagentId: zz9"}])).as_deref(), Some("zz9"));
+        assert_eq!(agent_id_of(&json!({"status":"completed"})), None);
     }
 
     #[test]
