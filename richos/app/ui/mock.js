@@ -1964,14 +1964,17 @@
           if (["disabled", "ready"].includes(admission.state) && held.length) {
             return { held: [], released: held.map(r => ({ ...r, releasedAt: Date.now() })), resumesAt: null };
           }
-          return { ...activity, held, released: scoped(activity.released), resumesAt: admission.state === "held" ? admission.resetsAt - (quotaView().windows.some(w => w.id === "seven_day" && w.usedPercent >= 99 && w.resetsAt === admission.resetsAt) ? 0 : 20 * 60000 - 1) : null };
+          // Round 16's working row: the account in use, named, with two or more accounts.
+          const inUse = quotaView().accounts.find(a => a.inUse);
+          return { ...activity, held, released: scoped(activity.released), ...(inUse ? { account: inUse.label } : {}), resumesAt: admission.state === "held" ? admission.resetsAt - (quotaView().windows.some(w => w.id === "seven_day" && w.usedPercent >= 99 && w.resetsAt === admission.resetsAt) ? 0 : 20 * 60000 - 1) : null };
         }
         case "set_claude_quota_policy": {
           if (!Number.isInteger(args.policy.pausePercent) || args.policy.pausePercent < 1 || args.policy.pausePercent > 99) throw new Error("Invalid pause threshold.");
           quotaPolicy = { ...args.policy }; localStorage.setItem("richos-mock-quota-policy", JSON.stringify(quotaPolicy)); return quotaView();
         }
         case "claude_account_add": {
-          if (!mockAccounts.length) mockAccounts.push({ id: "1", label: "Account 1", inUse: true, windows: structuredClone(quotaView().windows), checkedAt: Date.now(), exhaustedUntil: null, message: null });
+          // Going from one account to two names both (round 16): `currentLabel` names Account 1.
+          if (!mockAccounts.length) mockAccounts.push({ id: "1", label: (args.currentLabel || "").trim() || "Account 1", inUse: true, windows: structuredClone(quotaView().windows), checkedAt: Date.now(), exhaustedUntil: null, message: null });
           const id = String(Math.max(...mockAccounts.map(a => Number(a.id))) + 1);
           mockAccounts.push({ id, label: (args.label || "").trim() || `Account ${id}`, inUse: false, windows: [], checkedAt: null, exhaustedUntil: null, message: null });
           return quotaView();

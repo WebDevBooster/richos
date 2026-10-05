@@ -30,6 +30,10 @@ pub struct Activity {
     pub held: Vec<Hold>,
     pub released: Vec<Hold>,
     pub resumes_at: Option<u64>,
+    /// The account in use, by its label, while there are two or more (round 16's working row,
+    /// "3 agents working on Work"). Set by the desktop shell from the quota view.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 fn open(path: &Path, create: bool) -> io::Result<File> {

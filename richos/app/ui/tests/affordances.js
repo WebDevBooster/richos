@@ -1857,6 +1857,12 @@ async function main() {
     const invSet = new Set(inv.map((r) => r.normal));
     const unclassified = inv.filter((r) => !byString.has(r.normal));
     const stale = REGISTRY.filter((r) => !invSet.has(r.s));
+    // Both halves are printed before either refuses, so a change that adds AND removes strings
+    // is fixed in one pass rather than discovering the second half on the next run.
+    if (unclassified.length && stale.length) {
+      console.log("          ALSO STALE (a row whose string the product no longer renders): " +
+        JSON.stringify(stale.map((r) => r.s.length > 160 ? r.s.slice(0, 160) + "…" : r.s)));
+    }
     assertEqual(
       unclassified.map((r) => r.normal + "   <- " + r.sites.join(" ")),
       [],

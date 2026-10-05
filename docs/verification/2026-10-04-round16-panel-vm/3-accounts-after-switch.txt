@@ -1,0 +1,1 @@
+{"accounts":[{"id":"1","label":"Home"},{"id":"2","label":"Work","folder":"/Users/admin/testvm/walk-5c66807272b3/home/Library/Application Support/com.richos.app/claude-accounts/2"}],"inUse":"2","atThreshold":"switch","limitedUntil":{},"lastSwitch":{"from":"1","to":"2","at":1791167818307,"why":"fiveHour","used":95.0}}

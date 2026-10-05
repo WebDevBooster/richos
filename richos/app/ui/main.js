@@ -3190,7 +3190,11 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
     }, settle);
     const t = timelineModel.turns.get(payload.turnId);
     const row = t ? window.RichTimeline.durationRow(t, Date.now()) : null;
-    announce(
+    // A line Rich raised himself (a switch, a fast-usage alert) is its own turn, completed
+    // as it is written, and may arrive while his reply is still being worked on. Its text was
+    // announced by `message-completed`; "Rich finished" would be false beside a running turn.
+    const proactive = [...timelineModel.items.values()].some((i) => i.turnId === payload.turnId && i.phase === "proactive");
+    if (!proactive) announce(
       payload.status === "completed"
         ? "Rich finished. " + (row ? row.label : "")
         : payload.status === "stopped"
@@ -3449,12 +3453,19 @@ function counted(n, singular, plural) {
   return `${n} ${n === 1 ? singular : plural}`;
 }
 
+// The agents this conversation has working, as the chip last counted them (`renderDrillChip`).
+let quotaWorking = 0;
 function renderQuotaWorkStatus() {
   const status = el("quota-work-status");
   if (!status) return; // A pending read can finish after this document has been replaced.
   const n = (quotaActivity.held || []).filter(row => row.kind === "agent").length;
-  status.hidden = !n;
-  status.textContent = n ? counted(n, "agent", "agents") + " paused" + (techyOn() ? " for the quota" : ". Their work is saved.") : "";
+  // Round 16's working row: with two or more Claude accounts, the agents working say which
+  // account they are working on ("3 agents working on Work"). `account` is set only then.
+  const on = !n && quotaWorking && quotaActivity.account ? quotaActivity.account : null;
+  status.hidden = !n && !on;
+  status.dataset.state = n ? "paused" : on ? "working" : "";
+  status.textContent = n ? counted(n, "agent", "agents") + " paused" + (techyOn() ? " for the quota" : ". Their work is saved.")
+    : on ? counted(quotaWorking, "agent", "agents") + " working on " + on : "";
   if (n && techyOn() && quotaActivity.resumesAt) status.textContent += " · can resume just after " + new Date(quotaActivity.resumesAt).toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
 }
 
@@ -3472,6 +3483,7 @@ function renderDrillChip() {
   const parts = [];
   if (active) parts.push(`${active} working`);
   if (heldAgents.length) parts.push(`${heldAgents.length} paused`);
+  quotaWorking = active;
   renderQuotaWorkStatus();
   if (done) parts.push(`${done} done`);
   if (savedWork.items?.length) parts.push(counted(savedWork.items.length, "saved work record", "saved work records"));

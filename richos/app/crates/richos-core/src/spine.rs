@@ -89,22 +89,6 @@ struct Queued {
     intake_id: Option<u64>,
 }
 
-/// A proactive message (Tier 1/2) raised WHILE a turn was in flight — the ledger write
-/// happens immediately (durable), but the live UI event is deferred to the next turn
-/// boundary so it never visually collides with an in-progress "Rich is working" row.
-struct QueuedProactiveEmit {
-    thread_id: String,
-    turn_id: String,
-    tier: AttentionTier,
-    /// The binding the message was written under — carried, not re-derived at flush time,
-    /// for the same reason `Queued` carries one: the active context may have moved, and a
-    /// deferred emit must never be re-scoped to wherever the CEO happens to be looking.
-    binding: ThreadBinding,
-    /// The message text, so the deferred flush can emit the §13 message events without
-    /// re-reading a ledger that has since moved on.
-    text: String,
-}
-
 /// Rough chars-per-token ESTIMATE — the well-known ~4-chars/token heuristic for English
 /// text under the Claude tokenizer family.
 ///
@@ -619,7 +603,6 @@ pub struct Spine {
     /// ledger lines it wrote before. See `ledger::Event::PromptReceived::channel`.
     keep_intake_channel: bool,
     /// Proactive-message UI events deferred because a turn was in flight when raised.
-    pending_proactive_emits: VecDeque<QueuedProactiveEmit>,
     rotation_count: u64,
     last_rotation_reason: Option<String>,
     /// The machinery journal (techy-mode design §2.1). `None` means machinery is routed
@@ -824,7 +807,6 @@ impl Spine {
             pending_rotation_reason: None,
             rotation_deferred_since: None,
             keep_intake_channel: false,
-            pending_proactive_emits: VecDeque::new(),
             rotation_count: 0,
             last_rotation_reason: None,
             machinery_journal: None,
@@ -1964,9 +1946,9 @@ impl Spine {
     /// later leg (an attention-seam trigger watching engine event logs / loro / timers,
     /// per architecture §4.2). This is the SEAM: given a tier + text a caller (a future
     /// trigger, or a test) has already decided on, persist it durably and — for Tier 1/2
-    /// only, never Tier 3/Silent — surface it to the UI, deferred to the next turn
-    /// boundary if a turn is currently in flight so it never collides with the "Rich is
-    /// working" row. Returns the new turn id.
+    /// only, never Tier 3/Silent — surface it to the UI at once, also while a turn is in
+    /// flight (round 16 draws the switch line beside the working row). Returns the new
+    /// turn id.
     pub fn raise_proactive(
         &mut self,
         thread_id: Option<&str>,
@@ -2004,24 +1986,23 @@ impl Spine {
             ActionStatus::Completed,
         )?;
 
+        // **SAID AT ONCE, EVEN WHILE A TURN RUNS** (round 16, state `switched-line`: Rich's
+        // "Switched to Work — …" line sits above "• 3 agents working on Work", the row that
+        // exists only while a turn runs). This used to be deferred to the turn's end so it
+        // would not "collide with the working row"; round 16 draws the two together, and the
+        // switch notice is raised INSIDE the turn that runs on the new account
+        // (`prepare_request`, after `ran_on`), so deferring it hid the line for exactly the
+        // turn it describes. The message is its own turn, already durable above and already in
+        // the published read view, so the window's reload draws it beside the running turn
+        // without touching that turn's live state.
         if tier != AttentionTier::Silent {
-            if self.turn_in_progress {
-                self.pending_proactive_emits.push_back(QueuedProactiveEmit {
-                    thread_id,
-                    turn_id: turn_id.clone(),
-                    tier,
-                    binding,
-                    text: text.to_string(),
-                });
-            } else {
-                self.emit(StreamEvent::ProactiveMessage {
-                    thread_id,
-                    turn_id: turn_id.clone(),
-                    tier,
-                    at: now_millis(),
-                });
-                self.emit_proactive_live(&binding, &turn_id, tier, text);
-            }
+            self.emit(StreamEvent::ProactiveMessage {
+                thread_id,
+                turn_id: turn_id.clone(),
+                tier,
+                at: now_millis(),
+            });
+            self.emit_proactive_live(&binding, &turn_id, tier, text);
         }
         Ok(turn_id)
     }
@@ -3689,7 +3670,6 @@ impl Spine {
         // release it at the boundary. Product installs still write no channel to the ledger.
         self.input_channels.retain(|id, _| self.ledger.turn(id).is_some_and(|turn|
             matches!(turn.state, crate::ledger::TurnState::Received | crate::ledger::TurnState::InFlight)));
-        self.flush_pending_proactive_emits();
         // A switch notice or a high-speed alert that arrived while this turn held the spine
         // is said now, the first moment it can be.
         self.raise_quota_notices(Some(binding.thread_id()));
@@ -3781,22 +3761,6 @@ impl Spine {
         Ok(())
     }
 
-    /// Emit any proactive-message UI events that were deferred because a turn was in
-    /// flight when `raise_proactive` was called (they were already durable — this is
-    /// just the live-UI-visibility half, now that it's safe to show without colliding
-    /// with the working row).
-    fn flush_pending_proactive_emits(&mut self) {
-        while let Some(p) = self.pending_proactive_emits.pop_front() {
-            self.emit(StreamEvent::ProactiveMessage {
-                thread_id: p.thread_id,
-                turn_id: p.turn_id.clone(),
-                tier: p.tier,
-                at: now_millis(),
-            });
-            self.emit_proactive_live(&p.binding, &p.turn_id, p.tier, &p.text);
-        }
-    }
-
     /// The ADDITIVE half of a proactive message (§13).
     ///
     /// **This is the ONE place a real, non-`unknown` message phase exists.** A streamed
@@ -3814,7 +3778,12 @@ impl Spine {
         let fence = EventFence::for_turn(binding, turn_id);
         self.emit_live(proactive_message_events(&fence, tier, text, now_millis()));
         self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Completed, None));
-        self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Idle));
+        // Said during a turn of this same thread, the thread is still working: the message
+        // is complete, the turn beside it is not.
+        let working = self.turn_in_progress
+            && self.control.active_turn().is_some_and(|active| active.thread_id == binding.thread_id());
+        let status = if working { ThreadStatus::Working } else { ThreadStatus::Idle };
+        self.emit_live(self.thread_summary_event(binding, turn_id, status));
     }
 
     /// Mid-turn-crash recovery + replay (continuity §5.3). The dead lease is dropped;
@@ -4303,10 +4272,11 @@ impl Spine {
                 None => return,
             },
         };
-        let pending = [
+        let mut pending = vec![
             (AttentionTier::InterruptNow, quota.take_alert()),
             (AttentionTier::Digest, quota.accounts.take_notice()),
         ];
+        pending.extend(quota.take_notes().into_iter().map(|note| (AttentionTier::Digest, Some(note))));
         for (tier, text) in pending {
             if let Some(text) = text {
                 if let Err(error) = self.raise_proactive(Some(&thread), tier, &text) {
