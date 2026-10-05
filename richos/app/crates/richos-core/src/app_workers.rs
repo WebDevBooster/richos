@@ -131,6 +131,36 @@ fn status_within(state: &Path, session: Option<&str>, patience: std::time::Durat
     WorkerStatusView { active, liveness_unknown, items, ..Default::default() }
 }
 
+/// **How many helper runs this session's journal has seen END** — its `SubagentStop` rows
+/// that name an agent. `None` when the journal cannot be read, which is never a count.
+///
+/// [`status`] answers "is a helper open NOW", and that question cannot see a helper the
+/// platform runs AGAIN after its `SubagentStop`: a reviewer the back end messages with
+/// `SendMessage`, or one the platform restarts to hand its report back (walk 6, 2026-10-05,
+/// `walk-10608166d53f`: the reviewer stopped, was messaged, and ran four more times). What
+/// every one of those runs does deliver is another `SubagentStop`, so the host reads this
+/// count when the back end has said it is waiting on a helper, and waits for it to grow
+/// (`work_host`'s `wait_for_a_helper_run_to_end`). A positive signal, as everywhere here.
+pub fn run_ends(state: &Path, session: &str) -> Option<usize> {
+    if session.is_empty() || session.len()>128 || !session.bytes().all(|b|b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        return None;
+    }
+    let folder = state.join("evidence").join(session);
+    let _lock = evidence_lock(&folder, EVIDENCE_LOCK_PATIENCE)?;
+    let file = std::fs::File::open(folder.join("callbacks.jsonl")).ok()?;
+    let mut ends = 0usize;
+    for line in BufReader::new(file).lines() {
+        let row: serde_json::Value = serde_json::from_str(&line.ok()?).ok()?;
+        let callback = &row["callback"];
+        if callback["hook_event_name"] == "SubagentStop"
+            && callback["agent_id"].as_str().is_some_and(|id| !id.is_empty())
+        {
+            ends += 1;
+        }
+    }
+    Some(ends)
+}
+
 #[cfg(test)] mod tests {
     use super::*;
     #[test] fn observations_are_scoped_and_a_run_end_never_means_task_completion() {

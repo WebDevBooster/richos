@@ -566,6 +566,32 @@ pub const HELPER_TAKING_LONGER_DETAIL: &str =
 /// gets its next turn, not for cost.
 const WORKER_WAIT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// **The back end said, in the engine's own words, that it is waiting on a helper.**
+///
+/// `stop-declared: waiting-on-teammate` is one of the engine's three declared stops ("a
+/// teammate is running and the next step needs it", `engine/ass-kicker/guard-stated-actions.py`),
+/// and the stated-actions guard REQUIRES it of a turn that ends promising to act on a
+/// teammate's answer. So it is not a phrase this host hopes to see: it is the line the engine
+/// makes the back end write in exactly the case below.
+///
+/// **Walk 6, 2026-10-05 (`walk-10608166d53f`, esc-20261005T151403Z-2f5c3737).** The back end
+/// messaged its reviewer with `SendMessage` and ended its turn with this line. The reviewer's
+/// last `SubagentStop` was already in the journal, so [`crate::app_workers::status`] saw no
+/// helper open, the loop ended, the grant was revoked and the job was written `failed` ("It
+/// stopped before it finished. The work ran and nothing was landed.") while the reviewer ran
+/// four more times, every hand-back of its verdict refused because its grant was gone. So when
+/// a turn ends on this declaration and nothing is open, the host waits for the next helper run
+/// to END ([`crate::app_workers::run_ends`]) and then hands the back end its continuation.
+///
+/// Read the way the engine reads it: at the start of a line, after any of ` \t>*-•`.
+fn declares_waiting_on_a_helper(said: &str) -> bool {
+    said.lines().any(|line| {
+        line.trim_start_matches([' ', '\t', '>', '*', '-', '\u{2022}'])
+            .strip_prefix("stop-declared:")
+            .is_some_and(|rest| rest.trim_start_matches([' ', '\t']).to_ascii_lowercase().starts_with("waiting-on-teammate"))
+    })
+}
+
 /// **The work path's one injected fault** (the VM crash matrix's P4e cell, design §4.2): with the
 /// `crash-points` feature and `RICHOS_CRASH_POINT` naming it, it is true ONCE per process. Every
 /// product build compiles it to `false`. The aborts are `operator_host::crash_point`'s.
@@ -1616,6 +1642,16 @@ impl WorkHost {
         };
         let mut items = 0usize;
         let mut said = String::new();
+        // **How many helper runs had ended when the latest turn began** (and that turn's words,
+        // `last_said`): a turn that ends declaring it waits on a helper is answered by a helper
+        // run that ends AFTER it began ([`declares_waiting_on_a_helper`]). A run that ended
+        // while the turn was going counts, because the back end cannot have read its outcome.
+        let ends_now = || {
+            backend.inner.lock().unwrap().lease_session.clone()
+                .and_then(|session| crate::app_workers::run_ends(&self.state, &session))
+                .unwrap_or(0)
+        };
+        let mut ends_at_turn_start = ends_now();
         // The background commands this lease already knew about before this assignment's
         // first turn: none of them is this assignment's (step 3c).
         let mut commands_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1639,6 +1675,7 @@ impl WorkHost {
             }
         };
         keep_words(&mut answer, &said);
+        let mut last_said = said.clone();
         // The back-end turn is over: what it, its workers and its commands wrote so far goes
         // on the thread's output list (Output side panel PRD §4.1 (b), the per-turn reader).
         self.project_output(record, &session);
@@ -1729,6 +1766,8 @@ impl WorkHost {
             // could wait on forever, and `settlement` below already reads it as unsettled and
             // says so. Only a run this host can see open is worth waiting for.
             let helper_open = view.is_attributed() && view.active + view.liveness_unknown > 0;
+            // A helper's continuation adds to the account (below); a declared wait is one.
+            let mut helper_turn = helper_open;
             let continuation = if helper_open {
                 if waits == 0 {
                     advance(AssignmentState::Running, "A helper is doing the work.");
@@ -1749,45 +1788,65 @@ impl WorkHost {
                     .filter(|c| !commands_seen.contains(&c.task_id))
                     .collect();
                 if mine.is_empty() {
-                    break;
-                }
-                waits += 1;
-                let running: Vec<String> =
-                    mine.iter().filter(|c| c.ended.is_none()).map(|c| c.task_id.clone()).collect();
-                if !running.is_empty() {
-                    advance(AssignmentState::Running, COMMAND_STILL_RUNNING_DETAIL);
-                    let words = assignment::sanitize_answer(&answer);
-                    // Whatever the back end has said that he has not yet been told — its
-                    // first words, or a report that started another command.
-                    if told_while_running.as_deref() != Some(words.as_str()) && !words.trim().is_empty() {
-                        self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &words));
-                        told_while_running = Some(words);
+                    // **NOTHING IS OPEN, AND THE BACK END SAID IT IS WAITING ON A HELPER**
+                    // ([`declares_waiting_on_a_helper`]): the job is not over, so it is not
+                    // settled. The host waits for the next helper run to end, then hands the
+                    // back end its continuation, on the same seat and the same open grant. A
+                    // closed obligation or a question of his on the desk is never waited on.
+                    if !declares_waiting_on_a_helper(&last_said)
+                        || matches!(self.outcome(backend, record), Outcome::Settled)
+                        || self.pending_decision(record).is_some()
+                    {
+                        break;
                     }
-                    match self.wait_for_background_commands(backend, record, &running) {
-                        CommandWait::Ended => {}
-                        // Still running, and he has another job or the bound was reached: the
-                        // job is watched from here, not settled ([`Watched`]).
-                        CommandWait::Handed => {
-                            handed = Some(running);
-                            break;
+                    if waits == 0 {
+                        advance(AssignmentState::Running, "A helper is doing the work.");
+                    }
+                    waits += 1;
+                    if !self.wait_for_a_helper_run_to_end(backend, record, &session, ends_at_turn_start) {
+                        break;
+                    }
+                    helper_turn = true;
+                    self.continuation_after_a_helper_ended(record)
+                } else {
+                    waits += 1;
+                    let running: Vec<String> =
+                        mine.iter().filter(|c| c.ended.is_none()).map(|c| c.task_id.clone()).collect();
+                    if !running.is_empty() {
+                        advance(AssignmentState::Running, COMMAND_STILL_RUNNING_DETAIL);
+                        let words = assignment::sanitize_answer(&answer);
+                        // Whatever the back end has said that he has not yet been told — its
+                        // first words, or a report that started another command.
+                        if told_while_running.as_deref() != Some(words.as_str()) && !words.trim().is_empty() {
+                            self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &words));
+                            told_while_running = Some(words);
                         }
-                        CommandWait::Over => break,
+                        match self.wait_for_background_commands(backend, record, &running) {
+                            CommandWait::Ended => {}
+                            // Still running, and he has another job or the bound was reached: the
+                            // job is watched from here, not settled ([`Watched`]).
+                            CommandWait::Handed => {
+                                handed = Some(running);
+                                break;
+                            }
+                            CommandWait::Over => break,
+                        }
                     }
+                    let ended: Vec<crate::cognition::BackgroundCommand> = self
+                        .background_commands(backend)
+                        .into_iter()
+                        .filter(|c| mine.iter().any(|m| m.task_id == c.task_id))
+                        .collect();
+                    commands_seen.extend(ended.iter().map(|c| c.task_id.clone()));
+                    let unreported: Vec<&crate::cognition::BackgroundCommand> = ended
+                        .iter()
+                        .filter(|c| c.ended.as_ref().is_some_and(|e| !e.during_a_turn_of_ours))
+                        .collect();
+                    if unreported.is_empty() {
+                        continue;
+                    }
+                    command_ended_continuation(&unreported)
                 }
-                let ended: Vec<crate::cognition::BackgroundCommand> = self
-                    .background_commands(backend)
-                    .into_iter()
-                    .filter(|c| mine.iter().any(|m| m.task_id == c.task_id))
-                    .collect();
-                commands_seen.extend(ended.iter().map(|c| c.task_id.clone()));
-                let unreported: Vec<&crate::cognition::BackgroundCommand> = ended
-                    .iter()
-                    .filter(|c| c.ended.as_ref().is_some_and(|e| !e.during_a_turn_of_ours))
-                    .collect();
-                if unreported.is_empty() {
-                    continue;
-                }
-                command_ended_continuation(&unreported)
             };
             let mut asked_again = 0usize;
             loop {
@@ -1805,6 +1864,7 @@ impl WorkHost {
                 }
                 let mut items = 0usize;
                 let mut said = String::new();
+                ends_at_turn_start = ends_now();
                 outcome = {
                     let mut lease = backend.lease.lock().unwrap();
                     match lease.as_mut() {
@@ -1814,7 +1874,8 @@ impl WorkHost {
                 };
                 // A helper's continuation adds to the account; a command's report REPLACES
                 // "it has started", which is no longer true and which he already has.
-                if helper_open {
+                last_said = said.clone();
+                if helper_turn {
                     keep_words(&mut answer, &said);
                 } else if !said.trim().is_empty() {
                     answer = said;
@@ -2466,6 +2527,51 @@ impl WorkHost {
                                                         AssignmentState::Running, HELPER_TAKING_LONGER_DETAIL) {
                     eprintln!("[richos] work: the row could not say the helper is taking longer: {error}");
                 }
+            }
+            std::thread::sleep(WORKER_WAIT_POLL);
+        }
+    }
+
+    /// **Wait for the helper the back end said it is waiting on to end a run** — `true` when
+    /// the journal holds more `SubagentStop` rows than `seen`, `false` when the wait ended for
+    /// any other reason: his Stop, a quit, the quota hold being stopped, the lease or the
+    /// journal gone, or [`WORKER_WAIT_BUDGET`] passing with no helper run ending.
+    ///
+    /// **Unlike [`Self::wait_for_owned_workers`], the bound ends this wait**, and that is the
+    /// difference between the two facts each one waits on. There, a helper is witnessed open
+    /// and only its end is evidence. Here nothing is witnessed open: the one fact is the back
+    /// end's declaration, so twenty minutes with no helper run ending anywhere in its session
+    /// is a real answer, and the readings after the loop report what can be witnessed, as they
+    /// did before. A `false` claims nothing.
+    fn wait_for_a_helper_run_to_end(
+        self: &Arc<Self>, backend: &Arc<Backend>, record: &Assignment, session: &str, seen: usize,
+    ) -> bool {
+        let budget = *self.worker_wait.lock().unwrap();
+        let mut deadline = std::time::Instant::now() + budget;
+        loop {
+            let before = std::time::Instant::now();
+            if !self.quota_gate(backend, record, true) { return false; }
+            deadline += before.elapsed();
+            {
+                let inner = backend.inner.lock().unwrap();
+                if inner.closing || inner.stopped.contains(&record.id) {
+                    return false;
+                }
+            }
+            if backend.lease.lock().unwrap().is_none() {
+                return false;
+            }
+            match crate::app_workers::run_ends(&self.state, session) {
+                Some(ends) if ends > seen => return true,
+                Some(_) => {}
+                None => return false,
+            }
+            if std::time::Instant::now() >= deadline {
+                eprintln!(
+                    "[richos] work: the back end declared it was waiting on a helper and no helper \
+                     run ended within {budget:?}; reading what can be witnessed"
+                );
+                return false;
             }
             std::thread::sleep(WORKER_WAIT_POLL);
         }
@@ -6146,6 +6252,126 @@ mod tests {
         assert!(h.notices.0.lock().unwrap().iter().all(|(_, n)| n.kind != NoticeKind::Failed));
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **Walk 6 (2026-10-05, `walk-10608166d53f`, esc-20261005T151403Z-2f5c3737): a job was
+    /// written `failed` while its back end was still working on it.** The back end had
+    /// messaged its reviewer and ended its turn with the engine's declared stop
+    /// `stop-declared: waiting-on-teammate`. The reviewer's last `SubagentStop` was already in
+    /// the journal, so nothing read as open, the loop ended, the grant the reviewer works under
+    /// was revoked and the job failed ("The work ran and nothing was landed.") — and every
+    /// hand-back of the reviewer's verdict after that was refused, because its grant was gone.
+    ///
+    /// Now the declaration holds the job open: it stays `Running` with its grant, the next
+    /// helper run to end brings the back end its continuation, and the job ends on its
+    /// evidence. On the unfixed host this test fails at the first assertion: the job is
+    /// `Failed` before any helper could answer.
+    #[test]
+    fn a_back_end_that_declares_it_waits_on_its_helper_is_waited_for_and_never_failed() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        engine_receipt(&h, "worker-1", "obligation-7", "worker", None, None);
+        engine_receipt(&h, "reviewer-1", "obligation-7", "reviewer", None, Some("changes-requested"));
+        // The journal as walk 6 left it at that turn's end: the reviewer launched in the
+        // background and its run already ended. Nothing is open.
+        witnessed(&h.state, "work-session-one");
+        let journal = h.state.join("evidence").join("work-session-one").join("callbacks.jsonl");
+        let row = |body: serde_json::Value| serde_json::json!({"schema": 1, "callback": body}).to_string() + "\n";
+        std::fs::write(
+            &journal,
+            row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"SubagentStart","agent_id":"reviewer-a"}))
+                + &row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"PostToolUse",
+                    "tool_name":"Agent","tool_response":{"isAsync":true,"status":"async_launched","agentId":"reviewer-a"}}))
+                + &row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"SubagentStop","agent_id":"reviewer-a"})),
+        )
+        .unwrap();
+        // The back end's two turns: walk 6's own last words, then its continuation.
+        h.replies.lock().unwrap().extend([
+            "Nothing has landed yet. I've asked the reviewer again for the specific defect, and I'll act \
+             as soon as it answers.\n\nstop-declared: waiting-on-teammate — The reviewer has been asked to \
+             state its blocking defect, and the land depends on its answer."
+                .to_string(),
+            "The reviewer passed it; landed.".to_string(),
+        ]);
+        h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+
+        let read = || assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            let now = read();
+            if now.detail == "A helper is doing the work."
+                || !matches!(now.state, AssignmentState::Registered | AssignmentState::Preparing | AssignmentState::Running)
+            {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "nothing happened: {:?} {}", now.state, now.detail);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let waiting = read();
+        assert_eq!(waiting.state, AssignmentState::Running,
+            "the job was ended while its back end waited on its helper: {}", waiting.detail);
+        assert_eq!(h.revoked.load(Ordering::SeqCst), 0, "the grant its helper works under was taken away");
+        assert!(h.notices.0.lock().unwrap().iter().all(|(_, n)| n.kind != NoticeKind::Failed));
+
+        // The reviewer answers: its next run ends, the back end is handed its continuation, and
+        // the job ends on what is then witnessed.
+        *h.obligation.lock().unwrap() = Some(ObligationState::Settled);
+        let stop = row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"SubagentStop","agent_id":"reviewer-a"}));
+        let mut file = std::fs::OpenOptions::new().append(true).open(&journal).unwrap();
+        std::io::Write::write_all(&mut file, stop.as_bytes()).unwrap();
+        drop(file);
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(60)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 2, "{prompts:?}");
+        assert_eq!(prompts[1], WORKER_ENDED_CONTINUATION);
+        let done = read();
+        assert_eq!(done.state, AssignmentState::Settled, "{}", done.detail);
+        assert!(h.notices.0.lock().unwrap().iter().all(|(_, n)| n.kind != NoticeKind::Failed));
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **The declared wait is bounded, and only the declaration opens it** — the two controls
+    /// for the test above. A turn that ends WITHOUT the declaration is settled at once, exactly
+    /// as before; one that declares it and sees no helper run end within the bound is settled
+    /// on what can be witnessed, with its grant given back. Neither waits forever on a word.
+    #[test]
+    fn a_declared_wait_with_no_helper_answer_ends_at_its_bound_and_no_declaration_never_waits() {
+        use crate::cognition::ObligationState;
+        for declared in [true, false] {
+            let h = harness(5);
+            *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+            h.host.set_worker_wait_budget(std::time::Duration::from_millis(50));
+            engine_receipt(&h, "worker-1", "obligation-7", "worker", None, None);
+            witnessed(&h.state, "work-session-one");
+            let reply = if declared {
+                "I asked the reviewer again.\n\nstop-declared: waiting-on-teammate — The reviewer has been \
+                 asked to state its blocking defect, and the land depends on its answer."
+            } else {
+                "I asked the reviewer again and will act when it answers."
+            };
+            h.replies.lock().unwrap().push_back(reply.to_string());
+            h.host.start();
+            let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+            assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(60)), "declared={declared}");
+            let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+            assert_eq!(row.state, AssignmentState::Failed, "declared={declared}: {}", row.detail);
+            assert_eq!(h.work_prompts.lock().unwrap().len(), 1, "declared={declared}");
+            assert!(h.revoked.load(Ordering::SeqCst) >= 1, "declared={declared}: the grant was kept");
+            h.host.shutdown();
+            std::fs::remove_dir_all(&h.root).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_declaration_is_read_where_the_engine_reads_it() {
+        assert!(declares_waiting_on_a_helper("Done for now.\nstop-declared: waiting-on-teammate — reason here"));
+        assert!(declares_waiting_on_a_helper("> **stop-declared:  Waiting-On-Teammate — reason"));
+        assert!(!declares_waiting_on_a_helper("I am waiting on a teammate."));
+        assert!(!declares_waiting_on_a_helper("stop-declared: nothing-unblocked — all done here"));
+        assert!(!declares_waiting_on_a_helper("he wrote stop-declared: waiting-on-teammate mid-line"));
     }
 
     /// **A work receipt as the ENGINE writes it**, in the partition the engine writes it to
