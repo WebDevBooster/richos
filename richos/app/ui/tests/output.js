@@ -692,6 +692,27 @@ async function main() {
     });
   }
 
+  await run.check("⌘+ scales the panel with everything else (rem, §6.9)", async () => {
+    const p = await openApp(browser);
+    await openThread(p, "acme", 9);
+    await p.click("#out-top");
+    await p.waitForSelector("#outpanel .orow");
+    const size = () =>
+      p.evaluate(() => ({
+        name: parseFloat(getComputedStyle(document.querySelector(".oname")).fontSize),
+        title: parseFloat(getComputedStyle(document.getElementById("op-title")).fontSize),
+        button: parseFloat(getComputedStyle(document.getElementById("out-top")).fontSize),
+      }));
+    const before = await size();
+    await p.focus("#input");
+    await p.keyboard.press("Meta+=");
+    await p.waitForFunction((b) => parseFloat(getComputedStyle(document.querySelector(".oname")).fontSize) > b, before.name);
+    const after = await size();
+    assert(after.title > before.title && after.button > before.button, "the panel did not scale: " + JSON.stringify({ before, after }));
+    await p.context().close();
+    return "file name " + before.name + " → " + after.name + "px, title " + before.title + " → " + after.title + "px, button " + before.button + " → " + after.button + "px";
+  });
+
   await run.check("reduced motion: no tick, no rise, no pulse — the change still happens", async () => {
     const p = await openApp(browser, { reducedMotion: "reduce" });
     await openThread(p, "acme", 9);
