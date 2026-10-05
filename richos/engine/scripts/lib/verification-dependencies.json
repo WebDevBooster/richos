@@ -12519,7 +12519,7 @@
     },
     "scripts/hooks/resource-waits.test.sh": {
       "source": "scripts/hooks/resource-waits.test.sh",
-      "sha256": "1721e14046d3e10c2753cf657c57c79b5fcfe412de9233448e414113c67d9a55",
+      "sha256": "be5c926d42c4c37bf55539acf084ec3821524ec331d2ca101e3083381648f155",
       "evidence": "All hook calls target explicit private entity and empty/literal config, analyzer reads private wait/escalation/slot files. Generated process fixtures sleep or spawn supplied fixture commands only. Shared mutation transport remains source-bound.",
       "keys": [],
       "edges": [
