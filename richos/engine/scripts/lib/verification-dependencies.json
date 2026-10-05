@@ -1366,7 +1366,7 @@
     },
     "scripts/app-engine-hook.py#pause-rejection": {
       "source": "scripts/app-engine-hook.py",
-      "sha256": "ec78a5c2d97afff0de172e3dadfd8f0fca16781715ff82b53e4941616d407c46",
+      "sha256": "708a9f999aceaa5cab7c65203e86568676cbaff5b221832629f86988e223b3e4",
       "evidence": "The fixture loads the standard-library-only module, supplies explicit roots and calls handle with PreToolUse SendMessage. Invalid pause fails before scope; valid pause reaches the mocked scope exception. No evidence/workspace helper is loaded.",
       "keys": [],
       "edges": [
@@ -9756,7 +9756,7 @@
     },
     "mega-lander/app.py#land-lock-fixtures": {
       "source": "mega-lander/app.py",
-      "sha256": "5a221c696cf056147c5fdcf8d5897974fd4df092a3d51aaef2d7be82e819947a",
+      "sha256": "61830229dc7da9e5cdcb59444a2260c140cc2e91afe2c1393552fe4c5f02b9e0",
       "evidence": "Fixture calls only land_lock and _live_fence_lease. Full local closure reviewed: lock metadata, flock, process liveness and repository lease/history reads. Workspaces and ECS imports are bound; ECS runtime operations are not invoked.",
       "keys": [],
       "edges": [
@@ -13678,14 +13678,14 @@
     },
     "scripts/lib/app-evidence.py#capture": {
       "source": "scripts/lib/app-evidence.py",
-      "sha256": "a272ad17e49ee1ca2ff5d4a3abaef8f637fb2bc8b30ee55bc71ff7d8e67437f8",
-      "evidence": "Reviewed project, capture and append entrypoints only: JSON transformation, fixed regex/hash checks and private locked record writes. The general CLI subprocess-forwarding path is not entered by this source-bound fixture. No config or engine helper read. Since the Output side panel's witnesses (2026-10-05) capture also writes evidence/<session>/writes.jsonl and its own commands/*.json bookkeeping, and reads directory listings and lstat of the paths a Bash call ran in or named (names and metadata only, never contents); still no config key, environment variable or engine helper.",
+      "sha256": "1602a7fc1e6cf65489b52e24dd44349ed2509faaf16f0627adadce13ccc227c2",
+      "evidence": "Reviewed project, capture and append entrypoints only: JSON transformation, fixed regex/hash checks and private locked record writes. The general CLI subprocess-forwarding path is not entered by this source-bound fixture. No config or engine helper read. Since the Output side panel's witnesses (2026-10-05) capture also writes evidence/<session>/writes.jsonl and its own commands/*.json bookkeeping, and reads directory listings and lstat of the paths a Bash call ran in or named (names and metadata only, never contents); still no config key, environment variable or engine helper. Slice S2b (2026-10-05): capture takes a worktrees= root that the data-directory rule does not exclude, and append_land_rows writes land rows to the same writes.jsonl under the same folder lock; both are reached from integrate in mega-lander/app.py and from the fixtures. No config key, environment variable or engine helper is added.",
       "keys": [],
       "edges": []
     },
     "scripts/lib/app-evidence.test.py": {
       "source": "scripts/lib/app-evidence.test.py",
-      "sha256": "c3eefb76b32d1ca9bfe736a626649918f4c56dc830253b5e0aad1fca3d3f42f7",
+      "sha256": "7b7469f808231baf6689d152baf536a9bb1eb303f2baf3d28ddbc4f4d3d52bf0",
       "evidence": "Calls adapter.project/capture and turn-manifest.read_turn on private synthetic callbacks, plus actual stated-actions analyzer with explicit private entity/teams. No adapter CLI forwarding, model dispatch or transcript command executes. OutputWitnessTests drive capture's output witnesses with synthetic Bash and write-tool callbacks over files the test itself creates in a private temporary directory; no command named in a callback is run. DesktopHookHandOff runs the real app-engine-hook.py as a subprocess (PreToolUse and PostToolUse for Bash) in test-app-engine-hook.py's sandbox shape, with explicit RICHOS_APP_STATE, RICHOS_APP_SCOPE, RICHOS_ENTITY_ROOT and RICHOS_ENGINE_ROOT; its guards and workspace hook run as the hook runs them. Every real engine script it runs gets HOME and CLAUDE_CONFIG_DIR in the test's own temporary folder (own_home), never the operator's record.",
       "keys": [],
       "edges": [
@@ -13782,12 +13782,15 @@
     },
     "mega-lander/app.py#desktop-work-fixtures": {
       "source": "mega-lander/app.py",
-      "sha256": "5a221c696cf056147c5fdcf8d5897974fd4df092a3d51aaef2d7be82e819947a",
-      "evidence": "All call entrypoints plus observe, dispatch_intent, lock and receipt helpers run against source-bound private fixtures. Subprocesses are Git or fixed spawn.py; the test failure override is literal Python. Spawn hook sources are explicitly fixed to actual isolation guard. The module is imported, never launched as its MCP server. Retain every actual workspace/spawn configuration dependency. Renewed 2026-09-30 (hunt part 4, findings 18, 22, 23): run() exports RICHOS_OPERATION_DEADLINE to the command and, on timeout, reads ps to stop the process tree it started; prepare() releases the conversation lock while the spawn command runs and stamps its receipt with its own pid and start time; observe() saves only the receipts that changed. No configuration read is added.",
+      "sha256": "61830229dc7da9e5cdcb59444a2260c140cc2e91afe2c1393552fe4c5f02b9e0",
+      "evidence": "All call entrypoints plus observe, dispatch_intent, lock and receipt helpers run against source-bound private fixtures. Subprocesses are Git or fixed spawn.py; the test failure override is literal Python. Spawn hook sources are explicitly fixed to actual isolation guard. The module is imported, never launched as its MCP server. Retain every actual workspace/spawn configuration dependency. Renewed 2026-09-30 (hunt part 4, findings 18, 22, 23): run() exports RICHOS_OPERATION_DEADLINE to the command and, on timeout, reads ps to stop the process tree it started; prepare() releases the conversation lock while the spawn command runs and stamps its receipt with its own pid and start time; observe() saves only the receipts that changed. No configuration read is added. Renewed 2026-10-05 (Output side panel slice S2b): integrate's land witness loads scripts/lib/app-evidence.py by fixed path, runs git diff --name-only in the landed repository and appends land rows through append_land_rows under the fixture's private engine-state/evidence; a failure there is reported on stderr and never fails the land. No configuration read is added.",
       "keys": [],
       "edges": [
         {
           "to": "ecs/adapters/app.py#desktop-work-fixtures"
+        },
+        {
+          "to": "scripts/lib/app-evidence.py#capture"
         },
         {
           "to": "mega-lander/workspaces.py#desktop-work-fixtures"
@@ -13802,7 +13805,7 @@
     },
     "mega-lander/tests/app.test.py": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "b2923f50e21c72c863db1af5ccf14c246dfd09bf7413342cf1fc7cb54660912d",
+      "sha256": "796d0a68d78f03f4002d89c37dd83a7f0d50434937cc38d23fd73ec7cd2f86ad",
       "evidence": "Full fixed unittest fixture, literal holder/probe subprocess programs and one literal spawn failure override. Private Git, ECS stores, registry, scope, land locks and explicit single-hook manifest bind the app/adapter entrypoint guarantees. No agent, model, arbitrary setup or MCP server is invoked. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private.",
       "keys": [],
       "edges": [
@@ -15537,7 +15540,7 @@
     },
     "mega-lander/tests/app.test.py#pause-message-case": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "b2923f50e21c72c863db1af5ccf14c246dfd09bf7413342cf1fc7cb54660912d",
+      "sha256": "796d0a68d78f03f4002d89c37dd83a7f0d50434937cc38d23fd73ec7cd2f86ad",
       "evidence": "Added 2026-09-30 for workspaces.test.py's finding-20 case, which runs this suite with the one name test_pause_message_is_fixed. That selects only DesktopWork.test_pause_message_is_fixed_and_does_not_claim_delivery: setUp builds private Git repositories, a private orchestration.config, agent definitions copied from the engine as data, a private registry, scope, ECS store and land-locks directory, and loads app.py; the case renders pause messages and calls inspect over no receipts. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private.",
       "keys": [],
       "edges": [
@@ -15551,7 +15554,7 @@
     },
     "mega-lander/app.py#pause-message-case": {
       "source": "mega-lander/app.py",
-      "sha256": "5a221c696cf056147c5fdcf8d5897974fd4df092a3d51aaef2d7be82e819947a",
+      "sha256": "61830229dc7da9e5cdcb59444a2260c140cc2e91afe2c1393552fe4c5f02b9e0",
       "evidence": "Reviewed 2026-09-30, the path app.test.py's pause-message case reaches: module load (ecs_core, the ECS adapter and workspaces.py loaded by fixed path); ECS bind, checkpoint, inspect and seats against the private store; workspaces.record_session_start (session registry and platform session JSON, git rev-parse, events); read_scope; pause_message, which renders pause_protocol; and inspect over no receipts, whose reconcile_seats retains this conversation's own seat. prepare, integrate, complete, spawn and land are not reached, so none of their model, scratch, app-instance or QA settings is read, and no orchestration.config is read.",
       "keys": [],
       "edges": [
