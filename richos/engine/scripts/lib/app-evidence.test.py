@@ -245,6 +245,74 @@ class OutputWitnessTests(unittest.TestCase):
         self.assertEqual(sorted({(Path(r["path"]).name, r["agent_id"]) for r in rows}),
                          [("late.txt", "agent-9"), ("report.txt", "agent-9")])
 
+    def app_data(self):
+        """The app's data directory as the desktop hook hands it over: the evidence root under
+        `engine-state/evidence`, the worker worktrees under `engine-state/target-worktrees`."""
+        data = self.root / "data"
+        worktree = data / "engine-state/target-worktrees/scope-1/worker-sonnet-b7"
+        for folder in (worktree, data / "ledger", data / "engine-state/evidence"):
+            folder.mkdir(parents=True, exist_ok=True)
+        return data, worktree
+
+    def worktree_bash(self, data, tool_use_id, command, between, cwd):
+        kw = {"app_data": data, "worktrees": data / "engine-state/target-worktrees"}
+        state = data / "engine-state/evidence"
+        call = {**self.base, "tool_use_id": tool_use_id, "tool_name": "Bash", "agent_id": "agent-w",
+                "tool_input": {"command": command}, "cwd": str(cwd)}
+        adapter.capture({**call, "hook_event_name": "PreToolUse"}, state, **kw)
+        between()
+        adapter.capture({**call, "hook_event_name": "PostToolUse", "tool_response": {"stdout": ""}}, state, **kw)
+        path = state / "session-1" / "writes.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def test_a_workers_command_in_its_worktree_under_the_app_data_is_recorded(self):
+        """The carve-out (§4.1 (c), slice S2b): a back-end worker's workspace is under the app's
+        data directory, and a file its command makes there is the worker's deliverable."""
+        data, worktree = self.app_data()
+        (worktree / "notes.md").write_text("Notes for the walk test.")
+        past = time.time() - 60
+        os.utime(worktree / "notes.md", (past, past))
+        rows = self.worktree_bash(data, "c1", "pandoc notes.md -o notes.pdf",
+                                  lambda: (worktree / "notes.pdf").write_bytes(b"%PDF-1.7"), worktree)
+        self.assertEqual([(r["path"], r["source"], r["agent_id"]) for r in rows],
+                         [(str(worktree / "notes.pdf"), "command", "agent-w")])
+
+    def test_the_carve_out_reaches_only_the_worktrees_and_never_their_target_folder(self):
+        data, worktree = self.app_data()
+        (worktree / "target").mkdir()
+        def make():
+            (data / "engine-state/evidence/planted.txt").write_text("the app's evidence")
+            (data / "ledger/planted.jsonl").write_text("the app's ledger")
+            (data / "beside.txt").write_text("the app's own file")
+            (worktree / "target/app").write_text("build output")
+        command = "cargo build && ls {} {} {} target".format(
+            *(shlex.quote(str(p)) for p in (data / "engine-state/evidence", data / "ledger", data)))
+        self.assertEqual(self.worktree_bash(data, "c2", command, make, worktree), [])
+
+    def test_land_rows_are_appended_under_the_session_lock_with_both_paths_and_the_worker(self):
+        """Witness (d)'s appender (§4.1 (d), slice S2b): the land step's rows go to the same
+        `writes.jsonl` as the session's other rows, in the hook's own format."""
+        commit = "a" * 40
+        rows = [{"path": "/repo/notes.md", "from": "/wt/notes.md", "commit": commit,
+                 "worker": {"name": "worker-sonnet-b7", "agent_id": "agent-w"}},
+                {"path": "/repo/notes.pdf", "from": "/wt/notes.pdf", "commit": commit,
+                 "worker": {"name": "worker-sonnet-b7", "agent_id": ""}}]
+        self.assertEqual(adapter.append_land_rows(self.state, "session-1", rows), 2)
+        got = self.rows()
+        self.assertEqual([(r["source"], r["path"], r["from"], r["commit"], r["worker"], r["tool_use_id"]) for r in got],
+                         [("land", "/repo/notes.md", "/wt/notes.md", commit, {"name": "worker-sonnet-b7", "agent_id": "agent-w"}, None),
+                          ("land", "/repo/notes.pdf", "/wt/notes.pdf", commit, {"name": "worker-sonnet-b7", "agent_id": None}, None)])
+        self.assertTrue(all(r["schema"] == 1 and r["session_id"] == "session-1" and isinstance(r["at"], int) for r in got))
+
+    def test_a_malformed_land_row_refuses_the_whole_call_and_writes_nothing(self):
+        good = {"path": "/repo/a.md", "from": "/wt/a.md", "commit": "b" * 40, "worker": {"name": "w"}}
+        for bad in ({**good, "commit": None}, {**good, "path": "a.md"}, {**good, "worker": {"name": ""}}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                adapter.append_land_rows(self.state, "session-1", [good, bad])
+        with self.assertRaises(ValueError):
+            adapter.append_land_rows(self.state, "../escape", [good])
+        self.assertEqual(self.rows(), [])
+
     def test_a_pass_that_fails_never_fails_the_callback(self):
         # A malformed path writes nothing...
         adapter.capture({**self.base, "hook_event_name": "PostToolUse", "tool_use_id": "w9", "tool_name": "Write",
@@ -304,6 +372,21 @@ class DesktopHookHandOff(unittest.TestCase):
         writes = self.data / "engine-state/evidence/fictional-session/writes.jsonl"
         rows = [json.loads(line) for line in writes.read_text().splitlines()]
         self.assertEqual([(r["path"], r["source"]) for r in rows], [(str(self.coordination / "made.txt"), "command")])
+
+    def test_the_desktop_hook_records_a_worker_worktree_under_the_data_directory_and_nothing_beside_it(self):
+        """Slice S2b: the real hook passes the carve-out root beside the data root."""
+        worktree = self.data / "engine-state/target-worktrees/repo/w"
+        worktree.mkdir(parents=True)
+        command = f"ls {shlex.quote(str(worktree))} {shlex.quote(str(self.data))}"
+        call = {"tool_name": "Bash", "tool_use_id": "tool-2", "tool_input": {"command": command}}
+        before = self.hook("PreToolUse", **call)
+        self.assertEqual(before.returncode, 0, before.stderr + before.stdout)
+        (worktree / "notes.pdf").write_bytes(b"%PDF-1.7")
+        (self.data / "beside.txt").write_text("the app's own file")
+        self.hook("PostToolUse", tool_response={"stdout": ""}, **call)
+        writes = self.data / "engine-state/evidence/fictional-session/writes.jsonl"
+        rows = [json.loads(line) for line in writes.read_text().splitlines()]
+        self.assertEqual([(r["path"], r["source"]) for r in rows], [(str(worktree / "notes.pdf"), "command")])
 
 
 if __name__ == "__main__":

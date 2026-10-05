@@ -25,9 +25,14 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      pandoc. PASS when a row for the PDF is in the record with source `command`.
                      Rich's words on this thread and the assignment's notices are checked for the
                      PDF's absolute path, and whether they carry it is reported.
-  backend-worker     typed: add a file to the Acme repository and land it. PASS when a row with
-                     actor `worker` and a worker name is in the record, and no row for that file
-                     says `rich`. Approve is pressed when the work panel asks.
+  backend-worker     typed: add notes.md to the Acme repository, make notes.zip from it with git
+                     archive in the same folder, commit both and land them. PASS when a row with
+                     actor `worker` and a worker name is in the record, no row for that file says
+                     `rich`, and (slice S2b) after the job settles both files are in the Acme folder,
+                     each has a land row at the Acme path from the worker's worktree, notes.zip's
+                     worktree row is a command row with the worker's agent id, and the list folded
+                     by the §4.3 rule names each file once at the Acme path with nothing missing.
+                     Approve is pressed when the work panel asks.
   front-desk-worker  typed: use your own Agent tool, in this turn, to start a worker that writes a
                      file. One attempt, recorded as it happens: whether the front desk called
                      Agent, what the app hook did with it (the callbacks of its session), whether
@@ -81,8 +86,17 @@ PDF_TASK = ('Please run this harmless test command for me yourself with your she
             'launch-brief.md && /opt/homebrew/bin/pandoc launch-brief.md -o launch-brief.pdf '
             '--pdf-engine=/opt/homebrew/bin/typst')
 APPROVALS = 6
+# Slice S2b (PRD §12.2b): the worker also makes a file with a command in its own worktree, which
+# is under the app's data directory, and both files are landed. The PRD names pandoc; a WORKER's
+# pandoc call needs his approval, and on the VM that approval never reached the Approve control
+# (walks 4 and 5, 2026-10-05, esc-20261005T150541Z-ee581ad7), so the job never landed. A worker's
+# git commands run unasked, so the command-made file is a git archive of the committed notes.md.
 WORKER_TASK = ('Please add a file named notes.md whose whole content is the line "Notes for the walk test." '
-               'to the Acme repository and land it.')
+               'to the Acme repository and commit it. Then, in the same folder, make notes.zip from that commit '
+               'with the shell command git archive -o notes.zip HEAD notes.md, commit notes.zip too, '
+               'and land both files.')
+WORKTREES = '/engine-state/target-worktrees/'
+MADE = 'notes.zip'
 FRONT_DESK_TASK = ('This is a test of your own Agent tool. Do not register an assignment for it. In this turn, '
                    'use your Agent tool yourself to start one worker that writes a file named direct.md '
                    'containing the word direct in my Acme folder.')
@@ -118,6 +132,20 @@ status = None if before else CS.LSSetDefaultRoleHandlerForContentType(uti, ALL, 
 print(json.dumps({'type': text(uti), 'before': before, 'set_status': status,
                   'after': text(CS.LSCopyDefaultRoleHandlerForContentType(uti, ALL))}))
 """
+
+
+def project(rows):
+    """The list the app will serve, by the PRD's §4.3 rule (cargo run --example is not on the
+    VM): one entry per file key (canonical, else path); a row whose path is a land row's
+    landedFrom is folded into the landed entry. {file key: its rows}."""
+    retired = {r['landedFrom']: r.get('canonical') or r['path'] for r in rows if r.get('source') == 'land' and r.get('landedFrom')}
+    entries = {}
+    for r in rows:
+        key = r.get('canonical') or r['path']
+        if r.get('source') != 'land':
+            key = retired.get(r['path']) or retired.get(r.get('canonical')) or key
+        entries.setdefault(key, []).append(r)
+    return entries
 
 
 class OutputWalk(command_walk.CommandWalk):
@@ -245,29 +273,96 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the PDF is listed, but not by the command witness: ' + json.dumps(rows))
         return evidence
 
+    def work_story(self, sent, sessions):
+        """Why a job ended as it did, kept for every run: each assignment's state, detail and last
+        notices, and the back-end sessions' tool calls (lead's and workers') with how each ended.
+        A PreToolUse with no PostToolUse is a call a hook refused or that never returned."""
+        jobs = [{k: a.get(k) for k in ('id', 'state', 'detail')} | {'notices': (a.get('notices') or [])[-6:]}
+                for a in self.assignments_since(sent)]
+        calls = []
+        for session in sessions:
+            for c in self.callbacks(session):
+                event, tool = c.get('hook_event_name'), c.get('tool_name')
+                if event in ('PreToolUse', 'PostToolUse', 'PostToolUseFailure') and tool:
+                    ti = c.get('tool_input') or {}
+                    out = c.get('tool_response', c.get('error'))
+                    calls.append({'event': event, 'tool': tool, 'id': c.get('tool_use_id'), 'agent': c.get('agent_id'),
+                                  'input': str(ti.get('command') or ti.get('file_path') or ti.get('name') or ti)[:300],
+                                  'result': None if event == 'PreToolUse' else str(out)[:600]})
+                elif event in ('SubagentStop', 'Stop'):
+                    calls.append({'event': event, 'agent': c.get('agent_id'),
+                                  'last': str(c.get('last_assistant_message', ''))[:600]})
+        return {'jobs': jobs, 'calls': calls}
+
+    def exists_in_guest(self, path):
+        return guest(self.vm, 'test -f ' + shlex.quote(path) + ' && echo yes || echo no', 60).strip() == 'yes'
+
     def backend_worker(self):
+        """S2's worker row, then S2b's land (PRD §12.2b): after the job settles, both files are in
+        the Acme folder, the record holds a land row for each at the Acme path from the worker's
+        worktree, notes.zip's worktree row is the command witness's with the worker's agent id
+        (the carve-out, on the real hook), and the list the app will serve names each file once,
+        at the Acme path, with nothing no longer where it was written."""
         turn, sent = self.send(WORKER_TASK)
+        names = ('notes.md', MADE)
         end = time.monotonic() + self.a.within
-        workers = []
+        workers, lands = [], []
         while time.monotonic() < end:
-            workers = [r for r in self.record() if r.get('actor') == 'worker']
-            if workers:
+            rows = self.record()
+            workers = [r for r in rows if r.get('actor') == 'worker']
+            lands = [r for r in rows if r.get('source') == 'land']
+            ours = self.assignments_since(sent)
+            settled = bool(ours) and all(a.get('state') not in OPEN for a in ours)
+            if settled or {Path(r.get('path', '')).name for r in lands} >= set(names):
                 break
             self.approve_pending(sent)
             time.sleep(5)
+        time.sleep(10)  # the work host projects after the back-end turn that landed; one more pass
         rows = self.save_record('record-after-backend-worker.jsonl')
+        workers = [r for r in rows if r.get('actor') == 'worker']
+        lands = [r for r in rows if r.get('source') == 'land']
+        listed = project(rows)
+        on_disk = {n: self.exists_in_guest(self.company + '/' + n) for n in names}
+        # "Opens": there is no open-file command before slice S3, so the landed copy is read back
+        # at the listed path: notes.md's line, and notes.zip's zip header.
+        reads = {n: guest(self.vm, 'head -c 32 ' + shlex.quote(self.company + '/' + n) + ' 2>&1 | head -1', 60).strip()
+                 for n in names}
+        missing = sorted(k for k in listed if not self.exists_in_guest(k))
         sessions = sorted({a.get('work_session') for a in self.assignments_since(sent) if a.get('work_session')})
         mislabeled = [r for r in rows if r.get('actor') == 'rich' and any(r.get('path') == w.get('path') for w in workers)]
-        evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'work_sessions': sessions, 'worker_rows': workers, 'mislabeled_as_rich': mislabeled,
+        evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'work_sessions': sessions,
+                    'worker_rows': workers, 'land_rows': lands, 'mislabeled_as_rich': mislabeled,
+                    'in_acme_folder': on_disk, 'read_back': reads, 'listed': {k: len(v) for k, v in listed.items()},
+                    'no_longer_where_written': missing,
                     'assignments': [{k: a.get(k) for k in ('id', 'kind', 'state', 'work_session')}
                                     for a in self.assignments_since(sent)]}
         (self.out / 'backend-worker-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        (self.out / 'backend-worker-story.json').write_text(json.dumps(self.work_story(sent, sessions), indent=2) + '\n')
         if not workers:
             raise StepFailed('no worker row reached the record within %d s' % self.a.within)
         if not all(w.get('workerName') for w in workers):
             raise StepFailed('a worker row has no worker name: ' + json.dumps(workers))
         if mislabeled:
             raise StepFailed("a worker's file is also listed as Rich's: " + json.dumps(mislabeled))
+        if not all(on_disk.values()):
+            raise StepFailed('the Acme folder does not hold both files: ' + json.dumps(on_disk))
+        if not (reads['notes.md'].startswith('Notes for the walk test') and reads[MADE].startswith('PK')):
+            raise StepFailed('a landed copy does not read back as written: ' + json.dumps(reads))
+        for name in names:
+            acme = self.company + '/' + name
+            land = [r for r in lands if r.get('path') == acme]
+            if not (land and WORKTREES in land[0].get('landedFrom', '') and land[0].get('workerName')):
+                raise StepFailed('no land row for %s at the Acme path from the worker worktree: %s' % (name, json.dumps(lands)))
+            at_acme = [k for k in listed if Path(k).name == name and WORKTREES not in k]
+            at_worktree = [k for k in listed if Path(k).name == name and WORKTREES in k]
+            if len(at_acme) != 1 or at_worktree:
+                raise StepFailed('%s is not listed once at the Acme path: %s' % (name, json.dumps(sorted(listed))))
+        made = [r for r in rows if r.get('source') == 'command' and WORKTREES in r.get('path', '')
+                and r['path'].endswith('/' + MADE) and r.get('agentId')]
+        if not made:
+            raise StepFailed("no command row for %s in the worker's worktree with its agent id (the carve-out)" % MADE)
+        if missing:
+            raise StepFailed('listed but no longer where it was written: ' + json.dumps(missing))
         return evidence
 
     def front_desk_worker(self):
