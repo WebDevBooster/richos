@@ -600,6 +600,13 @@ pub struct Turn {
     pub source: Source,
     pub state: TurnState,
     pub session_id: Option<String>,
+    /// EVERY session a `TurnStarted` named for this turn, in order. `session_id` keeps only the
+    /// last, and one turn can be started on two leases (a rotation before it ran, observed on the
+    /// test VM 2026-10-05): the output record joins a hook witness to its thread by ANY session
+    /// the ledger started a turn of that thread on (Output side panel PRD §4.1 (b)). Folded from
+    /// the log like every other field here; not serialized, so no payload changes.
+    #[serde(skip_serializing)]
+    pub started_sessions: Vec<String>,
     /// Accumulated assistant reply (concatenated deltas). May be partial if interrupted.
     pub assistant_text: String,
     /// The SAME reply, split into contiguous RUNS of the shared per-turn sequence.
@@ -1097,6 +1104,7 @@ impl Ledger {
                     source,
                     state: TurnState::Received,
                     session_id: None,
+                    started_sessions: Vec::new(),
                     assistant_text: String::new(),
                     text_runs: Vec::new(),
                     stop_reason: None,
@@ -1118,6 +1126,9 @@ impl Ledger {
             Event::TurnStarted { turn_id, session_id, at } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.state = TurnState::InFlight;
+                    if !session_id.is_empty() && !t.started_sessions.contains(&session_id) {
+                        t.started_sessions.push(session_id.clone());
+                    }
                     // An accepted request can start connecting before a session exists.
                     // A later start record attaches the real session without resetting time.
                     t.session_id = (!session_id.is_empty()).then_some(session_id);
@@ -1209,6 +1220,7 @@ impl Ledger {
                     source: Source::Proactive,
                     state: TurnState::Completed,
                     session_id: None,
+                    started_sessions: Vec::new(),
                     text_runs: vec![TextRun { start_seq: None, end_seq: None, text: text.clone(), at }],
                     assistant_text: text,
                     stop_reason: Some("proactive".to_string()),
@@ -2436,6 +2448,7 @@ mod tests {
             source: Source::Text,
             state: TurnState::InFlight,
             session_id: None,
+            started_sessions: Vec::new(),
             assistant_text: String::new(),
             text_runs: Vec::new(),
             stop_reason: None,

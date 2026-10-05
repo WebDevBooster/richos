@@ -762,13 +762,18 @@ impl SessionJoin {
     /// recorded; a quarantined turn is excluded, as from every scoped projection) and the
     /// assignments' `work_session`s.
     pub fn new(turns: &[Turn], assignments: &[Assignment]) -> Self {
+        // EVERY session a `TurnStarted` named, not only the turn's last one: one turn can be
+        // started on two leases (a rotation before it ran, seen on the test VM 2026-10-05).
         let front = turns
             .iter()
             .filter(|t| !t.quarantined)
-            .filter_map(|t| {
-                let session = t.session_id.as_deref().filter(|s| !s.is_empty())?;
-                Some(FrontDeskTurn {
-                    session_id: session.to_string(),
+            .flat_map(|t| {
+                let mut sessions = t.started_sessions.clone();
+                if let Some(last) = t.session_id.as_ref().filter(|s| !s.is_empty() && !sessions.contains(s)) {
+                    sessions.push(last.clone());
+                }
+                sessions.into_iter().map(move |session| FrontDeskTurn {
+                    session_id: session,
                     thread_id: t.thread_id.clone(),
                     turn_id: t.id.clone(),
                     started_at: t.started_at.unwrap_or(t.created_at),
@@ -1320,6 +1325,31 @@ mod tests {
         assert!(store.converge("thr_out", &sources).unwrap().is_empty());
         let replayed = OutputStore::for_data_dir(&data).project("thr_out").unwrap();
         assert_eq!(replayed, list);
+    }
+
+    /// Seen on the test VM (2026-10-05): one turn started on one lease, then again on the lease
+    /// a rotation put in the chair before it ran. `Turn::session_id` keeps only the second; a
+    /// write the first lease's hook saw must still join the thread.
+    #[test]
+    fn output_the_join_takes_every_session_a_turn_was_started_on() {
+        let dir = Dir::new("output-two-starts");
+        let mut ledger = crate::ledger::Ledger::open(dir.0.join("ledger.jsonl")).unwrap();
+        let entity = crate::entity::EntityId::parse("femcboost").unwrap();
+        let thread = ledger.create_thread("acme", &entity).unwrap();
+        let binding = ledger.thread_binding(&thread).unwrap();
+        let turn = ledger.record_prompt_received(&binding, "add the notes", crate::ledger::Source::Text).unwrap();
+        ledger.mark_turn_started(&turn, "before-rotation").unwrap();
+        ledger.mark_turn_started(&turn, "after-rotation").unwrap();
+        assert_eq!(ledger.turn(&turn).unwrap().session_id.as_deref(), Some("after-rotation"));
+        let join = SessionJoin::new(ledger.turns(), &[]);
+        for session in ["before-rotation", "after-rotation"] {
+            let joined = join.resolve(session, u64::MAX).unwrap_or_else(|| panic!("{session} joined nothing"));
+            assert_eq!((joined.thread_id.as_str(), joined.turn_id.as_deref()), (thread.as_str(), Some(turn.as_str())));
+        }
+        // Reopened from the log, the same.
+        drop(ledger);
+        let reopened = crate::ledger::Ledger::open(dir.0.join("ledger.jsonl")).unwrap();
+        assert!(SessionJoin::new(reopened.turns(), &[]).resolve("before-rotation", u64::MAX).is_some());
     }
 
     // ---- S2: witnesses (b) and (c), the join, and the nested worker ---------------------
