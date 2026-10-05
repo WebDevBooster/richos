@@ -12,10 +12,13 @@
 // comes from `list_output` (S3, `src-tauri/src/output_files.rs`), which converges the thread's
 // output record and re-stats every file; `rich://output` says when the record gained files.
 //
+// PREVIEWS BY KIND (S5, §7): the file view draws the file itself — Markdown rendered, text,
+// a CSV's first rows, a picture, a PDF, a video, a recording, an Office or iWork document's first
+// page — from `output_preview`, or says the §6.7 sentence. `viewPreview` below; `hooks.viewer`
+// still overrides it.
+//
 // WHAT IT DOES NOT DO YET, said here so nobody reads a gap as a bug. Each is a later slice of
 // the same PRD, and each has a named hook below rather than a half-built version:
-//   * previews by kind (S5): the file view shows the file's facts and, for a missing file, the
-//     §6.7 sentence; `hooks.viewer(entry, box)` is where S5 renders;
 //   * the per-file actions — Open in <app>, Open with…, Show in Finder, Save a copy…, Copy path
 //     (S6) and Add to chat (S7): `hooks.rowActions(entry, row)` and `hooks.fileTools(entry, box)`;
 //   * the divider, the stop, the snap and the floating composer (S9): the panel's width is the
@@ -497,11 +500,10 @@
     view.appendChild(bar);
 
     // S6's Open in <app> / ▾ / Show in Finder / Save a copy… / ⋯ and S5's Preview | Source.
-    if (hooks.fileTools) {
-      const tools = node("div", "of-tools");
-      hooks.fileTools(f, tools);
-      if (tools.childNodes.length) view.appendChild(tools);
-    }
+    const tools = node("div", "of-tools");
+    if (hooks.fileTools) hooks.fileTools(f, tools);
+    if (f.exists) sourceSwitch(f, tools);
+    if (tools.childNodes.length) view.appendChild(tools);
 
     const pathLine = node("div", "of-path");
     const code = node("code");
@@ -516,18 +518,8 @@
     viewer.id = "op-viewer";
     if (!f.exists) {
       viewer.appendChild(node("p", "of-missing", MISSING_SENTENCE));
-    } else if (hooks.viewer) {
-      hooks.viewer(f, viewer);
     } else {
-      const facts = node("p", "of-meta");
-      facts.appendChild(node("b", null, KIND_WORD[f.kind] || (extension(f.name) ? extension(f.name).toUpperCase() : "File")));
-      if (typeof f.bytes === "number") {
-        const dot = node("span", null, "·");
-        dot.setAttribute("aria-hidden", "true");
-        facts.appendChild(dot);
-        facts.appendChild(node("span", null, humanSize(f.bytes)));
-      }
-      viewer.appendChild(facts);
+      (hooks.viewer || viewPreview)(f, viewer);
     }
     view.appendChild(viewer);
 
@@ -538,6 +530,313 @@
     if (opts.focusStep === "prev") prev.focus({ preventScroll: true });
     else if (opts.focusStep === "next") next.focus({ preventScroll: true });
     else back.focus({ preventScroll: true });
+  }
+
+  // ---- S5: THE PREVIEWS, ONE VIEWER PER KIND (§7, §6.4, §6.7, §12.5) ------------------------
+  //
+  // `output_preview(output_id)` (`src-tauri/src/output_files.rs`) answers with a tagged view:
+  // `text` (md, txt: the first 2 MiB), `table` (csv: the first 200 rows, parsed in Rust),
+  // `image`, `pdf`, `video`, `audio` and `rendition` (a scheme URL the shell checked and serves),
+  // or `none` with the §6.7 sentence and why. THE PAGE NEVER BUILDS A URL: every `src` below is
+  // the one the shell returned, so the scheme's own checks (§5.2, a bad id is a 404 with no
+  // bytes) are the only way bytes reach a viewer.
+  //
+  // NO FILE CONTENT EVER BECOMES MARKUP. Markdown goes through `timeline.js`'s DOM-only renderer
+  // with its document extension (tables, quotations, rules, fenced code; links drawn as their
+  // text); text and source are one text node in a `<pre>`; a table cell is a text node.
+  //
+  // Nothing is said for the first 150 ms of a read; after that the viewer says *Reading…* (§6.7).
+  // The last answer is kept, so the Preview | Source switch and an arriving turn's re-render of the
+  // SAME file view (§6.6) redraw from it without asking the shell again. Opening a file from the
+  // list, or stepping to it, always asks: the file may have changed or gone since it was last shown.
+
+  /// Preview or Source for `md` and `txt`, kept while the panel is open, as round 17 keeps it.
+  /// `last` is the answer the viewer on screen was drawn from: `{ key, answer }`.
+  const preview = { source: false, last: null };
+  const SOURCE_KINDS = { md: true, txt: true };
+  /// The format a picture is, for the facts line (*1280 × 800 · PNG · 96 KB*).
+  const IMAGE_WORD = { png: "PNG", jpg: "JPEG", jpeg: "JPEG", gif: "GIF", webp: "WebP", heic: "HEIC", svg: "SVG" };
+  /// What a QuickLook rendition is a page of, by the file's own extension.
+  const DOC_WORD = {
+    docx: "Word document",
+    doc: "Word document",
+    pages: "Pages document",
+    rtf: "Rich text document",
+    xlsx: "Excel spreadsheet",
+    xls: "Excel spreadsheet",
+    numbers: "Numbers spreadsheet",
+    pptx: "PowerPoint presentation",
+    ppt: "PowerPoint presentation",
+    key: "Keynote presentation",
+  };
+  /// *The whole sheet opens in Numbers* (§7): what "the whole" of each kind is called.
+  const WHOLE_WORD = { csv: "sheet", xlsx: "sheet", docx: "document", pptx: "presentation" };
+  const TEXT_CAP_LINE = "Showing the first 2 MB";
+
+  function previewKey(f) {
+    return f.id + "@" + (f.modifiedAt == null ? "" : f.modifiedAt);
+  }
+
+  /// `0:31`, `4:05`, `1:02:09` — a length as a player shows it; never a guess.
+  function clock(ms) {
+    const total = Math.round(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = String(total % 60).padStart(2, "0");
+    return h ? h + ":" + String(m).padStart(2, "0") + ":" + s : m + ":" + s;
+  }
+
+  function countWords(text) {
+    const m = String(text).match(/\S+/g);
+    return m ? m.length : 0;
+  }
+
+  function plural(n, one, many) {
+    return n.toLocaleString("en-US") + " " + (n === 1 ? one : many);
+  }
+
+  /// The facts line under a viewer (§6.4): its first part bold, the rest after a middle dot.
+  function factsLine(parts) {
+    const p = node("p", "of-meta");
+    parts.filter(Boolean).forEach((text, n) => {
+      if (n) {
+        const dot = node("span", null, "·");
+        dot.setAttribute("aria-hidden", "true");
+        p.appendChild(dot);
+      }
+      p.appendChild(node(n ? "span" : "b", null, text));
+    });
+    return p;
+  }
+
+  /// *Open in Preview*, or *Open* when Launch Services named no app (§5.4's degraded mode).
+  function openLabel(app) {
+    return app ? "Open in " + app : "Open";
+  }
+
+  /// A picture, a page or a recording the webview could not draw: said, with where it opens.
+  function couldNotShow(app) {
+    return node("p", "of-none", "I couldn't show this file here. " + openLabel(app) + " has it.");
+  }
+
+  /// The hook S4 left for this slice: fill `box` (the file view's `#op-viewer`) for `f`.
+  function viewPreview(f, box) {
+    const key = previewKey(f);
+    // The view being replaced is still in the document while its successor is built: when it
+    // showed this very file at this very modification time, its answer is the one to draw.
+    const shown = el("op-viewer");
+    if (shown && shown.dataset.key === key && preview.last && preview.last.key === key) {
+      return drawPreview(f, preview.last.answer, box);
+    }
+    const reading = window.setTimeout(() => {
+      if (box.isConnected && !box.childNodes.length) box.appendChild(node("p", "of-reading", "Reading…"));
+    }, LOOKING_AFTER_MS);
+    bridge.invoke("output_preview", { outputId: f.id }).then(
+      (answer) => {
+        window.clearTimeout(reading);
+        const a = answer && typeof answer === "object" ? answer : { view: "none", why: "readFailed", reason: "" };
+        if (box.isConnected) drawPreview(f, a, box);
+      },
+      (e) => {
+        // The shell refused the id itself (not in this thread's record): its own sentence.
+        window.clearTimeout(reading);
+        if (box.isConnected) drawPreview(f, { view: "none", why: "refused", reason: String(e && e.message ? e.message : e) }, box);
+      }
+    );
+  }
+
+  function drawPreview(f, a, box) {
+    const key = previewKey(f);
+    preview.last = { key, answer: a };
+    box.textContent = "";
+    box.dataset.key = key;
+    box.dataset.preview = a.view;
+    if (a.why) box.dataset.why = a.why;
+    else delete box.dataset.why;
+    const size = typeof a.bytes === "number" ? humanSize(a.bytes) : typeof f.bytes === "number" ? humanSize(f.bytes) : "";
+    const ext = extension(f.name);
+    switch (a.view) {
+      case "text": {
+        const source = SOURCE_KINDS[f.kind] && preview.source;
+        if (f.kind === "md" && !source) {
+          const md = node("div", "of-md");
+          if (window.RichTimeline && window.RichTimeline.renderMarkdownInto) {
+            window.RichTimeline.renderMarkdownInto(md, a.text, null, { document: true });
+          } else {
+            md.textContent = a.text;
+          }
+          box.appendChild(md);
+        } else {
+          box.appendChild(node("pre", source ? "of-src" : "of-text", a.text));
+        }
+        if (a.truncated) box.appendChild(node("p", "of-note", TEXT_CAP_LINE));
+        const lines = a.text ? a.text.split("\n").length - (a.text.endsWith("\n") ? 1 : 0) : 0;
+        box.appendChild(
+          f.kind === "md"
+            ? factsLine([plural(countWords(a.text), "word", "words"), "Markdown"])
+            : factsLine([plural(lines, "line", "lines"), KIND_WORD.txt])
+        );
+        return;
+      }
+      case "table": {
+        const rows = Array.isArray(a.rows) ? a.rows : [];
+        const head = rows[0] || [];
+        const body = rows.slice(1);
+        const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
+        // A column is a number column when every filled cell in it reads as one: right-aligned.
+        const numeric = [];
+        for (let c = 0; c < width; c += 1) {
+          const cells = body.map((r) => (r[c] || "").trim()).filter(Boolean);
+          numeric[c] = cells.length > 0 && cells.every((v) => /^[-+−(]?[$€£¥]?[\d.,]+[%)]?$/.test(v));
+        }
+        const wrap = node("div", "of-tbl-wrap");
+        wrap.tabIndex = 0;
+        wrap.setAttribute("role", "region");
+        wrap.setAttribute("aria-label", f.name + ", the first rows");
+        const table = node("table", "of-tbl");
+        const thead = node("thead");
+        const htr = node("tr");
+        for (let c = 0; c < width; c += 1) {
+          const th = node("th", numeric[c] ? "num" : null, head[c] || "");
+          th.scope = "col";
+          htr.appendChild(th);
+        }
+        thead.appendChild(htr);
+        table.appendChild(thead);
+        const tbody = node("tbody");
+        for (const r of body) {
+          const tr = node("tr");
+          for (let c = 0; c < width; c += 1) tr.appendChild(node("td", numeric[c] ? "num" : null, r[c] || ""));
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        box.appendChild(wrap);
+        // `totalRows` counts the header row; the facts count the rows under it.
+        const total = Math.max(0, (a.totalRows || rows.length) - 1);
+        if (body.length < total || !a.countedAll) {
+          box.appendChild(node("p", "of-note", "Showing the first " + plural(body.length, "row", "rows")));
+        }
+        box.appendChild(
+          factsLine([
+            (a.countedAll === false ? "More than " : "") + plural(total, "row", "rows"),
+            KIND_WORD.csv,
+            a.app ? "The whole " + WHOLE_WORD.csv + " opens in " + a.app : null,
+          ])
+        );
+        return;
+      }
+      case "image": {
+        const frame = node("div", "of-img");
+        const img = node("img");
+        img.alt = f.name;
+        img.decoding = "async";
+        img.addEventListener("error", () => frame.replaceWith(couldNotShow(a.app)));
+        img.src = a.url;
+        frame.appendChild(img);
+        box.appendChild(frame);
+        box.appendChild(
+          factsLine([a.width && a.height ? a.width + " × " + a.height : null, IMAGE_WORD[ext] || ext.toUpperCase() || KIND_WORD.png, size])
+        );
+        return;
+      }
+      case "pdf": {
+        const frame = node("iframe", "of-pdf");
+        frame.title = f.name;
+        frame.src = a.url;
+        box.appendChild(frame);
+        box.appendChild(factsLine([KIND_WORD.pdf, size]));
+        return;
+      }
+      case "video": {
+        const player = node("video", "of-video");
+        player.controls = true;
+        player.preload = "metadata";
+        player.playsInline = true;
+        player.setAttribute("aria-label", f.name);
+        // The player stays, with its controls, and the sentence says why it shows nothing.
+        player.addEventListener("error", () => {
+          if (!box.querySelector(".of-none")) player.after(couldNotShow(a.app));
+        });
+        player.src = a.url;
+        box.appendChild(player);
+        box.appendChild(
+          factsLine([
+            typeof a.durationMs === "number" ? clock(a.durationMs) : KIND_WORD.mp4,
+            a.width && a.height ? a.width + " × " + a.height : null,
+            size,
+          ])
+        );
+        return;
+      }
+      case "audio": {
+        const player = node("audio", "of-audio");
+        player.controls = true;
+        player.preload = "metadata";
+        player.setAttribute("aria-label", f.name);
+        player.addEventListener("error", () => {
+          if (!box.querySelector(".of-none")) player.after(couldNotShow(a.app));
+        });
+        player.src = a.url;
+        box.appendChild(player);
+        box.appendChild(factsLine([typeof a.durationMs === "number" ? clock(a.durationMs) : null, KIND_WORD.audio, size]));
+        return;
+      }
+      case "rendition": {
+        // QuickLook's picture of the first page, on the file's own white in both themes (§6.9).
+        const paper = node("div", "paper of-rendition");
+        const img = node("img");
+        img.alt = "The first page of " + f.name;
+        img.decoding = "async";
+        img.addEventListener("error", () => paper.replaceWith(couldNotShow(a.app)));
+        img.src = a.url;
+        paper.appendChild(img);
+        box.appendChild(paper);
+        box.appendChild(
+          factsLine([
+            DOC_WORD[ext] || KIND_WORD[f.kind] || "Document",
+            size,
+            a.app ? "The whole " + (WHOLE_WORD[f.kind] || "document") + " opens in " + a.app : null,
+          ])
+        );
+        return;
+      }
+      default:
+        // none: missing, refused (a link, a swapped file, not a regular file), readFailed,
+        // tooLarge or noViewer — the shell's §6.7 sentence, verbatim.
+        box.appendChild(node("p", "of-none", a.reason || ""));
+    }
+  }
+
+  /// Preview | Source, for Markdown and plain text (§6.4, §11 row 11), in the file view's tools
+  /// row before S6's `⋯` when it is there. One switch, two pressed states; it redraws the viewer
+  /// from the kept answer and leaves focus where it was.
+  function sourceSwitch(f, tools) {
+    if (!SOURCE_KINDS[f.kind]) return;
+    const seg = node("span", "of-seg");
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", "Preview or source");
+    const make = (label, isSource) => {
+      const b = node("button", null, label);
+      b.type = "button";
+      b.dataset.seg = isSource ? "source" : "preview";
+      b.setAttribute("aria-pressed", String(preview.source === isSource));
+      b.addEventListener("click", () => {
+        if (preview.source === isSource) return;
+        preview.source = isSource;
+        for (const other of seg.querySelectorAll("button")) {
+          other.setAttribute("aria-pressed", String((other.dataset.seg === "source") === isSource));
+        }
+        const box = el("op-viewer");
+        if (box && preview.last && preview.last.key === previewKey(f)) drawPreview(f, preview.last.answer, box);
+      });
+      return b;
+    };
+    seg.appendChild(make("Preview", false));
+    seg.appendChild(make("Source", true));
+    const more = tools.querySelector('[data-act="menu"]');
+    if (more) tools.insertBefore(seg, more);
+    else tools.appendChild(seg);
   }
 
   // ---- open, close, step back ----------------------------------------------------------------

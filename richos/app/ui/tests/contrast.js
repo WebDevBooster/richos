@@ -765,15 +765,17 @@ const SURFACES = [
   },
   {
     name: "output-file",
-    what: "one file's own view in the Output panel: the way back, k of N, its path and facts",
+    what: "one file's own view in the Output panel: the way back, k of N, Preview | Source, its path, a Markdown preview (S5: a heading, a table, a list, a quotation) and its facts",
     preset: { output: "round-17" },
     drive: async (p) => {
       await p.click('.nav-thread[data-thread-id="acme"]');
       await p.waitForFunction(() => window.RichOutput.snapshot().thread === "acme" && window.RichOutput.snapshot().count === 9);
       await p.click("#out-top");
       await p.waitForSelector("#outpanel .orow");
-      await p.click("#outpanel .orow");
+      // comps-summary.md: the preview with the most kinds of ink (S5, §7).
+      await p.click("#outpanel .og:last-of-type .orow:last-of-type");
       await p.waitForSelector("#of-back");
+      await p.waitForSelector("#op-viewer[data-preview] .of-md");
       await overlaySettled(p, "#outpanel");
       await pageSettled(p);
     },
