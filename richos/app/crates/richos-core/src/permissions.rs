@@ -19,7 +19,7 @@
 //! | Audience | Alive while… | Shown on |
 //! |---|---|---|
 //! | the conversation (`audience != "worker"`) | the grant file still equals the request's binding — a turn | the permission sheet ([`PermissionDesk::current`]) |
-//! | background work (`audience == "worker"`) | the ASSIGNMENT is still open, which [`PermissionDesk::forget`] is told | the assignment surface ([`PermissionDesk::background_queue`]) |
+//! | background work (`audience == "worker"`) | the ASSIGNMENT is still open, which [`PermissionDesk::forget`] is told; a request is admitted while the turn grant OR the standing worker grant is open | the assignment surface ([`PermissionDesk::background_queue`]) |
 //!
 //! A background request deliberately survives its own grant file being closed, because the
 //! work lease's turn ends while he is away and `revoke_work_assignment` closes the grant on
@@ -198,11 +198,33 @@ const ASSIGNMENT_GONE: &str =
     "That assignment was stopped, so this action was not approved.";
 
 #[derive(Deserialize)]
-struct Grant { version: u32, actions_allowed: bool, binding: Binding }
+struct Grant {
+    version: u32,
+    actions_allowed: bool,
+    /// `ecs::ToolScope::background_work_allowed`: the work lease's standing grant for the
+    /// WORKERS it has dispatched, which an ordinary turn end leaves open and only a stop
+    /// (`ecs::revoke`) closes. Absent means false.
+    #[serde(default)]
+    background_work_allowed: bool,
+    binding: Binding,
+}
+/// **The binding a request on this scope is raised under, or `None` if the scope is closed.**
+///
+/// A turn's grant (`actions_allowed`) opens it for either audience. A background binding is
+/// ALSO open while its standing worker grant is: a worker the back end dispatched runs
+/// between the lease's turns by design (`prepare` launches it in the background and the
+/// lead's turn ends at once), so `actions_allowed` is closed for every call it makes. The
+/// engine hook already lets such a call through on the same flag
+/// (`engine/scripts/app-engine-hook.py`); reading only the turn flag here denied the
+/// worker's `Bash` at once with *"This app turn is stopped"*, so it never reached the desk,
+/// its row never had `awaitingYou`, and no Approve button could appear
+/// (esc-20261005T150541Z-ee581ad7). The CEO's stop revokes both flags in one write, so a
+/// stopped assignment still gets nothing.
 fn grant(path: &Path) -> Option<Binding> {
     if std::fs::metadata(path).ok()?.len() > 16384 {return None;}
     let grant: Grant=serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    (grant.version == 1 && grant.actions_allowed).then_some(grant.binding)
+    let open = grant.actions_allowed || (grant.background_work_allowed && is_background(&grant.binding));
+    (grant.version == 1 && open).then_some(grant.binding)
 }
 fn permission_reason(request: &Value) -> String {
     if let Some(reason)=request["decision_reason"].as_str().filter(|s|!s.is_empty()) {return reason.into();}
