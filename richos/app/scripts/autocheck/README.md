@@ -63,6 +63,18 @@ every stale pin in the file. It parses the declaration only when a changed path 
 and takes under a second on a branch that renewed 274 pins. `../dependency-pins.test.sh` proves
 it with throwaway repositories and checks its digests against `verification_inputs.py`.
 
+**A routine pin renewal uses the fast validator (2026-10-05).** A changed pinned reader selects
+`scripts/verification-pins.test.sh`, which uses the selector's existing node and hook-reader
+validation over all reviewed source and external pins, directory inventories and known
+key/execute floors. When a range, staged change or working change alters only existing digests
+in `verification-dependencies.json`, that validator replaces `verification-inputs.test.sh`;
+owning suites and other map readers remain selected. Changes to keys, edges, inventories,
+reviews, sources or registration contracts retain the full suite, as do malformed maps,
+path-only requests and inventories without the fast unit. The fast validator always executes
+on a proof-run attempt because external reader bytes are not bound by whole-checkout reuse.
+Measured through `ci-shard.sh`: full verification-inputs 154.4 s, fast validator 1.7 s. These
+are unit execution times, not a measured complete-job saving.
+
 **Two branches that renewed pins merge by themselves (2026-10-05).** Because every branch renews
 the pins of the readers it changed, any two branches built in parallel used to conflict in both
 maps, and somebody took one side and re-ran `renew-verification-pins.py` by hand. A `.gitattributes`

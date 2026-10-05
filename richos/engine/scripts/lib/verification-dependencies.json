@@ -636,8 +636,8 @@
     },
     "scripts/lib/affected_units.py#validate-config": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "08669e6cfecd3c81018d0ea9092eff7e7f2b17f6397f1333e61bdf628cf4f51b",
-      "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys.",
+      "sha256": "e30dd9847772eb5f6c1cbd2a1d6d67a2743ca6fd341c69e3d869edd4b3c67c6b",
+      "evidence": "validate_config reads the real config and its declared key registry, rejecting unsupported syntax and unknown keys. Renewed 2026-10-05: digest-only declaration comparison reads base/target JSON as data and retains every non-digest field; --validate-pins reuses Dependencies.node and hook_reader, reading the same reviewed source, inventory and external bindings as the existing validators.",
       "keys": [],
       "edges": [
         {
@@ -1094,8 +1094,8 @@
     },
     "scripts/lib/affected_units.py": {
       "source": "scripts/lib/affected_units.py",
-      "sha256": "08669e6cfecd3c81018d0ea9092eff7e7f2b17f6397f1333e61bdf628cf4f51b",
-      "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations. Renewed 2026-09-28: ordinary selection also names scripts/verification-inputs.test.sh for a path this same declaration pins (pinned_sources reads the already-loaded declaration only; no new file, setting or subprocess). Renewed 2026-10-01: ordinary selection also reads the change's base side through the same read-only Snapshot (a path the base had and the selected tree lacks is listed as removed, never unmapped), and an unmapped path is listed once; no new file, setting or subprocess kind.",
+      "sha256": "e30dd9847772eb5f6c1cbd2a1d6d67a2743ca6fd341c69e3d869edd4b3c67c6b",
+      "evidence": "The selector can validate a supplied engine configuration and can compute config/hook/ordinary selections from supplied snapshots. Its only subprocesses are read-only Git operations. Renewed 2026-09-28: ordinary selection also names scripts/verification-inputs.test.sh for a path this same declaration pins (pinned_sources reads the already-loaded declaration only; no new file, setting or subprocess). Renewed 2026-10-01: ordinary selection also reads the change's base side through the same read-only Snapshot (a path the base had and the selected tree lacks is listed as removed, never unmapped), and an unmapped path is listed once; no new file, setting or subprocess kind. Renewed 2026-10-05: digest-only declaration comparison reads base/target JSON as data and retains every non-digest field; --validate-pins reuses Dependencies.node and hook_reader, reading the same reviewed source, inventory and external bindings as the existing validators.",
       "keys": [],
       "edges": [
         {
@@ -1119,8 +1119,8 @@
     },
     "scripts/affected-units.test.py": {
       "source": "scripts/affected-units.test.py",
-      "sha256": "8bc137981117d9928620e39941f00e6e1c59cc4f5566c00d90e9d6914ef142f7",
-      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites. Renewed 2026-09-28: the pinned-reader case reads the real declaration and every suite's text as data and adds one synthetic node in memory; nothing is executed. Renewed 2026-10-01: the removal case runs the selector on a newly created Git repository with an inert owner suite, and the two-roads case reads hooks.json as data; nothing is executed.",
+      "sha256": "0d381e7bf08bb25ce5ee7a3c7df275478b9d1e4d70eb8da3d32e4b53dce1ab82",
+      "evidence": "All config reads use newly written fixture files or literal before/after text. The real-file planning case reads only hooks.json and source-bound registration declarations. Nested CLI invocations use a newly created Git repository, and selected commands are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites. Renewed 2026-09-28: the pinned-reader case reads the real declaration and every suite's text as data and adds one synthetic node in memory; nothing is executed. Renewed 2026-10-01: the removal case runs the selector on a newly created Git repository with an inert owner suite, and the two-roads case reads hooks.json as data; nothing is executed. Renewed 2026-10-05: pin-renewal controls use private reader/map/Git fixtures and invoke only read-only selection/validation; they never execute planned suites.",
       "keys": [],
       "edges": [
         {
@@ -14573,7 +14573,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/proof_evidence.py",
-          "sha256": "b057db00a144c5ed846a2d7a21e4ae6130918a8e77fbafb99c1297718f26415e",
+          "sha256": "b22e267343b2048dab629725dcad1d05808ed86b811435f79eedfa9333a9bd8a",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14804,7 +14804,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/proof_evidence.py",
-          "sha256": "b057db00a144c5ed846a2d7a21e4ae6130918a8e77fbafb99c1297718f26415e",
+          "sha256": "b22e267343b2048dab629725dcad1d05808ed86b811435f79eedfa9333a9bd8a",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -15785,6 +15785,17 @@
       "evidence": "Reviewed 2026-10-05: builds a private repository under TMPDIR with its own fixture maps, readers and git configuration (GIT_CONFIG_GLOBAL in the sandbox, no system config), runs the repository's install.sh and the merge driver there, and reads nothing from orchestration.config.",
       "keys": [],
       "edges": []
+    },
+    "scripts/verification-pins.test.sh": {
+      "source": "scripts/verification-pins.test.sh",
+      "sha256": "aed2e56a8a512ecb144da363724c90cbac126f45d51209ddfd3373aafa9a7290",
+      "evidence": "Runs the selector's existing node and hook-reader validation over the current dependency declaration, including source/external pins, discovery inventories and known key/execute floors. Reads config literal bindings as data; never executes selected commands or parser fixtures. The proof runner executes this validator fresh on every attempt because external roots are current inputs.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/affected_units.py"
+        }
+      ]
     }
   },
   "units": {
@@ -15968,7 +15979,8 @@
     "scripts/hooks/by-reference-3.test.sh": "scripts/hooks/by-reference-3.test.sh",
     "scripts/hooks/by-reference-4.test.sh": "scripts/hooks/by-reference-4.test.sh",
     "scripts/operator-fences-second-git.test.sh": "scripts/operator-fences-second-git.test.sh",
-    "scripts/lib/merge-verification-pins.test.sh": "scripts/lib/merge-verification-pins.test.sh"
+    "scripts/lib/merge-verification-pins.test.sh": "scripts/lib/merge-verification-pins.test.sh",
+    "scripts/verification-pins.test.sh": "scripts/verification-pins.test.sh"
   },
   "hook_readers": {
     "scripts/hooks/ceo-asks.test.sh": {

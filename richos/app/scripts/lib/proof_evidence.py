@@ -965,7 +965,10 @@ def completed_receipt(item, sha, allow_known_red=False):
 # unknown: verify_target_receipts() re-reads every covered unit's own identity and HEAD itself,
 # so its pass is exactly as valid as the units it covers. Binding it to the whole source would
 # make one unrelated save fail the coverage of every engine unit in the run.
-VERIFIES_OWN_INPUTS = frozenset(("engine receipts",))
+# The pin validator reads current external bindings and discovered inventories as well as
+# tracked readers. It takes under a second and must execute on every attempt, never reuse a
+# whole-checkout pass that cannot bind those external bytes.
+VERIFIES_OWN_INPUTS = frozenset(("engine receipts", "engine scripts/verification-pins.test.sh"))
 
 
 class Record:

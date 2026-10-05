@@ -12,7 +12,8 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
-from affected_units import GLOBAL_CONFIG, SECTIONED, Selection, validate_config
+from affected_units import (DEPENDENCY_MAP, FULL_INPUT_CHECK, GLOBAL_CONFIG, PIN_CHECK, SECTIONED,
+                            Selection, digest_only_change, validate_config, validate_pins)
 from verification_inputs import Unsupported
 
 
@@ -320,7 +321,7 @@ class Planner(unittest.TestCase):
         # 2026-09-28: 33 sources pinned in verification-dependencies.json had gone stale on
         # main one land at a time, because a change to a pinned reader never selected the
         # suite that checks the pins. A land that changes one must run that suite.
-        pin_check = 'scripts/verification-inputs.test.sh'
+        pin_check = PIN_CHECK
         root = HERE.parent
         document = json.loads((HERE / 'lib/verification-dependencies.json').read_text())
         suites = sorted(p.relative_to(root).as_posix() for p in root.rglob('*.test.sh') if p.is_file())
@@ -568,6 +569,170 @@ class SnapshotCLI(unittest.TestCase):
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertEqual(unnamed(result.stderr), ["scripts/lib/typo.py"])
             self.assertFalse((root / 'executed').exists())
+
+
+class PinRenewals(unittest.TestCase):
+    def setUp(self):
+        import copy
+        self.copy = copy.deepcopy
+        self.temporary = tempfile.TemporaryDirectory(prefix="pin-renewals.")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name) / 'repo/richos/engine'
+        self.root.mkdir(parents=True)
+        self.sources = {'reader.sh': 'echo fixture\n', 'owner.test.sh': 'bash reader.sh\n',
+                        FULL_INPUT_CHECK: '# reads verification-dependencies.json\n',
+                        PIN_CHECK: '# reads affected_units.py\n',
+                        'observer.test.sh': '# reads verification-dependencies.json\n'}
+        for path, text in self.sources.items():
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        self.document = {'schema': 1, 'config_keys': ['A'], 'units': {}, 'nodes': {
+            'reader': {'source': 'reader.sh', 'sha256': self.sha('reader.sh'),
+                       'evidence': 'fixture', 'keys': [], 'edges': []}},
+            'hook_readers': {'owner.test.sh': {'evidence': 'fixture', 'commands': [],
+                'sources': {'owner.test.sh': self.sha('owner.test.sh')}}}}
+        self.write_map()
+
+    def sha(self, path):
+        return hashlib.sha256((self.root / path).read_bytes()).hexdigest()
+
+    def write_map(self):
+        (self.root / DEPENDENCY_MAP).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / DEPENDENCY_MAP).write_text(json.dumps(self.document))
+
+    def plan(self, before, after, fast=True):
+        suites = [FULL_INPUT_CHECK, 'owner.test.sh', 'observer.test.sh'] + ([PIN_CHECK] if fast else [])
+        selection = Selection(self.root, suites, self.sources.get, self.document)
+        selection.ordinary('reader.sh')
+        selection.ordinary(DEPENDENCY_MAP, before, after)
+        return selection
+
+    def test_renewal_keeps_owning_and_other_map_readers_but_replaces_full_pin_suite(self):
+        before = json.dumps(self.document)
+        changed = self.copy(self.document)
+        changed['nodes']['reader']['sha256'] = 'a' * 64
+        after = json.dumps(changed)
+        selection = self.plan(before, after)
+        self.assertEqual(set(selection.selected), {PIN_CHECK, 'owner.test.sh', 'observer.test.sh'})
+        # Old inventories, and requests without a base snapshot, retain full coverage.
+        self.assertIn(FULL_INPUT_CHECK, self.plan(before, after, fast=False).selected)
+        self.assertIn(FULL_INPUT_CHECK, self.plan(None, after).selected)
+        # The pin obligation cannot claim an executable with no behavior owner.
+        self.sources['owner.test.sh'] = '# inert owner\n'
+        self.assertIn('reader.sh', self.plan(before, after).unmapped)
+
+    def test_only_existing_node_external_and_hook_digests_can_be_excused(self):
+        external = {'root': 'repository', 'path': 'helper.py', 'sha256': 'b' * 64,
+                    'evidence': 'fixture helper'}
+        self.document['nodes']['reader']['external'] = [external]
+        before = json.dumps(self.document)
+        changed = self.copy(self.document)
+        changed['nodes']['reader']['sha256'] = 'a' * 64
+        changed['nodes']['reader']['external'][0]['sha256'] = 'c' * 64
+        changed['hook_readers']['owner.test.sh']['sources']['owner.test.sh'] = 'd' * 64
+        self.assertTrue(digest_only_change(before, json.dumps(changed)))
+        edits = [lambda d: d['nodes']['reader'].update(keys=['A']),
+                 lambda d: d['nodes']['reader'].update(edges=[{'to': 'unknown'}]),
+                 lambda d: d['nodes']['reader'].update(evidence='new review'),
+                 lambda d: d['nodes']['reader'].update(source='different.sh'),
+                 lambda d: d['nodes']['reader'].update(source_inventory={'directory': 'new', 'members': []}),
+                 lambda d: d['nodes']['reader']['external'][0].update(path='different.py'),
+                 lambda d: d['nodes'].update(new=d['nodes']['reader']),
+                 lambda d: d['hook_readers']['owner.test.sh'].update(commands=['new.sh']),
+                 lambda d: d['hook_readers']['owner.test.sh']['sources'].update(new='e' * 64),
+                 lambda d: d.update(schema=2)]
+        for edit in edits:
+            with self.subTest(edit=edit):
+                semantic = self.copy(changed)
+                edit(semantic)
+                after = json.dumps(semantic)
+                self.assertFalse(digest_only_change(before, after))
+                self.assertIn(FULL_INPUT_CHECK, self.plan(before, after).selected)
+        for invalid in (None, '{broken', before.replace('"schema": 1', '"schema": 1, "schema": 1'),
+                        before.replace(self.sha('reader.sh'), 'not-a-digest')):
+            self.assertFalse(digest_only_change(before, invalid))
+
+    def test_fast_validator_refuses_stale_missing_and_omitted_key_or_execute_inputs(self):
+        self.assertEqual(validate_pins(self.root), (1, 1))
+        (self.root / 'reader.sh').write_text('echo changed\n')
+        with self.assertRaisesRegex(Unsupported, 'changed reader'):
+            validate_pins(self.root)
+        self.document['nodes']['reader']['sha256'] = self.sha('reader.sh')
+        self.write_map()
+        self.assertEqual(validate_pins(self.root), (1, 1))
+        for content, why in [('echo "$A"\n', 'omitted known key'),
+                             ('bash "$ENGINE_ROOT/helper.sh"\n', 'omitted known execute')]:
+            (self.root / 'helper.sh').write_text('echo helper\n')
+            (self.root / 'reader.sh').write_text(content)
+            self.document['nodes']['reader']['sha256'] = self.sha('reader.sh')
+            self.write_map()
+            with self.assertRaisesRegex(Unsupported, why):
+                validate_pins(self.root)
+        (self.root / 'reader.sh').unlink()
+        with self.assertRaisesRegex(Unsupported, 'missing dependency'):
+            validate_pins(self.root)
+
+    def test_cli_uses_each_commit_index_and_working_map_before_narrowing(self):
+        library = self.root / 'scripts/lib'
+        for name in ('affected_units.py', 'verification_inputs.py'):
+            shutil.copy2(HERE / 'lib' / name, library / name)
+        for path, text in self.sources.items():
+            (self.root / path).write_text(text)
+        repository = self.root.parent.parent
+        env = {**os.environ, 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
+               'GIT_AUTHOR_NAME': 'fixture', 'GIT_AUTHOR_EMAIL': 'fixture@example.invalid',
+               'GIT_COMMITTER_NAME': 'fixture', 'GIT_COMMITTER_EMAIL': 'fixture@example.invalid'}
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(repository), '-c',
+                'core.hooksPath=/dev/null', *args], env=env, text=True).strip()
+        def select(*args):
+            out = subprocess.run([sys.executable, '-B', str(library / 'affected_units.py'),
+                '--paths', 'richos/engine/reader.sh,richos/engine/' + DEPENDENCY_MAP, *args],
+                env=env, capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            return set(out.stdout.splitlines())
+        git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'base')
+        base = git('rev-parse', 'HEAD')
+        (self.root / 'reader.sh').write_text('echo v2\n')
+        self.document['nodes']['reader']['sha256'] = self.sha('reader.sh')
+        self.write_map()
+        git('add', '.'); git('commit', '-q', '-m', 'renew reader')
+        tip = git('rev-parse', 'HEAD')
+        (self.root / 'reader.sh').write_text('echo staged\n')
+        self.document['nodes']['reader']['sha256'] = self.sha('reader.sh')
+        self.write_map()
+        git('add', '.')
+        self.document['nodes']['reader']['keys'] = ['A']
+        self.write_map()
+        for arguments in (('--range', base + '..' + tip), ('--staged',)):
+            selected = select(*arguments)
+            self.assertIn(PIN_CHECK, selected)
+            self.assertNotIn(FULL_INPUT_CHECK, selected)
+            self.assertIn('owner.test.sh', selected)
+        for arguments in (('--working', '--base', base), ()):
+            self.assertIn(FULL_INPUT_CHECK, select(*arguments))
+
+    def test_fast_validator_binds_hook_external_and_directory_inventory(self):
+        (self.root.parent.parent / 'helper.py').write_text('fixture\n')
+        self.document['nodes']['reader']['external'] = [{'root': 'repository', 'path': 'helper.py',
+            'sha256': hashlib.sha256(b'fixture\n').hexdigest(), 'evidence': 'fixture'}]
+        (self.root / 'inventory').mkdir()
+        (self.root / 'inventory/a').write_text('a')
+        self.document['nodes']['reader']['source_inventory'] = {'directory': 'inventory', 'members': ['a']}
+        self.write_map()
+        self.assertEqual(validate_pins(self.root), (1, 1))
+        (self.root.parent.parent / 'helper.py').write_text('changed\n')
+        with self.assertRaisesRegex(Unsupported, 'changed external reader'):
+            validate_pins(self.root)
+        (self.root.parent.parent / 'helper.py').write_text('fixture\n')
+        (self.root / 'inventory/b').write_text('b')
+        with self.assertRaisesRegex(Unsupported, 'changed source inventory'):
+            validate_pins(self.root)
+        (self.root / 'inventory/b').unlink()
+        (self.root / 'owner.test.sh').write_text('changed hook reader\n')
+        with self.assertRaisesRegex(Unsupported, 'changed hook reader'):
+            validate_pins(self.root)
 
 
 if __name__ == "__main__":
