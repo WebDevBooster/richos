@@ -596,7 +596,7 @@
     const back = state.returnTo;
     state.returnTo = null;
     if (!wasOpen || opts.keepFocus) return;
-    if (back && back !== "conversation" && back.isConnected && !back.hidden) back.focus({ preventScroll: true });
+    if (back && back !== "conversation" && back.isConnected && back.getClientRects().length) back.focus({ preventScroll: true });
     else if (ctx.focusConversation) ctx.focusConversation();
   }
 
