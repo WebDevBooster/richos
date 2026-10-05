@@ -35,13 +35,19 @@ def user(text):
     return json.dumps({'type': 'user', 'message': {'role': 'user', 'content': [{'type': 'text', 'text': text}]}}) + '\n'
 
 
+ONBOARDING = {'mcp__richos_onboarding__save_company_notes', 'mcp__richos_onboarding__decline_onboarding'}
+inits = []
+
+
 def answers(proc):
-    """The text of the next assistant row the fake prints."""
+    """The text of the next assistant row the fake prints; the init frames before it are kept."""
     while True:
         line = proc.stdout.readline()
         if not line:
             return None
         row = json.loads(line)
+        if row.get('type') == 'system' and row.get('subtype') == 'init':
+            inits.append(row)
         if row.get('type') == 'assistant':
             return row['message']['content'][0]['text']
 
@@ -86,6 +92,10 @@ with tempfile.TemporaryDirectory() as root:
     check(set(starts) == launched, 'each started agent was launched in the background', (starts, launched))
     (walk / 'slow').unlink()
     check(answers(proc) == 'On it. I have three people on it.', 'the user turn answers with reply.txt')
+    # 4: every turn reports Claude Code's inventory first, or the app refuses a company turn
+    # (native.rs ensure_onboarding_tools_loaded reads both exact tool names from system/init).
+    check(len(inits) == 2 and all(ONBOARDING <= set(i.get('tools', [])) and i.get('permissionMode') == 'auto' for i in inits),
+          'each turn reports the onboarding tools in a system/init frame before it answers', inits)
 
     # A second user turn adds no second set of agents.
     proc.stdin.write(user('How are they doing?'))

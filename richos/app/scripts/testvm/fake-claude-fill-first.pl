@@ -77,7 +77,17 @@ while (my $line = <STDIN>) {
     }
     print $json->encode({ type => 'control_response', response => { subtype => 'success', request_id => $msg->{request_id}, response => $answer } }), "\n";
   } elsif ($type eq 'user') {
-    my $internal = index($json->encode($msg->{message} // {}), '[INTERNAL') >= 0;
+    # Claude Code's startup inventory, with every turn, in the shape testvm/permission-provider.py
+    # proved on the real app (the S7 walk). Without it a company conversation's turn is refused
+    # before it starts: "The connection did not report whether company interview tools loaded."
+    # (native.rs ensure_onboarding_tools_loaded; the 2026-10-05 round-16 walk, relaunch log).
+    # These are declarations only; this fake executes none of these tools.
+    print $json->encode({ type => 'system', subtype => 'init', model => 'fill-first-fixture',
+      plugins => [ { name => 'rich-skills' }, { name => 'richos-app-engine' } ], permissionMode => 'auto',
+      tools => [ 'Bash', 'mcp__richos_onboarding__save_company_notes', 'mcp__richos_onboarding__decline_onboarding',
+        'mcp__richos_continuity__checkpoint', 'mcp__richos_continuity__inspect',
+        'mcp__richos_assignments__record', 'mcp__richos_status__background_work' ] }), "\n";
+    my $internal =index($json->encode($msg->{message} // {}), '[INTERNAL') >= 0;
     if (!$internal && $evidence && open(my $names, '<', "$dir/agents")) {
       my @who = grep { length } map { s/\s+\z//r } <$names>; close $names;
       my $seen = '';
