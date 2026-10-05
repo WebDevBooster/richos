@@ -14,8 +14,11 @@
 # Exit 0  the answer is one RichOS's reader accepts (quota.rs `normalize`:
 #         rate_limits_available true, rate_limits an object, at least one window
 #         with a numeric utilization).
-# Exit 1  Claude Code answered, but with a shape that reader refuses; the line
-#         "verdict:" says which rule it breaks.
+# Exit 1  Claude Code answered, but the reader gets no figures from it; the line
+#         "verdict:" says which rule applies. "NO READING" is `rate_limits: null`,
+#         which the reader takes as no figures this time, not an error (quota.rs
+#         `ReadError::NoReading`, since 2bb7359ad); "UNREADABLE" is any other shape
+#         it refuses (`Malformed`, `Unsupported`, `Failed`).
 # Exit 2  no answer to read: no such binary, or no get_usage response in time.
 #
 # Run it where the `claude` under test runs. In the test VM: push it with a
@@ -68,7 +71,7 @@ echo "claude: $("$CLAUDE" --version 2>&1 | head -1)"
       --verbose --setting-sources "" --no-session-persistence --tools "" --strict-mcp-config \
       --mcp-config '{"mcpServers":{}}') > "$RAW" 2>/dev/null
 /usr/bin/perl -MJSON::PP -e '
-  my ($answered, $verdict) = (0, "");
+  my ($answered, $verdict, $label) = (0, "", "UNREADABLE");
   while (my $line = <STDIN>) {
     my $v = eval { JSON::PP->new->decode($line) } or next;
     next unless ($v->{type} // "") eq "control_response";
@@ -105,10 +108,11 @@ echo "claude: $("$CLAUDE" --version 2>&1 | head -1)"
     }
     if ($as eq "false") { $verdict = "rate_limits_available is false (the reader calls this Unsupported)"; }
     elsif ($as ne "true") { $verdict = "rate_limits_available is $as (the reader calls this Malformed)"; }
+    elsif (exists $p->{rate_limits} && !defined $l) { $label = "NO READING"; $verdict = "rate_limits is null (the reader calls this NoReading: no figures this time, not an error)"; }
     elsif (ref $l ne "HASH") { $verdict = "rate_limits is " . (!exists $p->{rate_limits} ? "absent" : (!defined $l ? "null" : "not an object")) . " (the reader calls this Malformed)"; }
     elsif (!$numeric) { $verdict = "no window carries a numeric utilization (the reader calls this Malformed)"; }
   }
   if (!$answered) { print STDERR "usage-shape.sh: claude gave no get_usage response within the wait\n"; exit 2; }
-  if ($verdict ne "") { print "verdict: UNREADABLE: $verdict\n"; exit 1; }
+  if ($verdict ne "") { print "verdict: $label: $verdict\n"; exit 1; }
   print "verdict: readable by RichOS quota reader\n"; exit 0;
 ' < "$RAW"

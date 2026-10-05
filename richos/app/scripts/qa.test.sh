@@ -81,7 +81,7 @@
 #           browser writes it, the lab's words from its own files, a mismatch
 #           that FAILS, a half-read phone log, a non-lab directory, a v1 phone
 #           and a lab no phone has reached, each refused
-#   US1-US4 usage-shape: a get_usage answer RichOS's reader refuses (rate_limits
+#   US1-US4 usage-shape: a get_usage answer RichOS's reader gets no figures from (rate_limits
 #           null) exits 1 naming the rule; a readable one exits 0; no binary and a
 #           claude that never answers are refused, against a scripted claude
 #   X1      the committed fixtures still match their generator
@@ -1501,7 +1501,7 @@ chmod 755 "$TMP/fake-usage-claude"
 printf '%s' '{"rate_limits_available":true,"rate_limits":null,"session":{"secret":"never printed"},"subscription_type":"max"}' > "$TMP/usage-null.json"
 printf '%s' '{"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":41,"resets_at":"2099-01-01T00:00:00Z"},"seven_day":{"utilization":28}},"session":{"secret":"never printed"}}' > "$TMP/usage-ok.json"
 export FAKE_USAGE="$TMP/usage-null.json"; run "$US" --claude "$TMP/fake-usage-claude" --wait 2
-expect "US1 rate_limits null is UNREADABLE by the app's reader, exit 1, naming the rule" 1 "rate_limits is null (the reader calls this Malformed)"
+expect "US1 rate_limits null is NO READING for the app's reader (NoReading, not an error), exit 1, naming the rule" 1 "verdict: NO READING: rate_limits is null (the reader calls this NoReading"
 if printf '%s' "$OUT" | grep -q "never printed"; then
   bad "US1b the session field is never printed" "the output carried the session value"
 else
