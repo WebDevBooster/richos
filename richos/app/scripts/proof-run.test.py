@@ -928,6 +928,56 @@ try:
           "it fails as in the gate, and the line shows the locale and time zone",
           (gate_only.state, by_hand44, rerun44, out44.getvalue()[-400:]))
 
+    # P45 — THE RERUN RUNS ON THE TREE THE GATE TESTED, NOT ON WHAT THE CHECKOUT HOLDS LATER
+    # (2026-10-05). The gate runs in the main checkout while the merge is in progress; a refused
+    # merge is aborted, so that checkout is back on main. A front-door.js A1 failure
+    # (attempt-ioj6a1_a) "passed" its rerun on main. Here: a check that fails only on the merged
+    # tree (it reads a file the branch changed, through the checkout's absolute path) is run
+    # mid-merge, the merge is aborted, and the rerun file still fails it, from a scratch checkout
+    # of the merged tree that is gone afterwards; by hand on main it passes.
+    repo45 = os.path.join(os.path.realpath(tmp), "p45-checkout")
+    os.makedirs(os.path.join(repo45, "sub"))
+    ident45 = [] if subprocess.run(["git", "config", "--get", "user.email"], capture_output=True).stdout.strip() \
+        else ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid"]
+    env45 = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    def git45(*args):
+        return subprocess.run(["git", *ident45, "-C", repo45, *args], env=env45, capture_output=True, text=True)
+    git45("init", "-q", "-b", "main")
+    open(os.path.join(repo45, "value"), "w").write("main\n")
+    open(os.path.join(repo45, "sub", "keep"), "w").write("x\n")
+    git45("add", "-A"); git45("commit", "-q", "-m", "main")
+    git45("checkout", "-q", "-b", "side")
+    open(os.path.join(repo45, "value"), "w").write("branch\n")
+    git45("commit", "-q", "-am", "side")
+    git45("checkout", "-q", "main")
+    git45("merge", "-q", "--no-ff", "--no-commit", "side")
+    merged45 = open(os.path.join(repo45, "value")).read().strip()
+    on_main45 = ["bash", "-c", 'test "$(cat %s/value)" = main' % repo45]
+    check45 = pr.Item("merged-only", os.path.join(repo45, "sub"), on_main45, None, 1.0)
+    d45 = os.path.join(tmp, "p45")
+    os.makedirs(d45)
+    with contextlib.redirect_stdout(io.StringIO()):
+        pr.run([check45], Args(), d45, sampler=idle)
+    out45 = io.StringIO()
+    with contextlib.redirect_stdout(out45):
+        pr.summarize([check45], 1.0, d45)
+    m45 = re44.search(r"rerun as the gate ran it: sh (\S+)", out45.getvalue())
+    file45 = shlex44.split(m45.group(1))[0] if m45 else ""
+    shell45 = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/")}
+    mid45 = subprocess.run(["sh", file45], env=shell45, capture_output=True, text=True) if m45 else None
+    git45("merge", "--abort")
+    by_hand45 = subprocess.run(on_main45, cwd=check45.cwd).returncode
+    rerun45 = subprocess.run(["sh", file45], env=shell45, capture_output=True, text=True) if m45 else None
+    trees45 = git45("worktree", "list", "--porcelain").stdout.count("worktree ")
+    check(merged45 == "branch" and check45.state == "failed" and m45 is not None
+          and mid45.returncode == 1 and "holds the tree the check ran on" in mid45.stderr
+          and by_hand45 == 0 and rerun45.returncode == 1 and "scratch checkout" in rerun45.stderr
+          and trees45 == 1,
+          "P45 a check that failed on a merged tree reruns on that tree after the merge is aborted: by hand on "
+          "main it passes, through the file it fails as in the gate, and the scratch checkout is gone",
+          (merged45, check45.state, mid45 and (mid45.returncode, mid45.stderr[-300:]), by_hand45,
+           rerun45 and (rerun45.returncode, rerun45.stderr[-400:]), trees45, out45.getvalue()[-300:]))
+
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.
     class Held:
