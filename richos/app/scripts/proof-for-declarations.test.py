@@ -255,6 +255,31 @@ class Declarations(unittest.TestCase):
             for suite in ("proof-evidence", "proof-qualification", "proof-run"):
                 self.assertIn("--only " + suite + ".test.sh", result.stdout)
 
+    def test_lint_regressions_follow_machinery_and_keep_the_product_scan(self):
+        for gate in (False, True):
+            for path in ("richos/app/crates/richos-core/src/permissions.rs",
+                         "richos/app/crates/richos-core/src/app_workers.rs"):
+                with self.subTest(path=path, gate=gate):
+                    result = self.select(path, gate=gate)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("--only lint.test.sh", result.stdout)
+                    self.assertNotIn("--only lint-regressions.test.sh", result.stdout)
+            for path in ("richos/app/scripts/lint/driver.py",
+                         "richos/app/scripts/lint.sh"):
+                with self.subTest(path=path, gate=gate):
+                    result = self.select(path, gate=gate)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("--only lint.test.sh", result.stdout)
+                    self.assertIn("--only lint-regressions.test.sh", result.stdout)
+            for path in ("richos/app/scripts/lint/test_wiring.py",
+                         "richos/app/scripts/nightly-local.py",
+                         "richos/app/scripts/bin/cargo",
+                         "richos/engine/scripts/hooks/guard-dialect.sh"):
+                with self.subTest(path=path, gate=gate):
+                    result = self.select(path, gate=gate)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("--only lint-regressions.test.sh", result.stdout)
+
     def test_selector_refuses_inputs_without_coverage(self):
         for suite in SCRIPTS.glob("*.test.sh"):
             shutil.copy2(suite, self.suites / suite.name)

@@ -53,6 +53,7 @@ printf '[user]\n\tname = hold\n\temail = hold@example.invalid\n[init]\n\tdefault
 unset RICHOS_WORKSPACES_DIR RICHOS_SESSION_ID CLAUDE_PROJECT_DIR RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROOT RICHOS_SESSION_PID RICHOS_AGENT_HOLD_DIR 2>/dev/null || true
 export SEAL_WAIT_SECONDS=0 RICHOS_WORKSPACES_SPAWN_WINDOW=0 RICHOS_WORKSPACES_STOP_GRACE=1 RICHOS_WORKSPACES_RETRY_BASE=0
 export TESTVM_ROOT="$T/testvm" RICHOS_CPU_GUARD_STATE="$T/cpu-guard"
+export RICHOS_AGENT_BASH_FOREGROUND=1 CLAUDE_CODE_ENTRYPOINT=cli
 export RICHOS_AGENT_HOLD_WATCH_SECONDS=0.5     # the watchdog polls faster than its 5 s default
 mkdir -p "$TESTVM_ROOT"
 STORE="$CLAUDE_CONFIG_DIR/state/workspaces"
@@ -92,7 +93,7 @@ RESUME_TEXT="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import p
 
 # One Bash call of the agent: rewritten by the real hook, run as the harness runs it.
 cat > "$T/launch.py" <<'PY'
-import json, subprocess, sys
+import json, subprocess, sys, time
 from pathlib import Path
 shell, response, pidfile, rcfile = sys.argv[1:5]
 sid, aid, tid, transcript = sys.argv[5:9]
@@ -107,21 +108,39 @@ out = open(rcfile[:-3] + ".stdout", "w")
 p = subprocess.Popen([shell, "-c", ti["command"]], start_new_session=True, stdout=out, stderr=subprocess.STDOUT,
                      stdin=subprocess.DEVNULL)
 open(pidfile, "w").write(str(p.pid))
-if ti.get("run_in_background"):
+background = bool(ti.get("run_in_background"))
+if not background and ti.get("timeout") == 6000:
+    # A virtual host grace event, controlled by the hold assertion below.
+    # Wall-clock speed never decides handoff or task success in this fixture.
+    while p.poll() is None and not Path(rcfile[:-3] + ".handoff").exists():
+        time.sleep(0.05)
+    background = p.poll() is None
+if background:
     task = "b" + str(p.pid)
     native = Path(rcfile).parent / "native" / sid / "tasks" / (task + ".output")
     native.parent.mkdir(parents=True, exist_ok=True)
     native.touch()
+    if ti.get("run_in_background"):
+        receipt = "Command running in background with ID: " + task + ". "
+    else:
+        receipt = "Command did not complete within its 6s timeout and was moved to the background (ID: " + task + "). "
     with open(transcript, "a") as stream:
         stream.write(json.dumps({"type": "user", "sessionId": sid, "agentId": aid,
             "toolUseResult": {"backgroundTaskId": task}, "message": {"content": [{
-                "type": "tool_result", "tool_use_id": tid, "content":
-                "Command running in background with ID: " + task + ". Output is being written to: " + str(native) + ". You will be notified when it completes."}]}}) + "\n")
+                "type": "tool_result", "tool_use_id": tid, "is_error": False, "content":
+                receipt + "Output is being written to: " + str(native) + ". You will be notified when it completes."}]}}) + "\n")
     open(rcfile[:-3] + ".native-return", "w").write(str(p.pid))
 rc = p.wait()          # native task completion, separate from the immediate tool return
 out.close()
-if ti.get("run_in_background"):
+if background:
     native.write_bytes(Path(rcfile[:-3] + ".stdout").read_bytes() + ("\n[exited with code %d]\n" % rc).encode())
+elif ti.get("timeout") == 6000:
+    text = Path(rcfile[:-3] + ".stdout").read_text()
+    with open(transcript, "a") as stream:
+        stream.write(json.dumps({"type":"user", "sessionId":sid, "agentId":aid,
+            "toolUseResult":{"stdout":text,"stderr":"","interrupted":False},
+            "message":{"content":[{"type":"tool_result","tool_use_id":tid,"is_error":rc != 0,
+                                   "content":text}]}}) + "\n")
 open(rcfile, "w").write(str(rc))
 PY
 cat > "$T/worker.py" <<'PY'
@@ -174,12 +193,17 @@ sub "H0 the agent is registered with its id" "grep -q '\"agent_id\": \"$AID\"' \
 
 echo "=== H1 PAUSE suspends the running work at once; it uses no CPU while held ==="
 agent_call "$AID" "toolu_work1" "python3 $T/worker.py $T/w1 $ROUNDS; echo native-result; exit 7" w1
+sub "H1.0 ordinary CLI call requests six-second foreground grace" \
+    "python3 -c 'import json,sys; t=json.load(open(sys.argv[1]))[\"hookSpecificOutput\"][\"updatedInput\"]; assert t[\"run_in_background\"] is False and t[\"timeout\"] == 6000' '$T/w1.hook.json'"
 wait_file "$T/w1.progress"; W1="$(cat "$T/w1.pid")"; OURS+=("$W1"); SH1="$(cat "$T/w1.shell")"
 WAITCMD="python3 $LIB/agent_hold.py wait"
 agent_call "$AID" "toolu_delivery" "$WAITCMD" delivery
 sleep 0.2
 T0="$(python3 -c 'import time; print(time.time())')"
 send "zach-opus-hold1" "$PAUSE_TEXT" "$T/pause.out"
+# Host simulation hands off the still-held foreground shell without restarting it.
+touch "$T/w1.handoff"
+wait_file "$T/w1.native-return"
 T1="$(python3 -c 'import time; print(time.time())')"
 cpu() { ps -o time= -p "$1" | tr -d ' '; }
 C1="$(cpu "$W1")"; P1="$(cat "$T/w1.progress")"; sleep 1.5; C2="$(cpu "$W1")"; P2="$(cat "$T/w1.progress")"
