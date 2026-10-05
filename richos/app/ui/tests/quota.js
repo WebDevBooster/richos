@@ -458,7 +458,11 @@ async function main() {
     await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForSelector(".quota-lane");
     assertEqual(await page.locator(".quota-lane-label").allTextContents(), ["Work", "Home"]);
-    assert((await page.locator('.quota-lane[data-id="1"]').innerText()).includes("usable again"));
+    // Round 16's switched state: Home past the line at 94% has no room, but it is not used up
+    // (no window at 100%), so its lane has no tag and still reads "week resets".
+    assertEqual(await page.locator('.quota-lane[data-id="1"] .quota-lane-tag').count(), 0, "94% past the line is not used up");
+    assert((await page.locator('.quota-lane[data-id="1"] .quota-lane-when').innerText()).startsWith("week resets"));
+    assertEqual(await page.locator(".quota-lane.is-next").count(), 0, "no account has room, so none is next");
     assert((await page.locator("#quota-hold-status").innerText()).startsWith("In use: Work, since "));
     assert(/Rich switched from Home \d+ min ago at 94% of its five-hour window\./.test(await page.locator("#quota-hold-detail").innerText()));
     await page.close();

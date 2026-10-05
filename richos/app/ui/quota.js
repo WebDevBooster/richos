@@ -116,7 +116,13 @@
   const multi = () => accounts().length > 1;
   const inUseAcct = () => accounts().find(a => a.inUse) || null;
   const winOf = (a, id) => (a?.windows || []).find(w => w.id === id) || null;
+  // No room: the app will not hand work to it until exhaustedUntil (claude_accounts.rs gone),
+  // which includes a five-hour window past the line while the setting is switch.
   const isGone = a => a.exhaustedUntil > Date.now();
+  // Used up, as round 16 draws it (quota.html isGone): a window at 100%, or Claude Code's own
+  // usage limit before any reading, or every account held. An account past the line but under
+  // 100% has no room yet still reads "week resets" with no tag (round 16's switched state).
+  const isUsedUp = a => isGone(a) && (!a.windows.length || a.windows.some(w => w.usedPercent >= 100) || view?.heldUntil > Date.now());
   const weekReset = a => winOf(a, "seven_day")?.resetsAt || Infinity;
   // The next account, as the app chooses it (claude_accounts.rs next_account): among the others
   // that have a reading and room, the one whose weekly window resets soonest; ties keep list
@@ -129,7 +135,7 @@
   // resets, soonest first, the used-up ones last.
   function lanesOrder() {
     const rest = accounts().filter(a => !a.inUse).map((a, i) => [a, i]);
-    rest.sort(([a, i], [b, j]) => (isGone(a) - isGone(b)) || (weekReset(a) - weekReset(b)) || (i - j));
+    rest.sort(([a, i], [b, j]) => (isUsedUp(a) - isUsedUp(b)) || (weekReset(a) - weekReset(b)) || (i - j));
     return [...accounts().filter(a => a.inUse), ...rest.map(([a]) => a)];
   }
   const selectedAcct = () => accounts().find(a => a.id === selectedId && a.windows.length) || inUseAcct();
@@ -194,7 +200,7 @@
   function heroSub(sel) {
     const cur = inUseAcct(), nx = nextAcct();
     if (sel.inUse) return `in use — the one the ${view.policy.enabled ? fiveLine() : view.policy.pausePercent}% line watches`;
-    if (isGone(sel)) return `used up — usable again ${when(sel.exhaustedUntil)}`;
+    if (isUsedUp(sel)) return `used up — usable again ${when(sel.exhaustedUntil)}`;
     if (nx && nx.id === sel.id) return `next — takes over when ${cur ? cur.label : "the account in use"} reaches its line`;
     return "not in use";
   }
@@ -245,7 +251,7 @@
 
   // ---- the lanes ------------------------------------------------------------------------
   function accountNote(a) {
-    if (isGone(a)) { const limit = "Usage limit reached"; return `${limit} · usable again ${stamp(a.exhaustedUntil, true)}`; }
+    if (isUsedUp(a)) { const limit = "Usage limit reached"; return `${limit} · usable again ${stamp(a.exhaustedUntil, true)}`; }
     return a.message || (a.checkedAt ? "No allowance reported." : "Not read yet. Sign in, then refresh.");
   }
   function figure(w, name, old) {
@@ -259,7 +265,7 @@
     if (!multi()) return;
     const nx = nextAcct(), many = accounts().length > 2, old = stale(), sel = selectedAcct();
     for (const a of lanesOrder()) {
-      const isNext = nx && nx.id === a.id, gone = isGone(a), read = a.windows.length > 0, signing = signingId === a.id;
+      const isNext = nx && nx.id === a.id, gone = isUsedUp(a), read = a.windows.length > 0, signing = signingId === a.id;
       const lane = node("div", "quota-lane" + (a.inUse ? " is-inuse" : "") + (isNext ? " is-next" : "") + (gone ? " is-gone" : "") + (removeId === a.id ? " is-confirm" : ""));
       lane.setAttribute("role", "listitem"); lane.dataset.id = a.id;
       if (read && !signing) {
