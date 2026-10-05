@@ -86,6 +86,10 @@ mkdir -p "$PRESENT_WT"   # exists on disk -> active
 printf 'gitdir: x\n' >"$PRESENT_WT/.git"   # a real worktree has a .git entry
 LEFT_WT="$SANDBOX/repo/.claude/worktrees/agent-3333333333333333"
 mkdir -p "$LEFT_WT"   # P3-24: leftover directory, no .git -> NOT active
+# P3-24 v3: a REAL worktree (it has .git) kept after its teammate COMPLETED.
+KEPT_WT="$SANDBOX/repo/.claude/worktrees/agent-4444444444444444"
+mkdir -p "$KEPT_WT"
+printf 'gitdir: x\n' >"$KEPT_WT/.git"
 # GONE_WT intentionally NOT created -> landed + removed
 
 cat >"$TEAM_DIR/config.json" <<JSON
@@ -97,6 +101,7 @@ cat >"$TEAM_DIR/config.json" <<JSON
     { "agentId": "dev-inproc@session-feedface", "name": "dev-inproc", "cwd": "$SANDBOX/repo", "status": "running" },
     { "agentId": "dev-done@session-feedface", "name": "dev-done", "cwd": "$GONE_WT" },
     { "agentId": "dev-left@session-feedface", "name": "dev-left", "cwd": "$LEFT_WT" },
+    { "agentId": "dev-kept@session-feedface", "name": "dev-kept", "cwd": "$KEPT_WT", "status": "completed" },
     { "agentId": "qa-inproc@session-feedface", "name": "qa-inproc", "cwd": "$SANDBOX/repo", "status": "shutdown" },
     { "agentId": "amb-1@session-feedface", "name": "amb-one", "cwd": "$PRESENT_WT" },
     { "agentId": "amb-2@session-feedface", "name": "amb-two", "cwd": "$PRESENT_WT" }
@@ -183,6 +188,10 @@ run_case "completed: worktree-removed recipient -> block" 2 \
 # (b1) P3-24: leftover worktree directory (no .git) does not make it active
 run_case "completed: leftover worktree directory recipient -> block" 2 \
     "$(send_json 'dev-left' '"Please also update the tests."')"
+# (b1b) P3-24 v3: a COMPLETED teammate whose real worktree was kept is not
+# active because the worktree is on disk; the authoritative reading decides.
+run_case "completed: retained real worktree recipient -> block (P3-24)" 2 \
+    "$(send_json 'dev-kept' '"Please also update the tests."')"
 # (b2) completed recipient — in-process shutdown -> block
 run_case "completed: in-process shutdown recipient -> block" 2 \
     "$(send_json 'qa-inproc' '"One more thing to check."')"

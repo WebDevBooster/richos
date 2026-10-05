@@ -67,7 +67,8 @@ printf 'PROTECTED_PATHS=""\nCEO_TODOS_REPOS="%s"\n' "$HQ" >"$ENTITY/orchestratio
 # not, and case F4 cites §99.
 {
     printf '## %s61 — Mobile is purely optional; the definition of a mobile app\n\n' "§"
-    printf 'Body.\n\n'
+    # F1 quotes this sentence; F10 quotes one that is NOT here (P3-31 v3).
+    printf 'He said: the new working definition for a mobile app or PWA is this: an app for use on the go.\n\n'
     printf '### %s61.1 — The Tailscale identity trap\n\n' "§"
     printf 'Body.\n'
 } >"$HQ/wiki/ceo-decisions.md"
@@ -326,6 +327,14 @@ ceo-ruled-home-network: §61 covers this")"
 expect_rc     "F8  a quotation too short to be a sentence exempts nothing" 2 \
               "$(payload Agent "" "$ROUTE1
 ceo-ruled-home-network: §61 — \"keeps both\"")"
+# Hunt part 3 v3, finding 31: a real section beside an INVENTED quotation is a
+# forgery of his words, not a citation of them.
+expect_rc     "F10 a real section with a quotation that is NOT in it is REFUSED (P3-31)" 2 \
+              "$(payload Agent "" "$ROUTE1
+ceo-ruled-home-network: §61 \"I approve this invented entirely different home route.\"")"
+expect_says   "F11 ... and the refusal says the quotation is not in the section" "is NOT in the text of §61" \
+              "$(payload Agent "" "$ROUTE1
+ceo-ruled-home-network: §61 \"I approve this invented entirely different home route.\"")"
 # A refused citation is never logged.
 : >"$ACKLOG"
 run "$(payload Agent "" "$ROUTE1

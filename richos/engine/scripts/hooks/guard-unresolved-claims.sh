@@ -305,15 +305,6 @@ if [ ! -f "$ANALYZER" ]; then
     exit 0
 fi
 
-# Everything it needs is present and it is about to check this turn. Silent in
-# the ordinary case — the whole point is that a working guard says nothing —
-# and one line if the previous state was one of the four above, so the operator
-# who was told it was off is told it is back. Safe to emit before the analysis:
-# a Stop hook may write systemMessage to stdout AND exit 2, verified live, and
-# the turn is still refused.
-stop_notice_normal \
-    "CLAIM CHECK — RUNNING AGAIN. Agent names, commit SHAs and file paths in this turn's report were checked against ground truth. $HOOK_TAG"
-
 set +e
 printf '%s' "$INPUT" | RICHOS_CLAIMS_ENTITY_ROOT="$ENTITY_ROOT" \
     RICHOS_CLAIMS_EXTRA_REPOS="${CLAIM_CHECK_EXTRA_REPOS:-}" \
@@ -322,6 +313,20 @@ RC=$?
 set -e
 
 # Only 2 is a block. Anything else — including a crash in the analyzer — lets
-# the turn end.
+# the turn end, but a crash is NOT a clean check: it says so on the notice
+# channel instead of passing for one (hunt part 3 v3, finding 28).
+if [ "$RC" != "0" ] && [ "$RC" != "2" ]; then
+    _CRASH_MSG="CLAIM CHECK — DID NOT RUN THIS TURN: the analyzer exited $RC with no verdict, so this turn's report went out unchecked. An unchecked turn is not a clean one. $HOOK_TAG"
+    stop_notice_abnormal "analyzer-crashed" "$_CRASH_MSG"
+    exit 0
+fi
+
+# It checked this turn. Silent in the ordinary case — the whole point is that a
+# working guard says nothing — and one line if the previous state was one of
+# the ones above, so the operator who was told it was off is told it is back. A
+# Stop hook may write systemMessage to stdout AND exit 2, verified live, and
+# the turn is still refused.
+stop_notice_normal \
+    "CLAIM CHECK — RUNNING AGAIN. Agent names, commit SHAs and file paths in this turn's report were checked against ground truth. $HOOK_TAG"
 [ "$RC" = "2" ] && exit 2
 exit 0

@@ -222,6 +222,8 @@ fi
 PASS=0
 FAIL=0
 FAIL_NAMES=()
+NOT_RUN=0
+NOT_RUN_NAMES=()
 
 # ---------------------------------------------------------------------------
 # TIMING INSTRUMENTATION — opt-in, and a NO-OP unless CI_TEST_TIMING names a
@@ -1134,6 +1136,22 @@ run_probe_in() {
     fi
 }
 
+# emit_mutation_case <name> <rc> <log> — a mutation harness's verdict. A harness
+# that exits 0 having printed NOT RUN (RICHOS_MUTATION_PASSES=0, the merge gate)
+# proved nothing: it is reported NOT RUN and counted apart, never as a PASS that
+# says every property is load-bearing (hunt part 3 v3, finding 14).
+emit_mutation_case() {
+    local name="$1" actual="$2" log="$3"
+    if [ "$actual" = "0" ] && grep -q '^NOT RUN' "$log" 2>/dev/null; then
+        _trec case "$(_t)" - "$name"
+        NOT_RUN=$((NOT_RUN+1))
+        NOT_RUN_NAMES+=("$name")
+        printf '  NOT RUN  %s  (%s)\n' "$name" "$(grep -m1 '^NOT RUN' "$log")"
+        return 0
+    fi
+    emit_case "$name" 0 "$actual"
+}
+
 emit_case() {
     local name="$1" expected="$2" actual="$3"
     _trec case "$(_t)" - "$name"
@@ -1759,7 +1777,7 @@ rm -rf "$ROOT"
 # CONTENT of the file install.sh writes, and content can be crafted.
 C7M_LOG="$(mktemp "${TMPDIR:-/tmp}/case7-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/contract-integrity-case7.mutation.sh" >"$C7M_LOG" 2>&1; rc=$?; set -e
-emit_case "7m.install-write-scope-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "7m.install-write-scope-mutations-all-load-bearing" "$rc" "$C7M_LOG"
 if [ "$rc" -ne 0 ]; then
     diag_or_tail "$(grep -E '^ *(FAIL|PASS)|^=== |NOT load-bearing|FATAL' "$C7M_LOG" \
         | grep -vE '^ *PASS' || true)" "$(cat "$C7M_LOG" 2>/dev/null || true)"
@@ -3187,7 +3205,7 @@ suite_discovered "IP6.interactive-prompt-guard-suite-is-discovered" "scripts/hoo
 # before the summary that names the red case.
 IP7_LOG="$(mktemp "${TMPDIR:-/tmp}/interactive-prompt-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/interactive-prompt.mutation.sh" >"$IP7_LOG" 2>&1; rc=$?; set -e
-emit_case "IP7.interactive-prompt-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "IP7.interactive-prompt-mutations-all-load-bearing" "$rc" "$IP7_LOG"
 if [ "$rc" -ne 0 ]; then
     diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IP7_LOG" \
         | grep -vE '^ *PASS' || true)" "$(cat "$IP7_LOG" 2>/dev/null || true)"
@@ -3316,7 +3334,7 @@ suite_discovered "IL6.idle-land-gate-suite-is-discovered" "scripts/hooks/guard-i
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 IL7_LOG="$(mktemp "${TMPDIR:-/tmp}/idle-land-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >"$IL7_LOG" 2>&1; rc=$?; set -e
-emit_case "IL7.idle-land-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "IL7.idle-land-mutations-all-load-bearing" "$rc" "$IL7_LOG"
 if [ "$rc" -ne 0 ]; then
     diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IL7_LOG" \
         | grep -vE '^ *PASS' || true)" "$(cat "$IL7_LOG" 2>/dev/null || true)"
@@ -3363,7 +3381,7 @@ suite_discovered "CL1.claim-gate-suite-is-discovered" "scripts/hooks/guard-unres
 # each FAIL row, and the closing `N mutant(s) killed, M survived or misfired`.
 CL2_LOG="$(mktemp "${TMPDIR:-/tmp}/claim-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >"$CL2_LOG" 2>&1; rc=$?; set -e
-emit_case "CL2.claim-gate-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "CL2.claim-gate-mutations-all-load-bearing" "$rc" "$CL2_LOG"
 if [ "$rc" -ne 0 ]; then
     grep -vE '^ *PASS|^[[:space:]]*$' "$CL2_LOG" | sed 's/^/        /' || true
 fi
@@ -3383,7 +3401,7 @@ suite_discovered "RI1.resume-isolation-suite-is-discovered" "scripts/hooks/guard
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 RI2_LOG="$(mktemp "${TMPDIR:-/tmp}/resume-isolation-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-resume-isolation.mutation.sh" >"$RI2_LOG" 2>&1; rc=$?; set -e
-emit_case "RI2.resume-isolation-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "RI2.resume-isolation-mutations-all-load-bearing" "$rc" "$RI2_LOG"
 if [ "$rc" -ne 0 ]; then
     diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$RI2_LOG" \
         | grep -vE '^ *PASS' || true)" "$(cat "$RI2_LOG" 2>/dev/null || true)"
@@ -3392,7 +3410,7 @@ rm -f "$RI2_LOG"
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 IN2_LOG="$(mktemp "${TMPDIR:-/tmp}/inflight-notify-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/inflight-notify.mutation.sh" >"$IN2_LOG" 2>&1; rc=$?; set -e
-emit_case "IN2.inflight-notify-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "IN2.inflight-notify-mutations-all-load-bearing" "$rc" "$IN2_LOG"
 if [ "$rc" -ne 0 ]; then
     diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$IN2_LOG" \
         | grep -vE '^ *PASS' || true)" "$(cat "$IN2_LOG" 2>/dev/null || true)"
@@ -3415,7 +3433,7 @@ if _section WTR; then
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 WTR1_LOG="$(mktemp "${TMPDIR:-/tmp}/worktree-removal-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-worktree-removal.mutation.sh" >"$WTR1_LOG" 2>&1; rc=$?; set -e
-emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "WTR1.worktree-removal-mutations-all-load-bearing" "$rc" "$WTR1_LOG"
 if [ "$rc" -ne 0 ]; then
     diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$WTR1_LOG" \
         | grep -vE '^ *PASS' || true)" "$(cat "$WTR1_LOG" 2>/dev/null || true)"
@@ -3652,7 +3670,7 @@ if _section MC6; then
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 MC6_LOG="$(mktemp "${TMPDIR:-/tmp}/model-ceiling-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-model-ceiling.mutation.sh" >"$MC6_LOG" 2>&1; rc=$?; set -e
-emit_case "MC6.model-ceiling-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "MC6.model-ceiling-mutations-all-load-bearing" "$rc" "$MC6_LOG"
 if [ "$rc" -ne 0 ]; then
     diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$MC6_LOG" \
         | grep -vE '^ *PASS' || true)" "$(cat "$MC6_LOG" 2>/dev/null || true)"
@@ -3686,7 +3704,7 @@ if _section WTI; then
 # happened and a red CI that says only that it is red.
 WTI1_LOG="$(mktemp "${TMPDIR:-/tmp}/staffing-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/guard-worktree-isolation.mutation.sh" >"$WTI1_LOG" 2>&1; rc=$?; set -e
-emit_case "WTI1.staffing-gate-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "WTI1.staffing-gate-mutations-all-load-bearing" "$rc" "$WTI1_LOG"
 if [ "$rc" -ne 0 ]; then
     # The anchor is `^ *` and not `^  `, deliberately. When a mutant's suite
     # goes red at the WRONG case, the harness prints the verdict AND then the
@@ -3708,7 +3726,7 @@ if _section MF; then
 # Output KEPT on failure, with IP7's anchor and for IP7's reason.
 MF1_LOG="$(mktemp "${TMPDIR:-/tmp}/mechanical-findings-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/mechanical-findings.mutation.sh" >"$MF1_LOG" 2>&1; rc=$?; set -e
-emit_case "MF1.mechanical-findings-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "MF1.mechanical-findings-mutations-all-load-bearing" "$rc" "$MF1_LOG"
 if [ "$rc" -ne 0 ]; then
     diag_or_tail "$(grep -E '^ *(FAIL|PASS|UNPROVEN)|^=== |survived or misfired|SURVIVED|NOT proven|NOT load-bearing' "$MF1_LOG" \
         | grep -vE '^ *PASS' || true)" "$(cat "$MF1_LOG" 2>/dev/null || true)"
@@ -3736,7 +3754,7 @@ suite_discovered "SA1.stated-actions-gate-suite-is-discovered" "ass-kicker/tests
 # `x N/M properties are NOT load-bearing` line on an ordinary failure.
 SA2_LOG="$(mktemp "${TMPDIR:-/tmp}/stated-actions-mutations.XXXXXX")"
 set +e; "$SCRIPT_DIR/../../ass-kicker/tests/stated-actions.mutation.sh" >"$SA2_LOG" 2>&1; rc=$?; set -e
-emit_case "SA2.stated-actions-mutations-all-load-bearing" 0 "$rc"
+emit_mutation_case "SA2.stated-actions-mutations-all-load-bearing" "$rc" "$SA2_LOG"
 if [ "$rc" -ne 0 ]; then
     grep -vE '^ *PASS|^[[:space:]]*$' "$SA2_LOG" | sed 's/^/        /' || true
 fi
@@ -3801,6 +3819,10 @@ echo "failed: $FAIL"
 if [ "$FAIL" -gt 0 ]; then
     echo "failing cases:"
     for n in "${FAIL_NAMES[@]}"; do echo "  - $n"; done
+fi
+if [ "$NOT_RUN" -gt 0 ]; then
+    echo "not run (proved nothing, not counted as passed): $NOT_RUN"
+    for n in "${NOT_RUN_NAMES[@]}"; do echo "  - $n"; done
 fi
 
 # The scoped banner goes LAST, under the verdict, because that is where an eye

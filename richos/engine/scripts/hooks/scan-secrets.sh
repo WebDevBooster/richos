@@ -364,9 +364,14 @@ def is_generic_nonsecret(value):
     segs = [s for s in re.split(r'[-_]', value) if s]
     # P3-25: a DESCRIPTIVE literal has separators. A single unseparated run of
     # letters or digits (a passphrase, a long numeric secret) is not descriptive.
-    if len(segs) >= 2 and all(s.isalpha() or s.isdigit() for s in segs):
+    # v3 re-check: and each segment is spelled like a WORD (lower, UPPER or
+    # Capitalized) or a number. Random letters in mixed case joined by an
+    # underscore ("QqWwEe..._OoPpAa...") are a password, not a name.
+    if len(segs) >= 2 and all(WORD_SEGMENT.fullmatch(s) for s in segs):
         return True
     return False
+
+WORD_SEGMENT = re.compile(r'[a-z]+|[A-Z]+|[A-Z][a-z]+|[0-9]+')
 
 def redact(value):
     if len(value) <= 10:

@@ -454,6 +454,9 @@ def observe_pushes(transcript_path, state, budget):
     if tr.get("path") != transcript_path or offset > size:
         offset = 0                       # a different or a truncated transcript
     seen = []
+    # A Bash call whose result is an error was refused or failed before it ran
+    # its push; it creates no CI obligation (hunt part 3 v3, finding 19).
+    refused = set()
     try:
         # READLINE, NEVER `for line in fh`. Iterating a text file disables
         # tell() ("telling position disabled by next() call"), and the byte
@@ -474,7 +477,7 @@ def observe_pushes(transcript_path, state, budget):
                 line = raw.decode("utf-8", "replace").strip()
                 if not line:
                     continue
-                if '"Bash"' not in line or "push" not in line:
+                if ('"Bash"' not in line or "push" not in line) and '"is_error"' not in line:
                     continue
                 try:
                     rec = json.loads(line)
@@ -487,6 +490,10 @@ def observe_pushes(transcript_path, state, budget):
                 cwd = rec.get("cwd") or ""
                 ts = _epoch(rec.get("timestamp"))
                 for block in content:
+                    if (isinstance(block, dict) and block.get("type") == "tool_result"
+                            and block.get("is_error") is True and block.get("tool_use_id")):
+                        refused.add(block["tool_use_id"])
+                        continue
                     if not isinstance(block, dict) or block.get("type") != "tool_use":
                         continue
                     if block.get("name") != "Bash":
@@ -494,10 +501,14 @@ def observe_pushes(transcript_path, state, budget):
                     cmd = (block.get("input") or {}).get("command") or ""
                     for p in parse_pushes(cmd, cwd):
                         p["at"] = ts
+                        p["_call"] = block.get("id")
                         seen.append(p)
     except OSError as exc:
         return [], "the transcript could not be read (%s)" % exc
 
+    seen = [p for p in seen if not (p.get("_call") and p["_call"] in refused)]
+    for p in seen:
+        p.pop("_call", None)
     tr["path"] = transcript_path
     tr["offset"] = offset
     return seen, ""
@@ -586,7 +597,11 @@ def head_of(root, remote, branch, budget):
 
 
 def current_branch(root, budget):
+    """The checked-out branch; "" when there is none (detached); None when the
+    lookup ran out of time, which says nothing about the branch (P3-13)."""
     rc, out, _err = run(["git", "-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"], budget)
+    if rc == TIMEOUT_RC:
+        return None
     return out.strip() if rc == 0 else ""
 
 
@@ -674,11 +689,16 @@ def probe_runs(slug, sha, budget):
         })
     failed = [r for r in runs if r.get("status") == "completed" and r.get("conclusion") in NOT_GREEN]
     running = [r for r in runs if r.get("status") != "completed"]
+    # GREEN IS A RUN THAT SUCCEEDED, not the absence of a red one. Runs that
+    # all concluded skipped (or neutral, stale) proved nothing about the
+    # commit: that is "none", silent and re-read every turn, never a green
+    # cached as passed (hunt part 3 v3, finding 14).
+    passed = [r for r in runs if r.get("status") == "completed" and r.get("conclusion") == "success"]
     if failed:
         state = "red"
     elif running:
         state = "running"
-    elif runs:
+    elif passed:
         state = "green"
     else:
         state = "none"
@@ -957,11 +977,14 @@ def evaluate(payload, budget):
     facts_cache = {}
     # Never-checked targets first (newest first), then the longest-unchecked, so
     # an older obligation is not starved by newer ones (P3-17).
+    # A target goes to the back of that rotation only once it was actually
+    # JUDGED this turn (a verdict, a pause, a duplicate of one judged). One
+    # that was only SELECTED, then ran out of budget, keeps its place: stamping
+    # the whole selected batch up front let one slow lookup starve the other
+    # five every turn (P3-17, v3 re-check).
     targets = sorted(pushes.items(), key=lambda kv: (float((kv[1] or {}).get("checked_at") or 0),
                                                      -float((kv[1] or {}).get("at") or 0)))[:MAX_TARGETS]
     _now = time.time()
-    for _k, _p in targets:
-        _p["checked_at"] = _now
     judged = set()
 
     # AN ANSWER THAT CAN NEVER ARRIVE IS NOT A FINDING TO REPEAT.
@@ -990,6 +1013,7 @@ def evaluate(payload, budget):
         root, slug, err = repo_facts(push["dir"], remote, budget, facts_cache)
         if slug and pause_for(slug):
             # Keep the push history for restoration; do not read CI or demand an ack.
+            push["checked_at"] = _now
             continue
         if err.startswith(TRANSIENT):
             unreadable.append("%s: %s" % (os.path.basename(push["dir"] or "?"), err[len(TRANSIENT):]))
@@ -998,10 +1022,15 @@ def evaluate(payload, budget):
             permanent(key, "%s: %s" % (os.path.basename(push["dir"] or "?"), err))
             continue
         branch = push.get("branch") or current_branch(root, budget)
+        if branch is None:
+            # Out of time, not unknowable: keep the push and read it next turn.
+            unreadable.append("%s: the pushed branch could not be read inside the budget" % slug)
+            continue
         if not branch:
             permanent(key, "%s: the branch that was pushed could not be determined" % slug)
             continue
         if (slug, branch) in judged:
+            push["checked_at"] = _now
             continue
         judged.add((slug, branch))
         sha, err = head_of(root, remote, branch, budget)
@@ -1016,6 +1045,8 @@ def evaluate(payload, budget):
         item = {"slug": slug, "root": root, "remote": remote, "branch": branch,
                 "sha": sha, "at": push.get("at"), "doc": doc}
         st = doc.get("state")
+        if st != "unknown":
+            push["checked_at"] = _now
         if st == "red":
             findings.append(item)
         elif st == "running":

@@ -510,30 +510,65 @@ say "stop hook, stood down" "$SOUT4"
 case "$SOUT4" in *"STOOD DOWN"*) ok "H4  the partner announces its own stand-down" ;;
                  *)              bad "H4  the partner announces its stand-down" "$SOUT4" ;; esac
 
+# --- P3-43: an unresolved input is still named after 500 unrelated records ---
+# The reader kept only the last 500 ledger rows, so a refusal followed by 500
+# unrelated hand-overs vanished while git still did not hold the file.
+# Its fixture is its own (repo-p343): I1 below builds repo-i, and a shared
+# name re-initializes a repository that already holds this test's commits.
+REPO_P343="$(new_repo repo-p343)"
+AGED_P343="$REPO_P343/aged-input.md"
+printf 'aged input\n' > "$AGED_P343"
+mkdir -p "$REPO_P343/.claude/state"
+python3 - "$REPO_P343/.claude/state/ceo-inputs.jsonl" "$AGED_P343" <<'PYL'
+import json, sys
+ledger, aged = sys.argv[1], sys.argv[2]
+with open(ledger, "w") as fh:
+    fh.write(json.dumps({"refused": [{"path": aged, "why": "fixture refusal"}]}) + "\n")
+    for i in range(500):
+        fh.write(json.dumps({"committed": ["/invented/unrelated-%d" % i]}) + "\n")
+PYL
+SOUT_P343="$(stop_payload "$REPO_P343" | RICHOS_ENTITY_ROOT="$REPO_P343" bash "$STOP_HOOK" 2>/dev/null)"
+case "$SOUT_P343" in
+    *"HELD BY NOTHING BUT YOUR DISK"*"aged-input.md"*)
+        ok "P3-43 a refused input is still named after 500 unrelated ledger records" ;;
+    *)  bad "P3-43 a refused input is still named after 500 unrelated ledger records" "$SOUT_P343" ;;
+esac
+
 # --- P3-22: the commit holds the bytes the gates checked, not the live file ---
-P322_OUT="$(python3 - "$SRC_DIR/commit-ceo-inputs.py" <<'PYT' 2>&1
-import importlib.util, os, subprocess, sys, tempfile
+# Its fixture repository is removed however the fragment ends, and it is made
+# in a temp directory of its own so the suite can SEE that nothing was left
+# behind (hunt part 3 v3, finding 42: every run used to leave a repository).
+P322_TMP="$(mktemp -d -t p322-tmp.XXXXXX)"
+P322_OUT="$(TMPDIR="$P322_TMP" python3 - "$SRC_DIR/commit-ceo-inputs.py" <<'PYT' 2>&1
+import importlib.util, os, shutil, subprocess, sys, tempfile
 spec = importlib.util.spec_from_file_location("cci", sys.argv[1])
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 d = tempfile.mkdtemp(prefix="p322.")
-def g(*a):
-    return subprocess.run(["git", "-C", d] + list(a), check=True, stdout=subprocess.PIPE,
-                          env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="webdevbooster@gmail.com",
-                                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="webdevbooster@gmail.com")).stdout
-g("init", "-q", "-b", "main")
-open(os.path.join(d, "seed.txt"), "w").write("seed\n")
-g("add", "seed.txt"); g("commit", "-q", "-m", "seed")
-f = os.path.join(d, "in.txt")
-open(f, "w").write("REPLACED AFTER THE SCAN\n")
-ok, res = m.commit(f, d, "s", "stamp", data=b"the checked bytes\n")
-got = g("show", "HEAD:in.txt").decode()
-print("OK" if ok and got == "the checked bytes\n" else "BAD ok=%s got=%r" % (ok, got))
+try:
+    def g(*a):
+        return subprocess.run(["git", "-C", d] + list(a), check=True, stdout=subprocess.PIPE,
+                              env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="webdevbooster@gmail.com",
+                                       GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="webdevbooster@gmail.com")).stdout
+    g("init", "-q", "-b", "main")
+    open(os.path.join(d, "seed.txt"), "w").write("seed\n")
+    g("add", "seed.txt"); g("commit", "-q", "-m", "seed")
+    f = os.path.join(d, "in.txt")
+    open(f, "w").write("REPLACED AFTER THE SCAN\n")
+    ok, res = m.commit(f, d, "s", "stamp", data=b"the checked bytes\n")
+    got = g("show", "HEAD:in.txt").decode()
+    print("OK" if ok and got == "the checked bytes\n" else "BAD ok=%s got=%r" % (ok, got))
+finally:
+    shutil.rmtree(d, ignore_errors=True)
 PYT
 )"
 case "$P322_OUT" in
     *OK) ok "P3-22 the commit holds the bytes the gates checked, not the replaced live file" ;;
     *)   bad "P3-22 the commit holds the bytes the gates checked" "$P322_OUT" ;;
 esac
+P322_LEFT="$(ls -A "$P322_TMP" 2>/dev/null)"
+rm -rf "$P322_TMP"
+if [ -z "$P322_LEFT" ]; then ok "P3-42 the P3-22 fragment leaves no fixture repository behind"
+else bad "P3-42 the P3-22 fragment leaves no fixture repository behind" "left: $P322_LEFT"; fi
 
 # --- I. companion files: an input under wiki/raw/ is committed WITH its
 # wiki/raw/assets/<id>-.../ folder (the 2026-10-04 transcript left that folder

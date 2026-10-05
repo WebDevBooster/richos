@@ -344,9 +344,13 @@ case "$RICHOS_ROOT_STATUS" in
     *)
         BANNER="$(root_failure_banner "scripts/hooks/engine-status.sh")"
         printf '%s\n' "$BANNER" >&2
+        # Not "every guard will refuse": the blocking guards refuse, but the
+        # advisory notices deliberately allow the call and only say they are
+        # off (a Stop hook that blocked here would strand the session). The
+        # sentence says both, because both are true (hunt part 3 v3, finding 29).
         emit_context \
-            "RichOS engine ${VERSION}: ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE. ${RICHOS_ROOT_REASON} Every guard in this session will refuse rather than guess. Fix the root declaration before doing any work that depends on enforcement." \
-            "RichOS engine ${VERSION}: ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE. ${RICHOS_ROOT_REASON} Every guard in this session will refuse rather than guess."
+            "RichOS engine ${VERSION}: ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE. ${RICHOS_ROOT_REASON} The blocking guards in this session will refuse rather than guess; the advisory notices will let calls through and only say they are off. Fix the root declaration before doing any work that depends on enforcement." \
+            "RichOS engine ${VERSION}: ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE. ${RICHOS_ROOT_REASON} The blocking guards will refuse rather than guess; the advisory notices let calls through and only say they are off."
         ;;
 esac
 

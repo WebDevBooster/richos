@@ -554,8 +554,13 @@ status = str(m.get("status") or "").lower()
 cwd = str(m.get("cwd") or "")
 wt = wt_present(m)
 
-# A present worktree is positive liveness regardless of a stale status.
+# A present worktree is positive liveness over a stale NON-terminal status.
+# It is not over a FINISHED one: a finished teammate's worktree can be
+# retained, so it proves a worktree, not a live agent. That case goes on to
+# the authoritative reading below (hunt part 3 v3, finding 24).
 if wt is True:
+    if status in TERMINAL:
+        out("TERMINAL", "roster status is '%s' (its worktree %s is still on disk)" % (status, cwd), cwd)
     out("ACTIVE", "worktree present", cwd)
 # The worktree once existed (cwd under .claude/worktrees/) and is now gone —
 # THE failure state (landed + removed).

@@ -588,7 +588,11 @@ def resolve_shas(shas, roots):
         try:
             p = subprocess.run(
                 ["git", "-C", root, "cat-file", "--batch-check"],
-                input="\n".join(todo) + "\n",
+                # Each token PEELED TO A COMMIT: a commit, or a tag that
+                # points (through any chain of tags) at one. A blob, a tree,
+                # or a tag pointing at a blob is not a commit (hunt part 3,
+                # finding 20; the tag case is the v3 re-check).
+                input="".join(t + "^{commit}\n" for t in todo),
                 capture_output=True, text=True, timeout=10,
             )
         except Exception:
@@ -598,10 +602,8 @@ def resolve_shas(shas, roots):
         # by position rather than by the first column.
         for tok, line in zip(todo, p.stdout.splitlines()):
             parts = line.split()
-            # A blob or tree is an object, not a commit: citing a file's
-            # SHA as a commit must not resolve (hunt part 3, finding 20).
-            if "missing" not in parts and not (
-                    len(parts) > 1 and parts[1] in ("blob", "tree")):
+            # An ambiguous short SHA names real objects; it is not invented.
+            if (len(parts) > 1 and parts[1] == "commit") or "ambiguous" in parts:
                 found.add(tok)
     return found
 
@@ -808,7 +810,7 @@ def read_transcript(path, prompt_id=None, limit_bytes=48 * 1024 * 1024):
     the message itself comes from last_assistant_message and only the tool
     traffic comes from here.
     """
-    blob, tools = [], []
+    blob, calls, refused = [], [], set()
     # No prompt_id -> no turn boundary -> count everything (see docstring:
     # the wide answer is the quiet one for the only question asked of it).
     turn_started = prompt_id is None
@@ -837,12 +839,18 @@ def read_transcript(path, prompt_id=None, limit_bytes=48 * 1024 * 1024):
                     for b in content:
                         if isinstance(b, dict) and b.get("type") == "tool_use":
                             if turn_started:
-                                tools.append(b.get("name", ""))
+                                calls.append((b.get("id"), b.get("name", "")))
+                        elif (isinstance(b, dict) and b.get("type") == "tool_result"
+                              and b.get("is_error") is True and b.get("tool_use_id")):
+                            refused.add(b["tool_use_id"])
                 flat = _flatten(content)
                 if flat:
                     blob.append(flat)
     except OSError:
         return "", []
+    # A call whose result is an error was refused or failed: a refused Agent
+    # dispatched nobody, so it is not this turn's tool (hunt part 3 v3, 19).
+    tools = [name for cid, name in calls if not (cid and cid in refused)]
     return "\n".join(blob), tools
 
 

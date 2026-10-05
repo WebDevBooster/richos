@@ -89,13 +89,18 @@ recs = [
     {"type": "user", "isSidechain": False,
      "message": {"role": "user", "content": "do the thing"}},
 ]
-for t in tools:
+for n, t in enumerate(tools):
+    # "!Name" is a call the host REFUSED: its result is an error.
+    refused = t.startswith("!")
+    cid = "x%d" % n
     recs.append({"type": "assistant", "isSidechain": False,
                  "message": {"role": "assistant", "content": [
-                     {"type": "tool_use", "name": t, "id": "x", "input": {}}]}})
+                     {"type": "tool_use", "name": t.lstrip("!"), "id": cid, "input": {}}]}})
+    result = {"type": "tool_result", "tool_use_id": cid, "content": "ok"}
+    if refused:
+        result.update({"is_error": True, "content": "Refused before dispatch"})
     recs.append({"type": "user", "isSidechain": False,
-                 "message": {"role": "user", "content": [
-                     {"type": "tool_result", "tool_use_id": "x", "content": "ok"}]}})
+                 "message": {"role": "user", "content": [result]}})
 with open(path, "w", encoding="utf-8") as fh:
     for r in recs:
         fh.write(json.dumps(r) + "\n")
@@ -187,6 +192,13 @@ write_transcript Agent Bash
 run_hook "$SPECIMEN"
 if quiet; then ok "2d  an Agent spawn in the same turn discharges it (the KNOWN BLIND SPOT, per the header)"
 else bad "2d  an Agent spawn discharges the deferral" "$HOUT"; fi
+
+# Hunt part 3 v3, finding 19: a REFUSED Agent call started nobody, so it
+# discharges nothing; the specimen still speaks.
+write_transcript '!Agent' Bash
+run_hook "$SPECIMEN"
+if spoke; then ok "2f  a REFUSED Agent call does not discharge it (P3-19)"
+else bad "2f  a REFUSED Agent call does not discharge it (P3-19)" "$HOUT"; fi
 
 # THE POSITIVE CONTROL for all four silences above. Without this, a hook that
 # never ran would score 4/4 on section 2.

@@ -64,6 +64,16 @@ class GroupG(unittest.TestCase):
         blob = git("rev-parse", "HEAD:f.txt")
         found = claims.resolve_shas([commit, blob], [repo])
         self.assertEqual(found, {commit})
+        # v3 re-check: an annotated tag wrapping that blob is not a commit
+        # either; an annotated tag of the commit still is.
+        git("-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "blob-tag",
+            "-m", "a tag pointing to a blob", blob)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "commit-tag",
+            "-m", "a tag pointing to the commit", commit)
+        blob_tag = git("rev-parse", "blob-tag")
+        commit_tag = git("rev-parse", "commit-tag")
+        found = claims.resolve_shas([blob_tag, commit_tag], [repo])
+        self.assertEqual(found, {commit_tag})
 
     def test_p3_21_other_sessions_roles_do_not_count_here(self):
         claims = load("claims2", HOOKS / "guard-unresolved-claims.py")
@@ -109,6 +119,75 @@ class GroupG(unittest.TestCase):
         self.assertEqual(p.returncode, 2, p.stderr[-300:])
         self.assertIn("no verdict", p.stderr)
 
+    def test_p3_28_v3_crashed_checkers_say_they_did_not_run(self):
+        # v3 re-check: five more checkers whose crash passed for a clean check.
+        # Each runs as its complete wrapper in a disposable engine copy, with
+        # only the named checker made to fail; each must say it did not run.
+        copy = os.path.join(self.tmp, "engine")
+        shutil.copytree(SCRIPTS / "lib", os.path.join(copy, "scripts", "lib"))
+        os.makedirs(os.path.join(copy, "scripts", "hooks"))
+        for f in ("guard-unresolved-claims.sh", "notice-inflight-acks.sh",
+                  "notice-unanswered-question.sh", "notice-ceo-inputs-unheld.sh",
+                  "commit-ceo-inputs.py", "guard-ceo-ruled-ask.sh"):
+            shutil.copy(HOOKS / f, os.path.join(copy, "scripts", "hooks", f))
+        cfg = SCRIPTS.parent / "orchestration.config"
+        if cfg.exists():
+            shutil.copy(cfg, copy)
+        repo = os.path.join(self.tmp, "repo")
+        os.makedirs(os.path.join(repo, ".claude", "state"))
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        Path(repo, "orchestration.config").write_text('PROTECTED_PATHS="src"\n')
+        hooks = os.path.join(copy, "scripts", "hooks")
+        lib = os.path.join(copy, "scripts", "lib")
+        env = dict(os.environ, RICHOS_ENTITY_ROOT=repo,
+                   STOP_NOTICE_STATE_DIR=os.path.join(self.tmp, "notices"))
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        stop = json.dumps({"session_id": "crash-fixture", "cwd": repo, "hook_event_name": "Stop",
+                           "prompt_id": "p", "last_assistant_message": "Inspection complete.",
+                           "transcript_path": os.path.join(self.tmp, "unused.jsonl")})
+
+        def run(hook, payload):
+            return subprocess.run(["bash", os.path.join(hooks, hook)], input=payload,
+                                  capture_output=True, text=True, env=env, timeout=120)
+
+        crash = "import sys\nsys.exit(1)\n"
+        Path(hooks, "guard-unresolved-claims.py").write_text(crash)
+        out = run("guard-unresolved-claims.sh", stop)
+        with self.subTest('claims'):
+            self.assertEqual(out.returncode, 0, out.stderr[-300:])
+            self.assertIn("DID NOT RUN", out.stdout, "claims")
+
+        Path(lib, "inflight.py").write_text(
+            "def assess(*a, **k):\n    raise RuntimeError('fixture assess crash')\n")
+        Path(lib, "inflight.sh").write_text(
+            'inflight_require(){ return 0; }; '
+            'inflight_resolve_teams_dir(){ INFLIGHT_TEAMS_DIR_RESOLVED=""; }; '
+            'inflight_timeout_min(){ echo 30; }\n')
+        out = run("notice-inflight-acks.sh", stop)
+        with self.subTest('inflight'):
+            self.assertEqual(out.returncode, 0, out.stderr[-300:])
+            self.assertIn("NOT CHECKED", out.stdout, "inflight")
+
+        # A ledger row that is not an object makes the real reader raise.
+        Path(repo, ".claude", "state", "ceo-inputs.jsonl").write_text("[]\n")
+        out = run("notice-ceo-inputs-unheld.sh", stop)
+        with self.subTest('unheld inputs'):
+            self.assertEqual(out.returncode, 0, out.stderr[-300:])
+            self.assertIn("DID NOT RUN", out.stdout, "unheld inputs")
+
+        Path(lib, "blocking_ask.py").write_text(crash)
+        out = run("notice-unanswered-question.sh", stop)
+        with self.subTest('unanswered question'):
+            self.assertEqual(out.returncode, 0, out.stderr[-300:])
+            self.assertIn("DID NOT RUN", out.stdout, "unanswered question")
+
+        ask = json.dumps({"session_id": "crash-fixture", "cwd": repo, "tool_name": "AskUserQuestion",
+                          "hook_event_name": "PreToolUse",
+                          "tool_input": {"questions": [{"question": "Which fixture first?"}]}})
+        out = run("guard-ceo-ruled-ask.sh", ask)
+        with self.subTest('deaf lead'):
+            self.assertIn("DEAF-LEAD CHECK DID NOT RUN", out.stdout + out.stderr, "deaf lead")
+
     # --- P3-35 -----------------------------------------------------------
     def test_p3_35_quoted_example_is_not_an_unanswered_question(self):
         ask = load("blocking_ask", SCRIPTS / "lib" / "blocking_ask.py")
@@ -127,6 +206,30 @@ class GroupG(unittest.TestCase):
         fenced = "Example only, no answer needed:\n```\nQUESTION FOR YOU:\nWhich first?\n```\n"
         self.assertIsNone(run(fenced))
         self.assertIsNone(run("> QUESTION FOR YOU:\n> Which first?"))
+
+    def test_p3_40_longer_closing_fence_keeps_the_real_question(self):
+        # A fence opened with ``` and closed with ```` is valid Markdown; the
+        # real question AFTER it is still a question (v3 re-check, finding 40).
+        ask = load("blocking_ask40", SCRIPTS / "lib" / "blocking_ask.py")
+        for closer in ("```", "````"):
+            t = os.path.join(self.tmp, "f.jsonl")
+            write_rows(t, [
+                {"type": "user", "turnOrigin": "human"},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text":
+                    "Example:\n```text\nUnrelated example.\n" + closer +
+                    "\n\nQUESTION FOR YOU:\nWhich fixture should run next?\n"}]}},
+                {"type": "user", "turnOrigin": "task_notification"},
+            ])
+            self.assertIsNotNone(ask.unanswered_question(t), closer)
+        # A SHORTER closer does not close it: the fenced text stays an example.
+        t = os.path.join(self.tmp, "g.jsonl")
+        write_rows(t, [
+            {"type": "user", "turnOrigin": "human"},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text":
+                "Example:\n````text\n```\nQUESTION FOR YOU:\nWhich first?\n"}]}},
+            {"type": "user", "turnOrigin": "task_notification"},
+        ])
+        self.assertIsNone(ask.unanswered_question(t))
 
 
 if __name__ == "__main__":
