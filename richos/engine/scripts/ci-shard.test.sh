@@ -77,15 +77,20 @@
 #        be printed, no receipt may be written, and the folder must come from
 #        the scratch allocator with this run's pid as its owner and be released
 #        afterward.
+#   S25  THE ENGINE'S OWN RUNTIME STATE IS NOT A UNIT'S TO WRITE (2026-10-05). A
+#        unit that appends to <engine>/.claude/state/ fails as STATE-WRITTEN,
+#        named with the line it added; the same unit seated on
+#        lib/entity-sandbox.sh passes and leaves that folder byte-for-byte as it
+#        was; an untouched state folder is no finding.
 #
 # Exit 0 = all cases pass; exit 1 = at least one failure. A scoped run
-# (--contamination-only, --stop-only) exits 3 when its cases pass.
+# (--contamination-only, --stop-only, --state-only) exits 3 when its cases pass.
 
 set -uo pipefail
 case "${1:-}" in
     "") ;;
-    --contamination-only|--stop-only) [ "$#" -eq 1 ] || exit 2 ;;
-    *) echo "usage: ci-shard.test.sh [--contamination-only | --stop-only]" >&2; exit 2 ;;
+    --contamination-only|--stop-only|--state-only) [ "$#" -eq 1 ] || exit 2 ;;
+    *) echo "usage: ci-shard.test.sh [--contamination-only | --stop-only | --state-only]" >&2; exit 2 ;;
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1086,8 +1091,71 @@ fi
 rm -f "$E/scripts/lib/stopped.test.sh"
 fi
 
+# --- S25: THE ENGINE'S OWN RUNTIME STATE IS NOT A UNIT'S TO WRITE (2026-10-05) ---
+# Hook suites seated their hooks on the engine checkout (RICHOS_ENTITY_ROOT=<engine>), so their
+# acks and unparseable payloads were appended to <engine>/.claude/state/: in the merge gate the
+# live plugin's audit record, and an input of every engine check beside them (501 results thrown
+# away as `invalid`). The state folder is gitignored, so the leak canary is blind there by design.
+# A unit after which it changed is STATE-WRITTEN, named with the line it added (S25a); the same
+# unit seated on lib/entity-sandbox.sh passes and leaves the engine's state as it was (S25b); and
+# a state folder that already holds files is no finding by itself (S25c).
+if [ -z "${1:-}" ] || [ "${1:-}" = --state-only ]; then
+# The engine is a checkout whose .gitignore holds /.claude/state/, as the real one does: that is
+# what blinds the leak canary there, and the case is about exactly that blindness.
+git -C "$E" init -q
+printf '/.claude/state/\n' > "$E/.gitignore"
+mkdir -p "$E/.claude/state"
+printf 'an older line\n' > "$E/.claude/state/unevaluated-payloads.log"
+cp "$ENGINE_ROOT/scripts/lib/entity-sandbox.sh" "$E/scripts/lib/entity-sandbox.sh"
+state_digest() { find "$E/.claude/state" -type f -exec shasum -a 256 {} + 2>/dev/null | LC_ALL=C sort; }
+cat > "$E/scripts/lib/stateful.test.sh" <<'STATEFUL'
+#!/usr/bin/env bash
+# The writer's shape: a hook seated on the engine appends an unparseable payload's line.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+entity="$here"
+if [ "${SEAT_ON_SANDBOX:-}" = 1 ]; then
+    . "$here/scripts/lib/entity-sandbox.sh"
+    entity="$(entity_sandbox "$here")"
+fi
+mkdir -p "$entity/.claude/state"
+printf '2026-10-05T02:13:38Z\tunevaluated\thook=fixture-guard.sh\treason=not-json\n' >> "$entity/.claude/state/unevaluated-payloads.log"
+[ "$entity" = "$here" ] || rm -rf "$entity"
+exit 0
+STATEFUL
+chmod +x "$E/scripts/lib/stateful.test.sh"
+S25_BEFORE="$(state_digest)"
+RC="$(run_shard --only-units scripts/lib/stateful.test.sh)"
+if [ "$RC" = "1" ] && grep -q 'STATE-WRITTEN' "$SANDBOX/out" \
+   && grep -q 'unevaluated-payloads.log  appended 1 line(s); first: .*hook=fixture-guard.sh' "$SANDBOX/out" \
+   && grep -q 'scripts/lib/stateful.test.sh — STATE-WRITTEN' "$SANDBOX/out"; then
+    ok "S25a a unit that appends to the engine's own .claude/state fails by name, with the line it added"
+else
+    bad "S25a rc=$RC — a write into the engine's runtime state was not named"; sed 's/^/          /' "$SANDBOX/out"
+fi
+printf 'an older line\n' > "$E/.claude/state/unevaluated-payloads.log"
+export SEAT_ON_SANDBOX=1
+RC="$(run_shard --only-units scripts/lib/stateful.test.sh)"
+unset SEAT_ON_SANDBOX
+if [ "$RC" = "0" ] && grep -q 'PASS' "$SANDBOX/out" && [ "$(state_digest)" = "$S25_BEFORE" ]; then
+    ok "S25b the same unit seated on lib/entity-sandbox.sh passes, and the engine's state is byte-for-byte unchanged"
+else
+    bad "S25b rc=$RC — the sandboxed unit did not pass, or the engine's state changed"; sed 's/^/          /' "$SANDBOX/out"
+fi
+RC="$(run_shard --only-units scripts/lib/green.test.sh)"
+if [ "$RC" = "0" ] && ! grep -q 'STATE-WRITTEN' "$SANDBOX/out"; then
+    ok "S25c a unit that leaves an existing state folder alone is no finding"
+else
+    bad "S25c rc=$RC — an untouched state folder was reported"; sed 's/^/          /' "$SANDBOX/out"
+fi
+rm -rf "$E/.claude" "$E/.git" "$E/.gitignore" "$E/scripts/lib/stateful.test.sh" "$E/scripts/lib/entity-sandbox.sh"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
+    if [ "${1:-}" = --state-only ]; then
+        echo "=== ci-shard tests: scoped S25 passed; other cases were not run ==="
+        exit 3
+    fi
     if [ "${1:-}" = --contamination-only ]; then
         echo "=== ci-shard tests: scoped S23 passed; other cases were not run ==="
         exit 3

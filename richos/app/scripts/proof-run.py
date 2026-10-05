@@ -153,9 +153,9 @@ ADMISSION, TWO CONDITIONS, BOTH CHECKED BEFORE EVERY START:
     apart) and the wait is reported beside its time. --admission-wait bounds only the time the Mac
     refused it while nothing of this run was running; time queued behind this run's own checks,
     including a CPU or pressure refusal while they run, is reported, never charged (refusal_counts).
-Checks start longest-expected first, so the long poles are not the ones left waiting; under --cap
-(the merge gate) cheapest first, and a check planned past the cap is not started (start_key,
-leave_over_cap). While the
+Checks start longest-expected first, the expectation being each check's measured median, so the
+long poles are not the ones left waiting; under --cap (the merge gate) a check planned past the
+cap is not started (start_key, leave_over_cap, MEDIAN_SAMPLES). While the
 run goes, a sampler records total CPU and the tokens held; the summary prints both, which is the
 evidence of host use, not a guarantee that running compilers stay under the admission line.
 
@@ -186,6 +186,7 @@ import re
 import shlex
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 sys.dont_write_bytecode = True
@@ -322,20 +323,44 @@ def uses_gradle(path):
         return False
 
 
-def history_weights(state):
-    w = {}
+# PLANNED FROM MEASURED MEDIANS, LONGEST FIRST (2026-10-05). weights.tsv kept ONE number per
+# check, the last run's, and engine units were planned from lib/ci-unit-weights.tsv, dated data
+# the run itself reported stale (contract-integrity section P planned at 51.5 s, measured 172.4 s).
+# Under the merge gate's caps the plan then started a long check late: in merge110.log
+# by-reference.test.sh waited 440 s in its lane, ran 443 s, was ended at the 882 s round cap and
+# ran again in round 2; 15,508 s of finished work was redone that way (richos-hq
+# docs/operations/2026-10-04-merge-check-speed.md, section 2). Now each row keeps the last
+# MEDIAN_SAMPLES measured executions and its weight is their median: one slow or fast run does
+# not move the plan, and a stale planned weight is replaced the first time the check is measured.
+# Engine units are recorded too, and their measured median replaces the dated table's weight
+# both in the lanes (ci-units.sh packs with it) and in the start order.
+MEDIAN_SAMPLES = 9
+
+
+def history_samples(state):
+    """{label: [seconds, ...]} from weights.tsv: `label <TAB> median [<TAB> s1,s2,...]`."""
+    samples = {}
     try:
         with open(os.path.join(state, "weights.tsv")) as fh:
             for line in fh:
                 parts = line.rstrip("\n").split("\t")
-                if len(parts) >= 2:
-                    try:
-                        w[parts[0]] = float(parts[1])
-                    except ValueError:
-                        pass
+                if len(parts) < 2:
+                    continue
+                try:
+                    values = ([float(v) for v in parts[2].split(",") if v] if len(parts) >= 3
+                              else [float(parts[1])])
+                except ValueError:
+                    continue
+                if values:
+                    samples[parts[0]] = values[-MEDIAN_SAMPLES:]
     except OSError:
         pass
-    return w
+    return samples
+
+
+def history_weights(state):
+    """{label: median measured seconds}."""
+    return {label: round(statistics.median(values), 1) for label, values in history_samples(state).items()}
 
 
 def default_weight(label, hist):
@@ -448,6 +473,14 @@ def plan(lines, args, logdir, hist):
             f = row.split("\t")
             if len(f) >= 4:
                 weight[f[0]] = float(f[3] or 0)
+        # A unit this checkout has measured is planned at its measured median, not at the dated
+        # table's row (MEDIAN_SAMPLES above): in the lanes ci-units.sh packs and in the start order.
+        measured = {unit: hist["engine " + unit] for unit in weight if "engine " + unit in hist}
+        weight.update(measured)
+        measured_file = os.path.join(logdir, "engine-measured-weights.tsv")
+        with open(measured_file, "w") as fh:
+            fh.write("".join("%s\t%s\n" % (unit, measured[unit]) for unit in sorted(measured)))
+        packer_env = {**os.environ, "CI_UNIT_WEIGHTS_MEASURED": measured_file}
         # Under --cap a unit planned past the cap is never started (leave_over_cap), so it takes
         # no shard: packed with the rest it would leave its lane idle and the others fuller.
         cap = getattr(args, "cap", None)
@@ -465,7 +498,7 @@ def plan(lines, args, logdir, hist):
         # be trusted: it is dated data, and a stale heavy row would idle the other shards.
         k = max(1, min(args.engine_shards, len(weight)))
         packed = subprocess.run(["bash", "scripts/ci-units.sh", "shards", str(k), "--units-file", ufile],
-                                cwd=engine, capture_output=True, text=True)
+                                cwd=engine, capture_output=True, text=True, env=packer_env)
         if packed.returncode != 0 or not packed.stdout.strip():
             raise SystemExit("proof-run: engine shard planning failed: " + packed.stderr)
         per = {}
@@ -777,6 +810,46 @@ def finish_attempt(item):
     return True
 
 
+# A REFUSED CHECK CARRIES THE COMMAND THAT RERUNS IT AS THE GATE RAN IT (2026-10-05).
+# The merge gate runs `git merge` with LC_ALL=C (workspaces.py _git_env), its hooks inherit it, and
+# so does every check; a shell has en_GB.UTF-8. land-completeness.test.sh failed only in the gate
+# and passed every hand rerun by silently skipping its check (fixed in 3c0383fba), because nobody
+# could rerun it the way the gate had. So each check's exact environment, directory and command
+# are written to <run>/rerun/<nn>-<check>.sh when it starts (`env -i`, every variable it got), and
+# a check that did not pass is printed with that file and the locale and time zone it ran under.
+# Left out: what ties a process to THIS run (worker tokens and their locks, the proof-run slot's
+# descriptors, the verification controller's state, this run's evidence paths), which a rerun by
+# hand must not borrow and does not need.
+RERUN_RUN_SCOPED = ("RICHOS_WORKER_TOKENS", "RICHOS_WORKER_TOKENS_TOOL", "RICHOS_WORKER_TOKENS_RESERVED",
+                    "RICHOS_MACHINE_WORKERS", "RICHOS_WORKER_SLOT_HELD", "RICHOS_WORKER_BORROW_LOCK",
+                    "RICHOS_CPU_GUARD_STATE", "RICHOS_VERIFICATION_RUNNER_WAIT", "RICHOS_VERIFICATION_CONTAMINATION",
+                    "RICHOS_TEST_RESULTS_ROOT", "RICHOS_UI_TESTS_LEDGER", "RICHOS_TEST_DEVICE_RUN_ID",
+                    "RICHOS_PROOF_RUN_SLOT_HELD", "RICHOS_PROOF_RUN_SLOT_FDS")
+RERUN_SHOWN = ("LC_ALL", "LANG", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES", "TZ", "TMPDIR")
+
+
+def write_rerun(item, n, logdir, env):
+    """<logdir>/rerun/<nn>-<check>.sh: this check, as this run started it. None if it cannot be written."""
+    scoped = set(RERUN_RUN_SCOPED) | set(SLOT.env() if SLOT else ()) | {getattr(proc_tree, "SCOPE_ENV", "")}
+    kept = sorted((k, v) for k, v in env.items() if k not in scoped and "\n" not in v)
+    path = os.path.join(os.path.realpath(logdir), "rerun", "%02d-%s.sh" % (n, slug(item.label)))
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as out:
+            out.write("#!/bin/sh\n# %s, exactly as proof-run started it: the same directory, the same environment "
+                      "(env -i: nothing from the shell that runs this) and the same command.\n" % item.label)
+            out.write("cd %s || exit 2\n" % shlex.quote(item.cwd))
+            out.write("exec env -i \\\n")
+            for key, value in kept:
+                out.write("  %s \\\n" % shlex.quote("%s=%s" % (key, value)))
+            out.write("  %s\n" % " ".join(shlex.quote(a) for a in item.argv))
+        os.chmod(path, 0o755)
+    except OSError:
+        return None
+    item.rerun_shown = " ".join("%s=%s" % (k, env.get(k, "(unset)")) for k in RERUN_SHOWN if k in env or k in ("LC_ALL", "TZ"))
+    return path
+
+
 def launch(item, n, logdir, tokens_dir, reserved):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
     # Its own per-test results folder, in this run's evidence: run-tests.sh gives each suite a
@@ -826,6 +899,7 @@ def launch(item, n, logdir, tokens_dir, reserved):
     # during the check". Set here, like the ledger path below, so it is not part of any input
     # identity. A check that needs bytecode (a test of the bytecode cache itself) sets its own.
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    item.rerun = write_rerun(item, n, logdir, env)
     item.state, item.started = "running", time.monotonic()
     evidence = getattr(item, "evidence", None)
     if evidence:
@@ -1078,17 +1152,17 @@ def leave_unselected(items, selected):
 
 
 def start_key(item, args):
-    """The order checks are started in. Without --cap, longest-expected first: every check will
-    run, and the long poles must not be the ones left waiting at the end.
+    """The order checks are started in: longest-expected first, with or without --cap, the
+    expectation being the check's measured median (MEDIAN_SAMPLES above).
 
-    UNDER --cap (the merge gate), CHEAPEST FIRST (2026-09-30). The gate's run ends at its own cap,
-    so its question is how many of the change's checks reach a verdict inside it, and
-    longest-first answered it worst: in the merge of 4e73fd89 the first check started was the
-    1408 s mutation unit, and the checks queued behind it were mostly under a minute. Started
-    cheapest first, the short checks finish and free their token, lane and CPU for the next
-    within seconds, every lane starts on its own cheapest unit, and what the run's cap can still
-    cut is the longest work, last."""
-    return item.weight if getattr(args, "cap", None) else -item.weight
+    2026-09-30 to 2026-10-05 the merge gate (--cap) started cheapest first, because the merge of
+    4e73fd89 had started a 1408 s mutation unit first under a 600 s cap. A check planned past the
+    cap is now never started at all (leave_over_cap), so that reason is gone, and cheapest first
+    had a cost of its own: the long poles started last and were ended at the round's cap after
+    doing most of their work (merge110.log: by-reference.test.sh waited 440 s in its lane, ran
+    443 s, was ended at the 882 s cap and ran again in round 2; 15,508 s redone in all). Started
+    first, the longest check's time overlaps everything else's instead of following it."""
+    return -item.weight
 
 
 def run(items, args, logdir, sampler=None):
@@ -1891,6 +1965,10 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
         kept = it.results if it.results and os.path.isdir(it.results) and os.listdir(it.results) else None
         if kept and it.state != "passed":
             print("      per-test results: %s" % kept)
+        rerun = getattr(it, "rerun", None)
+        if rerun and it.state not in ("passed", "not-run"):
+            print("      rerun as the gate ran it: sh %s" % shlex.quote(rerun))
+            print("        (%s)" % getattr(it, "rerun_shown", ""))
         rows.append({"check": it.label, "result": it.state, "seconds": round(it.total_seconds, 1),
                      "last_attempt_seconds": round(it.seconds, 1),
                      "admission_wait": round(it.admission_wait, 1),  # legacy field: total queue
@@ -1906,6 +1984,7 @@ def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
                      "repeated_cpu_seconds": attempt_cpu(it.previous_attempts),
                      "failing_tests": list(it.failing), "results": kept,
                      "not_run": getattr(it, "not_run", None),
+                     "rerun": getattr(it, "rerun", None),
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
         json.dump({"wall_seconds": round(wall, 1), "serial_seconds": round(serial, 1), "host": list(monitor_lines),
@@ -2174,15 +2253,22 @@ def as_printed(lines):
 
 
 def record_weights(state, items):
-    """What each check measured, so the next run starts the long poles first."""
+    """What each check measured, so the next run plans its lanes and starts the long poles first
+    from the median of its last MEDIAN_SAMPLES executions (see MEDIAN_SAMPLES). Only executions
+    that reached a verdict count: a check stopped at a cap ran for the cap, not for its length,
+    and a reused result did not run at all. `engine receipts` reads files; it is not measured."""
     os.makedirs(state, exist_ok=True)
-    w = history_weights(state)
+    samples = history_samples(state)
     for it in items:
-        if it.state == "passed" and not it.label.startswith("engine ") and not getattr(it, "reused_from", None):
-            w[it.label] = round(it.seconds, 1)
-    with open(os.path.join(state, "weights.tsv"), "w") as fh:
-        for k in sorted(w):
-            fh.write("%s\t%s\n" % (k, w[k]))
+        if (it.state in ("passed", "failed") and it.started and it.ended and it.label != "engine receipts"
+                and not getattr(it, "reused_from", None)):
+            samples[it.label] = (samples.get(it.label, []) + [round(it.seconds, 1)])[-MEDIAN_SAMPLES:]
+    path = os.path.join(state, "weights.tsv")
+    with open(path + ".new", "w") as fh:
+        for k in sorted(samples):
+            fh.write("%s\t%s\t%s\n" % (k, round(statistics.median(samples[k]), 1),
+                                       ",".join(str(v) for v in samples[k])))
+    os.replace(path + ".new", path)
 
 
 if __name__ == "__main__":

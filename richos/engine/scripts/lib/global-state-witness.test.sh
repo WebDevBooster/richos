@@ -219,7 +219,7 @@ RUNNERS=(
     scripts/demo.test.sh                     # snapshots and asserts the real pointer intact
     scripts/locate-engine.test.sh            # per-call sandbox + asserts the real pointer intact
     scripts/hooks/contract-integrity.test.sh # exports a sandbox for the whole suite
-    scripts/hooks/by-reference.test.sh       # sandboxes CLAUDE_CONFIG_DIR at the call
+    scripts/lib/by-reference-fixture.sh      # the by-reference suites' setup: sandboxes CLAUDE_CONFIG_DIR at the call
     scripts/hooks/dispatch-pretooluse.test.sh # disposable engine copy + sandbox HOME and CLAUDE_CONFIG_DIR
     scripts/lib/global-state-witness.test.sh # this file: fake HOME and a sandbox
     scripts/hooks/install-retire-reconciler.test.sh # sandbox CLAUDE_CONFIG_DIR + fake HOME + RICHOS_LAUNCH_AGENTS_DIR, launchctl shimmed

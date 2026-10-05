@@ -1,0 +1,4 @@
+# The engine's dependency map is merged as JSON and its pins regenerated from the merged files
+# (merge-verification-pins.py beside this file), never line by line. The driver is registered by
+# richos/app/scripts/autocheck/install.sh.
+verification-dependencies.json merge=richos-verification-pins

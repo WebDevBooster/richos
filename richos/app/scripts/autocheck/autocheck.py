@@ -1105,6 +1105,10 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
             "proof-run.py's summary above names the check, its state and its log.",
             *([why_not] if why_not else []),
             *(row.get("message") or f"FAILED: {row['check']} ({row['result']})" for row in blocking or []),
+            # The gate's environment is not a shell's (LC_ALL=C from the merge, TZ, the nightly's
+            # conditions): this file reruns the check exactly as it ran here (proof-run.py write_rerun).
+            *(f"  rerun {row['check']} as the gate ran it: sh {shlex.quote(row['rerun'])}"
+              for row in blocking or [] if row.get("rerun")),
             "Nothing was committed: fix the branch and land it again. What passed on this tree is kept:",
             "the next attempt on the same tree runs only what has no verdict.",
             "git's --no-verify skips this, and every skip is recorded in the lead's escalation ledger.",
@@ -1270,7 +1274,7 @@ def land_verdict(rc, summary_path, directory):
         else:
             why = NOT_RUN_WHY.get(state, state)
         if why is None:
-            blocking.append({"check": name, "result": state})
+            blocking.append({"check": name, "result": state, "rerun": row.get("rerun")})
         else:
             not_run.append({"check": name, "why": why, "state": state,
                             "suites": (row.get("not_run") or {}).get("suites", [])})

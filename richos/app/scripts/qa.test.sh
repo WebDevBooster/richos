@@ -543,7 +543,7 @@ run python3 "$QA/ocr-cache.test.py"
 expect "OCR cache invalidation, reader failure, fresh control and multi-pattern timeline" 0 "OK"
 
 run python3 "$QA/child-lifetime.test.py"
-expect "A phone tool's child ends within 5 s of kill -9 of the tool" 0 "OK"
+expect "A phone tool's child ends after kill -9 of the tool (outer limit 60 s)" 0 "OK"
 
 run python3 "$QA/trust-reading.test.py"
 expect "rios device trust reads a launch's log lines into the right cause" 0 "OK"

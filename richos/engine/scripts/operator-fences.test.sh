@@ -89,8 +89,10 @@
 #        rewritten the tree (the early check exists for exactly these)
 #   M    the mutation harness runs as its own unit: operator-fences-mutation.test.sh
 #
-# Usage: scripts/operator-fences.test.sh
-# Exit 0 = every case passed under every git found.
+# Usage: scripts/operator-fences.test.sh                 the first distinct git, and F34
+#        scripts/operator-fences-second-git.test.sh      the second (its own unit)
+#        OPERATOR_FENCES_GIT_INDEX=all scripts/operator-fences.test.sh   every git, one process
+# Exit 0 = every case passed under the git(s) this run covers.
 
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -123,6 +125,23 @@ for d in ${OPERATOR_FENCES_GITS:-/opt/homebrew/bin /usr/bin}; do
     GITS="$GITS $d"
 done
 [ -n "$GITS" ] || { echo "no git found"; exit 1; }
+# ONE GIT PER UNIT (2026-10-05). The suite ran every case once per git, 420 s (median of 8
+# merge-gate runs, max 484 s) against the gate's 600 s cap per check, and timed out under load
+# (richos-hq docs/operations/2026-10-04-merge-check-speed.md, sections 3 and 4). So this unit
+# runs the FIRST distinct git found and F34; scripts/operator-fences-second-git.test.sh runs this
+# same file for the SECOND (OPERATOR_FENCES_GIT_INDEX=2). OPERATOR_FENCES_GIT_INDEX=all runs
+# every git in one process, as the suite did before.
+GIT_INDEX="${OPERATOR_FENCES_GIT_INDEX:-1}"
+if [ "$GIT_INDEX" != all ]; then
+    case "$GIT_INDEX" in ''|*[!0-9]*|0) echo "OPERATOR_FENCES_GIT_INDEX must be a positive number or 'all'"; exit 2 ;; esac
+    PICKED="$(printf '%s\n' $GITS | sed -n "${GIT_INDEX}p")"
+    if [ -z "$PICKED" ]; then
+        echo "operator-fences: only $(printf '%s\n' $GITS | grep -c .) distinct git(s) on this host ($GITS );"
+        echo "operator-fences: git #$GIT_INDEX does not exist here, and the unit that runs git #1 covered every git there is."
+        exit 0
+    fi
+    GITS=" $PICKED"
+fi
 
 rev() { git -C "$1" rev-parse -q --verify "$2" 2>/dev/null; }
 sym() { git -C "$1" symbolic-ref -q HEAD 2>/dev/null; }
@@ -705,9 +724,12 @@ done
 export PATH="$ORIG_PATH"
 
 # ---- F34: a declared holder an app update moved ---------------------------------------------
-# Once, outside the per-git loop: the identity is the kernel's and the bundle's.
+# Once, outside the per-git loop: the identity is the kernel's and the bundle's. Run by the unit
+# that runs git #1 (or all of them), never twice.
+if [ "$GIT_INDEX" = 1 ] || [ "$GIT_INDEX" = all ]; then
 out="$(python3 "$ENGINE_ROOT/scripts/lib/operator-fences-holders.test.py" 2>&1)"; rc=$?
 expect "F34" "a holder moved inside its app bundle is still the holder, nothing else passes as it, and status names it" "$rc" "$out"
+fi
 
 # M: this suite's mutation harness runs as its own unit,
 # scripts/operator-fences-mutation.test.sh, so each gets a deadline that fits it.

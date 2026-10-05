@@ -122,7 +122,10 @@ scripts/handoff-facts.test.sh	1.4	linux-run-34945072758
 scripts/hardware-choice-check.test.sh	0.7	linux-run-34945072758
 scripts/hook-registration-completeness.test.sh	2.3	linux-run-34945072758
 scripts/hooks/agent-state-claims.test.sh	3.5	linux-run-34945072758
-scripts/hooks/by-reference.test.sh	345.1	linux-run-34945072758
+scripts/hooks/by-reference.test.sh	91.2	darwin-local-2026-10-05-zach-opus-speed1
+scripts/hooks/by-reference-2.test.sh	107.3	darwin-local-2026-10-05-zach-opus-speed1
+scripts/hooks/by-reference-3.test.sh	93.2	darwin-local-2026-10-05-zach-opus-speed1
+scripts/hooks/by-reference-4.test.sh	108.5	darwin-local-2026-10-05-zach-opus-speed1
 scripts/hooks/ceo-asks.test.sh	53.7	linux-run-34945072758
 scripts/hooks/ceo-inputs.test.sh	5.2	linux-run-34945072758
 scripts/hooks/ceo-ruled.test.sh	19.3	linux-run-34945072758
@@ -144,7 +147,7 @@ scripts/hooks/contract-integrity.test.sh:Qscope	43.6	linux-run-34945072758
 scripts/hooks/contract-integrity.test.sh:RI	157.9	linux-run-34945072758
 scripts/hooks/contract-integrity.test.sh:S	34.2	linux-run-34945072758
 scripts/hooks/contract-integrity.test.sh:SA	71.9	linux-run-34945072758
-scripts/hooks/contract-integrity.test.sh:WTI	402.9	linux-run-34945072758
+scripts/hooks/contract-integrity.test.sh:WTI	80.5	darwin-local-2026-10-05-zach-opus-speed1
 scripts/hooks/contract-integrity.test.sh:WTR	176.7	linux-run-34945072758
 scripts/hooks/contract-integrity.test.sh:base	130.8	linux-run-34945072758
 scripts/hooks/contract-integrity.test.sh:config	30.4	linux-run-34945072758
@@ -228,7 +231,7 @@ scripts/lib/record-canary.test.sh	0.4	linux-run-34945072758
 scripts/lib/resolve-roots.test.sh	0.7	linux-run-34945072758
 scripts/lib/seat-jurisdiction.test.sh	1.7	linux-run-34945072758
 scripts/lib/stopwatch.test.sh	1.0	linux-run-34945072758
-mega-lander/tests/workspaces.test.sh	579.6	linux-run-34945072758
+mega-lander/tests/workspaces.test.sh	217.6	merge-gate-median-of-11-2026-10-05
 scripts/lib/worktree-ledger.test.sh	36.2	linux-run-34945072758
 scripts/locate-engine.test.sh	8.4	linux-run-34945072758
 scripts/mutation-inventory.test.sh	0.6	linux-run-34945072758
@@ -242,7 +245,8 @@ mega-lander/tests/workspace-probes.test.sh	114.0	linux-run-34945072758
 mega-lander/tests/workspace-spec-fourteen.test.sh	2811.7	linux-run-34945072758
 mega-lander/tests/workspace-stopped-ending.test.sh	6.9	linux-run-34945072758
 mega-lander/tests/workspaces-e2e.test.sh	10.2	linux-run-34945072758
-scripts/operator-fences.test.sh	523.2	darwin-local-2026-09-25-zach-opus-fence2
+scripts/operator-fences.test.sh	139.1	darwin-local-2026-10-05-zach-opus-speed1
+scripts/operator-fences-second-git.test.sh	162.3	darwin-local-2026-10-05-zach-opus-speed1
 scripts/operator-fences-mutation.test.sh	1407.7	darwin-local-2026-09-25-zach-opus-fence2
 
 # Section SCR now only checks that scratch-reaper.test.sh is discovered and that every threshold

@@ -403,9 +403,26 @@ stop_pid "$RWW"
 unset RICHOS_RESOURCE_WAITS_NOW
 
 # RW18 — a record whose process is dead is not a wait.
+#
+# THE SUBJECT IS DEAD AND REAPED BEFORE THE RECORD IS WRITTEN (2026-10-05). It was a spawn()ed,
+# disowned pid stopped with stop_pid, which sends TERM, polls for at most 5 s and goes on
+# whatever happened: under load the "dead" pid was still alive when the record was written,
+# and the guard rightly refused (merge gate 2026-10-02 05:08, 09:10 and 17:57, the last after
+# RW18z's zombie fix). Reproduced with a subject slow to die (20 s in its TERM handler, as a
+# loaded Mac makes a plain sleep): the old setup wrote the record for a live pid and RW18 failed
+# exactly as in the gate; this one passes with the same subject. So the subject is this shell's
+# own child,
+# killed with KILL, which cannot be caught, and reaped with `wait`, and the case refuses to run
+# on a pid that still answers.
 clear_all
-spawn sleep 120; DEAD=$SPAWNED
-stop_pid "$DEAD"
+RW18_SUBJECT=(sleep 120)
+( trap - EXIT; exec "${RW18_SUBJECT[@]}" ) >/dev/null 2>&1 &
+DEAD=$!
+kill -KILL "$DEAD" 2>/dev/null
+wait "$DEAD" 2>/dev/null
+if kill -0 "$DEAD" 2>/dev/null; then
+    bad "RW18 setup" "the dead-pid subject $DEAD still answers after KILL and wait; no record written"
+fi
 T0="$(now)"
 write_record "$DEAD" cpu-admission "$T0"
 export RICHOS_RESOURCE_WAITS_NOW=$((T0 + 3600))

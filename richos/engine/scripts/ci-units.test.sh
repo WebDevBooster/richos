@@ -33,6 +33,8 @@
 #   U12  A RESTRICTED inventory (--units-file) is packed by the same planner:
 #        the restriction is a partition of exactly the named set, and the ids
 #        outside it do not appear.
+#   U14  No unit the merge gate would start (planned at or under its 600 s cap)
+#        is planned over 300 s: such a unit crosses the cap under load.
 #   U13  An id in the restriction file that is not a unit is FATAL. A
 #        restriction that silently dropped one would plan over less than it was
 #        asked for and still exit 0, which is the failure this whole file is
@@ -240,6 +242,22 @@ if [ "$RC" -eq 2 ] && grep -q 'which is not a unit' "$SANDBOX/badout"; then
     ok "U13  an id in the restriction that is not a unit is FATAL and is named"
 else
     bad "U13  rc=$RC — an unknown id was silently dropped, so the gate would plan over less than it was asked for"
+fi
+
+# --- U14: no unit the merge gate would start is planned over 300 s (2026-10-05) ---------
+# The gate stops every check at 600 s (autocheck.py CHECK_CAP_SECONDS) and never starts one
+# planned past that (proof-run.py leave_over_cap; the nightly runs it). A unit planned between
+# 300 s and the cap is started, and under the gate's load it crosses the cap: by-reference.test.sh
+# (median 457 s in 12 gate runs) and operator-fences.test.sh (420 s in 8) timed out that way and
+# set the floor of every merge that selected them (richos-hq
+# docs/operations/2026-10-04-merge-check-speed.md, sections 3 and 4). Such a unit is divided
+# into suites of a few minutes each, as those two were; a stale row is re-measured.
+GATE_CAP=600
+OVER="$(bash "$UNITS" units | awk -F'\t' -v cap="$GATE_CAP" '$4 + 0 > 300 && $4 + 0 <= cap { printf "%s (%s s) ", $1, $4 }')"
+if [ -z "$OVER" ]; then
+    ok "U14  no unit the merge gate would start is planned over 300 s"
+else
+    bad "U14  units the merge gate would start, planned over 300 s (divide them, or re-measure a stale row): $OVER"
 fi
 
 echo ""

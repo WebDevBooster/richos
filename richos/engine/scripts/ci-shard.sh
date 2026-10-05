@@ -290,6 +290,100 @@ if measured > weight * factor and measured > weight + floor:
 PY
 }
 
+# ---------------------------------------------------------------------------
+# THE ENGINE'S OWN RUNTIME STATE IS NOT A UNIT'S TO WRITE (2026-10-05)
+# ---------------------------------------------------------------------------
+# What happened: hook suites seated their hooks on the engine checkout itself
+# (`RICHOS_ENTITY_ROOT=<engine>`), so every fixture spawn, ack and unparseable
+# payload appended a line to <engine>/.claude/state/ (main-checkout-runs.log,
+# model-downgrade-acks.log, hand-roll-acks.log, unevaluated-payloads.log,
+# left-off.nosession.state). In the merge gate that engine is the main checkout,
+# which is also the live plugin, so test lines landed in the operator's real
+# audit logs, and the proof gate bound that folder as an input of every engine
+# check running beside the writer: 501 finished results thrown away as
+# `invalid`, 26,512 s of check work in 34 of 211 attempts (richos-hq
+# docs/operations/2026-10-04-merge-check-speed.md, section 2).
+#
+# Why no check caught it: the leak canary witnesses `git status`, and the state
+# folder is gitignored, so the canary is blind there BY DESIGN (lib/leak-canary.sh).
+# The one fix before this was per suite (guard-vendoring-commits C9), one
+# incident at a time.
+#
+# So the folder is witnessed here, per unit, by content: every file's bytes
+# before and after. A unit after which it changed is STATE-WRITTEN, a failure of
+# its own, named with the files and the lines it added. A suite that needs the
+# engine's adoption seats its hooks on a sandbox copy (lib/entity-sandbox.sh)
+# instead. ATTRIBUTION: under proof-run.py's parallel lanes another lane's unit
+# writing at the same moment is charged here too, exactly as the leak canary's
+# note says; the lines printed say whose fixture they were.
+STATE_WITNESS_DIR="$ENGINE_ROOT/.claude/state"
+state_witness() { # <out-file> — every file under the state folder: size and sha256
+    python3 - "$STATE_WITNESS_DIR" "$1" <<'PY'
+import hashlib, json, os, sys
+root, out = sys.argv[1], sys.argv[2]
+seen = {}
+if os.path.isdir(root):
+    for base, dirs, files in os.walk(root):
+        dirs.sort()
+        for name in sorted(files):
+            path = os.path.join(base, name)
+            rel = os.path.relpath(path, root)
+            try:
+                if os.path.islink(path):
+                    seen[rel] = {"link": os.readlink(path)}
+                    continue
+                with open(path, "rb") as stream:
+                    data = stream.read()
+                seen[rel] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+            except OSError as exc:
+                seen[rel] = {"unreadable": str(exc)}
+with open(out, "w") as stream:
+    json.dump(seen, stream)
+PY
+}
+state_written() { # <before-file> — prints one line per changed file, nothing when unchanged
+    python3 - "$STATE_WITNESS_DIR" "$1" <<'PY'
+import hashlib, json, os, sys
+root, before_file = sys.argv[1], sys.argv[2]
+try:
+    before = json.load(open(before_file))
+except (OSError, ValueError):
+    print("the state witness taken before the unit could not be read")
+    sys.exit(0)
+after = {}
+if os.path.isdir(root):
+    for base, dirs, files in os.walk(root):
+        for name in files:
+            path = os.path.join(base, name)
+            after[os.path.relpath(path, root)] = path
+for rel in sorted(set(before) | set(after)):
+    old, path = before.get(rel), after.get(rel)
+    if path is None:
+        print("%s  removed" % rel)
+        continue
+    try:
+        if os.path.islink(path):
+            if old != {"link": os.readlink(path)}:
+                print("%s  link changed" % rel)
+            continue
+        data = open(path, "rb").read()
+    except OSError as exc:
+        print("%s  unreadable after the unit (%s)" % (rel, exc))
+        continue
+    if old and old.get("sha256") == hashlib.sha256(data).hexdigest():
+        continue
+    if old and "size" in old and len(data) > old["size"] \
+            and hashlib.sha256(data[:old["size"]]).hexdigest() == old["sha256"]:
+        added = data[old["size"]:].decode("utf-8", "replace").splitlines()
+        print("%s  appended %d line(s); first: %s" % (rel, len(added), (added[0] if added else "")[:200]))
+    elif old:
+        print("%s  rewritten" % rel)
+    else:
+        first = data.decode("utf-8", "replace").splitlines()[:1]
+        print("%s  created; first line: %s" % (rel, (first[0] if first else "")[:200]))
+PY
+}
+
 C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YEL=$'\033[33m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
 
 die() { printf '%sERROR: ci-shard.sh: %s%s\n' "$C_RED" "$1" "$C_RESET" >&2; exit "${2:-2}"; }
@@ -674,6 +768,8 @@ while IFS= read -r id; do
     LC_HEALTHY=1
     lc_baseline "$CANARY_DIR"
     CANARY_BASE_HEALTHY="$LC_HEALTHY"
+    mkdir -p "$CANARY_DIR" 2>/dev/null || true
+    state_witness "$CANARY_DIR/state.json" 2>/dev/null || CANARY_BASE_HEALTHY=0
     # The unit gets a record of its own (lib/record-canary.sh, "AMENDED
     # 2026-09-27"): HOME in a throwaway home, every variable pointing into the
     # operator's record removed, and the canary watches the record in that
@@ -739,6 +835,7 @@ PY
     ESCAPED="$(lc_escaped "$CANARY_DIR" "$LOG_DIR")"
     TOUCHED=""
     [ "$RECORD_BASE_HEALTHY" -eq 1 ] && TOUCHED="$(rc_escaped "$CANARY_DIR/record.txt")"
+    STATE_WRITTEN="$(state_written "$CANARY_DIR/state.json" 2>/dev/null || true)"
     rm -rf "$UNIT_HOME" 2>/dev/null || true
 
     VERDICT=""
@@ -757,6 +854,8 @@ PY
         VERDICT="RECORD-TOUCHED"
     elif [ -n "$ESCAPED" ]; then
         VERDICT="LEAKED"
+    elif [ -n "$STATE_WRITTEN" ]; then
+        VERDICT="STATE-WRITTEN"
     elif [ "$EXPECT_RC" = "3" ] && [ "$RC" -eq 0 ]; then
         # Named as its own verdict rather than folded into FAIL: this one does
         # not mean the assertions failed, it means the SCOPING did not apply
@@ -836,6 +935,13 @@ PY
                 fi
                 printf '          %s  (under %s)\n' "$centry" "$croot"
             done
+            ;;
+        STATE-WRITTEN)
+            printf '%sFAIL%s %ss — STATE-WRITTEN: wrote the engine'"'"'s own runtime state\n' "$C_RED" "$C_RESET" "$SECS"
+            FAILED=$((FAILED + 1))
+            FAIL_LINES+=("$id — STATE-WRITTEN: wrote into $STATE_WITNESS_DIR, the live plugin's audit record and an input of every engine check beside it. Seat its hooks on a sandbox entity (scripts/lib/entity-sandbox.sh).")
+            printf '        WROTE INTO %s WHILE IT RAN (a unit in another lane at the same moment would show here too):\n' "$STATE_WITNESS_DIR"
+            printf '%s\n' "$STATE_WRITTEN" | sed 's/^/          /'
             ;;
         RECORD-TOUCHED)
             printf '%sFAIL%s %ss — RECORD-TOUCHED: wrote to the record it was given, which outside this runner is the operator'"'"'s\n' "$C_RED" "$C_RESET" "$SECS"

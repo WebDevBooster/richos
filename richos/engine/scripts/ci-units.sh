@@ -236,9 +236,20 @@ _emit_unit_ids() {
 
 # Read the weight table once, preserving first-row and malformed-value behavior.
 # Spawning awk once per unit made every per-unit runner rebuild expensive metadata.
+#
+# CI_UNIT_WEIGHTS_MEASURED (2026-10-05): a file of `unit <TAB> seconds` rows whose weights win over
+# the dated table, read first so its row is the first one seen. proof-run.py passes the medians it
+# measured in this checkout, so the lanes it asks for are packed with what the units cost today.
 emit_units() {
-    _emit_unit_ids | awk -F'\t' -v table="$WEIGHTS" -v fallback="$DEFAULT_WEIGHT" '
+    _emit_unit_ids | awk -F'\t' -v measured="${CI_UNIT_WEIGHTS_MEASURED:-}" -v table="$WEIGHTS" -v fallback="$DEFAULT_WEIGHT" '
         BEGIN {
+            if (measured != "") {
+                while ((getline row < measured) > 0) {
+                    split(row, fields, "\t")
+                    if (fields[2] ~ /^[0-9.]+$/ && !(fields[1] in weights)) weights[fields[1]] = fields[2]
+                }
+                close(measured)
+            }
             while ((getline row < table) > 0) {
                 split(row, fields, "\t")
                 if (!(fields[1] in weights)) weights[fields[1]] = fields[2]

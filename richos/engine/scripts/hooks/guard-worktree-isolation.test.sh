@@ -95,7 +95,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # repository, find no adoption marker, stand down — and every case below would
 # pass by never running. Declaring the subject makes the suite independent of
 # ambient session state, and exercises the env-override candidate for free.
-RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+#
+# THE SUBJECT IS A SANDBOX COPY OF THE ENGINE'S ADOPTION, NOT THE ENGINE CHECKOUT (2026-10-05).
+# Its acks (main-checkout-run, model-downgrade, hand-roll, generic-agent) and its unparseable
+# payloads are appended to <entity>/.claude/state/. Seated on the engine, they landed in the
+# engine's own state folder, which in the merge gate is the live plugin's audit record and an
+# input of every engine check beside this suite (ci-shard.sh STATE-WRITTEN). The sandbox carries
+# orchestration.config and the roster, and is a repository on `main` for the registry.
+. "$SCRIPT_DIR/../lib/entity-sandbox.sh"
+RICHOS_ENTITY_ROOT="$(entity_sandbox "$(cd "$SCRIPT_DIR/../.." && pwd)" --git)" \
+    || { echo "FATAL: could not make the entity sandbox" >&2; exit 1; }
 export RICHOS_ENTITY_ROOT
 # CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
 # value in place would leave a second, lower-precedence candidate pointing
@@ -121,7 +130,7 @@ export RICHOS_TEST_DEVICES_DIR="$TX_SANDBOX/test-devices"
 export TEST_DEVICE_FAILURES_STATE="$TX_SANDBOX/test-device-failures.json"
 RICHOS_SESSION_PID="$(sh -c 'sleep 3600 >/dev/null 2>&1 & echo $!')"
 export RICHOS_SESSION_PID
-trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null || true' EXIT
+trap 'kill "$RICHOS_SESSION_PID" 2>/dev/null || true; rm -rf "$RICHOS_ENTITY_ROOT"' EXIT
 TEST_SID="deadbeef-0000-4000-8000-000000000000"
 
 # POINT 14, AT THE SPAWN. Since eedfbc7d (2026-09-12) registration REFUSES a
