@@ -1030,6 +1030,41 @@ try:
            bare46 and (bare46.returncode, bare46.stderr[-300:]), seen_bare46 == "",
            held46 and held46.returncode, seen_held46 == token46))
 
+    # P46b — rerun-scrub.py takes the values out of a file written before P46: the old file (the
+    # values put back in, as the writer did before 2026-10-05) is rewritten in place, keeps its mode
+    # and every other line, still fails as in the gate, and --check then finds nothing left.
+    import importlib.util as ilu46
+    spec46 = ilu46.spec_from_file_location("rerun_scrub_t", os.path.join(HERE, "rerun-scrub.py"))
+    rs46 = ilu46.module_from_spec(spec46)
+    spec46.loader.exec_module(rs46)
+    old46 = os.path.join(d46, "old", "rerun", os.path.basename(file46) if file46 else "x.sh")
+    os.makedirs(os.path.dirname(old46))
+    lines46 = []
+    for line in text46.splitlines(True):
+        name = line.strip().split('"', 1)[0][2:-1] if line.strip().startswith("${") else ""
+        if line.startswith("# Credentials the gate had"):
+            continue
+        if line.startswith("# that runs this file has it."):
+            continue
+        lines46.append("  %s \\\n" % shlex44.quote("%s=%s" % (name, secrets46[name])) if name in secrets46 else line)
+    open(old46, "w").write("".join(lines46))
+    os.chmod(old46, 0o755)
+    planted46 = sum(v in open(old46).read() for v in secrets46.values())
+    with contextlib.redirect_stdout(io.StringIO()):
+        rs46.main([os.path.join(d46, "old")])
+        still46 = rs46.main(["--check", os.path.join(d46, "old")])
+    after46 = open(old46).read()
+    os.unlink(mark46) if exists(mark46) else None
+    scrubbed_run46 = subprocess.run(["sh", old46], env=shell46, capture_output=True, text=True)
+    check(planted46 == 4 and not any(v in after46 for v in secrets46.values()) and still46 == 0
+          and os.stat(old46).st_mode & 0o777 == 0o755 and "FIXTURE46=gate" in after46
+          and all(k in after46 for k in secrets46) and scrubbed_run46.returncode == 1
+          and open(mark46).read() == "",
+          "P46b rerun-scrub.py takes the four values out of a file written before the fix, keeps its mode and "
+          "its other lines, the file still fails as in the gate, and --check finds nothing left",
+          (planted46, [k for k, v in secrets46.items() if v in after46], still46,
+           oct(os.stat(old46).st_mode & 0o777), scrubbed_run46.returncode, scrubbed_run46.stderr[-300:]))
+
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.
     class Held:
