@@ -1,7 +1,10 @@
 "use strict";
 // Desktop technical settings: the Claude Code quota sheet, built to round 16 (richos-hq
 // design/mockups/rounds/round-16/, the design the CEO chose on 2026-10-04). With one account it
-// is round 14's sheet with "+ Add account" beside Refresh. With two or more: the account lanes in
+// is round 16's one-account sheet (its thirteen round-14 states in round 16's words, quota.html
+// `STATES` `entry` ... `fast-one`) with "+ Add account" beside Refresh in every state, a reading
+// or not (walk of nightly 36, D1; round 16's `unavailable` hides it, and without it a first
+// account with no reading can never become two). With two or more: the account lanes in
 // handover order, Add account and Remove inline, round 14's switch as the subject of ONE sentence
 // whose verb is Pause or Switch, the lines that move while usage is fast (with a ghost of the
 // normal line), the sheet after a switch, and the hold when every account is used up.
@@ -15,7 +18,7 @@
   sheet.innerHTML = `<section class="overlay-panel quota-panel">
     <header class="quota-heading"><div><p class="quota-eyebrow">Settings · Technical view</p>
       <h2 id="quota-title">Claude Code quota</h2>
-      <p id="quota-lede" class="quota-lede">Your Claude Code allowance, shared across apps and sessions.</p></div>
+      <p id="quota-lede" class="quota-lede">Straight from Claude Code, shared across every app and session on this account.</p></div>
       <button id="quota-close" type="button" aria-label="Close Claude Code quota">×</button></header>
     <div class="quota-body"><div class="quota-windows-col">
       <div class="quota-toolbar"><span id="quota-freshness">Loading quota…</span>
@@ -35,15 +38,15 @@
           <span class="quota-muted">Claude Code signs in through your browser.</span></div></div>
       <p id="quota-account-feedback" class="quota-account-feedback" role="status" aria-live="polite"></p>
       <div id="quota-windows" aria-label="Claude Code quota windows"></div>
-      <div id="quota-empty" hidden><h3>No reading yet.</h3><p>Claude Code has not reported an allowance. There is no usage figure to show yet.</p></div>
+      <div id="quota-empty" hidden><h3>Nothing to show yet.</h3><p>RichOS asks Claude Code for its own usage figures and shows exactly what comes back. <span id="quota-empty-why">Claude Code has not answered yet</span>, so there is no number here — <b>not zero, not full, nothing guessed.</b></p><p id="quota-empty-next">If this stays empty after a refresh, Claude Code may not be signed in on this Mac.</p></div>
       <p class="quota-legend">The gold bar is what you have used; the tick is how far the clock has run. <b>Bar past the tick means you are spending faster than the window is passing.</b></p>
       <section id="quota-reset-offers" class="quota-reset-offers" aria-label="Weekly quota resets" hidden><button id="quota-usage-open" class="quota-btn" type="button" title="claude.ai/new#settings/usage">Open Claude Usage</button></section>
       <p id="quota-reset-feedback" role="status" aria-live="polite"></p>
     </div><form id="quota-policy" class="quota-policy" novalidate>
       <h3 id="quota-policy-title">Automatic pause</h3>
       <div class="quota-switch-row"><button id="quota-enabled" class="quota-switch" type="button" role="switch" aria-checked="false" aria-label="Automatically pause Rich’s agents"></button>
-        <div class="quota-switch-label"><span id="quota-sentence-lead">Pause Rich’s agents when the five-hour window reaches</span>
-          <label class="quota-threshold"><span class="sr-only">Pause threshold, percent used</span><input id="quota-threshold" inputmode="numeric" type="text" maxlength="3" value="93" aria-describedby="quota-validation">% used</label><span id="quota-sentence-end">, <span class="quota-muted">unless the reset is less than 20 minutes away.</span></span>
+        <div class="quota-switch-label"><span id="quota-sentence-lead">Pause Rich’s agents once the five-hour window passes</span>
+          <label class="quota-threshold"><span class="sr-only">Pause threshold, percent used</span><input id="quota-threshold" inputmode="numeric" type="text" maxlength="3" value="93" aria-describedby="quota-validation">% used</label><span id="quota-sentence-end"><span class="quota-muted">, unless the reset is under 20 minutes away.</span></span>
           <div id="quota-verbs" class="quota-opts" role="radiogroup" aria-label="What happens at the line" hidden>
             <button id="quota-verb-pause" class="quota-opt" type="button" role="radio" data-act="pause" aria-checked="true"><span class="quota-radio" aria-hidden="true"></span><span>pause Rich’s agents</span></button>
             <button id="quota-verb-switch" class="quota-opt" type="button" role="radio" data-act="switch" aria-checked="false"><span class="quota-radio" aria-hidden="true"></span><span id="quota-verb-switch-text">switch to the next account</span></button></div>
@@ -57,12 +60,11 @@
       <div id="quota-status-card" class="quota-status-card">
         <h4 id="quota-hold-status">Loading pause status…</h4>
         <div id="quota-hold-detail" class="quota-hold-detail"></div><ul id="quota-held" aria-label="Observed pauses"></ul>
-        <div class="quota-status-actions"><button id="quota-hold-refresh" type="button" class="quota-btn" hidden>Refresh</button>
+        <div class="quota-status-actions"><button id="quota-hold-refresh" type="button" class="quota-btn" hidden>Refresh now</button>
           <button id="quota-release" type="button" class="quota-btn" hidden>Let them continue now</button></div>
       </div>
-      <div id="quota-boundary-one" class="quota-boundary"><p><b>A pause keeps context and work.</b> Agents finish their step, then wait.</p>
-        <p>Weekly 99% pauses until allowance returns or an approved free reset succeeds. No weekly 20-minute exception.</p>
-        <p id="quota-checkpoints">Checks at app and session start, then every 5 minutes.</p></div>
+      <div id="quota-boundary-one" class="quota-boundary"><p><b>A pause is not a stop.</b> Each agent finishes the step it is on, then waits before the next, keeping its place and everything it knows. Because a step is allowed to finish, usage can climb a little past the line.</p>
+        <p>Your conversation with Rich, and any Claude Code you run outside RichOS, are never paused.</p></div>
       <div id="quota-boundary-many" class="quota-boundary" hidden><p><b>A pause is not a stop; a switch is not a restart.</b> Paused, an agent keeps its place and waits; switched, its next step runs on the next account with everything carried over.</p>
         <p>At <b>99%</b> of an account’s week Rich switches whatever you choose here, always to the account whose week ends soonest; when every account is used up, work waits for the soonest reset.</p></div>
     </form></div></section>`;
@@ -213,8 +215,11 @@
       const primary = window === hero, old = stale() || !!window.resetsAt && window.resetsAt <= Date.now();
       const row = node("section", "quota-window " + (primary ? "quota-hero" : "quota-weekly") + (old ? " quota-window--stale" : ""));
       const heading = node("div", "quota-window-summary");
-      const title = node("h3", "quota-window-label", sel ? (primary ? `Five-hour window · ${sel.label}` : `${window.id === "seven_day" ? "Weekly window" : window.label} · ${sel.label}`) : window.label);
-      if (primary) title.appendChild(node("span", "quota-muted", sel ? heroSub(sel) : "five-hour pause threshold"));
+      // Round 16's labels: "Five-hour window <sub>the one the pause watches</sub>", "Weekly
+      // window", a model's own "Weekly · Fable"; with accounts each carries the account's name.
+      const name = primary ? "Five-hour window" : window.id === "seven_day" ? "Weekly window" : window.label;
+      const title = node("h3", "quota-window-label", sel ? `${name} · ${sel.label}` : name);
+      if (primary) title.appendChild(node("span", "quota-muted", sel ? heroSub(sel) : "the one the pause watches"));
       heading.appendChild(title);
       const value = node("div", "quota-used", String(Math.round(window.usedPercent)));
       value.append(node("span", "quota-percent", "%"), node("span", "quota-unit", "used"));
@@ -240,11 +245,22 @@
       row.append(heading, ruler(window, primary, old, line)); list.appendChild(row);
     }
     if (windows.length && !sel) {
-      if (!hero) list.prepend(node("p", "quota-absent", "Five-hour allowance not reported by Claude Code."));
-      if (!windows.some(w => w.id === "seven_day")) list.appendChild(node("p", "quota-absent", "Weekly allowance not reported by Claude Code."));
-      if (!windows.some(w => w.id !== "five_hour" && w.id !== "seven_day")) list.appendChild(node("p", "quota-absent", "Model-specific weekly limits not reported for this account."));
+      // Round 16's `one-window` rows: the window's label, then "not reported by Claude Code for
+      // this account". Round 16 names the model it drew (Sonnet); the app cannot know which
+      // model is missing, so that row says "Weekly · per model".
+      const absent = label => { const row = node("p", "quota-absent"); row.append(node("b", "", label), " — not reported by Claude Code for this account"); return row; };
+      if (!hero) list.prepend(absent("Five-hour window"));
+      if (!windows.some(w => w.id === "seven_day")) list.appendChild(absent("Weekly window"));
+      if (!windows.some(w => w.id !== "five_hour" && w.id !== "seven_day")) list.appendChild(absent("Weekly · per model"));
     }
     field("quota-empty").hidden = !!windows.length;
+    // A check that came back with no figures (quota.rs `empty_at`) is said as what it was:
+    // Claude Code answered, without them. Round 16 draws only "has not answered yet".
+    const answered = !windows.length && view.emptyAt && !view.message;
+    field("quota-empty-why").textContent = answered ? "Claude Code answered without its usage figures this time" : "Claude Code has not answered yet";
+    const nextAsk = view.nextCheckAt > Date.now() ? duration(view.nextCheckAt - Date.now()) : null;
+    field("quota-empty-next").textContent = answered && nextAsk ? `RichOS asks again in ${nextAsk}; Ask Claude Code asks now.`
+      : "If this stays empty after a refresh, Claude Code may not be signed in on this Mac.";
     // Round 16 hides the ruler key while the Add account form is open.
     sheet.querySelector(".quota-legend").hidden = !windows.length || !field("quota-account-new").hidden;
   }
@@ -326,8 +342,8 @@
     const many = multi(), cur = inUseAcct(), nx = nextAcct(), on = !!view.policy.enabled, t = view.policy.pausePercent;
     field("quota-policy-title").textContent = many ? "Automatic pause or switch" : "Automatic pause";
     field("quota-enabled").setAttribute("aria-label", many ? "Automatic pause or switch at the line" : "Automatically pause Rich’s agents");
-    field("quota-sentence-lead").textContent = many ? `Once ${cur ? cur.label + "’s" : "the"} five-hour window passes` : "Pause Rich’s agents when the five-hour window reaches";
-    field("quota-sentence-end").innerHTML = many ? "," : `, <span class="quota-muted">unless the reset is less than 20 minutes away.</span>`;
+    field("quota-sentence-lead").textContent = many ? `Once ${cur ? cur.label + "’s" : "the"} five-hour window passes` : "Pause Rich’s agents once the five-hour window passes";
+    field("quota-sentence-end").innerHTML = many ? "," : `<span class="quota-muted">, unless the reset is under 20 minutes away.</span>`;
     field("quota-sentence-tail").hidden = !many;
     const verbs = field("quota-verbs");
     verbs.hidden = !many;
@@ -337,9 +353,13 @@
       option.disabled = !on || accountBusy || saving;
     }
     field("quota-verb-switch-text").innerHTML = nx ? `switch to <b>${esc(nx.label)}</b>, the next account` : `switch to the next account <span class="quota-muted">— none has room now</span>`;
+    // Round 16's hint under the sentence: with one account "Change the number to move the line."
+    // while on and "Off — the line is only drawn, not enforced." while off; with several, only
+    // the off line. A draft in progress shows Save and Keep (or the validation line) instead.
     const hint = field("quota-hint");
-    hint.hidden = !(many && !on && !dirty);
-    hint.textContent = hint.hidden ? "" : `Off — nothing happens at ${t}%; the line is only drawn.`;
+    hint.hidden = dirty || (many && on);
+    hint.textContent = hint.hidden ? "" : many ? `Off — nothing happens at ${t}%; the line is only drawn.`
+      : on ? "Change the number to move the line." : "Off — the line is only drawn, not enforced.";
     field("quota-boundary-one").hidden = many;
     field("quota-boundary-many").hidden = !many;
   }
@@ -385,12 +405,20 @@
     const agents = held.filter(r => r.kind === "agent").length;
     const assignments = held.filter(r => r.kind === "assignment").length;
     const many = multi(), cur = inUseAcct(), nx = nextAcct(), allGone = many && view?.heldUntil > now;
-    let head, body, holding = !!held.length || allGone, acting = false;
-    field("quota-hold-refresh").hidden = state !== "unknown";
-    field("quota-hold-refresh").disabled = busy || saving || view?.retryAt > now;
-    field("quota-release").hidden = !enabled || !(held.length || state === "unknown");
+    // Pause on and no current reading: "waiting" while a check is on its way (round 16's
+    // `hold-no-reading`), "noReading" once that check came back with no figures (quota.rs
+    // `Admission::NoReading`: nothing is held on a missing number; walk of nightly 36, D1).
+    const quiet = !held.length && !allGone && enabled;
+    const waiting = quiet && state === "unknown", noReading = quiet && state === "noReading";
+    let head, body, holding = !!held.length || allGone || waiting, acting = false;
+    const five = (view?.windows || []).find(w => w.id === "five_hour");
+    // Refresh is never locked: a failure's backoff holds only the automatic check (quota.rs
+    // `due`), and round 16 says "Refresh asks sooner" beside it.
+    field("quota-hold-refresh").hidden = !(waiting || noReading);
+    field("quota-hold-refresh").disabled = busy || saving;
+    field("quota-release").hidden = !enabled || !(held.length || waiting);
     field("quota-release").disabled = saving;
-    field("quota-release").textContent = held.length ? "Let them continue now" : "Turn pause off";
+    field("quota-release").textContent = held.length ? "Let them continue now" : "Turn it off";
     if (allGone) {
       // Every account used up: held until the soonest reset, named by account.
       const back = accounts().filter(isGone).sort((a, b) => a.exhaustedUntil - b.exhaustedUntil), first = back[0];
@@ -399,39 +427,62 @@
         + (agents ? `${agents} ${agents === 1 ? "agent holds its" : "agents hold their"} place and ${agents === 1 ? "resumes" : "resume"}` : "Agents hold their place and resume")
         + ` at <b>${esc(clock(view.heldUntil))}</b>, when ${first ? poss(first.label) : "the first"} window resets — the soonest.`;
     } else if (held.length) {
-      head = !enabled || state === "ready" ? "Releasing the pause…" : agents ? `${agents} ${agents === 1 ? "agent is" : "agents are"} paused` : assignments ? `${assignments} ${assignments === 1 ? "assignment is" : "assignments are"} paused` : "Waiting to start an agent";
-      body = esc(!enabled || state === "ready" ? "The allowance permits work. Waiting for each pause to clear." : weeklyHeld ? "Weekly usage reached 99%. Waiting for a confirmed reset and available allowance." : activity.resumesAt ? `Can continue just after ${clock(activity.resumesAt)} when the reset is under 20 minutes away.` : "Waiting for a current five-hour reading. Their work is saved.");
-      if (enabled) body += " Continuing now turns automatic pause off.";
+      const whose = many && cur ? `${poss(cur.label)} five-hour` : "The five-hour";
+      const near = five && five.resetsAt > now && five.resetsAt - now < 20 * 60000;
+      if (enabled && state === "ready" && near && agents) {
+        // Round 16's `releasing`: under 20 minutes to the reset, the pause lifts.
+        head = `Releasing — the reset is ${duration(five.resetsAt - now)} away.`;
+        body = `Under 20 minutes to go, so the pause lifts: <b>${agents} ${agents === 1 ? "agent is" : "agents are"} picking up exactly where ${agents === 1 ? "it" : "they"} stopped.</b> The window resets at ${esc(clock(five.resetsAt))}.`;
+      } else if (enabled && state === "held" && !weeklyHeld && agents && five && activity.resumesAt) {
+        // Round 16's `holding` (one account) and `two-holding`.
+        head = `Holding ${agents} ${agents === 1 ? "agent" : "agents"} since ${clock(Math.min(...held.map(r => r.sinceAt)))}.`;
+        body = `${whose} window is at <b>${pct(five.usedPercent)} used</b>, past your ${fiveLine()}% line. ${many ? "" : agents === 1 ? "It has kept its place. " : "Each has kept its place. "}`
+          + `${agents === 1 ? "It resumes" : "They resume"} at <b>${esc(clock(activity.resumesAt))}</b>, 20 minutes before the reset${many ? "." : ", or sooner if a fresh reading is back under the line."}`;
+      } else {
+        head = !enabled || state === "ready" ? "Releasing the pause…" : agents ? `${agents} ${agents === 1 ? "agent is" : "agents are"} paused` : assignments ? `${assignments} ${assignments === 1 ? "assignment is" : "assignments are"} paused` : "Waiting to start an agent";
+        body = esc(!enabled || state === "ready" ? "The allowance permits work. Waiting for each pause to clear." : weeklyHeld ? "Weekly usage reached 99%. Waiting for a confirmed reset and available allowance." : activity.resumesAt ? `Can continue just after ${clock(activity.resumesAt)} when the reset is under 20 minutes away.` : "Waiting for a current five-hour reading. Their work is saved.");
+        if (enabled) body += " Continuing now turns automatic pause off.";
+      }
       if (many && enabled && view.atThreshold !== "switch" && nx) body += ` <b>${esc(nx.label)}</b> has room: choose <i>switch</i> above and they continue there now.`;
     } else if (released.length && (!enabled || state === "ready")) {
       head = "Pause released"; body = "These waits have cleared. Work can continue from its saved place.";
     } else if (!enabled) {
-      if (many) {
-        head = "Off. Nothing is paused.";
-        body = `Rich’s agents keep working through the line. If ${cur ? poss(cur.label) : "the"} five-hour window runs out, the step Claude Code turns away runs again on the next account with room. The switch at 99% of the week still happens; that is what a second account is for.`;
-      } else { head = "Automatic pause is off"; body = "Rich’s agents can use the available allowance. Turn it on to keep a reserve in the five-hour window."; }
-    } else if (state === "unknown") {
-      head = "Waiting for a current reading"; body = "New background work will wait until the five-hour allowance is known. Refresh the reading or turn pause off.";
+      head = "Off. Nothing is paused.";
+      // Round 16's `fresh` card with one account. With several the app keeps its own second
+      // sentence, because a turned-away step runs again on the next account with room.
+      body = many ? `Rich’s agents keep working through the line. If ${cur ? poss(cur.label) : "the"} five-hour window runs out, the step Claude Code turns away runs again on the next account with room. The switch at 99% of the week still happens; that is what a second account is for.`
+        : "Rich’s agents keep working through the limit. When the five-hour window is spent, Claude Code turns them away until it resets — and Rich tells you.";
+    } else if (waiting) {
+      // Round 16's `hold-no-reading`. The wait lasts until the check on its way comes back.
+      head = "Holding until there is a current reading.";
+      body = `${view.checkedAt ? `The last reading is <b>${esc(duration(now - view.checkedAt))} old</b>, and a rule needs a fresh one` : "There is no reading yet, and a rule needs one"} — an old number could let work through past the line. Nothing starts a new step until Claude Code answers.`;
+    } else if (noReading) {
+      // Not drawn in round 16: the check came back with no figures, so nothing is held on it.
+      head = "No current reading, so nothing is held.";
+      const ask = view.retryAt > now ? view.retryAt : view.nextCheckAt;
+      body = `${view.message ? "The last check brought no usage figures" : "Claude Code’s last answer had no usage figures"}, and the pause acts only on a number. Rather than wait on Claude Code, Rich’s agents keep working; the pause acts again once a reading shows the five-hour window past <b>${fiveLine()}%</b>.`
+        + (ask > now ? ` RichOS asks again in ${esc(duration(ask - now))}.` : "");
     } else if (state === "held") {
       head = "Ready to pause"; body = esc(weeklyHeld ? "Weekly usage reached 99%. Agents will pause at their next step until allowance is confirmed." : `The five-hour allowance has reached ${view.policy.pausePercent}%. Agents will pause when they finish their current step. No pauses observed yet.`);
-    } else if (!many) {
-      head = "Automatic pause is on"; body = "The allowance permits work. No pauses observed.";
     } else {
       acting = true;
-      const five = winOf(cur, "five_hour"), used = five ? `<b>${pct(five.usedPercent)} used</b>` : "not read yet", line = fiveLine();
+      const five = many ? winOf(cur, "five_hour") : (view.windows || []).find(w => w.id === "five_hour");
+      const used = five ? `<b>${pct(five.usedPercent)} used</b>` : "not read yet", line = fiveLine();
+      const whose = many ? poss(cur?.label || "The account in use") : "The";
       const from = accounts().find(a => a.id === view.lastSwitch?.from);
-      if (from && cur && view.lastSwitch.to === cur.id) {
+      if (many && from && cur && view.lastSwitch.to === cur.id) {
         // After a switch the card says who switched, from where, when, and what is next.
         const why = { fiveHour: `at ${Math.floor(view.lastSwitch.used)}% of its five-hour window`, weekly: `at ${Math.floor(view.lastSwitch.used)}% of its week`, limit: "when it reached a usage limit" }[view.lastSwitch.why] || "";
         head = `In use: ${cur.label}, since ${clock(view.lastSwitch.at)}.`;
         body = `Rich switched from <b>${esc(from.label)}</b> ${esc(duration(now - view.lastSwitch.at))} ago ${why}. Every agent’s next step ran on ${esc(cur.label)}; nothing restarted. `
           + (nx ? `When ${esc(cur.label)} reaches its line, the next is <b>${esc(nx.label)}</b>.` : "No other account has room right now, so at the line Rich pauses.");
-      } else if (view.atThreshold === "switch") {
+      } else if (many && view.atThreshold === "switch") {
         head = "On. Rich switches at the line.";
-        body = `${poss(cur?.label || "The account in use")} five-hour window is at ${used}. At <b>${line}%</b>, every agent’s next step runs on <b>${esc(nx ? nx.label : "the next account")}</b> — the account whose week ends soonest — and Rich says so in the conversation. Nothing stops.` + (nx ? "" : " No other account has room right now, so Rich would pause instead.");
+        body = `${whose} five-hour window is at ${used}. At <b>${line}%</b>, every agent’s next step runs on <b>${esc(nx ? nx.label : "the next account")}</b> — the account whose week ends soonest — and Rich says so in the conversation. Nothing stops.` + (nx ? "" : " No other account has room right now, so Rich would pause instead.");
       } else {
+        // Round 16's `hold-idle` with one account, `two` / `choice-pause` with several.
         head = "On. Nothing is waiting.";
-        body = `${poss(cur?.label || "The account in use")} five-hour window is at ${used}. Agents pause the moment it passes <b>${line}%</b>, unless the reset is under 20 minutes away — then it is not worth stopping.` + (nx && cur ? ` ${esc(nx.label)} stays idle until ${poss(cur.label)} week reaches 99%.` : "");
+        body = `${whose} five-hour window is at ${used}. Agents pause the moment it passes <b>${line}%</b>, unless the reset is under 20 minutes away — then it is not worth stopping.` + (many && nx && cur ? ` ${esc(nx.label)} stays idle until ${poss(cur.label)} week reaches 99%.` : "");
       }
     }
     const speed = view ? speedNote() : null;
@@ -445,17 +496,18 @@
     if (!activity || activity.error) paragraphs.push(`<p>${unavailable}</p>`);
     field("quota-status-card").classList.toggle("is-holding", holding);
     // The status dot before the head (round 14 and 16): filled gold while on, a gold ring while
-    // holding, breathing while usage is fast, an ink ring while off.
-    const dot = node("span", "quota-status-dot" + (speed && !held.length && !allGone ? " is-fast" : holding ? " is-holding" : enabled ? " is-on" : ""));
+    // holding, breathing while usage is fast, an ink ring while off or with nothing to act on.
+    const dot = node("span", "quota-status-dot" + (speed && !held.length && !allGone ? " is-fast" : holding ? " is-holding" : enabled && !noReading ? " is-on" : ""));
     dot.setAttribute("aria-hidden", "true");
     title.replaceChildren(dot, head);
     detail.innerHTML = paragraphs.join("");
     list.replaceChildren();
     for (const row of (held.length ? held : !enabled || state === "ready" ? released : [])) {
       const item = node("li", ""), description = node("span", "quota-held-description");
+      // Round 16's one line: "Mark · Outbox retry — wiring the reconnect path".
       description.appendChild(node("strong", "", row.name));
-      if (row.task) description.appendChild(node("span", "quota-muted", row.task));
-      if (row.kind !== "agent") description.appendChild(node("span", "quota-muted", row.kind === "assignment" ? "Assignment" : "Agent dispatch"));
+      if (row.task) description.append(" · ", node("span", "", row.task));
+      if (row.kind !== "agent") description.append(" · ", node("span", "", row.kind === "assignment" ? "Assignment" : "Agent dispatch"));
       item.append(description, node("span", "quota-held-time", (held.length ? "since " : "released ") + clock(held.length ? row.sinceAt : row.releasedAt)));
       list.appendChild(item);
     }
@@ -468,7 +520,7 @@
     const cur = inUseAcct(), nx = multi() ? nextAcct() : null;
     let reading = five ? `${Math.round(five.usedPercent)}% used` : "";
     if (five && multi() && cur) reading = `${cur.label} ${Math.round(five.usedPercent)}%${nx ? " · next " + nx.label : ""}`;
-    text.textContent = multi() && view?.heldUntil > Date.now() ? "every account used up" : n ? `holding ${n} ${n === 1 ? "agent" : "agents"}` : five ? `${reading}${stale() ? " · stale" : ""}${fastNow() ? " · fast" : ""}` : "No current reading";
+    text.textContent = multi() && view?.heldUntil > Date.now() ? "every account used up" : n ? `holding ${n} ${n === 1 ? "agent" : "agents"}` : five ? `${reading}${stale() ? " · stale" : ""}${fastNow() ? " · fast" : ""}` : "no reading";
     let mini = row.querySelector(".quota-mini");
     if (!mini) { mini = node("span", "quota-mini"); mini.setAttribute("aria-hidden", "true"); mini.appendChild(node("i", "")); row.insertBefore(mini, row.lastChild); }
     mini.hidden = !five;
@@ -637,15 +689,19 @@
 
   function render() {
     paintMenu();
-    field("quota-refresh").disabled = busy || saving || !!(view?.retryAt > Date.now());
-    // Round 16's Refresh: the circular-arrow icon, "Asking Claude Code…" while it asks.
+    // Refresh is never locked by a failure's backoff: that wait holds only the automatic check
+    // (quota.rs `due`); a person who asks is owed a real check (round 16: "Refresh asks
+    // sooner"). Walk of nightly 36, D1: a null answer locked it for 10 minutes.
+    field("quota-refresh").disabled = busy || saving;
+    // Round 16's Refresh: the circular-arrow icon, "Asking Claude Code…" while it asks, and
+    // "Ask Claude Code" while there is no reading at all.
     field("quota-refresh").classList.toggle("is-busy", busy);
-    field("quota-refresh-label").textContent = busy ? "Asking Claude Code…" : "Refresh";
+    field("quota-refresh-label").textContent = busy ? "Asking Claude Code…" : view && !view.windows.length ? "Ask Claude Code" : "Refresh";
     if (!view) return;
-    const now = Date.now(), age = view.checkedAt ? duration(now - view.checkedAt) + " ago" : null;
+    const now = Date.now(), age = view.checkedAt && view.windows.length ? duration(now - view.checkedAt) + " ago" : null;
     const freshness = field("quota-freshness");
     freshness.classList.toggle("is-stale", !!age && stale());
-    if (!age) freshness.textContent = "No current reading";
+    if (!age) freshness.replaceChildren(node("b", "", "No reading yet."));
     else {
       // The cadence: every 5 minutes at every level of use; every MINUTE while usage is fast or
       // a rise is expected, in gold (round 16's reading line, the app's measured interval).
@@ -654,18 +710,26 @@
       freshness.replaceChildren(node("b", "", stale() ? `Last reading ${age} — stale` : `Checked ${age}`), " · ",
         quick ? node("span", "quota-fast", quick) : `checks every ${Math.round(view.refreshIntervalMs / 60000)} min`);
     }
-    field("quota-message").textContent = (view.message || "") + (view.retryAt > now ? ` Next refresh available in ${duration(view.retryAt - now)}.` : "");
-    field("quota-message").hidden = !field("quota-message").textContent;
+    // Round 16's `refresh-failed` notice: what happened, how old the figures are, when RichOS
+    // tries again, and that Refresh asks sooner. The same shape says a null answer over figures
+    // from earlier ("answered without its usage figures"), and an unreadable answer is still
+    // named as unreadable (quota.rs `ReadError`).
+    const message = field("quota-message"), again = view.retryAt > now ? view.retryAt : view.nextCheckAt > now ? view.nextCheckAt : null;
+    const said = view.message || (view.emptyAt && view.windows.length ? "Claude Code answered without its usage figures just now." : "");
+    if (said && view.windows.length && view.checkedAt) {
+      message.innerHTML = `<b>${esc(said)}</b> The figures below are from ${esc(duration(now - view.checkedAt))} ago and may have moved on.`
+        + (again ? ` RichOS ${view.message ? "tries" : "asks"} again in ${esc(duration(again - now))}; Refresh asks sooner.` : "");
+    } else message.textContent = said + (said && again ? ` RichOS tries again in ${duration(again - now)}.` : "");
+    message.hidden = !message.textContent;
     const many = multi();
     sheet.querySelector(".quota-panel").classList.toggle("is-multi", many);
-    field("quota-lede").textContent = many ? "Straight from Claude Code, for each account signed in on this Mac." : "Your Claude Code allowance, shared across apps and sessions.";
+    field("quota-lede").textContent = many ? "Straight from Claude Code, for each account signed in on this Mac." : "Straight from Claude Code, shared across every app and session on this account.";
     if (selectedId && !accounts().some(a => a.id === selectedId)) selectedId = null;
-    field("quota-account-start").hidden = !field("quota-account-new").hidden || view.state === "unavailable" && !view.windows.length;
+    // + Add account is offered in every state, a reading or not (walk of nightly 36, D1): it is
+    // the only way to a second account, and the first one may have no reading for a while.
+    field("quota-account-start").hidden = !field("quota-account-new").hidden;
     field("quota-account-start").disabled = accountBusy;
     field("quota-account-add").disabled = accountBusy;
-    field("quota-checkpoints").textContent = fastNow() ? "Checks at app and session start, then every minute while usage is fast."
-      : expectedNow() ? "Checks at app and session start, then every minute while a rise is expected."
-      : "Checks at app and session start, then every 5 minutes.";
     renderLanes();
     renderWindows();
     renderResets();

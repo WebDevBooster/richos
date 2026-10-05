@@ -1925,9 +1925,12 @@
     const remaining = (window?.resetsAt || 0) - Date.now();
     const high = window?.usedPercent >= quotaPolicy.pausePercent;
     const weekly = fixture.windows.find(w => w.id === "seven_day" && w.usedPercent >= 99);
-    const admission = !quotaPolicy.enabled ? { state: "disabled" } : weekly ? (weekly.resetsAt > Date.now() ? { state: "held", resetsAt: weekly.resetsAt } : { state: "unknown" }) : !window || remaining <= 0 ? { state: "unknown" }
+    // As quota.rs decides it: with no current reading, work waits only while a check is on its
+    // way ("unknown"); once a check came back with no figures (`emptyAt`), nothing is held on it.
+    const unread = { state: fixture.emptyAt ? "noReading" : "unknown" };
+    const admission = !quotaPolicy.enabled ? { state: "disabled" } : weekly ? (weekly.resetsAt > Date.now() ? { state: "held", resetsAt: weekly.resetsAt } : { state: "unknown" }) : !window || remaining <= 0 ? unread
       : high && remaining < 20 * 60000 ? { state: "ready" } : high ? { state: "held", resetsAt: window.resetsAt }
-      : fixture.state === "fresh" ? { state: "ready" } : { state: "unknown" };
+      : fixture.state === "fresh" ? { state: "ready" } : unread;
     // Fill-first in the preview: the preset may carry `accounts`, `atThreshold`, `heldUntil`,
     // `actAt` and `refreshIntervalMs`; Add and Remove change the preview's own list.
     const list = mockAccounts.length ? mockAccounts : (fixture.accounts || []);

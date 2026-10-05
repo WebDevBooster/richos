@@ -6888,8 +6888,11 @@ body.home-open {
 .quota-panel #quota-hold-detail { margin-top: 6px; font-size: 1rem; line-height: 1.5; color: var(--ink-soft); }
 #quota-held { padding: 0; margin: 10px 0 0; list-style: none; max-height: 190px; overflow-y: auto; }
 #quota-held li { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--line-soft); padding: 6px 0; font-size: 1rem; }
-.quota-held-description { min-width: 0; }
-.quota-held-description > * { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Round 16's held row (quota.html `.held li`): one line, "Mark · Outbox retry — wiring …",
+   the name in ink and the rest ink-soft (5.78:1 dark / 6.38:1 light on the card), ellipsized,
+   the time at the right. */
+.quota-held-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); }
+.quota-held-description strong { font-weight: 600; color: var(--ink); }
 .quota-held-time { color: var(--ink-soft); white-space: nowrap; }
 .quota-status-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .quota-status-actions:has(button:not([hidden])) { margin-top: 12px; }
