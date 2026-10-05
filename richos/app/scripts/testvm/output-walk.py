@@ -522,6 +522,17 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('nothing on screen is named "%s"' % title)
         return hits[0]
 
+    def press_named(self, title):
+        """Press a control by its name whatever role the guest's tree gives it: an AXPress when it
+        is a button, else a real click at its center (a toggle with aria-expanded or aria-pressed
+        is not always an AXButton in WebKit's tree)."""
+        try:
+            return self.press(title)
+        except StepFailed:
+            n = self.node(title)
+            return command([HERE / 'ax.sh', self.vm, 'click', '--at',
+                            '%.0f,%.0f' % (n['x'] + n['w'] / 2, n['y'] + n['h'] / 2)], 60)
+
     def drag(self, *points):
         """A real mouse drag through `points` (pointer-drag.sh), in guest screen coordinates."""
         out = command([HERE / 'pointer-drag.sh', self.vm, *['%.0f,%.0f' % p for p in points]], 90)
@@ -576,14 +587,14 @@ class OutputWalk(command_walk.CommandWalk):
         self.shot('pull-full.png')
 
         # 3. The pill: the conversation one click back, at the stop.
-        self.press('Show the conversation')
+        self.press_named('Show the conversation')
         time.sleep(1.2)
         back = self.node('Output panel width')
-        note(divider_after_pill=back, pill_after=self.present('Show the conversation'))
+        note(divider_after_pill=back, pill_after_by_name=self.present('Show the conversation'))
         near(back['x'], stop, 4, 'the pill returns to the stop')
 
         # 4. The sidebar away, and the divider pulled past the new stop: the whole window.
-        self.press('Hide the sidebar')
+        self.press_named('Hide the sidebar')
         time.sleep(1.2)
         left = rail['x']
         new_stop = left + STAGE_MIN
@@ -599,7 +610,7 @@ class OutputWalk(command_walk.CommandWalk):
         self.shot('pull-everything.png')
 
         # 5. Closing brings the whole conversation back.
-        self.press('Close the output panel')
+        self.press_named('Close the output panel')
         time.sleep(1.2)
         whole = self.node('Message to Rich', role='AXTextArea')
         note(composer_after_close=whole, panel_after_close=self.present('Close the output panel'))
@@ -610,16 +621,21 @@ class OutputWalk(command_walk.CommandWalk):
         self.shot('pull-closed.png')
 
         # 6. The sidebar back and the panel reopened: a split width, never open completely.
-        self.press('Show the sidebar')
+        self.press_named('Show the sidebar')
         time.sleep(1.2)
         self.press('1 file from this thread', role='AXCheckBox')
         self.wait_for('Close the output panel', seconds=20)
         time.sleep(1.2)
         reopened = self.node('Output panel width')
-        note(divider_reopened=reopened, pill_reopened=self.present('Show the conversation'))
-        if evidence['pill_reopened']:
-            raise StepFailed('the panel reopened open completely')
+        # Judged by the divider, not by the pill: the divider's value is the painted width
+        # (aria-valuenow), and open completely is the rail's right edge, not the stop. A name
+        # search for the pill answered True on the first run while the divider sat at the stop
+        # with value 740 (the split width), so its presence is recorded, never trusted alone.
+        note(divider_reopened=reopened, pill_reopened_by_name=self.present('Show the conversation'))
+        self.shot('pull-reopened.png')
         near(reopened['x'], stop, 4, 'reopened at the split width, held at the stop')
+        if abs(reopened['x'] - rail_right) <= 4:
+            raise StepFailed('the panel reopened open completely: ' + json.dumps(reopened))
         return evidence
 
     def open_reveal(self):
