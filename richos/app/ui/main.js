@@ -1396,14 +1396,39 @@ function jumpToLatest() {
   updateJumpButton();
 }
 
+// A RESIZE IS NOT THE READER SCROLLING. Narrowing a pane or the window rewraps the thread with
+// no render: measured on shot 8 of memory-strategy.js (a5f25ec59), scrollHeight 1730 -> 2058
+// while scrollTop stayed put or WebKit moved it by one 29px line, so a reader who was at the
+// bottom was left up to four lines above it, and WebKit's own move reached the listener below
+// as a scroll and dropped `followBottom`, which put up the jump-down button. So the
+// conversation's box is remembered, a scroll that arrives with a different box while following
+// is the resize's and is put back at the bottom, and a resize with no scroll at all is caught
+// by the observer.
+let laidOut = null;
+const layoutKey = () => `${conversationEl.clientWidth}x${conversationEl.clientHeight}/${messagesEl.clientWidth}`;
+
 conversationEl.addEventListener("scroll", () => {
+  const key = layoutKey(), resized = laidOut !== null && key !== laidOut;
+  laidOut = key;
+  if (followBottom && resized) conversationEl.scrollTop = conversationEl.scrollHeight;
   // §15: "while the user is at the bottom, follow streaming content; when the user scrolls
   // up, stop auto-following."
-  followBottom = atBottom();
+  else followBottom = atBottom();
   updateJumpButton();
   // And where he scrolled TO outlives the process. Debounced: a scroll fires per frame.
   parkViewStateSoon();
 });
+
+if (window.ResizeObserver) {
+  // Runs after layout and before paint, so the reader never sees the frame off the bottom.
+  const keepBottom = new ResizeObserver(() => {
+    laidOut = layoutKey();
+    if (followBottom) conversationEl.scrollTop = conversationEl.scrollHeight;
+    updateJumpButton();
+  });
+  keepBottom.observe(conversationEl);
+  keepBottom.observe(messagesEl);
+}
 
 // ---- announcements (§18) ----------------------------------------------------------------
 //
@@ -6264,14 +6289,59 @@ function commitRailWidth() {
   }, 150);
 }
 
+// THE SIDEBAR TOGGLES AT EVERY WIDTH (output side-panel PRD §8). The CEO, after round 17:
+// "we also need to give the user the option to toggle the left sidebar". Until then §20's
+// reading held — "at 1180px and wider the sidebar is persistent, so there is nothing to
+// toggle" — and the button was hidden there and the rail forced open. Now the button is always
+// in the conversation's header, ⌘⇧S does what a click does, and the choice is durable.
+//
+// WHAT IS DURABLE IS THE DOCKED CHOICE, made at 820px and wider. Below 820px the rail is a
+// drawer over the conversation that closes by itself whenever a thread is picked, so writing
+// its open/closed state would let a drawer's auto-close decide that the sidebar is away the
+// next time the window is wide. So the drawer writes nothing, and leaving the drawer width
+// puts the docked choice back (`applyBreakpoint`). `sidebarHiddenPref` is that choice:
+// `nav.rs` `sidebar_collapsed`, mirrored into localStorage for the first paint (theme-boot.js
+// `RichSidebarBoot`), and the <html> `data-sidebar` attribute the stylesheet reads before
+// main.js has run.
+let sidebarHiddenPref = false;
+let lastBreakpointNarrow = null;
+
 function setRailOpen(open) {
   railOpen = open;
+  const narrow = isNarrow();
   document.body.classList.toggle("rail-closed", !open);
+  if (open) document.documentElement.removeAttribute("data-sidebar");
+  else document.documentElement.setAttribute("data-sidebar", "hidden");
+  const label = open ? "Hide the sidebar" : "Show the sidebar";
   railToggleBtn.setAttribute("aria-expanded", String(open));
-  railToggleBtn.setAttribute("aria-label", open ? "Hide navigation" : "Show navigation");
-  railScrimEl.hidden = !(open && isNarrow());
-  railEl.setAttribute("aria-hidden", String(!open && isNarrow()));
-  if (!isWide()) invokeQuiet("set_sidebar_collapsed", { collapsed: !open });
+  railToggleBtn.setAttribute("aria-label", label);
+  railToggleBtn.title = label + " (⌘⇧S)";
+  railScrimEl.hidden = !(open && narrow);
+  railEl.setAttribute("aria-hidden", String(!open));
+  // Nothing of the rail stays open, or focused, once the rail has gone away: its popover
+  // closes with it (an invisible popover would otherwise take the next Escape), and focus
+  // goes to the way back, the toggle.
+  if (!open) {
+    closeAssertivenessPopover();
+    if (railEl.contains(document.activeElement)) railToggleBtn.focus();
+  }
+  if (!narrow && sidebarHiddenPref !== !open) {
+    sidebarHiddenPref = !open;
+    if (window.RichSidebarBoot) window.RichSidebarBoot.mirror(sidebarHiddenPref);
+    invokeQuiet("set_sidebar_collapsed", { collapsed: sidebarHiddenPref });
+  }
+}
+
+/// A state applied rather than chosen — launch, or the docked choice coming back when the
+/// window widens past the drawer — is applied without the slide.
+function setRailOpenInstantly(open) {
+  document.body.classList.add("rail-instant");
+  setRailOpen(open);
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("rail-instant")));
+}
+
+function toggleSidebar() {
+  setRailOpen(!railOpen);
 }
 
 function applyBreakpoint() {
@@ -6280,12 +6350,14 @@ function applyBreakpoint() {
   document.body.classList.toggle("bp-wide", wide);
   document.body.classList.toggle("bp-mid", !wide && !narrow);
   document.body.classList.toggle("bp-narrow", narrow);
-  // §20: at 1180px and wider the sidebar is persistent, so there is nothing to toggle.
-  railToggleBtn.hidden = wide;
   railDrawerCloseBtn.hidden = !narrow;
-  if (wide && !railOpen) setRailOpen(true);
+  // Out of the drawer width, the docked choice is the sidebar's state again.
+  if (lastBreakpointNarrow === true && !narrow && railOpen === sidebarHiddenPref) {
+    setRailOpenInstantly(!sidebarHiddenPref);
+  }
+  lastBreakpointNarrow = narrow;
   railScrimEl.hidden = !(railOpen && narrow);
-  railEl.setAttribute("aria-hidden", String(!railOpen && narrow));
+  railEl.setAttribute("aria-hidden", String(!railOpen));
 }
 
 railResizerEl.addEventListener("pointerdown", (e) => {
@@ -6316,7 +6388,7 @@ railResizerEl.addEventListener("keydown", (e) => {
   commitRailWidth();
 });
 
-railToggleBtn.addEventListener("click", () => setRailOpen(!railOpen));
+railToggleBtn.addEventListener("click", toggleSidebar);
 railDrawerCloseBtn.addEventListener("click", () => setRailOpen(false));
 railScrimEl.addEventListener("click", () => setRailOpen(false));
 window.addEventListener("resize", applyBreakpoint);
@@ -7874,6 +7946,15 @@ document.addEventListener("keydown", (e) => {
     if (activeThreadId) openTechyScope(!techyOn());
     return;
   }
+  // THE SIDEBAR, ⌘⇧S (output side-panel PRD §8): the shortcut the CEO showed in Codex, the
+  // same as clicking the toggle at the top left of the conversation. No text field here binds
+  // ⌘⇧S, so it is taken wherever focus is, like ⌘K. `code` as well as `key`, because
+  // ⌘⇧ on some layouts reports a shifted character for the letter.
+  if (mod && e.shiftKey && !e.altKey && (e.key === "s" || e.key === "S" || e.code === "KeyS")) {
+    e.preventDefault();
+    toggleSidebar();
+    return;
+  }
   if (e.key === "Escape") {
     // §18 asked for "Escape closes overlays and inspector detail" and this used to BE that
     // sentence: eight `if (!someEl.hidden) return closeSomething()` lines. The CEO's rule is
@@ -8313,8 +8394,13 @@ async function init() {
   applyRailWidth(navPrefs.sidebar_width || RAIL_DEFAULT);
   // §25: "Worker-pane width can be changed directly and survives relaunch."
   applyInspectorWidth(navPrefs.inspector_width || INSPECTOR_DEFAULT);
+  // THE SIDEBAR'S DURABLE CHOICE, at every width (PRD §8). theme-boot.js already painted the
+  // first frame from its mirror; nav.rs is the truth, so the mirror is corrected to it and the
+  // state is applied without the slide — a launch is not a gesture.
+  sidebarHiddenPref = !!navPrefs.sidebar_collapsed;
+  if (window.RichSidebarBoot) window.RichSidebarBoot.mirror(sidebarHiddenPref);
   applyBreakpoint();
-  setRailOpen(isWide() ? true : !navPrefs.sidebar_collapsed);
+  setRailOpenInstantly(!sidebarHiddenPref);
 
   await refreshNavigation();
   // WHETHER ANY OF HIS HISTORY DID NOT LOAD. Read before the conversation is opened, so

@@ -76,5 +76,15 @@ with tempfile.TemporaryDirectory(prefix='steps-walk-test-') as tmp:
     mod.step_run('no-such-vm', {'op': 'keys', 'text': 'Say "hi"'}, Path(tmp))
     check('V04 the keys step hands guest.sh the escaped script', seen and seen[0][-1].endswith('keystroke "Say \\"hi\\""'), seen)
 
+    # S8: a relaunch is a step, so "the choice survives a relaunch" is a walk's data, not a new script.
+    seen.clear()
+    mod.step_run('no-such-vm', {'op': 'relaunch'}, Path(tmp))
+    check('relaunch runs relaunch.py on the walk\'s own VM',
+          len(seen) == 1 and seen[0][0].endswith('/relaunch.py') and seen[0][1:] == ['no-such-vm'], seen)
+    check('relaunch is a valid step with no arguments', mod.problems([{'op': 'relaunch'}]) == [], mod.problems([{'op': 'relaunch'}]))
+    mod.run = lambda args, timeout=120: (2, 'recorded app PID no longer belongs to this payload')
+    code, text = mod.step_run('no-such-vm', {'op': 'relaunch'}, Path(tmp))
+    check('a relaunch that fails fails its step, with relaunch.py\'s sentence', code == 2 and 'no longer belongs' in text, (code, text))
+
 print('steps-walk.test.py: %d failed' % len(failures))
 sys.exit(1 if failures else 0)

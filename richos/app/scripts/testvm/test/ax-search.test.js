@@ -23,20 +23,34 @@ console.log('AX search: early exit, duplicate labels, explicit nth, scopes and c
 const vm = require('node:vm');
 const fs = require('node:fs');
 function exercise(mode, extra={}) {
-  let value='', focused=false, front=true, pressed=0, typed=0, clicked='', pending=null, clipboard='original clipboard';
-  const area={role:()=> 'AXTextArea',title:()=> 'Message',description:()=> '',
+  let value=extra.initialValue || '', focused=false, front=true, pressed=0, typed=0, clicked='', pending=null, clipboard='original clipboard';
+  const area={role:()=> extra.nodeRole || 'AXTextArea',title:()=> 'Message',description:()=> '',
     value:()=>extra.toxicValue ? {toString(){throw new Error("cannot coerce AX specifier");}} : value,enabled:()=>true,uiElements:()=>[],position:()=>[10,20],size:()=>[100,30]};
-  Object.defineProperty(area,'focused',{get:()=>()=>focused,set:v=>{focused=!extra.rejectFocus && v;}});
-  const actions=()=>[{name:()=> 'AXPress'}];actions.byName=()=>({perform:()=>pressed++});area.actions=actions;
+  Object.defineProperty(area,'focused',{get:()=>()=>{if(focused && extra.staleAfterFocus)throw new Error('Invalid index');return focused;},set:v=>{focused=!extra.rejectFocus && v;}});
+  area.attributes={byName:name=>({value:()=>name==='AXDOMIdentifier' && !extra.noID?'route-choice':null})};
+  const actions=()=>[{name:()=> 'AXPress'}];actions.byName=()=>({perform:()=>{
+    pressed++;
+    if(extra.pressValue!==undefined){if(extra.delayedPress)pending=extra.pressValue;else value=extra.pressValue;}
+    if(extra.throwAfterPress)throw new Error('reply lost after press');
+  }});area.actions=actions;
   const dialog={role:()=> 'AXGroup',subrole:()=> 'AXApplicationDialog',title:()=> 'Modal',uiElements:()=>[area]};
-  const window={role:()=> 'AXWindow',uiElements:()=>extra.dialog?[dialog]:[area]};
+  const window={role:()=> 'AXWindow',uiElements:()=>extra.dialog?[dialog]:extra.duplicate?[area,area]:[area]};
+  if(extra.namedAlias){
+    const other={...area,attributes:{byName:name=>({value:()=>name==='AXDOMIdentifier'?'other-control':null})}};
+    const collection=()=>[area,area];collection[0]=area;collection[1]=other;window.uiElements=collection;
+  }
+  if(extra.staleAfterFocus){
+    const fresh={...area};Object.defineProperty(fresh,'focused',{get:()=>()=>focused});
+    const collection=()=>focused?(extra.duplicateAfterFocus?[fresh,fresh]:[fresh]):[area];
+    Object.defineProperty(collection,'0',{get:()=>focused?fresh:area});collection[1]=fresh;window.uiElements=collection;
+  }
   const proc={unixId:()=>71,name:()=> 'richos-tauri',windows:()=>[window]};
   Object.defineProperty(proc,'frontmost',{set:v=>{front=v;}});
   const se={processes:{byName:n=>n==='SecurityAgent'?{exists:()=>!!extra.blocked,windows:()=>[{}]}:proc,
     whose:query=>query.frontmost?[{unixId:()=>front?71:99}]:[proc]},
     keystroke:(text,opts)=>{if(opts && text==='a')value='';else if(opts && text==='v'){if(extra.delayedValue)pending=clipboard;else if(!extra.dropInput)value+=clipboard;typed++;}else throw new Error('literal input must use paste');}};
   const app=()=>se;app.currentApplication=()=>({doShellScript:s=>{clicked=s;},theClipboard:()=>clipboard,setTheClipboardTo:v=>{clipboard=v;}});
-  const context={Application:app,delay:()=>{if(pending!==null){value+=pending;pending=null;}},AX_PARAMS:{mode,pid:71,text:'Message',value:null,first:true,nth:null,max:100,depth:16,
+  const context={Application:app,delay:()=>{if(pending!==null){if(extra.delayedPress)value=pending;else value+=pending;pending=null;}},AX_PARAMS:{mode,pid:71,text:'Message',value:null,first:true,nth:null,max:100,depth:16,
     input:'some text',replace:true,atx:12,aty:34,...extra}};
   vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../ax.js'),'utf8'),context);
   const records=JSON.parse('['+vm.runInContext('run()',context).split('\n').join(',')+']');
@@ -94,4 +108,35 @@ assert.equal(inWindows.pressed, 0); assert.equal(inWindows.records.at(-1).error,
 const inMenuBar = menuExercise({scope:'menubar'});
 assert.equal(inMenuBar.pressed, 1, JSON.stringify(inMenuBar.records));
 assert.equal(inMenuBar.records.at(-1).node.title, 'Quit RichOS');
+assert.equal(typeof inMenuBar.records.at(-1).pressed_at_ms, 'number');
+assert.ok(inMenuBar.records.at(-1).returned_at_ms >= inMenuBar.records.at(-1).pressed_at_ms);
 console.log('AX menu bar: a menu item is in no window, and --in menubar finds and presses it');
+// Stable selectors and role hints must never change which element is acted on.
+assert.equal(exercise('find',{id:'route-choice'}).records.at(-1).role,'AXTextArea');
+assert.equal(exercise('find',{id:'wrong'}).records.at(-1).error,'notfound');
+const hint=exercise('click',{role:'AXCheckBox'});
+assert.equal(hint.pressed,0);
+assert.equal(hint.records.at(-1).near_matches[0].role,'AXTextArea');
+assert.equal(exercise('click',{id:'route-choice',duplicate:true,first:false}).records.at(-1).error,'ambiguous');
+const verified=exercise('click',{id:'route-choice',expect:{value:'1'},initialValue:'0',pressValue:'1',delayedPress:true});
+assert.equal(verified.records.at(-1).verified,true);assert.equal(verified.pressed,1);
+const already=exercise('click',{expect:{value:'1'},initialValue:'1'});
+assert.equal(already.records.at(-1).already_satisfied,true);assert.equal(already.pressed,0);
+const unknown=exercise('click',{expect:{value:'1'}});
+assert.equal(unknown.records.at(-1).error,'effect_unknown');assert.equal(unknown.pressed,1);
+const lost=exercise('click',{expect:{value:'1'},pressValue:'1',throwAfterPress:true});
+assert.equal(lost.records.at(-1).error,'effect_unknown');assert.equal(lost.pressed,1);
+assert.equal(exercise('click',{expect:{value:'1'},toxicValue:true}).records.at(-1).error,'effect_unknown');
+assert.equal(exercise('click',{id:'route-choice',first:false,max:1}).records.at(-1).error,'incomplete');
+console.log('AX IDs, role hints, ambiguity, delayed click verification and unknown-effect refusal passed');
+
+assert.equal(exercise('find',{id:'other-control',namedAlias:true}).records.at(-1).role,'AXTextArea');
+assert.equal(exercise('click',{id:'other-control',namedAlias:true,first:false}).pressed,1);
+console.log('AX positional references distinguish controls returned as the same named specifier');
+
+const rebound=exercise('type',{staleAfterFocus:true});assert.equal(rebound.records.at(-1).verified,true);assert.equal(rebound.typed,1);
+const reboundDuplicate=exercise('type',{staleAfterFocus:true,duplicateAfterFocus:true});assert.equal(reboundDuplicate.records.at(-1).error,'focusfailed');assert.equal(reboundDuplicate.typed,0);
+console.log('AX focus rebinds a stale index only by unique DOM ID; ambiguous refresh sends no text');
+
+assert.equal(exercise('type',{staleAfterFocus:true,noID:true}).typed,0);
+assert.equal(exercise('type',{staleAfterFocus:true,duplicateAfterFocus:true,max:2}).typed,0);

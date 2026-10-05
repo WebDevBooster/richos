@@ -19,6 +19,9 @@ its exit status, its output and the clock, so a walk's evidence is one file and 
   keys   text                          guest.sh osascript keystroke into the frontmost app
   push   src dest                      guest.sh VM --push src dest (a fixture file into the guest)
   handfile mode path [to]              hand-file.sh VM paste|drag path [--to x,y]
+  relaunch                             relaunch.py VM: the recorded app stopped by its captured PID and
+                                       started again with its fixture environment (a choice that must
+                                       survive a relaunch is checked after this step)
 
 A step list is checked without a guest: `steps-walk.py --check FILE...` prints each problem (not a
 list, an unknown op, a missing or mistyped argument) and exits 1. The committed walk records'
@@ -73,6 +76,8 @@ def step_run(vm, step, out):
         return run([str(HERE / 'guest.sh'), vm, '--push', step['src'], step['dest']])
     if op == 'handfile':
         return run([str(HERE / 'hand-file.sh'), vm, step['mode'], step['path']] + (['--to', step['to']] if step.get('to') else []))
+    if op == 'relaunch':
+        return run([str(HERE / 'relaunch.py'), vm], timeout=90)
     if op == 'wait':
         time.sleep(step['seconds'])
         return 0, ''
@@ -96,7 +101,7 @@ def step_run(vm, step, out):
 REQUIRED = {
     'tree': {'name': str}, 'shot': {'name': str}, 'ax': {'args': list}, 'guest': {'command': str},
     'keys': {'text': str}, 'push': {'src': str, 'dest': str}, 'handfile': {'mode': str, 'path': str},
-    'wait': {'seconds': (int, float)}, 'until': {'args': list, 'contains': str},
+    'wait': {'seconds': (int, float)}, 'until': {'args': list, 'contains': str}, 'relaunch': {},
 }
 OPTIONAL = {'tree': {'app': str}, 'shot': {'ocr': bool}, 'handfile': {'to': str},
             'until': {'seconds': (int, float)}, '*': {'allow_fail': bool}}

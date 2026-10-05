@@ -209,6 +209,11 @@ where a shell has its own locale, so a hand rerun could pass where the gate fail
 (`env -i`) and command are written to `<run>/rerun/<nn>-<check>.sh` when it starts; the summary
 prints `rerun as the gate ran it: sh <file>` with its locale and time zone beside every check that
 did not pass, `summary.json` carries it as `rerun`, and the refusal banner repeats it.
+It also reruns the same TREE: the merge is aborted after a refusal, so the main checkout is back
+on main (a front-door.js failure "passed" its rerun on main that way, attempt-ioj6a1_a). The
+tree the checkout held when the run started is recorded (`lib/rerun_tree.py`), the summary line
+shows it as `tree=`, and the file runs the check in the checkout while it still holds that tree,
+otherwise in a scratch git worktree of it (the recorded HEAD and MERGE_HEAD, removed afterwards).
 
 **What blocks**: a check that failed (`failed`), an unchanged failure the runner refuses to
 run again (`blocked`), and an `invalid` result for any reason except inputs that changed while

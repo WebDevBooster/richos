@@ -76,13 +76,23 @@ if [ -z "${TESTVM_GUEST_EXEC:-}" ]; then
   require_vm_running "$VM"
 fi
 
+# Host timestamps for phase attribution; guest duration is reported on its own clock.
+ax_phase() {
+  [ -n "${TESTVM_AX_PHASE_FILE:-}" ] || return 0
+  python3 - "$1" <<'PHASE'
+import json, os, sys, time
+with open(os.environ["TESTVM_AX_PHASE_FILE"], "a") as out:
+    out.write(json.dumps({"phase": sys.argv[1], "at": time.monotonic()}) + "\n")
+PHASE
+}
+
 PID="$(cat "$TESTVM_RUN/$VM/app.pid" 2>/dev/null || true)"
 
 # The deadline on every accessibility read. A tree walk of a wedged app is the
 # command must also reap any helper it starts when its deadline expires.
 AX_TIMEOUT="${TESTVM_AX_TIMEOUT:-20}"
 REMOTE_OSA="$(python3 - "$HERE/ax-deadline.py" "$AX_TIMEOUT" <<'DEADLINE'
-import os, pathlib, shlex, sys, time
+import json, os, pathlib, shlex, sys, time
 try:
     seconds = float(sys.argv[2])
     assert 1 <= seconds <= 300
@@ -90,12 +100,14 @@ except (ValueError, AssertionError):
     raise SystemExit("TESTVM_AX_TIMEOUT must be between 1 and 300 seconds")
 # Leave two seconds for diagnostics, SSH delivery and the host renderer.
 remaining = float(os.environ['TESTVM_AX_DEADLINE']) - time.monotonic() - 2
-if remaining < 1: raise SystemExit("AX preflight consumed the deadline")
+if remaining < 1:
+    print(json.dumps({"error": "preflight_deadline", "phase": "preflight", "detail": "preflight consumed the AX deadline; no guest command sent"}))
+    raise SystemExit(124)
 seconds = min(seconds, remaining)
 print("python3 -c " + shlex.quote(pathlib.Path(sys.argv[1]).read_text()) +
       " " + shlex.quote(str(seconds)) + " osascript -l JavaScript -")
 DEADLINE
-)"
+)" || { rc=$?; printf '%s\n' "$REMOTE_OSA"; exit "$rc"; }
 
 # ===========================================================================
 # tree / find / click — the JXA path
@@ -103,6 +115,7 @@ DEADLINE
 ax_walk() {  # ax_walk <mode> <args...>
   local mode="$1"; shift
   local app="" depth="" window="" maxn="" role="" subrole="" text="" value=""
+  local domid="" expect_args=()
   local nth="" contains="" atx="" aty="" json=0 first="" scope="" window_title="" input="" replace=""
   if [ "$mode" = "type" ]; then input="${1:?type requires text}"; shift; fi
 
@@ -114,6 +127,8 @@ ax_walk() {  # ax_walk <mode> <args...>
       --max)      maxn="${2:-}";     shift 2 ;;
       --role)     role="${2:-}";     shift 2 ;;
       --subrole)  subrole="${2:-}";  shift 2 ;;
+      --id)       domid="${2:-}"; shift 2 ;;
+      --expect)   expect_args+=("${2:-}"); shift 2 ;;
       --title)    text="${2:-}";     shift 2 ;;
       --value)    value="${2:-}";    shift 2 ;;
       --first)    first=1; shift ;;
@@ -145,7 +160,7 @@ ax_walk() {  # ax_walk <mode> <args...>
 
   case "$mode" in
     find|click|focus|type)
-      [ -n "$text$role$value$subrole" ] \
+      [ -n "$text$role$value$subrole$domid" ] \
         || die "$mode needs something to match: --title, --role, --value or --subrole" ;;
   esac
 
@@ -161,7 +176,7 @@ ax_walk() {  # ax_walk <mode> <args...>
   local params
   params="$(AX_MODE="$mode" AX_APP="$app" AX_PID="${PID:-0}" AX_WINDOW="$window" \
             AX_DEPTH="$depth" AX_MAX="$maxn" AX_ROLE="$role" AX_SUBROLE="$subrole" \
-            AX_TEXT="$text" AX_VALUE="$value" AX_NTH="$nth" AX_CONTAINS="$contains" \
+            AX_TEXT="$text" AX_VALUE="$value" AX_ID="$domid" AX_NTH="$nth" AX_CONTAINS="$contains" \
             AX_ATX="$atx" AX_ATY="$aty" AX_FIRST="$first" AX_SCOPE="$scope" AX_WINDOW_TITLE="$window_title" \
             AX_INPUT="$input" AX_REPLACE="$replace" \
             python3 -c '
@@ -190,6 +205,7 @@ p = {
     "max":      num("AX_MAX", 4000),
     "role":     opt("AX_ROLE"),
     "sub":      opt("AX_SUBROLE"),
+    "id":       opt("AX_ID"),
     "text":     opt("AX_TEXT"),
     "value":    opt("AX_VALUE"),
     "nth":      num("AX_NTH"),
@@ -202,18 +218,29 @@ p = {
     "atx":      num("AX_ATX"),
     "aty":      num("AX_ATY"),
 }
+expect = {}
+for condition in sys.argv[1:]:
+    key, sep, value = condition.partition("=")
+    if not sep or key not in ("value", "enabled", "selected", "current", "title", "description") or key in expect:
+        raise SystemExit("--expect needs a unique value|enabled|selected|current|title|description=VALUE")
+    expect[key] = value
+if expect and p["mode"] != "click":
+    raise SystemExit("--expect requires a selector-based click")
+p["expect"] = expect or None
 if p["first"] and p["nth"] is not None:
     raise SystemExit("--first and --nth are mutually exclusive")
 for key in ("depth", "max", "window"):
     if p[key] is not None and p[key] < 1: raise SystemExit(key + " must be positive")
 if p["nth"] is not None and p["nth"] < 0: raise SystemExit("--nth must be nonnegative")
 print("var AX_PARAMS = %s;" % json.dumps(p))
-')" || die "could not build the parameter block (see above)"
+' ${expect_args[@]+"${expect_args[@]}"})" || die "could not build the parameter block (see above)"
 
   local errf raw rc=0
   # §54: this scratch file goes however this function ends.
-  errf="$(mktemp "${TMPDIR:-/tmp}/testvm-ax.XXXXXX")"
+  errf="${TESTVM_AX_LOG_FILE:-$(mktemp "${TMPDIR:-/tmp}/testvm-ax.XXXXXX")}"
+  ax_phase transport
   raw="$( { printf '%s\n' "$params"; cat "$HERE/ax.js"; } | ag "$REMOTE_OSA" 2>"$errf" )" || rc=$?
+  ax_phase render
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$raw"
     cat "$errf" >&2
@@ -289,7 +316,11 @@ for raw_line in sys.stdin.read().splitlines():
     if rec.get("error"):
         err = rec
         if as_json:
-            lines.append(line)
+            lines.insert(0, line)
+        else:
+            lines.insert(0, "[testvm] ax: %s: %s" % (err.get("error"), err.get("detail", "")))
+            if err.get("near_matches"):
+                lines.insert(1, "role-mismatch hints (not clicked): " + json.dumps(err["near_matches"]))
         continue
 
     if rec.get("clicked"):
@@ -370,6 +401,7 @@ case "${1:-}" in
   --help|-h)
     echo 'ax.sh VM tree|find|click|focus|type TEXT [--title TEXT|--role ROLE|--value TEXT]'
     echo '  --in dialog|sidebar|composer|menubar|window TITLE  --first | --nth N (zero based)'
+    echo '  --id DOM_ID --expect value=VALUE (click; also enabled, selected, current, title, description)'
     echo '  --replace (type) --contains --app NAME --window N --depth N --max N --json'
     echo '  find defaults to exhaustive; actions require uniqueness unless --first/--nth.'
     exit 0 ;;
@@ -440,6 +472,7 @@ esac
 
 # The script goes in over stdin, never interpolated into a remote command line:
 # AppleScript is full of quotes and newlines and a shell would shred it.
+ax_phase transport
 printf '%s' "$SCRIPT" | ag "${REMOTE_OSA%osascript -l JavaScript -}osascript -" 2>&1 || {
   rc=$?
   echo "[testvm] osascript failed. If the error mentions 'not allowed assistive access',"  >&2
