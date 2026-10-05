@@ -132,3 +132,14 @@ option `--reference FILE FIRST LAST` reproduces a manually selected episode.
 No state is written, no commands are executed and no transcript text is printed.
 Default per-file pacing targets light CPU use; run at low scheduling priority on
 an already busy host. This counter does not bypass test resource admission.
+
+Episode accounting schema 2 treats `agent_hold.py wait` as collection rather
+than a new logical operation. It links explicit native task receipts, preserves
+missing completion as unknown and reports foreground tool time separately from
+the upper bound between background launch and collection. Help invocations are
+excluded. Scripted walk invocations are candidates in `scripted_ui`; their inner
+calls can be counted from explicitly supplied `--walk-evidence steps.json` or
+`screen.json`. These records contain no model usage and are never added to model
+request totals. The miner does not evaluate commands or read paths from transcript
+arguments. Verification candidates still require qualified source evidence before
+being called unchanged-source retries or avoidable waste.

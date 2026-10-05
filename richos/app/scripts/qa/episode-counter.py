@@ -20,6 +20,8 @@ KEYS = ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'
 UI = {'ax.sh', 'shot.sh', 'ocr-find.sh', 'ocr-gate.sh', 'ocr-read.py', 'ocr-watch.sh'}
 VERIFY = {'proof-run.py', 'run-tests.sh', 'ci-shard.sh'}
 POLL = {'cat', 'tail', 'stat', 'ps', 'pgrep', 'wc', 'test'}
+COLLECT = re.compile(r'\s*(?:python3\s+)?\S*agent_hold\.py\s+wait(?:\s+--max-seconds\s+\d+(?:\.\d+)?)?(?:\s+2>&1)?\s*\Z')
+RECEIPT = re.compile(r'TASK\s+(\S+)\s+\(tool\s+(\S+)\)\s+EXIT STATUS\s+(-?\d+)')
 
 
 def stamp(value):
@@ -40,9 +42,14 @@ def signatures(command):
         tokens = list(parts)
     except ValueError:
         return set()
-    found, executable = set(), True
+    found, executable, current, arguments = set(), True, None, []
+    def finish():
+        if current and not any(x in ('--help', '-h') for x in arguments):
+            found.add(current)
     for token in tokens:
         if token in (';', '&&', '||', '|', '&', '('):
+            finish()
+            current, arguments = None, []
             executable = True
         elif executable:
             name = Path(token).name
@@ -50,8 +57,11 @@ def signatures(command):
                 continue
             if name in ('env', 'bash', 'sh', 'python', 'python3', 'nice', 'command') or token.startswith('-'):
                 continue
-            found.add(name)
+            current = name
             executable = False
+        else:
+            arguments.append(token)
+    finish()
     return found
 
 
@@ -133,24 +143,47 @@ def read_log(path, provider, start, end, diagnostics):
                     name = b.get('name', '')
                     cmd = command_text(name, b.get('input', {}))
                     sig = signatures(cmd) if name in ('Bash', 'exec_command', 'exec', 'functions.exec', 'functions.exec_command') else set()
-                    family = 'ui' if sig & UI else 'verification' if sig & VERIFY else None
+                    collector = name == 'TaskOutput' or name == 'Bash' and bool(COLLECT.fullmatch(cmd))
+                    family = 'ui' if sig & UI else 'verification' if sig & VERIFY else 'scripted_ui' if any(n.endswith(('-walk.py', '-walk.sh')) for n in sig) else None
                     if not family and (name in ('TaskOutput', 'write_stdin', 'functions.write_stdin') or sig & POLL):
                         family = 'observation'
-                    calls[key] = {'line': line_number, 'start': when, 'end': None,
+                    calls[key] = {'line': line_number, 'start': when, 'end': None, 'tool_end': None,
+                                  'collector': collector, 'background': False,
                                   'response': msg.get('id'), 'name': name, 'family': family,
                                   'signature': digest(cmd or json.dumps(b.get('input'), sort_keys=True)),
                                   'output_hash': None, 'canary_mention': False, 'canary_only_claim': False,
                                   'failure': False}
                 elif b.get('type') == 'tool_result' and b.get('tool_use_id') in calls:
                     call = calls[b['tool_use_id']]
-                    if call['end'] is not None:
-                        continue
                     out = output_text(b.get('content', ''))
-                    call.update(end=when, end_line=line_number, output_hash=digest(out))
-                    call['canary_mention'] = bool(re.search(r'record[- ]canary', out, re.I))
-                    call['canary_only_claim'] = bool(re.search(r'(?:only[^\n]{0,70}record[- ]canary|record[- ]canary[^\n]{0,70}only)', out, re.I))
-                    call['failure'] = bool(b.get('is_error') or re.search(r'(?:Exit code [1-9]|exit(?:ed)?[ :=]+[1-9]|deadline exceeded|AX timeout)', out, re.I))
+                    if call['tool_end'] is None:
+                        call['tool_end'] = when
+                        if 'Command running in background with ID:' in out:
+                            call.update(background=True, handoff_line=line_number)
+                        else:
+                            result(call, out, when, line_number, bool(b.get('is_error')))
+                    # Only the trusted collector boundary may complete another task.
+                    # A source snippet mentioning TASK must not forge a receipt.
+                    if call['collector']:
+                        receipts = list(RECEIPT.finditer(out))
+                        for i, match in enumerate(receipts):
+                            target = calls.get(match[2])
+                            if not target or not target['background'] or target['end'] is not None:
+                                diagnostics['unlinked_or_duplicate_receipts'] += 1
+                                continue
+                            stop = receipts[i+1].start() if i+1 < len(receipts) else len(out)
+                            result(target, out[match.end():stop], when, line_number, int(match[3]) != 0)
+                            target['receipt_exit'] = int(match[3])
+                            target['failure'] = int(match[3]) != 0
+                            diagnostics['linked_background_receipts'] += 1
     return sorted(calls.values(), key=lambda c: c['line']), usage
+
+
+def result(call, out, when, line, failure=False):
+    call.update(end=when, end_line=line, output_hash=digest(out))
+    call['canary_mention'] = bool(re.search(r'record[- ]canary', out, re.I))
+    call['canary_only_claim'] = bool(re.search(r'(?:only[^\n]{0,70}record[- ]canary|record[- ]canary[^\n]{0,70}only)', out, re.I))
+    call['failure'] = bool(failure or re.search(r'(?:Exit code [1-9]|exit(?:ed)?[ :=]+[1-9]|deadline exceeded|AX timeout)', out, re.I))
 
 
 def union_seconds(intervals):
@@ -166,9 +199,11 @@ def summarize(calls, usage, provider, task, family, all_calls=None):
     response_ids = {c['response'] for c in calls if c['response']}
     selected = {k: u for k, (t, n, u) in usage.items() if first <= n <= last or k in response_ids}
     span_calls = [c for c in (all_calls or calls) if first <= c['line'] <= last]
-    complete = [c for c in span_calls if c['end'] is not None and c['end'] >= c['start']]
-    intervals = [(c['start'], c['end']) for c in complete]
-    elapsed = max((c['end'] for c in complete), default=calls[0]['start']) - calls[0]['start']
+    complete = [c for c in span_calls if c['tool_end'] is not None and c['tool_end'] >= c['start']]
+    intervals = [(c['start'], c['tool_end']) for c in complete]
+    background = [c for c in span_calls if c['background']]
+    ends = [c['tool_end'] for c in complete] + [c['end'] for c in calls if c['end'] is not None]
+    elapsed = max(ends, default=calls[0]['start']) - calls[0]['start']
     tool_time = union_seconds(intervals)
     row = {'provider': provider, 'task': task, 'first_line': first, 'last_line': last,
            'date': datetime.fromtimestamp(calls[0]['start'], timezone.utc).date().isoformat(),
@@ -178,6 +213,10 @@ def summarize(calls, usage, provider, task, family, all_calls=None):
            'usage': {k: sum(u[k] for u in selected.values() if u.get(k) is not None) if selected and any(u.get(k) is not None for u in selected.values()) else None for k in KEYS},
            'tool_seconds': round(tool_time, 3), 'non_tool_gap_seconds': round(max(0, elapsed-tool_time), 3),
            'elapsed_seconds': round(max(0, elapsed), 3), 'unmatched_calls': len(span_calls)-len(complete),
+           'collector_calls': sum(c['collector'] for c in span_calls),
+           'background_calls': len(background),
+           'unresolved_background_calls': sum(c['end'] is None for c in background),
+           'background_collection_upper_bound_seconds': round(union_seconds([(c['start'], c['end']) for c in background if c['end'] is not None]), 3),
            'canary_mentions': sum(c['canary_mention'] for c in span_calls),
            'canary_only_claims': sum(c['canary_only_claim'] for c in span_calls),
            'failed_calls': sum(c['failure'] for c in calls)}
@@ -190,9 +229,10 @@ def summarize(calls, usage, provider, task, family, all_calls=None):
 def episodes(calls):
     # Consecutive means consecutive tool calls, including intervening image reads.
     # Verification is a candidate group within one task, never claimed unchanged.
-    for family, minimum in [('ui', 3), ('observation', 3), ('verification', 2)]:
+    logical = [c for c in calls if not c['collector']]
+    for family, minimum in [('ui', 3), ('observation', 3), ('verification', 2), ('scripted_ui', 1)]:
         group = []
-        sequence = [c for c in calls if c['family'] == family] if family == 'verification' else calls
+        sequence = [c for c in logical if c['family'] == family] if family in ('verification', 'scripted_ui') else logical
         for call in sequence + [None]:
             hit = call is not None and call['family'] == family
             same = bool(hit and (not group or call['start'] - group[-1]['start'] <= 1800))
@@ -209,6 +249,42 @@ def episodes(calls):
                 group = []
 
 
+def walk_evidence(path):
+    """Only explicitly supplied machine records. Never print their output or text."""
+    source = path.read_bytes()
+    value = json.loads(source)
+    rows = value.get('calls') if isinstance(value, dict) else value
+    if not isinstance(rows, list) or not rows:
+        raise ValueError('expected nonempty calls or step records')
+    counts, elapsed, missing, failures = Counter(), 0.0, 0, 0
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError('record must be an object')
+        if 'argv' in row:
+            argv = row['argv']
+            if not isinstance(argv, list) or not all(isinstance(x, str) for x in argv):
+                raise ValueError('argv must contain strings')
+            names = {Path(x).name for x in argv[:1]}
+            kind = 'ui' if names & UI else 'other'
+        elif isinstance(row.get('step'), dict):
+            kind = 'ui' if row['step'].get('op') in ('ax', 'tree', 'shot') else 'other'
+        else:
+            raise ValueError('expected argv or step')
+        counts[kind] += 1
+        seconds = row.get('seconds')
+        if isinstance(seconds, (float, int)) and not isinstance(seconds, bool) and 0 <= seconds < float('inf'):
+            elapsed += seconds
+        else:
+            missing += 1
+        if isinstance(row.get('exit'), int) and row['exit'] != 0:
+            failures += 1
+    return {'file': path.name, 'sha256': hashlib.sha256(source).hexdigest(),
+            'calls': dict(counts), 'recorded_call_seconds': round(elapsed, 3),
+            'missing_durations': missing, 'failed_calls': failures,
+            'model_requests': None, 'usage': None,
+            'source_identity': 'unknown: validate product and harness identities separately'}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--claude-root', type=Path)
@@ -216,15 +292,19 @@ def main():
     p.add_argument('--since', required=True, help='inclusive UTC date or timestamp')
     p.add_argument('--until', required=True, help='exclusive UTC date or timestamp')
     p.add_argument('--reference', nargs=3, metavar=('FILE', 'FIRST', 'LAST'))
+    p.add_argument('--walk-evidence', action='append', type=Path, default=[],
+                   help='explicit steps.json or screen.json; numeric inner-call accounting only')
     p.add_argument('--duty-cycle', type=float, default=0.2, help='fraction of a core, approximate per-file pacing')
     a = p.parse_args()
     start, end = stamp(a.since), stamp(a.until)
     if not 0 < a.duty_cycle <= 1 or end <= start:
         p.error('require increasing UTC bounds and duty cycle in (0, 1]')
-    result = {'schema': 1, 'window': {'since': a.since, 'until': a.until}, 'episodes': [], 'diagnostics': {},
+    result = {'schema': 2, 'window': {'since': a.since, 'until': a.until}, 'episodes': [], 'walk_evidence': [], 'diagnostics': {},
               'semantics': {'claude_input': 'uncached', 'codex_input': 'includes cached input',
                             'gaps': 'non-tool wall time, not pure model inference',
-                            'tool_time': 'union of request/result intervals; background handoff is not process lifetime',
+                            'tool_time': 'union of foreground tool request/return intervals, including collectors; never background process lifetime',
+                            'background': 'start to linked collection is an upper bound including scheduling and holds, never pure execution time',
+                            'logical_operations': 'collector calls do not break consecutive operations; their usage remains in episode spans',
                             'verification': 'candidates only; unchanged source requires receipt review',
                             'canary': 'mentions/only-claims are unresolved, not proof of sole cause',
                             'codex': 'response-ID usage only; older token_count-only logs have unknown request usage'}}
@@ -256,6 +336,11 @@ def main():
     result['diagnostics'] = dict(diagnostics)
     result['per_day'] = dict(Counter(r['date']+'/'+r['provider']+'/'+r['family'] for r in result['episodes']))
     result['source_verified_verification_episodes'] = 0
+    for path in a.walk_evidence:
+        try:
+            result['walk_evidence'].append(walk_evidence(path))
+        except (OSError, ValueError, TypeError) as exc:
+            p.error('walk evidence unavailable or unsupported: ' + str(exc))
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
