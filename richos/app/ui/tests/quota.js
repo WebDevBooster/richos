@@ -98,7 +98,7 @@ async function main() {
     await page.click("#set-quota-open");
     assertEqual(await page.locator("#quota-enabled").getAttribute("aria-checked"), "true");
     await page.click("#quota-enabled");
-    await page.waitForFunction(() => document.getElementById("quota-hold-status").textContent.includes("off"));
+    await page.waitForFunction(() => document.getElementById("quota-hold-status").textContent.includes("Off. Nothing is paused."));
     await page.keyboard.press("Escape");
     assert(await page.locator("#quota-sheet").isHidden());
     await page.waitForFunction(() => document.activeElement.id === "set-btn");
@@ -133,14 +133,18 @@ async function main() {
     assert((await page.locator("#quota-message").innerText()).includes("unavailable"));
     await page.close();
   });
-  await run.check("stale quota is labelled and a failed refresh backoff disables refresh", async () => {
-    const page = await open("dark", { ...quota, state: "stale", retryAt: now + 600000, message: "Could not refresh Claude Code quota." });
+  await run.check("stale quota is marked and a failed refresh says round 16's notice with Refresh still offered", async () => {
+    const t = Date.now();
+    const page = await open("dark", { ...quota, state: "stale", checkedAt: t - 47 * 60000, retryAt: t + 8 * 60000 + 20000, message: "Claude Code did not answer just now." });
     await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForSelector(".quota-window--stale");
-    assert(await page.locator("#quota-refresh").isDisabled());
+    // The failure's backoff holds only the automatic check; round 16: "Refresh asks sooner".
+    assert(await page.locator("#quota-refresh").isEnabled(), "Refresh is never locked by a backoff");
     // Round 16: "Last reading 47 min ago — stale", in gold.
     assert(/^Last reading .+ ago — stale/.test(await page.locator("#quota-freshness").innerText()));
     assert(await page.locator("#quota-freshness.is-stale").count());
+    assertEqual((await page.locator("#quota-message").innerText()).trim(),
+      "Claude Code did not answer just now. The figures below are from 47 min ago and may have moved on. RichOS tries again in 8 min; Refresh asks sooner.");
     await page.close();
   });
   await run.check("inline threshold validation, Enter saves and Escape keeps without closing", async () => {
@@ -180,7 +184,8 @@ async function main() {
     await page.evaluate(t => document.documentElement.setAttribute("data-theme", t), theme);
     await page.setViewportSize({width: 1440, height: 900});
     assertEqual(await page.locator("#quota-held li").count(), 3);
-    assert(await page.evaluate(() => { const p = document.querySelector(".quota-body"); return p.scrollHeight <= p.clientHeight + 1; }), "holding sheet fits 1440 × 900");
+    const fit = await page.evaluate(() => { const p = document.querySelector(".quota-body"); return [p.scrollHeight, p.clientHeight]; });
+    assert(fit[0] <= fit[1] + 1, "holding sheet fits 1440 × 900: " + JSON.stringify(fit));
     await shot(page, "claude-quota-holding-" + theme, {fullPage: false});
     await page.click("#quota-release");
     await page.waitForFunction(() => document.getElementById("quota-hold-status").textContent === "Pause released");
@@ -239,6 +244,9 @@ async function main() {
       ["stale", {...quota, state: "stale", checkedAt: now - 3600000}],
       ["refresh-failed", {...quota, state: "stale", retryAt: now + 600000, message: "Could not refresh Claude Code quota."}],
       ["unavailable", {state: "unavailable", windows: [], checkedAt: null, message: "No current Claude Code reading."}],
+      // Walk of nightly 36, D1: the check came back with no figures (Claude Code's null answer).
+      ["no-reading-null", {state: "unavailable", windows: [], checkedAt: null, retryAt: null, message: null, emptyAt: Date.now(), nextCheckAt: Date.now() + 300000}],
+      ["null-over-reading", {...quota, windows: [{...quota.windows[0], usedPercent: 41}, quota.windows[1]], state: "stale", checkedAt: Date.now() - 6 * 60000, retryAt: null, message: null, emptyAt: Date.now(), nextCheckAt: Date.now() + 300000}],
       // Fill-first, round 16: two accounts, Switch chosen, fast use (2 points a minute) with
       // both check points recalculated (plan answer 10), one account not read yet.
       // The top-level windows are the account IN USE (quota.rs view_at), here Work.
@@ -251,7 +259,14 @@ async function main() {
       await page.evaluate(f => { window.__RICHOS_MOCK_PRESET__.quota = f; }, fixture);
       await page.click("#quota-close"); await page.click("#set-btn"); await page.click("#set-quota-open");
       await page.waitForTimeout(150);
-      if (name === "unavailable") assert((await page.locator("#quota-hold-status").innerText()).includes("Waiting for a current reading"));
+      // Round 16's `hold-no-reading` while a check is on its way; once one came back empty,
+      // nothing is held on the missing number (quota.rs Admission::NoReading).
+      if (name === "unavailable") assertEqual(await page.locator("#quota-hold-status").innerText(), "Holding until there is a current reading.");
+      if (name === "no-reading-null" || name === "null-over-reading") {
+        assertEqual(await page.locator("#quota-hold-status").innerText(), "No current reading, so nothing is held.");
+        assert(await page.locator("#quota-account-start").isVisible(), name + ": + Add account is offered");
+        assert(await page.locator("#quota-refresh").isEnabled(), name + ": Refresh is offered");
+      }
       if (name === "two-accounts") {
         // Round 16: the lanes in handover order (in use first, then by weekly reset, the
         // unread one last), the verb inside the sentence, the moved lines with their ghosts.
@@ -533,6 +548,194 @@ async function main() {
     await page.clock.runFor(200);
     assertEqual(await page.locator("#quota-account-feedback").textContent(), "", "said in passing, then gone");
     await page.close();
+  });
+  // ---- Walk of nightly 36 (docs/verification/2026-10-05-nightly-36-candidate-walk.md) -------
+  // D1: Claude Code 2.1.289 sometimes answers get_usage with `rate_limits: null`. Two published
+  // shapes for that one answer: the service's on this branch (no reading this time, `emptyAt`),
+  // and main's (`Malformed`, Refresh's ten-minute `retryAt`). On main's panel both lose
+  // + Add account (no windows) and the second locks Refresh.
+  await run.check("D1: a null answer is no reading this time: + Add account offered, Refresh never locked, nothing held", async () => {
+    const shapes = {
+      branch: { state: "unavailable", windows: [], checkedAt: null, retryAt: null, message: null, emptyAt: Date.now(), nextCheckAt: Date.now() + 300000 + 20000 },
+      main: { state: "unavailable", windows: [], checkedAt: null, retryAt: Date.now() + 600000,
+        message: "Claude Code returned quota data this version of RichOS could not read." },
+    };
+    for (const [name, fixture] of Object.entries(shapes)) {
+      const page = await open("dark", fixture, 100, null, true);
+      await enableTechnical(page); await page.click("#set-quota-open");
+      await page.waitForSelector("#quota-empty", { state: "visible" });
+      assert(await page.locator("#quota-account-start").isVisible(), name + ": + Add account is offered with no reading");
+      assert(await page.locator("#quota-refresh").isEnabled(), name + ": Refresh is not locked");
+      assertEqual((await page.locator("#quota-freshness").innerText()).trim(), "No reading yet.");
+      assertEqual((await page.locator("#quota-refresh").innerText()).trim(), "Ask Claude Code", "round 16's label with no reading");
+      if (name === "branch") {
+        assert(await page.locator("#quota-message").isHidden(), "nothing is reported as broken");
+        assert((await page.locator("#quota-empty").innerText()).includes("Claude Code answered without its usage figures this time"));
+        assert((await page.locator("#quota-empty").innerText()).includes("RichOS asks again in 5 min"));
+        // Round 16's `.empty-body + .empty-body`: the second paragraph is the smaller one.
+        assertEqual(await page.locator("#quota-empty-next").evaluate(e => getComputedStyle(e).fontSize), "16px");
+        assertEqual(await page.locator("#quota-hold-status").innerText(), "No current reading, so nothing is held.");
+        assert(await page.locator("#quota-release").isHidden(), "nothing is held, so nothing to release");
+      } else {
+        // An answer that is genuinely unreadable is still named as unreadable.
+        assert((await page.locator("#quota-message").innerText()).startsWith("Claude Code returned quota data this version of RichOS could not read."));
+      }
+      // + Add account opens the form from here.
+      await page.click("#quota-account-start");
+      assertEqual(await page.locator("#quota-addform-title").innerText(), "Add a second Claude account");
+      await page.close();
+    }
+  });
+  // D2: the fast card's dot and the signing lane's pulse breathe by size at full opacity
+  // (the working row's 9cbdac8ea); the opacity breath measured 2.11:1 dark in the walk.
+  await run.check("D2: the fast dot and the lane pulse keep full opacity at every phase and clear 3:1 in both themes", async () => {
+    const fast = { ...quota, windows: [{ ...quota.windows[0], usedPercent: 71 }, quota.windows[1]], refreshIntervalMs: 60000,
+      speeds: { five_hour: 3 / 60000 }, rises: { five_hour: { from: 40, to: 71, ms: 12 * 60000 } }, agentsWorking: 3, actAt: { five_hour: 82 } };
+    const measured = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await open(theme, fast, 100, null, true);
+      await enableTechnical(page); await page.click("#set-quota-open");
+      await page.waitForSelector(".quota-status-dot.is-fast");
+      await page.evaluate(t => document.documentElement.setAttribute("data-theme", t), theme);
+      await page.addScriptTag({ content: contrast.pageScript() });
+      const found = await page.evaluate(() => {
+        const C = window.__contrastMath, out = [];
+        const probe = document.createElement("span"); probe.className = "quota-lane-pulse";
+        document.querySelector(".quota-lane-note, .quota-status-card").appendChild(probe);
+        for (const el of [document.querySelector(".quota-status-dot.is-fast"), probe]) {
+          const frames = el.getAnimations().flatMap(a => a.effect.getKeyframes());
+          const card = C.parseCssColor(getComputedStyle(document.getElementById("quota-status-card")).backgroundColor);
+          const surface = C.parseCssColor(getComputedStyle(document.querySelector(".quota-panel")).backgroundColor);
+          const gold = C.parseCssColor(getComputedStyle(el).backgroundColor);
+          out.push({ cls: el.className, frames: frames.length, opacities: frames.map(f => f.opacity).filter(o => o !== undefined).map(Number),
+            onCard: C.round2(C.contrastRatio(gold, C.compositeOver(card, surface))), onSurface: C.round2(C.contrastRatio(gold, surface)) });
+        }
+        probe.remove();
+        return out;
+      });
+      for (const dot of found) {
+        assert(dot.frames > 0, `${theme} ${dot.cls}: it still breathes`);
+        assertEqual(dot.opacities.filter(o => o < 1), [], `${theme} ${dot.cls}: no keyframe dims it`);
+        assert(dot.onCard >= 3 && dot.onSurface >= 3, `${theme} ${dot.cls}: 3:1 non-text floor ${JSON.stringify(dot)}`);
+        measured.push(`${theme} ${dot.cls.replace("quota-", "")}: ${dot.onCard}:1 on the card, ${dot.onSurface}:1 on the surface`);
+      }
+      await page.close();
+    }
+    return measured.join("; ");
+  });
+  // D3: with one account, round 16's words in every state it draws (quota.html renderWindows,
+  // renderHold), never round 14's, and never "Five-hour five-hour pause threshold".
+  await run.check("D3: one account reads round 16's words: labels, sentence, hints, status card and boundary", async () => {
+    const low = { ...quota, windows: [{ ...quota.windows[0], usedPercent: 41, resetsAt: now + (3 * 60 + 22) * 60000 }, quota.windows[1], quota.windows[2]] };
+    let page = await open("light", low, 100, null, false);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-window");
+    const text = id => page.locator(id).innerText().then(t => t.replace(/\s+/g, " ").trim());
+    assertEqual(await text("#quota-lede"), "Straight from Claude Code, shared across every app and session on this account.");
+    assertEqual(await page.locator(".quota-hero .quota-window-label").evaluate(e => [e.firstChild.textContent, e.querySelector(".quota-muted").textContent]),
+      ["Five-hour window", "the one the pause watches"]);
+    assertEqual(await page.locator(".quota-weekly .quota-window-label").allTextContents(), ["Weekly window", "Weekly · Fable"]);
+    assert(!(await page.locator("#quota-sheet").textContent()).toLowerCase().includes("five-hour five-hour"), "no doubled word");
+    assertEqual(await text("#quota-sentence-lead"), "Pause Rich’s agents once the five-hour window passes");
+    assertEqual(await page.locator("#quota-sentence-end").textContent(), ", unless the reset is under 20 minutes away.");
+    assertEqual(await text("#quota-hint"), "Off — the line is only drawn, not enforced.");
+    assertEqual(await text("#quota-hold-status"), "Off. Nothing is paused.");
+    assertEqual(await text("#quota-hold-detail"), "Rich’s agents keep working through the limit. When the five-hour window is spent, Claude Code turns them away until it resets — and Rich tells you.");
+    assertEqual(await text("#quota-boundary-one"), "A pause is not a stop. Each agent finishes the step it is on, then waits before the next, keeping its place and everything it knows. Because a step is allowed to finish, usage can climb a little past the line. Your conversation with Rich, and any Claude Code you run outside RichOS, are never paused.");
+    await page.click("#quota-enabled");
+    await page.waitForFunction(() => document.getElementById("quota-hold-status").textContent === "On. Nothing is waiting.");
+    assertEqual(await text("#quota-hint"), "Change the number to move the line.");
+    assertEqual(await text("#quota-hold-detail"), "The five-hour window is at 41% used. Agents pause the moment it passes 93%, unless the reset is under 20 minutes away — then it is not worth stopping.");
+    await page.close();
+    // `hold-no-reading`: pause on, the reading 47 minutes old, its check on its way.
+    page = await open("dark", { ...low, state: "stale", checkedAt: Date.now() - 47 * 60000 }, 100, null, true);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForFunction(() => document.getElementById("quota-hold-status").textContent.startsWith("Holding until"));
+    assertEqual(await text("#quota-hold-detail"), "The last reading is 47 min old, and a rule needs a fresh one — an old number could let work through past the line. Nothing starts a new step until Claude Code answers.");
+    assertEqual(await page.locator("#quota-sheet .quota-status-actions button:visible").allTextContents(), ["Refresh now", "Turn it off"]);
+    await page.close();
+    // `holding`: three agents past the line.
+    const activity = { held: ["Mark", "Andy", "Tom"].map((name, i) => ({ kind: "agent", id: "w" + i, name, sinceAt: now - 41 * 60000, threadId: "test" })), released: [] };
+    page = await open("dark", quota, 100, activity, true);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForFunction(() => document.getElementById("quota-hold-status").textContent.startsWith("Holding 3 agents since "));
+    assert(/^The five-hour window is at 94% used, past your 93% line\. Each has kept its place\. They resume at .+, 20 minutes before the reset, or sooner if a fresh reading is back under the line\.$/.test(await text("#quota-hold-detail")),
+      await text("#quota-hold-detail"));
+    await page.close();
+  });
+  // D4: the reading line wraps between its two parts, never leaving one word on a line
+  // ("usage is / fast", "every 5 / min"), at the walk's widths and every width between.
+  await run.check("D4: the reading line never leaves a lone word on a line", async () => {
+    const fast = { ...twoAccounts({ refreshIntervalMs: 60000, speeds: { five_hour: 9 / 60000 }, actAt: { five_hour: 91, seven_day: 97 }, atThreshold: "switch" }), checkedAt: Date.now() - 20000 };
+    const staleOne = { ...quota, state: "stale", checkedAt: Date.now() - 60000 };
+    const lone = [];
+    for (const [name, fixture] of [["fast-two", fast], ["stale-one", staleOne]]) {
+      const page = await open("light", fixture, 100, null, true, { viewport: { width: 1400, height: 864 } });
+      await enableTechnical(page); await page.click("#set-quota-open");
+      await page.waitForSelector(".quota-window");
+      for (let width = 860; width <= 1680; width += 10) {
+        await page.setViewportSize({ width, height: 864 });
+        const lines = await page.evaluate(() => {
+          const box = document.getElementById("quota-freshness"), rows = new Map();
+          const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            for (const m of n.textContent.matchAll(/\S+/g)) {
+              // One line is the words whose boxes overlap vertically, never an exact top: a bold
+              // and a regular glyph on one line can differ by a pixel in where their boxes start.
+              const r = document.createRange(); r.setStart(n, m.index); r.setEnd(n, m.index + m[0].length);
+              const box = r.getBoundingClientRect(), mid = (box.top + box.bottom) / 2;
+              const key = [...rows.keys()].find(k => Math.abs(k - mid) < box.height / 2) ?? mid;
+              rows.set(key, [...(rows.get(key) || []), m[0]]);
+            }
+          }
+          const col = box.closest(".quota-windows-col");
+          // Measured in fractional pixels: integer scrollWidth rounds a fitting line up by 1-2px.
+          const edge = box.getBoundingClientRect().right;
+          const parts = [...box.querySelectorAll(".quota-reading-part, b")].some(p => p.getBoundingClientRect().right > edge + 0.5);
+          return { lines: [...rows.values()].map(w => w.join(" ")), overflow: parts || col.scrollWidth > col.clientWidth + 1 };
+        });
+        if (lines.lines.length > 1 && lines.lines.some(l => !l.includes(" "))) lone.push(`${name} @${width}: ${JSON.stringify(lines.lines)}`);
+        if (lines.overflow) lone.push(`${name} @${width}: the reading overflows its column`);
+      }
+      await page.close();
+    }
+    assertEqual(lone, [], "a line holding one word");
+  });
+  // The same kind, seen in this branch's own VM walk (2026-10-05): round 16's hint "Off — the
+  // line is only drawn, not / enforced." (1-one-account) and the no-reading card's "RichOS asks
+  // again in 3 / min." (0-no-reading). Their last two words stay together at every width.
+  await run.check("the hint under the sentence and the no-reading card never end on a lone word", async () => {
+    const low = { ...quota, windows: [{ ...quota.windows[0], usedPercent: 41 }, quota.windows[1]] };
+    const none = { state: "unavailable", windows: [], checkedAt: null, retryAt: null, message: null, emptyAt: Date.now(), nextCheckAt: Date.now() + 200000 };
+    const lone = [];
+    for (const [name, fixture, enabled, selector] of [["off", low, false, "#quota-hint"], ["on", low, true, "#quota-hint"],
+      ["no-reading", none, true, "#quota-hold-detail p"]]) {
+      const page = await open("dark", fixture, 100, null, enabled, { viewport: { width: 1400, height: 864 } });
+      await enableTechnical(page); await page.click("#set-quota-open");
+      await page.waitForSelector(selector);
+      for (let width = 860; width <= 1680; width += 10) {
+        await page.setViewportSize({ width, height: 864 });
+        const last = await page.evaluate(sel => {
+          const box = document.querySelector(sel), rows = new Map();
+          const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            for (const m of n.textContent.matchAll(/\S+/g)) {
+              // One line is the words whose boxes overlap vertically, never an exact top: a bold
+              // and a regular glyph on one line can differ by a pixel in where their boxes start.
+              const r = document.createRange(); r.setStart(n, m.index); r.setEnd(n, m.index + m[0].length);
+              const box = r.getBoundingClientRect(), mid = (box.top + box.bottom) / 2;
+              const key = [...rows.keys()].find(k => Math.abs(k - mid) < box.height / 2) ?? mid;
+              rows.set(key, [...(rows.get(key) || []), m[0]]);
+            }
+          }
+          const lines = [...rows.values()].map(w => w.join(" "));
+          return lines.length > 1 ? lines.at(-1) : null;
+        }, selector);
+        if (last !== null && !last.includes(" ")) lone.push(`${name} @${width}: ends on "${last}"`);
+      }
+      await page.close();
+    }
+    assertEqual(lone, [], "a last line holding one word");
   });
   await run.check("no renderer errors", async () => assertEqual(errors, []));
   await browser.close();

@@ -190,10 +190,18 @@ pub enum Admission {
     Ready,
     Held { resets_at: u64 },
     Unknown,
+    /// **The last check came back with no figures** (`View::empty_at`): Claude Code answered
+    /// `rate_limits: null`, or the read failed, or its answer was unreadable or unsupported,
+    /// and no reading has arrived since. The pause acts on a number, and there is none, so it
+    /// does not hold work on it (walk of nightly 36, D1: Claude Code 2.1.289 answers null some
+    /// of the time, and the old `Unknown` held every new background step until a reading came,
+    /// for as long as Claude Code kept answering null). A reading that proves a hold still
+    /// holds: `Held` is decided before this, from the last figures, until their window resets.
+    NoReading,
 }
 impl Admission {
     pub fn allows_work(&self) -> bool {
-        matches!(self, Self::Disabled | Self::Ready)
+        matches!(self, Self::Disabled | Self::Ready | Self::NoReading)
     }
 }
 
@@ -247,6 +255,12 @@ pub struct View {
     /// account.
     #[serde(default)]
     pub last_switch: Option<crate::claude_accounts::LastSwitch>,
+    /// When the last check came back with no figures (`Admission::NoReading`); `None` once a
+    /// reading has arrived since. The sheet says "no reading this time" from it, and the next
+    /// check is counted from it (`next_check_at`), so an empty answer is asked again on the
+    /// normal schedule, never in a loop and never after the failure backoff.
+    #[serde(default)]
+    pub empty_at: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -254,13 +268,20 @@ pub enum ReadError {
     Unsupported,
     Failed,
     Malformed,
+    /// Claude Code answered, with `rate_limits_available: true` and `rate_limits: null`: no
+    /// figures this time (Claude Code 2.1.289, walk of nightly 36, `qa/usage-shape.sh`). Not a
+    /// failure and not unreadable data: nothing is reported as broken, no backoff starts, and
+    /// the next check comes on the normal schedule.
+    NoReading,
 }
 impl ReadError {
     fn message(self) -> &'static str {
         match self {
             Self::Unsupported => "Claude Code did not report subscription limits for this account.",
-            Self::Failed => "Could not refresh Claude Code quota. Check your connection or account connection settings.",
+            // Round 16's words for a refresh that got no answer (quota.html, `refresh-failed`).
+            Self::Failed => "Claude Code did not answer just now.",
             Self::Malformed => "Claude Code returned quota data this version of RichOS could not read.",
+            Self::NoReading => "Claude Code answered without its usage figures just now.",
         }
     }
 }
@@ -282,6 +303,11 @@ pub fn normalize(response: &Value) -> Result<Vec<Window>, ReadError> {
         Some(false) => return Err(ReadError::Unsupported),
         Some(true) => {}
         None => return Err(ReadError::Malformed),
+    }
+    // An explicit null is Claude Code saying it has no figures this time; anything else that
+    // is not an object (absent, a string, a number) is still data this reader cannot read.
+    if response.get("rate_limits").is_some_and(Value::is_null) {
+        return Err(ReadError::NoReading);
     }
     let limits = response
         .get("rate_limits")
@@ -374,6 +400,9 @@ struct Snapshot {
     rises: BTreeMap<String, Rise>,
     /// A big rise is expected until this moment (plan §15 answer 10). It ends by itself.
     rise_until: Option<u64>,
+    /// The last check came back with no figures at this moment (`View::empty_at`). A reading
+    /// (`accept`) clears it.
+    empty_at: Option<u64>,
 }
 
 /// One window's reading as a speed base: used percent, its reset time, and when it was read.
@@ -429,7 +458,27 @@ impl Snapshot {
         let bases = std::mem::take(&mut self.bases);
         let rises = std::mem::take(&mut self.rises);
         let rise_until = self.rise_until;
-        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rises, rise_until };
+        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rises, rise_until, empty_at: None };
+    }
+    /// **A check that came back with no figures.** Every kind records when, so the pause stops
+    /// waiting on it (`Admission::NoReading`). A null answer (`ReadError::NoReading`) is not a
+    /// failure: it clears any earlier failure and its backoff, keeps the last figures as they
+    /// were, and leaves the next check to the normal schedule, counted from now
+    /// (`next_check_at`). A failure, an unreadable answer or an unsupported account is reported
+    /// as before, with its `BACKOFF_MS` wait for the automatic check.
+    fn empty(&mut self, error: ReadError, observed: u64) {
+        self.empty_at = Some(observed);
+        if error == ReadError::NoReading {
+            self.error = None;
+            self.retry_at = None;
+            return;
+        }
+        if error == ReadError::Unsupported {
+            self.windows.clear();
+            self.checked_at = None;
+        }
+        self.error = Some(error);
+        self.retry_at = Some(observed + BACKOFF_MS);
     }
     /// **A reading the lease itself streamed** (`rate_limit_event`), merged window by window
     /// over the probe's. It never clears a probe error or its backoff; it only adds what it saw.
@@ -470,10 +519,22 @@ impl Snapshot {
         } else {
             State::Stale
         };
+        // **What the pause does with no current reading** (walk of nightly 36, D1). It holds
+        // new work only while a check is on its way: at start, and in the moment between a
+        // reading going out of date and its next check coming back (`Unknown`, round 16's
+        // "Holding until there is a current reading"). Once that check has come back with no
+        // figures, the pause no longer waits on Claude Code (`NoReading`): it acts on a number,
+        // there is none, and waiting would hold every new step for as long as Claude Code
+        // keeps answering null. Figures that prove a hold still hold (`Held`, below) until
+        // their window resets; the weekly 99% hold with an expired or unreadable reset still
+        // waits for a reading of the new week, as before.
+        let answered_empty = self.empty_at.is_some_and(|e| self.checked_at.is_none_or(|c| e >= c));
         let admission = if !policy.enabled {
             Admission::Disabled
-        } else if self.checked_at.is_none_or(|t| t > now) {
+        } else if self.checked_at.is_some_and(|t| t > now) {
             Admission::Unknown
+        } else if self.checked_at.is_none() {
+            if answered_empty { Admission::NoReading } else { Admission::Unknown }
         } else if let Some(until) = self.windows.iter()
             .filter(|w| w.id == "seven_day" && reading.reaches(w, resets::WEEKLY_THRESHOLD))
             .filter_map(|w| w.resets_at.filter(|t| *t > now)).max() {
@@ -509,6 +570,7 @@ impl Snapshot {
                     }
                 }
                 Some(w) if fresh && w.resets_at.is_some_and(|t| t > now) => Admission::Ready,
+                _ if answered_empty => Admission::NoReading,
                 _ => Admission::Unknown,
             }
         };
@@ -517,7 +579,10 @@ impl Snapshot {
             state,
             windows: self.windows.clone(),
             checked_at: self.checked_at,
-            next_check_at: self.checked_at.map(|t| {
+            // Counted from the last check of any outcome, so a check that came back empty is
+            // asked again one interval later (5 minutes, or 1 while usage is fast), not on the
+            // monitor's next tick.
+            next_check_at: [self.checked_at, self.empty_at].into_iter().flatten().max().map(|t| {
                 self.windows
                     .iter()
                     .filter_map(|w| w.resets_at)
@@ -537,6 +602,7 @@ impl Snapshot {
             rises: self.rises.clone(),
             agents_working: 0,
             last_switch: None,
+            empty_at: self.empty_at.filter(|_| answered_empty),
         }
     }
 }
@@ -595,7 +661,7 @@ pub type StreamedReading = (Vec<Window>, u64);
 /// only for the five-second double-click cooldown; the monitor's tick waits for the backoff
 /// and the five-minute cache.
 fn due(current: &View, force: bool, now: u64) -> bool {
-    let last_attempt = [current.checked_at, current.retry_at.map(|t| t.saturating_sub(BACKOFF_MS))]
+    let last_attempt = [current.checked_at, current.empty_at, current.retry_at.map(|t| t.saturating_sub(BACKOFF_MS))]
         .into_iter()
         .flatten()
         .filter(|t| *t <= now + 5_000)
@@ -1025,14 +1091,7 @@ impl Service {
             let Some((_, snapshot)) = extra.get_mut(&account.id) else { continue };
             match result {
                 Ok(windows) => snapshot.accept(windows, observed),
-                Err(error) => {
-                    if error == ReadError::Unsupported {
-                        snapshot.windows.clear();
-                        snapshot.checked_at = None;
-                    }
-                    snapshot.error = Some(error);
-                    snapshot.retry_at = Some(observed + BACKOFF_MS);
-                }
+                Err(error) => snapshot.empty(error, observed),
             }
         }
     }
@@ -1115,14 +1174,7 @@ impl Service {
             Ok(windows) => {
                 snapshot.accept(windows, observed);
             }
-            Err(error) => {
-                if error == ReadError::Unsupported {
-                    snapshot.windows.clear();
-                    snapshot.checked_at = None;
-                }
-                snapshot.error = Some(error);
-                snapshot.retry_at = Some(observed + BACKOFF_MS);
-            }
+            Err(error) => snapshot.empty(error, observed),
         }
         drop(snapshot);
         if let Err(error) = self.publish() {
@@ -1783,7 +1835,9 @@ for line in sys.stdin:
         service.refresh(Path::new("unused"), true);
         assert_eq!(calls.load(Ordering::SeqCst), 1, "a double-click right after a failure is still absorbed");
         // The failure was 10 s ago (its wait is set BACKOFF_MS past the attempt) and he fixed it.
+        // The attempt is also recorded as the last empty check (`empty_at`), so both move.
         service.snapshot.lock().unwrap().retry_at = Some(crate::util::now_millis() + BACKOFF_MS - 10_000);
+        service.snapshot.lock().unwrap().empty_at = Some(crate::util::now_millis() - 10_000);
         let mut windows = snapshot(20., 3_600_000).windows;
         windows[0].resets_at = Some(crate::util::now_millis() + 3_600_000);
         *service.source.lock().unwrap() = Box::new(FakeSource { calls: calls.clone(), result: Ok(windows) });
@@ -1792,6 +1846,78 @@ for line in sys.stdin:
         let view = service.refresh(Path::new("unused"), true);
         assert_eq!(calls.load(Ordering::SeqCst), 2, "his manual check is a real one");
         assert!(view.retry_at.is_none(), "and its answer replaces the old failure");
+    }
+    /// Walk of nightly 36, D1: Claude Code 2.1.289 sometimes answers `get_usage` with
+    /// `rate_limits_available: true` and `rate_limits: null` (`qa/usage-shape.sh`). That is no
+    /// reading this time: nothing reported as unreadable, no ten-minute lock, the next check on
+    /// the normal schedule, and with the pause on, new work is not held waiting on it. On main
+    /// it was `Malformed`, with `retry_at` ten minutes out (the panel's locked Refresh) and
+    /// `Unknown` (new background work held until a reading came).
+    #[test]
+    fn a_null_usage_answer_is_no_reading_this_time_and_never_locks_or_holds() {
+        use std::sync::atomic::Ordering;
+        let null = json!({"rate_limits_available": true, "rate_limits": null, "subscription_type": "max"});
+        assert_eq!(normalize(&null), Err(ReadError::NoReading));
+        // An answer that is genuinely unreadable is still reported as unreadable.
+        for bad in [json!({"rate_limits_available": true}), json!({"rate_limits_available": true, "rate_limits": "x"}),
+            json!({"rate_limits_available": true, "rate_limits": {}})] {
+            assert_eq!(normalize(&bad), Err(ReadError::Malformed), "{bad}");
+        }
+        let dir = Scratch::new();
+        let service = Service::open(dir.path()).unwrap();
+        service.set_policy(policy()).unwrap();
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        *service.source.lock().unwrap() = Box::new(FakeSource { calls: calls.clone(), result: normalize(&null) });
+        let before = crate::util::now_millis();
+        let view = service.refresh(Path::new("unused"), true);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(view.retry_at, None, "no ten-minute lock");
+        assert_eq!(view.message, None, "nothing is reported as unreadable");
+        assert_eq!(view.state, State::Unavailable, "no figures, so no reading to show");
+        let empty = view.empty_at.expect("the empty answer is recorded");
+        assert!(empty >= before);
+        assert_eq!(view.next_check_at, Some(empty + REFRESH_INTERVAL_MS), "asked again on the normal schedule");
+        assert_eq!(view.admission, Admission::NoReading);
+        assert!(view.admission.allows_work(), "a missing reading does not hold new background work");
+        // The gate, a separate process, decides the same from the published file.
+        assert_eq!(gate::admission(&dir.path().join("engine-state"), crate::util::now_millis()), Admission::NoReading);
+        // The automatic check waits for the schedule; no tight loop on null answers.
+        service.refresh(Path::new("unused"), false);
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "the automatic check waits for the normal interval");
+        // Refresh is never locked by it: past the 5 s double-click cooldown a manual check is real.
+        service.snapshot.lock().unwrap().empty_at = Some(crate::util::now_millis() - 10_000);
+        service.refresh(Path::new("unused"), true);
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "a manual Refresh after a null answer reaches Claude Code");
+        // One interval after the empty answer, the automatic check asks again by itself.
+        service.snapshot.lock().unwrap().empty_at = Some(crate::util::now_millis() - REFRESH_INTERVAL_MS - 1);
+        service.refresh(Path::new("unused"), false);
+        assert_eq!(calls.load(Ordering::SeqCst), 3, "the normal schedule asks again");
+
+        // With figures from earlier, a null answer keeps them and is not a failure.
+        let mut s = snapshot(20., 3_600_000);
+        assert_eq!(s.view(policy(), NOW + REFRESH_INTERVAL_MS).admission, Admission::Unknown,
+            "the reading just went out of date and its check is on its way: work waits, as round 16 draws");
+        s.empty(ReadError::NoReading, NOW + REFRESH_INTERVAL_MS);
+        let view = s.view(policy(), NOW + REFRESH_INTERVAL_MS + 1);
+        assert_eq!(view.windows.len(), 1, "the last figures are kept");
+        assert_eq!((view.retry_at, view.message), (None, None));
+        assert_eq!(view.state, State::Stale);
+        assert_eq!(view.admission, Admission::NoReading, "that check came back empty: work is not held on it");
+        assert_eq!(view.next_check_at, Some(NOW + 2 * REFRESH_INTERVAL_MS));
+        // Figures that prove a hold still hold, until their window resets.
+        let mut high = snapshot(94., 3_600_000);
+        high.empty(ReadError::NoReading, NOW + REFRESH_INTERVAL_MS);
+        assert!(matches!(high.view(policy(), NOW + REFRESH_INTERVAL_MS + 1).admission, Admission::Held { .. }));
+        // A null answer after a failure clears the failure and its backoff.
+        let mut failed = snapshot(20., 3_600_000);
+        failed.empty(ReadError::Failed, NOW + 1);
+        assert!(failed.view(policy(), NOW + 2).retry_at.is_some());
+        failed.empty(ReadError::NoReading, NOW + 2);
+        assert_eq!(failed.view(policy(), NOW + 3).retry_at, None);
+        // A real reading ends it.
+        failed.accept(snapshot(21., 3_600_000).windows, NOW + 4);
+        assert_eq!(failed.view(policy(), NOW + 5).empty_at, None);
+        assert_eq!(failed.view(policy(), NOW + 5).admission, Admission::Ready);
     }
     #[test]
     fn cache_failure_backoff_policy_persistence_and_account_invalidation() {
