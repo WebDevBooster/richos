@@ -7842,6 +7842,79 @@ mod tests {
         grant
     }
 
+    /// **A WORKER's request, raised between the lease's turns, is an Approve on its job's row**
+    /// (esc-20261005T150541Z-ee581ad7, test VM walks walk-d20296d51c3d and walk-0c7e08bf738c).
+    ///
+    /// The back end's `prepare` launches its worker in the background and the lead's turn ends
+    /// at once, so the worker's `Bash` arrives with the scope as an ordinary turn end leaves
+    /// it: `actions_allowed: false`, `background_work_allowed: true` (`ecs::set_actions_allowed`).
+    /// The desk used to read only the turn flag and denied it on the spot, so the request never
+    /// reached the queue, `pending_decision` (the row's `awaitingYou`, `main.rs`) stayed `None`
+    /// and the walk found no Approve button in 900 s. The lead's own command, raised inside its
+    /// turn, always worked. Pressing Approve must let the worker's waiting call run.
+    ///
+    /// The control: once the work is STOPPED (`ecs::revoke` clears both flags), a worker's
+    /// request is refused at once and never put in front of him.
+    #[test]
+    fn a_workers_request_between_the_leases_turns_waits_on_its_assignments_row() {
+        let h = harness(5);
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        let scope = |actions: bool, workers: bool| {
+            serde_json::json!({"version":1,"actions_allowed":actions,"background_work_allowed":workers,
+                "binding":{"entity_id":"depot","thread_id":"thread-one","session_id":"work-session-one",
+                    "turn_id":row.obligation_id,"audience":"worker","revision":1}})
+            .to_string()
+        };
+        let path = h.root.join("work-grant-between-turns.json");
+        std::fs::write(&path, scope(false, true)).unwrap();
+        let lease = crate::permissions::ScopedPermissions { desk: Arc::clone(&h.desk), scope: path.clone() };
+        let pandoc = serde_json::json!({"tool_name":"Bash","input":{"command":"/opt/homebrew/bin/pandoc notes.md -o notes.pdf"}});
+        let worker = {
+            let (lease, pandoc) = (lease.clone(), pandoc.clone());
+            std::thread::spawn(move || lease.decide_within(&pandoc, std::time::Duration::from_secs(30)))
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let waiting = loop {
+            if let Some(request) = h.host.pending_decision(&row) {
+                break Some(request);
+            }
+            if worker.is_finished() || std::time::Instant::now() > deadline {
+                break None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        let Some(waiting) = waiting else {
+            let refused = worker.join().unwrap();
+            panic!(
+                "a worker's request between turns never reached its assignment's row, so there is no \
+                 Approve button (awaitingYou is None); the call ended {:?}",
+                refused
+            );
+        };
+        assert_eq!(
+            crate::permissions::assignment_key(&waiting.binding),
+            ("depot".to_string(), "thread-one".to_string(), row.obligation_id.clone()),
+            "the worker's request is keyed to another assignment"
+        );
+        assert_eq!(waiting.tool, "Bash");
+        assert_eq!(h.host.background_work().awaiting_you, 1, "the job is not counted as waiting on him");
+
+        // He presses Approve while the worker's call is still waiting: it takes the decision.
+        assert_eq!(h.desk.resolve(&waiting.id, true).unwrap(), crate::permissions::Answered::Delivered);
+        assert_eq!(worker.join().unwrap().behavior(), "allow", "his Approve did not let the worker's command run");
+        assert!(h.host.pending_decision(&row).is_none(), "the answered request is still on the row");
+
+        // The control: a stopped job's worker gets nothing, and nothing reaches his screen.
+        std::fs::write(&path, scope(false, false)).unwrap();
+        assert_eq!(lease.decide_within(&pandoc, std::time::Duration::from_secs(5)).behavior(), "deny");
+        assert!(h.desk.background_queue().is_empty(), "a stopped job's worker put a question in front of him");
+
+        h.host.shutdown();
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
     /// **Spec §5.7, end to end through the host.** The step asked while he was away; the
     /// call ended at its deadline in *not approved*; he answered afterwards; and the
     /// assignment went back on the lease to carry out the step he approved.
