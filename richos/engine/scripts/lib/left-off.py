@@ -646,10 +646,14 @@ def names_ref(name, text):
 
     Hunt P5-58: substring containment credited cc/mark-opus-f10's landing to
     cc/mark-opus-f1. A match must not be flanked by a character that continues
-    a branch name."""
+    a branch name.
+
+    v3: `/` and `.` continue a branch name too (cc/mark-opus-f1/other,
+    cc/mark-opus-f1.other) when a name character follows them; a sentence's
+    closing period or a `:` still ends the match."""
     if not name:
         return False
-    return re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(name), text) is not None
+    return re.search(r"(?<![\w-])%s(?![\w-]|[./][\w-])" % re.escape(name), text) is not None
 
 
 def landing_verdict(repos_info, name, as_of=None, workspaces=None):

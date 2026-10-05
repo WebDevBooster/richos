@@ -83,6 +83,10 @@ def step_run(vm, step, out):
             code, text = run([str(HERE / 'ax.sh'), vm] + step['args'])
             if code == 0 and step['contains'] in text:
                 return 0, text[:400]
+            # ax.sh's own refusal of the request (a bad role, a missing matcher) cannot become true by
+            # waiting: fail the step now, so the walk ends and its guest and slot are released.
+            if code and '[testvm] ERROR:' in text:
+                return code, f'ax.sh refused the request, not retried: {text[:400]}'
             time.sleep(2)
         return 1, f"never saw {step['contains']!r}; last: {text[:400]}"
     return 2, f'unknown op {op!r}'
@@ -165,6 +169,7 @@ def main():
         (a.out / 'steps.json').write_text(json.dumps(record, indent=2) + '\n')
         if code and not step.get('allow_fail'):
             failed = True
+            print(f'FAILED step {i} ({step["op"]}): exit {code}; the walk ends here', file=sys.stderr, flush=True)
             break
     return 1 if failed else 0
 

@@ -46,16 +46,16 @@ EXCLUDE=()
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help)      usage; exit 0 ;;
-        --ref)          MODE=ref;  A="${2:-}"; B="${3:-}"; shift 3 ;;
-        --log)          MODE=log;  A="${2:-}"; B="${3:-}"; shift 3 ;;
-        --file)         MODE=file; A="${2:-}"; shift 2 ;;
-        --gone)         MODE=gone; A="${2:-}"; shift 2 ;;
-        --time)         MODE=time; A="${2:-}"; shift 2 ;;
-        --new-process)  MODE=proc; A="${2:-}"; shift 2 ;;
-        --from)         FROM="${2:-}"; shift 2 ;;
-        --not)          EXCLUDE+=("${2:-}"); shift 2 ;;
-        --timeout)      TIMEOUT="${2:-}"; shift 2 ;;
-        --poll)         POLL="${2:-}"; shift 2 ;;
+        --ref)          MODE=ref;  A="${2:-}"; B="${3:-}"; shift 3 || { echo "wait-for.sh: $1 needs two values" >&2; exit 2; } ;;
+        --log)          MODE=log;  A="${2:-}"; B="${3:-}"; shift 3 || { echo "wait-for.sh: $1 needs two values" >&2; exit 2; } ;;
+        --file)         MODE=file; A="${2:-}"; shift 2 || { echo "wait-for.sh: $1 needs a value" >&2; exit 2; } ;;
+        --gone)         MODE=gone; A="${2:-}"; shift 2 || { echo "wait-for.sh: $1 needs a value" >&2; exit 2; } ;;
+        --time)         MODE=time; A="${2:-}"; shift 2 || { echo "wait-for.sh: $1 needs a value" >&2; exit 2; } ;;
+        --new-process)  MODE=proc; A="${2:-}"; shift 2 || { echo "wait-for.sh: $1 needs a value" >&2; exit 2; } ;;
+        --from)         FROM="${2:-}"; shift 2 || { echo "wait-for.sh: $1 needs a value" >&2; exit 2; } ;;
+        --not)          EXCLUDE+=("${2:-}"); shift 2 || { echo "wait-for.sh: $1 needs a value" >&2; exit 2; } ;;
+        --timeout)      TIMEOUT="${2:-}"; shift 2 || { echo "wait-for.sh: $1 needs a value" >&2; exit 2; } ;;
+        --poll)         POLL="${2:-}"; shift 2 || { echo "wait-for.sh: $1 needs a value" >&2; exit 2; } ;;
         --quiet)        QUIET=1; shift ;;
         *)              echo "wait-for.sh: unexpected argument '$1'. --help" >&2; exit 2 ;;
     esac

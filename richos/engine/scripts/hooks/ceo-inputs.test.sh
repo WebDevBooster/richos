@@ -568,6 +568,26 @@ rm -rf "$P322_TMP"
 if [ -z "$P322_LEFT" ]; then ok "P3-42 the P3-22 fragment leaves no fixture repository behind"
 else bad "P3-42 the P3-22 fragment leaves no fixture repository behind" "left: $P322_LEFT"; fi
 
+# --- I. companion files: an input under wiki/raw/ is committed WITH its
+# wiki/raw/assets/<id>-.../ folder (the 2026-10-04 transcript left that folder
+# untracked for seven hours).
+REPO_I="$(new_repo repo-i)"
+mkdir -p "$REPO_I/wiki/raw/assets/D8PikZ1KhUo-default"
+IN_I="$REPO_I/wiki/raw/2026-10-04-some-video-D8PikZ1KhUo.md"
+echo "# transcript $CANARY" > "$IN_I"
+echo "{}" > "$REPO_I/wiki/raw/assets/D8PikZ1KhUo-default/session.json"
+echo "decoded" > "$REPO_I/wiki/raw/assets/D8PikZ1KhUo-default/original.md"
+run_hook "$REPO_I" "handle $IN_I"
+if is_tracked "$REPO_I" "wiki/raw/assets/D8PikZ1KhUo-default/session.json" \
+   && is_tracked "$REPO_I" "wiki/raw/assets/D8PikZ1KhUo-default/original.md" \
+   && is_tracked "$REPO_I" "wiki/raw/2026-10-04-some-video-D8PikZ1KhUo.md" \
+   && [ -z "$(git -C "$REPO_I" status --porcelain -- wiki)" ] \
+   && [ "$(head_count "$REPO_I")" = "2" ]; then
+    ok "I1  the input and its untracked companion folder are committed together, one commit"
+else
+    bad "I1  input and companion folder committed together" "$(git -C "$REPO_I" status --porcelain -- wiki)"
+fi
+
 echo
 echo "==========================================="
 printf 'ceo-inputs.test.sh: %d passed, %d failed\n' "$PASS" "$FAIL"

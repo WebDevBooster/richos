@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -163,7 +164,11 @@ class Relocation(unittest.TestCase):
 
     def test_stop_hook_self_test_uses_relocated_suite_in_isolated_engine(self):
         result = self.command("bash", "scripts/hooks/guard-stated-actions.sh", "--self-test")
-        self.assertIn("49 passed, 0 failed", result.stdout)
+        # The suite's size is not this test's business: a pinned "49 passed" went stale when
+        # ARM 3 grew the suite to 84 cases (2026-10-02 and 03), and this test failed from then on.
+        summary = re.search(r"=== summary: (\d+) passed, 0 failed ===", result.stdout)
+        self.assertIsNotNone(summary, result.stdout[-2000:])
+        self.assertGreater(int(summary.group(1)), 0)
 
 
 if __name__ == "__main__":

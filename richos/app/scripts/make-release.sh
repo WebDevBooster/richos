@@ -85,13 +85,13 @@ CANDIDATE_ENGINE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --tag)          TAG="${2:-}"; shift 2 ;;
+    --tag)          TAG="${2:-}"; shift 2 || die "$1 needs a value" ;;
     --tag=*)        TAG="${1#*=}"; shift ;;
-    --notes)        NOTES="${2:-}"; shift 2 ;;
+    --notes)        NOTES="${2:-}"; shift 2 || die "$1 needs a value" ;;
     --notes=*)      NOTES="${1#*=}"; shift ;;
-    --out)          OUT="${2:-}"; shift 2 ;;
+    --out)          OUT="${2:-}"; shift 2 || die "$1 needs a value" ;;
     --out=*)        OUT="${1#*=}"; shift ;;
-    --sign)         SIGN_MODE="${2:-}"; shift 2 ;;
+    --sign)         SIGN_MODE="${2:-}"; shift 2 || die "$1 needs a value" ;;
     --sign=*)       SIGN_MODE="${1#*=}"; shift ;;
     --no-notarize)  NOTARIZE=0; shift ;;
     --candidate-engine) CANDIDATE_ENGINE=1; shift ;;

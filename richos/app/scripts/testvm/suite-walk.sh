@@ -27,12 +27,12 @@ VM="${1:-}"; shift 2>/dev/null
 STAGE=""; SUITE=""; ENGINE=""; RUNTIME=""; RC_FILE=""; RESULTS=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --stage)   STAGE="${2:-}"; shift 2 ;;
-    --suite)   SUITE="${2:-}"; shift 2 ;;
-    --engine)  ENGINE="${2:-}"; shift 2 ;;
-    --runtime) RUNTIME="${2:-}"; shift 2 ;;
-    --rc)      RC_FILE="${2:-}"; shift 2 ;;
-    --results) RESULTS="${2:-}"; shift 2 ;;
+    --stage)   STAGE="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
+    --suite)   SUITE="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
+    --engine)  ENGINE="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
+    --runtime) RUNTIME="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
+    --rc)      RC_FILE="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
+    --results) RESULTS="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
     *) echo "suite-walk.sh: unknown argument '$1'" >&2; exit 64 ;;
   esac
 done

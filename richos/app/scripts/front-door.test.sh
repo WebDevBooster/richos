@@ -200,10 +200,10 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLE="" RELEASE="" WAIT_FOR_SCREEN=0 EVIDENCE=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --bundle) BUNDLE="${2:-}"; shift 2 ;;
-    --release) RELEASE="${2:-}"; shift 2 ;;
-    --wait-for-screen) WAIT_FOR_SCREEN="${2:-0}"; shift 2 ;;
-    --evidence) EVIDENCE="${2:-}"; shift 2 ;;
+    --bundle) BUNDLE="${2:-}"; shift 2 || { echo "front-door.test.sh: $1 needs a value" >&2; exit 64; } ;;
+    --release) RELEASE="${2:-}"; shift 2 || { echo "front-door.test.sh: $1 needs a value" >&2; exit 64; } ;;
+    --wait-for-screen) WAIT_FOR_SCREEN="${2:-0}"; shift 2 || { echo "front-door.test.sh: $1 needs a value" >&2; exit 64; } ;;
+    --evidence) EVIDENCE="${2:-}"; shift 2 || { echo "front-door.test.sh: $1 needs a value" >&2; exit 64; } ;;
     *) echo "front-door.test.sh: unknown argument $1" >&2; exit 64 ;;
   esac
 done

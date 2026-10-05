@@ -188,18 +188,27 @@ def ends_in_no_match_tool(cmd):
         tokens = list(lex)
     except ValueError:
         return False
-    segs, cur = [], []
+    segs, cur, before, pending = [], [], [], ""
     for tok in tokens:
         if tok and set(tok) <= set(";|&()"):
             if cur:
                 segs.append(cur)
+                before.append(pending)
+                pending = ""
             cur = []
+            pending += tok
         else:
             cur.append(tok)
     if cur:
         segs.append(cur)
+        before.append(pending)
     seg = segs[-1] if segs else []
     if not seg:
+        return False
+    # P5-67 (v3): after `&&` the last command may never have run, and the exit 1
+    # can be the earlier command's (`python3 ... exits 1 && grep x`). After `;`,
+    # `|` or `||` a nonzero status can only come from the last command.
+    if "&&" in before[-1]:
         return False
     words = list(seg)
     while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0])

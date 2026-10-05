@@ -65,12 +65,12 @@ ORIG_ARGS=("$@")
 RUN_ID=""; BUNDLE=""; COMMIT=""; VM=""; OUT=""; WAIT=3600
 while [ $# -gt 0 ]; do
   case "$1" in
-    --run)    RUN_ID="${2:-}"; shift 2 ;;
-    --bundle) BUNDLE="${2:-}"; shift 2 ;;
-    --commit) COMMIT="${2:-}"; shift 2 ;;
-    --vm)     VM="${2:-}"; shift 2 ;;
-    --out)    OUT="${2:-}"; shift 2 ;;
-    --wait)   WAIT="${2:-}"; shift 2 ;;
+    --run)    RUN_ID="${2:-}"; shift 2 || { echo "gui-proof-in-vm.sh: $1 needs a value" >&2; exit 2; } ;;
+    --bundle) BUNDLE="${2:-}"; shift 2 || { echo "gui-proof-in-vm.sh: $1 needs a value" >&2; exit 2; } ;;
+    --commit) COMMIT="${2:-}"; shift 2 || { echo "gui-proof-in-vm.sh: $1 needs a value" >&2; exit 2; } ;;
+    --vm)     VM="${2:-}"; shift 2 || { echo "gui-proof-in-vm.sh: $1 needs a value" >&2; exit 2; } ;;
+    --out)    OUT="${2:-}"; shift 2 || { echo "gui-proof-in-vm.sh: $1 needs a value" >&2; exit 2; } ;;
+    --wait)   WAIT="${2:-}"; shift 2 || { echo "gui-proof-in-vm.sh: $1 needs a value" >&2; exit 2; } ;;
     # A kept guest is a guest held after its run, which the CEO ruled out on 2026-09-27;
     # the slot it ran in stops it on release anyway. Said here rather than ignored.
     --keep)   echo "gui-proof-in-vm.sh: --keep is retired: a guest is never kept after its run (testvm/slots.py). Read the proof and run.sh's output instead." >&2; exit 2 ;;
