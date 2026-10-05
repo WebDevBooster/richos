@@ -60,6 +60,8 @@ LINT_DRIVER = "richos/app/scripts/lint/driver.py"
 PROOF_FOR = "richos/app/scripts/proof-for.sh"
 PROOF_RUN = "richos/app/scripts/proof-run.py"
 BATTERY_CHECK = "richos/app/scripts/battery-check.py"
+ENGINE_HOOKS = "richos/engine/scripts/hooks/"
+ENGINE_HOOKS_INSTALL = ENGINE_HOOKS + "install.sh"
 PHYSICAL_CHECK = "richos/mobile/physical.py"
 MOBILE = "richos/mobile/"
 ENGINE_ESCALATE = "richos/engine/scripts/escalate.sh"
@@ -1454,6 +1456,37 @@ def post_commit(repo):
     return 0
 
 
+def refresh_hook_sidecars(repo, old, new):
+    """Main moved from `old` to `new`: if that touched a guard script under richos/engine/scripts/hooks/,
+    re-mint the engine's .sha256 sidecars with the engine's own install.sh. The sidecars are gitignored,
+    so a merge brings new script bytes and leaves the old hashes, which turns the integrity probe's BR4
+    red and makes install-fresh refuse to run (2026-10-05, 112 guards, lands that missed the manual
+    step). A merge that touches no hook script runs nothing. A failed refresh is recorded for the lead."""
+    install = repo.top / ENGINE_HOOKS_INSTALL
+    if not old or not install.is_file():
+        return
+    touched = git("diff", "--name-only", old, new, "--", ENGINE_HOOKS, check=False, cwd=repo.top).stdout.split()
+    if not touched:
+        return
+    env = {k: v for k, v in repo.env.items() if not k.startswith("GIT_")}
+    env.pop(ACTIVE, None)
+    try:
+        result = subprocess.run(["bash", str(install)], cwd=repo.top, env=env, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result = None
+        detail = str(exc)
+    else:
+        detail = (result.stdout + result.stderr).strip()
+    if result is None or result.returncode:
+        record_skip(repo, f"the hook sidecars were not refreshed after main moved to {new[:12]}",
+                    f"{ENGINE_HOOKS_INSTALL} failed ({detail[-300:]}). Run it from the main checkout: until then BR4 is red.",
+                    tried=f"autocheck's hook on main ran {ENGINE_HOOKS_INSTALL} because {touched[0]} changed.",
+                    meanwhile="The land is complete; the guard scripts' sidecars still hash the old bytes.")
+        return
+    say(f"autocheck: {len(touched)} hook script(s) changed; engine sidecars refreshed ({ENGINE_HOOKS_INSTALL})")
+
+
 def made_a_merge_commit(repo, parents):
     """Did THIS merge write a new merge commit, or move HEAD to a commit that already existed?
 
@@ -1484,6 +1517,7 @@ def post_merge(repo, squash):
     if repo.branch == LAND_BRANCH:
         orig = git("rev-parse", "-q", "--verify", "ORIG_HEAD", check=False, cwd=repo.top).stdout.strip()
         phone_watch(repo, orig, head)
+        refresh_hook_sidecars(repo, orig, head)
         if not repo.land_receipt(tree).exists():
             how = "git merge --no-verify" if merged else "a fast-forward"
             record_skip(repo, f"main moved to {head[:12]} without the land checks ({how})",
