@@ -1437,6 +1437,97 @@ class DesktopWork(unittest.TestCase):
         # of two lands unanswerable.
         self.assertNotIn("landed",self.app._read_land_lock(self.app.land_lock_path(self.repo)) or {})
 
+    # ---- WITNESS (d), THE LAND (Output side panel PRD §4.1 (d), slice S2b) -----------------
+    # integrate writes one row per landed file into the back-end session's writes.jsonl: the
+    # landed path, the worktree path it retires, the commit and the worker its receipt names.
+
+    def land_rows(self):
+        path=self.root/"engine-state/evidence"/self.session/"writes.jsonl"
+        return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+
+    def reviewed_change(self,tag,edit):
+        """reviewed_pair with any change: `edit(target)` edits the worker's worktree, and
+        everything it changed is committed. Returns the args, the worker receipt and its
+        worktree (whose real path the land row names)."""
+        spec={**self.args,"request_id":"prepare-"+tag}
+        worker=self.call("prepare",spec)
+        target=self.start_fixture_worker(worker,tag+"-worker")
+        edit(target)
+        self.app.git(target,"add","-A")
+        self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional "+tag)
+        commit=self.app.git(target,"rev-parse","HEAD")
+        self.finish_fixture_worker(tag+"-worker")
+        reviewer=self.call("prepare",{**spec,"request_id":"review-"+tag,"role":"reviewer","review_of":worker["id"],
+            "title":"Review "+tag,"brief":"Review the exact change; do not modify any files."})
+        self.start_fixture_worker(reviewer,tag+"-reviewer")
+        self.finish_fixture_worker(tag+"-reviewer","RICHOS_REVIEW "+json.dumps(
+            {"commit":commit,"verdict":"passed","checks":["synthetic reviewer observation"]}))
+        return {"worker_id":worker["id"],"reviewer_id":reviewer["id"]},worker,os.path.realpath(target)
+
+    def test_land_witness_records_each_landed_file_at_its_landed_path_from_its_worktree(self):
+        def notes(target):
+            (target/"notes.md").write_text("Notes for the walk test.\n")
+            (target/"notes.pdf").write_bytes(b"%PDF-1.7 fictional")
+        args,worker,worktree=self.reviewed_change("notes",notes)
+        self.assertEqual(self.land_rows(),[])                  # POSITIVE CONTROL: nothing before the land
+        landed=self.call("integrate",args)
+        self.assertTrue(landed["work_integrated"])
+        head=self.app.git(self.repo,"rev-parse","main")
+        rows=self.land_rows()
+        self.assertEqual(sorted((r["source"],r["path"],r["from"],r["commit"]) for r in rows),
+            [("land",str(self.repo/n),os.path.join(worktree,n),head) for n in ("notes.md","notes.pdf")])
+        for r in rows:
+            self.assertEqual(r["worker"],{"name":worker["name"],"agent_id":"notes-worker"})   # the receipt's own
+            self.assertEqual((r["session_id"],r["tool_use_id"],r["agent_id"]),(self.session,None,None))
+            self.assertTrue((self.repo/Path(r["path"]).name).is_file())                  # the copy that opens
+        self.assertFalse(Path(worktree).exists(),"cleanup deleted the worktree the rows retire")
+        # A REPEATED integrate merges nothing and records nothing.
+        self.assertTrue(self.call("integrate",args)["work_integrated"])
+        self.assertEqual(self.land_rows(),rows)
+
+    def test_land_witness_records_nothing_for_a_land_that_only_deletes_a_file(self):
+        self.call("integrate",self.reviewed_change("add",lambda t:(t/"gone.txt").write_text("soon gone"))[0])
+        before=self.land_rows()
+        self.assertEqual([Path(r["path"]).name for r in before],["gone.txt"])
+        removed=self.call("integrate",self.reviewed_change("remove",lambda t:(t/"gone.txt").unlink())[0])
+        self.assertTrue(removed["work_integrated"])
+        self.assertFalse((self.repo/"gone.txt").exists())
+        self.assertEqual(self.land_rows(),before)
+
+    def test_land_witness_that_raises_never_fails_the_land(self):
+        args,_,_=self.reviewed_change("boom",lambda t:(t/"notes.md").write_text("n"))
+        real=self.app.load
+        def broken(name,path):
+            module=real(name,path)
+            if name=="richos_app_evidence":
+                def refuse(*_a,**_k): raise OSError("synthetic: the evidence folder is unwritable")
+                module.append_land_rows=refuse
+            return module
+        with patch.object(self.app,"load",side_effect=broken) as loaded:
+            landed=self.call("integrate",args)
+        self.assertIn("richos_app_evidence",[c.args[0] for c in loaded.call_args_list])   # the witness DID run
+        self.assertTrue(landed["work_integrated"])
+        self.assertEqual(landed["cleanup_pending"],[])
+        self.assertTrue((self.repo/"notes.md").is_file())
+        self.assertEqual(self.land_rows(),[])
+
+    def test_land_witness_of_a_job_in_two_repositories_names_each_repositorys_own_paths(self):
+        second=self.second_repository()
+        spec={**self.args,"request_id":"multi-witness","repos":[str(second)]}
+        worker=self.call("prepare",spec)
+        self.start_fixture_worker(worker,"multi-witness")
+        paths={r:os.path.realpath(p) for r,p in self.workspaces_of(worker).items()}
+        commits=self.commit_in_each(paths,"result.txt","FICTIONAL")
+        self.finish_fixture_worker("multi-witness")
+        reviewer=self.call("prepare",{**spec,"request_id":"multi-witness-review","role":"reviewer","review_of":worker["id"],
+            "title":"Review both","brief":"Review the change in both repositories; do not modify any files."})
+        self.start_fixture_worker(reviewer,"multi-witness-reviewer")
+        self.finish_fixture_worker("multi-witness-reviewer","RICHOS_REVIEW "+json.dumps(
+            {"commit":commits[str(self.repo)],"commits":commits,"verdict":"passed","checks":["both repositories"]}))
+        self.assertTrue(self.call("integrate",{"worker_id":worker["id"],"reviewer_id":reviewer["id"]})["work_integrated"])
+        self.assertEqual(sorted((r["path"],r["from"],r["commit"]) for r in self.land_rows()),
+            sorted((os.path.join(repo,"result.txt"),os.path.join(paths[repo],"result.txt"),commits[repo]) for repo in commits))
+
 
 class RunBoundIsTheWholeOperations(unittest.TestCase):
     """Hunt part 4, finding 18 (richos-hq docs/audits/2026-09-29-hunt/
