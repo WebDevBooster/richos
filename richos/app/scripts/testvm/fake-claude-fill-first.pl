@@ -6,7 +6,9 @@
 #   an added account: <its CLAUDE_CONFIG_DIR>/usage.json
 # A usage file is {"five": N, "weekly": N}, optionally with "five_at" and "week_at" (epoch
 # seconds) for when each window resets; without them a window resets 3 h / 4 d after this
-# process started. While /Users/admin/fill-first/slow exists, a turn is held open before it
+# process started. A usage file {"null": true} answers get_usage as Claude Code 2.1.289 does
+# some of the time: rate_limits_available true and rate_limits null (walk of nightly 36, D1,
+# qa/usage-shape.sh), and a turn then streams no rate_limit_event. While /Users/admin/fill-first/slow exists, a turn is held open before it
 # answers (at most 10 minutes), so a walk can photograph a turn in progress. Only the user's
 # own turns are held: the app's internal turns (the handoff summary and the re-prime of a new
 # lease, both "[INTERNAL ...") answer at once, because a lease is installed only after its
@@ -71,7 +73,8 @@ while (my $line = <STDIN>) {
     my $answer = {};
     if ($kind eq 'get_usage') {
       my $u = usage();
-      $answer = { rate_limits_available => JSON::PP::true, rate_limits => {
+      $answer = $u->{null} ? { rate_limits_available => JSON::PP::true, rate_limits => undef }
+        : { rate_limits_available => JSON::PP::true, rate_limits => {
         five_hour => { utilization => $u->{five} + 0, resets_at => iso($u->{five_at} // $five_reset) },
         seven_day => { utilization => $u->{weekly} + 0, resets_at => iso($u->{week_at} // $week_reset) } } };
     }
@@ -102,7 +105,7 @@ while (my $line = <STDIN>) {
     my $u = usage();
     print $json->encode({ type => 'rate_limit_event', rate_limit_info => { status => 'allowed', unifiedWindows => {
       five_hour => { utilization => $u->{five} / 100, resetsAt => $u->{five_at} // $five_reset },
-      seven_day => { utilization => $u->{weekly} / 100, resetsAt => $u->{week_at} // $week_reset } } } }), "\n";
+      seven_day => { utilization => $u->{weekly} / 100, resetsAt => $u->{week_at} // $week_reset } } } }), "\n" unless $u->{null};
     my $who = $folder =~ /claude-accounts\/(\d+)/ ? "account $1" : 'Account 1';
     my $text = "Answered on $who.";
     if (!$internal && open(my $r, '<', "$dir/reply.txt")) { local $/; my $t = <$r>; close $r; $text = $t =~ s/\s+\z//r if defined $t && length $t; }

@@ -111,5 +111,20 @@ with tempfile.TemporaryDirectory() as root:
     check(probe.returncode == 0 and sorted(p.name for p in (data / 'engine-state' / 'evidence').iterdir()) == [SESSION],
           'a process without --session-id writes no evidence')
 
+    # 5: the quota probe's get_usage, as the reader asks it: figures from the usage file, and
+    # with {"null": true} Claude Code 2.1.289's null answer (walk of nightly 36, D1).
+    def usage_answer():
+        ask = json.dumps({'type': 'control_request', 'request_id': 'quota-2', 'request': {'subtype': 'get_usage'}}) + '\n'
+        out = subprocess.run(['perl', str(FAKE), '--print'], input=ask, text=True, env=env, capture_output=True).stdout
+        return json.loads(out.splitlines()[0])['response']['response']
+    (walk / 'usage-1.json').write_text('{"five": 41, "weekly": 28}')
+    figures = usage_answer()
+    check(figures['rate_limits_available'] is True and figures['rate_limits']['five_hour']['utilization'] == 41,
+          'get_usage answers the usage file\'s figures', figures)
+    (walk / 'usage-1.json').write_text('{"null": true}')
+    null = usage_answer()
+    check(null == {'rate_limits_available': True, 'rate_limits': None},
+          'with {"null": true}, get_usage answers rate_limits: null beside rate_limits_available: true', null)
+
 print('fake-claude-fill-first:', 'FAILED' if failed else 'all passed')
 sys.exit(1 if failed else 0)

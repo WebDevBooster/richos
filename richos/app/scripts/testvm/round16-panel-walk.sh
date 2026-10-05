@@ -10,6 +10,10 @@
 # fake-claude-fill-first.pl answers every `claude` call from per-account usage files, so no real
 # Claude account is read, signed in or switched. It captures, in <out-dir>, each in dark AND
 # light, named for the round-16 state it matches (richos-hq design/mockups/rounds/round-16/):
+#   0-no-reading        ~ unavailable, pause on: Claude Code answers get_usage with
+#                         rate_limits null (walk of nightly 36, D1): "No reading yet.", and
+#                         "+ Add account" still offered beside "Ask Claude Code"; the card
+#                         says nothing is held on the missing number
 #   1-one-account       ~ fresh / low: one account, "+ Add account" beside Refresh
 #   2-two-accounts      ~ two / choice-pause: Home and Work as lanes, the one sentence, Pause
 #   3-switched-sheet    ~ switched: Switch chosen, Home past its line, Work in use
@@ -95,7 +99,9 @@ WORK_FIVE=$((START + 3*3600)); WORK_WEEK=$((START + 86400 + 5*3600 + 40*60))
 "$T/guest.sh" "$VM" 'mkdir -p /Users/admin/fill-first'
 "$T/guest.sh" "$VM" --push "$T/fake-claude-fill-first.pl" /Users/admin/fill-first/claude
 "$T/guest.sh" "$VM" 'chmod 755 /Users/admin/fill-first/claude'
-usage /Users/admin/fill-first/usage-1.json 41 28 "$HOME_FIVE" "$HOME_WEEK"
+# State 0 first: Account 1's get_usage answers rate_limits null from launch (the fake's
+# {"null": true}), as Claude Code 2.1.289 did in runs B and C1 of the nightly-36 walk.
+"$T/guest.sh" "$VM" "printf '{\"null\":true}' > /Users/admin/fill-first/usage-1.json"
 python3 - "$VM" "$T" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[2])
@@ -123,6 +129,24 @@ ax click --at 1492,284 || true
 sleep 2
 ax click --title 'Turn it on' || true
 sleep 2
+
+note "0 no reading: get_usage answers rate_limits null; the pause on"
+open_panel
+ax click --title 'Automatically pause' --contains --first || note "no pause switch"
+sleep 3
+# Read, never assumed: the entry to a second account and the way to ask again are on the sheet.
+if ax find --title '+ Add account' --first >/dev/null 2>&1; then note "+ Add account offered with no reading"; else note "+ Add account MISSING with no reading"; fi
+if ax find --title 'Ask Claude Code' --first >/dev/null 2>&1; then note "Ask Claude Code offered"; else note "Ask Claude Code MISSING"; fi
+if ax find --value 'nothing is held' --contains --first >/dev/null 2>&1; then note "the card says nothing is held"; else note "the no-reading card MISSING"; fi
+ax tree --depth 40 > "$S/0-no-reading-ax.txt" 2>&1 || true
+pair_sheet 0-no-reading
+ax click --title 'Automatically pause' --contains --first || note "no pause switch to turn off"
+sleep 3
+# The figures arrive: Claude Code answers again, and Ask Claude Code reads them now.
+usage /Users/admin/fill-first/usage-1.json 41 28 "$HOME_FIVE" "$HOME_WEEK"
+ax click --title 'Ask Claude Code' --first || note "no Ask Claude Code to click"
+sleep 8
+close_panel
 
 note "1 one account"
 open_panel
