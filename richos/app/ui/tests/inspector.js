@@ -10,7 +10,7 @@
 "use strict";
 
 const path = require("path");
-const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, SLOW_BRIDGE, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 
@@ -418,8 +418,290 @@ async function main() {
     });
   }
 
+  await sidebarToggleChecks(browser, run);
+
   await browser.close();
   return run.report();
+}
+
+// ---------------------------------------------------------------------------------------
+// THE SIDEBAR TOGGLE AT EVERY WIDTH — output side-panel PRD §8 / S8, round 17.1's
+// `sidebar-hidden`. The CEO, after round 17: "we also need to give the user the option to
+// toggle the left sidebar". Here because this file already owns §20's breakpoints, and the
+// toggle was a §20 rule ("at 1180px and wider the sidebar is persistent") until S8.
+// ---------------------------------------------------------------------------------------
+
+/// The rail, the toggle and the durable state, read in one go.
+function readSidebar(page) {
+  return page.evaluate(async () => {
+    const rail = document.getElementById("rail");
+    const stage = document.getElementById("stage");
+    const btn = document.getElementById("rail-toggle");
+    const pane = btn.querySelector(".sb-pane");
+    const rs = getComputedStyle(rail);
+    const rr = rail.getBoundingClientRect();
+    const br = btn.getBoundingClientRect();
+    const hr = document.getElementById("stage-header").getBoundingClientRect();
+    const nav = await window.RichBridge.invoke("nav_state");
+    return {
+      railShown: rs.display !== "none" && rs.visibility !== "hidden" && rr.right > 1,
+      railRight: Math.round(rr.right),
+      railDisplay: rs.display,
+      stageLeft: Math.round(stage.getBoundingClientRect().left),
+      btnShown: !btn.hidden && getComputedStyle(btn).display !== "none" && br.width >= 24 && br.height >= 24,
+      btnFromHeaderLeft: Math.round(br.left - hr.left),
+      btnFirstInHeader: document.getElementById("stage-header").firstElementChild === btn,
+      expanded: btn.getAttribute("aria-expanded"),
+      label: btn.getAttribute("aria-label"),
+      title: btn.title,
+      controls: btn.getAttribute("aria-controls"),
+      keys: btn.getAttribute("aria-keyshortcuts") || "",
+      paneFill: getComputedStyle(pane).fill,
+      paneOpacity: getComputedStyle(pane).fillOpacity,
+      persisted: nav.sidebar_collapsed,
+      mirror: window.localStorage.getItem("richos-sidebar-hidden"),
+      htmlAttr: document.documentElement.getAttribute("data-sidebar"),
+      focused: document.activeElement ? document.activeElement.id : null,
+    };
+  });
+}
+
+/// The rail at rest after a toggle: the slide is .38s, so this waits for the END STATE, never a
+/// length of time (the hang guard names itself).
+async function railSettles(page, shown) {
+  await page
+    .waitForFunction(
+      (want) => {
+        const r = document.getElementById("rail");
+        const cs = getComputedStyle(r);
+        const rect = r.getBoundingClientRect();
+        // Away is the END of the slide: hidden (which `visibility` becomes only when the slide
+        // ends) and out of the row. A rail a pixel short of the edge is still moving.
+        if (!want) return cs.display === "none" || (cs.visibility === "hidden" && rect.right <= 0.5);
+        return cs.display !== "none" && cs.visibility !== "hidden" && Math.round(rect.left) === 0;
+      },
+      shown,
+      { timeout: 60000 }
+    )
+    .catch(() => {
+      throw new Error("the rail never settled " + (shown ? "open" : "away") + " (60 s hang guard)");
+    });
+}
+
+async function sidebarToggleChecks(browser, run) {
+  const page = await openApp(browser, { width: 1400, height: 900 });
+
+  await run.check("S8 at 1400px the sidebar toggle is in the conversation's header, top left, and named", async () => {
+    const s = await readSidebar(page);
+    assert(s.btnShown, "the toggle must be on screen at 1180px and wider now — it was hidden there until S8");
+    assert(s.btnFirstInHeader, "the toggle is the header's first control, as round 17.1 draws it");
+    assert(s.btnFromHeaderLeft <= 20, "and at its left edge: " + s.btnFromHeaderLeft + "px in");
+    assert(s.railShown, "the sidebar starts open");
+    assertEqual(s.expanded, "true");
+    assertEqual(s.label, "Hide the sidebar");
+    assertEqual(s.title, "Hide the sidebar (⌘⇧S)");
+    assertEqual(s.controls, "rail");
+    assert(s.keys.includes("Meta+Shift+S"), "aria-keyshortcuts names ⌘⇧S: " + s.keys);
+    assertEqual(s.paneOpacity, "1", "the glyph's left pane is empty while the sidebar is open");
+    return `toggle ${s.btnFromHeaderLeft}px from the header's left, "${s.label}", ${s.keys}`;
+  });
+
+  await run.check("S8 a click sends the sidebar away with round 17.1's slide, and the choice is written", async () => {
+    const curve = await page.evaluate(() => {
+      const cs = getComputedStyle(document.getElementById("rail"));
+      return { property: cs.transitionProperty, duration: cs.transitionDuration, timing: cs.transitionTimingFunction };
+    });
+    assert(curve.property.includes("margin-left"), "the rail slides: " + curve.property);
+    assert(curve.duration.startsWith("0.38s"), "for .38s: " + curve.duration);
+    assert(/cubic-bezier\(0\.22, 1, 0\.36, 1\)/.test(curve.timing), "on the out-quint curve: " + curve.timing);
+    await page.click("#rail-toggle");
+    await railSettles(page, false);
+    const s = await readSidebar(page);
+    assertEqual(s.stageLeft, 0, "the conversation takes the room");
+    assertEqual(s.expanded, "false");
+    assertEqual(s.label, "Show the sidebar");
+    assertEqual(s.title, "Show the sidebar (⌘⇧S)");
+    assert(s.paneFill !== "transparent" && Number(s.paneOpacity) > 0.2 && Number(s.paneOpacity) < 0.35,
+      "the glyph's left pane fills (.28) while the sidebar is away: " + s.paneFill + " @ " + s.paneOpacity);
+    assertEqual(s.persisted, true, "nav.rs (the mock store) holds sidebar_collapsed at 1400px — it did not before S8");
+    assertEqual(s.mirror, "1", "and the first-paint mirror says so");
+    assertEqual(s.htmlAttr, "hidden");
+    return `rail right edge ${s.railRight}px, conversation at x=${s.stageLeft}, persisted ${s.persisted}, mirror ${s.mirror}`;
+  });
+
+  await run.check("S8 ⌘⇧S brings it back and sends it away again, from a text field too", async () => {
+    await page.keyboard.press("Meta+Shift+KeyS");
+    await railSettles(page, true);
+    const back = await readSidebar(page);
+    assertEqual(back.expanded, "true");
+    assertEqual(back.persisted, false, "the way back is written too");
+    assertEqual(back.mirror, "0");
+    assertEqual(back.htmlAttr, null);
+    await page.focus("#input");
+    await page.keyboard.press("Meta+Shift+KeyS");
+    await railSettles(page, false);
+    const away = await readSidebar(page);
+    assertEqual(away.persisted, true);
+    assertEqual(away.focused, "input", "the shortcut does not take focus out of the composer");
+    await page.keyboard.press("Meta+Shift+KeyS");
+    await railSettles(page, true);
+    return `open -> away from the composer -> open; persisted ${back.persisted}/${away.persisted}`;
+  });
+
+  await run.check("S8 focus inside the sidebar moves to the toggle when the sidebar goes", async () => {
+    await page.focus('.nav-thread[data-thread-id="hiring"]');
+    await page.keyboard.press("Meta+Shift+KeyS");
+    await railSettles(page, false);
+    const s = await readSidebar(page);
+    assertEqual(s.focused, "rail-toggle", "nothing keeps focus on a rail that is not there");
+    const tabbable = await page.evaluate(() => {
+      const r = document.getElementById("rail");
+      return [...r.querySelectorAll("button, [tabindex], input, a[href]")].filter((n) => getComputedStyle(n).visibility !== "hidden").length;
+    });
+    assertEqual(tabbable, 0, "and nothing in the hidden rail is visible to Tab");
+    return "focus on #rail-toggle; 0 rail controls left visible";
+  });
+
+  await run.check("S8 SCREENSHOT: sidebar-hidden at 1400px (round 17.1's state)", async () => {
+    await page.mouse.move(700, 450);
+    const s = await shot(page, "sidebar-hidden-1400");
+    assert(s.bytes > 3000, "too small to be a render: " + s.bytes);
+    return `${s.file} (${s.bytes} bytes)`;
+  });
+
+  await run.check("S8 a relaunch paints the sidebar away from the first frame, before nav.rs answers", async () => {
+    // Every frame from the moment `#rail` is parsed until main.js applies nav.rs's answer is
+    // recorded. SLOW_BRIDGE puts 40 ms on each bridge call, so there are frames in that window
+    // whatever the host's speed — a run with none would prove nothing, and is refused below.
+    await page.addInitScript(SLOW_BRIDGE, 40);
+    await page.addInitScript(() => {
+      const samples = [];
+      window.__railSamples = samples;
+      let reconciled = false;
+      const read = (when) => {
+        const r = document.getElementById("rail");
+        if (!r) return;
+        const cs = getComputedStyle(r);
+        const rect = r.getBoundingClientRect();
+        samples.push({ when, reconciled, shown: cs.display !== "none" && cs.visibility !== "hidden" && rect.right > 1 });
+      };
+      const seenRail = new MutationObserver(() => {
+        if (!document.getElementById("rail")) return;
+        seenRail.disconnect();
+        read("parsed");
+        const tick = () => {
+          read("frame");
+          if (samples.length < 600) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      seenRail.observe(document, { childList: true, subtree: true });
+      document.addEventListener("DOMContentLoaded", () => {
+        new MutationObserver(() => {
+          if (document.body.classList.contains("rail-instant")) reconciled = true;
+        }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+      });
+    });
+    await page.reload();
+    await leaveHome(page);
+    await page.waitForFunction(() => window.__railSamples.some((x) => x.reconciled), null, { timeout: 30000 });
+    const samples = await page.evaluate(() => window.__railSamples);
+    const before = samples.filter((x) => !x.reconciled);
+    const frames = before.filter((x) => x.when === "frame").length;
+    assert(before.length && before[0].when === "parsed", "the rail's first style was not sampled at parse time");
+    assert(frames >= 2, "only " + frames + " frame(s) before nav.rs answered: nothing was proven about them");
+    const flashed = before.filter((x) => x.shown);
+    assertEqual(flashed.length, 0, "the rail was painted open in " + flashed.length + " frame(s) before nav.rs answered");
+    await railSettles(page, false);
+    const s = await readSidebar(page);
+    assertEqual(s.expanded, "false", "after the relaunch the toggle says the sidebar is away");
+    assertEqual(s.persisted, true);
+    return `${frames} frame(s) painted before nav.rs answered, rail open in none of them; settled away`;
+  });
+  await page.close();
+
+  await run.check("S8 nav.rs decides, never the mirror: a stale mirror is corrected at launch", async () => {
+    const p = await openFresh(browser, { width: 1400, height: 900 }, { mirror: "1", store: "0" });
+    await railSettles(p, true);
+    const s = await readSidebar(p);
+    assertEqual(s.persisted, false);
+    assertEqual(s.mirror, "0", "the mirror was corrected to the durable answer");
+    assertEqual(s.expanded, "true");
+    await p.close();
+    return "mirror said away, nav.rs said open: open, and the mirror now says 0";
+  });
+
+  await run.check("S8 820 to 1179: the same toggle slides the sidebar away and back, and writes it", async () => {
+    const p = await openApp(browser, { width: 1000, height: 900 });
+    await p.click("#rail-toggle");
+    await railSettles(p, false);
+    const away = await readSidebar(p);
+    assertEqual(away.railDisplay, "flex", "at mid width the rail slides away; it is not display:none'd");
+    assertEqual(away.persisted, true);
+    await p.click("#rail-toggle");
+    await railSettles(p, true);
+    const back = await readSidebar(p);
+    assertEqual(back.persisted, false);
+    await p.close();
+    return `away (stage at x=${away.stageLeft}) and back, persisted true then false`;
+  });
+
+  await run.check("S8 below 820 the drawer is unchanged, and its auto-close never decides the docked choice", async () => {
+    const p = await openApp(browser, { width: 760, height: 900 });
+    // openApp opened the drawer with the toggle; picking a thread closes it, as before S8.
+    const drawer = await p.evaluate(() => ({
+      position: getComputedStyle(document.getElementById("rail")).position,
+      scrim: !document.getElementById("rail-scrim").hidden,
+    }));
+    assertEqual(drawer.position, "fixed", "below 820px the rail is still the full-height drawer");
+    assert(drawer.scrim, "with its scrim");
+    await p.click('.nav-thread[data-thread-id="hiring"]');
+    await p.waitForFunction(() => document.body.classList.contains("rail-closed"));
+    const closed = await readSidebar(p);
+    assertEqual(closed.persisted, false, "the drawer's auto-close wrote nothing");
+    await p.setViewportSize({ width: 1400, height: 900 });
+    await railSettles(p, true);
+    const wide = await readSidebar(p);
+    assertEqual(wide.expanded, "true", "widened, the docked choice (open) is back");
+    // And the reverse: away at 1400, through the drawer width, and back still away.
+    await p.click("#rail-toggle");
+    await railSettles(p, false);
+    await p.setViewportSize({ width: 760, height: 900 });
+    await p.setViewportSize({ width: 1400, height: 900 });
+    await railSettles(p, false);
+    const still = await readSidebar(p);
+    assertEqual(still.persisted, true);
+    assertEqual(p.__errors, [], "the shell threw");
+    await p.close();
+    return "drawer closed by a thread pick, nothing written; 760 -> 1400 open; away survives 1400 -> 760 -> 1400";
+  });
+
+  await run.check("S8 reduced motion: the sidebar goes and comes back with no slide", async () => {
+    const p = await browser.newPage({ viewport: { width: 1400, height: 900 }, reducedMotion: "reduce" });
+    await p.goto(APP);
+    await leaveHome(p);
+    await p.waitForSelector(".nav-thread", { state: "visible" });
+    const d = await p.evaluate(() => getComputedStyle(document.getElementById("rail")).transitionDuration);
+    assert(d.split(",").every((x) => parseFloat(x) === 0), "no transition under reduced motion: " + d);
+    await p.keyboard.press("Meta+Shift+KeyS");
+    await railSettles(p, false);
+    await p.close();
+    return "transition-duration " + d;
+  });
+}
+
+/// A page whose durable store and first-paint mirror are seeded before the first byte, so a
+/// disagreement between them can be staged.
+async function openFresh(browser, viewport, seed) {
+  const page = await browser.newPage({ viewport });
+  await page.addInitScript((s) => {
+    window.localStorage.setItem("richos-sidebar-hidden", s.mirror);
+    window.localStorage.setItem("richos-mock-sidebar-collapsed", s.store);
+  }, seed);
+  await page.goto(APP);
+  await leaveHome(page);
+  await page.waitForSelector(".nav-thread", { state: "attached" });
+  return page;
 }
 
 main().then(
