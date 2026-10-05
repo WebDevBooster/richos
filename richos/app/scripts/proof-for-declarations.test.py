@@ -75,14 +75,15 @@ class Declarations(unittest.TestCase):
                 with self.assertRaisesRegex(InvalidDeclaration, "fixture.test.sh:2:"):
                     read_declarations(self.root, self.suites)
 
-    def select(self, path, directory=None):
+    def select(self, path, directory=None, gate=False):
         env = dict(os.environ)
         if directory is not None:
             env["PROOF_FOR_SCRIPT_DIR"] = str(directory)
         # No clock of this file's own (audit R13, 2026-09-29): proof-for.sh over the whole
         # tree is real work, and 15 s of it was a verdict on how busy the Mac was. A hang is
         # caught by the enclosing runner's per-suite deadline, which names this suite.
-        return subprocess.run(["/bin/bash", str(SCRIPTS / "proof-for.sh"), "--paths", path],
+        return subprocess.run(["/bin/bash", str(SCRIPTS / "proof-for.sh"),
+                               *(["--gate"] if gate else []), "--paths", path],
                               cwd=ROOT, env=env, capture_output=True, text=True)
 
     def test_real_tree_reconciles_and_orphans_still_select_dependencies(self):
@@ -205,18 +206,40 @@ class Declarations(unittest.TestCase):
             with self.subTest(path=path):
                 result = self.select(path)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("--only proof-run.test.sh", result.stdout)
+                self.assertIn("--only proof-evidence.test.sh", result.stdout)
+                self.assertNotIn("--only proof-run.test.sh", result.stdout)
         # Every reader the real file pins selects it, read from the file, never typed.
         document = json.loads((ROOT / qualification).read_text())
         pinned = {source for unit in document["units"].values() for source in unit["sources"]}
         rows = {suite: inputs for suite, inputs, _covers in read_declarations(ROOT, SCRIPTS)}
         self.assertTrue(pinned)
-        self.assertLessEqual(pinned | {qualification}, set(rows["proof-run.test.sh"]))
+        self.assertLessEqual(pinned | {qualification}, set(rows["proof-evidence.test.sh"]))
         result = subprocess.run([sys.executable, str(SCRIPTS / "lib/proof_declarations.py"), "--pinned",
-                                 str(ROOT), str(SCRIPTS / "proof-run.test.sh")],
+                                 str(ROOT), str(SCRIPTS / "proof-evidence.test.sh")],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertLessEqual(pinned, set(result.stdout.split()))
+
+    def test_evidence_split_keeps_shared_runner_dependencies(self):
+        for gate in (False, True):
+            for path, expected, absent in [
+                ("richos/app/scripts/proof-evidence.test.py", "proof-evidence.test.sh", "proof-run.test.sh"),
+                ("richos/app/scripts/proof-run.test.py", "proof-run.test.sh", "proof-evidence.test.sh"),
+                ("docs/development/verification-input-qualifications.json", "proof-evidence.test.sh", "proof-run.test.sh"),
+                ("richos/engine/scripts/hooks/contract-integrity-probe.sh", "proof-evidence.test.sh", "proof-run.test.sh"),
+            ]:
+                with self.subTest(path=path, gate=gate):
+                    result = self.select(path, gate=gate)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("--only " + expected, result.stdout)
+                    self.assertNotIn("--only " + absent, result.stdout)
+            for path in ("richos/app/scripts/proof-run.py", "richos/app/scripts/lib/proof_evidence.py",
+                         "richos/engine/scripts/lib/cpu_guard.py"):
+                with self.subTest(path=path, gate=gate):
+                    result = self.select(path, gate=gate)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("--only proof-evidence.test.sh", result.stdout)
+                    self.assertIn("--only proof-run.test.sh", result.stdout)
 
     def test_selector_refuses_inputs_without_coverage(self):
         for suite in SCRIPTS.glob("*.test.sh"):
