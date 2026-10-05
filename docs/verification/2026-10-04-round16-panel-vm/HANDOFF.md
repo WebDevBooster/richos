@@ -1,18 +1,22 @@
 # Round-16 quota panel: the real app beside round 16, seven states, dark and light
 
-Branch `cc/echo-opus-panel16e`, workspace `/Users/alex/ab/richos-wt/echo-opus-panel16e`
-(echo-opus-panel16e, 2026-10-05; continues echo-opus-panel16d, echo-opus-panel16c and
-echo-opus-panel16b).
+Branch `cc/echo-opus-notice2`, workspace `/Users/alex/ab/richos-wt/echo-opus-notice2`
+(echo-opus-notice2, 2026-10-05; continues echo-opus-panel16e, echo-opus-panel16d,
+echo-opus-panel16c and echo-opus-panel16b).
 Design: richos-hq `design/mockups/rounds/round-16/` (frozen, read only). Each `N-<state>-dark.png` /
 `-light.png` here is the real app in the test VM; each `N-<state>-round16-*.png` beside it is
 round 16's render of that state.
 
 **Where the shots come from.** Shots 1, 2, 3 and 5: walk 3 (`walk-5c66807272b3`, 2026-10-05
 02:30-02:53Z, `execution: completed`, `scenario_exit: 0`, `cleanup_complete: true`), the
-debug app built at `665d0765a` with the walk fixture of `61e8305e2`. Shots 4, 6 and 7: walk 4
+debug app built at `665d0765a` with the walk fixture of `61e8305e2`. Shots 6 and 7: walk 4
 (`walk-e583bad4276f`, 2026-10-05 03:17:41-03:43:41Z, `execution: completed`,
 `scenario_exit: 0`, `cleanup_complete: true`), the debug app built at `9cbdac8ea` (the
-working-row fix, on top of main's `f2d3ab1c4` merged at `cb07e092e`).
+working-row fix, on top of main's `f2d3ab1c4` merged at `cb07e092e`). Shot 4: walk 5
+(`walk-e7974c7e22a6`, 2026-10-05 04:13:25-04:37:43Z, `execution: completed`,
+`scenario_exit: 0`, `cleanup_complete: true`), the debug app built at `76ea3f500` (the
+notice fix `32852260c` on top of walk 4's build). Walk 5 also shot states 6 and 7; they show
+the same content as walk 4's, so walk 4's stay.
 
 **How walk 4's app was built and walked** (walk 3's recipe, taken from echo-opus-panel16d's
 own commands; run from `richos/app`):
@@ -33,10 +37,10 @@ which a debug walk build does not need. The `.app` is checked on its own: `build
 `ui/` into `ui-dist/` in the build's minute, and `cmp` finds `ui-dist/style.css` and
 `ui-dist/main.js` identical to `9cbdac8ea`'s.
 
-**Main's `f2d3ab1c4` is in walk 4** ("Switched to" is said only once a turn runs on the new
-account). It changes shot 4: the switch line is no longer above the user's message, and it is
-not on screen during the turn the walk holds open. It is drawn after that turn, in its own
-"Worked" block, at the top of shot 6 (dark and light). See "Open in shot 4" below.
+**Main's `f2d3ab1c4` is in walks 4 and 5** ("Switched to" is said only once a turn runs on the
+new account). In walk 4 the line was drawn only after that turn ended; `32852260c` draws it
+during the turn (see "Shot 4, closed" below), so in walk 5's shot 4 it sits below the running
+turn and above "• 3 agents working on Work", as round 16 draws it.
 
 ## The seven states
 
@@ -45,7 +49,7 @@ not on screen during the turn the walk holds open. It is drawn after that turn, 
 | 1 one account | `low` | **Matches.** + Add account beside Refresh (the circular arrow), "Checked … · checks every 5 min", round 16's times, the ruler key with its bold sentence. |
 | 2 two accounts | `two` | **Matches.** Home in use 41% / 28%, Work next at **10% / 20%**, the one sentence with Pause, no scrollbar. Home has no Remove (item 1, kept). |
 | 3 switched sheet | `switched` | **Matches.** Work **in use**, Home past its line at 95% with **no tag** and "week resets Fri", "switch to the next account — none has room now", the card "In use: Work, since …". |
-| 4 switched line | `switched-line` | **Partly.** The working row now matches: "**• 3 agents working on Work**", round 16's gold dot, in the message column (its dot on the "··· 3 working" chip's edge), over a turn on Work. **Open:** Rich's line "Switched to Work — Home reached 95% … Nothing stopped." is not in this shot. Since `f2d3ab1c4` it is written during this turn and drawn only after it ends (top of shot 6); round 16 draws it above the row. Walk 3's shot 4 (`bb4c50f02`) showed the line, with the row at the pane's edge. |
+| 4 switched line | `switched-line` | **Matches.** Rich's line "Switched to Work — Home reached 95% of its five-hour window. Nothing stopped." is on screen while the turn on Work runs ("Working for 27s" dark, "51s" light), then "**• 3 agents working on Work**" below it with round 16's gold dot, in the message column (walk 5, `32852260c`). The user's message and the running turn sit above the line because the row exists only during a turn (below). |
 | 5 fast sheet | `fast-switch` | **Matches, with one declared difference.** The card says round 16's sentence: "3 agents reading at once took Work's five-hour window from 19% to 28% in 1 minute. The lines moved to 91% and 97% …". The moved lines carry their ghosts ("switch at 91% · was 93%", "switches at 97% · was 99%"), and + Add account and Refresh keep their row. Declared: "every minute" where round 16 says "every 2 min" (the app's measured interval, quota.rs `note_speed`). The sheet scrolls about 24 px because the VM's window is 1400 × 864 pt (the app's log: "derived 1400x864"), while round 16 draws at 1440 × 900. |
 | 6 fast alert | `fast-alert` | **Matches.** Rich's alert "Usage is climbing fast: **3 agents reading at once** took Work's five-hour window from 10% to 13% in 2 minutes …", then a turn with the chip and "• 3 agents working on Work" in the message column. Above it, the switch line from state 4. |
 | 7 back to normal | `normal-again` | **Matches.** Rich's line "Usage is back to normal. I'm checking every 5 minutes again, and the lines are back at 93% and 99%.", then a turn with the chip and "• 3 agents working on Work" in the message column. |
@@ -61,16 +65,18 @@ it at full opacity (7.68:1 dark, 3.15:1 light) and breathes its size, as `.tl-pu
 does. Only the working row has the dot (`data-state`, `main.js`); a paused row has none
 (round 16's hold ring belongs to a holding state, not one of these seven).
 
-**Open in shot 4: Rich's switch line is not on screen during the turn.** Main's `f2d3ab1c4`
-moved the switch notice to `spine.rs` `prepare_request`: `ran_on(account)` then
-`raise_quota_notices`, once the turn's lease is in the chair. So the line is written while
-the turn that released it runs, and the conversation draws it only after that turn ends: in
-walk 4 it is absent from shot 4 (the turn held open, "Working for 41s" and "1m 15s") and
-present in its own "Worked" block at the top of shot 6. Round 16 draws the line and the row
-together. Not changed and not walked again, per the brief. Two ways to close it, neither
-taken here: the walk lets state 4's turn end and shoots the line after it (the row is then
-gone, since it exists only during a turn); or the conversation draws a notice raised during a
-turn at once. Which of these is right is the lead's call.
+**Shot 4, closed: a line Rich raises during a turn is drawn at once (`32852260c`).** Main's
+`f2d3ab1c4` moved the switch notice to `spine.rs` `prepare_request`: `ran_on(account)` then
+`raise_quota_notices`, once the turn's lease is in the chair. `raise_proactive` then held the
+window's event for any line raised mid-turn until the turn's boundary, so in walk 4 the line
+was absent from shot 4 and appeared after the turn, at the top of shot 6. It now sends
+`rich://proactive-message` and the §13 events at once; the line is already durable and in the
+published read view, so the window's reload draws it beside the running turn. The fast-usage
+alert and the other quota notes share this path. `f2d3ab1c4`'s rule is kept: the notice is
+still raised only once a turn runs on the new account. The thread summary sent with it says
+"working" while a turn of that thread runs. `405434563`: such a line no longer makes the
+screen reader say "Rich finished." beside a running turn; its own text is announced. No new
+color: the line is the existing "reached out" treatment, already in shots 6 and 7.
 
 **Why the row comes with a user turn in shots 4, 6 and 7.** The row and the chip exist only
 while a turn of this conversation runs (`main.rs` `get_worker_status` reads the conversation's
@@ -98,6 +104,13 @@ come from the app's conversation in technical view, not from the panel.
 | 10 | Ruler key text | **Done**, round 16's words with the bold second sentence. Shots 1, 2, 3 and 5. |
 | 11 | Five-hour bar past the "now" tick | **Done**: the bar runs past the tick in shots 1 and 2 (round 16's clock), stamps 8 px above "now". |
 
+## Commits on this branch (echo-opus-notice2)
+
+- `32852260c` spine: a proactive line raised during a turn is sent to the window at once; `rotation_tests` `the_switch_notice_is_drawn_while_the_turn_on_the_new_account_runs`.
+- `405434563` ui: a line Rich raised himself is not announced as "Rich finished".
+- `76ea3f500` state registry: the fast card's round-16 sentence classified ("1 agent took .", "agents reading at once took ." information; "from % to % in" a fragment), which `affordances.js` refused at the panel's merge.
+- This hand-off's commit: walk 5's shot 4, dark and light.
+
 ## Commits on this branch (echo-opus-panel16e)
 
 - `9cbdac8ea` the working row sits in the message column with round 16's dot; `tests/quota.js` measures its text edge against `#messages`' and its dot.
@@ -124,5 +137,8 @@ report whether company interview tools loaded."). That was a fixture gap, not an
 - `cargo test -p richos-core --lib -- quota claude_accounts`: 73 passed. `--test rotation_tests`: 31 passed (at `665d0765a`, the walked build).
 - After merging main `065021f15`: `--lib -- switch work_host quota claude_accounts`: 155 passed; `--test rotation_tests`: 32 passed. Three switch tests needed the automatic switch on, and two of them round 16's words. One of the three, main's earlier `a_long_background_run_…`, had failed on this branch unseen since an earlier merge, because the old proof filter never selected `work_host`.
 - `scripts/testvm/test/fake-claude-fill-first.test.py`: 9 ok.
-- Walks: walk 1 (echo-opus-panel16c's, `walk-c9dcf2ba1a38`), walk 2 (`walk-2b34a9ca8b95`), walk 3 (`walk-5c66807272b3`) and walk 4 (echo-opus-panel16e's, `walk-e583bad4276f`); each report says `cleanup_complete: true`.
+- Walks: walk 1 (echo-opus-panel16c's, `walk-c9dcf2ba1a38`), walk 2 (`walk-2b34a9ca8b95`), walk 3 (`walk-5c66807272b3`), walk 4 (echo-opus-panel16e's, `walk-e583bad4276f`) and walk 5 (echo-opus-notice2's, `walk-e7974c7e22a6`); each report says `cleanup_complete: true`.
+- At `32852260c`: `the_switch_notice_is_drawn_while_the_turn_on_the_new_account_runs` is RED with `spine.rs` at `40de1962f` ("the switch line was held until his turn ended"; events TurnStarted, Chunk, TurnCompleted, ProactiveMessage) and GREEN with the fix. `reserve.py -- cargo test -p richos-core --test rotation_tests --test live_event_tests --test action_ledger_tests`: 33, 20 and 15 passed. `node ui/tests/quota.js`: 26 PASS, 0 FAIL.
+- At `76ea3f500`: `node affordances.js` exit 0.
+- Walk 5's app: `cargo tauri build --debug --bundles app` at `76ea3f500` (exit 1 at the updater signature only, as above); `cmp` finds `ui-dist/main.js` and `ui-dist/style.css` identical to the branch's.
 - At `9cbdac8ea`: `node ui/tests/quota.js`: 26 PASS, 0 FAIL. Its first run failed only the new check, which caught the row's text 4 px right of the message text at the test's 820-1179 px viewport (28 px sides against `#messages`' 24 px there). Fixed, then the one re-run.
