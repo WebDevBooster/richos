@@ -363,12 +363,24 @@
   const navPrefs = {
     sidebar_width: 300,
     inspector_width: 336,
+    output_width: 400,
     sidebar_collapsed: false,
     collapsed_entities: [],
     pinned_threads: [],
     archived_threads: [],
     renamed_threads: {},
   };
+
+  // THE OUTPUT PANEL'S SPLIT WIDTH SURVIVES A RELOAD, as `navigation.json` survives a relaunch
+  // (output side-panel PRD §9.5). Its own key, beside the sidebar's below; "open completely" is
+  // never stored, here or in nav.rs.
+  const MOCK_OUTPUT_WIDTH_KEY = "richos-mock-output-width";
+  try {
+    const stored = Number(window.localStorage.getItem(MOCK_OUTPUT_WIDTH_KEY));
+    if (Number.isFinite(stored) && stored > 0) navPrefs.output_width = stored;
+  } catch (e) {
+    /* storage unavailable: the shipped default, 400 */
+  }
 
   // WHETHER THE SIDEBAR IS AWAY SURVIVES A RELOAD, as `navigation.json` survives a relaunch
   // (output side-panel PRD §8: "the choice survives a relaunch"). Its own key, kept beside
@@ -2807,6 +2819,17 @@
         case "set_inspector_width":
           navPrefs.inspector_width = Math.max(280, Math.min(520, Number(args.width) || 336));
           return navPrefs.inspector_width;
+        // nav.rs's `clamp_output_width`: the floor only, a non-number is the default.
+        case "set_output_width": {
+          const w = Number(args.width);
+          navPrefs.output_width = Number.isFinite(w) ? Math.max(320, w) : 400;
+          try {
+            window.localStorage.setItem(MOCK_OUTPUT_WIDTH_KEY, String(navPrefs.output_width));
+          } catch (e) {
+            /* storage unavailable; the in-memory value still serves this session */
+          }
+          return navPrefs.output_width;
+        }
         case "set_sidebar_collapsed":
           navPrefs.sidebar_collapsed = !!args.collapsed;
           persistMockSidebar();
