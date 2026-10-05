@@ -556,6 +556,36 @@ class Evidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "frozen plan"):
             evidence.reuse(previous.logdir, new, current)
 
+    def test_a_saved_plan_holding_one_obligation_twice_is_reused_and_never_written_again(self):
+        # 2026-10-05: the merge of cc/echo-opus-out3b crashed reusing attempt-keq_bkth, whose plan
+        # held `cargo --bin richos-tauri` twice, row for row identical: proof-for.sh printed that
+        # command for src-tauri/src/main.rs and again for src-tauri/Cargo.toml, and plan() kept both.
+        old, previous = self.attempt("author", engine=False)
+        self.passed(old, previous)
+        saved = json.loads((previous.logdir / "plan.json").read_text())
+        saved["items"].append(dict(saved["items"][0]))
+        (previous.logdir / "plan.json").write_text(json.dumps(saved))
+        self.assertEqual([row["check"] for row in evidence.read_plan(previous.logdir)["items"]], ["check"])
+        new, current = self.attempt("target", engine=False)
+        evidence.reuse(previous.logdir, new, current, exact=False)
+        self.assertEqual(new[0].state, "passed")
+        # Two different commands under one name stay refused: which of them passed is unknowable.
+        saved["items"][1] = dict(saved["items"][0], argv=["bash", "another.sh"])
+        (previous.logdir / "plan.json").write_text(json.dumps(saved))
+        with self.assertRaisesRegex(ValueError, "duplicate obligations"):
+            evidence.read_plan(previous.logdir)
+        # No plan is written with one again: the planner keeps one of two identical commands...
+        line = "cd richos/app/src-tauri && cargo test --bin richos-tauri"
+        planned = runner.plan([line, line], SimpleNamespace(), str(Path(self.tmp.name) / "planned"), {})
+        self.assertEqual([item.label for item in planned], ["cargo --bin richos-tauri"])
+        # ...and a record refuses two different checks under one name before it writes a plan.
+        refused = Path(self.tmp.name) / "refused"
+        refused.mkdir()
+        twice = [runner.Item("check", str(self.root), ["bash", name]) for name in ("a.sh", "b.sh")]
+        with self.assertRaisesRegex(ValueError, "duplicate obligations"):
+            evidence.Record(str(self.root), refused, twice, dict(self.source), {"check": dict(self.inputs)})
+        self.assertFalse((refused / "plan.json").exists())
+
     def test_target_reuse_ignores_unrelated_commit_but_preserves_original_receipt(self):
         old, previous = self.attempt("author")
         self.passed(old, previous)
@@ -1426,6 +1456,41 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         self.assertIn("reconciled with 1 reused result", captured.getvalue())
         outcomes = {row["check"]: row["result"] for row in json.loads((olddir / "summary.json").read_text())["checks"]}
         self.assertEqual(outcomes["retry"], "failed")
+
+    def test_a_crash_in_the_runner_leaves_a_readable_summary_that_is_not_a_verdict(self):
+        # 2026-10-05: the crash reusing a duplicate plan left no summary.json at all, and its exit 1
+        # is the code a failing check returns. A crash writes a readable summary naming every
+        # check CRASHED and exits CRASHED, which the merge gate reads as no verdict and refuses.
+        scripts = self.root / "richos/app/scripts"
+        scripts.mkdir(parents=True)
+        (self.root / "pass.test.sh").write_text("exit 0\n")
+        self.qualification("Controlled shell fixture: only supplied scripts and arguments.")
+        recipe = {"paths": ["pass.test.sh"], "tools": ["bash"], "external": [], "environment": ["PATH"],
+                  "qualification": "qualification.json"}
+        evidence.atomic(scripts / "proof-inputs.json", {"schema": 1, "checks": {"pass": recipe}})
+        logdir, copy = Path(self.tmp.name) / "crashed", Path(self.tmp.name) / "crashed-summary.json"
+        idle = lambda: {"cpu_user_percent": 5, "cpu_system_percent": 2,
+            "memory_pressure": "normal", "swapout_mb_per_s": 0, "memory_free_percent": 80,
+            "swap_used_mb": 0}
+        with patch.dict(os.environ, {"RICHOS_MACHINE_WORKERS": str(Path(self.tmp.name) / "machine"),
+                                      "CLAUDE_CONFIG_DIR": str(Path(self.tmp.name) / "config")}), \
+                patch.object(runner, "ROOT", str(self.root)), \
+                patch.object(runner, "source_identity", return_value=self.source), \
+                patch.object(runner, "head_commit", return_value=self.source["commit"]), \
+                patch.object(runner, "default_logdir", return_value=str(Path(self.tmp.name) / "history")), \
+                patch.object(evidence, "pool_directory", return_value=Path(self.tmp.name) / "pool"), \
+                patch.object(runner, "supply_runtime", return_value="private fixture"), \
+                patch.object(runner.reserve, "host_sample", side_effect=idle), \
+                patch.object(runner, "selection", return_value=["cd . && bash pass.test.sh"]), \
+                patch.object(runner, "run", side_effect=RuntimeError("injected runner fault")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rc = runner.main(["--log-dir", str(logdir), "--summary-out", str(copy)])
+        self.assertEqual(rc, runner.CRASHED)
+        self.assertNotIn(rc, (0, 1, 3))
+        for path in (logdir / "summary.json", copy):
+            summary = json.loads(path.read_text())
+            self.assertIn("injected runner fault", summary["crashed"])
+            self.assertEqual([(row["check"], row["result"]) for row in summary["checks"]], [("pass", "crashed")])
 
     def test_unqualified_passes_are_kept_on_the_same_tree_and_rerun_on_any_change(self):
         # 2026-09-29: cc/echo-opus-speckle3's land ran one 78-check selection five times on one

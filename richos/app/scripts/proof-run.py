@@ -192,6 +192,7 @@ import sys
 sys.dont_write_bytecode = True
 import threading
 import time
+import traceback
 from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -406,12 +407,20 @@ def supply_runtime(items):
 
 def plan(lines, args, logdir, hist):
     items, units, cargo = [], [], []
+    seen = set()
     for n, line in enumerate(lines, 1):
         s = line.strip()
         m = re.match(r"^cd (\S+) && (.+)$", s)
         if not m:
             raise SystemExit("proof-run: cannot read line %d of the selection: %r" % (n, line))
         cwd, argv = os.path.join(ROOT, m.group(1)), shlex.split(m.group(2))
+        # One command is one obligation however often the selection names it. proof-for.sh
+        # prints `cargo test --bin richos-tauri` once for src-tauri/src/main.rs and once more for
+        # src-tauri/Cargo.toml; both were planned, and the saved plan held the check twice
+        # (merge of cc/echo-opus-out3b, 2026-10-05). Record refuses a name planned twice.
+        if (cwd, tuple(argv)) in seen:
+            continue
+        seen.add((cwd, tuple(argv)))
         if argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in argv:
             units.extend(argv[argv.index("--only-units") + 1].split(","))
         elif argv and argv[0] == "scripts/run-tests.sh" and "--only" in argv:
@@ -2143,7 +2152,35 @@ def rotate(parent):
             lease.close()
 
 
+# The exit of a run that crashed: no verdict. Not 1 (a check failed) nor 3 (a check not run), the
+# two codes the merge gate reads a summary for, so a crash is refused as "not a verdict".
+CRASHED = 70
+
+
 def main(argv=None):
+    """A crash still leaves a readable summary.json naming every planned check CRASHED, and
+    exits CRASHED. 2026-10-05: a crash reusing a saved plan left none, and its exit was 1."""
+    run_state = {}
+    try:
+        return run_main(argv, run_state)
+    except Exception as exc:  # noqa: BLE001  (SystemExit and KeyboardInterrupt pass through)
+        traceback.print_exc()
+        reason = "%s: %s" % (type(exc).__name__, exc)
+        print("proof-run: CRASHED, which is not a verdict: %s" % reason, flush=True)
+        logdir = run_state.get("logdir")
+        if logdir and os.path.isdir(logdir):
+            rows = [{"check": it.label, "result": "crashed", "exit": None, "log": it.log}
+                    for it in run_state.get("items") or []]
+            path = os.path.join(logdir, "summary.json")
+            with open(path, "w") as fh:
+                json.dump({"crashed": reason, "checks": rows}, fh, indent=1)
+            if run_state.get("summary_out"):
+                shutil.copyfile(path, run_state["summary_out"])
+            print("    logs: %s" % logdir, flush=True)
+        return CRASHED
+
+
+def run_main(argv, run_state):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                 usage="proof-run.py [options] [proof-for arguments]")
     p.add_argument("--commands")
@@ -2209,6 +2246,7 @@ def main(argv=None):
     else:
         os.makedirs(parent, exist_ok=True)
         logdir = tempfile.mkdtemp(prefix=run_id + "-", dir=parent)
+    run_state.update(logdir=logdir, summary_out=args.summary_out)
     hist_dir = default_logdir()
     if args.resume:
         saved = proof_evidence.read_plan(args.resume)
@@ -2224,6 +2262,7 @@ def main(argv=None):
     else:
         lines = selection(args)
         items = as_printed(lines) if args.as_printed else plan(lines, args, logdir, history_weights(hist_dir))
+    run_state["items"] = items
     if not items:
         print("proof-run: the selection is empty — nothing to run. (For a documentation-only change that is"
               " the right answer; proof-for.sh says so without --quiet.)")
