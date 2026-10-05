@@ -534,9 +534,10 @@ async function main() {
     assertEqual(await page.evaluate(() => document.getElementById("op-menu")), null, "the menu stayed open");
     assertEqual(await page.evaluate(() => document.activeElement.id), "input", "focus did not move to the composer");
     assertEqual(await page.evaluate(() => window.RichOutput.isOpen()), true, "the panel closed beside a wide conversation");
-    // WHAT IT SAYS: the actions' on-screen notice, and the conversation's live region.
+    // WHAT IT SAYS: the actions' on-screen notice, once; the conversation's live region stays quiet.
     const SAID = "brief.md is attached to your next message.";
-    await page.waitForFunction((s) => document.getElementById("live-region").textContent === s, SAID);
+    await page.waitForFunction((s) => (document.getElementById("op-notice") || {}).textContent === s, SAID);
+    assert((await page.evaluate(() => document.getElementById("live-region").textContent)) !== SAID, "a second announcement of the sentence in the live region");
     const notice = await page.evaluate(() => {
       const n = document.getElementById("op-notice");
       return { text: n.textContent, shown: !n.hidden && n.getClientRects().length > 0, role: n.getAttribute("role") };
@@ -579,7 +580,7 @@ async function main() {
     assertEqual(interim, 0, "S7's interim menu or its ⋯ is still on the page");
     assertEqual(page.__errors, [], "the page logged errors");
     await page.close();
-    return "row ⋯ → End → Enter: chip 'brief.md · Markdown file · 1 KB' with its remove, '" + SAID + "' in the notice and the live region, focus in the composer, panel still open; asked by output id only; no duplicate; removed and re-added; Send carried it under 'Attached on this Mac (1 file…)'";
+    return "row ⋯ → End → Enter: chip 'brief.md · Markdown file · 1 KB' with its remove, '" + SAID + "' in the notice only (the live region silent), focus in the composer, panel still open; asked by output id only; no duplicate; removed and re-added; Send carried it under 'Attached on this Mac (1 file…)'";
   });
 
   await run.check("11. a refused kind and a 30 MiB file are refused in the desk's own words; a file no longer there cannot be added", async () => {

@@ -3395,6 +3395,50 @@ async function main() {
     return lines.join("; ") + ". Crops on the plain ground: " + plainGround.shots + ", speckle hidden for " + plainGround.hidden;
   });
 
+  // ---- 19: the frame right after a theme switch ---------------------------------------------
+
+  await run.check("19  the very frame after a theme switch, both directions, on every surface, meets AA with no wait", async () => {
+    // WHAT THIS CLOSES. Every walk above measures a SETTLED page. A rule that transitions its
+    // background (or border, or color) does not break the settled page: on the frame after
+    // `data-theme` flips, `color` is already the new theme's and the background is still the old
+    // one, so the Output button read `#dfe4ee` on `#f7f5ef` (1.17:1) for 150 ms and `.of-tool`
+    // did the same. That window is invisible to a walk that waits.
+    //
+    // HOW. Per surface and per direction: drive it, flip `data-theme`, and in the SAME task run
+    // the probe, with no frame and no timer between. Style is recomputed at that point and a
+    // transition starts at its FROM value, so what is read is the first painted frame. The
+    // probe is then run again after the transitions have finished. A failure present only in the
+    // instant read is a lag; one present in both is the surface's own (the debt ledger's) and is
+    // not this check's to count. Debt-bearing surfaces therefore cannot hide a lag, and clean
+    // ones cannot invent one.
+    const lines = [];
+    let measured = 0;
+    for (const surface of SURFACES) {
+      if (surface.holdSplash) continue; // §15's always-dark clamp: there is no switch to measure
+      for (const [from, to] of [["light", "dark"], ["dark", "light"]]) {
+        const page = await openApp(browser, from, surface.holdSplash, surface.preset);
+        await surface.drive(page);
+        await page.evaluate(C.pageScript());
+        const instant = await page.evaluate((o) => {
+          document.documentElement.setAttribute("data-theme", o.to);
+          return window.__contrastProbe({ surface: o.surface, theme: o.to });
+        }, { to, surface: surface.name });
+        await page.waitForFunction(() => document.getAnimations().every((a) => !(a instanceof CSSTransition)));
+        const settled = await walk(page, surface.name, to);
+        const lag = Object.keys(instant.failures).filter((k) => !(k in settled.failures));
+        assertEqual(
+          lag.map((k) => ({ node: k, ...instant.failures[k] })),
+          [],
+          surface.name + " " + from + "->" + to + ": measured at once after the switch, these fail AA and the settled page does not — a background, border or color is fading"
+        );
+        measured += (instant.measuredPaths || []).length;
+        await page.close();
+      }
+    }
+    lines.push(measured + " node reading(s) taken before the first frame, no lag failure");
+    return lines.join("; ");
+  });
+
   // ---- the run's own numbers, printed whether it passes or fails ---------------------------
 
   const t = seen.totals;
