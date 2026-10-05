@@ -61,11 +61,21 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      is photographed; the guest's appearance is flipped (the app follows the OS on
                      a fresh install), photographed again, and put back. PASS when all of it holds.
 
+  save-copy          slice S6's real-app check (§12.6), after the panel step:
+                       --steps identity,first-run,connect,panel,save-copy
+                     on the panel's one file: its row's More actions, Save a copy…, and the system
+                     save sheet that opens on the app's window. The sheet must offer the file's own
+                     name; the walk gives it SAVE_AS instead, reads its Where folder, presses Save.
+                     PASS when exactly one file named SAVE_AS exists in the guest, in the folder the
+                     sheet named, with the recorded file's bytes, and the panel's notice says so.
+                     Both moments are photographed (save-copy-1-sheet.png, save-copy-2-saved.png).
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -82,7 +92,8 @@ _spec.loader.exec_module(command_walk)
 StepFailed = command_walk.StepFailed
 command = command_walk.command
 
-STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel']
+STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
+         'save-copy']
 # S4's one written file: a shell command, so no tool needs installing and witness (c) sees it.
 PANEL_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
               "and tell me when it has finished: printf '# Panel check\\n\\nOne written file.\\n' > panel-check.md")
@@ -143,6 +154,65 @@ status = None if before else CS.LSSetDefaultRoleHandlerForContentType(uti, ALL, 
 print(json.dumps({'type': text(uti), 'before': before, 'set_status': status,
                   'after': text(CS.LSCopyDefaultRoleHandlerForContentType(uti, ALL))}))
 """
+
+
+# Slice S6: the name the walk gives the copy in the save sheet, so exactly one file in the guest
+# can be the copy, and the AppleScript that drives the sheet. The sheet is found on the app's own
+# window (bundle com.richos.app); its name field is the one holding the offered name, its Where
+# control is its first pop-up button. Prints SHEET<tab>offered<tab>typed<tab>where.
+SAVE_AS = 'panel-check copy from the walk.md'
+SAVE_SHEET = r'''
+tell application "System Events"
+  set p to first process whose bundle identifier is "com.richos.app"
+  set found to false
+  repeat 80 times
+    if exists sheet 1 of window 1 of p then
+      set found to true
+      exit repeat
+    end if
+    delay 0.25
+  end repeat
+  if not found then return "NOSHEET"
+  set s to sheet 1 of window 1 of p
+  delay 1
+  set field to missing value
+  set offered to ""
+  set where to "?"
+  repeat with e in (entire contents of s)
+    try
+      set r to role of e
+      if r is "AXTextField" and field is missing value then
+        set v to value of e
+        if v starts with "panel-check" then
+          set field to e
+          set offered to v
+        end if
+      else if r is "AXPopUpButton" and where is "?" then
+        set where to value of e
+      end if
+    end try
+  end repeat
+  if field is missing value then return "NOFIELD"
+  set value of field to "@NAME@"
+  delay 0.5
+  return "SHEET" & tab & offered & tab & (value of field) & tab & where
+end tell
+'''
+SAVE_PRESS = r'''
+tell application "System Events"
+  set p to first process whose bundle identifier is "com.richos.app"
+  set s to sheet 1 of window 1 of p
+  repeat with e in (entire contents of s)
+    try
+      if role of e is "AXButton" and (title of e is "Save") then
+        click e
+        return "pressed"
+      end if
+    end try
+  end repeat
+  return "NOSAVE"
+end tell
+'''
 
 
 def project(rows):
@@ -496,6 +566,84 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the panel was not open after the theme change')
         return evidence
 
+    # --- slice S6: Save a copy…, on the real app -------------------------------------------------
+    def press_any(self, title, roles, contains=True):
+        """Press the first control named `title` in any of `roles`, in that order: WebKit names
+        an `aria-haspopup` button and a `role=menuitem` its own way, and the walk records which."""
+        for role in roles:
+            if self.present(title, role):
+                self.press(title, role=role, contains=contains)
+                return role
+        (self.out / ('ax-tree-' + title.split()[0].lower() + '.txt')).write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 120))
+        raise StepFailed('no control named %r in any of %s' % (title, roles))
+
+    def save_copy(self):
+        """Slice S6's real-app check (§12.6): *Save a copy…* writes the copy where the sheet
+        pointed. Run after the panel step, on its one file: the row's More actions, Save a copy…,
+        the system save sheet (a sheet on the app's window, `tauri-plugin-dialog` run from Rust)
+        given a name of the walk's own, its folder read from its Where control, Save pressed.
+        PASS when the notice says what was saved, exactly one file of that name exists in the
+        guest's home, it is in the folder the sheet named, and its bytes are the recorded file's."""
+        os.environ['TESTVM_AX_TIMEOUT'] = '90'  # a save panel's whole tree is read once below
+        rows = self.record()
+        listed = [k for k in project(rows) if Path(k).name == 'panel-check.md' and self.exists_in_guest(k)]
+        evidence = {'listed_sources': listed}
+        observed = self.out / 'save-copy-observed.json'
+
+        def note(**facts):
+            evidence.update(facts)
+            observed.write_text(json.dumps(evidence, indent=2) + '\n')
+
+        note()
+        if not listed:
+            raise StepFailed('no recorded panel-check.md exists in the guest: run after the panel step')
+        source = listed[0]
+        if not self.present('Close the output panel'):
+            self.press('1 file from this thread', role='AXCheckBox')
+            self.wait_for('Close the output panel', seconds=20)
+        more = self.press_any('More actions for panel-check.md', ['AXPopUpButton', 'AXMenuButton', 'AXButton'])
+        time.sleep(1)
+        item = self.press_any('Save a copy', ['AXMenuItem', 'AXButton'])
+        note(more_role=more, item_role=item)
+        sheet = command([HERE / 'ax.sh', self.vm, SAVE_SHEET.replace('@NAME@', SAVE_AS)], 120).strip()
+        note(sheet=sheet)
+        self.shot('save-copy-1-sheet.png')
+        parts = sheet.split('\t')
+        if parts[0] != 'SHEET':
+            (self.out / 'save-copy-ax-tree.txt').write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 120))
+            raise StepFailed('the save sheet was not driven: ' + sheet)
+        offered, typed, where = parts[1], parts[2], parts[3]
+        note(offered_name=offered, typed_name=typed, where=where)
+        clicked = command([HERE / 'ax.sh', self.vm, SAVE_PRESS], 60).strip()
+        note(save_pressed=clicked)
+        said = None
+        end = time.monotonic() + 20
+        while time.monotonic() < end and said is None:
+            try:
+                hits = self.ax('find', '--value', 'Saved a copy of panel-check.md', '--role', 'AXStaticText', '--contains', '--first')
+                said = hits[0].get('value') if hits else None
+            except StepFailed:
+                time.sleep(1)
+        self.shot('save-copy-2-saved.png')
+        found = [l for l in guest(self.vm, 'find /Users -path "*/Library" -prune -o -type f -name ' + shlex.quote(SAVE_AS)
+                                  + ' -print 2>/dev/null || true', 120).splitlines() if l.strip()]
+        same = [guest(self.vm, 'cmp -s ' + shlex.quote(source) + ' ' + shlex.quote(f) + ' && echo same || echo differ', 60).strip()
+                for f in found]
+        note(notice=said, copies_found=found, bytes_match=same, source=source)
+        if offered != 'panel-check.md':
+            raise StepFailed('the sheet was not offered the file\'s own name: ' + offered)
+        if typed != SAVE_AS:
+            raise StepFailed('the sheet did not take the walk\'s name: ' + typed)
+        if len(found) != 1:
+            raise StepFailed('expected exactly one copy named %r, found %s' % (SAVE_AS, found))
+        if Path(found[0]).parent.name != where:
+            raise StepFailed('the copy is in %s, not in the folder the sheet pointed at (%s)' % (Path(found[0]).parent, where))
+        if same != ['same']:
+            raise StepFailed('the copy\'s bytes are not the recorded file\'s')
+        if not (said and SAVE_AS in said):
+            raise StepFailed('the notice did not say what was saved: %r' % said)
+        return evidence
+
     def open_reveal(self):
         if not self.a.probe or not self.a.probe.is_file():
             raise StepFailed('--probe must name the built examples/output_files_probe binary')
@@ -553,9 +701,10 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
-    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel')),
-                   help='default: every step but open-reveal (alone, with --no-app) and panel '
-                        '(S4: --steps identity,first-run,connect,panel)')
+    p.add_argument('--steps', default=','.join(s for s in STEPS if s not in ('open-reveal', 'panel', 'save-copy')),
+                   help='default: every step but open-reveal (alone, with --no-app), panel '
+                        '(S4: --steps identity,first-run,connect,panel) and save-copy '
+                        '(S6: --steps identity,first-run,connect,panel,save-copy)')
     p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
     a = p.parse_args()
     steps = a.steps.split(',')
