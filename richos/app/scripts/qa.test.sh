@@ -81,11 +81,14 @@
 #           browser writes it, the lab's words from its own files, a mismatch
 #           that FAILS, a half-read phone log, a non-lab directory, a v1 phone
 #           and a lab no phone has reached, each refused
+#   US1-US4 usage-shape: a get_usage answer RichOS's reader refuses (rate_limits
+#           null) exits 1 naming the rule; a readable one exits 0; no binary and a
+#           claude that never answers are refused, against a scripted claude
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
-# run-tests: covers richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/step-mark.py richos/app/scripts/qa/hidden-send-try.py richos/app/scripts/qa/tunnel-requests.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/app/scripts/qa/child-lifetime.test.py richos/app/scripts/qa/trust-reading.test.py richos/app/scripts/qa/device-launch.test.py richos/app/scripts/qa/lab-pause.test.py richos/app/scripts/qa/tunnel-requests.test.py richos/app/scripts/qa/phone-ios-run.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
+# run-tests: covers richos/app/scripts/qa/usage-shape.sh richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/step-mark.py richos/app/scripts/qa/hidden-send-try.py richos/app/scripts/qa/tunnel-requests.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/app/scripts/qa/child-lifetime.test.py richos/app/scripts/qa/trust-reading.test.py richos/app/scripts/qa/device-launch.test.py richos/app/scripts/qa/lab-pause.test.py richos/app/scripts/qa/tunnel-requests.test.py richos/app/scripts/qa/phone-ios-run.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -133,7 +136,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py lab-pause.py step-mark.py hidden-send-try.py phone-ios.py pair-words.py fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh phone-android.py lab-ledger.py lab-pause.py step-mark.py hidden-send-try.py phone-ios.py pair-words.py usage-shape.sh fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -1476,6 +1479,40 @@ expect "V9 a phone that paired with v1 is refused: its words are ready.json's" 2
 rm "$TMP/pwlab/data/phone/device.json"
 run python3 "$PW" mac "$TMP/pwlab"
 expect "V10 before any phone has sent the link there are no Mac words to give" 2 "no phone has registered a key"
+
+echo ""
+echo "=== US. usage-shape: the shape of Claude Code's get_usage answer, read as RichOS reads it ==="
+US="$QA/usage-shape.sh"
+# A scripted claude: answers initialize with {}, get_usage with the payload in $FAKE_USAGE,
+# or nothing at all when FAKE_SILENT is set (a claude that never answers).
+cat > "$TMP/fake-usage-claude" <<'FAKE'
+#!/bin/sh
+[ "${1:-}" = "--version" ] && { echo "9.9.9 (scripted)"; exit 0; }
+[ -n "${FAKE_SILENT:-}" ] && { cat >/dev/null; exit 0; }
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+  case "$line" in
+    *'"initialize"'*) printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{}}}\n' "$id" ;;
+    *'"get_usage"'*) printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":%s}}\n' "$id" "$(cat "$FAKE_USAGE")" ;;
+  esac
+done
+FAKE
+chmod 755 "$TMP/fake-usage-claude"
+printf '%s' '{"rate_limits_available":true,"rate_limits":null,"session":{"secret":"never printed"},"subscription_type":"max"}' > "$TMP/usage-null.json"
+printf '%s' '{"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":41,"resets_at":"2099-01-01T00:00:00Z"},"seven_day":{"utilization":28}},"session":{"secret":"never printed"}}' > "$TMP/usage-ok.json"
+export FAKE_USAGE="$TMP/usage-null.json"; run "$US" --claude "$TMP/fake-usage-claude" --wait 2
+expect "US1 rate_limits null is UNREADABLE by the app's reader, exit 1, naming the rule" 1 "rate_limits is null (the reader calls this Malformed)"
+if printf '%s' "$OUT" | grep -q "never printed"; then
+  bad "US1b the session field is never printed" "the output carried the session value"
+else
+  ok "US1b the session field is never printed"
+fi
+export FAKE_USAGE="$TMP/usage-ok.json"; run "$US" --claude "$TMP/fake-usage-claude" --wait 2
+expect "US2 a five-hour and weekly window with numeric utilization is readable, exit 0" 0 "verdict: readable by RichOS quota reader"
+run "$US" --claude "$TMP/no-such-claude" --wait 2
+expect "US3 no claude binary is refused, exit 2" 2 "no claude to ask"
+export FAKE_SILENT=1; run "$US" --claude "$TMP/fake-usage-claude" --wait 2; unset FAKE_SILENT FAKE_USAGE
+expect "US4 a claude that never answers get_usage is refused, exit 2" 2 "no get_usage response"
 
 echo ""
 echo "=== X. the fixtures are still the fixtures ==="
