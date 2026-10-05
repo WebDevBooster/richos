@@ -858,13 +858,30 @@ module.exports = [
     why: "The unrecognized-state fallback. Nothing for the CEO to do about a protocol surprise.",
   },
   {
-    s: "I don't have this worker's brief, its output or the files it touched — nothing records those yet, and I'd rather say so than show you a blank.",
+    s: "I don't have this worker's brief or its output — the files it touched are in Output.",
     c: "INFORMATIONAL",
     why:
-      "§7.2's honest empty pane. Two contexts, and the row states the one that matters: nothing " +
-      "the CEO can do. That it is also future engineering work is true and is not his to chase, " +
-      "and the sentence does not imply it is.",
+      "§7.2's honest empty pane, shortened by the Output side panel PRD (§12.10) to what is still " +
+      "true once the output record exists: the files a worker touched are listed under its name in " +
+      "the Output panel, one click away on the Output buttons. Nothing for the CEO to do.",
   },
+
+  // ---- THE OUTPUT PANEL (Output side panel PRD §6, slice S4; `output-panel.js`) -------------
+  // `tests/output.js` renders every one of these. The shell's own sentences that the panel also
+  // shows (`MISSING`, `RECORD_UNREADABLE` in `src-tauri/src/output_files.rs`) are S3's rows.
+  {s: "Output — nothing produced yet in this thread", c: "CONTROL", why: "The accessible name of both Output buttons (`#out-top`, `#out-bottom`) on a thread with no recorded files; with files it is `Output — N files from this thread`. Pressing either opens the panel."},
+  {s: "Everything this thread produced (⌘⇧O)", c: "CONTROL", why: "The pointer tooltip of both Output buttons, naming the shortcut. The name is the aria-label, never this (control-names.js)."},
+  {s: "Close the output panel", c: "CONTROL", why: "The accessible name of the panel's ✕ (`#op-close`)."},
+  {s: "All output ·", c: "CONTROL", why: "The head of the file view's way back to the list (`#of-back`), followed by the thread's file count."},
+  {s: "Wrote 1 file", c: "CONTROL", why: "The turn's own *Wrote N files* button in its duration row; it opens the Output panel on that turn's group. `Wrote N files` for more than one."},
+  {s: "Everything written here, newest first.", c: "INFORMATIONAL", why: "The panel's subline under `N files from this thread`. It describes the list; it asks nothing."},
+  {s: "Nothing produced yet", c: "INFORMATIONAL", why: "The panel's title on a thread that produced no file, beside the empty sentence. Nothing to do: the list fills as files are written."},
+  {s: "No longer where it was written", c: "INFORMATIONAL", why: "A recorded file that is not at its path now (§4.6): the dimmed row's line, and the file view's subline. The file view's sentence (S3's `MISSING`) says what he can do, and it is his choice."},
+  {s: "from this thread", c: "FRAGMENT", why: "Follows `N files` (or `1 file`) in the panel's title, the buttons' names and the count announcement."},
+  {s: "no longer where", c: "FRAGMENT", why: "Part of the panel title's `· N no longer where it was written` (or `they were`), when any recorded file is missing. INFORMATIONAL as a whole."},
+  {s: "has produced a file yet. The moment Rich or the team writes one, it is listed here — and the count on the Output button says so.", c: "FRAGMENT", why: "The tail of the empty sentence, after `Nothing in <thread>`. INFORMATIONAL as a whole: it says when the list will fill and asks nothing."},
+  {s: "· also written earlier in this thread", c: "FRAGMENT", why: "Appended to the file view's subline when the file's first witnessed write was in an earlier turn. INFORMATIONAL."},
+  {s: "Between turns ·", c: "FRAGMENT", why: "The tooltip of the group of files written outside any turn, followed by the time. The group's visible head is `Between turns`. INFORMATIONAL."},
   {
     s: "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there.",
     c: "INFORMATIONAL",
