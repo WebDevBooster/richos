@@ -82,6 +82,12 @@ const ROLES = {
       "screenshots and files on the composer (CEO §86): the tray, its remove controls, the drop " +
       "target and every refusal he reads under the composer",
   },
+  "output-panel.js": {
+    role: "ui",
+    why:
+      "the Output panel (output side-panel PRD §6): the two Output buttons and their names, the " +
+      "list of the thread's files, its empty, looking and unreadable states, and a file's own view",
+  },
   "work-summary.js": { role: "ui", why: "saved work receipts and their availability states" },
   "repositories.js": { role: "ui", why: "company repository connections and their status" },
   "permissions.js": { role: "ui", why: "native action permission requests and their answers" },
