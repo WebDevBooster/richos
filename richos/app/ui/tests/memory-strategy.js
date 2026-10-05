@@ -780,6 +780,84 @@ async function main() {
   await c.close();
 
   // =====================================================================================
+  // PASS D — a reader at the bottom of the thread stays there through a resize. Its own page,
+  // so nothing it resizes reaches pass B's shots 8 and 9.
+  // =====================================================================================
+  // Found while fixing shot 8 (a5f25ec59): narrowing a pane rewraps the thread (scrollHeight
+  // 1730 -> 2058 over shot 8's 24 key presses) while scrollTop stays put or moves one 29px line,
+  // so the reader who was at the bottom was left lines above it, with the jump-down button up.
+  const d = await openApp(browser);
+  await sendTheBrief(d, ANCHOR_18S);
+  await runTo(d, 16);
+  await expandTranscript(d);
+  await d.click('[id="chip:agt_ms_sage_1"]');
+  await d.waitForSelector("#inspector:not([hidden])");
+
+  await run.check("a reader at the bottom of the thread stays there through every pane and window resize", async () => {
+    const read = () =>
+      d.evaluate(() => {
+        const c = document.getElementById("conversation");
+        return {
+          off: Math.round(c.scrollHeight - c.scrollTop - c.clientHeight),
+          height: c.scrollHeight,
+          jump: !document.getElementById("jump-latest").hidden,
+        };
+      });
+    // The reader scrolls to the end, as he would; the shell's own scroll listener takes it.
+    await d.evaluate(() => {
+      const c = document.getElementById("conversation");
+      c.scrollTop = c.scrollHeight;
+    });
+    await settle(d);
+    const start = await read();
+    assert(start.off <= 1 && !start.jump, `the reader starts at the bottom: ${JSON.stringify(start)}`);
+    const misses = [];
+    let steps = 0, rewraps = 0, last = start.height;
+    const step = async (what, act) => {
+      await act();
+      await settle(d);
+      const s = await read();
+      steps++;
+      if (s.height !== last) rewraps++;
+      last = s.height;
+      if (s.off > 1 || s.jump) misses.push(`${what}: ${s.off}px above the bottom${s.jump ? ", jump-down button showing" : ""}`);
+    };
+    const width = (id) => d.evaluate((i) => Number(document.getElementById(i).getAttribute("aria-valuenow")), id);
+    // Keyboard, both dividers, out and back by the same steps, inside their limits (rail 224-420
+    // by 16, main.js applyRailWidth; worker pane 280-520 by 8, applyInspectorWidth).
+    const rail0 = await width("rail-resizer"), insp0 = await width("inspector-resizer");
+    const railKeys = Math.min(12, Math.floor((420 - rail0) / 16)), inspKeys = Math.min(12, Math.floor((520 - insp0) / 8));
+    assert(railKeys >= 4 && inspKeys >= 4, `room to widen both panes: rail ${rail0}px, worker pane ${insp0}px`);
+    await d.focus("#rail-resizer");
+    for (let i = 0; i < railKeys; i++) await step(`rail key ${i + 1} wider`, () => d.keyboard.press("ArrowRight"));
+    for (let i = 0; i < railKeys; i++) await step(`rail key ${i + 1} back`, () => d.keyboard.press("ArrowLeft"));
+    await d.focus("#inspector-resizer");
+    for (let i = 0; i < inspKeys; i++) await step(`worker pane key ${i + 1} wider`, () => d.keyboard.press("ArrowLeft"));
+    for (let i = 0; i < inspKeys; i++) await step(`worker pane key ${i + 1} back`, () => d.keyboard.press("ArrowRight"));
+    // The pointer: the rail's divider dragged out and back.
+    const handle = await d.locator("#rail-resizer").boundingBox();
+    const x0 = handle.x + handle.width / 2, y0 = handle.y + handle.height / 2;
+    await d.mouse.move(x0, y0);
+    await d.mouse.down();
+    for (let i = 1; i <= 8; i++) await step(`rail dragged +${i * 10}px`, () => d.mouse.move(x0 + i * 10, y0));
+    for (let i = 7; i >= 0; i--) await step(`rail dragged back to +${i * 10}px`, () => d.mouse.move(x0 + i * 10, y0));
+    await d.mouse.up();
+    // The window: narrower, shorter, and back.
+    for (const [w, h] of [[1300, 960], [1300, 800], [1440, 960]]) await step(`window ${w}x${h}`, () => d.setViewportSize({ width: w, height: h }));
+    assertEqual([await width("rail-resizer"), await width("inspector-resizer")], [rail0, insp0], "both panes are back at their widths");
+    assert(rewraps >= 4, `the resizes rewrapped the thread (${rewraps} of ${steps} steps changed its height)`);
+    assertEqual(misses.length, 0, misses.slice(0, 10).join("\n") + (misses.length > 10 ? `\n… ${misses.length} of ${steps} steps in all` : ""));
+    return `${steps} resize steps (keyboard on both dividers, a pointer drag, the window), ${rewraps} rewrapped the thread; at the bottom after every one, jump-down button hidden`;
+  });
+
+  await run.check("no page errors in the resize pass", async () => {
+    assertEqual(d.__errors, []);
+    return "0 uncaught errors, 0 console errors";
+  });
+
+  await d.close();
+
+  // =====================================================================================
   // THE MANIFEST — the DOM must agree with the table, in BOTH directions
   // =====================================================================================
 
