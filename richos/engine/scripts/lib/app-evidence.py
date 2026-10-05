@@ -7,6 +7,7 @@ No callback is inferred from an attempted action. In particular, PreToolUse does
 not establish execution and SubagentStop does not establish successful work.
 """
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -109,11 +110,22 @@ def _absolute(raw, cwd):
     return os.path.normpath(path)
 
 
-def _excluded(path, excluded):
-    """Never anything under the app's own data, never inside .git, node_modules or target."""
+def _under(path, root):
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _excluded(path, excluded, allowed=()):
+    """Never inside .git, node_modules or target; never anything under the app's own data,
+    EXCEPT under an `allowed` root (§4.1 (c)'s carve-out, slice S2b): every back-end worker's
+    workspace is `<app-data>/engine-state/target-worktrees/<scope>/<name>`, so excluding the data
+    directory wholesale dropped every file a worker's command made (a `pandoc` PDF built in its
+    worktree, 2026-10-05). The NEVER_INSIDE names still apply inside an allowed root: a
+    worktree's `.git` is a file, and its build output is not a deliverable."""
     if any(part in NEVER_INSIDE for part in Path(path).parts):
         return True
-    return any(path == root or path.startswith(root.rstrip("/") + "/") for root in excluded)
+    if any(_under(path, root) for root in allowed):
+        return False
+    return any(_under(path, root) for root in excluded)
 
 
 def command_tokens(command):
@@ -141,7 +153,7 @@ def command_tokens(command):
     return out
 
 
-def candidates(cwd, command, excluded):
+def candidates(cwd, command, excluded, allowed=()):
     """The call's candidate set (§4.1 (c)): the working directories (the callback's cwd and
     every word that is an existing directory) and the explicit files (every word that is an
     existing regular file)."""
@@ -161,11 +173,11 @@ def candidates(cwd, command, excluded):
             dirs.add(os.path.realpath(path))
         elif stat.S_ISREG(st.st_mode):
             files.add(os.path.realpath(path))
-    return ({d for d in dirs if not _excluded(d, excluded)},
-            {f for f in files if not _excluded(f, excluded)})
+    return ({d for d in dirs if not _excluded(d, excluded, allowed)},
+            {f for f in files if not _excluded(f, excluded, allowed)})
 
 
-def scan(dirs, files, start_ns, excluded):
+def scan(dirs, files, start_ns, excluded, allowed=()):
     """Every regular file (lstat, no follow) among the explicit files and one level inside
     each directory whose mtime is at or after the start. A directory over the entry cap is
     not listed; dot-entries are skipped; names and lstat only, never contents.
@@ -181,7 +193,7 @@ def scan(dirs, files, start_ns, excluded):
             st = os.lstat(path)
         except OSError:
             return
-        if stat.S_ISREG(st.st_mode) and st.st_mtime_ns >= floor and not _excluded(path, excluded):
+        if stat.S_ISREG(st.st_mode) and st.st_mtime_ns >= floor and not _excluded(path, excluded, allowed):
             found[path] = st.st_mtime_ns
 
     for path in files:
@@ -232,7 +244,7 @@ def _actor_file(commands, agent_id):
     return commands / "turn-lead.json"
 
 
-def witness_writes(payload, folder, excluded):
+def witness_writes(payload, folder, excluded, allowed=()):
     """The rows witnesses (b) and (c) owe this callback, and the bookkeeping (c) needs.
     Runs under the evidence folder's lock, after the callback itself is kept."""
     event = payload.get("hook_event_name")
@@ -261,8 +273,8 @@ def witness_writes(payload, folder, excluded):
             began = _read_json(start)
             if isinstance(began, dict) and isinstance(began.get("at_ns"), int):
                 command = (payload.get("tool_input") or {}).get("command")
-                dirs, files = candidates(began.get("cwd") or payload.get("cwd"), command, excluded)
-                for path, mtime in sorted(scan(dirs, files, began["at_ns"], excluded).items()):
+                dirs, files = candidates(began.get("cwd") or payload.get("cwd"), command, excluded, allowed)
+                for path, mtime in sorted(scan(dirs, files, began["at_ns"], excluded, allowed).items()):
                     rows.append(_write_row(payload, path, "command", tool_use_id=tool_use_id, mtime_ns=mtime))
                 # Kept for this actor's turn-end pass: its directories, and its earliest start.
                 ledger = _actor_file(commands, agent_id)
@@ -284,14 +296,17 @@ def witness_writes(payload, folder, excluded):
         if isinstance(held, dict) and isinstance(held.get("at_ns"), int):
             dirs = {d for d in held.get("dirs", []) if isinstance(d, str)}
             files = {f for f in held.get("files", []) if isinstance(f, str)}
-            for path, mtime in sorted(scan(dirs, files, held["at_ns"], excluded).items()):
+            for path, mtime in sorted(scan(dirs, files, held["at_ns"], excluded, allowed).items()):
                 rows.append(_write_row(payload, path, "command", mtime_ns=mtime))
             os.unlink(ledger)
     return rows
 
 
-def capture(payload, state_root, instruction=None, app_data=None):
-    session = payload.get("session_id", "")
+@contextlib.contextmanager
+def _session_folder(state_root, session):
+    """`<state_root>/<session>`, created and held under its `.lock` for the duration: the one
+    lock every writer of a session's evidence takes (the hook's `capture`, and the land
+    witness's `append_land_rows`)."""
     if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session):
         raise ValueError("Invalid native session identity")
     root = Path(state_root)
@@ -301,18 +316,62 @@ def capture(payload, state_root, instruction=None, app_data=None):
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     if folder.is_symlink():
         raise ValueError("Session evidence directory cannot be a symlink")
-    transcript = folder / "guard-transcript.jsonl"
     lock_fd = os.open(folder / ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(lock_fd, "r+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        yield folder
+
+
+COMMIT = re.compile(r"[0-9a-f]{40,64}")
+
+
+def append_land_rows(state_root, session_id, rows):
+    """Witness (d), the land (Output side panel PRD §4.1 (d), slice S2b): one row per file a
+    land wrote into the connected repository, appended to the back-end session's own
+    `writes.jsonl` under the folder lock `capture` takes, so the app joins it to the thread by
+    the same session as every other row of that job.
+
+    `rows` are `{path, from, commit, worker: {name, agent_id}}`: `path` is the landed copy,
+    `from` the worker's worktree copy it retires, `commit` the commit the ref moved to. Paths
+    only, like every other row. A row that is not that shape refuses the whole call before
+    anything is written; the caller's posture is that a refusal never fails the land."""
+    out = []
+    for row in rows:
+        worker = row.get("worker") if isinstance(row, dict) else None
+        if not (isinstance(worker, dict) and isinstance(worker.get("name"), str) and worker["name"]
+                and all(isinstance(row.get(k), str) and os.path.isabs(row[k]) and "\0" not in row[k]
+                        for k in ("path", "from"))
+                and isinstance(row.get("commit"), str) and COMMIT.fullmatch(row["commit"])):
+            raise ValueError("a land row needs absolute path and from, a commit and the worker's name")
+        out.append({"schema": 1, "session_id": session_id, "agent_id": None, "tool_use_id": None,
+                    "path": row["path"], "from": row["from"], "commit": row["commit"],
+                    "worker": {"name": worker["name"], "agent_id": worker.get("agent_id") or None},
+                    "at": now_ms(), "source": "land"})
+    if not out:
+        return 0
+    with _session_folder(state_root, session_id) as folder:
+        for row in out:
+            append(folder / WRITES_FILE, row)
+    return len(out)
+
+
+def capture(payload, state_root, instruction=None, app_data=None, worktrees=None):
+    session = payload.get("session_id", "")
+    with _session_folder(state_root, session) as folder:
+        root = folder.parent
+        transcript = folder / "guard-transcript.jsonl"
         record = project(payload, instruction)
         append(folder / "callbacks.jsonl", {"schema": 1, "callback": payload})
         if record is not None:
             append(transcript, record)
-        # The output record's witnesses. Never the app's own data, never this evidence.
+        # The output record's witnesses. Never the app's own data, never this evidence, except
+        # the worker worktrees under the data directory (§4.1 (c)'s carve-out). The evidence
+        # root (`engine-state/evidence`) is not under `engine-state/target-worktrees`, so the
+        # carve-out never reaches it.
         excluded = [os.path.realpath(root)] + ([os.path.realpath(app_data)] if app_data else [])
+        allowed = [os.path.realpath(worktrees)] if worktrees else []
         try:
-            for row in witness_writes(payload, folder, excluded):
+            for row in witness_writes(payload, folder, excluded, allowed):
                 append(folder / WRITES_FILE, row)
         except (OSError, ValueError, TypeError) as error:
             print(f"RichOS output witness skipped this callback: {error}", file=sys.stderr)

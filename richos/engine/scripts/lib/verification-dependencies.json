@@ -1366,7 +1366,7 @@
     },
     "scripts/app-engine-hook.py#pause-rejection": {
       "source": "scripts/app-engine-hook.py",
-      "sha256": "ec78a5c2d97afff0de172e3dadfd8f0fca16781715ff82b53e4941616d407c46",
+      "sha256": "708a9f999aceaa5cab7c65203e86568676cbaff5b221832629f86988e223b3e4",
       "evidence": "The fixture loads the standard-library-only module, supplies explicit roots and calls handle with PreToolUse SendMessage. Invalid pause fails before scope; valid pause reaches the mocked scope exception. No evidence/workspace helper is loaded.",
       "keys": [],
       "edges": [
@@ -13678,14 +13678,14 @@
     },
     "scripts/lib/app-evidence.py#capture": {
       "source": "scripts/lib/app-evidence.py",
-      "sha256": "a272ad17e49ee1ca2ff5d4a3abaef8f637fb2bc8b30ee55bc71ff7d8e67437f8",
+      "sha256": "1602a7fc1e6cf65489b52e24dd44349ed2509faaf16f0627adadce13ccc227c2",
       "evidence": "Reviewed project, capture and append entrypoints only: JSON transformation, fixed regex/hash checks and private locked record writes. The general CLI subprocess-forwarding path is not entered by this source-bound fixture. No config or engine helper read. Since the Output side panel's witnesses (2026-10-05) capture also writes evidence/<session>/writes.jsonl and its own commands/*.json bookkeeping, and reads directory listings and lstat of the paths a Bash call ran in or named (names and metadata only, never contents); still no config key, environment variable or engine helper.",
       "keys": [],
       "edges": []
     },
     "scripts/lib/app-evidence.test.py": {
       "source": "scripts/lib/app-evidence.test.py",
-      "sha256": "6e1c273c11c6cb5246931035f9504d9b5f2c1f511aeb5adf747da5d0bc3b8635",
+      "sha256": "33dcfc0d9235a09dcb6c1fce4e9c49de090c7446ca4864388f2c349d5d21882a",
       "evidence": "Calls adapter.project/capture and turn-manifest.read_turn on private synthetic callbacks, plus actual stated-actions analyzer with explicit private entity/teams. No adapter CLI forwarding, model dispatch or transcript command executes. OutputWitnessTests drive capture's output witnesses with synthetic Bash and write-tool callbacks over files the test itself creates in a private temporary directory; no command named in a callback is run. DesktopHookHandOff runs the real app-engine-hook.py as a subprocess (PreToolUse and PostToolUse for Bash) in test-app-engine-hook.py's sandbox shape, with explicit RICHOS_APP_STATE, RICHOS_APP_SCOPE, RICHOS_ENTITY_ROOT and RICHOS_ENGINE_ROOT; its guards and workspace hook run as the hook runs them.",
       "keys": [],
       "edges": [

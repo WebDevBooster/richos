@@ -98,8 +98,10 @@ def handle(payload):
         if active.get("actions_allowed") is True and active.get("binding", {}).get("session_id") == payload.get("session_id"):
             instruction = active.get("user_instruction")
     # `root` is <data>/engine-state; its parent is the app's data directory, which the output
-    # record's command witness never lists (Output side panel PRD §4.1 (c)).
-    payload = evidence.capture(payload, root / "evidence", instruction, app_data=root.parent)
+    # record's command witness never lists (Output side panel PRD §4.1 (c)) -- except the worker
+    # worktrees under it, where every back-end worker works (the carve-out, slice S2b).
+    payload = evidence.capture(payload, root / "evidence", instruction, app_data=root.parent,
+                               worktrees=root / "target-worktrees")
     ws = [sys.executable, str(ENGINE / "mega-lander/workspaces.py"), "--entity", str(coordination)]
     work = load("richos_desktop_work", ENGINE / "mega-lander/app.py")
     if event == "PreToolUse":
