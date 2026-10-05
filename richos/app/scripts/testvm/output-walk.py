@@ -175,27 +175,27 @@ tell application "System Events"
   if not found then return "NOSHEET"
   set s to sheet 1 of window 1 of p
   delay 1
-  set field to missing value
+  set nameField to missing value
   set offered to ""
-  set where to "?"
+  set whereName to "?"
   repeat with e in (entire contents of s)
     try
       set r to role of e
-      if r is "AXTextField" and field is missing value then
+      if r is "AXTextField" and nameField is missing value then
         set v to value of e
         if v starts with "panel-check" then
-          set field to e
+          set nameField to e
           set offered to v
         end if
-      else if r is "AXPopUpButton" and where is "?" then
-        set where to value of e
+      else if r is "AXPopUpButton" and whereName is "?" then
+        set whereName to value of e
       end if
     end try
   end repeat
-  if field is missing value then return "NOFIELD"
-  set value of field to "@NAME@"
+  if nameField is missing value then return "NOFIELD"
+  set value of nameField to "@NAME@"
   delay 0.5
-  return "SHEET" & tab & offered & tab & (value of field) & tab & where
+  return "SHEET" & tab & offered & tab & (value of nameField) & tab & whereName
 end tell
 '''
 SAVE_PRESS = r'''
