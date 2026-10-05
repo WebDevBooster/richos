@@ -117,6 +117,11 @@ mod phone;
 /// attachment desk, reached from the window: same storage, same limits, same words for Rich.
 mod mac_attachments;
 
+/// THE FILES A THREAD PRODUCED, REACHED SAFELY (Output side panel PRD §5): the commands take
+/// an output id, never a path, and the `richos-output` scheme serves only what the active
+/// thread's record holds.
+mod output_files;
+
 // Headless integration harness; absent from the shipped executable.
 #[cfg(test)]
 #[path = "../../../mobile/dev/mac-server.rs"]
@@ -2268,6 +2273,11 @@ fn main() {
                 request_quit(app);
             }
         })
+        // THE OUTPUT PANEL'S PREVIEW SCHEME (Output side panel PRD §5.3):
+        // `richos-output://<output id>`, resolved against the active thread's record and
+        // checked before a byte is served (`output_files.rs`). Asynchronous, so a file is never
+        // read on the main thread.
+        .register_asynchronous_uri_scheme_protocol(output_files::SCHEME, output_files::scheme_handler)
         .setup(|app| {
             // Durable ledger lives in the app data dir (survives restart + rotation).
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
@@ -3463,6 +3473,12 @@ fn main() {
             // attachment desk writes to (`phone/attachments.rs`). No I/O until a file arrives.
             let attachments_home = app.state::<AppState>().data_dir.clone();
             app.manage(mac_attachments::MacAttachments::open(&attachments_home));
+            // The Output panel's file commands and preview scheme (PRD §5), over the SAME store
+            // the spine and the work host write, and the published spine for the active thread.
+            // QuickLook renditions go in the app's cache directory (§4.8).
+            let output_cache = app.path().app_cache_dir().unwrap_or_else(|_| attachments_home.join("cache"));
+            let output_reader = app.state::<AppState>().reader.clone();
+            app.manage(output_files::OutputFiles::for_app(output_store, output_reader, &attachments_home, &output_cache));
 
             // ================================================================
             // THE UPDATE PATH — last in setup, and last for a reason
@@ -3719,7 +3735,12 @@ fn main() {
             mac_attachments::attach_dropped_file,
             mac_attachments::attach_pasted_file,
             mac_attachments::discard_attachment,
-            mac_attachments::commit_attachments
+            mac_attachments::commit_attachments,
+            output_files::list_output,
+            output_files::output_file,
+            output_files::output_preview,
+            output_files::output_open,
+            output_files::output_reveal
         ])
         .build(context)
         .expect("error while building RichOS")

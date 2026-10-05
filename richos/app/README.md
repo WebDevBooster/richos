@@ -659,6 +659,13 @@ richos/app/
                               the REAL decision, printing what the window would open at,
                               swept across menu-bar/Dock models. Opens no window
     src/nav.rs               durable rail VIEW state: width, pin, rename, archive (not evidence)
+    src/output_files.rs      THE FILES A THREAD PRODUCED, REACHED SAFELY (Output side panel PRD
+                              §5, slice S3): list, describe, preview, open and show in Finder by
+                              OUTPUT ID only, resolved in the active thread's record and checked
+                              before every read or act (no link, a regular file, the canonical
+                              path it was witnessed at, O_NOFOLLOW reads); the Launch Services
+                              app list; and the `richos-output://` scheme that serves media, PDF
+                              and QuickLook renditions with Range, and a bad id a 404 with no bytes
     src/updates.rs           THE UPDATE PATH (RICH-TODOs rows 12 and u1): check, download with
                               throttled progress, VERIFY, install, relaunch; a nine-state
                               view emitted as `rich://update`; and the failure classifier
