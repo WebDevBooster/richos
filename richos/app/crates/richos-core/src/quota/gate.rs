@@ -90,9 +90,7 @@ fn wait(
     let mut observation: Option<super::holds::Guard> = None;
     loop {
         if !authorized(scope, worker) {
-            return Err(io::Error::other(
-                "This app work was stopped. New actions are unavailable.",
-            ));
+            return Err(io::Error::other(WORK_ENDED));
         }
         if admission(state, crate::util::now_millis()).allows_work() {
             if let Some(guard) = observation.take() { guard.release(); }
@@ -191,9 +189,28 @@ pub fn run_cli() -> i32 {
     match result {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("RichOS desktop quota: {e}");
+            eprintln!("{}", refusal(&e));
             2
         }
+    }
+}
+
+/// **The refusal when this call's grant is gone, which is not a quota reading.** The scope's
+/// grant is closed by his Stop, by the end of the assignment and by a quit (`ecs::revoke`);
+/// no allowance figure is consulted to refuse it.
+const WORK_ENDED: &str = "This app work has ended or was stopped. New actions are unavailable.";
+
+/// What a refused call is told. **Only an allowance refusal says "quota".** Walk 6
+/// (2026-10-05, `walk-10608166d53f`) showed a reviewer's verdict refused over and over with
+/// "RichOS desktop quota: This app work was stopped" at 51% five-hour use: the grant had been
+/// revoked when its job was ended early (`work_host`'s declared wait now keeps it open), and
+/// the one prefix this wrapper put on every refusal blamed an allowance nobody had read.
+fn refusal(error: &io::Error) -> String {
+    let text = error.to_string();
+    if text == WORK_ENDED {
+        format!("RichOS desktop: {text}")
+    } else {
+        format!("RichOS desktop quota: {text}")
     }
 }
 
@@ -318,6 +335,32 @@ mod tests {
         )
         .is_err());
     }
+    /// Walk 6 (2026-10-05): a reviewer's hand-back refused with "RichOS desktop quota: This app
+    /// work was stopped" at 51% five-hour use. The quota was never read for that refusal: the
+    /// grant was gone. With room left, a revoked grant is refused WITHOUT the word quota, and a
+    /// refusal that is about the allowance still says so.
+    #[test]
+    fn a_revoked_grant_is_never_reported_as_quota() {
+        let (_root, service, state, scope) = setup();
+        let now = crate::util::now_millis();
+        *service.snapshot.lock().unwrap() = Snapshot {
+            checked_at: Some(now),
+            windows: vec![Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: 51.,
+                resets_at: Some(now + 3_600_000), duration_ms: 18_000_000 }],
+            ..Default::default()
+        };
+        service.publish().unwrap();
+        assert!(admission(&state, now).allows_work(), "51% must admit work");
+        atomic_write(&scope, &json!({"version":1,"actions_allowed":false,"background_work_allowed":false})).unwrap();
+        let refused = wait(&json!({"agent_id":"reviewer","tool_name":"SubagentHandback"}), &state, &scope,
+            Duration::from_millis(1), Duration::from_secs(2)).unwrap_err();
+        let said = refusal(&refused);
+        assert!(!said.to_lowercase().contains("quota"), "{said}");
+        assert!(said.contains("ended or was stopped"), "{said}");
+        let waiting = refusal(&io::Error::other("Still waiting for a current allowance reading. No tool action was run."));
+        assert!(waiting.starts_with("RichOS desktop quota: "), "{waiting}");
+    }
+
     #[test]
     fn foreground_tools_are_not_quota_gated_but_new_agents_are() {
         let (_root, _service, state, scope) = setup();
