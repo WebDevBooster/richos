@@ -978,6 +978,58 @@ try:
           (merged45, check45.state, mid45 and (mid45.returncode, mid45.stderr[-300:]), by_hand45,
            rerun45 and (rerun45.returncode, rerun45.stderr[-400:]), trees45, out45.getvalue()[-300:]))
 
+    # P46 — A RERUN FILE NEVER CARRIES A CREDENTIAL'S VALUE, AND STILL REPRODUCES THE CHECK
+    # (2026-10-05). The file is plain text under proof-runs/, and it wrote CLAUDE_CODE_MESSAGING_TOKEN,
+    # a live session token, into every rerun. Here: the gate's environment holds that token, an API
+    # key, a camelCase auth token and a URL with a password in it, beside the variable the check fails
+    # on. None of the four values is in the file; the rerun still fails as in the gate; the token
+    # reaches the rerun only from a shell that has it.
+    import uuid as uuid46
+    d46 = os.path.join(tmp, "p46")
+    os.makedirs(d46)
+    mark46 = os.path.join(d46, "token-seen")
+    secrets46 = {"CLAUDE_CODE_MESSAGING_TOKEN": "p46-" + uuid46.uuid4().hex,
+                 "RICHOS_FIXTURE_API_KEY": "p46-" + uuid46.uuid4().hex,
+                 "fixture46_authToken": "p46-" + uuid46.uuid4().hex,
+                 "FIXTURE46_URL": "https://fixture:p46%s@example.invalid/db" % uuid46.uuid4().hex}
+    plain46 = {"FIXTURE46": "gate", "FIXTURE46_MARK": mark46}
+    gate46 = pr.Item("gate-secrets", os.path.join(pr.ROOT, "richos/app"),
+                     ["bash", "-c", 'printf %s "${CLAUDE_CODE_MESSAGING_TOKEN:-}" > "$FIXTURE46_MARK"; '
+                                    'test "${FIXTURE46:-}" != gate'], None, 1.0)
+    saved46 = {k: os.environ.get(k) for k in [*secrets46, *plain46]}
+    os.environ.update(secrets46)
+    os.environ.update(plain46)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            pr.run([gate46], Args(), d46, sampler=idle)
+    finally:
+        for k, v in saved46.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    seen_gate46 = open(mark46).read() if exists(mark46) else None
+    file46 = getattr(gate46, "rerun", None) or ""
+    text46 = open(file46).read() if file46 and exists(file46) else ""
+    leaked46 = sorted(k for k, v in secrets46.items() if v in text46)
+    shell46 = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/")}
+    os.unlink(mark46) if exists(mark46) else None
+    bare46 = subprocess.run(["sh", file46], env=shell46, capture_output=True, text=True) if text46 else None
+    seen_bare46 = open(mark46).read() if exists(mark46) else None
+    token46 = secrets46["CLAUDE_CODE_MESSAGING_TOKEN"]
+    held46 = subprocess.run(["sh", file46], env={**shell46, "CLAUDE_CODE_MESSAGING_TOKEN": token46},
+                            capture_output=True, text=True) if text46 else None
+    seen_held46 = open(mark46).read() if exists(mark46) else None
+    check(gate46.state == "failed" and seen_gate46 == token46 and text46 and not leaked46
+          and "FIXTURE46=gate" in text46 and all(k in text46 for k in secrets46)
+          and bare46.returncode == 1 and seen_bare46 == ""
+          and held46.returncode == 1 and seen_held46 == token46,
+          "P46 a rerun file holds no credential's value (a token, an API key, a camelCase auth token, a URL "
+          "password), still fails as in the gate, and passes the token on only from a shell that has it",
+          (gate46.state, seen_gate46 == token46, bool(text46), leaked46,
+           bare46 and (bare46.returncode, bare46.stderr[-300:]), seen_bare46 == "",
+           held46 and held46.returncode, seen_held46 == token46))
+
     # P37 — a pause (agent_hold.py) suspends the runner with its checks. The loop gap it leaves is
     # not the checks' time: each running check's start moves by it, so its deadline is where it was.
     class Held:
