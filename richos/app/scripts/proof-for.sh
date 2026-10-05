@@ -52,7 +52,9 @@
 #                   for exact repository-relative paths, never a scanned tree. Write
 #                   `# run-tests: covers -` explicitly when there is no such claim.
 #                   Both rows are required exactly once. Each covered file must also
-#                   select its suite through inputs; coverage alone cannot select tests.
+#                   be among its suite's inputs, and a covered file always selects the
+#                   suite that covers it (under --gate too, where a directory input
+#                   does not select for a tooling path).
 #                   Adding an input never silences UNCOVERED. Claims describe assertions
 #                   in the suite, not full correctness of every behavior in the file.
 #
@@ -525,8 +527,13 @@ while IFS= read -r p; do
 
   while IFS="$TAB" read -r kind s decl; do
     if [ "$kind" = covers ]; then
+      # A covered file also SELECTS the suite that covers it. Without --gate its inputs already
+      # do; under --gate a directory input does not select for a tooling path, so before
+      # 2026-10-05 a covered file under one (autocheck/install.sh, inside the input
+      # `scripts/autocheck`) selected nothing: 480bf8dd5 changed it, the merge never ran
+      # autocheck.test.sh, and the nightly found the broken case.
       if [ "$p" = "$decl" ]; then
-        MATCHED=1; note "behavior covered by $s ($decl)"
+        printf '%s\n' "$s" >> "$WORK/script"; MATCHED=1; note "behavior covered by $s ($decl)"
       fi
     else
       for d in $decl; do

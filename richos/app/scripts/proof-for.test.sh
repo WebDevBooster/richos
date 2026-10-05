@@ -549,6 +549,30 @@ if [ "$G3_RC" -eq 0 ] && grep -q -- '--only proof-run.test.sh' "$WORK/g3.out" \
 else
   bad "M3 a script at the gate selects the suite that covers it" "exit $G3_RC: $(tr '\n' ' ' < "$WORK/g3.out")"
 fi
+# M4. A COVERED FILE UNDER A DIRECTORY INPUT (2026-10-05). autocheck.test.sh covers
+#    autocheck/install.sh and reads it through the directory input `scripts/autocheck`, which
+#    --gate does not follow for a tooling path; 480bf8dd5 changed install.sh, the merge selected
+#    7 suites without autocheck.test.sh, and only the nightly found its broken case. A range that
+#    changes ONLY that file, built from HEAD in a scratch index (no ref, no working tree touched).
+M4_FILE=richos/app/scripts/autocheck/install.sh
+mgit() { GIT_INDEX_FILE="$WORK/m4-index" git -C "$ROOT" -c user.name='proof-for fixture' \
+           -c user.email=proof-for@example.invalid "$@"; }
+M4_HEAD=""
+if M4_BLOB="$( { git -C "$ROOT" show "HEAD:$M4_FILE"; printf '# proof-for M4 fixture\n'; } \
+               | git -C "$ROOT" hash-object -w --stdin)" \
+   && mgit read-tree HEAD \
+   && mgit update-index --cacheinfo "100755,$M4_BLOB,$M4_FILE" \
+   && M4_HEAD="$(mgit commit-tree "$(mgit write-tree)" -p HEAD -m 'proof-for fixture: covered file')"; then
+  run_pf "$WORK/m4.out" --quiet --gate "HEAD..$M4_HEAD"; M4_RC=$RC
+  if [ "$M4_RC" -eq 0 ] && grep -q -- '--only autocheck.test.sh' "$WORK/m4.out"; then
+    ok "M4 a range changing only a covered tooling file selects the suite that covers it at the gate"
+  else
+    bad "M4 a range changing only a covered tooling file selects the suite that covers it at the gate" \
+        "exit $M4_RC: $(tr '\n' ' ' < "$WORK/m4.out")"
+  fi
+else
+  bad "M4 the covered-file fixture commit could not be built from HEAD"
+fi
 
 # R46 — A REFERENCE SHOT SELECTS BY WHOLE FOLDER NAME (hunt part 2, R46). shots-5 is a prefix of
 # shots-5b and shots-5c; a suite that only reads those must not be selected for a shots-5 file.
