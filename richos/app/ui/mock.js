@@ -854,6 +854,124 @@
     });
   }
 
+  // ---- THE ACTIONS (slice S6): `output_file`'s app list and problem, `output_open`,
+  // `output_reveal`, `output_save_copy` — the shell's contract and its sentences, VERBATIM from
+  // `src-tauri/src/output_files.rs`, with nothing opened and nothing written. Every call is
+  // kept in `outputActionCalls` for the suite to read (`__RICHOS_MOCK__.outputCalls()`).
+  //
+  // The apps are round 17's (`output.html` FILES), as Launch Services would give them: the
+  // default, then the others without it, ordered by name.
+  const OUTPUT_APPS = {
+    md: ["Obsidian", "TextEdit", "Visual Studio Code"],
+    txt: ["TextEdit", "Visual Studio Code"],
+    csv: ["Numbers", "Microsoft Excel", "TextEdit"],
+    xlsx: ["Numbers", "Google Sheets", "Microsoft Excel"],
+    docx: ["Pages", "Google Docs", "Microsoft Word"],
+    pdf: ["Preview", "Adobe Acrobat", "Safari"],
+    png: ["Preview", "Photos", "Pixelmator Pro"],
+    mp4: ["QuickTime Player", "IINA", "VLC"],
+  };
+  const OUTPUT_SAID = {
+    notInRecord: "I don't have that file in this thread's output.",
+    linked: "This file is a link to somewhere else, so I won't open it from here. Show in Finder still works.",
+    missing: "This file is no longer where it was written. If it was moved, open it from its new place; if Rich writes it again, it will be listed here.",
+    appsChanged: "The apps that open this file changed since the list was shown. Choose one again.",
+    appNotOffered: "That app is not one this Mac offers for this file. Choose one again.",
+    nothingSaved: "Nothing was saved.",
+  };
+  const outputActionCalls = [];
+  /// output id -> the app list `output_file` last showed (the shell's `shown`).
+  const outputShown = new Map();
+  /// Names whose recorded path is now a link (`__RICHOS_MOCK__.outputLinked`).
+  const outputLinks = new Set();
+  /// The next answer of the save sheet: a path, or null for Cancel. Undefined: the Desktop.
+  let outputSheetAnswer;
+  /// One app list change on this Mac, taken by the next `output_open` that names an app.
+  let outputAppsChangeOnce = false;
+
+  function outputFind(id) {
+    for (const thread of Object.keys(outputByThread)) {
+      const e = (outputByThread[thread] || []).find((x) => x.id === id);
+      if (e) return e;
+    }
+    return null;
+  }
+
+  function outputApps(e) {
+    const names = OUTPUT_APPS[e.kind] || [];
+    const app = (name) => ({ name, bundleId: "com.example." + name.toLowerCase().replace(/[^a-z]+/g, "") });
+    return { defaultApp: names.length ? app(names[0]) : null, otherApps: names.slice(1).map(app) };
+  }
+
+  /// `null` | `missing` | `refused`, as §5.2 answers it.
+  function outputProblem(e) {
+    if (!e.exists) return "missing";
+    if (outputLinks.has(e.name)) return "refused";
+    return null;
+  }
+
+  /// `acme/counter/` — the last two folders, as the shell's `folder_label` names them.
+  function outputFolderLabel(path) {
+    const parts = path.split("/").filter(Boolean);
+    parts.pop();
+    return parts.slice(-2).join("/") + "/";
+  }
+
+  function outputAction(cmd, args) {
+    const id = args.outputId ?? args.output_id;
+    outputActionCalls.push({ cmd, args: Object.assign({}, args) });
+    const e = outputFind(id);
+    if (!e) return Promise.reject(OUTPUT_SAID.notInRecord);
+    const problem = outputProblem(e);
+    const refusal = problem === "missing" ? OUTPUT_SAID.missing : OUTPUT_SAID.linked;
+    switch (cmd) {
+      case "output_file": {
+        const apps = problem ? { defaultApp: null, otherApps: [] } : outputApps(e);
+        outputShown.set(id, apps.otherApps.map((a) => a.name));
+        return Object.assign({}, e, apps, {
+          previewable: "none",
+          reason: problem ? refusal : null,
+          problem,
+        });
+      }
+      case "output_open": {
+        if (problem) return Promise.reject(refusal);
+        const apps = outputApps(e);
+        const index = args.appIndex ?? args.app_index;
+        if (typeof index !== "number") {
+          return apps.defaultApp ? "Opening " + e.name + " in " + apps.defaultApp.name + "." : "Opening " + e.name + ".";
+        }
+        const shown = outputShown.get(id);
+        if (!shown) return Promise.reject(OUTPUT_SAID.appsChanged);
+        if (index < 0 || index >= shown.length) return Promise.reject(OUTPUT_SAID.appNotOffered);
+        if (outputAppsChangeOnce) {
+          outputAppsChangeOnce = false;
+          const names = OUTPUT_APPS[e.kind];
+          if (names && names.length > 2) OUTPUT_APPS[e.kind] = [names[0]].concat(names.slice(1).reverse());
+          return Promise.reject(OUTPUT_SAID.appsChanged);
+        }
+        return "Opening " + e.name + " in " + shown[index] + ".";
+      }
+      case "output_reveal": {
+        if (problem === "missing") return Promise.reject(OUTPUT_SAID.missing);
+        return "Finder opens " + outputFolderLabel(e.path) + " with " + e.name + " selected.";
+      }
+      case "output_save_copy": {
+        if (problem) return Promise.reject(refusal);
+        const answer = outputSheetAnswer;
+        outputSheetAnswer = undefined;
+        if (answer === null) return OUTPUT_SAID.nothingSaved;
+        const dest = answer || "/Users/you/Desktop/" + e.name;
+        const given = dest.split("/").pop();
+        return (
+          "Saved a copy of " + e.name + " to " + outputFolderLabel(dest) + (given === e.name ? "." : " as " + given + ".")
+        );
+      }
+      default:
+        return Promise.reject(OUTPUT_SAID.notInRecord);
+    }
+  }
+
   // WHICH COMPANY THIS COPY OF RICH WORKS FOR (`entity_choice` / `choose_entity`).
   //
   // The preview's default is CHOSEN, and deliberately so: every fixture in this harness
@@ -2797,6 +2915,12 @@
           if (outputUnreadable) return Promise.reject(OUTPUT_RECORD_UNREADABLE);
           return outputListOf(args.threadId ?? args.thread_id);
         }
+        // The actions (S6): the shell's contract, nothing opened and nothing written.
+        case "output_file":
+        case "output_open":
+        case "output_reveal":
+        case "output_save_copy":
+          return outputAction(cmd, args);
         case "nav_state":
           return JSON.parse(JSON.stringify(navPrefs));
         case "set_sidebar_width":
@@ -3865,6 +3989,14 @@
     outputUnreadable(v) { outputUnreadable = v !== false; },
     /// What the harness's record holds for a thread, for asserting on the store.
     outputList(threadId) { return outputListOf(threadId); },
+    /// The actions (S6): every `output_*` call the panel made, in order.
+    outputCalls() { return outputActionCalls.map((c) => ({ cmd: c.cmd, args: Object.assign({}, c.args) })); },
+    /// The recorded path of `name` is now a link (§5.2 step 2): refused, Show in Finder lit.
+    outputLinked(name) { outputLinks.add(name); },
+    /// The save sheet's next answer: a path, or null for Cancel.
+    outputSaveSheet(answer) { outputSheetAnswer = answer; },
+    /// This Mac's app list for a file changes once, under the next *Open with…* choice.
+    outputAppsChange() { outputAppsChangeOnce = true; },
     // ---- his team, on an operator install (the operator-client record's §7 item 1) -------
     /// His team says something: appended to the durable lane FIRST, then pushed on
     /// `rich://operator-notice`, in that order, as `DurableDelivery::say` does. `push: false`

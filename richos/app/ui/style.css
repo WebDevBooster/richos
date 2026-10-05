@@ -8028,6 +8028,335 @@ body.bp-narrow #out-bottom .out-word {
   color: var(--trim-text);
 }
 
+/* ---- the actions (slice S6: §6.3, §6.4, §6.7, §6.8; round 17's `.oacts`, `.of-open`, `.menu`,
+   `#toast`, under the app's tokens). Every text pair and indicator here is computed in both
+   themes by `tests/output.js` ("the actions' text and indicators"); nothing is declared exempt.
+   A disabled action keeps readable ink (`--ink-soft`) and says why in its tooltip. ---- */
+.oacts {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.orow:hover .oacts,
+.orow:focus-within .oacts,
+.orow.is-open .oacts,
+.orow.menu-open .oacts {
+  opacity: 1;
+}
+
+.oact {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.oact:hover,
+.oact[aria-expanded="true"] {
+  border-color: var(--ctl-line);
+  color: var(--ink);
+  background: var(--surface-raised);
+}
+
+.oact:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.oact svg {
+  width: 16px;
+  height: 16px;
+}
+
+.oact[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.oact[aria-disabled="true"]:hover {
+  border-color: transparent;
+  background: none;
+  color: var(--ink-soft);
+}
+
+/* The file view's gold *Open in <app>* and its `▾` (§6.4): one pill, two buttons. */
+.of-open {
+  display: inline-flex;
+  align-items: stretch;
+  height: 36px;
+  border: 1px solid var(--gold-text);
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--on-gold);
+  overflow: hidden;
+}
+
+.of-open > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 14px;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  color: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+/* The line between Open and `▾` is decoration: the chevron, at the text's contrast, is what
+   says the second part is its own control. */
+.of-open > button + button {
+  padding: 0 9px 0 8px;
+  border-left: 1px solid rgba(12, 19, 34, 0.28);
+}
+
+.of-open > button:hover {
+  filter: brightness(1.06);
+}
+
+.of-open > button:focus-visible {
+  outline: 2px solid var(--on-gold);
+  outline-offset: -4px;
+  border-radius: 999px;
+}
+
+.of-open svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* Nothing to open: the pill leaves gold for the plain control look, so a lit Open and a refused
+   one never look alike; the words stay readable and the tooltip says why. */
+.of-open.is-disabled {
+  border-color: var(--ctl-line);
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+}
+
+.of-open.is-disabled > button + button {
+  border-left-color: var(--line-soft);
+}
+
+.of-open > button[aria-disabled="true"] {
+  font-weight: 500;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.of-open.is-disabled > button:focus-visible {
+  outline-color: var(--accent);
+}
+
+.of-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--ctl-line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.of-tool:hover,
+.of-tool[aria-expanded="true"] {
+  border-color: var(--gold-text);
+  background: var(--gold-soft);
+}
+
+.of-tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.of-tool svg {
+  width: 15px;
+  height: 15px;
+  color: var(--ink-soft);
+}
+
+.of-tool.icon-only {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* The path line holds *Copy the full path* at its end. */
+.of-path {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-right: 12px;
+}
+
+.of-path code {
+  min-width: 0;
+  padding-top: 5px;
+}
+
+.of-path .of-copy {
+  margin-left: auto;
+}
+
+/* The menus: the row's `⋯` and right-click, the file view's `▾` and `⋯`, and *Open with…*. */
+.op-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px var(--shadow-soft);
+  animation: op-menu-rise 0.18s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+@keyframes op-menu-rise {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.op-menu-head {
+  padding: 7px 10px 5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+
+.op-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-family: inherit;
+  font-size: 1rem;
+  text-align: left;
+  color: var(--ink);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.op-menu-item:hover {
+  background: var(--gold-soft);
+}
+
+/* Focus is a ring, not only the soft fill: the fill alone is under 3:1 on the menu. */
+.op-menu-item:focus-visible {
+  outline: none;
+  background: var(--gold-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.op-menu-item .mi {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.op-menu-item .mi > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.op-menu-item svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--ink-soft);
+}
+
+.op-menu-item .k {
+  display: inline-flex;
+  color: var(--ink-soft);
+}
+
+.op-menu-item[aria-disabled="true"] {
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+
+.op-menu-item[aria-disabled="true"]:hover {
+  background: none;
+}
+
+.op-menu-item[aria-disabled="true"] .mi svg {
+  opacity: 0.55;
+}
+
+.op-menu-sep {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--line-soft);
+}
+
+/* What an action did (§6.7): round 17's `#toast`, at the top right, over the panel's head. */
+.op-notice {
+  position: fixed;
+  top: 56px;
+  right: 18px;
+  z-index: 31;
+  max-width: min(360px, calc(100vw - 36px));
+  padding: 11px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--gold-text);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px var(--shadow-soft);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  animation: op-rise 0.3s var(--out-quint) both;
+}
+
+.op-notice[hidden] {
+  display: none;
+}
+
+.op-notice.leaving {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .op-menu,
+  .op-notice {
+    animation: none;
+  }
+
+  .oacts,
+  .op-notice.leaving {
+    transition: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .out-count.tick,
   #outpanel.is-opening,
