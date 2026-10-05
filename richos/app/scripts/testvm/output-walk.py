@@ -223,6 +223,27 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the PDF is listed, but not by the command witness: ' + json.dumps(rows))
         return evidence
 
+    def work_story(self, sent, sessions):
+        """Why a job ended as it did, kept for every run: each assignment's state, detail and last
+        notices, and the back-end sessions' tool calls (lead's and workers') with how each ended.
+        A PreToolUse with no PostToolUse is a call a hook refused or that never returned."""
+        jobs = [{k: a.get(k) for k in ('id', 'state', 'detail')} | {'notices': (a.get('notices') or [])[-6:]}
+                for a in self.assignments_since(sent)]
+        calls = []
+        for session in sessions:
+            for c in self.callbacks(session):
+                event, tool = c.get('hook_event_name'), c.get('tool_name')
+                if event in ('PreToolUse', 'PostToolUse', 'PostToolUseFailure') and tool:
+                    ti = c.get('tool_input') or {}
+                    out = c.get('tool_response', c.get('error'))
+                    calls.append({'event': event, 'tool': tool, 'id': c.get('tool_use_id'), 'agent': c.get('agent_id'),
+                                  'input': str(ti.get('command') or ti.get('file_path') or ti.get('name') or ti)[:300],
+                                  'result': None if event == 'PreToolUse' else str(out)[:600]})
+                elif event in ('SubagentStop', 'Stop'):
+                    calls.append({'event': event, 'agent': c.get('agent_id'),
+                                  'last': str(c.get('last_assistant_message', ''))[:600]})
+        return {'jobs': jobs, 'calls': calls}
+
     def exists_in_guest(self, path):
         return guest(self.vm, 'test -f ' + shlex.quote(path) + ' && echo yes || echo no', 60).strip() == 'yes'
 
@@ -266,6 +287,7 @@ class OutputWalk(command_walk.CommandWalk):
                     'assignments': [{k: a.get(k) for k in ('id', 'kind', 'state', 'work_session')}
                                     for a in self.assignments_since(sent)]}
         (self.out / 'backend-worker-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        (self.out / 'backend-worker-story.json').write_text(json.dumps(self.work_story(sent, sessions), indent=2) + '\n')
         if not workers:
             raise StepFailed('no worker row reached the record within %d s' % self.a.within)
         if not all(w.get('workerName') for w in workers):
