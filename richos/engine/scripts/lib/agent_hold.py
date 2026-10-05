@@ -72,12 +72,13 @@ constructs for worktree-isolated agents. New calls retain the original command
 at top level after a literal helper invocation and owner exports. The helper
 records its own parent; it never reads or executes the user's command.
 
-With RICHOS_AGENT_BASH_FOREGROUND=1, ordinary CLI subagent Bash calls get six
-seconds to deliver their result in the foreground, then use the harness's
-automatic native background handoff. This remains opt-in pending installed
-acceptance. SDK callers and explicit background calls keep their existing path.
-RICHOS_AGENT_BASH_FOREGROUND=0 restores forced background execution. This is a handoff grace, not a process execution deadline;
-the host's own background limits still apply. A directly delivered result needs
+Ordinary CLI subagent Bash calls get six seconds to deliver their result in the
+foreground by default, then use the harness's automatic native background
+handoff. Installed acceptance passed on Claude Code 2.1.289. SDK callers and
+explicit background calls keep their existing path. RICHOS_AGENT_BASH_FOREGROUND=0
+restores forced background execution. This is a handoff grace, not a process
+execution deadline; the host's own background limits still apply. A directly
+delivered result needs
 no collector call and is marked consumed at the next tool boundary.
 The agent waits with this module's foreground `wait` command, which checks for
 new holds every half second. A hold freezes the native task's entire owned tree;
@@ -424,9 +425,8 @@ def rewrite(payload):
     command = ti["command"]
     mode = "exempt" if is_wait_call(command) else "bg" if ti.get("run_in_background") else "native"
     # Only the CLI transcript has authoritative structured handoff metadata.
-    # Keep SDK/other hosts on their established background path. Acceptance
-    # enables this opt-in in an isolated session before changing the default.
-    foreground = (mode == "native" and os.environ.get("RICHOS_AGENT_BASH_FOREGROUND", "0") == "1"
+    # Keep SDK/other hosts on their established background path.
+    foreground = (mode == "native" and os.environ.get("RICHOS_AGENT_BASH_FOREGROUND", "1") == "1"
                   and os.environ.get("CLAUDE_CODE_ENTRYPOINT", "cli") == "cli")
     rec = _record(payload, mode, command, foreground=foreground)
     if rec is None:
