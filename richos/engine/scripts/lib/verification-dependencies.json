@@ -14567,8 +14567,14 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "447ca370357b72f942fb18608df559ead038b95d9e0548bd55e27c5b49e9f67f",
+          "sha256": "82c541eec01cbe84a837c98f8ab97881029886d28b513dc8d66b252f28f112cb",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/rerun_tree.py",
+          "sha256": "139649a8a41a954f7a371824db72537277cb76abf5083912914e5c69b822a101",
+          "evidence": "Imported by proof-run.py write_rerun when a check starts: reads the checkout's tree with git (a scratch index, add -A, write-tree) and copies itself beside the run's rerun files. Stdlib only; reads no configuration."
         },
         {
           "root": "repository",
@@ -14786,8 +14792,14 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "447ca370357b72f942fb18608df559ead038b95d9e0548bd55e27c5b49e9f67f",
+          "sha256": "82c541eec01cbe84a837c98f8ab97881029886d28b513dc8d66b252f28f112cb",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/rerun_tree.py",
+          "sha256": "139649a8a41a954f7a371824db72537277cb76abf5083912914e5c69b822a101",
+          "evidence": "Imported by proof-run.py write_rerun when a check starts: reads the checkout's tree with git (a scratch index, add -A, write-tree) and copies itself beside the run's rerun files. Stdlib only; reads no configuration."
         },
         {
           "root": "repository",
