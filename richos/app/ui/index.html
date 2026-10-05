@@ -402,6 +402,22 @@
           <button id="techy-chip" type="button" hidden aria-pressed="true" title="Technical view">
             <span aria-hidden="true">&#9673;</span><span id="techy-chip-label">Technical view</span>
           </button>
+
+          <!-- OUTPUT, AT THE TOP (output side-panel PRD §6.2, round 17's `#out-top`). The CEO:
+               "a button here … at the top and at the bottom, so that the user can easily just
+               click a button". The same control as `#out-bottom` beside the composer: the word,
+               and a gold count of the files this thread produced (none when it produced none).
+               `output-panel.js` keeps the count, `aria-pressed` and the name true; hidden while no
+               thread is open, because there is no thread's output to show. -->
+          <button id="out-top" class="out-btn is-empty" type="button" hidden aria-pressed="false"
+                  aria-controls="outpanel" aria-label="Output" aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
+                  title="Everything this thread produced (⌘⇧O)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round" aria-hidden="true" focusable="false"><path
+                 d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path
+                 d="M9 13h6"/><path d="M9 17h6"/></svg>
+            <span class="out-word">Output</span><span class="out-count" data-count aria-hidden="true"></span>
+          </button>
         </header>
 
         <!-- THE CONVERSATION TIMELINE (§5). `role="log"` per §18, and `aria-live="off"`
@@ -776,9 +792,49 @@
               </div>
               <p class="voice-footnote">headphones recommended · tap <span class="voice-footnote-glyph">◉</span> to end voice</p>
             </div>
+
+            <!-- OUTPUT, AT THE BOTTOM (output side-panel PRD §6.2, round 17's `#out-bottom`): the
+                 same control as `#out-top`, at the right of the composer, where the CEO pointed
+                 for "at the bottom". -->
+            <button id="out-bottom" class="out-btn is-empty" type="button" hidden aria-pressed="false"
+                    aria-controls="outpanel" aria-label="Output" aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
+                    title="Everything this thread produced (⌘⇧O)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                   stroke-linejoin="round" aria-hidden="true" focusable="false"><path
+                   d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path
+                   d="M9 13h6"/><path d="M9 17h6"/></svg>
+              <span class="out-word">Output</span><span class="out-count" data-count aria-hidden="true"></span>
+            </button>
           </div>
         </div>
       </main>
+
+      <!-- THE OUTPUT PANEL (output side-panel PRD §6, round 17's `#outpanel`). A docked sibling
+           of the conversation, the worker inspector's shape: beside the conversation at 1180px
+           and wider, nothing dimmed, nothing modal; over it with a scrim below 1180px (§6.1,
+           §11 row 8). One right-hand pane at a time: opening it closes the worker inspector
+           and the inspector closes it.
+
+           EMPTY MARKUP ON PURPOSE. Every word in it is written by `output-panel.js` when it
+           opens, so the shell as it boots carries no text node it did not carry before
+           (`tests/contrast.js` 9z measures the bare shell's node count).
+
+           `data-dismiss="escape"`: Escape steps back one level — the file to the list, the
+           list to closed — through `RichOutput.escape` (main.js `POPUP_CLOSERS`). -->
+      <div id="outpanel-scrim" hidden></div>
+      <aside id="outpanel" data-dismiss="escape" hidden aria-labelledby="op-title">
+        <header class="op-head">
+          <span class="op-eyebrow" id="op-eyebrow"></span>
+          <h2 class="op-title" id="op-title"></h2>
+          <p class="op-sub" id="op-sub"></p>
+          <button class="op-close" id="op-close" type="button" aria-label="Close the output panel" title="Close (Esc)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path
+                 d="m6 6 12 12"/></svg>
+          </button>
+        </header>
+        <div class="op-body" id="op-body" tabindex="-1"></div>
+      </aside>
 
       <!-- THE WORKER INSPECTOR (§7.2). A SIBLING PANE, not a modal: it docks beside the
            conversation at 1180px and wider, overlays from the right between 820 and 1179px
@@ -1279,6 +1335,9 @@
     <script src="updates.js"></script>
     <script src="work-summary.js"></script>
     <script src="attachments.js"></script>
+    <!-- The Output panel (output side-panel PRD §6). Before main.js, which initializes it with
+         the bridge and the thread it is showing, as it does `attachments.js`. -->
+    <script src="output-panel.js"></script>
     <script src="main.js"></script>
     <script src="qr.js"></script>
     <script src="phone.js"></script>

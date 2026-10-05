@@ -744,6 +744,54 @@ const SURFACES = [
       await assertStillHiring(p, "inspector");
     },
   },
+  // THE OUTPUT PANEL (output side-panel PRD §6, `output-panel.js`), on `mock.js`'s round-17
+  // preset: the acme thread's nine files across four turns, Rich's replies linking them, one
+  // file by a worker. Three states with different ink: the list (with one file that is no longer
+  // where it was written, so the dimmed row is measured too), one file's own view, and a thread
+  // that produced nothing. `tests/output.js` computes the same pairs by name in both themes.
+  {
+    name: "output-open",
+    what: "the Output panel's list: four turns, nine files, a worker's file and a missing one",
+    preset: { output: "round-17" },
+    drive: async (p) => {
+      await p.evaluate(() => window.__RICHOS_MOCK__.outputMissing("acme", "brief.md"));
+      await p.click('.nav-thread[data-thread-id="acme"]');
+      await p.waitForFunction(() => window.RichOutput.snapshot().thread === "acme" && window.RichOutput.snapshot().count === 9);
+      await p.click("#out-top");
+      await p.waitForSelector("#outpanel .orow.is-missing");
+      await overlaySettled(p, "#outpanel");
+      await pageSettled(p);
+    },
+  },
+  {
+    name: "output-file",
+    what: "one file's own view in the Output panel: the way back, k of N, its path and facts",
+    preset: { output: "round-17" },
+    drive: async (p) => {
+      await p.click('.nav-thread[data-thread-id="acme"]');
+      await p.waitForFunction(() => window.RichOutput.snapshot().thread === "acme" && window.RichOutput.snapshot().count === 9);
+      await p.click("#out-top");
+      await p.waitForSelector("#outpanel .orow");
+      await p.click("#outpanel .orow");
+      await p.waitForSelector("#of-back");
+      await overlaySettled(p, "#outpanel");
+      await pageSettled(p);
+    },
+  },
+  {
+    name: "output-empty",
+    what: "the Output panel on a thread that produced nothing: the one sentence",
+    preset: { output: "round-17" },
+    drive: async (p) => {
+      await p.click('.nav-thread[data-thread-id="hiring"]');
+      await atHiringThread(p);
+      await p.waitForFunction(() => window.RichOutput.snapshot().thread === "hiring" && window.RichOutput.snapshot().count === 0);
+      await p.click("#out-top");
+      await p.waitForSelector("#outpanel .op-empty");
+      await overlaySettled(p, "#outpanel");
+      await pageSettled(p);
+    },
+  },
   {
     name: "technical-view",
     what: "the technical view pinned on for one conversation (§3.3)",

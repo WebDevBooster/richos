@@ -7268,3 +7268,779 @@ body.bp-narrow #rail,
 :root[data-theme="light"] body.bp-narrow #rail {
   background: var(--paper-rail);
 }
+
+/* =======================================================================================
+   THE OUTPUT PANEL AND ITS TWO BUTTONS — slice S4 of the Output side panel PRD
+   (richos-hq `docs/prds/2026-10-05-output-side-panel.md` §6), round 17's `output.html` as drawn,
+   under the app's own tokens. The CEO: "a button here … at the top and at the bottom … And the
+   entire, this entire side panel would open … with a list of all the files … that were output
+   by this entire thread."
+
+   THE MOCKUP'S TOKENS, MAPPED, NOT ADDED. Round 17 names `--surface` for what this app calls
+   `--surface-raised` (#141e34 / #f7f5ef) and `--inset` for `--surface-sunk` (#0a1120 / #efebe0);
+   the panel plane is `--paper-rail`, the worker inspector's. `--ctl-line` is scoped here with
+   the values `#rail-toggle` and `.question-card` already carry (round 13's control boundary:
+   ink at 46% dark, the ruled trim #4c6087 light); there is still no global one.
+
+   TYPE (CEO §15). Everything meant to be read is 1rem (16px) or larger: the buttons and their
+   counts, the title (17px), the group lines, the file names and folders, the file view.
+   DECLARED BELOW 16px, and nothing else: the kind tile's letters at 0.875rem (14px), the
+   skippable tier — the name beside the tile carries the real extension, so the tile is a glyph
+   with letters in it; and the OUTPUT eyebrow at 0.6875rem (11px), the all-caps micro-label class
+   the worker inspector's eyebrow already uses.
+
+   CONTRAST is computed, not eyeballed: every text pair and indicator here is walked by
+   `tests/contrast.js` (surfaces `output-open`, `output-file` and `output-empty`) in both
+   themes, and `tests/output.js` computes the pairs this section introduces. NOTHING HERE IS
+   DECLARED EXEMPT.
+   ======================================================================================= */
+
+.out-btn,
+#outpanel {
+  --ctl-line: rgba(223, 228, 238, 0.46);
+}
+
+:root[data-theme="light"] .out-btn,
+:root[data-theme="light"] #outpanel {
+  --ctl-line: #4c6087;
+}
+
+/* ---- the button: the same control at the top and at the bottom (§6.2) ---- */
+.out-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 36px;
+  flex-shrink: 0;
+  padding: 0 7px 0 13px;
+  border: 1px solid var(--ctl-line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  white-space: nowrap;
+  cursor: pointer;
+  /* NO background or border transition. With `transition: border-color 0.15s,
+     background-color 0.15s` a theme switch flipped `color` at once while the background eased
+     from the old theme's surface: light to dark read `#dfe4ee` on `#f7f5ef`, 1.17:1, for 150 ms
+     (`tests/voice-model.js`, "the refused state meets WCAG AA in BOTH themes"). The text and
+     the plane it sits on change together, so the label is readable on every frame. */
+}
+
+.out-btn:hover {
+  /* `--gold-text`, not `--gold`: the light gold measures 2.95:1 on the light panel plane
+     (round 17.1 NOTES), and a hover border is an indicator with a 3:1 floor. */
+  border-color: var(--gold-text);
+  background: var(--gold-soft);
+}
+
+.out-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.out-btn[aria-pressed="true"] {
+  border-color: var(--gold-text);
+}
+
+.out-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--gold-text);
+}
+
+.out-count {
+  min-width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--gold-text);
+  background: var(--gold);
+  color: var(--on-gold);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.out-count.tick {
+  animation: out-tick 0.9s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes out-tick {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.32); }
+  100% { transform: scale(1); }
+}
+
+.out-btn.is-empty .out-count {
+  display: none;
+}
+
+.out-btn.is-empty {
+  padding-right: 13px;
+}
+
+/* At the top: the header's right end. `#stage-header` already keeps the settings button's lane
+   clear (`--chrome-lane`), which is the job round 17's `margin-right: 42px` did; beside the
+   technical-view badge when that is on, rather than splitting the free space with it. */
+#out-top {
+  margin-left: auto;
+}
+
+#techy-chip:not([hidden]) ~ #out-top {
+  margin-left: 8px;
+}
+
+/* The header reserves the settings cluster's LIVE width when it is wider than the button's own
+   lane — the update cue grows the cluster leftward over the header (`output-panel.js`
+   `watchChromeLane`). Without a cue the live lane is 63px and `--chrome-lane`'s 66px stands. */
+#stage-header {
+  padding-right: calc(20px + max(var(--chrome-lane), var(--chrome-lane-live, 0px)));
+}
+
+/* Below 1180px with the technical-view badge on, the header cannot hold the badge's longer
+   sentence beside any part of the button (`tests/techy.js` check 22, at the 1024px minimum
+   window: the label needs 252px; with the word dropped it got 236, with the whole button 205).
+   So in that one state the header gives the badge its room and the SAME control stays one press
+   away beside the composer (`#out-bottom`, and ⌘⇧O). A declared narrowing of §6.2's "two
+   places", for technical mode on a narrow window only. */
+body:not(.bp-wide) #techy-chip:not([hidden]) ~ #out-top {
+  display: none;
+}
+
+/* At the bottom: the right of the composer, as tall as the field, the talk control and Send —
+   the CEO's rule for the composer's buttons (`#composer-row`'s header). */
+#out-bottom {
+  height: var(--control-h, 46px);
+  padding: 0 9px 0 15px;
+}
+
+#out-bottom.is-empty {
+  padding-right: 15px;
+}
+
+/* A phone-width window: the bottom button keeps its icon and count and drops the word, so the
+   field keeps its room. Its name is unchanged (`aria-label`). §9.2's container-width version of
+   this belongs to S9. */
+body.bp-narrow #out-bottom .out-word {
+  display: none;
+}
+
+/* ---- the panel: a docked sibling of the conversation (§6.1) ---- */
+:root {
+  --output-width: 400px;
+}
+
+#outpanel {
+  width: var(--output-width, 400px);
+  min-width: 320px;
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-rail);
+  border-left: 1px solid var(--line);
+  z-index: 20;
+  overflow: hidden;
+}
+
+#outpanel.is-opening {
+  animation: op-open 0.38s var(--out-quint) both;
+}
+
+@keyframes op-open {
+  from { width: 0; min-width: 0; }
+}
+
+/* Open, the top button no longer needs to stop short of the settings button: the button sits
+   over the panel's head, which keeps its own lane (§6.1, round 17's `#out-top`). */
+@media (min-width: 1180px) {
+  body.output-open #stage-header {
+    padding-right: 20px;
+  }
+}
+
+#outpanel-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: 19;
+}
+
+/* Below 1180px the panel overlays with a scrim, as the worker inspector does (§6.1, §11 row 8);
+   below 820px it is the whole window. */
+@media (max-width: 1179px) {
+  #outpanel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(var(--output-width, 400px), 92vw);
+    min-width: 0;
+    box-shadow: 0 0 40px var(--shadow-strong);
+  }
+}
+
+@media (max-width: 819px) {
+  #outpanel {
+    width: 100%;
+    box-shadow: none;
+  }
+}
+
+.op-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 2px 8px;
+  padding: 13px 14px 12px 18px;
+  padding-right: calc(14px + var(--chrome-lane));
+  border-bottom: 1px solid var(--line-soft);
+  flex-shrink: 0;
+}
+
+.op-eyebrow {
+  grid-column: 1;
+  font-size: 0.6875rem; /* the 11px all-caps micro-label, declared above */
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--trim-text);
+}
+
+.op-title {
+  grid-column: 1;
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.op-sub {
+  grid-column: 1;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+.op-close {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.op-close:hover {
+  border-color: var(--ctl-line);
+  color: var(--ink);
+}
+
+.op-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.op-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.op-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+.op-view {
+  animation: op-fade 0.22s ease both;
+}
+
+@keyframes op-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- the list: every file, grouped by the turn that wrote it, newest first (§6.3) ---- */
+.og {
+  padding: 6px 0 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.og:last-child {
+  border-bottom: 0;
+}
+
+.og-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 18px 6px;
+  font-size: 1rem;
+  color: var(--trim-text);
+}
+
+.og-head .og-words {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.og-head q.og-words {
+  quotes: "\201C" "\201D";
+}
+
+.og-head time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.og.flash .og-head {
+  animation: op-flash 1.6s var(--out-quint) 1;
+  border-radius: 6px;
+}
+
+@keyframes op-flash {
+  0% { background: transparent; }
+  20% { background: var(--gold-soft); }
+  100% { background: transparent; }
+}
+
+.og.arrive-group {
+  animation: op-rise 0.5s var(--out-quint) both;
+}
+
+@keyframes op-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+.orow {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 7px 10px 7px 16px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.orow:hover {
+  background: var(--line-soft);
+}
+
+.orow:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.orow.is-open {
+  background: var(--surface-raised);
+  border-left-color: var(--gold);
+}
+
+.okind {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  background: var(--surface-sunk);
+  font-size: 0.875rem; /* the 14px skippable tier, declared above */
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.orow.is-open .okind,
+.orow:hover .okind {
+  border-color: var(--ctl-line);
+  color: var(--ink);
+}
+
+.obody {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.oname,
+.opath,
+.oby {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+  font-size: 1rem;
+}
+
+.oname {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.opath,
+.oby {
+  color: var(--ink-faint);
+}
+
+/* A file no longer where it was written stays listed, dimmed — by its ink and a dashed tile,
+   never by opacity, because the line saying so is a line he is meant to read (§4.6, §11 row 9). */
+.orow.is-missing .oname {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.orow.is-missing .opath {
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.orow.is-missing .okind {
+  border-style: dashed;
+  border-color: var(--ctl-line);
+  background: transparent;
+}
+
+.orow.flash {
+  animation: op-flash 1.6s var(--out-quint) 1;
+}
+
+/* ---- empty, looking, unreadable (§6.7) ---- */
+.op-empty {
+  max-width: 40ch;
+  padding: 26px 18px 30px;
+  outline: none;
+}
+
+.op-empty-glyph {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  border: 1px dashed var(--ctl-line);
+  color: var(--ink-faint);
+}
+
+.op-empty-glyph svg {
+  width: 18px;
+  height: 18px;
+}
+
+.op-empty-line {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.op-empty-line b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.op-state {
+  padding: 22px 18px;
+}
+
+.op-state-line {
+  margin: 0 0 12px;
+  padding: 22px 18px 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.op-state .op-state-line {
+  padding: 0;
+}
+
+.op-again {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--ctl-line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.op-again:hover {
+  border-color: var(--gold-text);
+  background: var(--gold-soft);
+}
+
+.op-again:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- one file, inside the panel (§6.4) ---- */
+.of-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  flex-shrink: 0;
+}
+
+.of-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.of-back:hover {
+  border-color: var(--ctl-line);
+  color: var(--ink);
+}
+
+.of-back svg,
+.of-step svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.of-nav {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.of-k {
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.of-step {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.of-step:hover {
+  border-color: var(--ctl-line);
+  color: var(--ink);
+  background: var(--surface-raised);
+}
+
+.of-back:focus-visible,
+.of-step:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.of-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 18px 10px;
+  flex-shrink: 0;
+}
+
+.of-path {
+  padding: 14px 18px 10px;
+  font-size: 1rem;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.of-path code {
+  font-family: inherit;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.of-view {
+  flex: 1;
+  padding: 4px 18px 36px;
+}
+
+.of-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink-faint);
+}
+
+.of-meta b {
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.of-missing {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* ---- the links in the conversation (§6.5) ---- */
+.tl-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--gold);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  vertical-align: baseline;
+  transition: color 0.15s;
+}
+
+.tl-file-link svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--gold-text);
+}
+
+.tl-file-link:hover {
+  color: var(--accent-text);
+}
+
+.tl-file-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.tl-file-link.flash {
+  animation: tl-link-flash 1.4s var(--out-quint) 1;
+}
+
+@keyframes tl-link-flash {
+  0% { box-shadow: 0 0 0 0 var(--gold); }
+  30% { box-shadow: 0 0 0 4px var(--gold-soft), 0 0 0 6px var(--gold); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* *Wrote N files*, in the turn's own duration row, after *Worked for …*. */
+.tl-wrote-sep {
+  flex-shrink: 0;
+  color: var(--ink-faint);
+}
+
+.tl-wrote {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-decoration-color: var(--gold);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.tl-wrote:hover {
+  color: var(--accent-text);
+}
+
+.tl-wrote:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.tl-wrote.flash {
+  animation: tl-link-flash 1.4s var(--out-quint) 1;
+}
+
+/* *Produced 3 files*, under Rich's last words in a turn that wrote some. */
+.tl-produced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 12px 0 0;
+  max-width: 64ch;
+  font-size: 1rem;
+}
+
+.tl-produced-label {
+  color: var(--trim-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .out-count.tick,
+  #outpanel.is-opening,
+  .op-view,
+  .og.arrive-group,
+  .og.flash .og-head,
+  .orow.flash,
+  .tl-file-link.flash,
+  .tl-wrote.flash {
+    animation: none;
+  }
+}
