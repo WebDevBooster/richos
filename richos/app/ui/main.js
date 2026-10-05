@@ -3141,6 +3141,10 @@ function moveComposer(into) {
   else composerHome.parent.insertBefore(composerZoneEl, composerHome.next);
   if (focused) focused.focus({ preventScroll: true });
   autoGrow();
+  // On the way home the conversation may still be widening from zero (the panel's .38s return
+  // to the stop), and a field measured that narrow sizes itself several lines tall. Measure again
+  // once the slide has landed.
+  if (!into) window.setTimeout(autoGrow, 450);
 }
 
 // **THE TEXT SIZE MOVES THE FIELD TOO** — Ray's candidate .13 defect R1, and the CEO's own

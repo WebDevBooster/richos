@@ -1052,12 +1052,17 @@
   /// panel is gone at once, so the whole conversation is back at once too, not faded in.
   function pullReset() {
     pullArm(0);
-    if (pull.full) {
-      pullInstant();
-      pull.full = false;
+    // The conversation gets its width back BEFORE the composer goes home — the class off and the
+    // panel painted at its split width, at once — so the field measures itself in a laid-out
+    // conversation: moved into a zero-width one, the empty field came home 111px tall (the
+    // real-app walk's close picture, 2026-10-05). The panel hides right after this.
+    const wasFull = pull.full;
+    pull.full = false;
+    document.body.classList.remove("panel-full");
+    if (wasFull) {
+      pullPaint({ instant: true });
       if (ctx.moveComposer) ctx.moveComposer(null);
     }
-    document.body.classList.remove("panel-full");
     pullPaintPill();
   }
 

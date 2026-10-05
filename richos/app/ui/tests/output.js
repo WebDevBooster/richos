@@ -965,6 +965,13 @@ async function pullChecks(run, browser, byName) {
     assert(!g.open, "× did not close the panel");
     assert(!g.full, "closing left the panel open completely");
     assertEqual(g.composerIn, "stage");
+    // Home again, the empty field is one line tall. Found on the real app (the S9 walk's close
+    // picture): moved into a conversation still at zero width, it measured itself 111px tall.
+    const home = await p.evaluate(() => ({
+      field: Math.round(document.getElementById("input").getBoundingClientRect().height),
+      send: Math.round(document.getElementById("send").getBoundingClientRect().height),
+    }));
+    assert(home.field <= home.send, "the field came home " + home.field + "px tall beside a " + home.send + "px Send");
     near(g.stage, g.appWidth - g.railWidth, 1, "the whole conversation is back");
     assertEqual(g.stageVisibility, "visible");
     near(g.stageOpacity, 1, 0.001);
@@ -1002,6 +1009,10 @@ async function pullChecks(run, browser, byName) {
     near(g.panel, g.max, 1, "the pill returns to the stop");
     near(g.stage, STAGE_MIN, 1);
     assertEqual(g.pill, null, "the pill is shown with the conversation back");
+    // And the field, home after the conversation's slide back from zero, is one line tall.
+    await p.waitForFunction(
+      () => document.getElementById("input").getBoundingClientRect().height <= document.getElementById("send").getBoundingClientRect().height
+    );
     await p.context().close();
     return "‹ Acme deal → the stop (" + Math.round(g.panel) + "px), the conversation at 360px, focus in the composer";
   });
