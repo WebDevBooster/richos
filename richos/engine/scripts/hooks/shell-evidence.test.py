@@ -23,7 +23,8 @@ class ShellEvidence(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="shell-evidence-test.")
         self.env = {**os.environ, "RICHOS_AGENT_HOLD_DIR": os.path.join(self.tmp, "hold"),
-                    "RICHOS_AGENT_BASH_FOREGROUND":"1", "CLAUDE_CODE_ENTRYPOINT":"cli"}
+                    "CLAUDE_CODE_ENTRYPOINT":"cli"}
+        self.env.pop("RICHOS_AGENT_BASH_FOREGROUND",None)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
