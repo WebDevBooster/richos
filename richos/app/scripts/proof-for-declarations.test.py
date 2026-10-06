@@ -280,6 +280,36 @@ class Declarations(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertIn("--only lint-regressions.test.sh", result.stdout)
 
+    def test_output_walk_has_direct_proof_and_shared_vm_changes_keep_the_harness(self):
+        nested = "bash scripts/testvm/test/run-tests.sh"
+        helper = "richos/app/scripts/testvm/output-walk.py"
+        for gate in (False, True):
+            for path in (helper, "richos/app/scripts/output-walk.test.py"):
+                with self.subTest(path=path, gate=gate):
+                    result = self.select(path, gate=gate)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("--only output-walk.test.sh", result.stdout)
+                    self.assertNotIn(nested, result.stdout)
+            for path in ("richos/app/scripts/testvm/command-walk.py",
+                         "richos/app/scripts/testvm/adopt-walk.py",
+                         "richos/app/scripts/testvm/relaunch.py"):
+                with self.subTest(path=path, gate=gate):
+                    result = self.select(path, gate=gate)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("--only output-walk.test.sh", result.stdout)
+                    self.assertIn(nested, result.stdout)
+            result = self.select("richos/app/scripts/testvm/guest.sh", gate=gate)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(nested, result.stdout)
+        # Losing the direct owner must refuse coverage, never restore a false blanket proof.
+        for suite in SCRIPTS.glob("*.test.sh"):
+            if suite.name != "output-walk.test.sh":
+                shutil.copy2(suite, self.suites / suite.name)
+        result = self.select(helper, self.suites, gate=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("UNCOVERED", result.stderr)
+        self.assertNotIn(nested, result.stdout)
+
     def test_selector_refuses_inputs_without_coverage(self):
         for suite in SCRIPTS.glob("*.test.sh"):
             shutil.copy2(suite, self.suites / suite.name)
