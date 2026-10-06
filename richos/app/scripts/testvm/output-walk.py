@@ -134,6 +134,12 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                is (walk 38, D8). When the job did not ask on its own, the walk asks once through
                the app's own job question tool (--questions-mcp) with the job's obligation as its
                turn, the scope a work lease is given, and records which of the two happened.
+  scroll       typed: a shell command writes 30 small files (scroll-01.txt …). The panel is opened
+               on its list, which must reach past the window's bottom; it is photographed in both
+               themes for the scroll bar's colors (walk 38 D10), measured with qa/frame.py px.
+  (Candidate 39: missing also reads the file view's ⋯ menu and its size line and photographs
+  both menus and the view in both themes; overlap also fails when an Output button still reads
+  pressed; csv records the facts line's parts and whether it wrapped.)
   wrote        every "Wrote N files" in the conversation pressed in turn: the panel opens on it
                and the app's frame does not move (the header toggle and the composer hold).
   theme-flash  with the panel open, the guest's appearance is flipped while timeline.py captures
@@ -150,6 +156,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -167,10 +174,17 @@ command = command_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
          'md-view', 'previews', 'save-copy', 'attach', 'pull',
-         'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'wrote', 'theme-flash', 'sidebar']
+         'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll', 'wrote',
+         'theme-flash', 'sidebar']
 # The candidate walk's steps: never in the default list, which runs the witness checks.
-CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'wrote',
-                   'theme-flash', 'sidebar')
+CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll',
+                   'wrote', 'theme-flash', 'sidebar')
+# The scroll step's files: enough rows that the Output list overflows the window at the split.
+SCROLL_COUNT = 30
+SCROLL_NAME = re.compile(r'^scroll-\d\d\.txt$')
+SCROLL_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
+               "and tell me when it has finished: for i in $(seq -w 1 %d); do printf 'row %%s\\n' \"$i\" > scroll-$i.txt; done"
+               % SCROLL_COUNT)
 # VERBATIM from timeline.js renderUnknownCard and durationRow: what a turn a quit left running shows.
 QUIT_CARD = 'last time RichOS was open'
 STATUS_UNAVAILABLE = 'Status unavailable'
@@ -1213,7 +1227,14 @@ class OutputWalk(command_walk.CommandWalk):
         time.sleep(3)
         table = self.find_all(CSV_NAME + ', the first rows')
         cells = self.texts('North')
-        note(table=table, cell_north=cells, csv_shots=self.flip_theme('preview-csv'))
+        # The facts line's parts and where each sits (walk 38 D9: "2 rows · Comma-separated ·" over
+        # "The whole sheet opens in TextEdit"). The dots are aria-hidden, so they are judged on the
+        # frames; these say whether the line wrapped at all, which a stray dot needs.
+        facts = [{k: n.get(k) for k in ('value', 'x', 'y', 'w', 'h')}
+                 for words in ('rows', 'Comma-separated', 'opens in')
+                 for n in self.in_panel(self.texts(words))]
+        note(table=table, cell_north=cells, facts_parts=facts,
+             facts_wrapped=len({f['y'] for f in facts}) > 1, csv_shots=self.flip_theme('preview-csv'))
         if not table:
             failures.append('no table named "%s, the first rows" in its view' % CSV_NAME)
         if not cells:
@@ -1488,23 +1509,29 @@ class OutputWalk(command_walk.CommandWalk):
             self.press_any('More actions for ' + CSV_NAME, ['AXPopUpButton', 'AXMenuButton', 'AXButton'])
             time.sleep(1)
             items = self.menu_items()
-            note(**{tag + '_row_menu': items})
-            self.shot('missing-%s-row-menu.png' % tag)
+            # Both themes, the menu open (the candidate 39 walk is judged in light and dark).
+            note(**{tag + '_row_menu': items, tag + '_row_menu_shots': self.flip_theme('missing-%s-row-menu' % tag)})
             self.script('tell application "System Events" to key code 53')
             time.sleep(1)
+            return judged(tag, 'row', items, every=True)
+
+        def judged(tag, where, items, every):
+            """§6.7 on one menu's items: Open…, Show in Finder, Save a copy… and Add to chat off with
+            the sentence as their reason, Copy path on. `every`: each of the four must be there."""
             found = []
 
             def item(label):
                 return next((i for i in items if (i.get('title') or i.get('desc') or '').startswith(label)), None)
             for label in ('Open', 'Show in Finder', 'Save a copy', 'Add to chat'):
-                i = item(label)
-                if not i:
-                    found.append('%s: no %s item' % (tag, label))
-                elif i.get('enabled') is not False or i.get('help') != MISSING_SENTENCE:
-                    found.append('%s: %s is enabled=%s with reason %r' % (tag, label, i.get('enabled'), i.get('help')))
+                for i in [i for i in items if (i.get('title') or i.get('desc') or '').startswith(label)]:
+                    if i.get('enabled') is not False or i.get('help') != MISSING_SENTENCE:
+                        found.append('%s %s menu: %s is enabled=%s with reason %r'
+                                     % (tag, where, i.get('title') or i.get('desc'), i.get('enabled'), i.get('help')))
+                if every and not item(label):
+                    found.append('%s %s menu: no %s item' % (tag, where, label))
             copy = item('Copy path')
             if not copy or copy.get('enabled') is False:
-                found.append('%s: Copy path should stay on: %s' % (tag, copy))
+                found.append('%s %s menu: Copy path should stay on: %s' % (tag, where, copy))
             return found
 
         def file_view(tag):
@@ -1515,13 +1542,27 @@ class OutputWalk(command_walk.CommandWalk):
             sentence = self.in_panel(self.texts('no longer where it was written'))
             opens = [{k: n.get(k) for k in ('title', 'desc', 'enabled', 'help')}
                      for n in self.in_panel(self.find_all('Open', role='AXButton'))]
-            note(**{tag + '_view_sentence': [s.get('value') for s in sentence], tag + '_view_open_controls': opens})
-            self.shot('missing-%s-file-view.png' % tag)
+            # Walk 38 saw "Written today 12:27 AM · 30 bytes" over the sentence that the file is gone.
+            sizes = [s.get('value') for s in self.in_panel(self.texts('bytes'))]
+            note(**{tag + '_view_sentence': [s.get('value') for s in sentence], tag + '_view_open_controls': opens,
+                    tag + '_view_size_texts': sizes, tag + '_view_shots': self.flip_theme('missing-%s-file-view' % tag)})
             found = []
             if not any(MISSING_SENTENCE in (s.get('value') or '') for s in sentence):
                 found.append('%s: the file view does not say the §6.7 sentence' % tag)
-            if any(o.get('enabled') for o in opens if (o.get('title') or '').startswith('Open in') or o.get('title') == 'Open'):
-                found.append('%s: the file view\'s Open is lit beside the sentence that the file is gone' % tag)
+            # Every Open in the view (the gold Open in …, the ▾ Open with): none lit beside the sentence.
+            if any(o.get('enabled') for o in opens if (o.get('title') or o.get('desc') or '').startswith('Open')):
+                found.append('%s: the file view\'s Open is lit beside the sentence that the file is gone: %s' % (tag, opens))
+            # The view's own ⋯ menu: the same rule as the row's (it need not carry all four items).
+            try:
+                self.press_any('More actions', ['AXPopUpButton', 'AXMenuButton', 'AXButton'], contains=False)
+                time.sleep(1)
+                menu = self.menu_items()
+                note(**{tag + '_view_menu': menu, tag + '_view_menu_shots': self.flip_theme('missing-%s-view-menu' % tag)})
+                self.script('tell application "System Events" to key code 53')
+                time.sleep(1)
+                found += judged(tag, 'file view', menu, every=False)
+            except StepFailed as exc:
+                found.append('%s: the file view\'s ⋯ menu could not be opened: %s' % (tag, str(exc)[:200]))
             return found
 
         # A. As the panel shows it after a reopen, before anything tells it the file is gone.
@@ -1605,14 +1646,27 @@ class OutputWalk(command_walk.CommandWalk):
         output_open = self.present('Close the output panel')
         close = self.find_all('Close the output panel')
         back = self.find_all('back to Rich')
-        note(output_still_open=output_open, output_close=close[:1], slide_over_back=back[:1])
+        # Both Output buttons are toggles (aria-pressed, an AXCheckBox whose value is 1 when pressed):
+        # with the panel closed by Under the hood, neither may still show pressed (walk 38 D7).
+        buttons = [{k: n.get(k) for k in ('title', 'desc', 'value', 'x', 'y')}
+                   for n in self.find_all('from this thread', role='AXCheckBox')]
+        pressed = [b for b in buttons if str(b.get('value')).strip().lower() in ('1', 'true')]
+        note(output_still_open=output_open, output_close=close[:1], slide_over_back=back[:1],
+             output_buttons=buttons, output_buttons_pressed=pressed)
         shots = self.flip_theme('overlap')
         note(shots=shots)
         if back:
             self.press('back to Rich')
             time.sleep(1)
+        failures = []
         if output_open:
-            raise StepFailed('the Output panel stayed open under the work summary: two right-hand panes at once')
+            failures.append('the Output panel stayed open under the work summary: two right-hand panes at once')
+        if len(buttons) != 2:
+            failures.append('expected two Output buttons, found %d' % len(buttons))
+        if pressed:
+            failures.append('an Output button still shows pressed with the panel closed: %s' % json.dumps(pressed))
+        if failures:
+            raise StepFailed('; '.join(failures))
         return evidence
 
     def job_question(self):
@@ -1643,9 +1697,8 @@ class OutputWalk(command_walk.CommandWalk):
                 time.sleep(3)
                 seen = self.conversation_read()
             note(**seen)
-        # The tree reads above are the verdict; the photograph illustrates them.
-        self.shot('job-question.png')
-        note(shots=['job-question.png'])
+        # The tree reads above are the verdict; the photographs (both themes) illustrate them.
+        note(shots=self.flip_theme('job-question'))
         if seen['quit_card'] or seen['status_unavailable']:
             raise StepFailed('a turn is drawn as cut off by a quit while the app never closed: %s'
                              % json.dumps(seen['quit_card'] + seen['status_unavailable']))
@@ -1698,6 +1751,52 @@ class OutputWalk(command_walk.CommandWalk):
         if result.get('isError') or '"recorded":true' not in text:
             raise StepFailed('the job question tool did not record the question: ' + out[-400:])
         return {'executable': exe, 'obligation': job['obligation_id'], 'recorded': True}
+
+    def scroll(self):
+        """Walk 38, D10: the Output list's scroll bar is dark in dark. A list long enough to scroll
+        needs files: one shell command writes SCROLL_COUNT small ones in the Acme folder. When their
+        rows are in the record the panel is opened on its list, and the step records where its rows
+        end against the window's bottom (the list overflows, so the scroll bar is drawn), the
+        panel's left edge and the window, then photographs it in both themes. The scroll bar's
+        colors are measured on those frames with qa/frame.py px; this step does not judge them."""
+        evidence, note = self.observed('scroll')
+        os.environ['TESTVM_AX_TIMEOUT'] = '35'
+        turn, sent = self.send(SCROLL_TASK)
+        end = time.monotonic() + self.a.within
+        rows, slow = [], []
+        while time.monotonic() < end:
+            rows = sorted({Path(k).name for k in project(self.record()) if SCROLL_NAME.match(Path(k).name)})
+            if len(rows) >= SCROLL_COUNT:
+                break
+            try:
+                self.approve_pending(sent)
+            except (StepFailed, subprocess.TimeoutExpired) as exc:
+                slow.append(str(exc)[-200:])
+                note(approve_search_failures=slow)
+            time.sleep(5)
+        self.save_record('record-scroll.jsonl')
+        note(turn=turn, turn_story=self.turn_story(turn), recorded=len(rows))
+        if len(rows) < SCROLL_COUNT:
+            raise StepFailed('%d of %d scroll files reached the record within %d s'
+                             % (len(rows), SCROLL_COUNT, self.a.within))
+        self.close_panel()
+        self.open_panel()
+        self.to_list()
+        time.sleep(2)
+        win = self.script('tell application "System Events" to get {position, size} of front window of '
+                          '(first process whose unix id is %d)' % self.app_pid())
+        x, y, w, h = [int(float(v)) for v in win.replace(' ', '').split(',')]
+        listed = [{k: n.get(k) for k in ('title', 'y', 'h')}
+                  for n in self.in_panel(self.find_all('scroll-', role='AXButton'))]
+        below = [r for r in listed if r['y'] >= y + h]
+        note(window={'x': x, 'y': y, 'w': w, 'h': h}, divider_x=self.divider_x(),
+             close=self.find_all('Close the output panel')[:1], rows_listed=len(listed),
+             rows_below_window=len(below), lowest_row_y=max((r['y'] for r in listed), default=None))
+        note(shots=self.flip_theme('scroll'))
+        if not below:
+            raise StepFailed('the list does not reach past the window (%d rows listed): nothing to scroll'
+                             % len(listed))
+        return evidence
 
     def wrote(self):
         """Every *Wrote N files* in the conversation, pressed in turn: the panel opens on that turn
