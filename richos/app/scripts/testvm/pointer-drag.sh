@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # pointer-drag.sh — drag inside the app under test with the real mouse, the way a hand does.
 #
-#   testvm/pointer-drag.sh <vm> <x>,<y> <x>,<y> [<x>,<y> ...] [--step PX] [--pause S] [--rest S]
+#   testvm/pointer-drag.sh <vm> <x>,<y> <x>,<y> [<x>,<y> ...] [--step PX] [--pause S] [--rest S] [--right]
+#
+#   --right holds the RIGHT button instead. Given the same point twice it is a real right-click
+#   (a `contextmenu` event in the app), the way a hand opens an Output panel row's menu (PRD
+#   §6.3). Added with the candidate 38 walk: nothing in the toolkit could right-click.
 #
 #   The left button goes down at the first point, the pointer moves through every point in
 #   steps of at most --step pixels (default 8) with --pause seconds between moves (default
@@ -32,17 +36,18 @@ if [ "${TESTVM_AX_SUPERVISED:-}" != 1 ]; then
 fi
 . "$HERE/lib.sh"
 
-usage="usage: pointer-drag.sh <vm> <x>,<y> <x>,<y> [<x>,<y> ...] [--step PX] [--pause S] [--rest S]"
+usage="usage: pointer-drag.sh <vm> <x>,<y> <x>,<y> [<x>,<y> ...] [--step PX] [--pause S] [--rest S] [--right]"
 VM="${1:-}"
 [ -n "$VM" ] || die "$usage"
 shift
 POINTS=()
-STEP=8; PAUSE=0.02; REST=0.15
+STEP=8; PAUSE=0.02; REST=0.15; RIGHT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --step) STEP="${2:-}"; shift 2 ;;
     --pause) PAUSE="${2:-}"; shift 2 ;;
     --rest) REST="${2:-}"; shift 2 ;;
+    --right) RIGHT=1; shift ;;
     *,*) POINTS+=("$1"); shift ;;
     *) die "unknown argument: $1 — $usage" ;;
   esac
@@ -76,7 +81,7 @@ DEADLINE
 )"
 
 # Every number is parsed here, so the guest program only ever receives JSON.
-PARAMS="$(PD_PID="$PID" PD_STEP="$STEP" PD_PAUSE="$PAUSE" PD_REST="$REST" python3 - "${POINTS[@]}" <<'PY'
+PARAMS="$(PD_PID="$PID" PD_STEP="$STEP" PD_PAUSE="$PAUSE" PD_REST="$REST" PD_RIGHT="$RIGHT" python3 - "${POINTS[@]}" <<'PY'
 import json, os, sys
 try:
     points = [[float(v) for v in p.split(',', 1)] for p in sys.argv[1:]]
@@ -85,7 +90,8 @@ try:
 except (ValueError, AssertionError):
     raise SystemExit("points are x,y numbers; --step > 0, --pause 0..1 s, --rest 0..5 s")
 print("var DRAG_PARAMS = " + json.dumps({"pid": int(os.environ['PD_PID']), "points": points,
-                                         "step": step, "pause": pause, "rest": rest}) + ";")
+                                         "step": step, "pause": pause, "rest": rest,
+                                         "right": os.environ['PD_RIGHT'] == '1'}) + ";")
 PY
 )"
 
