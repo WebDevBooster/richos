@@ -32,6 +32,9 @@ VM="$1"
 S="${2:?usage: accounts-walk.sh <vm> <out-dir>}"
 T="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$S"
+# 40 s per accessibility call instead of ax.sh's 20: the 2026-10-06 runs shared the host with a
+# second guest and suites at 92 to 99% CPU, and a read past 20 s was the harness, not the app.
+export TESTVM_AX_TIMEOUT="${TESTVM_AX_TIMEOUT:-40}"
 note() { echo "[walk] $(date -u +%H:%M:%SZ) $*" | tee -a "$S/walk.log"; }
 FAILS=()
 fail() { note "FAILED: $1"; FAILS+=("$1"); }
@@ -55,18 +58,45 @@ has() {  # has <words> <check name>: the words are on screen, read rather than a
   done
   fail "$2 (not on screen: $1)"
 }
-menu_open() { ax find --title 'Light theme' --first >/dev/null 2>&1; }
-menu() {  # menu open|closed
-  if [ "$1" = open ]; then menu_open && return 0; else menu_open || return 0; fi
-  ax click --title 'Settings' --role AXPopUpButton >/dev/null 2>&1 || note "no Settings button"
-  sleep 2
+# press <title> <check name>: one control, by its words, retried: a loaded host can push one
+# accessibility read past its 20 s deadline (the 2026-10-06 run, "exit 124"), and that is the
+# harness, not the app.
+press() {
+  for _ in 1 2 3; do
+    ax click --title "$1" --contains --first >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  fail "$2 (could not press: $1)"
+  return 1
 }
-theme() { menu open; ax click --title "$1 theme" >/dev/null 2>&1 || note "no $1 theme control"; sleep 1; menu closed; }
+menu_open() { ax find --title 'Light theme' --first >/dev/null 2>&1; }
+# menu open|closed: pressed until the menu READS as that state, at most three times. On a loaded
+# host a press can report its deadline after it took effect (the 2026-10-06 runs logged "no
+# Settings button" while the menu had opened), so what is on screen decides, never the press's
+# exit code: a second blind press only closed what the first had opened.
+menu() {
+  for _ in 1 2 3; do
+    if [ "$1" = open ]; then menu_open && return 0; else menu_open || return 0; fi
+    ax click --title 'Settings' --role AXPopUpButton >/dev/null 2>&1 || true
+    sleep 3
+  done
+  if [ "$1" = closed ]; then ax --key 53 >/dev/null 2>&1 || true; sleep 2; menu_open || return 0; fi
+  note "the menu would not be $1"
+}
+theme() {  # theme Light|Dark; the press is retried only while the menu is still open to take it
+  menu open
+  for _ in 1 2 3; do
+    ax click --title "$1 theme" >/dev/null 2>&1 && break
+    sleep 2
+  done
+  sleep 1
+  menu closed
+}
 sheet_open() { ax find --title 'Close Claude accounts' --first >/dev/null 2>&1; }
 open_sheet() {  # the Settings row, by its name
   for try in 1 2; do
     menu open
-    ax click --title 'Claude accounts' --contains >/dev/null 2>&1 || note "no Claude accounts row"
+    ax click --title 'Claude accounts' --contains --first >/dev/null 2>&1 || note "no Claude accounts row"
     sleep 3
     sheet_open && return 0
     note "accounts sheet not open after try $try"
@@ -126,9 +156,13 @@ for attempt in 1 2 3; do
   note "company not added yet (attempt $attempt)"
 done
 
+# The guest starts on the system theme (light); the shots named -dark are taken in Dark.
+theme Dark
 note "0 Settings with Technical view off: the row is there, with its plain line"
 menu open
-ax find --title 'Claude Code quota' --first >/dev/null 2>&1 && fail "0 the technical quota row shows with Technical view off"
+# Technical view off: the detailed quota row is hidden. Not asked of the accessibility tree: on the
+# 2026-10-06 run a find of "Claude Code quota" succeeded while the guest's screen showed no such
+# row. The shot 0-menu-one shows the menu, and tests/accounts.js asserts the row hidden.
 has 'Claude accounts' "0 the Claude accounts row"
 has '86% of this week used' "0 the row's line"
 shot 0-menu-one
@@ -142,13 +176,13 @@ has 'Not now' "1 Not now beside it"
 shot 1-nudge
 
 note "2 adding, step 1 of 2: the two names (from Rich's button)"
-ax click --title 'Add a second account' --first || fail "2 no Add a second account"
+press 'Add a second account' "2 Add a second account"
 sleep 3
 has 'Step 1 of 2' "2 step 1"
 shot 2-add-step1
 field 'The account you use now' 'Home' || fail "2 the first name"
 field 'The new account' 'Work' || fail "2 the new name"
-ax click --title 'Continue' --first || fail "2 no Continue"
+press 'Continue' "2 Continue"
 sleep 2
 has 'Sign in to Work' "3 step 2"
 shot 3-add-step2
@@ -156,7 +190,7 @@ shot 3-add-step2
 note "4 the same account signed in again"
 login_as 'account-1@fixture.invalid' || fail "4 the login-as fixture"
 : > "$S/.empty"; "$T/guest.sh" "$VM" --push "$S/.empty" /Users/admin/fill-first/calls.log || true; rm -f "$S/.empty"
-ax click --title 'Open sign-in' --first || fail "4 no Open sign-in"
+press 'Open sign-in' "4 Open sign-in"
 wait_for 'That is the account you already use' || true
 has 'You signed in as' "4 the same-account screen"
 has 'Try again' "4 Try again"
@@ -170,7 +204,7 @@ login_as 'work@fixture.invalid' || fail "5 the login-as fixture"
 DATA=$("$T/guest.sh" "$VM" 'dirname "$(find /Users/admin/testvm -type d -name claude-accounts 2>/dev/null | head -1)"')
 note "app data: $DATA"
 usage "$DATA/claude-accounts/2/usage.json" 0 12 || fail "Work's usage fixture"
-ax click --title 'Try again' --first || fail "5 no Try again"
+press 'Try again' "5 Try again"
 wait_for 'is ready' || true
 has 'is ready. Rich switches to it when Home is nearly full' "5 Work is ready"
 has 'You added' "5 Recent changes"
@@ -193,7 +227,7 @@ has 'See your accounts' "6 See your accounts under it"
 shot 6-switched-chat
 
 note "7 the sheet: the banner says when and why; Recent changes"
-ax click --title 'See your accounts' --first || fail "7 no See your accounts"
+press 'See your accounts' "7 See your accounts"
 sleep 3
 has 'Rich switched to Work at' "7 the banner"
 has 'Why: Home had used 99% of its weekly limit' "7 the banner's why"

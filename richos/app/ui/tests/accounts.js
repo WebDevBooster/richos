@@ -69,7 +69,10 @@ async function main() {
     assert(!(await page.locator("#set-techy").isChecked()), "Technical view is off");
     assert(await page.locator("#set-quota-open").isHidden(), "the detailed quota row stays technical");
     assertEqual(await page.locator("#set-account-open").count(), 0, "the old account row is gone");
-    await page.waitForFunction(() => document.getElementById("set-accounts-state").textContent === "One account");
+    // One account with room in its week: no second line (it would push Bust a bug out of the
+    // smallest window, tests/settings-fit.js), and the week's bar beside the name.
+    await page.waitForFunction(() => document.querySelector("#set-accounts-open .acc-mini b, #set-accounts-open .acc-mini i"));
+    assert(await page.locator("#set-accounts-state").isHidden(), "no second line with one account and room");
     assert(await page.locator("#set-accounts-open .acc-mini").isVisible(), "the week's mini bar");
     const order = await page.locator("#set-menu > button.bugbtn").evaluateAll(b => b.map(x => x.id));
     assert(order.indexOf("set-accounts-open") < order.indexOf("set-repositories-open"), "above the folders row, as drawn: " + order);
@@ -88,7 +91,7 @@ async function main() {
     await menu(page);
     await page.waitForFunction(want => document.getElementById("set-accounts-state").textContent === want, `Using Work, switched ${clock(at)}`);
     await page.close();
-    return "One account / 86% of this week used / Using Home / Using Work, switched " + clock(at);
+    return "no line with one account / 86% of this week used / Using Home / Using Work, switched " + clock(at);
   });
 
   // ---- 2. the cards ------------------------------------------------------------------------

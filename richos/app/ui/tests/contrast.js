@@ -353,6 +353,22 @@ const SURFACES = [
     },
   },
   {
+    // Round 18 (the CEO's feedback item 9): Claude accounts, for everyone. Every state of it is
+    // also walked, both themes, by tests/accounts.js; this is the shell-wide walk of its sheet.
+    name: "accounts-sheet",
+    what: "Claude accounts: two account cards, the handover line, the 5-hour choice and Recent changes",
+    preset: {quota: {...quotaReading, accounts: [
+      {id: "1", label: "Home", inUse: true, windows: quotaReading.windows, checkedAt: quotaNow, exhaustedUntil: null, message: null},
+      {id: "2", label: "Work", inUse: false, windows: [{...quotaReading.windows[0], usedPercent: 0}, {...quotaReading.windows[1], usedPercent: 12}], checkedAt: quotaNow, exhaustedUntil: null, message: null}],
+    changes: [{at: quotaNow - 3600000, kind: "added", id: "2", label: "Work"}]}},
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-accounts-open");
+      await p.waitForSelector("#accounts-sheet .acc-card");
+      await overlaySettled(p, "#accounts-sheet");
+    },
+  },
+  {
     name: "repositories",
     what: "the repository connection dialog and its explicit company selection",
     drive: async (p) => {

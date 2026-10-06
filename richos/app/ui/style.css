@@ -9093,7 +9093,7 @@ body.panel-full .op-body {
   .acc-heading { padding: 24px 24px 0; }
 }
 
-.acc-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-control); border-radius: 9px; padding: 7px 14px; font: inherit; font-size: 1rem; color: var(--ink-soft); background: transparent; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
+.acc-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-control); border-radius: 9px; padding: 7px 14px; font: inherit; font-size: 1rem; color: var(--ink-soft); background: transparent; white-space: nowrap; cursor: pointer; } /* no color transition: the frame right after a theme switch must already meet AA (contrast.js 19) */
 .acc-btn:hover { border-color: var(--gold); color: var(--ink); }
 .acc-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
 .acc-btn-primary { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 600; }
@@ -9207,7 +9207,11 @@ body.panel-full .op-body {
 /* the Settings row: one plain line and the week's mini bar (round 18's `.set-sub`, `.mini`) */
 #set-accounts-state.is-attention { color: var(--gold-text); font-weight: 600; }
 .bugbtn:hover #set-accounts-state.is-attention { color: inherit; }
-.acc-mini { position: relative; width: 44px; height: 6px; flex: none; border-radius: 3px; background: var(--line-control); overflow: hidden; margin-left: auto; }
+/* The bar beside the row's name (accounts.js paintRow), so the line under it has the row's whole
+   width in the 267 px panel and never wraps to a third line. Both lines are 16px. */
+#set-accounts-open .set-row-text { gap: 0; }
+#set-accounts-open .set-name { display: flex; align-items: center; gap: 10px; }
+.acc-mini { position: relative; width: 44px; height: 6px; flex: none; border-radius: 3px; background: var(--line-control); overflow: hidden; }
 .acc-mini i { position: absolute; inset: 0 auto 0 0; background: var(--gold); border-radius: 3px; }
 .acc-mini[hidden] { display: none !important; }
 

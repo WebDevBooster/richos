@@ -89,13 +89,19 @@
   const labelOf = id => (list().find(a => a.id === id) || {}).label || "";
 
   // ---- the Settings row -------------------------------------------------------------------
-  // "One account", "86% of this week used" (gold, from 85%), "Using Home", or "Using Work,
-  // switched 11:01 AM" for six hours after a switch (gold); the in-use account's week as a bar.
+  // No second line with one account and room (see below), "86% of this week used" (gold, from
+  // 85%), "Using Home", or "Using Work, switched 11:01 AM" for six hours after a switch (gold);
+  // the in-use account's week as a bar.
   function paintRow() {
     const text = document.getElementById("set-accounts-state"), row = document.getElementById("set-accounts-open");
     if (!text || !row) return;
     const cur = inUse(), week = cur ? weekOf(cur) : null, sw = recentSwitch();
-    let line = "One account", attention = false;
+    // WITH ONE ACCOUNT AND ROOM IN ITS WEEK THE ROW HAS NO SECOND LINE, where round 18 draws "One
+    // account". Measured: the second line makes the row 50 px instead of 36, and at the app's
+    // smallest window (1024 by 700, on the home screen) that put Bust a bug at 707 px, below the
+    // window's edge (tests/settings-fit.js; the floor of CEO §15). The line comes back the moment
+    // it says something: 85% of the week, or a second account.
+    let line = "", attention = false;
     if (multi()) {
       line = sw ? `Using ${cur.label}, switched ${clock(sw.at)}` : `Using ${cur.label}`;
       attention = !!sw;
@@ -104,11 +110,16 @@
       attention = true;
     }
     text.textContent = line;
+    text.hidden = !line;
     text.classList.toggle("is-attention", attention);
+    // The bar sits beside the name, so the line under it has the row's whole width and stays on
+    // one line in the 267 px panel ("86% of this week used" wrapped beside the bar in the
+    // 2026-10-06 walk, and every extra line pushes Bust a bug toward the bottom of a small window).
     let mini = row.querySelector(".acc-mini");
     if (!mini) {
       mini = document.createElement("span"); mini.className = "acc-mini"; mini.setAttribute("aria-hidden", "true");
-      mini.appendChild(document.createElement("i")); row.insertBefore(mini, row.lastChild);
+      mini.appendChild(document.createElement("i"));
+      (row.querySelector(".set-name") || row).appendChild(mini);
     }
     mini.hidden = !week;
     mini.firstChild.style.width = Math.min(100, week ? week.usedPercent : 0) + "%";

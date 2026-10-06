@@ -2430,7 +2430,9 @@
   // The add flow's sign-in, answered in order by `preset.signIn` (round 18: "connected", or
   // "same-account" for the same Claude account signed in again); "connected" when it runs out.
   let mockSigning = null;
-  const mockSignIn = structuredClone(preset.signIn || []);
+  // Without a `signIn` preset the sign-in ends with no answer, as the preview always answered
+  // (tests/quota.js reads an added account as "Not read yet" then).
+  const mockSignIn = preset.signIn ? structuredClone(preset.signIn) : null;
   window.__accountCalls = [];
   const changed = (kind, id, label, extra) => mockChanges.push({ at: Date.now(), kind, id, label, ...(extra || {}) });
   window.RichBridge = {
@@ -2510,7 +2512,7 @@
         }
         case "claude_account_sign_in_poll": {
           // As main.rs answers it: (id, view, the name of the account it already is).
-          if (!mockSigning) return null;
+          if (!mockSigning || !mockSignIn) { mockSigning = null; return null; }
           const id = mockSigning; mockSigning = null;
           const added = mockAccounts.find(a => a.id === id);
           if ((mockSignIn.shift() || "connected") === "same-account") {

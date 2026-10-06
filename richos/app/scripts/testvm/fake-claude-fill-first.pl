@@ -54,8 +54,10 @@ if (@ARGV && $ARGV[0] eq 'auth') {
     if (length $who && open(my $out, '>', "$folder/email")) { print $out $who; close $out; }
   }
   if (($ARGV[1] // '') eq 'status') {
-    my $email = $folder ? "added-" . ($id // 'x') . '@fixture.invalid' : 'account-1@fixture.invalid';
-    if ($folder && open(my $in, '<', "$folder/email")) { my $e = <$in> // ''; close $in; $e =~ s/\s+\z//; $email = $e if length $e; }
+    # Account 1 is any folder that is not an added account's: the app names it explicitly
+    # ($HOME/.claude), so "a folder was named" does not mean "an added account".
+    my $email = defined $id ? "added-$id\@fixture.invalid" : 'account-1@fixture.invalid';
+    if (defined $id && open(my $in, '<', "$folder/email")) { my $e = <$in> // ''; close $in; $e =~ s/\s+\z//; $email = $e if length $e; }
     print $json->encode({ loggedIn => JSON::PP::true, configDirectory => $folder, email => $email, orgId => 'fixture-org' }), "\n";
   }
   exit 0;
