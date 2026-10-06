@@ -256,7 +256,12 @@ function run() {
   if (P.mode === "find") {
     if (P.nth !== null) hits = hits.slice(P.nth,P.nth+1);
     if (!hits.length) return meta+"\n"+error("notfound", "requested match index is absent");
-    return meta+"\n"+hits.map(function(q) { return JSON.stringify(full(q)); }).join("\n");
+    // A find also reads AXHelp, where WebKit puts an element's `title`: the reason a disabled
+    // action gives as its tooltip (output side-panel PRD §6.7), read by the candidate 38 walk.
+    // Only the matched nodes pay for the read; a tree does not.
+    return meta+"\n"+hits.map(function(q) {
+      var o=full(q); o.help=String(scalar(q.el,"AXHelp","",true)); return JSON.stringify(o);
+    }).join("\n");
   }
   if (!P.first && P.nth === null && hits.length !== 1) return meta+"\n"+error("ambiguous", "multiple matches; specify --first or --nth (zero based)");
   var target = hits[P.nth || 0];
