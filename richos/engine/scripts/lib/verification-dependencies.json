@@ -3707,7 +3707,7 @@
     },
     "scripts/lib/inflight.py": {
       "source": "scripts/lib/inflight.py",
-      "sha256": "d1feca630d8fda5b042c70e0940798856678db09faa65e4b722f3d9c6f9ec3a3",
+      "sha256": "6a0e6e102d52de1d28fde11c7d65874eef9df1569769ea8b4ff5b0bb8d8869e6",
       "evidence": "Reads Git worktree/ref/diff metadata, acknowledgement and notice ledgers, timestamps and PID liveness. Its only dynamic imports are teammate-identity and the workspaces integration_for reader. It never reads orchestration.config, runs payload commands or invokes workspace lifecycle actions. The full module was reviewed, including default-tip and durable-ack paths.",
       "keys": [],
       "edges": [
@@ -3833,7 +3833,7 @@
     },
     "scripts/hooks/inflight-notify.test.sh": {
       "source": "scripts/hooks/inflight-notify.test.sh",
-      "sha256": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
+      "sha256": "6f6e0c72f04cf130f61e73282073527a20f98eea3c9f14116f32426de83011ba",
       "evidence": "Finite copied hooks/libraries run against newly initialized private repositories with literal PROTECTED_PATHS, private team/notice/ack ledgers and transcript data. All guard, Stop-hook, CLI and acknowledgement calls target these fixtures. Native teammate helpers create Git worktrees/locks, not model processes. The final timezone check imports real inflight.py but calls only time and ack readers with literal arguments; no production config is copied or sourced.",
       "keys": [],
       "edges": [
@@ -11356,7 +11356,7 @@
     },
     "scripts/prepare-agent-spawn.py": {
       "source": "scripts/prepare-agent-spawn.py",
-      "sha256": "67d78fa20c52b44fa56b70d36cb8e22a432a37563105a191cd81e6471fec9dfe",
+      "sha256": "d70f671321a524ebfd9ae3ac1e908c18f5768ead6fd4083dfd297f76bf84a393",
       "evidence": "Full prepare module reviewed: literal JSON validation and acknowledgement text construction. No command in the prepared prompt is executed.",
       "keys": [],
       "edges": []
@@ -13176,7 +13176,7 @@
     },
     "scripts/prepare-agent-spawn.test.py": {
       "source": "scripts/prepare-agent-spawn.test.py",
-      "sha256": "050fdf5a1fa75a04cc6b34cdc9580f7f7258225a93ff3e556728b559b90ba859",
+      "sha256": "f2db9e7f158eefb1f313a23107b607355217bec5bf9039c2433c356c3955b9c5",
       "evidence": "Imports only the pure preparation helper. Actual prompt verifier calls use a newly written literal config via VERIFY_REPO_ROOT_OVERRIDE and explicit private entity/teams. Prepared inflight-ack text is never executed.",
       "keys": [],
       "edges": [
@@ -16324,7 +16324,7 @@
         "scripts/hooks/guard-worktree-removal.test.sh": "2b7b5c289305b351e5e5f911d5bc68f5e257e6242ed769f22db04190ff97fcba",
         "scripts/hooks/idle-land.mutation.sh": "50afc330c98fe2813f880ee1e6c9532b8d91f98095e7cf68b1a90c3ead07623a",
         "scripts/hooks/inflight-notify.mutation.sh": "489a6f902fd58d5a5030e09659356ae06a18e99fcbb03bae066cc55ef786dc88",
-        "scripts/hooks/inflight-notify.test.sh": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
+        "scripts/hooks/inflight-notify.test.sh": "6f6e0c72f04cf130f61e73282073527a20f98eea3c9f14116f32426de83011ba",
         "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/hooks/interactive-prompt.mutation.sh": "3872e019a151c07a5d387e3128451954efcd34e4b3ac738bfc6282a430833e27",
         "scripts/hooks/mechanical-findings.mutation.sh": "822097cb9972738d9d39a91ab187d2475cfb4008f63c3c421e5ef9e7f1818a6d",
@@ -16352,7 +16352,7 @@
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/hook-dependencies.py": "013b187a06ddb52d8e679407b45d635d8a6c693348d0bcb4998b58f6ec44debe",
         "scripts/lib/hook-dependencies.sh": "a4634dd1f95fe9c518055fd324d4b56a07186aafb8828e387c890c3cbd0e4621",
-        "scripts/lib/inflight.py": "d1feca630d8fda5b042c70e0940798856678db09faa65e4b722f3d9c6f9ec3a3",
+        "scripts/lib/inflight.py": "6a0e6e102d52de1d28fde11c7d65874eef9df1569769ea8b4ff5b0bb8d8869e6",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
         "scripts/lib/interactive-prompt.py": "fd95664d486aa1cde400a9c216e1d2fda2eeb5f21a202a8ccce2b2d1a7b11af8",
         "scripts/lib/mechanical-findings.py": "0942c108c40a62c831eaee4d569f8def0178903e17a289e221cc93ed7f51db78",
@@ -17140,7 +17140,7 @@
         "scripts/hooks/notice-hook-staleness.sh": "360fd629986741403adc2337a84ae2dd2645b517f275f7cbb3af331cae48460b",
         "scripts/hooks/notice-inflight-acks.sh": "472a52d1fe0e78b0f4f166da9402fae9acf3eba3f6329c3afeb7460ced547a32",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
-        "scripts/lib/inflight.py": "d1feca630d8fda5b042c70e0940798856678db09faa65e4b722f3d9c6f9ec3a3",
+        "scripts/lib/inflight.py": "6a0e6e102d52de1d28fde11c7d65874eef9df1569769ea8b4ff5b0bb8d8869e6",
         "scripts/hooks/notice-mechanical-findings.sh": "1b3ba1af8d15b64cd8eda504e691347f0ef923bd78e53f235223589248bb1c07",
         "scripts/lib/mechanical-findings.sh": "1c67019e979adea3071d160882f26acb6bd14c032162ba31d7a1020ad06509bb",
         "scripts/lib/row-currency.sh": "39205edef34a6f81727dc8f3e628d50e57d7e1b82e981c0e43db295d57de5ba0",
@@ -17284,7 +17284,7 @@
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
         "scripts/lib/testdevices.py": "c9295549c45a16f78d6c58386859a20acc5041ecbe2c6abb31315ba4ea1a4c3d",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/prepare-agent-spawn.py": "67d78fa20c52b44fa56b70d36cb8e22a432a37563105a191cd81e6471fec9dfe",
+        "scripts/prepare-agent-spawn.py": "d70f671321a524ebfd9ae3ac1e908c18f5768ead6fd4083dfd297f76bf84a393",
         "scripts/spawn.sh": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817",
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3"
       },

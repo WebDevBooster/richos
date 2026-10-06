@@ -58,6 +58,13 @@ class SpawnPreparation(unittest.TestCase):
                 self.assertNotIn("ceo-todos-deferred:", prepared["prompt"])
                 self.assertNotIn("main-checkout-run:", prepared["prompt"])
 
+    def test_instruction_merges_main_once_before_handover_not_while_working(self):
+        prompt = module.prepare(dict(name="dev-opus-t1", subagent_type="dev", prompt="Build"))["prompt"]
+        self.assertIn("Do not merge main while you work", prompt)
+        self.assertIn("Once, just before you hand over, merge current main into your branch", prompt)
+        self.assertIn("reference pictures", prompt)
+        self.assertIn("inflight-ack.sh", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,7 +30,10 @@ def prepare(value):
     result = dict(value, isolation="worktree")
     result.pop("cwd", None)
     helper = shlex.quote(str(Path(__file__).resolve().parent / "inflight-ack.sh"))
-    contract = ("If notified that main moved, inspect the change and acknowledge it durably from your worktree: "
+    contract = ("Do not merge main while you work. Once, just before you hand over, merge current main into your branch, "
+                "resolve what that merge changes (conflicts, and any reference pictures you must look at and re-key), "
+                "then hand over. "
+                "If you are notified that main moved, inspect the change and acknowledge it durably from your worktree: "
                 f"{helper} --sha <sha> --impact <conflict|stale-record|grew-scope|none> "
                 '--detail "<your assessment>" --paths "<paths or none>". A chat reply alone is not the acknowledgement.')
     if not re.search(r"inflight-ack\.sh|inflight-acks/", result["prompt"]):
