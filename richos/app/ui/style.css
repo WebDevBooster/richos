@@ -2885,6 +2885,17 @@ body.bp-narrow .first-run {
   color: var(--ink-soft);
 }
 
+/* THE CONNECTED FOLDERS SHEET'S GUIDANCE, "in smaller text below" the description (CEO,
+   2026-10-06, item 2d). 0.875rem is the 14px skippable tier, and placing it there is the
+   claim this comment declares: the line advises, and nothing in the sheet depends on it
+   being read. Same `--ink-soft` as `.overlay-note`, so the 4.5:1 text floor still holds in
+   both themes (5.78:1 dark, 6.36:1 light on `--card`, the ratios computed for
+   `#entity-add-lead` below); `ui/tests/contrast.js` measures it on the open sheet. */
+.repository-guidance {
+  margin-top: -6px;
+  font-size: 0.875rem;
+}
+
 /* WHERE HIS MEMORY WILL LIVE, shown so the answer is a choice rather than a path he types.
    `--ink` on `--surface`, computed rather than eyeballed: 11.81:1 in dark (#dfe4ee on
    #182440) and 18.27:1 in light (#0c1322 on #fdfcf8). 1rem, so it takes the 16px floor and
