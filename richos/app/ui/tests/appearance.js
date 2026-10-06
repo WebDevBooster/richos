@@ -1063,7 +1063,7 @@ async function main() {
       // defect A. One setting carried two names: this row said "Techy Mode" while the gear
       // panel said "Technical view" and THIS toggle's own modal is headed "Turn off the
       // technical view". The ORDER is untouched; only the third row's words changed.
-      ["Theme", "Text size", "Technical view", "Claude Code quota", "Splash screen", "Company", "Home screen", "Connected repositories", "Account connection", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
+      ["Theme", "Text size", "Technical view", "Claude Code quota", "Splash screen", "Company", "Home screen", "Connected folders (repositories)", "Account connection", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
         "that, a Techy Mode toggle'. The technical-only Claude Code quota row follows that toggle. The splash screen's off switch sits below them — that ruling " +
         "governs their order and says nothing about this one — and Bust a bug is always the floor. " +

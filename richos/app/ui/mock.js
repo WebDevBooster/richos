@@ -2891,16 +2891,26 @@
           mockPhone.paired = false;
           mockPhone.pairing = false;
           return null;
+        // The shell's system folder chooser. The mock records every ask (with the asking
+        // field's title) and answers with the suite's `pickedFolder`, or `null`, which is
+        // what the shell returns when he closes the chooser without a folder.
+        case "pick_folder":
+          window.__RICHOS_FOLDER_ASKS__ = window.__RICHOS_FOLDER_ASKS__ || [];
+          window.__RICHOS_FOLDER_ASKS__.push(args?.title ?? null);
+          return window.__RICHOS_MOCK_PRESET__?.pickedFolder ?? null;
         case "repository_connections":
           return {companies: entities.map(e => ({id:e.id, name:e.display_name, repositories:e.connected_repositories || []}))};
         case "connect_repository": {
           const company = entities.find(e => e.id === args.entityId);
           if (!company) return Promise.reject("Choose a registered company.");
-          if (window.__RICHOS_MOCK_PRESET__?.repositoryRefusal) return Promise.reject("Choose an existing Git repository or explicitly initialize an empty folder.");
+          if (window.__RICHOS_MOCK_PRESET__?.repositoryRefusal) return Promise.reject("That folder overlaps another company's folder.");
           if (!args.folder || !args.folder.startsWith("/")) return Promise.reject("Choose an absolute folder path.");
           if (!company.connected_repositories) company.connected_repositories = [];
           if (!company.connected_repositories.includes(args.folder)) company.connected_repositories.push(args.folder);
-          return {entity_id:company.id, repository:{root:args.folder, branch:"main", initialized:args.initializeEmpty === true}};
+          // `repositories::connect` gives every folder Git (CEO, 2026-10-06): `initialized` is
+          // false only for a folder that already had it, which a suite names in `gitFolders`.
+          const hadGit = (window.__RICHOS_MOCK_PRESET__?.gitFolders || []).includes(args.folder);
+          return {entity_id:company.id, repository:{root:args.folder, branch:"main", initialized:!hadGit}};
         }
         case "entity_choice":
           return entityChoiceOf();

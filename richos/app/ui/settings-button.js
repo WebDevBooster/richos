@@ -486,7 +486,7 @@ window.RichSettings = (function () {
     // four rows a person can press looked like two headings they cannot. See `ICON_CHEVRON`
     // for why a chevron and not four icons.
     if (repositories) {
-      menu.appendChild(buildDisclosureRow("set-repositories-open", "Connected repositories", function () {
+      menu.appendChild(buildDisclosureRow("set-repositories-open", "Connected folders (repositories)", function () {
         repositories.open();
       }));
     }
