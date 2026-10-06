@@ -57,10 +57,15 @@
 
   // ---- the accounts, as the app reports them --------------------------------------------
   // With one account `accounts` is empty and the top-level reading is that account's.
-  const multi = () => !!view && view.accounts.length > 1;
+  // The account the add flow is signing in is not a card until that sign-in is the right one:
+  // the back end keeps it while "That is the account you already use" waits for Try again, and
+  // drawn as a card it said "Next" with Use this one now beside a screen saying it was not added
+  // (the 2026-10-06 VM walk).
+  const settled = () => view ? view.accounts.filter(a => !add || !add.id || a.id !== add.id) : [];
+  const multi = () => settled().length > 1;
   function list() {
     if (!view) return [];
-    if (multi()) return view.accounts;
+    if (multi()) return settled();
     return [{ id: "1", label: view.firstLabel || "", inUse: true, windows: view.windows || [], checkedAt: view.checkedAt, exhaustedUntil: null, message: view.message }];
   }
   const inUse = () => list().find(a => a.inUse) || list()[0] || null;
@@ -101,15 +106,19 @@
     // smallest window (1024 by 700, on the home screen) that put Bust a bug at 707 px, below the
     // window's edge (tests/settings-fit.js; the floor of CEO §15). The line comes back the moment
     // it says something: 85% of the week, or a second account.
-    let line = "", attention = false;
+    let line = "", time = "", attention = false;
     if (multi()) {
-      line = sw ? `Using ${cur.label}, switched ${clock(sw.at)}` : `Using ${cur.label}`;
+      line = sw ? `Using ${cur.label}, switched ` : `Using ${cur.label}`;
+      time = sw ? clock(sw.at) : "";
       attention = !!sw;
     } else if (week && week.usedPercent >= ATTENTION) {
       line = `${Math.floor(week.usedPercent)}% of this week used`;
       attention = true;
     }
     text.textContent = line;
+    // The time keeps its AM or PM: "Using Work, switched 2:07" with "PM" alone on the next line
+    // in the 2026-10-06 walk.
+    if (time) { const at = document.createElement("span"); at.className = "acc-nowrap"; at.textContent = time; text.appendChild(at); }
     text.hidden = !line;
     text.classList.toggle("is-attention", attention);
     // The bar sits beside the name, so the line under it has the row's whole width and stays on

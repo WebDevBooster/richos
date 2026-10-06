@@ -9213,6 +9213,7 @@ body.panel-full .op-body {
 #set-accounts-open .set-name { display: flex; align-items: center; gap: 10px; }
 .acc-mini { position: relative; width: 44px; height: 6px; flex: none; border-radius: 3px; background: var(--line-control); overflow: hidden; }
 .acc-mini i { position: absolute; inset: 0 auto 0 0; background: var(--gold); border-radius: 3px; }
+.acc-nowrap { white-space: nowrap; }
 .acc-mini[hidden] { display: none !important; }
 
 /* Rich's lines about accounts: the buttons round 18 puts under them */

@@ -90,6 +90,11 @@ async function main() {
     page = await open("light", two([64, 99], [6, 4], { inUse: "2", lastSwitch: { from: "1", to: "2", at, why: "weekly", used: 99 } }));
     await menu(page);
     await page.waitForFunction(want => document.getElementById("set-accounts-state").textContent === want, `Using Work, switched ${clock(at)}`);
+    // The time never breaks before its AM or PM (the 2026-10-06 walk left "PM" alone on a line).
+    assertEqual(await page.evaluate(() => {
+      const t = document.querySelector("#set-accounts-state .acc-nowrap");
+      return t ? [t.textContent, getComputedStyle(t).whiteSpace] : null;
+    }), [clock(at), "nowrap"], "the switch time is kept on one line");
     await page.close();
     return "no line with one account / 86% of this week used / Using Home / Using Work, switched " + clock(at);
   });
@@ -179,6 +184,9 @@ async function main() {
     await page.click("#acc-continue");
     await page.click("#acc-open-signin");
     await page.waitForSelector("#acc-try-again");
+    // The account being added is not a card until its sign-in is the right one: the 2026-10-06
+    // VM walk drew Work as "Next" with Use this one now while this screen said it was not added.
+    assertEqual(await page.locator(".acc-card").count(), 1, "the account being added is not a card yet");
     assertEqual(await text(page, ".acc-add-title"), "That is the account you already use");
     assert((await text(page, "#acc-add")).includes("You signed in as Home again. To add Work, sign in with your other Claude account."));
     assert((await text(page, "#acc-add")).includes("In your browser, sign out of Claude first, then press Try again."));
