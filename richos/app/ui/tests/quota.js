@@ -204,7 +204,7 @@ async function main() {
     // The failure's backoff holds only the automatic check; round 16: "Refresh asks sooner".
     assert(await page.locator("#quota-refresh").isEnabled(), "Refresh is never locked by a backoff");
     // Round 16: "Last reading 47 min ago — stale", in gold.
-    assert(/^Last reading .+ ago — stale/.test(await page.locator("#quota-freshness").innerText()));
+    assert(/^Last reading .+ ago \(stale\)/.test(await page.locator("#quota-freshness").innerText()));
     assert(await page.locator("#quota-freshness.is-stale").count());
     assertEqual((await page.locator("#quota-message").innerText()).trim(),
       "Claude Code did not answer just now. The figures below are from 47 min ago and may have moved on. RichOS tries again in 8 min; Refresh asks sooner.");
@@ -337,11 +337,11 @@ async function main() {
         assertEqual(await page.locator(".quota-lane.is-inuse .quota-lane-label").allTextContents(), ["Work"], "in use marks the account in use");
         assertEqual(await page.locator(".quota-lane.is-next .quota-lane-label").allTextContents(), ["Account 1"], "next is the read account with room");
         assertEqual(await page.locator("#quota-verb-switch").getAttribute("aria-checked"), "true", "the saved verb is shown");
-        assert((await page.locator("#quota-freshness").innerText()).includes("every minute — usage is fast"));
+        assert((await page.locator("#quota-freshness").innerText()).includes("every minute (usage is fast)"));
         assertEqual((await page.locator(".quota-hero .quota-pause-line").innerText()).trim(), "switch at 92% · was 93%");
         assertEqual(await page.locator(".quota-pause-ghost").count(), 2, "both moved lines keep a ghost");
         assert((await page.locator(".quota-row-switch").innerText()).includes("switches at 96%"));
-        assertEqual(await page.locator("#quota-hold-status").innerText(), "Usage is fast — checking every minute.");
+        assertEqual(await page.locator("#quota-hold-status").innerText(), "Usage is fast. Checking every minute.");
         // Round 16's fast card: the agents counted and the rise measured, as the alert says them.
         assert((await page.locator("#quota-hold-detail").innerText()).startsWith("15 agents reading at once took Work’s five-hour window from 40% to 71% in 12 minutes."),
           await page.locator("#quota-hold-detail").innerText());
@@ -504,7 +504,7 @@ async function main() {
     await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForSelector(".quota-lane");
     assert(await page.locator("#quota-verb-switch").isDisabled(), "off: the verbs are disabled");
-    assertEqual(await page.locator("#quota-hint").innerText(), "Off — nothing happens at 93%; the line is only drawn.");
+    assertEqual(await page.locator("#quota-hint").innerText(), "Off: nothing happens at 93%; the line is only drawn.");
     assertEqual((await page.locator(".quota-hero .quota-pause-line").innerText()).trim(), "off · 93%");
     assertEqual(await page.locator("#quota-hold-status").innerText(), "Off. Nothing is paused.");
     await page.click("#quota-enabled");
@@ -557,7 +557,7 @@ async function main() {
     await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForSelector(".quota-lane");
     assertEqual(await page.locator("#quota-hold-status").innerText(), "Every account is used up.");
-    assert((await page.locator("#quota-hold-detail").innerText()).includes("when Home’s window resets — the soonest."));
+    assert((await page.locator("#quota-hold-detail").innerText()).includes("when Home’s window resets, the soonest."));
     assertEqual(await page.locator(".quota-lane-tag.is-gone").count(), 1, "the account not in use reads used up");
     await page.close();
   });
@@ -788,20 +788,20 @@ async function main() {
     assert(!(await page.locator("#quota-sheet").textContent()).toLowerCase().includes("five-hour five-hour"), "no doubled word");
     assertEqual(await text("#quota-sentence-lead"), "Pause Rich’s agents once the five-hour window passes");
     assertEqual(await page.locator("#quota-sentence-end").textContent(), ", unless the reset is under 20 minutes away.");
-    assertEqual(await text("#quota-hint"), "Off — the line is only drawn, not enforced.");
+    assertEqual(await text("#quota-hint"), "Off: the line is only drawn, not enforced.");
     assertEqual(await text("#quota-hold-status"), "Off. Nothing is paused.");
-    assertEqual(await text("#quota-hold-detail"), "Rich’s agents keep working through the limit. When the five-hour window is spent, Claude Code turns them away until it resets — and Rich tells you.");
+    assertEqual(await text("#quota-hold-detail"), "Rich’s agents keep working through the limit. When the five-hour window is spent, Claude Code turns them away until it resets, and Rich tells you.");
     assertEqual(await text("#quota-boundary-one"), "A pause is not a stop. Each agent finishes the step it is on, then waits before the next, keeping its place and everything it knows. Because a step is allowed to finish, usage can climb a little past the line. Your conversation with Rich, and any Claude Code you run outside RichOS, are never paused.");
     await page.click("#quota-enabled");
     await page.waitForFunction(() => document.getElementById("quota-hold-status").textContent === "On. Nothing is waiting.");
     assertEqual(await text("#quota-hint"), "Change the number to move the line.");
-    assertEqual(await text("#quota-hold-detail"), "The five-hour window is at 41% used. Agents pause the moment it passes 93%, unless the reset is under 20 minutes away — then it is not worth stopping.");
+    assertEqual(await text("#quota-hold-detail"), "The five-hour window is at 41% used. Agents pause the moment it passes 93%, unless the reset is under 20 minutes away. Then it is not worth stopping.");
     await page.close();
     // `hold-no-reading`: pause on, the reading 47 minutes old, its check on its way.
     page = await open("dark", { ...low, state: "stale", checkedAt: Date.now() - 47 * 60000 }, 100, null, true);
     await enableTechnical(page); await page.click("#set-quota-open");
     await page.waitForFunction(() => document.getElementById("quota-hold-status").textContent.startsWith("Holding until"));
-    assertEqual(await text("#quota-hold-detail"), "The last reading is 47 min old, and a rule needs a fresh one — an old number could let work through past the line. Nothing starts a new step until Claude Code answers.");
+    assertEqual(await text("#quota-hold-detail"), "The last reading is 47 min old, and a rule needs a fresh one: an old number could let work through past the line. Nothing starts a new step until Claude Code answers.");
     assertEqual(await page.locator("#quota-sheet .quota-status-actions button:visible").allTextContents(), ["Refresh now", "Turn it off"]);
     await page.close();
     // `holding`: three agents past the line.

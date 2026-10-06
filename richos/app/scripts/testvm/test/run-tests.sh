@@ -1720,6 +1720,10 @@ t "fill-first-walk: a walk whose guest operations or captures fail exits nonzero
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/fill-first-walk.test.py" >"$TMP/fill-first-walk.log" 2>&1; ok $? "$(cat "$TMP/fill-first-walk.log")"
 t_done
 
+t "fbcopy-walk: the feedback 2026-10-06 walk exits with its verdict; a dash on screen or the splash row back in the quick settings fails it"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/fbcopy-walk.test.py" >"$TMP/fbcopy-walk.log" 2>&1; ok $? "$(cat "$TMP/fbcopy-walk.log")"
+t_done
+
 t "adopt-walk: phone-only, left Registered at the boundary, each way to fail named"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/adopt-walk.test.py" >"$TMP/adopt-walk.log" 2>&1; ok $? "$(cat "$TMP/adopt-walk.log")"
 t_done

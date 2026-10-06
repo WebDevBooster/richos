@@ -217,7 +217,7 @@ async function main() {
   });
 
   await run.check("the two Output buttons are one control with one name, which says what is behind it", async () => {
-    // Output side panel PRD §6.2: *Output — N files from this thread* or *Output — nothing
+    // Output side panel PRD §6.2: *Output: N files from this thread* or *Output: nothing
     // produced yet in this thread*, on BOTH buttons, never a bare count — the count numeral is
     // `aria-hidden` and the icon is a glyph, so the name cannot be "Output 9".
     const p = await openApp(browser, { output: "round-17" });
@@ -238,7 +238,7 @@ async function main() {
       );
     const empty = await read();
     for (const b of empty) {
-      assertEqual(b.name, "Output — nothing produced yet in this thread", "#" + b.id + " on a thread with no files");
+      assertEqual(b.name, "Output: nothing produced yet in this thread", "#" + b.id + " on a thread with no files");
       assertEqual(b.countHidden, "true", "#" + b.id + "'s count is in the name computation");
       assertEqual(b.glyphHidden, "true", "#" + b.id + "'s icon is in the name computation");
       assertEqual(b.controls, "outpanel");
@@ -248,7 +248,7 @@ async function main() {
     await p.click('.nav-thread[data-thread-id="acme"]');
     await p.waitForFunction(() => window.RichOutput.snapshot().count === 9);
     const nine = await read();
-    assertEqual(nine.map((b) => b.name), ["Output — 9 files from this thread", "Output — 9 files from this thread"]);
+    assertEqual(nine.map((b) => b.name), ["Output: 9 files from this thread", "Output: 9 files from this thread"]);
     assertEqual(p.__errors, [], "the page reported errors");
     await p.close();
     return "both: \"" + empty[0].name + "\" → \"" + nine[0].name + "\"; count and icon aria-hidden";

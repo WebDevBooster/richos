@@ -44,7 +44,7 @@ test('workerd registers an Android phone, signs a Google assertion and delivers 
     modulesRoot: service, compatibilityDate, cf: false,
     modules: artifact.modules.map(module => ({ type: 'ESModule', path: join(service, module.name), contents: module.source })),
     // The plain-text bindings exactly as uploaded, plus the secrets the operator installs separately.
-    bindings: { ...plain, ENROLLMENT_OPEN: 'true', CF_API_TOKEN: 'workerd-sentinel', FCM_SERVICE_ACCOUNT: serviceAccount },
+    bindings: { ...plain, CF_API_TOKEN: 'workerd-sentinel', FCM_SERVICE_ACCOUNT: serviceAccount },
     d1Databases: { DB: 'richos-connect-local' }, ratelimits: { REQUEST_LIMIT: { simple: { limit: 1000, period: 60 } } },
     outboundService: outbound,
   });

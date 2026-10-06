@@ -760,7 +760,7 @@ async function main() {
     assert(ecs, "VACUITY: there is no thread with a pending turn in this build to check");
     assertEqual(
       ecs.label,
-      "ECS architecture, outcome unknown — a turn never finished",
+      "ECS architecture, outcome unknown: a turn never finished",
       "§14: a record that stops mid-turn must read as unknown, and say so in the accessible name"
     );
     assertEqual(ecs.glyph, "?", "the mark must be the unknown mark");

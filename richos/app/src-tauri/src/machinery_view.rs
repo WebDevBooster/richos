@@ -36,13 +36,13 @@ use serde_json::json;
 /// (§5). This says what was recorded, not what happened.
 pub const NOTHING_RECORDED: &str =
     "No machinery was recorded for this conversation. Retention started on 2026-08-28, and \
-     anything Rich did before that was never written down — so this is a gap in the record, \
+     anything Rich did before that was never written down, so this is a gap in the record, \
      not a quiet conversation.";
 
 /// The CEO-facing sentence when no machinery has ever been retained on this install.
 pub const NOT_RETAINED: &str =
     "Nothing has been recorded on this machine yet. The technical view reads a store that \
-     hasn't been written to — it fills up as Rich works.";
+     hasn't been written to. It fills up as Rich works.";
 
 /// The CEO-facing sentence when the store is there and could not be read. **Never the
 /// empty-state sentence:** "I could not read it" and "there is nothing in it" are
@@ -50,7 +50,7 @@ pub const NOT_RETAINED: &str =
 /// The operator-facing reason travels alongside, in its own field, and names who owns it.
 pub const UNREADABLE: &str =
     "I can't read the technical record for this conversation. It's on this machine and I \
-     haven't lost it — something is refusing to open it, and whoever set RichOS up needs to \
+     haven't lost it. Something is refusing to open it, and whoever set RichOS up needs to \
      look.";
 
 /// The CEO-facing sentence for a thread whose BETWEEN-TURN lane is empty (techy-mode §1.5).
@@ -62,7 +62,7 @@ pub const UNREADABLE: &str =
 /// which, rather than letting an empty box imply the feature is broken.
 pub const BETWEEN_TURNS_QUIET: &str =
     "Nothing was recorded between turns in this conversation. Rich started keeping this on \
-     2026-08-30 — so in an older conversation that is a gap in the record, not proof the \
+     2026-08-30, so in an older conversation that is a gap in the record, not proof the \
      session was quiet.";
 
 /// One thread's machinery, as the technical view of its timeline, plus WHY there is

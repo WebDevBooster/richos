@@ -481,7 +481,7 @@ const STATUS_MARKS = {
   unseen: { glyph: "◆", label: "new result ready" },
   failed: { glyph: "△", label: "ended with an error" },
   interrupted: { glyph: "△", label: "last turn ended without finishing" },
-  unknown: { glyph: "?", label: "outcome unknown — a turn never finished" },
+  unknown: { glyph: "?", label: "outcome unknown: a turn never finished" },
   unbound: { glyph: "⊘", label: "no entity home" },
 };
 
@@ -817,7 +817,7 @@ function showUnboundView(row, rawError) {
   const title = row ? row.display_title : "This thread";
   el("unbound-view-title").textContent = title;
   el("unbound-view-body").textContent =
-    "I can't open this one. It has no entity home — it predates entity scoping, and I won't guess " +
+    "I can't open this one. It has no entity home: it predates entity scoping, and I won't guess " +
     "which entity this work belongs to. Filing it under the wrong one would mix up two companies' " +
     "records, and that's not a mistake worth risking to save you a question.";
   // WHO CHANGES THIS, AND WHAT HAPPENS NEXT. The old sentence ended at "Binding it is an
@@ -827,7 +827,7 @@ function showUnboundView(row, rawError) {
   // who can. "Operator" is not a word he uses, so it says who that is in his terms.
   el("unbound-view-detail").textContent =
     (navTree.unbound_explanation || rawError || "") +
-    " Filing it under a company is a job for whoever set RichOS up — there is no control for" +
+    " Filing it under a company is a job for whoever set RichOS up. There is no control for" +
     " it in the app yet, so it will not sort itself out. Meanwhile the button above starts a" +
     " fresh thread wherever you say, and I'll carry on there.";
   sendBlockedReason = "This thread has no entity home, so I can't take a message in it.";
@@ -922,7 +922,7 @@ function showEntityView(entityId, mode) {
   // who, and that there is nothing here for him.
   el("entity-view-note").textContent =
     "I can't show priorities for this area yet, and the area itself is set up inside RichOS " +
-    "rather than in settings — whoever set RichOS up is the one who changes it. Nothing here " +
+    "rather than in settings. Whoever set RichOS up is the one who changes it. Nothing here " +
     "needs you.";
 
   composerScopeEl.textContent =
@@ -1676,7 +1676,7 @@ function retryTurn(turn) {
 /// The first thing Rich says, in two pieces because the second one is a PROMISE about a
 /// control. Kept apart so the promise can be withheld without rewriting the greeting.
 const GREETING =
-  "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there.";
+  "I'm Rich, your chief of staff. Tell me what you're working on and I'll take it from there.";
 const GREETING_VOICE_INVITE = "You can type, or tap ◉ to talk to me.";
 
 function renderFirstRun() {
@@ -2049,8 +2049,8 @@ async function send(explicitText) {
       // put back in the box, which was the right half; the sentence never said so, and never
       // named the control that sends them.
       composerBlockedEl.textContent =
-        "I couldn't start that thread just now. Your words are still in the box below —" +
-        " press Send to try again.";
+        "I couldn't start that thread just now. Your words are still in the box below." +
+        " Press Send to try again.";
       composerBlockedEl.hidden = false;
       inputEl.value = text; // never swallow the CEO's words
       autoGrow();
@@ -2173,9 +2173,9 @@ async function send(explicitText) {
       timelineModel,
       (reason || "I couldn't get that to my desk just now, and nothing is running.") +
         (setupPending
-          ? " Your words are back in the box below, word for word — they'll be there when the" +
+          ? " Your words are back in the box below, word for word. They'll be there when the" +
             " setting up is done."
-          : " Your words are back in the box below, word for word — press Send when you want" +
+          : " Your words are back in the box below, word for word. Press Send when you want" +
             " me to try again."),
       Date.now()
     );
@@ -2224,7 +2224,7 @@ async function steer(text, preserveDraft) {
     // composer, where the CEO can see them and decide.
     window.RichTimeline.addLocalNotice(
       timelineModel,
-      "I couldn't take that down while I was working — it's back in the box below, nothing lost.",
+      "I couldn't take that down while I was working. It's back in the box below, nothing lost.",
       Date.now()
     );
     inputEl.value = text;
@@ -2266,7 +2266,7 @@ async function stopTurn() {
       window.RichTimeline.addLocalNotice(
         stoppedModel,
         "I've noted that you stopped this. I couldn't interrupt the work already in flight, " +
-          "so it may finish on its own — nothing new will start.",
+          "so it may finish on its own, but nothing new will start.",
         Date.now()
       );
       scheduleRender();
@@ -3642,7 +3642,7 @@ function renderDrillChip() {
   // ITS OWN WORD, NEVER FOLDED INTO "running", for the same reason `registered` is not:
   // "waiting for the screen" is the truth and it is the one thing that tells him why nothing is
   // moving. `work-summary.js` already carries the sentence for the row itself ("Waiting for the
-  // screen to unlock — I'll carry on the moment it's back."); this is the count that gets him to
+  // screen to unlock. I'll carry on the moment it's back."); this is the count that gets him to
   // it. **MOST STUCK FIRST** is the order: his decision, then a wait that clears itself, then
   // what is starting, then what is running.
   const forScreen = rows.filter((row) => row.state === "waiting-for-screen").length;
@@ -4331,7 +4331,7 @@ async function enterVoiceMode() {
     // mic. Stay in text and let Rich explain in one calm line.
     richVoiceSays(
       Bridge.isMock || String(e).startsWith("mock:")
-        ? "Talking out loud needs the desktop app — here in the preview, type to me."
+        ? "Talking out loud needs the desktop app. Here in the preview, type to me."
         : String(e)
     );
     return;
@@ -4398,8 +4398,8 @@ voiceRetryBtn.addEventListener("click", async () => {
     exitVoiceMode();
     richVoiceSays(
       Bridge.isMock || String(e).startsWith("mock:")
-        ? "Talking out loud needs the desktop app — here in the preview, type to me."
-        : "The mic still won't open. I've switched us back to typing — tap ◉ when you want to try voice again."
+        ? "Talking out loud needs the desktop app. Here in the preview, type to me."
+        : "The mic still won't open. I've switched us back to typing. Tap ◉ when you want to try voice again."
     );
   } finally {
     voiceRetryBtn.disabled = false;
@@ -4429,7 +4429,7 @@ async function startModelDownload() {
     // put it). Rich's own sentence comes back as the rejection.
     voiceModelBusy = false;
     voiceModelFailedLabel.textContent = Bridge.isMock || String(e).startsWith("mock:")
-      ? "Downloading my speech model needs the desktop app — here in the preview, type to me."
+      ? "Downloading my speech model needs the desktop app. Here in the preview, type to me."
       : String(e);
     voiceModelRetryBtn.hidden = true;
     renderVoiceModelState("failed");
@@ -4471,7 +4471,7 @@ Bridge.listen("rich://voice-model", ({ payload }) => {
     const pct = total > 0 ? Math.min(100, Math.round((got / total) * 100)) : 0;
     voiceModelBar.style.width = pct + "%";
     voiceModelProgressLabel.textContent =
-      "Downloading my speech model — " + pct + "% of " + payload.totalLabel + ".";
+      "Downloading my speech model: " + pct + "% of " + payload.totalLabel + ".";
     voiceModelStopBtn.disabled = false;
     if (voiceMode) renderVoiceModelState("progress");
     return;
@@ -4727,12 +4727,9 @@ document.addEventListener("click", (e) => {
 // The keys are read off `window.RichSplash` rather than retyped, so there is one place the
 // strings live.
 //
-// THE RAIL POPOVER'S OWN COPY OF THIS SWITCH IS GONE (Ray's candidate .11 defect 3.4): there
-// is one control for one state now, and it is the universal settings menu's. The element
-// lookup and the listener that went with it are removed rather than left null-guarded —
-// guarded code over an element that can never exist again is dead code that looks
-// load-bearing, and a reader cannot tell from the source which it is. `index.html` carries
-// the whole argument where the markup used to be.
+// ONE CONTROL FOR ONE STATE (Ray's candidate .11 defect 3.4), and since the CEO's 2026-10-06
+// feedback item 7 it is the rail gear popover's `#splash-enabled`, not the universal menu's.
+// `index.html` carries the argument beside the markup.
 // ---------------------------------------------------------------------------------------
 function splashKey(name) {
   return window.RichSplash ? window.RichSplash[name] : null;
@@ -4749,18 +4746,17 @@ function writeSplashEnabled(on) {
 /// The splash's off switch, and it is ONE control now.
 ///
 /// The CEO restated on 2026-08-31 that turning the opening screen off FROM SETTINGS is a
-/// requirement. It used to be behind the rail's gear AND in the universal settings menu —
-/// one state, two doors — and a person meeting both could not tell which was authoritative
-/// (Ray's candidate .11 defect 3.4). §15 makes the universal menu the thing "settings"
-/// means, and it is on every screen, so the surviving door reaches his requirement from
-/// strictly more places than the pair did. This is still the only place that writes it.
+/// requirement. One state, one door (Ray's candidate .11 defect 3.4), and since the CEO's
+/// 2026-10-06 feedback item 7 that door is the rail gear's general settings, not the quick
+/// settings menu: "ideally I don't want them to turn it off". This is still the only place
+/// that writes it.
 ///
 /// It writes the local mirror FIRST and the durable store second, deliberately: splash.js
 /// reads the mirror synchronously before the app has a bridge, so the mirror is what decides
 /// the next launch. A failed durable write costs the preference at reinstall, not tonight.
 function setSplashEnabled(on) {
   writeSplashEnabled(on);
-  window.RichSettings.paint();
+  if (splashToggle) splashToggle.checked = on;
   return Bridge.invoke("set_splash_enabled", { enabled: on }).catch(() => {
     // Unwired (the mock harness) or a genuine write failure. The local mirror already
     // carries his choice and the next launch honours it; there is nothing here worth
@@ -4768,20 +4764,21 @@ function setSplashEnabled(on) {
   });
 }
 
-window.RichSettings.registerSplash({
-  read: () => readSplashEnabled(),
-  write: (on) => setSplashEnabled(on),
-});
+// THE ONE CONTROL IS THE GEAR POPOVER'S `#splash-enabled` (CEO 2026-10-06, feedback item 7:
+// out of the quick settings, into the general settings). Nothing registers with
+// `RichSettings` for it any more, so the universal menu draws no splash row.
+const splashToggle = el("splash-enabled");
+if (splashToggle) {
+  splashToggle.checked = readSplashEnabled();
+  splashToggle.addEventListener("change", () => setSplashEnabled(splashToggle.checked));
+}
 
 async function syncSplashFromBackend() {
   try {
     const backendValue = (await Bridge.invoke("splash_enabled")) !== false;
     writeSplashEnabled(backendValue);
-    // The one control that shows this state is the settings menu's, and it reads through
-    // `registerSplash` above on every paint — so reconciling the mirror IS reconciling the
-    // control. `paint()` rather than a second element lookup, for the reason
-    // `settings-button.js` gives: one path, so a broken subscription is visible.
-    window.RichSettings.paint();
+    // The one control that shows this state is the gear popover's: the backend wins.
+    if (splashToggle) splashToggle.checked = backendValue;
   } catch (_e) {
     // Unwired (the mock harness): the localStorage-only value already painted correctly.
   }
@@ -4979,7 +4976,7 @@ let entityPickerResolve = null;
 const PICKER_TITLE_THREAD = "Which company is this work in?";
 const PICKER_TITLE_COMPANY = "Which company is this copy of Rich for?";
 const PICKER_NOTE_COMPANY =
-  "I'll keep everything you tell me under the company you pick, and I'll remember it — " +
+  "I'll keep everything you tell me under the company you pick, and I'll remember it, so " +
   "you won't be asked again. You can change it later in Settings.";
 
 /// The lead line above the add-a-company form, in its two states.
@@ -4991,7 +4988,7 @@ const PICKER_NOTE_COMPANY =
 /// registry-driven picker renders when the registry is empty.
 const ADD_COMPANY_LEAD_FIRST =
   "I don't know about any of your companies yet. Tell me one and I'll start keeping its " +
-  "work together — you can add the rest whenever you like.";
+  "work together. You can add the rest whenever you like.";
 const ADD_COMPANY_LEAD_MORE = "Not one of these? Add it here.";
 
 /// What he is told when the registry file exists and could not be read.
@@ -5003,7 +5000,7 @@ const ADD_COMPANY_LEAD_MORE = "Not one of these? Add it here.";
 function registryUnreadableLine(path) {
   return (
     "Your list of companies is saved at " + path + ", and I couldn't read it just now, so " +
-    "I'm not showing any — rather than showing you a wrong list. That file is fixed by " +
+    "I'm not showing any, rather than showing you a wrong list. That file is fixed by " +
     "whoever set RichOS up. You can also add a company here in the meantime."
   );
 }
@@ -5215,7 +5212,7 @@ function clearCompanyBlock() {
 /// says what happened and names who owns it (§21's rule for a state he cannot fix).
 const COMPANY_PINNED_BLOCK =
   "This copy of me was told which company it works for when it was started up, from " +
-  "outside this window, and I can't make sense of what it was told — so I won't file " +
+  "outside this window, and I can't make sense of what it was told, so I won't file " +
   "anything until whoever set RichOS up has sorted it out.";
 
 /// What the composer says on a first launch, when there is no company to pick yet.
@@ -5504,8 +5501,8 @@ function openSetupSheet(ask, opts) {
   // itself in the second sentence (ray-opus-a1, finding 7, 2026-09-04).
   setupNoteEl.textContent = opts.canInstall
     ? several
-      ? "I can get them myself — you just have to say so."
-      : "I can get it myself — you just have to say so."
+      ? "I can get them myself. You just have to say so."
+      : "I can get it myself. You just have to say so."
     : "";
   setupNoteEl.hidden = !setupNoteEl.textContent;
 
@@ -5633,7 +5630,7 @@ async function runSetup() {
     : "I couldn't finish the setup.";
   setupNoteEl.textContent = next && next.complete
     ? "The software is installed."
-    : "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.";
+    : "That's everything I could do. Something is still missing. That part is for whoever set RichOS up to look at.";
   setupItemsEl.replaceChildren();
   setupAccountEl.hidden = false;
   // Synchronous now: the answer was fetched above, so this is the same paint as everything
@@ -5749,10 +5746,10 @@ const MEMORY_DONE =
 /// `resolve_tools` searches the install directory and the bundle's resources at every launch,
 /// so a compiler that appears is picked up with no action from him.
 const MEMORY_NO_READER =
-  "Your memory folder is on this Mac, and I can't read or write it yet — the part of me that " +
+  "Your memory folder is on this Mac, and I can't read or write it yet: the part of me that " +
   "does isn't in this version. Nothing else is affected: our conversations stay on this Mac " +
   "and I pick them up when you come back. There's nothing for you to install and nothing for " +
-  "you to fix — I'll start using the folder on my own as soon as that part arrives.";
+  "you to fix. I'll start using the folder on my own as soon as that part arrives.";
 
 async function refreshMemory() {
   memoryState = await invokeQuiet("memory_status");
@@ -5857,7 +5854,7 @@ const FIRST_RUN_HEADLINE = "I don't know your business yet.";
 /// screen is read aloud.
 const FIRST_RUN_BODY =
   "There's nothing on file about what this company does, who it's for, or how you want to " +
-  "work. I can ask you about it — about twenty minutes — and write your answers down, so I " +
+  "work. I can ask you about it (about twenty minutes) and write your answers down, so I " +
   "use them from then on. You can stop partway, and \"not sure yet\" is a real answer to any " +
   "of it.";
 
@@ -6188,8 +6185,8 @@ memorySetupEl.addEventListener("click", (e) => {
 /// `detail` is the machine-facing half and stays off this screen, exactly as `MemoryStatus`'s own
 /// doc comment says it must.
 const MEMORY_UNUSABLE =
-  "That folder is there and I couldn't use it. Everything else works as it does now — our " +
-  "conversations are kept somewhere else and are untouched — and there's nothing for you to fix.";
+  "That folder is there and I couldn't use it. Everything else works as it does now: our " +
+  "conversations are kept somewhere else and are untouched, and there's nothing for you to fix.";
 
 window.RichSettings.registerMemory({
   open: async () => {
@@ -6598,7 +6595,7 @@ let deskReturnFocus = null;
 /// than replacing it: the backend says what is missing, this says who can do something
 /// about it, and neither is guessed by the other.
 const DESK_OWNER_LINE =
-  " Switching that on is a job for whoever set RichOS up — there is no control for it in here.";
+  " Switching that on is a job for whoever set RichOS up. There is no control for it in here.";
 
 function deskNotice(text, tone) {
   correctionsNoticeEl.textContent = text;
@@ -7046,7 +7043,7 @@ function feedbackNotice(text, tone) {
 /// happened, in the same register.
 const FEEDBACK_KEPT = "Taken down. It stays on this machine.";
 const FEEDBACK_KEPT_WITH_REPORT =
-  "Taken down, word for word as you read it — and it stays on this machine.";
+  "Taken down, word for word as you read it, and it stays on this machine.";
 const FEEDBACK_KEPT_WITHOUT_REPORT = "Taken down, with no report attached.";
 
 // ---- reading ----------------------------------------------------------------------------
@@ -7763,7 +7760,7 @@ function retentionWindowSentence(view) {
   const age = days === "forever" ? null : days === 1 ? "1 day" : days + " days";
   const cap = bytes === "forever" ? null : formatBytes(bytes);
   if (!age && !cap) return "Nothing is ever removed.";
-  if (age && cap) return "Kept for " + age + ", or " + cap + " of output — whichever comes first.";
+  if (age && cap) return "Kept for " + age + ", or " + cap + " of output, whichever comes first.";
   if (age) return "Kept for " + age + ". No size limit.";
   return "Kept until it reaches " + cap + ", oldest first.";
 }

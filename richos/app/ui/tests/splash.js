@@ -1807,18 +1807,17 @@ async function main() {
     await page.addInitScript(SEED_THEME, "dark");
     await page.goto(APP);
     await page.waitForSelector(".nav-thread", { state: "attached" });
-    // THE SWITCH THIS CHECK REACHES FOR MOVED, and it moved to the panel that is easier to
-    // reach rather than harder: it was behind the RAIL's gear and in the universal settings
-    // menu both, and Ray's candidate .11 defect 3.4 is that a person meeting two copies of
-    // one switch cannot tell which is authoritative. There is one now, in the menu §15 puts
-    // on every screen. `leaveHome` is still needed — the menu is behind the home screen,
-    // which is not click-through and is not meant to be.
+    // THE SWITCH THIS CHECK REACHES FOR IS BEHIND THE RAIL'S GEAR, the general settings (CEO
+    // 2026-10-06, feedback item 7: out of the quick settings menu, so it is harder to turn off
+    // by accident). There is still exactly one copy (Ray's candidate .11 defect 3.4).
+    // `leaveHome` is needed because the rail is behind the home screen, which is not
+    // click-through and is not meant to be.
     await leaveHome(page);
-    await page.click("#set-btn");
-    await page.waitForSelector("#set-menu:not([hidden])");
-    const before = await page.isChecked("#set-splash");
+    await page.click("#rail-settings");
+    await page.waitForSelector("#assertiveness-popover:not([hidden])");
+    const before = await page.isChecked("#splash-enabled");
     assertEqual(before, true, "the opening screen is on by default");
-    await page.uncheck("#set-splash");
+    await page.uncheck("#splash-enabled");
     await page.waitForTimeout(200);
     fs.mkdirSync(SHOTS, { recursive: true });
     const sw = await shot(page, "splash-03-the-off-switch", { fullPage: false });
@@ -1833,13 +1832,9 @@ async function main() {
       splashNodes: document.querySelectorAll("#splash, .splash").length,
       shown: window.RichSplash.state.shown,
       declined: window.RichSplash.state.declined,
-      // The menu has to be OPENED to be read, which is also the honest test: what a person
-      // sees. The rail popover's duplicate copy of this switch was removed for Ray's
-      // candidate .11 defect 3.4, so this is the one control there is.
+      // The gear popover's switch is the one control there is (feedback item 7).
       checked: (() => {
-        const btn = document.getElementById("set-btn");
-        if (btn) btn.click();
-        const box = document.getElementById("set-splash");
+        const box = document.getElementById("splash-enabled");
         return box ? box.checked : null;
       })(),
     }));
@@ -1943,15 +1938,13 @@ async function main() {
           homeOpen: !!(window.RichHome && window.RichHome.isOpen()),
           homeVisible: !!(cs && cs.display !== "none" && cs.visibility === "visible"),
           // The word the CEO would look for, off the rendered control rather than the source.
-          // It reads the UNIVERSAL MENU's row now, for the reason above: that is the one
-          // control there is. The menu has to be opened to be read, which is also the honest
-          // test — the label is a thing a person sees, not a thing in the source.
+          // It reads the gear popover's group title: that is the one control there is since
+          // the CEO's 2026-10-06 feedback item 7.
           title: (() => {
-            const btn = document.getElementById("set-btn");
-            if (btn) btn.click();
-            const row = document.getElementById("set-splash-row");
-            const label = row ? row.querySelector(".set-name") : null;
-            return label ? label.textContent.trim() : null;
+            const box = document.getElementById("splash-enabled");
+            let n = box && box.closest(".popover-option") ? box.closest(".popover-option").previousElementSibling : null;
+            while (n && !n.classList.contains("popover-title")) n = n.previousElementSibling;
+            return n ? n.textContent.trim() : null;
           })(),
         };
       });
@@ -1972,15 +1965,10 @@ async function main() {
       seen.push("splashEnabled=" + durable + " -> " + (drew ? "curtain" : "plain") + ", home up");
       await ctx.close();
     }
-    // The other door to the same state carries the same word — `settings-button.js` builds
-    // its own row, so a rename in one place is a rename in one place.
+    // And there is no second door: the quick settings menu builds no splash row (item 7).
     const setbtn = fs.readFileSync(path.join(UI_DIR, "settings-button.js"), "utf8");
-    assert(
-      /label\.textContent = "Splash screen";/.test(setbtn),
-      "the settings button's own row still calls this the opening screen, so the two doors " +
-        "into one state now read differently"
-    );
-    return seen.join(" · ") + " · both doors say “Splash screen”";
+    assert(!/set-splash/.test(setbtn), "the quick settings menu builds a splash row again; the CEO moved it to the gear");
+    return seen.join(" · ") + " · the one door says “Splash screen”";
   });
 
   await run.check("12a  the DURABLE answer decides the curtain, and the mirror only when there isn't one", async () => {

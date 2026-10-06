@@ -221,7 +221,7 @@ async function main() {
     await page.waitForSelector("#voice-state-model-progress:not([hidden])");
 
     const portal =
-      "The network sent me a sign-in page instead of my speech model — that's what hotel, " +
+      "The network sent me a sign-in page instead of my speech model. That's what hotel, " +
       "airport and conference wifi does. Sign in to the network, then ask me again. Nothing was installed.";
     await emit(page, event("failed", { received: 3104, message: portal, askAgain: true }));
     await page.waitForSelector("#voice-state-model-failed:not([hidden])");

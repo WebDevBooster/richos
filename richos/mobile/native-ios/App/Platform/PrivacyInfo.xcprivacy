@@ -28,8 +28,8 @@
   service keeps the token against the Mac's record (push_bindings.host_id) so it can deliver to that
   phone, and a push token held that way is personal data under UK GDPR, so it is linked.
 
-  NO DIAGNOSTICS. The deployed Connect Worker keeps none: its schema has five tables (hosts,
-  nonces, allowed_hosts, push_bindings, push_jobs; `richos/mobile/service/connect/schema.sql`),
+  NO DIAGNOSTICS. The deployed Connect Worker keeps none: its schema has four tables (hosts,
+  nonces, push_bindings, push_jobs; `richos/mobile/service/connect/schema.sql`),
   jobs expire within one hour, and logs, traces, Logpush and tail consumers are disabled
   (`richos/mobile/service/notifications.md`). The seven-day diagnostics once declared here came
   from a PRD proposal that was never built. `NotificationService/Tests/main.swift` P1-P4 fail if

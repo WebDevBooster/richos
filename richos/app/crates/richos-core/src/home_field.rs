@@ -643,7 +643,7 @@ pub fn build_field(census: &Census, items: &[FieldItem], registry: &EntityRegist
     // ---- the HUD's numbers: real where loro knows, zero where it does not -----------
     let count_of = |kind: &str| census.counts.get(kind).copied().unwrap_or(0);
     let brag = json!({
-        "note": "Compiled from this install's own loro corpus. A zero is something loro does not know — see meta.absent.",
+        "note": "Compiled from this install's own loro corpus. A zero is something loro does not know; see meta.absent.",
         // NOT IN LORO. Zero is what this corpus knows about them, and `meta.absent` says so.
         "specialistsManaged": 0,
         "specialistsActiveNow": 0,

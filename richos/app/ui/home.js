@@ -1454,7 +1454,7 @@ window.RichHome = (function () {
     if (!mark) return null;
     mark.setAttribute("role", "button");
     mark.setAttribute("tabindex", "0");
-    mark.setAttribute("aria-label", "RichOS — go to the home screen");
+    mark.setAttribute("aria-label", "RichOS: go to the home screen");
     mark.addEventListener("click", function () {
       show("wordmark");
     });
@@ -1530,7 +1530,7 @@ window.RichHome = (function () {
     note.textContent =
       "Every button shows a number, and clicking one slides that company's name out. Give a " +
       "button its own label here instead, or take it off the home screen. This changes the " +
-      "button only — the company itself, and everything filed under it, stays exactly as it is.";
+      "button only. The company itself, and everything filed under it, stays exactly as it is.";
     panel.appendChild(note);
 
     panel.appendChild(elem("ul", "home-prefs-list", { id: "home-prefs-list" }));
@@ -1680,7 +1680,7 @@ window.RichHome = (function () {
       // Not if there's only one."
       foot.textContent =
         shown === 1
-          ? "With one company shown, the buttons are off the home screen — a row of one is just noise."
+          ? "With one company shown, the buttons are off the home screen. A row of one is just noise."
           : "With no companies shown, the buttons are off the home screen.";
       return;
     }

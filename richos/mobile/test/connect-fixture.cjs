@@ -37,7 +37,7 @@ async function fixture(t) {
     async remove(host) { check('remove'); tunnels.delete(host.id+':'+host.generation); dns.delete(host.hostname); },
   };
   const env = { DB: db, CF_API_TOKEN:'server-only-sentinel', CF_ACCOUNT_ID:'a'.repeat(32), CF_ZONE_ID:'b'.repeat(32),
-    CONNECT_DOMAIN:'example.com', HOST_CAPACITY:'10', ENROLLMENT_OPEN:'true', REQUEST_LIMIT:{limit:async()=>({success:true})} };
+    CONNECT_DOMAIN:'example.com', HOST_CAPACITY:'10', REQUEST_LIMIT:{limit:async()=>({success:true})} };
   async function identity() {
     const keys = await crypto.subtle.generateKey({ name:'ECDSA',namedCurve:'P-256' }, true, ['sign','verify']);
     const point = await crypto.subtle.exportKey('raw',keys.publicKey), publicKey = encode(point);

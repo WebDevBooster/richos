@@ -371,12 +371,12 @@ impl Resolution {
             Basis::TooSlow => Some(
                 "I'm using my faster hearing on this machine. The more accurate one takes long \
                  enough here that you'd be waiting after every sentence, and a conversation with \
-                 pauses in it isn't a conversation. You can still say anything you like — I just \
+                 pauses in it isn't a conversation. You can still say anything you like. I just \
                  might misread an unusual name now and then."
                     .into(),
             ),
             Basis::TooLarge => Some(
-                "I'm using my lighter hearing on this machine — there isn't enough free memory \
+                "I'm using my lighter hearing on this machine: there isn't enough free memory \
                  right now for the more accurate one, and I'd rather not slow everything else \
                  down. You can still say anything you like."
                     .into(),

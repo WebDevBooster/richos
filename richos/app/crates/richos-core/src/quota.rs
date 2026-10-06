@@ -974,7 +974,7 @@ impl Service {
         let Some((label, why, until)) = held else { return };
         if was { return; }
         // Round 16: "Every account is used up. 3 agents are holding their place until 2:17 AM,
-        // when Home's window resets — the soonest." The clock time needs the webview's offset;
+        // when Home's window resets, the soonest." The clock time needs the webview's offset;
         // before it has said one, the span is said instead.
         let back = match why {
             crate::claude_accounts::Gone::Limit => "usage limit lifts",
@@ -987,9 +987,9 @@ impl Service {
         };
         let offset = *self.utc_offset_minutes.lock().unwrap();
         self.notes.lock().unwrap().push_back(match offset {
-            Some(offset) => format!("Every account is used up. {who} until {}, when {label}'s {back} — the soonest.",
+            Some(offset) => format!("Every account is used up. {who} until {}, when {label}'s {back}, the soonest.",
                 clock(until, offset, now)),
-            None => format!("Every account is used up. {who} until {label}'s {back} in {} — the soonest.",
+            None => format!("Every account is used up. {who} until {label}'s {back} in {}, the soonest.",
                 words(until.saturating_sub(now))),
         });
     }
@@ -1844,7 +1844,7 @@ for line in sys.stdin:
         let notes = service.take_notes();
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].starts_with("Every account is used up. Agents hold their place until Work's window resets in "), "{notes:?}");
-        assert!(notes[0].ends_with(" — the soonest."), "{notes:?}");
+        assert!(notes[0].ends_with(", the soonest."), "{notes:?}");
         service.refresh(&bin, true);
         assert!(service.take_notes().is_empty(), "said once while the hold lasts");
         // With the offset and three agents working, round 16's words with the clock time.
@@ -1853,7 +1853,7 @@ for line in sys.stdin:
         service.was_held.store(false, std::sync::atomic::Ordering::SeqCst);
         service.refresh(&bin, true);
         assert_eq!(service.take_notes(), vec![format!(
-            "Every account is used up. 3 agents are holding their place until {}, when Work's window resets — the soonest.",
+            "Every account is used up. 3 agents are holding their place until {}, when Work's window resets, the soonest.",
             clock(soonest, 0, crate::util::now_millis()))]);
         let state = root.path().join("engine-state");
         assert_eq!(gate::admission(&state, crate::util::now_millis()), Admission::Held { resets_at: soonest });

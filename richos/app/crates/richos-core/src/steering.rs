@@ -552,7 +552,7 @@ impl IntakeLog {
             }
             parts.push(format!(
                 "Everything else was read: {} of {} requests. Nothing was deleted and nothing \
-                 was rewritten — every record is still exactly where it was on disk.",
+                 was rewritten: every record is still exactly where it was on disk.",
                 self.records_applied, self.records_read,
             ));
             (headline, parts.join(" "))

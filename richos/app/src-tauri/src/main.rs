@@ -1698,7 +1698,7 @@ fn refused_send(why: &str, ceo_sentence: String) -> String {
 /// they cannot drift silently.
 const LEASE_UNAVAILABLE_MESSAGE: &str =
     "I'm not connected to my thinking right now, so I can't take that on. Quit RichOS and \
-     open it again — that clears it most of the time. If it keeps happening, whoever set \
+     open it again. That clears it most of the time. If it keeps happening, whoever set \
      RichOS up has to sign me back in; that part isn't yours to fix.";
 
 /// What the CEO is told when there is no corpus this install could write a correction to.
@@ -1755,7 +1755,7 @@ const LORO_DESK_ABSENT_MESSAGE: &str =
 /// no longer owns it. A state's copy going stale in the direction of "you cannot do this"
 /// is the worse direction: it teaches him not to look for a control that is right there.
 const ENTITY_UNRESOLVED_MESSAGE: &str =
-    "I can't tell which company this work belongs to, so I won't guess — filing it under \
+    "I can't tell which company this work belongs to, so I won't guess. Filing it under \
      the wrong one would mix two companies' records together, and that's not a mistake \
      worth risking to save you a question. Pick the company and I'll keep everything under \
      it from then on.";
@@ -2086,7 +2086,7 @@ fn main() {
             startup_alert::cannot_start(
                 &format!("application startup: {error}"),
                 "RichOS stopped before it could open a window. It was working out which copy \
-                 of itself to run, and that step did not finish — so it closed itself rather \
+                 of itself to run, and that step did not finish, so it closed itself rather \
                  than start in a state it could not vouch for.\n\nOpening RichOS again is \
                  worth one try.",
             );
@@ -4242,7 +4242,7 @@ fn speech_preflight() -> Result<(), String> {
 /// costs him the demo.
 ///
 /// `reason` is [`richos_voice::stt::SttError::ceo_message`] — *"My ears aren't installed on
-/// this machine yet — whoever set RichOS up adds those. I can still read what you type."*
+/// this machine yet. Whoever set RichOS up adds those. I can still read what you type."*
 /// It names the party, and it is already in the affordance suite's state registry.
 ///
 /// `(async)` so the resolution's one `command -v` subprocess never runs on the IPC thread.
@@ -5775,13 +5775,13 @@ fn apply_company_choice(spine: &mut Spine, id: &EntityId) -> Result<(), String> 
 /// What he is told when the name is blank.
 const COMPANY_NAME_REQUIRED_MESSAGE: &str =
     "I need a name for the company before I can file anything under it. Anything you'd \
-     recognize on a button is fine — you can change it later.";
+     recognize on a button is fine. You can change it later.";
 
 /// What he is told when a folder is named and is not one.
 fn company_folder_message(folder: &Path, why: &str) -> String {
     format!(
         "I couldn't use \"{}\" as this company's folder: {why}. Give me a folder that's \
-         already on this Mac, or leave it blank — a company works without one, it just won't \
+         already on this Mac, or leave it blank: a company works without one, it just won't \
          be picked automatically when you open RichOS from inside it.",
         folder.display()
     )
@@ -5924,7 +5924,7 @@ fn register_entity(
         })?)
         .map_err(|e| match e {
             richos_core::entity::EntityError::OverlappingRoot { other, other_root, .. } => format!(
-                "That folder is inside — or contains — the folder I already have for \"{other}\" \
+                "That folder is inside (or contains) the folder I already have for \"{other}\" \
                  ({}). If I kept both I wouldn't be able to tell which company work in there \
                  belongs to, and I won't guess. Pick a folder that isn't shared, or leave it \
                  blank.",
@@ -7833,7 +7833,7 @@ fn spoken_desk<'a>(
     state: &'a State<'a, AppState>,
 ) -> Result<std::sync::MutexGuard<'a, CandidateDesk>, String> {
     let desk = state.spoken.as_ref().ok_or(
-        "I can't record corrections right now — my correction log could not be opened. \
+        "I can't record corrections right now: my correction log could not be opened. \
          Nothing you say is being lost from the conversation itself.",
     )?;
     desk.lock().map_err(|_| "the correction desk is busy — try that again".to_string())
@@ -7941,7 +7941,7 @@ fn spoken_unsuppress_term(state: State<AppState>, key: String) -> Result<(), Str
 /// fix, and it invents no control, because there genuinely is none in the app. Asking him
 /// what he thinks and then dropping the answer would be worse than not asking.
 const FEEDBACK_STORE_UNAVAILABLE: &str =
-    "I can't keep an answer right now — the file I record them in wouldn't open, and I'm \
+    "I can't keep an answer right now: the file I record them in wouldn't open, and I'm \
      not going to ask you what you think and then lose it. That one is for whoever set \
      RichOS up to look at; it isn't yours to fix.";
 
@@ -8269,14 +8269,14 @@ fn get_machinery_raw(
 /// It states the fact and NOT a duration, because the duration is §7.2 and §7.2 is the
 /// CEO's open question. A sentence naming "14 days" would answer it in copy.
 const RAW_NOT_RETAINED: &str =
-    "The full output isn't kept this long — what's above is the whole record that was.";
+    "The full output isn't kept this long. What's above is the whole record that was.";
 
 /// §2.4's 32 KB per-record cap fired. Named so nobody reads a prefix as the whole thing.
 const RAW_TRUNCATED: &str = "This output was longer than RichOS keeps; you're seeing the start of it.";
 
 const RAW_UNREADABLE: &str =
-    "I can't read the stored output for this one. It's on this machine and I haven't lost it \
-     — whoever set RichOS up needs to look.";
+    "I can't read the stored output for this one. It's on this machine and I haven't lost it. \
+     Whoever set RichOS up needs to look.";
 
 fn not_retained() -> serde_json::Value {
     serde_json::json!({
@@ -8558,7 +8558,7 @@ fn get_appearance(state: State<AppState>) -> Appearance {
 #[tauri::command(async)]
 fn set_theme(state: State<AppState>, theme: String) -> Result<(), String> {
     let parsed = richos_core::config::Theme::parse(&theme)
-        .ok_or_else(|| format!("unknown theme {theme:?} — expected \"dark\", \"light\" or \"system\""))?;
+        .ok_or_else(|| format!("unknown theme {theme:?}: expected \"dark\", \"light\" or \"system\""))?;
     state.config.lock().unwrap().set_theme(parsed).map_err(|e| e.to_string())
 }
 

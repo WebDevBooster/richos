@@ -222,7 +222,7 @@ Actual App Store listing navigation, storefront download availability and an old
 
 ## Managed Connect integration
 
-See [Connect's protocol and deployment contract](service/CONNECT.md). The normal product flow is Mac phone settings → RichOS Connect → enable → scan or paste the pairing link → compare the six words. Tailscale remains an optional route. Pilot enrollment is closed to pre-authorized Mac public identities; a person does not need a Cloudflare account or a command-line tool.
+See [Connect's protocol and deployment contract](service/CONNECT.md). The normal product flow is Mac phone settings → RichConnect for RichOS → enable → scan or paste the pairing link → compare the six words. Tailscale remains an optional route. Pilot enrollment is closed to pre-authorized Mac public identities; a person does not need a Cloudflare account or a command-line tool.
 
 The common CLI also supports isolated real-provider checks:
 
