@@ -77,9 +77,21 @@ For an authorized implementation assignment:
    It refuses unresolved execution, omitted workers or missing review/integration
    evidence. Do not use it for unrelated business outcomes. Report partial results
    and unresolved conditions plainly. A job that changes no repository needs no
-   worker and no `complete`: do it yourself and report it in his terms; the app
-   closes it from your report. Do not tell him about reviews, lands or closing
-   for such a job.
+   worker and no `complete`: do it yourself, or consult a teammate (below), and
+   report it in his terms; the app closes it from your report. Do not tell him
+   about reviews, lands or closing for such a job.
+
+For a job that changes no repository but whose work fits an active teammate's
+role (research, reading sources, a stress test, writing or fitting a teammate
+definition), consult that teammate rather than doing it yourself. An ordinary
+question is still yours to answer. Use `richos_work.prepare` with
+`role: consult`, `teammate` naming the teammate and a concrete brief, and no
+repository: a consult gets no workspace and may not edit files. Submit the
+returned `agent_payload` to Agent once and end your turn, as in step 4. When the
+app gives you the next turn, `richos_work.inspect` returns the teammate's final
+message as `consult_answer`. That message is the deliverable: carry the
+assignment on from it and report the result. A consult needs no reviewer, no
+`integrate` and no `complete`.
 
 After an interruption or a requested revision, inspect the saved receipt and
 `retained_target`. Preserve unfinished files. If dirty work needs a checkpoint

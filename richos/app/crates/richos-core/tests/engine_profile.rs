@@ -37,9 +37,9 @@ fn app_profile_creates_neutral_coordination_and_one_hook_per_event() {
         assert!(groups[0].get("matcher").is_none(),
             "{event} was registered with a matcher; the app hook's reach is no longer every tool");
     }
-    // Slice 2 of the proto-teammate shelf plan: the two duties are texts the dispatch adapter
-    // puts in a named teammate's brief, never registered definitions.
-    for duty in ["worker", "reviewer"] {
+    // Slices 2 and 3 of the proto-teammate shelf plan: the three duties are texts the dispatch
+    // adapter puts in a named teammate's brief, never registered definitions.
+    for duty in ["worker", "reviewer", "consult"] {
         assert!(!profile.plugin.join(format!("agents/{duty}.md")).exists(), "{duty} is registered");
         assert!(engine().join(format!("mega-lander/duties/{duty}.md")).is_file(), "the {duty} duty text is missing");
     }

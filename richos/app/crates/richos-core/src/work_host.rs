@@ -521,6 +521,18 @@ const REVIEW_PASSED_CONTINUATION: &str =
      reviewer for work that has already passed. Nothing about the assignment has changed and \
      your seat is the same one.";
 
+/// **What the back end is told when the helper that ended was a CONSULT** (proto-teammate shelf
+/// plan §3, slice 3): a named teammate asked on a job that changes no repository, whose final
+/// message is the deliverable. The worker sentence above would send the back end to prepare a
+/// reviewer for an answer, which has nothing to review and nothing to land.
+const CONSULT_ENDED_CONTINUATION: &str =
+    "The teammate you consulted has ended — that is this app telling you, from its own record \
+     of the run, not a guess. Its final message is your deliverable: read it with the desktop \
+     work tools (`inspect` returns it as `consult_answer` on that teammate's receipt) and carry \
+     this assignment on from there. A consult changes no repository, so it needs no reviewer, \
+     no land and no `complete`. Nothing about the assignment has changed and your seat is the \
+     same one.";
+
 /// How many times ONE continuation may be asked again after a turn that produced nothing.
 ///
 /// **A turn that streams no item at all is a turn this host did not get**, and the run that
@@ -2450,6 +2462,9 @@ impl WorkHost {
             &record.thread_id,
             &record.obligation_id,
         ) {
+            // A consult's answer is read, never reviewed: decided by the newest end on the
+            // receipts, so a worker ending after a consult still gets the worker sentence.
+            Ok(trail) if trail.last_ended_was_consult => CONSULT_ENDED_CONTINUATION.to_string(),
             Ok(trail)
                 if trail.reviews_passed > 0 && trail.lands.is_empty() && trail.not_landed > 0 =>
             {
@@ -4081,8 +4096,11 @@ fn brief_for(record: &Assignment, resumed: bool, instruction: &str) -> String {
          helper has actually ended, and you carry on from there. The same goes for the \
          reviewer.\n\nIf the job changes no repository (running a command he asked for, \
          finding something out, or a job you cannot begin), do it yourself, with no helper, \
-         and report in his terms what you did and what it showed, or what is needed and from \
-         whom. The app closes an assignment like that from your report: do not call \
+         or, when its work fits an active teammate's role (research, reading sources, a \
+         stress test, a teammate definition), consult that teammate with `prepare` and \
+         `role: consult`, which needs no repository and whose final message comes back to \
+         you. Then report in his terms what was done and what it showed, or what is needed \
+         and from whom. The app closes an assignment like that from your report: do not call \
          `complete` for it, and say nothing to him about reviews, lands, branches or closing \
          the assignment, because none of that is his.\n\nWhen you changed a repository, report \
          what you actually landed: the branch, the repository and the reviewer's verdict. If \
@@ -6374,6 +6392,37 @@ mod tests {
         assert!(!declares_waiting_on_a_helper("he wrote stop-declared: waiting-on-teammate mid-line"));
     }
 
+    /// **After a consult ends, the back end is told to read its answer, not to review it**
+    /// (plan §3, slice 3) — and an assignment answered with a consult's help is still one no
+    /// helper worked on, so it closes on the back end's report. The newest end decides the
+    /// sentence: a worker that ends after the consult gets the worker one.
+    #[test]
+    fn a_consult_that_ended_is_read_not_reviewed_and_leaves_the_answer_close_open() {
+        let h = harness(5);
+        let receipt = assignment::register_kind(&h.state, &registration(&h), assignment::AssignmentKind::Task).unwrap();
+        let record = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        let ended = |id: &str, role: &str, at: f64| {
+            engine_receipt(&h, id, "obligation-7", role, None, None);
+            use sha2::{Digest, Sha256};
+            let path = h.state.join("work-receipts")
+                .join(format!("{:x}", Sha256::digest(b"[\"depot\",\"thread-one\"]"))).join(format!("{id}.json"));
+            let mut row: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            row["end_observation"] = serde_json::json!({"at": at, "signal": "SubagentStop"});
+            if role == "consult" {
+                row["request"]["repo"] = serde_json::Value::Null;
+                row["consult_answer"] = serde_json::json!({"message": "The answer.", "answered": true});
+            }
+            std::fs::write(&path, serde_json::to_vec(&row).unwrap()).unwrap();
+        };
+        ended("consult-1", "consult", 100.0);
+        assert_eq!(h.host.continuation_after_a_helper_ended(&record), CONSULT_ENDED_CONTINUATION);
+        assert!(h.host.no_helper_ever_ran(&record), "a consult was counted as a helper that worked on it");
+        ended("worker-1", "worker", 200.0);
+        assert_eq!(h.host.continuation_after_a_helper_ended(&record), WORKER_ENDED_CONTINUATION);
+        assert!(!h.host.no_helper_ever_ran(&record));
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
     /// **A work receipt as the ENGINE writes it**, in the partition the engine writes it to
     /// (`mega-lander/app.py:81`), so `what_happened` reads the real shape rather than one
     /// invented here. `landed` is the branch the ref moved on, or `None` for a run that ended
@@ -6835,8 +6884,12 @@ mod tests {
         let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().join("engine/mega-lander");
         let desktop = std::fs::read_to_string(engine.join("DESKTOP.md")).unwrap().split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(desktop.contains("A job that changes no repository needs no worker and no `complete`: \
-                                 do it yourself and report it in his terms; the app closes it from your report."),
+                                 do it yourself, or consult a teammate (below), and report it in his terms; \
+                                 the app closes it from your report."),
                 "DESKTOP.md step 7 still says only a code assignment closes");
+        // Slice 3 of the proto-teammate shelf plan: such a job may go to a named teammate.
+        assert!(brief.contains("consult that teammate with `prepare` and `role: consult`"), "{brief}");
+        assert!(desktop.contains("A consult needs no reviewer, no `integrate` and no `complete`."));
         let tools = std::fs::read_to_string(engine.join("app.py")).unwrap();
         assert!(tools.contains("An assignment you handled yourself, with no worker, is closed by the app from your report: do not call this for it."),
                 "the complete tool does not say who closes a job with no worker");
