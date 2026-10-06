@@ -493,7 +493,7 @@ const HANDOFF_BUDGET_CHARS: usize = 1500;
 /// its workspace. `DESKTOP.md` step 5 says a reviewer comes next; this says it at the one
 /// moment it applies, the same argument as the async-launch sentence in the brief.
 const WORKER_ENDED_CONTINUATION: &str =
-    "The helper you started has ended — that is this app telling you, from its own record of \
+    "The helper you started has ended. That is this app telling you, from its own record of \
      the run, not a guess. Read its receipt with the desktop work tools and carry this \
      assignment on from there: if it did the work, the next step is an independent REVIEWER \
      (`prepare` with `role: reviewer` and `review_of` that helper's receipt), then the land, \
@@ -514,7 +514,7 @@ const WORKER_ENDED_CONTINUATION: &str =
 /// and that no land is recorded against the worker. A host that guessed from "how many times
 /// have I waited" would say this on a second worker's first pass.
 const REVIEW_PASSED_CONTINUATION: &str =
-    "The helper you started has ended — that is this app telling you, from its own record of \
+    "The helper you started has ended. That is this app telling you, from its own record of \
      the run, not a guess. A reviewer's own receipt says it PASSED this work, and the app's \
      records carry no land for it: the next step is the land itself (`integrate`), and then \
      closing the assignment. Do not prepare another helper and do not prepare another \
@@ -4044,7 +4044,7 @@ fn brief_for(record: &Assignment, resumed: bool, instruction: &str) -> String {
              tell him.{repositories}\n\nHis question: {}\n\nAnswer it in your last words of \
              this turn: that is what he is shown, exactly as you write it. Answer in his own \
              terms, in plain sentences, with no identifiers, no file paths and no branch \
-             names — he may hear this read aloud. Say what you actually established and say \
+             names: he may hear this read aloud. Say what you actually established and say \
              plainly where you could not establish something; never guess and never present \
              a likely answer as a settled one. Do not do any work, do not change anything, \
              do not land anything and do not open an assignment of your own: if answering \
@@ -4073,10 +4073,10 @@ fn brief_for(record: &Assignment, resumed: bool, instruction: &str) -> String {
         "This is a background assignment from the CEO. Carry it out with the desktop work \
          tools.{repositories}\n\nThe assignment: {}\n\nCarry it through to the end: do the \
          work, get an independent review, land the reviewed result, and close the \
-         assignment. Do not ask him to approve the land — that is your job, not his.\n\nWhen \
+         assignment. Do not ask him to approve the land: that is your job, not his.\n\nWhen \
          you submit a prepared payload to Agent it comes back at once as `async_launched`: \
          that is the helper STARTING and it has done nothing yet. Do not report on it, do not \
-         read its receipt for an outcome, and do not try to wait for it — end your turn \
+         read its receipt for an outcome, and do not try to wait for it: end your turn \
          instead. This app is watching the run and will give you another turn the moment the \
          helper has actually ended, and you carry on from there. The same goes for the \
          reviewer.\n\nIf the job changes no repository (running a command he asked for, \
@@ -5459,7 +5459,7 @@ mod tests {
         run(3);
         assert_eq!(h.fill.lock().unwrap().turns.last(), Some(&Some("2".to_string())), "the job ran under Work");
         assert_eq!(quota.accounts.take_notice().as_deref(),
-            Some("Switched to Work — Account 1 reached 93% of its five-hour window. Nothing stopped."));
+            Some("Switched to Work: Account 1 reached 93% of its five-hour window. Nothing stopped."));
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }

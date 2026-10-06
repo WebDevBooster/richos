@@ -95,7 +95,7 @@ impl SttError {
                 // and never said who, leaving a reader who cannot install anything holding a
                 // job with no owner. RichOS cannot fetch a DECODER for itself — see the table
                 // on `SpeechReadiness` — so this one still names whoever set the machine up.
-                "My ears aren't installed on this machine yet — whoever set RichOS up adds \
+                "My ears aren't installed on this machine yet. Whoever set RichOS up adds \
                  those. I can still read what you type."
                     .into()
             }
@@ -125,7 +125,7 @@ impl SttError {
                     .into()
             }
             SttError::Io(_) | SttError::Failed { .. } => {
-                "I didn't catch that — say it again?".into()
+                "I didn't catch that. Say it again?".into()
             }
         }
     }

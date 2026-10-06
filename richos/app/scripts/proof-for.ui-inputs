@@ -127,7 +127,7 @@ realbytes.js            @shell richos/app/ui/timeline.js
 restart-scope.js        @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 scale.js                @shell richos/app/ui/timeline.js
 steering.js             @shell richos/app/ui/timeline.js richos/app/ui/mock.js
-techy.js                @shell richos/app/ui/timeline.js richos/app/ui/mock.js richos/app/ui/tests/fixtures/machinery-payload.json
+techy.js                @shell richos/app/ui/timeline.js richos/app/ui/mock.js richos/app/ui/tests/fixtures/machinery-payload.json richos/app/src-tauri/src/machinery_view.rs
 workers.js              @shell richos/app/ui/timeline.js
 
 # ---- the home screen and the window's chrome ---------------------------------------------

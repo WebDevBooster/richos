@@ -348,9 +348,9 @@ impl Accounts {
         // boundary stops nothing; a usage-limit refusal re-serves the step it cut on the next
         // account (`spine.rs`, `work_host.rs`).
         let text = match why {
-            Gone::FiveHour(used) => format!("Switched to {to_label} — {from} reached {}% of its five-hour window. Nothing stopped.", used.floor()),
-            Gone::Weekly(used) => format!("Switched to {to_label} — {from}'s weekly window reached {}%. Nothing stopped.", used.floor()),
-            Gone::Limit => format!("Switched to {to_label} — {from} reached a usage limit; the step it turned away runs again on {to_label}."),
+            Gone::FiveHour(used) => format!("Switched to {to_label}: {from} reached {}% of its five-hour window. Nothing stopped.", used.floor()),
+            Gone::Weekly(used) => format!("Switched to {to_label}: {from}'s weekly window reached {}%. Nothing stopped.", used.floor()),
+            Gone::Limit => format!("Switched to {to_label}: {from} reached a usage limit; the step it turned away runs again on {to_label}."),
         };
         // Deciding is not switching: running leases move at their next turn boundary, and one
         // with a command running waits longer (`spine.rs` / `work_host.rs`,
@@ -528,7 +528,7 @@ pub(crate) mod tests {
         accounts.ran_on("1");
         assert_eq!(accounts.take_notice(), None, "a turn on the account being left says nothing");
         accounts.ran_on("3");
-        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal — Account 1's weekly window reached 99%. Nothing stopped."));
+        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal: Account 1's weekly window reached 99%. Nothing stopped."));
         let last = accounts.last_switch().unwrap();
         assert_eq!((last.from.as_str(), last.to.as_str(), last.at, last.why.as_str(), last.used), ("1", "3", NOW, "weekly", Some(99.)));
         // Staying is fill-first: Personal has room, so nothing moves, even though Work is

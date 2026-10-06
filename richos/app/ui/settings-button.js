@@ -260,7 +260,7 @@ window.RichSettings = (function () {
       // screen reader alike. It is the state's own account of who owns it.
       said.title =
         "That was set when RichOS was started up, from outside this window, so it can't be " +
-        "changed from in here — whoever set RichOS up is the one who changes it.";
+        "changed from in here. Whoever set RichOS up is the one who changes it.";
       row.appendChild(said);
       return row;
     }
@@ -642,7 +642,7 @@ window.RichSettings = (function () {
     // first-run user reaches for. So it acknowledges, in Rich's voice, and says the one
     // thing about it that IS decided — that nothing leaves the machine unasked.
     toast(
-      "Got it — the bug report starts from this exact screen, as it stands. " +
+      "Got it. The bug report starts from this exact screen, as it stands. " +
         "Nothing leaves this machine until you say so."
     );
   }

@@ -55,7 +55,7 @@ impl TtsError {
     /// `a_synthesis_failure_degrades_to_text_without_leaking_machinery` asserts the CEO is
     /// told the conversation continues.)
     pub fn ceo_message(&self) -> String {
-        "My voice isn't working on this machine — whoever set RichOS up would need to look at \
+        "My voice isn't working on this machine. Whoever set RichOS up would need to look at \
          that. I'll keep answering in text."
             .into()
     }

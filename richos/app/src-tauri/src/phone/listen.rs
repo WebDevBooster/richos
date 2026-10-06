@@ -326,7 +326,7 @@ pub fn check_addresses(addresses: &[IpAddr]) -> Result<(), PhoneError> {
     for address in addresses {
         if address.is_unspecified() {
             return Err(PhoneError::Malformed(format!(
-                "{address} is every interface at once, which this channel never binds — give it \
+                "{address} is every interface at once, which this channel never binds; give it \
                  the addresses this Mac actually answers on"
             )));
         }

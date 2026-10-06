@@ -167,7 +167,7 @@ pub fn decide(request: &ExitRequest) -> ExitDecision {
 pub fn quit_question(registered: &Registered) -> String {
     if !registered.readable {
         return "I can't tell whether anything is still running in the background. \
-                If you quit now, anything that is running stops — nothing is lost, and \
+                If you quit now, anything that is running stops. Nothing is lost, and \
                 nothing is landed."
             .into();
     }

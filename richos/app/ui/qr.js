@@ -167,7 +167,7 @@ function dataCodewords(bytes, spec) {
 	for (const b of bytes) buffer.push(b, 8);
 
 	const capacityBits = spec.blocks * spec.dataPerBlock * 8;
-	if (buffer.length > capacityBits) throw new Error('qr: internal error — the payload overran the version chosen for it');
+	if (buffer.length > capacityBits) throw new Error('qr: internal error: the payload overran the version chosen for it');
 
 	// Terminator: up to four zero bits, fewer if there is not room.
 	buffer.push(0, Math.min(4, capacityBits - buffer.length));
@@ -406,7 +406,7 @@ function encode(text) {
 	const spec = pickVersion(bytes.length);
 	if (!spec) {
 		throw new Error(`qr: ${bytes.length} bytes does not fit in a version 1-6 level-M symbol (106 bytes is the ceiling). ` +
-			'Shorten the URL or extend the version table — do not silently truncate.');
+			'Shorten the URL or extend the version table. Do not silently truncate.');
 	}
 	const codewords = interleave(dataCodewords(bytes, spec), spec);
 	const size = 17 + 4 * spec.version;

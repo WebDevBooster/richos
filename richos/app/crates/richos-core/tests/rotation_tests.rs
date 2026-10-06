@@ -1198,7 +1198,7 @@ fn a_turn_that_starts_at_93_percent_runs_under_the_next_account() {
     let his: Vec<_> = prompts.lock().unwrap().iter().filter(|(_, text)| text == "What is on my plate?").cloned().collect();
     assert_eq!(his, vec![("2".to_string(), "What is on my plate?".to_string())], "his turn ran ONLY under Work");
     let msgs = spine.messages(&thread).unwrap();
-    assert!(msgs.iter().any(|m| m.text == "Switched to Work — Account 1 reached 93% of its five-hour window. Nothing stopped."), "{msgs:?}");
+    assert!(msgs.iter().any(|m| m.text == "Switched to Work: Account 1 reached 93% of its five-hour window. Nothing stopped."), "{msgs:?}");
     assert!(msgs.iter().any(|m| m.text == "answered on account 2"));
     drop(std::fs::remove_file(&path));
     drop(std::fs::remove_dir_all(dir));
@@ -1275,7 +1275,7 @@ fn an_account_switch_waits_for_a_command_the_conversation_started() {
 fn the_switch_notice_waits_until_a_turn_really_runs_under_the_new_account() {
     use richos_core::lease_commands::CommandReading;
     // Round 16's words for the switch ("The switch"), held until a turn runs under Work.
-    const NOTICE: &str = "Switched to Work — Account 1 reached 93% of its five-hour window. Nothing stopped.";
+    const NOTICE: &str = "Switched to Work: Account 1 reached 93% of its five-hour window. Nothing stopped.";
     let (dir, quota) = two_accounts("notice-waits", 60.);
     // The five-hour switch acts only while the automatic switch is on (e1ac24d27).
     quota.set_policy(richos_core::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
@@ -1386,7 +1386,7 @@ fn a_turn_cut_by_a_usage_limit_is_re_served_under_the_next_account() {
     let msgs = spine.messages(&thread).unwrap();
     let exchange: Vec<_> = msgs.iter().filter(|m| !m.text.starts_with("Switched to")).map(|m| m.text.as_str()).collect();
     assert_eq!(exchange, vec!["Draft the board update", "answered on account 2"], "one clean exchange");
-    assert!(msgs.iter().any(|m| m.text == "Switched to Work — Account 1 reached a usage limit; the step it turned away runs again on Work."));
+    assert!(msgs.iter().any(|m| m.text == "Switched to Work: Account 1 reached a usage limit; the step it turned away runs again on Work."));
     let failed = spine.ledger().turns().iter().find(|t| t.state == TurnState::Interrupted).cloned().expect("kept on disk");
     assert!(failed.superseded_by.is_some());
     drop(std::fs::remove_file(&path));

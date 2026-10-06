@@ -218,7 +218,7 @@ impl PhoneError {
             // control on this same screen that starts it again.
             PhoneError::ToolTimedOut { tool, .. } if tool == "security" => {
                 "Your Mac's keychain did not answer, so I stopped waiting and nothing was stored. \
-macOS may be holding a keychain window open behind this one — look for it, answer it, then \
+macOS may be holding a keychain window open behind this one. Look for it, answer it, then \
 press Set my phone up again."
             }
             PhoneError::ToolTimedOut { .. } => {

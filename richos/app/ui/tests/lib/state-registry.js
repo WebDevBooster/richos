@@ -135,7 +135,7 @@ module.exports = [
   // ACTIONABLE
   // -------------------------------------------------------------------------------------
   {
-    s: "Anything I'd written is above. Your message is safe — I'll put it back in the box for you.",
+    s: "Anything I'd written is above. Your message is safe: I'll put it back in the box for you.",
     c: "ACTIONABLE",
     control: ".tl-intervention--quiet button.tl-intervention-action",
     fixture: "unknown-turn",
@@ -196,7 +196,7 @@ module.exports = [
   {
     s:
       "I couldn't start that, because I'm not connected to your Anthropic account right " +
-      "now — either nobody has signed in on this Mac yet, or the sign-in ran out. You can " +
+      "now: either nobody has signed in on this Mac yet, or the sign-in ran out. You can " +
       "connect it in Settings, under Account connection, and then send this to me again.",
     c: "ACTIONABLE",
     control: "#rail-settings",
@@ -213,7 +213,7 @@ module.exports = [
     s:
       "I couldn't start that. There is an account credential set up on this Mac and " +
       "Anthropic turned it down, so the request never left the machine. This one needs " +
-      "whoever set RichOS up — it isn't something you can fix from here, and asking me " +
+      "whoever set RichOS up. It isn't something you can fix from here, and asking me " +
       "again won't change it.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
@@ -231,7 +231,7 @@ module.exports = [
     s:
       "I couldn't start that. The copy of Claude Code RichOS tried to run isn't on this Mac " +
       "where I expected it, so there was nothing here to think with. This one needs whoever " +
-      "set RichOS up — it isn't something you can fix from here, and asking me again won't " +
+      "set RichOS up. It isn't something you can fix from here, and asking me again won't " +
       "change it.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
@@ -270,7 +270,7 @@ module.exports = [
   },
   {
     s:
-      "That stopped before I finished, and I can't tell you why — I don't recognize what " +
+      "That stopped before I finished, and I can't tell you why: I don't recognize what " +
       "came back. Asking again is reasonable; if it stops the same way, it needs whoever " +
       "set RichOS up.",
     c: "ACTIONABLE",
@@ -329,21 +329,21 @@ module.exports = [
     why: "Only reachable with a live turn, which is exactly when syncComposerMode shows Stop.",
   },
   {
-    s: "I couldn't take that down while I was working — it's back in the box below, nothing lost.",
+    s: "I couldn't take that down while I was working. It's back in the box below, nothing lost.",
     c: "ACTIONABLE",
     control: "#send",
     fixture: "working-turn",
     why: "§9.2 steering refused. The words are restored; Send is what sends them again.",
   },
   {
-    s: "I couldn't start that thread just now. Your words are still in the box below — press Send to try again.",
+    s: "I couldn't start that thread just now. Your words are still in the box below. Press Send to try again.",
     c: "ACTIONABLE",
     control: "#send",
     fixture: "thread-create-refused",
     why: "create_thread_in refused. Entity view, sendBlockedReason null, so Send is live.",
   },
   {
-    s: "Your words are back in the box below, word for word — press Send when you want me to try again.",
+    s: "Your words are back in the box below, word for word. Press Send when you want me to try again.",
     c: "ACTIONABLE",
     control: "#send",
     fixture: "not-connected",
@@ -357,21 +357,21 @@ module.exports = [
     why: "A search with no hits. The field he retypes into is the affordance, and it is focused.",
   },
   {
-    s: "I can't find a microphone on this machine — plug one in and tap ◉ again.",
+    s: "I can't find a microphone on this machine. Plug one in and tap ◉ again.",
     c: "ACTIONABLE",
     control: "#talk-toggle",
     fixture: "shell",
     why: "Precise instruction naming ◉, which is #talk-toggle and never hides (index.html:150).",
   },
   {
-    s: "I couldn't open the microphone. In System Settings, under Privacy and Security, give RichOS microphone access — then tap ◉ again.",
+    s: "I couldn't open the microphone. In System Settings, under Privacy and Security, give RichOS microphone access, then tap ◉ again.",
     c: "ACTIONABLE",
     control: "#talk-toggle",
     fixture: "shell",
     why: "Names the settings pane AND the control to press afterwards.",
   },
   {
-    s: "This microphone gives me audio I can't work with — pick a different one in System Settings, under Sound, then tap ◉ again.",
+    s: "This microphone gives me audio I can't work with. Pick a different one in System Settings, under Sound, then tap ◉ again.",
     c: "ACTIONABLE",
     control: "#talk-toggle",
     fixture: "shell",
@@ -385,14 +385,14 @@ module.exports = [
     why: "Every PlayoutError variant is a missing or unusable output device. Plugging one in is his.",
   },
   {
-    s: "The mic still won't open. I've switched us back to typing — tap ◉ when you want to try voice again.",
+    s: "The mic still won't open. I've switched us back to typing. Tap ◉ when you want to try voice again.",
     c: "ACTIONABLE",
     control: "#talk-toggle",
     fixture: "shell",
     why: "Said after #voice-retry fails and voice mode is torn down. ◉ is the way back in.",
   },
   {
-    s: "I didn't catch that — say it again?",
+    s: "I didn't catch that. Say it again?",
     c: "ACTIONABLE",
     control: "#talk-toggle",
     fixture: "shell",
@@ -418,7 +418,7 @@ module.exports = [
     why: "Same structural affordance as 'ended with an error'.",
   },
   {
-    s: "outcome unknown — a turn never finished",
+    s: "outcome unknown: a turn never finished",
     c: "ACTIONABLE",
     control: ".nav-thread",
     fixture: "rail-mark",
@@ -431,7 +431,7 @@ module.exports = [
   // sentence below instead — "quit and reopen" on a machine with no engine, which the next
   // boot would fail in exactly the same way.
   {
-    s: "I can't take that on yet — the RichOS engine isn't on this Mac, and that's the part of me that knows how I work. I've put the setting up back on your screen: press Set it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
+    s: "I can't take that on yet: the RichOS engine isn't on this Mac, and that's the part of me that knows how I work. I've put the setting up back on your screen: press Set it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
     c: "ACTIONABLE",
     control: "#setup-go",
     fixture: "setup-refused-engine",
@@ -441,21 +441,21 @@ module.exports = [
       "names is on screen when he reads it.",
   },
   {
-    s: "I can't take that on yet — Claude Code isn't on this Mac, and that's the program I think with. I've put the setting up back on your screen: press Set it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
+    s: "I can't take that on yet: Claude Code isn't on this Mac, and that's the program I think with. I've put the setting up back on your screen: press Set it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
     c: "ACTIONABLE",
     control: "#setup-go",
     fixture: "setup-refused-claude",
     why: "Same state, other component. A Mac set up once and since had its binary removed.",
   },
   {
-    s: "I can't take that on yet — this Mac doesn't have Claude Code or the RichOS engine, and those are what I think with. I've put the setting up back on your screen: press Set it up and I'll fetch them. There's nothing to quit and nothing to reopen.",
+    s: "I can't take that on yet: this Mac doesn't have Claude Code or the RichOS engine, and those are what I think with. I've put the setting up back on your screen: press Set it up and I'll fetch them. There's nothing to quit and nothing to reopen.",
     c: "ACTIONABLE",
     control: "#setup-go",
     fixture: "setup-refused-both",
     why: "The customer's Mac on the day he installs, after he answers the sheet with 'Not now'.",
   },
   {
-    s: "Your words are back in the box below, word for word — they'll be there when the setting up is done.",
+    s: "Your words are back in the box below, word for word. They'll be there when the setting up is done.",
     c: "FRAGMENT",
     why:
       "Appended to the three sentences above, and only to those. The ordinary tail names " +
@@ -468,7 +468,7 @@ module.exports = [
   // NEEDS SOMEONE ELSE
   // -------------------------------------------------------------------------------------
   {
-    s: "I'm not connected to my thinking right now, so I can't take that on. Quit RichOS and open it again — that clears it most of the time. If it keeps happening, whoever set RichOS up has to sign me back in; that part isn't yours to fix.",
+    s: "I'm not connected to my thinking right now, so I can't take that on. Quit RichOS and open it again. That clears it most of the time. If it keeps happening, whoever set RichOS up has to sign me back in; that part isn't yours to fix.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     control: "#send",
@@ -488,7 +488,7 @@ module.exports = [
       "boot where boot_entity() resolves to None, which the mock bridge cannot produce.",
   },
   {
-    s: "I can't open this one. It has no entity home — it predates entity scoping, and I won't guess which entity this work belongs to. Filing it under the wrong one would mix up two companies' records, and that's not a mistake worth risking to save you a question.",
+    s: "I can't open this one. It has no entity home: it predates entity scoping, and I won't guess which entity this work belongs to. Filing it under the wrong one would mix up two companies' records, and that's not a mistake worth risking to save you a question.",
     c: "NEEDS-SOMEONE-ELSE",
     explainedBy: "the detail line beneath it, which names whoever set RichOS up",
     control: "#unbound-new-thread",
@@ -496,7 +496,7 @@ module.exports = [
     why: "§21's body. He cannot bind the thread; he can start the work again where it belongs.",
   },
   {
-    s: "Filing it under a company is a job for whoever set RichOS up — there is no control for it in the app yet, so it will not sort itself out. Meanwhile the button above starts a fresh thread wherever you say, and I'll carry on there.",
+    s: "Filing it under a company is a job for whoever set RichOS up. There is no control for it in the app yet, so it will not sort itself out. Meanwhile the button above starts a fresh thread wherever you say, and I'll carry on there.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     control: "#unbound-new-thread",
@@ -549,7 +549,7 @@ module.exports = [
     why: "The rail status mark for an unbound thread, rendered inside the row's own button.",
   },
   {
-    s: "I can't show priorities for this area yet, and the area itself is set up inside RichOS rather than in settings — whoever set RichOS up is the one who changes it. Nothing here needs you.",
+    s: "I can't show priorities for this area yet, and the area itself is set up inside RichOS rather than in settings. Whoever set RichOS up is the one who changes it. Nothing here needs you.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     fixture: "entity-view",
@@ -559,7 +559,7 @@ module.exports = [
   },
   {
     s:
-      "I can hear sound, but I'm not getting words out of it — the microphone may be " +
+      "I can hear sound, but I'm not getting words out of it. The microphone may be " +
       "picking up the room rather than you. Voice is still on.",
     c: "INFORMATIONAL",
     why:
@@ -595,7 +595,7 @@ module.exports = [
   },
   {
     s:
-      "While I was speaking, I couldn't tell your voice from my own — so if you said " +
+      "While I was speaking, I couldn't tell your voice from my own, so if you said " +
       "something just then, it didn't reach me and I haven't sent anything. I'm listening now.",
     c: "INFORMATIONAL",
     why:
@@ -685,7 +685,7 @@ module.exports = [
     s:
       "I'm using my faster hearing on this machine. The more accurate one takes long enough " +
       "here that you'd be waiting after every sentence, and a conversation with pauses in it " +
-      "isn't a conversation. You can still say anything you like — I just might misread an " +
+      "isn't a conversation. You can still say anything you like. I just might misread an " +
       "unusual name now and then.",
     c: "INFORMATIONAL",
     why:
@@ -696,7 +696,7 @@ module.exports = [
   },
   {
     s:
-      "I'm using my lighter hearing on this machine — there isn't enough free memory right " +
+      "I'm using my lighter hearing on this machine: there isn't enough free memory right " +
       "now for the more accurate one, and I'd rather not slow everything else down. You can " +
       "still say anything you like.",
     c: "INFORMATIONAL",
@@ -719,7 +719,7 @@ module.exports = [
       "named as a time, not issued as a command.",
   },
   {
-    s: "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
+    s: "My ears aren't installed on this machine yet. Whoever set RichOS up adds those. I can still read what you type.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     fixture: null,
@@ -756,7 +756,7 @@ module.exports = [
       "richos-voice, so only a live pipeline produces this variant.",
   },
   {
-    s: "My voice isn't working on this machine — whoever set RichOS up would need to look at that. I'll keep answering in text.",
+    s: "My voice isn't working on this machine. Whoever set RichOS up would need to look at that. I'll keep answering in text.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     fixture: null,
@@ -789,7 +789,7 @@ module.exports = [
     why: "The note inside the failure card. The card's body carries the action.",
   },
   {
-    s: "How long it ran was not recorded — the turn ended without writing an end time.",
+    s: "How long it ran was not recorded: the turn ended without writing an end time.",
     c: "INFORMATIONAL",
     why: "A statement about what the ledger holds. Nothing anyone can do.",
   },
@@ -804,7 +804,7 @@ module.exports = [
     why: "The duration row's tooltip. The card beneath it is where the action lives.",
   },
   {
-    s: "I've noted that you stopped this. I couldn't interrupt the work already in flight, so it may finish on its own — nothing new will start.",
+    s: "I've noted that you stopped this. I couldn't interrupt the work already in flight, so it may finish on its own, but nothing new will start.",
     c: "INFORMATIONAL",
     why:
       "Reports a durable fact and claims nothing further. Correctly offers no control: the stop " +
@@ -837,17 +837,17 @@ module.exports = [
       "on a §7.2 surface the CEO reads, and that is a copy decision, not an affordance defect.",
   },
   {
-    s: "This run is open — no end has been recorded for it.",
+    s: "This run is open: no end has been recorded for it.",
     c: "INFORMATIONAL",
     why: "Worker state note.",
   },
   {
-    s: "This run has ended. Nothing recorded whether the work finished, stopped or failed — so I'm not going to call it either way.",
+    s: "This run has ended. Nothing recorded whether the work finished, stopped or failed, so I'm not going to call it either way.",
     c: "INFORMATIONAL",
     why: "The `unknown` worker note. Refuses a verdict; asks nothing.",
   },
   {
-    s: "This run has ended. Nothing recorded whether the work finished, was cut short or failed — so I'm not going to call it either way.",
+    s: "This run has ended. Nothing recorded whether the work finished, was cut short or failed, so I'm not going to call it either way.",
     c: "INFORMATIONAL",
     why: "The inspector's copy of the same statement.",
   },
@@ -862,7 +862,7 @@ module.exports = [
     why: "The unrecognized-state fallback. Nothing for the CEO to do about a protocol surprise.",
   },
   {
-    s: "I don't have this worker's brief or its output — the files it touched are in Output.",
+    s: "I don't have this worker's brief or its output. The files it touched are in Output.",
     c: "INFORMATIONAL",
     why:
       "§7.2's honest empty pane, shortened by the Output side panel PRD (§12.10) to what is still " +
@@ -873,7 +873,7 @@ module.exports = [
   // ---- THE OUTPUT PANEL (Output side panel PRD §6, slice S4; `output-panel.js`) -------------
   // `tests/output.js` renders every one of these. The shell's own sentences that the panel also
   // shows (`MISSING`, `RECORD_UNREADABLE` in `src-tauri/src/output_files.rs`) are S3's rows.
-  {s: "Output — nothing produced yet in this thread", c: "CONTROL", why: "The accessible name of both Output buttons (`#out-top`, `#out-bottom`) on a thread with no recorded files; with files it is `Output — N files from this thread`. Pressing either opens the panel."},
+  {s: "Output: nothing produced yet in this thread", c: "CONTROL", why: "The accessible name of both Output buttons (`#out-top`, `#out-bottom`) on a thread with no recorded files; with files it is `Output — N files from this thread`. Pressing either opens the panel."},
   {s: "Everything this thread produced (⌘⇧O)", c: "CONTROL", why: "The pointer tooltip of both Output buttons, naming the shortcut. The name is the aria-label, never this (control-names.js)."},
   {s: "Close the output panel", c: "CONTROL", why: "The accessible name of the panel's ✕ (`#op-close`)."},
   {s: "All output ·", c: "CONTROL", why: "The head of the file view's way back to the list (`#of-back`), followed by the thread's file count."},
@@ -883,7 +883,7 @@ module.exports = [
   {s: "No longer where it was written", c: "INFORMATIONAL", why: "A recorded file that is not at its path now (§4.6): the dimmed row's line, and the file view's subline. The file view's sentence (S3's `MISSING`) says what he can do, and it is his choice."},
   {s: "from this thread", c: "FRAGMENT", why: "Follows `N files` (or `1 file`) in the panel's title, the buttons' names and the count announcement."},
   {s: "no longer where", c: "FRAGMENT", why: "Part of the panel title's `· N no longer where it was written` (or `they were`), when any recorded file is missing. INFORMATIONAL as a whole."},
-  {s: "has produced a file yet. The moment Rich or the team writes one, it is listed here — and the count on the Output button says so.", c: "FRAGMENT", why: "The tail of the empty sentence, after `Nothing in <thread>`. INFORMATIONAL as a whole: it says when the list will fill and asks nothing."},
+  {s: "has produced a file yet. The moment Rich or the team writes one, it is listed here, and the count on the Output button says so.", c: "FRAGMENT", why: "The tail of the empty sentence, after `Nothing in <thread>`. INFORMATIONAL as a whole: it says when the list will fill and asks nothing."},
   // ---- THE OUTPUT PANEL'S PREVIEWS (Output side panel PRD §7, slice S5; `output-panel.js`) -------
   // `tests/output.js` renders every one of these. The §6.7 sentences the viewer shows verbatim from
   // `output_preview` are the shell's rows (`MISSING`, `LINKED`, `NOT_A_FILE` below, and the
@@ -909,7 +909,7 @@ module.exports = [
   {s: "Open completely. The conversation is one click back, and closing the panel brings it all back.", c: "INFORMATIONAL", why: "Announced once in the polite live region when the pull opens the panel completely (round 17.1's notice). It names the ways back, which are on screen (the pill and ×); nothing is asked."},
   {s: "The conversation is back.", c: "INFORMATIONAL", why: "Announced once in the polite live region when the conversation returns from open completely. Nothing to do."},
   {
-    s: "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there.",
+    s: "I'm Rich, your chief of staff. Tell me what you're working on and I'll take it from there.",
     c: "INFORMATIONAL",
     why:
       "First-run greeting. An invitation, not a state he could change, and it names the " +
@@ -927,7 +927,7 @@ module.exports = [
       "control rather than shipped beside its absence.",
   },
   {
-    s: "Talking out loud needs the desktop app — here in the preview, type to me.",
+    s: "Talking out loud needs the desktop app. Here in the preview, type to me.",
     c: "INFORMATIONAL",
     why:
       "Browser-preview only: reachable solely when Bridge.isMock. Never renders in the shipped " +
@@ -1059,7 +1059,7 @@ module.exports = [
   {
     s: "This install has no company memory it can write to, so there is nothing to read or correct here. That is a statement about this install, not about what is recorded.",
     c: "NEEDS-SOMEONE-ELSE",
-    explainedBy: "Switching that on is a job for whoever set RichOS up — there is no control for it in here.",
+    explainedBy: "Switching that on is a job for whoever set RichOS up. There is no control for it in here.",
     fixture: "corrections-off",
     why:
       "The loro desk's own refusal (main.rs, `desk()`), relayed verbatim and never reworded. " +
@@ -1068,14 +1068,14 @@ module.exports = [
       "the UI says who can do something about it, and neither guesses the other's half.",
   },
   {
-    s: "I can't record corrections right now — my correction log could not be opened. Nothing you say is being lost from the conversation itself.",
+    s: "I can't record corrections right now: my correction log could not be opened. Nothing you say is being lost from the conversation itself.",
     c: "NEEDS-SOMEONE-ELSE",
-    explainedBy: "Switching that on is a job for whoever set RichOS up — there is no control for it in here.",
+    explainedBy: "Switching that on is a job for whoever set RichOS up. There is no control for it in here.",
     fixture: "corrections-off",
     why: "The spoken desk's refusal (main.rs, `spoken_desk()`), same relay and same owner line.",
   },
   {
-    s: "Switching that on is a job for whoever set RichOS up — there is no control for it in here.",
+    s: "Switching that on is a job for whoever set RichOS up. There is no control for it in here.",
     c: "NEEDS-SOMEONE-ELSE",
     fixture: "corrections-off",
     why:
@@ -1281,7 +1281,7 @@ module.exports = [
   // one empty line, and the three refusals the command layer writes.
   // -------------------------------------------------------------------------------------
   {
-    s: "I can't keep an answer right now — the file I record them in wouldn't open, and I'm not going to ask you what you think and then lose it. That one is for whoever set RichOS up to look at; it isn't yours to fix.",
+    s: "I can't keep an answer right now: the file I record them in wouldn't open, and I'm not going to ask you what you think and then lose it. That one is for whoever set RichOS up to look at; it isn't yours to fix.",
     c: "NEEDS-SOMEONE-ELSE",
     fixture: "feedback-unavailable",
     why:
@@ -1299,7 +1299,7 @@ module.exports = [
       "neutral label — 'this machine' is the whole of where an answer goes in this version.",
   },
   {
-    s: "Nothing is recorded here yet. RichOS never puts the question to you on its own — this panel is the only place it is asked.",
+    s: "Nothing is recorded here yet. RichOS never puts the question to you on its own. This panel is the only place it is asked.",
     c: "INFORMATIONAL",
     fixture: "feedback",
     why:
@@ -1367,7 +1367,7 @@ module.exports = [
     why: "He was offered the chance to report and said no. Says what was kept, which is the rating and only the rating.",
   },
   {
-    s: "Taken down, word for word as you read it — and it stays on this machine.",
+    s: "Taken down, word for word as you read it, and it stays on this machine.",
     c: "INFORMATIONAL",
     fixture: "feedback-approved",
     why:
@@ -1458,7 +1458,7 @@ module.exports = [
       "neither a party nor an instruction, which is why it does not have to.",
   },
   {
-    s: "I'll keep everything you tell me under the company you pick, and I'll remember it — you won't be asked again. You can change it later in Settings.",
+    s: "I'll keep everything you tell me under the company you pick, and I'll remember it, so you won't be asked again. You can change it later in Settings.",
     c: "ACTIONABLE",
     control: "#entity-picker-list .picker-item",
     fixture: "company-unchosen",
@@ -1477,7 +1477,7 @@ module.exports = [
   // but his the app offered him a choice among businesses that were not his, or a composer
   // that refused every send. Every string below is part of the door.
   {
-    s: "I don't know about any of your companies yet. Tell me one and I'll start keeping its work together — you can add the rest whenever you like.",
+    s: "I don't know about any of your companies yet. Tell me one and I'll start keeping its work together. You can add the rest whenever you like.",
     c: "ACTIONABLE",
     control: "#entity-add-name",
     fixture: "company-none-registered",
@@ -1515,7 +1515,7 @@ module.exports = [
       "leaving that in a hint below it.",
   },
   {
-    s: "Give me a folder and I'll pick this company on my own whenever you start RichOS from inside it. Leave it blank and you'll just pick it yourself — everything else works the same.",
+    s: "Give me a folder and I'll pick this company on my own whenever you start RichOS from inside it. Leave it blank and you'll just pick it yourself. Everything else works the same.",
     c: "INFORMATIONAL",
     fixture: "company-unchosen",
     why:
@@ -1550,7 +1550,7 @@ module.exports = [
       "below; the path between the halves is a fact about one machine, not a string.",
   },
   {
-    s: ", and I couldn't read it just now, so I'm not showing any — rather than showing you a wrong list. That file is fixed by whoever set RichOS up. You can also add a company here in the meantime.",
+    s: ", and I couldn't read it just now, so I'm not showing any, rather than showing you a wrong list. That file is fixed by whoever set RichOS up. You can also add a company here in the meantime.",
     c: "NEEDS-SOMEONE-ELSE",
     fixture: "company-registry-unreadable",
     why:
@@ -1563,7 +1563,7 @@ module.exports = [
   },
   // ---- and the Rust refusals the shell relays verbatim ---------------------------------
   {
-    s: "I need a name for the company before I can file anything under it. Anything you'd recognize on a button is fine — you can change it later.",
+    s: "I need a name for the company before I can file anything under it. Anything you'd recognize on a button is fine. You can change it later.",
     c: "ACTIONABLE",
     control: "#entity-add-name",
     fixture: "company-none-registered",
@@ -1650,7 +1650,7 @@ module.exports = [
       "the other would have asserted nothing.",
   },
   {
-    s: "I can get them myself — you just have to say so.",
+    s: "I can get them myself. You just have to say so.",
     c: "ACTIONABLE",
     control: "#setup-go",
     fixture: "setup-missing-both",
@@ -1661,7 +1661,7 @@ module.exports = [
       "unpinned state below, where no press would help.",
   },
   {
-    s: "I can get it myself — you just have to say so.",
+    s: "I can get it myself. You just have to say so.",
     c: "ACTIONABLE",
     control: "#setup-go",
     fixture: "setup-missing-engine",
@@ -1709,7 +1709,7 @@ module.exports = [
       "The installation heading confirms that software setup completed. Account connection is reported separately below it.",
   },
   {
-    s: "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.",
+    s: "That's everything I could do. Something is still missing. That part is for whoever set RichOS up to look at.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     why:
@@ -1766,10 +1766,10 @@ module.exports = [
   },
   {
     s:
-      "Your memory folder is on this Mac, and I can't read or write it yet — the part of me that " +
+      "Your memory folder is on this Mac, and I can't read or write it yet: the part of me that " +
       "does isn't in this version. Nothing else is affected: our conversations stay on this Mac " +
       "and I pick them up when you come back. There's nothing for you to install and nothing for " +
-      "you to fix — I'll start using the folder on my own as soon as that part arrives.",
+      "you to fix. I'll start using the folder on my own as soon as that part arrives.",
     c: "INFORMATIONAL",
     fixture: "memory-no-compiler",
     why:
@@ -1792,7 +1792,7 @@ module.exports = [
       "the INFORMATIONAL bucket owes.",
   },
   {
-    s: "This copy of me was told which company it works for when it was started up, from outside this window, and I can't make sense of what it was told — so I won't file anything until whoever set RichOS up has sorted it out.",
+    s: "This copy of me was told which company it works for when it was started up, from outside this window, and I can't make sense of what it was told, so I won't file anything until whoever set RichOS up has sorted it out.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     fixture: "company-pinned-unresolved",
@@ -1871,7 +1871,7 @@ module.exports = [
   // UNREACHABLE / NOT-RENDERED
   // -------------------------------------------------------------------------------------
   {
-    s: "I can't tell which company this work belongs to, so I won't guess — filing it under the wrong one would mix two companies' records together, and that's not a mistake worth risking to save you a question. Pick the company and I'll keep everything under it from then on.",
+    s: "I can't tell which company this work belongs to, so I won't guess. Filing it under the wrong one would mix two companies' records together, and that's not a mistake worth risking to save you a question. Pick the company and I'll keep everything under it from then on.",
     c: "ACTIONABLE",
     control: "#choose-company-btn",
     fixture: "corrections-read-failed",
@@ -1893,7 +1893,7 @@ module.exports = [
       "otherwise.",
   },
   {
-    s: 'unknown theme {theme:?} — expected "dark", "light" or "system"',
+    s: 'unknown theme {theme:?}: expected "dark", "light" or "system"',
     c: "UNREACHABLE",
     why:
       "`set_theme`'s refusal (src-tauri/src/main.rs). No path in the shipped UI reaches it: " +
@@ -1984,7 +1984,7 @@ module.exports = [
   // bucket would be the same mistake as collapsing them into one sentence.
   // -------------------------------------------------------------------------------------
   {
-    s: "I can't read the technical record for this conversation. It's on this machine and I haven't lost it — something is refusing to open it, and whoever set RichOS up needs to look.",
+    s: "I can't read the technical record for this conversation. It's on this machine and I haven't lost it. Something is refusing to open it, and whoever set RichOS up needs to look.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     fixture: "techy-unreadable",
@@ -1996,7 +1996,7 @@ module.exports = [
       "which claims the opposite.",
   },
   {
-    s: "I can't read the stored output for this one. It's on this machine and I haven't lost it — whoever set RichOS up needs to look.",
+    s: "I can't read the stored output for this one. It's on this machine and I haven't lost it. Whoever set RichOS up needs to look.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,
     why:
@@ -2007,7 +2007,7 @@ module.exports = [
       "are no rows left to expand). Named rather than left unclassified.",
   },
   {
-    s: "Not part of any one exchange — this is what the session said with no turn running.",
+    s: "Not part of any one exchange: this is what the session said with no turn running.",
     c: "INFORMATIONAL",
     fixture: "techy-on",
     why:
@@ -2019,7 +2019,7 @@ module.exports = [
       "explains a layout, it does not ask for a decision.",
   },
   {
-    s: "Nothing was recorded between turns in this conversation. Rich started keeping this on 2026-08-30 — so in an older conversation that is a gap in the record, not proof the session was quiet.",
+    s: "Nothing was recorded between turns in this conversation. Rich started keeping this on 2026-08-30, so in an older conversation that is a gap in the record, not proof the session was quiet.",
     c: "INFORMATIONAL",
     // `techy-empty`, not `techy-on`: the `acme` thread that `techy-on` opens HAS
     // between-turn traffic, so the sentence correctly does not render there. The fixture
@@ -2034,7 +2034,7 @@ module.exports = [
       "is unrecoverable, exactly as it is one level up.",
   },
   {
-    s: "No machinery was recorded for this conversation. Retention started on 2026-08-28, and anything Rich did before that was never written down — so this is a gap in the record, not a quiet conversation.",
+    s: "No machinery was recorded for this conversation. Retention started on 2026-08-28, and anything Rich did before that was never written down, so this is a gap in the record, not a quiet conversation.",
     c: "INFORMATIONAL",
     fixture: "techy-empty",
     why:
@@ -2044,7 +2044,7 @@ module.exports = [
       "otherwise read as a claim about the CONVERSATION rather than about the RECORD.",
   },
   {
-    s: "Nothing has been recorded on this machine yet. The technical view reads a store that hasn't been written to — it fills up as Rich works.",
+    s: "Nothing has been recorded on this machine yet. The technical view reads a store that hasn't been written to. It fills up as Rich works.",
     c: "INFORMATIONAL",
     why:
       "`machinery_view.rs::NOT_RETAINED` — a fact about the INSTALL, not the thread: no " +
@@ -2053,7 +2053,7 @@ module.exports = [
       "retention is unconditional (§3.2) and starts the first time Rich uses a tool.",
   },
   {
-    s: "The full output isn't kept this long — what's above is the whole record that was.",
+    s: "The full output isn't kept this long. What's above is the whole record that was.",
     c: "INFORMATIONAL",
     fixture: "techy-on",
     why:
@@ -2227,7 +2227,7 @@ module.exports = [
       "`unlink` nothing else in the product would ever mention.",
   },
   {
-    s: "of output — whichever comes first.",
+    s: "of output, whichever comes first.",
     c: "FRAGMENT",
     why:
       "The tail of #retention-hint's two-axis sentence, with the day and byte holes folded " +
@@ -2558,7 +2558,7 @@ module.exports = [
       "wait to restart until everything has finished' until 01e9b8d8 ended the restart.",
   },
   {
-    s: "I'll wait until everything has finished — nothing will be interrupted.",
+    s: "I'll wait until everything has finished, so nothing will be interrupted.",
     c: "INFORMATIONAL",
     fixture: "updates-waiting-available",
     why:
@@ -2904,7 +2904,7 @@ module.exports = [
     s:
       "Every button shows a number, and clicking one slides that company's name out. Give a " +
       "button its own label here instead, or take it off the home screen. This changes the " +
-      "button only — the company itself, and everything filed under it, stays exactly as it " +
+      "button only. The company itself, and everything filed under it, stays exactly as it " +
       "is.",
     c: "ACTIONABLE",
     control: "#home-prefs-list input.home-prefs-label",
@@ -2945,7 +2945,7 @@ module.exports = [
       "is render an empty list and let him think he has no companies.",
   },
   {
-    s: "With one company shown, the buttons are off the home screen — a row of one is just noise.",
+    s: "With one company shown, the buttons are off the home screen. A row of one is just noise.",
     c: "INFORMATIONAL",
     why:
       "`prefsFoot()` at one visible row. The CEO's rule — 'the company buttons should only " +
@@ -2958,7 +2958,7 @@ module.exports = [
     why: "The same line at zero visible rows, said without the aside that only fits the one-row case.",
   },
   {
-    s: "RichOS — go to the home screen",
+    s: "RichOS: go to the home screen",
     c: "CONTROL",
     why:
       "The rail wordmark's accessible name once `bindWordmark()` gives it `role=button`. It " +
@@ -3133,7 +3133,7 @@ module.exports = [
   {
     s:
       "That was set when RichOS was started up, from outside this window, so it can't be " +
-      "changed from in here — whoever set RichOS up is the one who changes it.",
+      "changed from in here. Whoever set RichOS up is the one who changes it.",
     c: "NEEDS-SOMEONE-ELSE",
     why:
       "The pinned-company row's `title`. He cannot change it and the sentence names who can, " +
@@ -3144,7 +3144,7 @@ module.exports = [
   },
   {
     s:
-      "Got it — the bug report starts from this exact screen, as it stands. Nothing leaves " +
+      "Got it. The bug report starts from this exact screen, as it stands. Nothing leaves " +
       "this machine until you say so.",
     c: "INFORMATIONAL",
     why:
@@ -3172,7 +3172,7 @@ module.exports = [
       "first of three signals, so there is nothing on the surface to act on by construction.",
   },
   {
-    s: "Splash screen #1 — the ruled standard, the rule struck along its own ghost",
+    s: "Splash screen #1: the ruled standard, the rule struck along its own ghost",
     c: "NOT-RENDERED",
     why:
       "A library entry's `name` field. `splash.js` reads `id`, `seconds` and `tokens` from an " +
@@ -3181,7 +3181,7 @@ module.exports = [
       "splash.js.",
   },
   {
-    s: "Splash screen #2 — midnight suede, the strap sewn live in gold thread",
+    s: "Splash screen #2: midnight suede, the strap sewn live in gold thread",
     c: "NOT-RENDERED",
     why: "The second entry's `name`, on the same footing as the first.",
   },
@@ -3353,7 +3353,7 @@ module.exports = [
   {
     s:
       "There's nothing on file about what this company does, who it's for, or how you want to " +
-      "work. I can ask you about it — about twenty minutes — and write your answers down, so I " +
+      "work. I can ask you about it (about twenty minutes) and write your answers down, so I " +
       'use them from then on. You can stop partway, and "not sure yet" is a real answer to any ' +
       "of it.",
     c: "ACTIONABLE",
@@ -3730,7 +3730,7 @@ module.exports = [
       "on the same row for the moment there is.",
   },
   {
-    "s": "Downloading my speech model —",
+    "s": "Downloading my speech model:",
     "c": "FRAGMENT",
     "why": "Head of the progress line; the percentage and the total are appended per event.",
   },
@@ -3764,7 +3764,7 @@ module.exports = [
       "vouching for a fixture rather than for the product.",
   },
   {
-    "s": "Downloading my speech model needs the desktop app — here in the preview, type to me.",
+    "s": "Downloading my speech model needs the desktop app. Here in the preview, type to me.",
     "c": "INFORMATIONAL",
     "why":
       "Browser-preview only: reachable solely when Bridge.isMock, exactly like the voice-mode " +
@@ -3781,7 +3781,7 @@ module.exports = [
       "there because the sentence invites him back.",
   },
   {
-    "s": "There isn't enough room on this disk for my speech model — it needs about {} free, and there's {}. Free up some space and ask me again. Nothing was downloaded.",
+    "s": "There isn't enough room on this disk for my speech model: it needs about {} free, and there's {}. Free up some space and ask me again. Nothing was downloaded.",
     "c": "ACTIONABLE",
     "control": "#voice-model-retry",
     "why":
@@ -3790,7 +3790,7 @@ module.exports = [
       "by the retry control, which re-reads the disk.",
   },
   {
-    "s": "The network sent me a sign-in page instead of my speech model — that's what hotel, airport and conference wifi does. Sign in to the network, then ask me again. Nothing was installed.",
+    "s": "The network sent me a sign-in page instead of my speech model. That's what hotel, airport and conference wifi does. Sign in to the network, then ask me again. Nothing was installed.",
     "c": "ACTIONABLE",
     "control": "#voice-model-retry",
     "why":
@@ -3845,7 +3845,7 @@ module.exports = [
       "caused or can act on differently from the retry the row beside it already offers.",
   },
   {
-    "s": "I can't set up my hearing on this machine — whoever set RichOS up adds that. I can still read what you type.",
+    "s": "I can't set up my hearing on this machine. Whoever set RichOS up adds that. I can still read what you type.",
     "c": "NEEDS-SOMEONE-ELSE",
     "why":
       "No decoder, or weights that are not the pinned weights. RichOS fetches pinned MODELS; " +
@@ -3854,21 +3854,21 @@ module.exports = [
       "and the sentence names who can do it instead.",
   },
   {
-    "s": "I can't prove the speech model this machine needs is the genuine one, so I won't download it — whoever set RichOS up can put that right. I can still read what you type.",
+    "s": "I can't prove the speech model this machine needs is the genuine one, so I won't download it . Whoever set RichOS up can put that right. I can still read what you type.",
     "c": "NEEDS-SOMEONE-ELSE",
     "why":
       "The resolver asked for a model with no row in model-pins.json. RichOS will not download " +
       "what it cannot verify, and adding a pin is a commit — so it is somebody else's move, not his.",
   },
   {
-    "s": "I can't tell where to put my speech model on this machine — whoever set RichOS up can put that right. I can still read what you type.",
+    "s": "I can't tell where to put my speech model on this machine. Whoever set RichOS up can put that right. I can still read what you type.",
     "c": "NEEDS-SOMEONE-ELSE",
     "why":
       "HOME is unset, which no double-click produces. A machine somebody configured, so the " +
       "sentence names that somebody.",
   },
   {
-    "s": "I don't have a way to check that this speech model is genuine, so I won't install it — whoever set RichOS up can put that right. I can still read what you type.",
+    "s": "I don't have a way to check that this speech model is genuine, so I won't install it. Whoever set RichOS up can put that right. I can still read what you type.",
     "c": "NEEDS-SOMEONE-ELSE",
     "why":
       "Failure::Unpinned's own sentence. It used to share the 'ask me again on a network you " +
@@ -3956,7 +3956,7 @@ module.exports = [
     "control": "#input",
   },
   {
-    "s": "Waiting for the screen to unlock — I'll carry on the moment it's back.",
+    "s": "Waiting for the screen to unlock. I'll carry on the moment it's back.",
     "c": "INFORMATIONAL",
     "why":
       "The CEO's ruling §56 (2026-09-18): a background job that needs the Mac's screen, found " +
@@ -4088,7 +4088,7 @@ module.exports = [
     "control": "#input",
   },
   {
-    "s": "Waiting for the screen to unlock — Rich will carry on the moment it's back.",
+    "s": "Waiting for the screen to unlock. Rich will carry on the moment it's back.",
     "c": "INFORMATIONAL",
     "why":
       "§56's state in a question's words, and it arrived because the §58 slice rebased onto " +
@@ -4098,7 +4098,7 @@ module.exports = [
       "unlock anything.",
   },
   {
-    "s": "Answered — it's in your conversation.",
+    "s": "Answered: it's in your conversation.",
     "c": "INFORMATIONAL",
     "why":
       "**The row §58 exists for on this surface.** A question that has been answered is not " +
@@ -4183,7 +4183,7 @@ module.exports = [
       "for the same event is the STOPPED_BY_REQUEST sentence above.",
   },
   {
-    s: "That folder is there and I couldn't use it. Everything else works as it does now — our conversations are kept somewhere else and are untouched — and there's nothing for you to fix.",
+    s: "That folder is there and I couldn't use it. Everything else works as it does now: our conversations are kept somewhere else and are untouched, and there's nothing for you to fix.",
     c: "INFORMATIONAL",
     why:
       "`MemoryStatus.state === \"unusable\"`, reached from the settings menu's `Memory folder` " +
@@ -4233,7 +4233,7 @@ module.exports = [
     "why": "One of the three sentences the paired card shows while the phone cannot be pushed to yet, chosen by the `platform` on the device record. It was ONE sentence — \"Add Rich to your phone's Home Screen and allow notifications when it asks\" — and Chrome on the CEO's Android phone offers \"Install and create shortcut\" with no item by the other name at all, so the Mac named a control the device does not have (Ray's candidate .11 walk, defect 4.5, verified on the device). The menu and item names are exactly the phone page's own (`web/web-app/app.js`, `installControlName`), so the two surfaces cannot give one control two names. ACTIONABLE, and the control is the same one the old row named: this is the state he fixes ON THE PHONE, and the only thing this view can offer is the way back out. `ui/tests/phone.js` check 9d walks all three. iOS Safari, which genuinely cannot take a push until the app is on the Home Screen."
   },
   {
-    "s": "It cannot send you notifications yet. Allow notifications on your phone when Rich asks — Chrome on Android does not need Rich installed first.",
+    "s": "It cannot send you notifications yet. Allow notifications on your phone when Rich asks. Chrome on Android does not need Rich installed first.",
     "c": "ACTIONABLE",
     "control": "#phone-forget",
     "why": "One of the three sentences the paired card shows while the phone cannot be pushed to yet, chosen by the `platform` on the device record. It was ONE sentence — \"Add Rich to your phone's Home Screen and allow notifications when it asks\" — and Chrome on the CEO's Android phone offers \"Install and create shortcut\" with no item by the other name at all, so the Mac named a control the device does not have (Ray's candidate .11 walk, defect 4.5, verified on the device). The menu and item names are exactly the phone page's own (`web/web-app/app.js`, `installControlName`), so the two surfaces cannot give one control two names. ACTIONABLE, and the control is the same one the old row named: this is the state he fixes ON THE PHONE, and the only thing this view can offer is the way back out. `ui/tests/phone.js` check 9d walks all three. Chrome on Android, where the old instruction was WRONG rather than misnamed: Chrome subscribes to push from a tab, so nothing has to be installed first. The phone page records the same division and, for the same reason, shows no install sentence there."
@@ -4285,7 +4285,7 @@ module.exports = [
     "why": "#set-phone-open — the settings-menu row that opens the pairing screen."
   },
   {
-    "s": "qr: bytes does not fit in a version 1-6 level-M symbol (106 bytes is the ceiling). Shorten the URL or extend the version table — do not silently truncate.",
+    "s": "qr: bytes does not fit in a version 1-6 level-M symbol (106 bytes is the ceiling). Shorten the URL or extend the version table. Do not silently truncate.",
     "c": "NOT-RENDERED",
     "why": "A `throw` inside the QR encoder. Two of the three are internal invariants that can only fire on a table typo; the length ceiling is caught by `paint()` and replaced with the message it carries, which is for whoever is reading the log rather than for him — a URL too long to encode is a bug in the Mac's own address, not something he can act on."
   },
@@ -4295,7 +4295,7 @@ module.exports = [
     "why": "A `throw` inside the QR encoder. Two of the three are internal invariants that can only fire on a table typo; the length ceiling is caught by `paint()` and replaced with the message it carries, which is for whoever is reading the log rather than for him — a URL too long to encode is a bug in the Mac's own address, not something he can act on."
   },
   {
-    "s": "qr: internal error — the payload overran the version chosen for it",
+    "s": "qr: internal error: the payload overran the version chosen for it",
     "c": "NOT-RENDERED",
     "why": "A `throw` inside the QR encoder. Two of the three are internal invariants that can only fire on a table typo; the length ceiling is caught by `paint()` and replaced with the message it carries, which is for whoever is reading the log rather than for him — a URL too long to encode is a bug in the Mac's own address, not something he can act on."
   },
@@ -4354,7 +4354,7 @@ module.exports = [
     "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/ca.rs:273)"
   },
   {
-    "s": "a phone is already paired — forget it first, which also closes the listener",
+    "s": "a phone is already paired; forget it first, which also closes the listener",
     "c": "NOT-RENDERED",
     "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/device.rs:301)"
   },
@@ -4480,7 +4480,7 @@ module.exports = [
     "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/ca.rs:457)"
   },
   {
-    "s": "{address} is every interface at once, which this channel never binds — give it the addresses this Mac actually answers on",
+    "s": "{address} is every interface at once, which this channel never binds; give it the addresses this Mac actually answers on",
     "c": "NOT-RENDERED",
     "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/listen.rs:155)"
   },
@@ -4516,17 +4516,17 @@ module.exports = [
     "why": "Part of the sentence that says where the phone is (CEO §61.1 detection half). Composed at run time from the device name the daemon reports, so it never renders on its own. The whole sentence is one of three — on this network; on this network but switched off; not here yet, sign in with <account> — and `ui/tests/phone.js` checks 14 and 15 assert all three."
   },
   {
-    "s": ", then come back here. Reinstalling the app will not help — the identity is the only thing that decides it.",
+    "s": ", then come back here. Reinstalling the app will not help: the identity is the only thing that decides it.",
     "c": "FRAGMENT",
     "why": "Part of the sentence that says where the phone is (CEO §61.1 detection half). Composed at run time from the device name the daemon reports, so it never renders on its own. The whole sentence is one of three — on this network; on this network but switched off; not here yet, sign in with <account> — and `ui/tests/phone.js` checks 14 and 15 assert all three."
   },
   {
-    "s": "</strong> — exactly what this Mac used — even if you would normally keep your phone and your Mac apart. Nothing else connects them.",
+    "s": "</strong>, exactly what this Mac used, even if you would normally keep your phone and your Mac apart. Nothing else connects them.",
     "c": "FRAGMENT",
     "why": "The tail of the phone step's why-line, joined to the account phrase the Mac read off `status --json`. It never renders on its own; `ui/tests/phone.js` check 13 asserts the whole sentence names the provider and login name."
   },
   {
-    "s": "</strong> — the same one this Mac is signed in to. A different provider makes a different network, and then the two will never see each other.",
+    "s": "</strong>, the same one this Mac is signed in to. A different provider makes a different network, and then the two will never see each other.",
     "c": "FRAGMENT",
     "why": "The tail of step 2 of the phone steps, joined to the account phrase. It never renders on its own — the sentence it belongs to is the one that tells the user WHICH identity to use, which is the whole of §61.1."
   },
@@ -4576,7 +4576,7 @@ module.exports = [
     "why": "`src-tauri/src/opener.rs`'s own refusal. It does NOT reach the screen: `openExternal` in `phone.js` discards the error and shows its own sentence, because a Mac that would not open a page needs to be told to read the address printed above it rather than told which table the address was not in. The string exists for the Mac's log."
   },
   {
-    "s": "I could not open that on this Mac. The address is written out above — type it into your browser.",
+    "s": "I could not open that on this Mac. The address is written out above. Type it into your browser.",
     "c": "ACTIONABLE",
     "control": "#phone-ts-open",
     "why": "What the screen says when the Mac would not open the address. The control is the one that just failed — trying again is the first thing to do — and the sentence points at the address printed above it, which is why it is printed: Urban's §2, a control that opens somewhere the user cannot see first is asking for trust it has not earned."
@@ -4643,7 +4643,7 @@ module.exports = [
     "why": "The phone-watch line before the grace window elapses. Genuinely nothing to do: the phone is being installed and signed in to somewhere else, and calling that a mistake before a measured wait would be the screen guessing — which is the failure §61.1 is about, in the other direction."
   },
   {
-    "s": "Whichever you pick, you will sign in to the SAME one on your phone — your Tailscale account is your private network, and devices signed in to it are what can reach each other. Nothing else connects them.",
+    "s": "Whichever you pick, you will sign in to the SAME one on your phone: your Tailscale account is your private network, and devices signed in to it are what can reach each other. Nothing else connects them.",
     "c": "ACTIONABLE",
     "control": "#phone-ts-open",
     "why": "The identity warning in its short form, on the screen where the account is actually created — §61.1's \"before a RichOS user creates any Tailscale account\". Telling somebody afterwards is telling them after they have already chosen, and the fix by then is a sign-out. One of Urban's three \"something is happening in somebody else's software\" screens (§3 rows 2, 3 and 5). Detection moves the screen on by itself; `#phone-ts-open` is the control that opens the exact thing the sentence names — the download page, the Tailscale app, or the admin console — and the address stays written out beside it. `ui/tests/phone.js` check 16 asserts both, on all three screens."
@@ -4680,7 +4680,7 @@ module.exports = [
     "why": "Part of the sentence that says where the phone is (CEO §61.1 detection half). Composed at run time from the device name the daemon reports, so it never renders on its own. The whole sentence is one of three — on this network; on this network but switched off; not here yet, sign in with <account> — and `ui/tests/phone.js` checks 14 and 15 assert all three."
   },
   {
-    "s": "Your phone is not on this network yet. On the phone, sign in with the same account this Mac uses, then come back here. Reinstalling the app will not help — the identity is the only thing that decides it.",
+    "s": "Your phone is not on this network yet. On the phone, sign in with the same account this Mac uses, then come back here. Reinstalling the app will not help: the identity is the only thing that decides it.",
     "c": "ACTIONABLE",
     "control": "#phone-ts-start",
     "why": "The mismatch, named, when the Mac cannot name its own account. A phone signed in to a different identity is in a different tailnet and appears nowhere at all, so its absence is the evidence — and the sentence also closes the loop the CEO actually ran: reinstalling the app three times. The control is the one on the screen this renders on."
@@ -4701,12 +4701,12 @@ module.exports = [
     "why": "The head of the Settings row's second line (`phone.js` `settingsLine`), completed by `remaining()` — the SAME helper the sheet's countdown is built from, so the row and the sheet can never state different amounts of time. Rendered as one sentence: \"A code is live for 4 more minutes\". Ray's candidate-.16 defect D2: with port 8443 open and a code live, `#set-phone-open` read `Use Rich from your phone >` and nothing else, byte-for-byte the row it is with nothing happening. The whole sentence is ACTIONABLE and its control is the row it sits in — `#set-phone-open` opens the sheet with `Stop and go back` on it — and `ui/tests/settings-fit.js` (two D2 checks) asserts the words, the 16px floor and the absence of a line when there is nothing to say."
   },
   {
-    "s": "<div class=\"overlay-panel\"> <!-- THE BOX THAT SCROLLS, AND IT IS NOT THE PANEL ANY MORE. The panel is a flex column of exactly two children: this, which scrolls, and the action row below, which does not. See .phone-scroll and .phone-actions in style.css for the measurements that forced the split and for why a sticky footer over one scrollport was tried first and rejected. Everything the sheet says lives in here; the way out lives underneath it and never moves. --> <div id=\"phone-scroll\" class=\"phone-scroll\"> <h2 id=\"phone-title\" class=\"overlay-title\">Use Rich from your phone</h2> <!-- ONE LEAD, TRUE OF THE ONE PATH. It was a fixed sentence describing the option he had not chosen: it stayed on screen unchanged after he chose the other one, so every screen opened by telling him the opposite of where he was (Ray's candidate .11 defect 3.1, screenshots 13, 14, 15 and 17). The fix then was to key it off the route; CEO 61 removed the route, so the key went with it. Filled from LEAD below. --> <p class=\"overlay-note\" id=\"phone-lead\"></p> <div id=\"phone-route-choice\" hidden class=\"desk-card-actions\"> <button id=\"phone-use-connect\" type=\"button\" class=\"desk-btn\">RichConnect for RichOS</button> <button id=\"phone-use-tailnet\" type=\"button\" class=\"desk-btn\">Use Tailscale</button> </div> <div id=\"phone-connect\" hidden> <h3 class=\"phone-step-title\">RichConnect for RichOS</h3> <p class=\"overlay-note\">Reach this Mac from your phone without setting up a VPN. Your Mac must stay awake with RichOS running.</p> <p class=\"overlay-note\">Connections are encrypted through Cloudflare. Cloudflare can process the traffic; conversations are stored on your devices.</p> <p id=\"phone-connect-status\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-connect-start\" type=\"button\" class=\"desk-btn\">Set up RichConnect for RichOS</button> <button id=\"phone-connect-disable\" type=\"button\" class=\"desk-btn\" hidden>Turn off RichConnect for RichOS</button> </div> </div> <!-- SCREEN 6 — THE PAIRED CARD, AND IT NOW HAS A TOP — Urban's G8. *\"Paired card has no heading and one text color for all five paragraphs — the actionable line reads like housekeeping.\"* Every line on it was --ink-soft at one size and one weight, labels and paragraphs alike: he measured \"Forget this phone\" and \"Close\" at 5.78:1, identical to the four paragraphs above them (Ray's frames 21 and 22). A card where nothing is the top and nothing is the point. So the phone's own name is the heading — it is what the card is ABOUT, and it is the one string on it that changes — and the push line, which is the only line that asks the reader to go and do something, is the one that takes --ink. --> <div id=\"phone-paired\" hidden> <h3 class=\"phone-step-title\" id=\"phone-device-name\"></h3> <!-- THE MAC DOES NOT SETTLE A QUESTION THE PERSON HAS NOT ANSWERED YET. This line was the fixed string \"It is paired. Open Rich on it and keep talking.\" and it was on screen while the phone, beside it, was still asking \"They match — pair this phone\" / \"They do not match\" (Ray's nightly .7, defect 2, his frame 13). The six words exist so a person can detect that something other than his Mac answered; a Mac that announces the answer first teaches him the check is ceremonial. It is filled from status.fingerprintConfirmed — the Mac's own record, never anything this sheet remembers. NO BACKTICK IN THIS FILE'S MARKUP, EVER: it is one template literal, so a backtick in a comment ends the string and takes the whole sheet with it. --> <p class=\"overlay-note\" id=\"phone-paired-state\"></p> <!-- AND THE WORDS THEMSELVES, WHILE HE IS BEING ASKED ABOUT THEM. The pairing screen that carries them is hidden the instant \"paired\" flips, which is the same instant the phone starts asking him to compare — so the Mac took its half of the comparison off the screen at exactly the moment he needed it. They go away once he has answered: a fingerprint nobody is checking is chrome. --> <p class=\"phone-words\" id=\"phone-paired-words\" hidden></p> <!-- THE PRESS ON THIS MAC, AND IT IS THE ONLY THING THAT LETS THE PHONE IN — Sage's pairing review F1 (High), richos-hq docs/research/2026-09-24-richconnect-pairing-protocol-review.md. The phone's own \"They match\" was the only confirmation the Mac ever recorded, and the device being judged performed the judgment: anybody who saw the code on this screen could pair first and confirm themselves. Until one of these two is pressed the phone's key can answer the six words and do nothing else. \"They do not match\" is the same teardown the phone's own answer runs. Both are kept out of the sheet's first focus (data-no-autofocus): a pairing is not something a reflexive Return may settle. --> <div class=\"desk-card-actions\" id=\"phone-mac-answer\" hidden> <button id=\"phone-mac-match\" class=\"desk-btn desk-btn--confirm\" type=\"button\" data-no-autofocus>They match</button> <button id=\"phone-mac-mismatch\" class=\"desk-btn\" type=\"button\" data-no-autofocus>They do not match</button> </div> <!-- THE SPENT-CODE ALARM, AFTER HE HAD ALREADY CONFIRMED (Sage F1 item 4, \"keep it and warn\"): the phone stays, and he is told somebody else used its code. --> <p class=\"overlay-note\" id=\"phone-code-reused\" role=\"status\" hidden></p> <!-- THE ONE LINE ON THIS CARD WITH AN ERRAND IN IT. Either it says the phone can reach him — which is the finish — or it names the thing on the phone that has not been done yet, in that phone's own menu names. Both are the point of the card, and both were set in the same ink as the sentence about removing a certificate. --> <p class=\"overlay-note phone-push-line\" id=\"phone-push-state\"></p> <!-- SCREEN 6's LIMIT, on the one screen where they live with it. The route chooser used to carry it too, on the option it was a condition of; that screen is gone (CEO 61), so this is the one place it is said — and it is not repeated on the screens in between, because a limitation on every screen is nagging. --> <p class=\"overlay-note\" id=\"phone-ts-limit\" hidden></p> <!-- ONE FORGET NOTE, FILLED FROM THE DEVICE RECORD. It was two paragraphs, one shown and one hidden, chosen by the sheet's own route variable — which is forgotten on every open by design, so reopening this card for a paired phone redrew the other path's iOS profile-removal steps. Ray's candidate .11 defect 3.2 caught it on an ANDROID phone that had paired over Tailscale and had nothing installed on it at all. One node, filled from status.pairedVia, is the only shape in which the two cannot disagree — see forgetNoteFor below. --> <p class=\"overlay-note\" id=\"phone-forget-note\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-forget\" class=\"desk-btn\" type=\"button\">Forget this phone</button> </div> </div> <!-- SCREEN 5 — THE CODE, AND THEN THE FOUR THINGS TO DO ON THE PHONE. There is no second version of this screen any more. It used to carry, below the code, two unverified-certificate warnings, a trust QR and sixteen numbered taps through Apple's settings — the home path's half — hidden on the Tailscale route and shown on the other one. CEO §61 leaves one route, so those are gone from the product rather than hidden behind a condition, and with them the whole class of defect where the wrong half was drawn (Urban's blocker \"esc-20260919T041857Z-640acd39\", Ray's candidate .11 defect 3.1). THE CODE IS FIRST — Urban's G3 and G4. At 1024x700, the app's own minimum and the size it restores itself to, this screen is about three viewport heights tall, and pressing \"Set my phone up\" used to land on a wall of instruction with the QR, the six words, the countdown and the only Close all out of sight (his frames 04 and 05). *\"The four phone steps are preparation for a person who has not started; the code is what a person who is standing there with their phone needs. Order the screen for the second person.\"* IT IS THE MARKUP'S OWN ORDER NOW, not a node moved at render time. The mover existed because the other path numbered its headings 1, 2, 3 and the numbers were load-bearing — the certificate at step 1 was what made the address at step 2 open at all — so the code could not go above it there. With one path there is no sequence to contradict, and a subtree that is re-inserted on every two-second poll is a subtree that can take the focus out of itself. --> <div id=\"phone-pairing\" hidden> <!-- Sage's F9: Android has its own RichOS app now (CEO 76), so the line no longer sends Android to the web app. --> <p id=\"phone-connect-pair-help\" class=\"overlay-note\" hidden>In the RichOS app on your phone, scan this code. Then compare the six words on both screens.</p> <!-- IT IS HIDDEN AS A WHOLE WHEN THERE IS NO CODE. Every one of its children was already emptied on expiry (Ray's defect 3.3, and his defect B for the last of them); with the block at the top of the screen an empty wrapper is a gap where the thing he came for used to be, so the container goes with its contents. --> <div id=\"phone-code-block\"> <h3 class=\"phone-step-title\" id=\"phone-code-title\">Point your phone's camera at this</h3> <div class=\"phone-qr-row\"> <canvas id=\"phone-qr-pair\" class=\"phone-qr\" width=\"1\" height=\"1\" role=\"img\"></canvas> <div> <p class=\"overlay-note phone-url\" id=\"phone-pair-url\"></p> <p class=\"overlay-note\" id=\"phone-countdown\" role=\"status\"></p> </div> </div> <h3 class=\"phone-step-title\" id=\"phone-words-title\">Check the six words match</h3> <!-- IT GOES WITH THE CODE, AND IT NAMES A CONTROL THAT IS ON THE SCREEN. Ray's candidate-.12 defect B: after the code ran out this paragraph stayed, telling him to compare against \"these six\" with no six words under it and to \"tap Cancel\" with no Cancel button anywhere in the sheet (frame 19). Two things a person is asked to do that are not there. The heading above it and the words below it were already cleared with the code; this one was missed, so it is now hidden by the same live test they are — and the control it names is Close, which is the button this sheet actually has (id phone-close, and the sheet's own data-dismiss). --> <!-- AND THE WORDS ARE NOT HERE ANY MORE — Sage's review 3.1 steps 1 and 4. They used to be printed beside the code before any phone had arrived, which made them carry nothing the code itself does not: anybody who could see the code could see the words. They are now derived over the key the phone actually registered, so they can only exist once a phone has reached this Mac, and they appear on the paired card beside the two buttons that answer them. --> <p class=\"overlay-note\" id=\"phone-words-note\">Once your phone opens this code, six words appear on it and on this Mac. If they are the same six, press They match here. If they are not, press They do not match.</p> </div> <!-- THESE FOUR STEPS ARE THE CEO'S OWN, AND THEY OVERRIDE URBAN'S THREE. He installed and uninstalled Tailscale on Android THREE TIMES looking for a \"connect to Mac\" step that does not exist. Urban's Screen 5 had three steps and stopped at \"sign in\", which is where that hunt begins: the app is signed in, nothing says it is finished, and the user goes looking for the pairing screen Tailscale does not have. So the two missing steps — the VPN permission prompt, and the switch reading Connected — are what end the hunt, and the sentence below says outright that the thing he was hunting for is not there. Recorded in docs/verification/tailscale-path-2026-09-18.md. NOTHING ABOUT TAILNETS, MagicDNS OR MACHINE NAMES ON THIS SCREEN, by the same ruling. Those words belong on the Mac's own screens; here they are vocabulary for a thing the user does not have to think about. --> <div id=\"phone-ts-steps\"> <h3 class=\"phone-step-title\">On your phone, four things</h3> <!-- THE WHY COMES BEFORE THE STEPS, and it is here because the CEO said it is not obvious: *\"in hindsight this sounds obvious, but it's absolutely NOT obvious at all. Especially given that I would normally absolutely NEVER use the same identity on the Mac and on the phone.\"* A person whose habit is to keep two identities apart will follow a step that says \"sign in\" and use the WRONG one, correctly by their own lights, and the result is two networks that never see each other with nothing on either screen saying why. So the reason is given before the instruction, and it names the habit it is asking them to break. --> <p class=\"overlay-note\" id=\"phone-ts-why\"></p> <ol class=\"phone-steps\"> <li class=\"overlay-note\">Install Tailscale from the store.</li> <li class=\"overlay-note\" id=\"phone-ts-step2\">Sign in with the <strong>same</strong> identity you used on this Mac. A different provider makes a different network, and then the two will never see each other.</li> <li class=\"overlay-note\">Allow the VPN connection your phone asks about.</li> <li class=\"overlay-note\">The switch says Connected.</li> </ol> <p class=\"overlay-note phone-url\" id=\"phone-ts-store\"></p> <p class=\"overlay-note\"><strong>There is no pairing step in Tailscale.</strong> Sign in with the same account on both devices and they are connected.</p> <!-- THE MISMATCH IS DETECTED, NOT ONLY DESCRIBED — the CEO puts it at 9 in 10 users. A phone on the SAME account shows up in the daemon's own Peer list; one on a different provider's account is in a different tailnet and shows up nowhere. So this line is evidence rather than advice, and it names the account to use. --> <p class=\"overlay-note\" id=\"phone-ts-peer\" role=\"status\"></p> <!-- THE TRIPWIRE, AND IT IS NOW THE ONLY SENTENCE IN THE PRODUCT ABOUT INSTALLING ANYTHING ON A PHONE. Nothing this Mac serves asks for a profile any more, so a phone that is asked for one is on an origin that is not this Mac's — and the only person who can notice that is the person holding the phone. --> <p class=\"overlay-note\">Nothing has to be installed on your phone for this. If your phone asks you to install a profile, something is wrong — tell me.</p> </div> <!-- THE ONE FAILURE THIS PATH ACTUALLY DIES OF, named where it happens. Sage's §2.3 failure mode is that the name simply stops resolving; from the phone that looks like \"cannot connect\" with nothing saying why, and two different Tailscale accounts produce exactly that, silently. --> <p class=\"overlay-note\" id=\"phone-ts-failure\" hidden>If the code opens to a page that cannot connect, your phone is signed in to a different Tailscale account than this Mac.</p> <!-- WHAT HAPPENS WHEN THE CODE RUNS OUT, ON THE SCREEN IT RAN OUT ON. It used to happen in silence: the Mac dropped the window, the next poll returned no code, and the dialog fell back to an earlier screen with the QR, the code and the six words simply gone. Ray's candidate .11 defect 3.3 — \"he comes back to a screen that looks like he imagined the whole thing\". The screen stays; the code is replaced by this. --> <div id=\"phone-expired\" hidden> <h3 class=\"phone-step-title\">That code ran out</h3> <p class=\"overlay-note\" id=\"phone-expired-note\" role=\"status\"></p> </div> <!-- THE WAY BACK OUT, ON THE ONE SCREEN THAT DID NOT HAVE ONE — Urban's G2. *\"Once Set my phone up is pressed, the route chooser is unreachable for the life of the app process\"* — the expired state sets \"pairing\" as well, so waiting did not give it back either, and he could not re-reach \"This Mac is ready\" in dark at all after his walk. **THE CONTROL SURVIVES ITS OWN NAME.** It used to read \"Pick a different way\", which named the chooser it returned to; with one path there is no different way to pick, and the half of this button that was never about the chooser is the half that matters — it STOPS SERVING. It undoes a socket and a live code, which is why it calls phone_stop_pairing rather than only redrawing, and the screen it returns to is \"This Mac is ready\". See PhoneRuntime::stop_pairing for why that is not phone_forget. The four plain copies of this control — on the identity screen, on the two waiting screens and on \"This Mac is ready\" — are gone with the chooser they led to. Nothing was behind them to put down, and a button that returns to the screen you are already on is a button that does nothing. Close is on every screen and always was. **AND THE TWO OF THEM NOW LIVE IN THE FOOTER, NOT HERE** — Ray's candidate-.16 new defect. Measured in this harness at 1024x700, dark, with a code live: the panel is 592px tall in a 700px window and its content is 1196px, so on a REOPENED sheet the three controls sat at window y 1040..1116 — \"Show me another code\", \"Stop and go back\" and \"Close\", none of them on screen, under sixteen steps of how-to. Ray read the same thing off AX on the real app: y=1175..1364 against a window bottom of y=792. See .phone-actions in style.css for the pin. --> </div> <!-- SCREEN 0 — THE IDENTITY TRAP, AND IT COMES BEFORE THE DOWNLOAD. CEO §61.1, his ruling in his own words: *\"this barrier or I would call it stupidity would need to be made ABSOLUTELY UBER MEGA SUPER CRYSTAL-CLEAR to ever user of RichOS\"*. What he hit: Tailscale has no email-and-password sign-in, only \"Sign in with Apple / Google / Microsoft / GitHub\"; the account IS the network; he signed in with Apple on the Mac and Google on the Android, got two networks that cannot see each other, and REINSTALLED Tailscale on the Android three times looking for a \"connect to Mac\" step that does not exist. Nothing on Tailscale's screens says any of this. **WHY IT IS ITS OWN SCREEN AND NOT A LINE ON THE DOWNLOAD SCREEN.** By the time somebody is on the download screen the next thing they do is create the account, and the choice of identity is made inside somebody else's sign-in sheet where nothing of ours can reach them. A warning that arrives after that choice is a warning that costs a sign-out. His own sentence is the reason it cannot be a footnote: *\"in hindsight this sounds obvious, but it's absolutely NOT obvious at all. Especially given that I would normally absolutely NEVER use the same identity on the Mac and on the phone.\"* It is shown while the Mac has no Tailscale account yet — which is exactly the window in which the choice can still be made freely — and never again after detection can name one, because from then on the screens say WHICH account rather than warning about the choice. --> <div id=\"phone-identity\" hidden> <h3 class=\"phone-step-title\">First: Tailscale has no password</h3> <p class=\"overlay-note\">Tailscale has no username and password. It only offers <strong>Sign in with Google</strong>, <strong>Apple</strong>, <strong>Microsoft</strong> or <strong>GitHub</strong> — and whichever one you pick, that identity <strong>is</strong> your private network.</p> <p class=\"overlay-note\">So this Mac and your phone have to sign in with the <strong>same</strong> one. Two different identities make two separate networks that cannot see each other, and neither device says so — the phone simply never finds this Mac.</p> <p class=\"overlay-note\">There is no \"connect to my Mac\" step in Tailscale, on either device. Signing in on both with the same identity is the whole connection. If the phone cannot find this Mac, reinstalling Tailscale will not help — the identity is the only thing that decides it.</p> <p class=\"overlay-note\">If you would rather not use a personal identity on both devices, make one that is only for this — a new Google account, which costs nothing — and sign in with that one here and on the phone.</p> <div class=\"desk-card-actions\"> <button id=\"phone-identity-ok\" class=\"desk-btn desk-btn--confirm\" type=\"button\">I understand — show me what to do</button> </div> </div> <!-- SCREENS 2, 3 and 7 — the three \"something is happening elsewhere\" states. One block, because they differ only in their words and their one address: each is a thing the user does in somebody else's software, and detection is what moves the screen on. --> <div id=\"phone-ts-wait\" hidden> <h3 class=\"phone-step-title\" id=\"phone-ts-heading\"></h3> <p class=\"overlay-note\" id=\"phone-ts-note1\"></p> <p class=\"overlay-note\" id=\"phone-ts-note2\"></p> <p class=\"overlay-note phone-url\" id=\"phone-ts-url\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-ts-open\" class=\"desk-btn desk-btn--confirm\" type=\"button\"></button> <button id=\"phone-ts-recheck\" class=\"desk-btn\" type=\"button\">Check again</button> </div> </div> <!-- SCREEN 4 — THIS MAC IS READY. No separate \"turn serving on\": once the name is known there is no decision left, so \"Set my phone up\" does both, under the label the product already uses. --> <div id=\"phone-ts-ready\" hidden> <h3 class=\"phone-step-title\">This Mac is ready</h3> <!-- WHICH IDENTITY IT SIGNED IN WITH, READ OFF THE MAC (§61.1). \"Use the same account\" is advice nobody can follow, because the one thing the user does not know is which one they used — that is the CEO's own account of the evening. This names it. **FIRST, AND IN BOLD** — Urban's G14. It was the third paragraph, under the machine name, set in --ink-soft with the account given no weight at all, and visually identical to the paragraphs either side of it (his frame 02). Two screens later the same account IS set in <strong> (his frame 04). *\"That asymmetry is backwards: the screen that names the account first is the one that whispers it ... it is the thing that decides whether this works, and the machine name is not.\"* AND THE PARAGRAPH BELOW STILL READS RIGHT, which is why the account went ABOVE the name rather than the name below it: \"That is this Mac's name on your own Tailscale network\" points at the line before it, so the name has to stay immediately in front of it. Heading, account, name, what the name is — each sentence next to the thing it is about. --> <p class=\"overlay-note\" id=\"phone-ts-account\"></p> <p class=\"phone-tailnet-name\" id=\"phone-ts-name\"></p> <p class=\"overlay-note\">That is this Mac's name on your own Tailscale network. Only devices signed in to your Tailscale account can reach it, and no port on this Mac is open to the internet.</p> <!-- AND THE WATCH LIVES HERE TOO, not only on the phone step. MEASURED: the pairing window is 60 s (PAIRING_WINDOW_MS) and the join grace is 60 s, and the watch starts strictly AFTER the window opens — so on the phone step alone the mismatch sentence could never be reached at all: by the time it was due, the code had expired and the block was hidden. Installing Tailscale on a phone and signing in takes minutes, not seconds, so this screen — the one the user is returned to when the code runs out — is where the sentence has to be able to appear. --> <p class=\"overlay-note\" id=\"phone-ts-peer-ready\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-ts-start\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Set my phone up</button> </div> </div> <!-- SCREEN 8 — THE ALARM BUTTON, ANSWERED. Ray's nightly .8 walk in the test VM, defect 1 (HIGH): pressing \"They do not match\" on the phone dropped the credential, and the sheet in front of the person did not change at all. The Mac went on showing the pairing card, with the six words under it, while it had already forgotten the phone — and, until the commit this screen arrives in, while it was still answering on 8443. *\"He has no way to know the Mac heard him.\"* THE SIX WORDS EXIST FOR EXACTLY ONE SCENARIO: something other than his Mac on the other end. A Mac that says nothing when the alarm is pressed teaches him the check is ceremonial, which is worse than not asking at all. IT OUTRANKS EVERY OTHER SCREEN while it is true — see render(). What is true at that moment is not \"This Mac is ready\", even though the tailnet is; the ready screen would be the sheet forgetting the thing that just happened. AND IT HAS THE ONE CONTROL THAT LEAVES IT, which is also the only thing left to do: start again, from a Mac he now trusts. Close is in the footer as it is on every screen. The Mac cannot clear this by itself — nothing else changes it, so nothing else may. --> <div id=\"phone-rejected\" hidden> <h3 class=\"phone-step-title\">I stopped</h3> <p class=\"overlay-note\" id=\"phone-rejected-note\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-rejected-again\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Set my phone up again</button> </div> </div> <!-- WHAT THE MAC IS DOING, OR WHY IT COULD NOT — OUTSIDE EVERY STATE BLOCK, WHICH IS A MOVE THIS CHANGE FORCED. It lived inside \"#phone-pairing\", which is hidden on five of the six screens. That was survivable while \"Set my phone up\" was pressed on a screen whose own failure mode was a certificate this Mac makes for itself and can hardly fail to make. It is not survivable now: with one path, \"phone_begin_pairing\" fails whenever Tailscale will not issue a certificate for this Mac, and that failure is read on \"This Mac is ready\" — a screen that would have shown the sentence to nobody. \"Making a certificate for your phone…\" had the same problem pointing the other way, and so did the sentence \"Get Tailscale\" shows when the Mac cannot open a link. The SOCKET DUMP that used to sit beside it is still gone — Urban's G5, *\"the one thing on this flow that looks like a debug log that shipped ... deletion is the change I want most on this screen\"*. The addresses are still printed to the log at every start, which is where a diagnosis is read from. --> <p class=\"overlay-note\" id=\"phone-message\" role=\"status\"></p> </div> <!-- ONE CLOSE, OUTSIDE THE THREE STATES AND ALWAYS VISIBLE. The first version of this sheet had three, one inside each state block, and ui/tests/escape.js refused it on the spot: data-dismiss names ONE control, the document-level Escape handler clicks it, and a button hidden with its block does nothing at all. Two of the three states could not be dismissed from the keyboard. One button that is always on screen is both the simpler markup and the only shape that can satisfy the contract. **\"ALWAYS VISIBLE\" WAS A CLAIM ABOUT THE MARKUP AND NOT ABOUT THE SCREEN, AND A PERSON FOUND THE DIFFERENCE.** One Close outside the three states is what makes it always RENDERED; it is .phone-actions below that makes it always SEEN. With a code live at 1024x700 the panel's content is 1196px in a 590px scrollport, and this row sat 445px below the window's bottom edge while the six-words note three screens above it read *\"press Close and tell me\"*. The row is now pinned to the bottom of the scrollport with position:sticky, so the how-to scrolls under it and the way out does not leave. AND THE PAIRING SCREEN'S TWO CONTROLS JOIN IT, for the same reason and in one row: two separately-pinned rows would overlap. They are hidden with the screen they belong to — by their own hidden attribute, set in render() from the same condition that shows the pairing block, because a display:none button contributes no flex gap and the row collapses to Close alone. Close stays LAST, which is where the copy points. --> <div class=\"desk-card-actions phone-actions\"> <button id=\"phone-refresh\" class=\"desk-btn desk-btn--confirm\" type=\"button\" hidden>Show me another code</button> <button id=\"phone-pairing-back\" class=\"desk-btn\" type=\"button\" hidden>Stop and go back</button> <button id=\"phone-close\" class=\"desk-btn\" type=\"button\">Close</button> </div> </div>",
+    "s": "<div class=\"overlay-panel\"> <!-- THE BOX THAT SCROLLS, AND IT IS NOT THE PANEL ANY MORE. The panel is a flex column of exactly two children: this, which scrolls, and the action row below, which does not. See .phone-scroll and .phone-actions in style.css for the measurements that forced the split and for why a sticky footer over one scrollport was tried first and rejected. Everything the sheet says lives in here; the way out lives underneath it and never moves. --> <div id=\"phone-scroll\" class=\"phone-scroll\"> <h2 id=\"phone-title\" class=\"overlay-title\">Use Rich from your phone</h2> <!-- ONE LEAD, TRUE OF THE ONE PATH. It was a fixed sentence describing the option he had not chosen: it stayed on screen unchanged after he chose the other one, so every screen opened by telling him the opposite of where he was (Ray's candidate .11 defect 3.1, screenshots 13, 14, 15 and 17). The fix then was to key it off the route; CEO 61 removed the route, so the key went with it. Filled from LEAD below. --> <p class=\"overlay-note\" id=\"phone-lead\"></p> <div id=\"phone-route-choice\" hidden class=\"desk-card-actions\"> <button id=\"phone-use-connect\" type=\"button\" class=\"desk-btn\">RichConnect for RichOS</button> <button id=\"phone-use-tailnet\" type=\"button\" class=\"desk-btn\">Use Tailscale</button> </div> <div id=\"phone-connect\" hidden> <h3 class=\"phone-step-title\">RichConnect for RichOS</h3> <p class=\"overlay-note\">Reach this Mac from your phone without setting up a VPN. Your Mac must stay awake with RichOS running.</p> <p class=\"overlay-note\">Connections are encrypted through Cloudflare. Cloudflare can process the traffic; conversations are stored on your devices.</p> <p id=\"phone-connect-status\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-connect-start\" type=\"button\" class=\"desk-btn\">Set up RichConnect for RichOS</button> <button id=\"phone-connect-disable\" type=\"button\" class=\"desk-btn\" hidden>Turn off RichConnect for RichOS</button> </div> </div> <!-- SCREEN 6 — THE PAIRED CARD, AND IT NOW HAS A TOP — Urban's G8. *\"Paired card has no heading and one text color for all five paragraphs — the actionable line reads like housekeeping.\"* Every line on it was --ink-soft at one size and one weight, labels and paragraphs alike: he measured \"Forget this phone\" and \"Close\" at 5.78:1, identical to the four paragraphs above them (Ray's frames 21 and 22). A card where nothing is the top and nothing is the point. So the phone's own name is the heading — it is what the card is ABOUT, and it is the one string on it that changes — and the push line, which is the only line that asks the reader to go and do something, is the one that takes --ink. --> <div id=\"phone-paired\" hidden> <h3 class=\"phone-step-title\" id=\"phone-device-name\"></h3> <!-- THE MAC DOES NOT SETTLE A QUESTION THE PERSON HAS NOT ANSWERED YET. This line was the fixed string \"It is paired. Open Rich on it and keep talking.\" and it was on screen while the phone, beside it, was still asking \"They match — pair this phone\" / \"They do not match\" (Ray's nightly .7, defect 2, his frame 13). The six words exist so a person can detect that something other than his Mac answered; a Mac that announces the answer first teaches him the check is ceremonial. It is filled from status.fingerprintConfirmed — the Mac's own record, never anything this sheet remembers. NO BACKTICK IN THIS FILE'S MARKUP, EVER: it is one template literal, so a backtick in a comment ends the string and takes the whole sheet with it. --> <p class=\"overlay-note\" id=\"phone-paired-state\"></p> <!-- AND THE WORDS THEMSELVES, WHILE HE IS BEING ASKED ABOUT THEM. The pairing screen that carries them is hidden the instant \"paired\" flips, which is the same instant the phone starts asking him to compare — so the Mac took its half of the comparison off the screen at exactly the moment he needed it. They go away once he has answered: a fingerprint nobody is checking is chrome. --> <p class=\"phone-words\" id=\"phone-paired-words\" hidden></p> <!-- THE PRESS ON THIS MAC, AND IT IS THE ONLY THING THAT LETS THE PHONE IN — Sage's pairing review F1 (High), richos-hq docs/research/2026-09-24-richconnect-pairing-protocol-review.md. The phone's own \"They match\" was the only confirmation the Mac ever recorded, and the device being judged performed the judgment: anybody who saw the code on this screen could pair first and confirm themselves. Until one of these two is pressed the phone's key can answer the six words and do nothing else. \"They do not match\" is the same teardown the phone's own answer runs. Both are kept out of the sheet's first focus (data-no-autofocus): a pairing is not something a reflexive Return may settle. --> <div class=\"desk-card-actions\" id=\"phone-mac-answer\" hidden> <button id=\"phone-mac-match\" class=\"desk-btn desk-btn--confirm\" type=\"button\" data-no-autofocus>They match</button> <button id=\"phone-mac-mismatch\" class=\"desk-btn\" type=\"button\" data-no-autofocus>They do not match</button> </div> <!-- THE SPENT-CODE ALARM, AFTER HE HAD ALREADY CONFIRMED (Sage F1 item 4, \"keep it and warn\"): the phone stays, and he is told somebody else used its code. --> <p class=\"overlay-note\" id=\"phone-code-reused\" role=\"status\" hidden></p> <!-- THE ONE LINE ON THIS CARD WITH AN ERRAND IN IT. Either it says the phone can reach him — which is the finish — or it names the thing on the phone that has not been done yet, in that phone's own menu names. Both are the point of the card, and both were set in the same ink as the sentence about removing a certificate. --> <p class=\"overlay-note phone-push-line\" id=\"phone-push-state\"></p> <!-- SCREEN 6's LIMIT, on the one screen where they live with it. The route chooser used to carry it too, on the option it was a condition of; that screen is gone (CEO 61), so this is the one place it is said — and it is not repeated on the screens in between, because a limitation on every screen is nagging. --> <p class=\"overlay-note\" id=\"phone-ts-limit\" hidden></p> <!-- ONE FORGET NOTE, FILLED FROM THE DEVICE RECORD. It was two paragraphs, one shown and one hidden, chosen by the sheet's own route variable — which is forgotten on every open by design, so reopening this card for a paired phone redrew the other path's iOS profile-removal steps. Ray's candidate .11 defect 3.2 caught it on an ANDROID phone that had paired over Tailscale and had nothing installed on it at all. One node, filled from status.pairedVia, is the only shape in which the two cannot disagree — see forgetNoteFor below. --> <p class=\"overlay-note\" id=\"phone-forget-note\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-forget\" class=\"desk-btn\" type=\"button\">Forget this phone</button> </div> </div> <!-- SCREEN 5 — THE CODE, AND THEN THE FOUR THINGS TO DO ON THE PHONE. There is no second version of this screen any more. It used to carry, below the code, two unverified-certificate warnings, a trust QR and sixteen numbered taps through Apple's settings — the home path's half — hidden on the Tailscale route and shown on the other one. CEO §61 leaves one route, so those are gone from the product rather than hidden behind a condition, and with them the whole class of defect where the wrong half was drawn (Urban's blocker \"esc-20260919T041857Z-640acd39\", Ray's candidate .11 defect 3.1). THE CODE IS FIRST — Urban's G3 and G4. At 1024x700, the app's own minimum and the size it restores itself to, this screen is about three viewport heights tall, and pressing \"Set my phone up\" used to land on a wall of instruction with the QR, the six words, the countdown and the only Close all out of sight (his frames 04 and 05). *\"The four phone steps are preparation for a person who has not started; the code is what a person who is standing there with their phone needs. Order the screen for the second person.\"* IT IS THE MARKUP'S OWN ORDER NOW, not a node moved at render time. The mover existed because the other path numbered its headings 1, 2, 3 and the numbers were load-bearing — the certificate at step 1 was what made the address at step 2 open at all — so the code could not go above it there. With one path there is no sequence to contradict, and a subtree that is re-inserted on every two-second poll is a subtree that can take the focus out of itself. --> <div id=\"phone-pairing\" hidden> <!-- Sage's F9: Android has its own RichOS app now (CEO 76), so the line no longer sends Android to the web app. --> <p id=\"phone-connect-pair-help\" class=\"overlay-note\" hidden>In the RichOS app on your phone, scan this code. Then compare the six words on both screens.</p> <!-- IT IS HIDDEN AS A WHOLE WHEN THERE IS NO CODE. Every one of its children was already emptied on expiry (Ray's defect 3.3, and his defect B for the last of them); with the block at the top of the screen an empty wrapper is a gap where the thing he came for used to be, so the container goes with its contents. --> <div id=\"phone-code-block\"> <h3 class=\"phone-step-title\" id=\"phone-code-title\">Point your phone's camera at this</h3> <div class=\"phone-qr-row\"> <canvas id=\"phone-qr-pair\" class=\"phone-qr\" width=\"1\" height=\"1\" role=\"img\"></canvas> <div> <p class=\"overlay-note phone-url\" id=\"phone-pair-url\"></p> <p class=\"overlay-note\" id=\"phone-countdown\" role=\"status\"></p> </div> </div> <h3 class=\"phone-step-title\" id=\"phone-words-title\">Check the six words match</h3> <!-- IT GOES WITH THE CODE, AND IT NAMES A CONTROL THAT IS ON THE SCREEN. Ray's candidate-.12 defect B: after the code ran out this paragraph stayed, telling him to compare against \"these six\" with no six words under it and to \"tap Cancel\" with no Cancel button anywhere in the sheet (frame 19). Two things a person is asked to do that are not there. The heading above it and the words below it were already cleared with the code; this one was missed, so it is now hidden by the same live test they are — and the control it names is Close, which is the button this sheet actually has (id phone-close, and the sheet's own data-dismiss). --> <!-- AND THE WORDS ARE NOT HERE ANY MORE — Sage's review 3.1 steps 1 and 4. They used to be printed beside the code before any phone had arrived, which made them carry nothing the code itself does not: anybody who could see the code could see the words. They are now derived over the key the phone actually registered, so they can only exist once a phone has reached this Mac, and they appear on the paired card beside the two buttons that answer them. --> <p class=\"overlay-note\" id=\"phone-words-note\">Once your phone opens this code, six words appear on it and on this Mac. If they are the same six, press They match here. If they are not, press They do not match.</p> </div> <!-- THESE FOUR STEPS ARE THE CEO'S OWN, AND THEY OVERRIDE URBAN'S THREE. He installed and uninstalled Tailscale on Android THREE TIMES looking for a \"connect to Mac\" step that does not exist. Urban's Screen 5 had three steps and stopped at \"sign in\", which is where that hunt begins: the app is signed in, nothing says it is finished, and the user goes looking for the pairing screen Tailscale does not have. So the two missing steps — the VPN permission prompt, and the switch reading Connected — are what end the hunt, and the sentence below says outright that the thing he was hunting for is not there. Recorded in docs/verification/tailscale-path-2026-09-18.md. NOTHING ABOUT TAILNETS, MagicDNS OR MACHINE NAMES ON THIS SCREEN, by the same ruling. Those words belong on the Mac's own screens; here they are vocabulary for a thing the user does not have to think about. --> <div id=\"phone-ts-steps\"> <h3 class=\"phone-step-title\">On your phone, four things</h3> <!-- THE WHY COMES BEFORE THE STEPS, and it is here because the CEO said it is not obvious: *\"in hindsight this sounds obvious, but it's absolutely NOT obvious at all. Especially given that I would normally absolutely NEVER use the same identity on the Mac and on the phone.\"* A person whose habit is to keep two identities apart will follow a step that says \"sign in\" and use the WRONG one, correctly by their own lights, and the result is two networks that never see each other with nothing on either screen saying why. So the reason is given before the instruction, and it names the habit it is asking them to break. --> <p class=\"overlay-note\" id=\"phone-ts-why\"></p> <ol class=\"phone-steps\"> <li class=\"overlay-note\">Install Tailscale from the store.</li> <li class=\"overlay-note\" id=\"phone-ts-step2\">Sign in with the <strong>same</strong> identity you used on this Mac. A different provider makes a different network, and then the two will never see each other.</li> <li class=\"overlay-note\">Allow the VPN connection your phone asks about.</li> <li class=\"overlay-note\">The switch says Connected.</li> </ol> <p class=\"overlay-note phone-url\" id=\"phone-ts-store\"></p> <p class=\"overlay-note\"><strong>There is no pairing step in Tailscale.</strong> Sign in with the same account on both devices and they are connected.</p> <!-- THE MISMATCH IS DETECTED, NOT ONLY DESCRIBED — the CEO puts it at 9 in 10 users. A phone on the SAME account shows up in the daemon's own Peer list; one on a different provider's account is in a different tailnet and shows up nowhere. So this line is evidence rather than advice, and it names the account to use. --> <p class=\"overlay-note\" id=\"phone-ts-peer\" role=\"status\"></p> <!-- THE TRIPWIRE, AND IT IS NOW THE ONLY SENTENCE IN THE PRODUCT ABOUT INSTALLING ANYTHING ON A PHONE. Nothing this Mac serves asks for a profile any more, so a phone that is asked for one is on an origin that is not this Mac's — and the only person who can notice that is the person holding the phone. --> <p class=\"overlay-note\">Nothing has to be installed on your phone for this. If your phone asks you to install a profile, something is wrong. Tell me.</p> </div> <!-- THE ONE FAILURE THIS PATH ACTUALLY DIES OF, named where it happens. Sage's §2.3 failure mode is that the name simply stops resolving; from the phone that looks like \"cannot connect\" with nothing saying why, and two different Tailscale accounts produce exactly that, silently. --> <p class=\"overlay-note\" id=\"phone-ts-failure\" hidden>If the code opens to a page that cannot connect, your phone is signed in to a different Tailscale account than this Mac.</p> <!-- WHAT HAPPENS WHEN THE CODE RUNS OUT, ON THE SCREEN IT RAN OUT ON. It used to happen in silence: the Mac dropped the window, the next poll returned no code, and the dialog fell back to an earlier screen with the QR, the code and the six words simply gone. Ray's candidate .11 defect 3.3 — \"he comes back to a screen that looks like he imagined the whole thing\". The screen stays; the code is replaced by this. --> <div id=\"phone-expired\" hidden> <h3 class=\"phone-step-title\">That code ran out</h3> <p class=\"overlay-note\" id=\"phone-expired-note\" role=\"status\"></p> </div> <!-- THE WAY BACK OUT, ON THE ONE SCREEN THAT DID NOT HAVE ONE — Urban's G2. *\"Once Set my phone up is pressed, the route chooser is unreachable for the life of the app process\"* — the expired state sets \"pairing\" as well, so waiting did not give it back either, and he could not re-reach \"This Mac is ready\" in dark at all after his walk. **THE CONTROL SURVIVES ITS OWN NAME.** It used to read \"Pick a different way\", which named the chooser it returned to; with one path there is no different way to pick, and the half of this button that was never about the chooser is the half that matters — it STOPS SERVING. It undoes a socket and a live code, which is why it calls phone_stop_pairing rather than only redrawing, and the screen it returns to is \"This Mac is ready\". See PhoneRuntime::stop_pairing for why that is not phone_forget. The four plain copies of this control — on the identity screen, on the two waiting screens and on \"This Mac is ready\" — are gone with the chooser they led to. Nothing was behind them to put down, and a button that returns to the screen you are already on is a button that does nothing. Close is on every screen and always was. **AND THE TWO OF THEM NOW LIVE IN THE FOOTER, NOT HERE** — Ray's candidate-.16 new defect. Measured in this harness at 1024x700, dark, with a code live: the panel is 592px tall in a 700px window and its content is 1196px, so on a REOPENED sheet the three controls sat at window y 1040..1116 — \"Show me another code\", \"Stop and go back\" and \"Close\", none of them on screen, under sixteen steps of how-to. Ray read the same thing off AX on the real app: y=1175..1364 against a window bottom of y=792. See .phone-actions in style.css for the pin. --> </div> <!-- SCREEN 0 — THE IDENTITY TRAP, AND IT COMES BEFORE THE DOWNLOAD. CEO §61.1, his ruling in his own words: *\"this barrier or I would call it stupidity would need to be made ABSOLUTELY UBER MEGA SUPER CRYSTAL-CLEAR to ever user of RichOS\"*. What he hit: Tailscale has no email-and-password sign-in, only \"Sign in with Apple / Google / Microsoft / GitHub\"; the account IS the network; he signed in with Apple on the Mac and Google on the Android, got two networks that cannot see each other, and REINSTALLED Tailscale on the Android three times looking for a \"connect to Mac\" step that does not exist. Nothing on Tailscale's screens says any of this. **WHY IT IS ITS OWN SCREEN AND NOT A LINE ON THE DOWNLOAD SCREEN.** By the time somebody is on the download screen the next thing they do is create the account, and the choice of identity is made inside somebody else's sign-in sheet where nothing of ours can reach them. A warning that arrives after that choice is a warning that costs a sign-out. His own sentence is the reason it cannot be a footnote: *\"in hindsight this sounds obvious, but it's absolutely NOT obvious at all. Especially given that I would normally absolutely NEVER use the same identity on the Mac and on the phone.\"* It is shown while the Mac has no Tailscale account yet — which is exactly the window in which the choice can still be made freely — and never again after detection can name one, because from then on the screens say WHICH account rather than warning about the choice. --> <div id=\"phone-identity\" hidden> <h3 class=\"phone-step-title\">First: Tailscale has no password</h3> <p class=\"overlay-note\">Tailscale has no username and password. It only offers <strong>Sign in with Google</strong>, <strong>Apple</strong>, <strong>Microsoft</strong> or <strong>GitHub</strong>, and whichever one you pick, that identity <strong>is</strong> your private network.</p> <p class=\"overlay-note\">So this Mac and your phone have to sign in with the <strong>same</strong> one. Two different identities make two separate networks that cannot see each other, and neither device says so: the phone simply never finds this Mac.</p> <p class=\"overlay-note\">There is no \"connect to my Mac\" step in Tailscale, on either device. Signing in on both with the same identity is the whole connection. If the phone cannot find this Mac, reinstalling Tailscale will not help: the identity is the only thing that decides it.</p> <p class=\"overlay-note\">If you would rather not use a personal identity on both devices, make one that is only for this: a new Google account, which costs nothing, and sign in with that one here and on the phone.</p> <div class=\"desk-card-actions\"> <button id=\"phone-identity-ok\" class=\"desk-btn desk-btn--confirm\" type=\"button\">I understand, show me what to do</button> </div> </div> <!-- SCREENS 2, 3 and 7 — the three \"something is happening elsewhere\" states. One block, because they differ only in their words and their one address: each is a thing the user does in somebody else's software, and detection is what moves the screen on. --> <div id=\"phone-ts-wait\" hidden> <h3 class=\"phone-step-title\" id=\"phone-ts-heading\"></h3> <p class=\"overlay-note\" id=\"phone-ts-note1\"></p> <p class=\"overlay-note\" id=\"phone-ts-note2\"></p> <p class=\"overlay-note phone-url\" id=\"phone-ts-url\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-ts-open\" class=\"desk-btn desk-btn--confirm\" type=\"button\"></button> <button id=\"phone-ts-recheck\" class=\"desk-btn\" type=\"button\">Check again</button> </div> </div> <!-- SCREEN 4 — THIS MAC IS READY. No separate \"turn serving on\": once the name is known there is no decision left, so \"Set my phone up\" does both, under the label the product already uses. --> <div id=\"phone-ts-ready\" hidden> <h3 class=\"phone-step-title\">This Mac is ready</h3> <!-- WHICH IDENTITY IT SIGNED IN WITH, READ OFF THE MAC (§61.1). \"Use the same account\" is advice nobody can follow, because the one thing the user does not know is which one they used — that is the CEO's own account of the evening. This names it. **FIRST, AND IN BOLD** — Urban's G14. It was the third paragraph, under the machine name, set in --ink-soft with the account given no weight at all, and visually identical to the paragraphs either side of it (his frame 02). Two screens later the same account IS set in <strong> (his frame 04). *\"That asymmetry is backwards: the screen that names the account first is the one that whispers it ... it is the thing that decides whether this works, and the machine name is not.\"* AND THE PARAGRAPH BELOW STILL READS RIGHT, which is why the account went ABOVE the name rather than the name below it: \"That is this Mac's name on your own Tailscale network\" points at the line before it, so the name has to stay immediately in front of it. Heading, account, name, what the name is — each sentence next to the thing it is about. --> <p class=\"overlay-note\" id=\"phone-ts-account\"></p> <p class=\"phone-tailnet-name\" id=\"phone-ts-name\"></p> <p class=\"overlay-note\">That is this Mac's name on your own Tailscale network. Only devices signed in to your Tailscale account can reach it, and no port on this Mac is open to the internet.</p> <!-- AND THE WATCH LIVES HERE TOO, not only on the phone step. MEASURED: the pairing window is 60 s (PAIRING_WINDOW_MS) and the join grace is 60 s, and the watch starts strictly AFTER the window opens — so on the phone step alone the mismatch sentence could never be reached at all: by the time it was due, the code had expired and the block was hidden. Installing Tailscale on a phone and signing in takes minutes, not seconds, so this screen — the one the user is returned to when the code runs out — is where the sentence has to be able to appear. --> <p class=\"overlay-note\" id=\"phone-ts-peer-ready\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-ts-start\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Set my phone up</button> </div> </div> <!-- SCREEN 8 — THE ALARM BUTTON, ANSWERED. Ray's nightly .8 walk in the test VM, defect 1 (HIGH): pressing \"They do not match\" on the phone dropped the credential, and the sheet in front of the person did not change at all. The Mac went on showing the pairing card, with the six words under it, while it had already forgotten the phone — and, until the commit this screen arrives in, while it was still answering on 8443. *\"He has no way to know the Mac heard him.\"* THE SIX WORDS EXIST FOR EXACTLY ONE SCENARIO: something other than his Mac on the other end. A Mac that says nothing when the alarm is pressed teaches him the check is ceremonial, which is worse than not asking at all. IT OUTRANKS EVERY OTHER SCREEN while it is true — see render(). What is true at that moment is not \"This Mac is ready\", even though the tailnet is; the ready screen would be the sheet forgetting the thing that just happened. AND IT HAS THE ONE CONTROL THAT LEAVES IT, which is also the only thing left to do: start again, from a Mac he now trusts. Close is in the footer as it is on every screen. The Mac cannot clear this by itself — nothing else changes it, so nothing else may. --> <div id=\"phone-rejected\" hidden> <h3 class=\"phone-step-title\">I stopped</h3> <p class=\"overlay-note\" id=\"phone-rejected-note\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-rejected-again\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Set my phone up again</button> </div> </div> <!-- WHAT THE MAC IS DOING, OR WHY IT COULD NOT — OUTSIDE EVERY STATE BLOCK, WHICH IS A MOVE THIS CHANGE FORCED. It lived inside \"#phone-pairing\", which is hidden on five of the six screens. That was survivable while \"Set my phone up\" was pressed on a screen whose own failure mode was a certificate this Mac makes for itself and can hardly fail to make. It is not survivable now: with one path, \"phone_begin_pairing\" fails whenever Tailscale will not issue a certificate for this Mac, and that failure is read on \"This Mac is ready\" — a screen that would have shown the sentence to nobody. \"Making a certificate for your phone…\" had the same problem pointing the other way, and so did the sentence \"Get Tailscale\" shows when the Mac cannot open a link. The SOCKET DUMP that used to sit beside it is still gone — Urban's G5, *\"the one thing on this flow that looks like a debug log that shipped ... deletion is the change I want most on this screen\"*. The addresses are still printed to the log at every start, which is where a diagnosis is read from. --> <p class=\"overlay-note\" id=\"phone-message\" role=\"status\"></p> </div> <!-- ONE CLOSE, OUTSIDE THE THREE STATES AND ALWAYS VISIBLE. The first version of this sheet had three, one inside each state block, and ui/tests/escape.js refused it on the spot: data-dismiss names ONE control, the document-level Escape handler clicks it, and a button hidden with its block does nothing at all. Two of the three states could not be dismissed from the keyboard. One button that is always on screen is both the simpler markup and the only shape that can satisfy the contract. **\"ALWAYS VISIBLE\" WAS A CLAIM ABOUT THE MARKUP AND NOT ABOUT THE SCREEN, AND A PERSON FOUND THE DIFFERENCE.** One Close outside the three states is what makes it always RENDERED; it is .phone-actions below that makes it always SEEN. With a code live at 1024x700 the panel's content is 1196px in a 590px scrollport, and this row sat 445px below the window's bottom edge while the six-words note three screens above it read *\"press Close and tell me\"*. The row is now pinned to the bottom of the scrollport with position:sticky, so the how-to scrolls under it and the way out does not leave. AND THE PAIRING SCREEN'S TWO CONTROLS JOIN IT, for the same reason and in one row: two separately-pinned rows would overlap. They are hidden with the screen they belong to — by their own hidden attribute, set in render() from the same condition that shows the pairing block, because a display:none button contributes no flex gap and the row collapses to Close alone. Close stays LAST, which is where the copy points. --> <div class=\"desk-card-actions phone-actions\"> <button id=\"phone-refresh\" class=\"desk-btn desk-btn--confirm\" type=\"button\" hidden>Show me another code</button> <button id=\"phone-pairing-back\" class=\"desk-btn\" type=\"button\" hidden>Stop and go back</button> <button id=\"phone-close\" class=\"desk-btn\" type=\"button\">Close</button> </div> </div>",
     "c": "FRAGMENT",
     "why": "Composite markup for the phone sheet, including managed Connect and the optional Tailscale flow. This literal is parsed as HTML, never rendered as one sentence. Connect setup has #phone-connect-start in the same view; enabled and reconnecting states have #phone-connect-disable, and a saved paired phone has #phone-forget. A phone that reached this Mac and waits for the press (Sage's pairing review F1) has #phone-mac-match and #phone-mac-mismatch beside its six words; the pairing screen's note names both, and they are the controls on the card the phone reaches. The persistent #phone-close dismisses every state. ui/tests/phone.js and affordances.js exercise these controls through the visible sheet; contrast.js separately opens managed setup, pairing and recovery alongside the Tailscale surfaces."
   },
   {
-    "s": "Forgetting it here stops this Mac answering it, and deletes the keys. This phone was paired by an older version of RichOS, which connected a way this one does not use — pair it again to keep using it. If that older version put a RichOS profile on the phone, you can remove it in the phone's own settings; nothing RichOS does now needs one.",
+    "s": "Forgetting it here stops this Mac answering it, and deletes the keys. This phone was paired by an older version of RichOS, which connected a way this one does not use. Pair it again to keep using it. If that older version put a RichOS profile on the phone, you can remove it in the phone's own settings; nothing RichOS does now needs one.",
     "c": "INFORMATIONAL",
     "why": "The paired card's forget note for a record an older build wrote, when RichOS had a second way to pair (CEO §61 removed it). It says what to do — pair the phone again — and, because a cleanup the user has to know about is a cleanup that does not happen, that the older build may have left a profile on the phone. It is INFORMATIONAL rather than ACTIONABLE because the thing to act on is the phone, not this window; the control in the same view is `#phone-forget`, which the card is about. `ui/tests/phone.js` check 9b walks it against the record, on the first open and on a reopen, which is where the defect it replaced lived."
   },
@@ -4876,21 +4876,21 @@ module.exports = [
   {"s":"Your saved answer could not be confirmed. Retry it when the connection is available.","c":"ACTIONABLE","control":".question-controls button","fixture":"question-retry","why":"The rendered state retains the adjacent retry, answer or recovery control; the fixture exercises the production renderer."},
   {"s":"Your team recommends","c":"INFORMATIONAL","why":"Attributes an optional recommendation. No option is preselected."},
   {"s":"· through Rich","c":"FRAGMENT","why":"Part of the inline question or permission renderer, completed by live content. Dedicated card tests exercise the visible controls."},
-  {"s":"↑ ↓ move · 1– choose · · Esc back to the composer","c":"FRAGMENT","why":"Part of the inline question or permission renderer, completed by live content. Dedicated card tests exercise the visible controls."},
+  {"s":"↑ ↓ move · 1- choose · · Esc back to the composer","c":"FRAGMENT","why":"Part of the inline question or permission renderer, completed by live content. Dedicated card tests exercise the visible controls."},
   // Desktop Claude quota and weekly reset states. The dedicated quota.js suite walks these controls.
   // Fill-first: several Claude accounts in the quota panel.
   // Round 16: the panel rebuilt to the CEO's chosen design (lanes, the one sentence, speed, the switch).
   {"s": "1 agent took .", "c": "INFORMATIONAL", "why": "Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the fast card's sentence with one agent working: which window rose, from what to what, in how long (quota.js; quota.rs View rises and agentsWorking). It states what happened; nothing to act on. tests/quota.js renders it in both themes with contrast computed."},
   {"s":": show its windows below","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the tail of an account lane's accessible name; clicking the lane shows that account's rulers."},
   {"s":"<b></b> has room: choose <i>switch</i> above and they continue there now.","c":"ACTIONABLE","control":"#quota-verb-switch","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): while agents are paused with another account free, the verb in the sentence above switches them there now. tests/quota.js renders it in both themes with contrast computed."},
-  {"s":"<span class=\"quota-lane-note\"><span class=\"quota-lane-pulse\" aria-hidden=\"true\"></span>Claude Code is signing in through your browser — the reading arrives when it is done.</span>","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): an added account's lane while the stock browser sign-in runs; it states what happens next. tests/quota.js renders it in both themes with contrast computed."},
+  {"s":"<span class=\"quota-lane-note\"><span class=\"quota-lane-pulse\" aria-hidden=\"true\"></span>Claude Code is signing in through your browser. The reading arrives when it is done.</span>","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): an added account's lane while the stock browser sign-in runs; it states what happens next. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"<span>Remove <b></b> from this Mac? Its sign-in here is forgotten; nothing on the account itself changes.</span>","c":"ACTIONABLE","control":"#quota-remove-yes, #quota-remove-no","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): Remove's one inline question, with Remove <label> and Keep it beside it. tests/quota.js renders it in both themes with contrast computed."},
-  {"s":"A big rise is expected — checking every minute.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the status card while a rise is expected and checking is every minute (quota.rs FAST_REFRESH_INTERVAL_MS; the mockup's 2 minutes is not the app's value). tests/quota.js renders it in both themes with contrast computed."},
+  {"s":"A big rise is expected. Checking every minute.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the status card while a rise is expected and checking is every minute (quota.rs FAST_REFRESH_INTERVAL_MS; the mockup's 2 minutes is not the app's value). tests/quota.js renders it in both themes with contrast computed."},
   {"s":"Add a second Claude account","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the inline Add account form's title when going from one account to two. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"Add another Claude account","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the inline Add account form's title with two or more accounts. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"Agents hold their place and resume","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hold sentence when every account is used up and no agent is listed."},
   {"s":"At this speed the next check still comes before 100%, so the at .","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): fast usage whose speed does not move the line; states what RichOS does. tests/quota.js renders it in both themes with contrast computed."},
-  {"s":"<section class=\"overlay-panel quota-panel\"> <header class=\"quota-heading\"><div><p class=\"quota-eyebrow\">Settings · Technical view</p> <h2 id=\"quota-title\">Claude Code quota</h2> <p id=\"quota-lede\" class=\"quota-lede\">Straight from Claude Code, shared across every app and session on this account.</p></div> <button id=\"quota-close\" type=\"button\" aria-label=\"Close Claude Code quota\">×</button></header> <div class=\"quota-body\"><div class=\"quota-windows-col\"> <div class=\"quota-toolbar\"><span id=\"quota-freshness\">Loading quota…</span> <div class=\"quota-toolbar-actions\"><button id=\"quota-account-start\" class=\"quota-btn quota-btn-quiet\" type=\"button\">+ Add account</button> <button id=\"quota-refresh\" class=\"quota-btn\" type=\"button\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 12a9 9 0 1 1-2.64-6.36\"/><path d=\"M21 3v6h-6\"/></svg><span id=\"quota-refresh-label\">Refresh</span></button></div></div> <p id=\"quota-message\" class=\"quota-message\" role=\"status\" hidden></p> <div id=\"quota-lanes\" class=\"quota-lanes\" role=\"list\" aria-label=\"Claude accounts\" hidden></div> <div id=\"quota-account-new\" class=\"quota-addform\" role=\"group\" aria-labelledby=\"quota-addform-title\" hidden> <p id=\"quota-addform-title\" class=\"quota-addform-title\">Add a second Claude account</p> <div id=\"quota-addform-rows\" class=\"quota-addform-rows\"> <label id=\"quota-account-current-row\" class=\"quota-addform-row\"><span>The account signed in now</span> <input id=\"quota-account-current\" type=\"text\" maxlength=\"40\" placeholder=\"A name only you see\"></label> <label class=\"quota-addform-row\"><span>The new account</span> <input id=\"quota-account-label\" type=\"text\" maxlength=\"40\" placeholder=\"A name only you see, like Work\"></label></div> <div class=\"quota-addform-actions\"><button id=\"quota-account-add\" class=\"quota-btn quota-btn-primary\" type=\"button\">Add and sign in</button> <button id=\"quota-account-cancel\" class=\"quota-btn\" type=\"button\">Cancel</button> <span class=\"quota-muted\">Claude Code signs in through your browser.</span></div></div> <p id=\"quota-account-feedback\" class=\"quota-account-feedback\" role=\"status\" aria-live=\"polite\"></p> <div id=\"quota-windows\" aria-label=\"Claude Code quota windows\"></div> <div id=\"quota-empty\" hidden><h3>Nothing to show yet.</h3><p>RichOS asks Claude Code for its own usage figures and shows exactly what comes back. <span id=\"quota-empty-why\">Claude Code has not answered yet</span>, so there is no number here — <b>not zero, not full, nothing guessed.</b></p><p id=\"quota-empty-next\">If this stays empty after a refresh, Claude Code may not be signed in on this Mac.</p></div> <p class=\"quota-legend\">The gold bar is what you have used; the tick is how far the clock has run. <b>Bar past the tick means you are spending faster than the window is passing.</b></p> <section id=\"quota-reset-offers\" class=\"quota-reset-offers\" aria-label=\"Weekly quota resets\" hidden><button id=\"quota-usage-open\" class=\"quota-btn\" type=\"button\" title=\"claude.ai/new#settings/usage\">Open Claude Usage</button></section> <p id=\"quota-reset-feedback\" role=\"status\" aria-live=\"polite\"></p> </div><form id=\"quota-policy\" class=\"quota-policy\" novalidate> <h3 id=\"quota-policy-title\">Automatic pause</h3> <div class=\"quota-switch-row\"><button id=\"quota-enabled\" class=\"quota-switch\" type=\"button\" role=\"switch\" aria-checked=\"false\" aria-label=\"Automatically pause Rich’s agents\"></button> <div class=\"quota-switch-label\"><span id=\"quota-sentence-lead\">Pause Rich’s agents once the five-hour window passes</span> <label class=\"quota-threshold\"><span class=\"sr-only\">Pause threshold, percent used</span><input id=\"quota-threshold\" inputmode=\"numeric\" type=\"text\" maxlength=\"3\" value=\"93\" aria-describedby=\"quota-validation\">% used</label><span id=\"quota-sentence-end\"><span class=\"quota-muted\">, unless the reset is under 20 minutes away.</span></span> <div id=\"quota-verbs\" class=\"quota-opts\" role=\"radiogroup\" aria-label=\"What happens at the line\" hidden> <button id=\"quota-verb-pause\" class=\"quota-opt\" type=\"button\" role=\"radio\" data-act=\"pause\" aria-checked=\"true\"><span class=\"quota-radio\" aria-hidden=\"true\"></span><span>pause Rich’s agents</span></button> <button id=\"quota-verb-switch\" class=\"quota-opt\" type=\"button\" role=\"radio\" data-act=\"switch\" aria-checked=\"false\"><span class=\"quota-radio\" aria-hidden=\"true\"></span><span id=\"quota-verb-switch-text\">switch to the next account</span></button></div> <span id=\"quota-sentence-tail\" class=\"quota-sentence-tail\" hidden>unless the reset is under 20 minutes away.</span> <p id=\"quota-hint\" class=\"quota-hint\" hidden></p> <div id=\"quota-draft-actions\" hidden><button id=\"quota-save\" class=\"quota-btn quota-btn-primary\" type=\"submit\">Save</button> <button id=\"quota-keep\" class=\"quota-btn\" type=\"button\">Keep 93%</button></div> <p id=\"quota-validation\" role=\"status\" hidden></p> </div></div> <p id=\"quota-save-status\" role=\"status\" aria-live=\"polite\" hidden></p> <div id=\"quota-status-card\" class=\"quota-status-card\"> <h4 id=\"quota-hold-status\">Loading pause status…</h4> <div id=\"quota-hold-detail\" class=\"quota-hold-detail\"></div><ul id=\"quota-held\" aria-label=\"Observed pauses\"></ul> <div class=\"quota-status-actions\"><button id=\"quota-hold-refresh\" type=\"button\" class=\"quota-btn\" hidden>Refresh now</button> <button id=\"quota-release\" type=\"button\" class=\"quota-btn\" hidden>Let them continue now</button></div> </div> <div id=\"quota-boundary-one\" class=\"quota-boundary\"><p><b>A pause is not a stop.</b> Each agent finishes the step it is on, then waits before the next, keeping its place and everything it knows. Because a step is allowed to finish, usage can climb a little past the line.</p> <p>Your conversation with Rich, and any Claude Code you run outside RichOS, are never paused.</p></div> <div id=\"quota-boundary-many\" class=\"quota-boundary\" hidden><p><b>A pause is not a stop; a switch is not a restart.</b> Paused, an agent keeps its place and waits; switched, its next step runs on the next account with everything carried over.</p> <p>At <b>99%</b> of an account’s week Rich switches whatever you choose here, always to the account whose week ends soonest; when every account is used up, work waits for the soonest reset.</p></div> </form></div></section>","c":"NOT-RENDERED","why":"HTML scaffold assigned to innerHTML, never displayed as one raw string. The quota.js suite walks the rendered panel, its controls and both themes; the individually emitted state sentences are classified separately."},
+  {"s":"<section class=\"overlay-panel quota-panel\"> <header class=\"quota-heading\"><div><p class=\"quota-eyebrow\">Settings · Technical view</p> <h2 id=\"quota-title\">Claude Code quota</h2> <p id=\"quota-lede\" class=\"quota-lede\">Straight from Claude Code, shared across every app and session on this account.</p></div> <button id=\"quota-close\" type=\"button\" aria-label=\"Close Claude Code quota\">×</button></header> <div class=\"quota-body\"><div class=\"quota-windows-col\"> <div class=\"quota-toolbar\"><span id=\"quota-freshness\">Loading quota…</span> <div class=\"quota-toolbar-actions\"><button id=\"quota-account-start\" class=\"quota-btn quota-btn-quiet\" type=\"button\">+ Add account</button> <button id=\"quota-refresh\" class=\"quota-btn\" type=\"button\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 12a9 9 0 1 1-2.64-6.36\"/><path d=\"M21 3v6h-6\"/></svg><span id=\"quota-refresh-label\">Refresh</span></button></div></div> <p id=\"quota-message\" class=\"quota-message\" role=\"status\" hidden></p> <div id=\"quota-lanes\" class=\"quota-lanes\" role=\"list\" aria-label=\"Claude accounts\" hidden></div> <div id=\"quota-account-new\" class=\"quota-addform\" role=\"group\" aria-labelledby=\"quota-addform-title\" hidden> <p id=\"quota-addform-title\" class=\"quota-addform-title\">Add a second Claude account</p> <div id=\"quota-addform-rows\" class=\"quota-addform-rows\"> <label id=\"quota-account-current-row\" class=\"quota-addform-row\"><span>The account signed in now</span> <input id=\"quota-account-current\" type=\"text\" maxlength=\"40\" placeholder=\"A name only you see\"></label> <label class=\"quota-addform-row\"><span>The new account</span> <input id=\"quota-account-label\" type=\"text\" maxlength=\"40\" placeholder=\"A name only you see, like Work\"></label></div> <div class=\"quota-addform-actions\"><button id=\"quota-account-add\" class=\"quota-btn quota-btn-primary\" type=\"button\">Add and sign in</button> <button id=\"quota-account-cancel\" class=\"quota-btn\" type=\"button\">Cancel</button> <span class=\"quota-muted\">Claude Code signs in through your browser.</span></div></div> <p id=\"quota-account-feedback\" class=\"quota-account-feedback\" role=\"status\" aria-live=\"polite\"></p> <div id=\"quota-windows\" aria-label=\"Claude Code quota windows\"></div> <div id=\"quota-empty\" hidden><h3>Nothing to show yet.</h3><p>RichOS asks Claude Code for its own usage figures and shows exactly what comes back. <span id=\"quota-empty-why\">Claude Code has not answered yet</span>, so there is no number here: <b>not zero, not full, nothing guessed.</b></p><p id=\"quota-empty-next\">If this stays empty after a refresh, Claude Code may not be signed in on this Mac.</p></div> <p class=\"quota-legend\">The gold bar is what you have used; the tick is how far the clock has run. <b>Bar past the tick means you are spending faster than the window is passing.</b></p> <section id=\"quota-reset-offers\" class=\"quota-reset-offers\" aria-label=\"Weekly quota resets\" hidden><button id=\"quota-usage-open\" class=\"quota-btn\" type=\"button\" title=\"claude.ai/new#settings/usage\">Open Claude Usage</button></section> <p id=\"quota-reset-feedback\" role=\"status\" aria-live=\"polite\"></p> </div><form id=\"quota-policy\" class=\"quota-policy\" novalidate> <h3 id=\"quota-policy-title\">Automatic pause</h3> <div class=\"quota-switch-row\"><button id=\"quota-enabled\" class=\"quota-switch\" type=\"button\" role=\"switch\" aria-checked=\"false\" aria-label=\"Automatically pause Rich’s agents\"></button> <div class=\"quota-switch-label\"><span id=\"quota-sentence-lead\">Pause Rich’s agents once the five-hour window passes</span> <label class=\"quota-threshold\"><span class=\"sr-only\">Pause threshold, percent used</span><input id=\"quota-threshold\" inputmode=\"numeric\" type=\"text\" maxlength=\"3\" value=\"93\" aria-describedby=\"quota-validation\">% used</label><span id=\"quota-sentence-end\"><span class=\"quota-muted\">, unless the reset is under 20 minutes away.</span></span> <div id=\"quota-verbs\" class=\"quota-opts\" role=\"radiogroup\" aria-label=\"What happens at the line\" hidden> <button id=\"quota-verb-pause\" class=\"quota-opt\" type=\"button\" role=\"radio\" data-act=\"pause\" aria-checked=\"true\"><span class=\"quota-radio\" aria-hidden=\"true\"></span><span>pause Rich’s agents</span></button> <button id=\"quota-verb-switch\" class=\"quota-opt\" type=\"button\" role=\"radio\" data-act=\"switch\" aria-checked=\"false\"><span class=\"quota-radio\" aria-hidden=\"true\"></span><span id=\"quota-verb-switch-text\">switch to the next account</span></button></div> <span id=\"quota-sentence-tail\" class=\"quota-sentence-tail\" hidden>unless the reset is under 20 minutes away.</span> <p id=\"quota-hint\" class=\"quota-hint\" hidden></p> <div id=\"quota-draft-actions\" hidden><button id=\"quota-save\" class=\"quota-btn quota-btn-primary\" type=\"submit\">Save</button> <button id=\"quota-keep\" class=\"quota-btn\" type=\"button\">Keep 93%</button></div> <p id=\"quota-validation\" role=\"status\" hidden></p> </div></div> <p id=\"quota-save-status\" role=\"status\" aria-live=\"polite\" hidden></p> <div id=\"quota-status-card\" class=\"quota-status-card\"> <h4 id=\"quota-hold-status\">Loading pause status…</h4> <div id=\"quota-hold-detail\" class=\"quota-hold-detail\"></div><ul id=\"quota-held\" aria-label=\"Observed pauses\"></ul> <div class=\"quota-status-actions\"><button id=\"quota-hold-refresh\" type=\"button\" class=\"quota-btn\" hidden>Refresh now</button> <button id=\"quota-release\" type=\"button\" class=\"quota-btn\" hidden>Let them continue now</button></div> </div> <div id=\"quota-boundary-one\" class=\"quota-boundary\"><p><b>A pause is not a stop.</b> Each agent finishes the step it is on, then waits before the next, keeping its place and everything it knows. Because a step is allowed to finish, usage can climb a little past the line.</p> <p>Your conversation with Rich, and any Claude Code you run outside RichOS, are never paused.</p></div> <div id=\"quota-boundary-many\" class=\"quota-boundary\" hidden><p><b>A pause is not a stop; a switch is not a restart.</b> Paused, an agent keeps its place and waits; switched, its next step runs on the next account with everything carried over.</p> <p>At <b>99%</b> of an account’s week Rich switches whatever you choose here, always to the account whose week ends soonest; when every account is used up, work waits for the soonest reset.</p></div> </form></div></section>","c":"NOT-RENDERED","why":"HTML scaffold assigned to innerHTML, never displayed as one raw string. The quota.js suite walks the rendered panel, its controls and both themes; the individually emitted state sentences are classified separately."},
   {"s":", and the pause acts only on a number. Rather than wait on Claude Code, Rich’s agents keep working; the pause acts again once a reading shows the five-hour window past <b>%</b>.","c":"INFORMATIONAL","why":"Walk of nightly 36, D1 (docs/verification/2026-10-05-nightly-36-candidate-walk.md): the card when a check came back with no figures (quota.rs Admission::NoReading). It says what the pause does with no number; nothing is held, so nothing is asked of the user. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"<b></b> The figures below are from ago and may have moved on.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the `refresh-failed` notice, also said for a null answer over earlier figures. Refresh sits in the same reading line and the notice's own tail says so."},
   {"s":"<span class=\"quota-muted\">, unless the reset is under 20 minutes away.</span>","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the end of the one-account sentence, set as markup after the threshold field."},
@@ -4904,22 +4904,22 @@ module.exports = [
   {"s":"If this stays empty after a refresh, Claude Code may not be signed in on this Mac.","c":"ACTIONABLE","control":"#quota-refresh","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the `unavailable` empty state; Ask Claude Code is in the reading line above it."},
   {"s":"No current reading, so nothing is held.","c":"INFORMATIONAL","why":"Walk of nightly 36, D1 (docs/verification/2026-10-05-nightly-36-candidate-walk.md): the card when a check came back with no figures. Nothing is held; Refresh now is on the card for whoever wants a reading sooner."},
   {"s":"No reading yet.","c":"ACTIONABLE","control":"#quota-refresh","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line with no reading; Ask Claude Code is beside it."},
-  {"s":"Off — the line is only drawn, not enforced.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the one-account hint while the pause is off; the switch beside the sentence turns it on."},
+  {"s":"Off: the line is only drawn, not enforced.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the one-account hint while the pause is off; the switch beside the sentence turns it on."},
   {"s":"Pause Rich’s agents once the five-hour window passes","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the head of the one-account sentence, before the threshold field."},
-  {"s":"Releasing — the reset is away.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the `releasing` card's head; the pause lifts by itself."},
+  {"s":"Releasing: the reset is away.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the `releasing` card's head; the pause lifts by itself."},
   {"s":"RichOS again in ; Refresh asks sooner.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the tail of the `refresh-failed` notice; it names the control beside it and asks nothing more."},
   {"s":"RichOS asks again in <span class=\"quota-keep\">.</span>","c":"INFORMATIONAL","why":"Walk of nightly 36, D1 (docs/verification/2026-10-05-nightly-36-candidate-walk.md): when the next check comes, on the card with no reading. The span keeps its last two words together (quota-keep)."},
   {"s":"RichOS asks again in ; Ask Claude Code asks now.","c":"INFORMATIONAL","why":"Walk of nightly 36, D1 (docs/verification/2026-10-05-nightly-36-candidate-walk.md): the empty state after a null answer; it names the control in the reading line above it."},
   {"s":"RichOS tries again in .","c":"INFORMATIONAL","why":"When the automatic check runs again after a failure with no figures to show."},
-  {"s":"Rich’s agents keep working through the limit. When the five-hour window is spent, Claude Code turns them away until it resets — and Rich tells you.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the one-account off card; the switch beside the sentence turns the pause on."},
+  {"s":"Rich’s agents keep working through the limit. When the five-hour window is spent, Claude Code turns them away until it resets, and Rich tells you.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the one-account off card; the switch beside the sentence turns the pause on."},
   {"s":"Straight from Claude Code, shared across every app and session on this account.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the sheet's lede with one account. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"The account in use","c":"FRAGMENT","why":"The account's name when none is known, inside the card's sentence."},
   {"s":"Under 20 minutes to go, so the pause lifts: <b> picking up exactly where stopped.</b> The window resets at .","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the `releasing` card's body; the agents continue by themselves."},
   {"s":"Weekly · per model","c":"FRAGMENT","why":"The label of the absent model-weekly row (round 16 names the model it drew; the app cannot know which is missing)."},
   {"s":"the one the pause watches","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the one-account hero heading's sub-label."},
   {"s":"window is at <b> used</b>, past your % line. at <b></b>, 20 minutes before the reset","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the `holding` card's body; Let them continue now is on the card."},
-  {"s":"— an old number could let work through past the line. Nothing starts a new step until Claude Code answers.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the rest of the `hold-no-reading` sentence."},
-  {"s":"— not reported by Claude Code for this account","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the `one-window` absent row. It reports what Claude Code supplied; nothing to change here."},
+  {"s":": an old number could let work through past the line. Nothing starts a new step until Claude Code answers.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the rest of the `hold-no-reading` sentence."},
+  {"s":": not reported by Claude Code for this account","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the `one-window` absent row. It reports what Claude Code supplied; nothing to change here."},
   {"s":"Automatic pause is off, so nothing acts before it reaches 100%.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): fast usage with one account and the automatic pause off; the switch beside it turns it on. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"Automatic pause or switch","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the decision's title with two or more accounts. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"Automatic pause or switch at the line","c":"CONTROL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the accessible name of the one switch with two or more accounts."},
@@ -4929,7 +4929,7 @@ module.exports = [
   {"s":"In use: , since .","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the card after a switch: which account is in use and since when. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"No other account has room right now, so Rich would pause instead.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): Switch chosen with no account to switch to; states what happens. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"No other account has room right now, so at the line Rich pauses.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the card after a switch with no next account; states what happens. tests/quota.js renders it in both themes with contrast computed."},
-  {"s":"Off — nothing happens at %; the line is only drawn.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hint beside the dimmed verbs while the one switch is off; the switch is beside it. tests/quota.js renders it in both themes with contrast computed."},
+  {"s":"Off: nothing happens at %; the line is only drawn.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hint beside the dimmed verbs while the one switch is off; the switch is beside it. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"Off. Nothing is paused.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the card while the one switch is off with two or more accounts; the switch is above it. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"On. Nothing is waiting.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the card with Pause chosen and the switch on; the switch is above it. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"On. Rich switches at the line.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the card with Switch chosen and the switch on; the switch is above it. tests/quota.js renders it in both themes with contrast computed."},
@@ -4940,36 +4940,36 @@ module.exports = [
   {"s":"Straight from Claude Code, for each account signed in on this Mac.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the sheet's lede with two or more accounts. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"The moved to so nothing reaches 100%; to % when the speed comes back down.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): fast usage: the moved lines and their way back. tests/quota.js renders it in both themes with contrast computed."},
   {"s":"The weekly switch ; the five-hour line is off, so nothing acts there.","c":"ACTIONABLE","control":"#quota-enabled","fixture":null,"why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): fast usage with the switch off and two accounts; the switch is above it. tests/quota.js renders it in both themes with contrast computed."},
-  {"s":"Usage is fast — checking every minute.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the status card while usage is measured fast (every minute, the app's value). tests/quota.js renders it in both themes with contrast computed."},
+  {"s":"Usage is fast. Checking every minute.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the status card while usage is measured fast (every minute, the app's value). tests/quota.js renders it in both themes with contrast computed."},
   {"s":"When reaches its line, the next is <b></b>.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the card after a switch, naming the next account."},
   {"s": "agents reading at once took .", "c": "INFORMATIONAL", "why": "Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the fast card's sentence with several agents working: how many, which window rose, from what to what, in how long (quota.js; quota.rs View rises and agentsWorking). It states what happened; nothing to act on. tests/quota.js renders it in both themes with contrast computed."},
   {"s": "from % to % in", "c": "FRAGMENT", "why": "Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the rise inside the fast card's sentence (quota.js span), never shown alone; the whole sentence is classified as information."},
   {"s":"at % of its five-hour window","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): why the last switch happened."},
   {"s":"at % of its week","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): why the last switch happened."},
   {"s":"at % · was %","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): a ruler line's label while usage is fast: the moved point and the normal one."},
-  {"s":"at <b></b>, when window resets — the soonest.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the end of the every-account-used-up hold sentence."},
+  {"s":"at <b></b>, when window resets, the soonest.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the end of the every-account-used-up hold sentence."},
   {"s":"button, input, [tabindex='0']","c":"NOT-RENDERED","why":"A CSS selector for the sheet's focus trap, never displayed."},
   {"s":"checks every min","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's cadence at normal speed."},
   {"s":"Asking Claude Code…","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): Refresh's own label while it asks Claude Code; it returns to Refresh by itself when the answer comes."},
-  {"s":"Last reading — stale","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's stale form, \"Last reading 47 min ago — stale\"; Refresh sits beside it in the same line."},
+  {"s":"Last reading (stale)","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's stale form, \"Last reading 47 min ago — stale\"; Refresh sits beside it in the same line."},
   {"s":"under a minute","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): a span shorter than a minute, as round 16's fmtDur writes it (\"Checked under a minute ago\")."},
   {"s":"every account used up","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Settings row's quota summary while every account is used up."},
-  {"s":"every minute — a rise is expected","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's cadence, in gold, while a rise is expected."},
-  {"s":"every minute — usage is fast","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's cadence, in gold, while usage is fast."},
-  {"s":"five-hour window is at . Agents pause the moment it passes <b>%</b>, unless the reset is under 20 minutes away — then it is not worth stopping.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Pause card's body after the account's label. tests/quota.js renders it in both themes with contrast computed."},
-  {"s":"five-hour window is at . At <b>%</b>, every agent’s next step runs on <b></b> — the account whose week ends soonest — and Rich says so in the conversation. Nothing stops.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Switch card's body after the account's label. tests/quota.js renders it in both themes with contrast computed."},
-  {"s":"in use — the one the % line watches","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hero heading's note for the account in use."},
+  {"s":"every minute (a rise is expected)","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's cadence, in gold, while a rise is expected."},
+  {"s":"every minute (usage is fast)","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's cadence, in gold, while usage is fast."},
+  {"s":"five-hour window is at . Agents pause the moment it passes <b>%</b>, unless the reset is under 20 minutes away. Then it is not worth stopping.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Pause card's body after the account's label. tests/quota.js renders it in both themes with contrast computed."},
+  {"s":"five-hour window is at . At <b>%</b>, every agent’s next step runs on <b></b>, the account whose week ends soonest, and Rich says so in the conversation. Nothing stops.","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Switch card's body after the account's label. tests/quota.js renders it in both themes with contrast computed."},
+  {"s":"in use: the one the % line watches","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hero heading's note for the account in use."},
   {"s":"is filling about % a minute.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the measured speed on the fast card."},
-  {"s":"next — takes over when reaches its line","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hero heading's note for the next account."},
+  {"s":"next: takes over when reaches its line","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hero heading's note for the next account."},
   {"s":"not read yet","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): a five-hour figure not read yet on the card."},
   {"s":"pause off · %","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the one-account ruler label while the pause is off (round 14's)."},
   {"s":"quota-btn quota-btn-quiet quota-lane-remove","c":"NOT-RENDERED","why":"A class list for the lane's Remove button, never displayed."},
   {"s":"removed from this Mac. Sign in again to add it back.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): follows the removed account's label."},
   {"s":"stays idle until week reaches 99%.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Pause card naming when the next account takes over."},
   {"s":"switch to <b></b>, the next account","c":"CONTROL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Switch verb inside the one sentence; tests/quota.js chooses it."},
-  {"s":"switch to the next account <span class=\"quota-muted\">— none has room now</span>","c":"CONTROL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Switch verb when no account has room."},
+  {"s":"switch to the next account <span class=\"quota-muted\">(none has room now)</span>","c":"CONTROL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the Switch verb when no account has room."},
   {"s":"switches at %","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the weekly row's switch point with two or more accounts."},
-  {"s":"used up — usable again","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hero heading's note for a used-up account."},
+  {"s":"used up, usable again","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the hero heading's note for a used-up account."},
   {"s":"when it reached a usage limit","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): why the last switch happened."},
   {"s": "Account 1 signs in from the main sign-in.", "c": "UNREACHABLE", "why": "claude_account_sign_in refuses Account 1 by id. The quota panel draws Sign in only on added accounts (quota.js renderAccounts skips id 1), so no control sends it."},
   {"s": "Finish the sign-in in your browser.", "c": "ACTIONABLE", "control": "#quota-refresh", "fixture":null, "why": "Sign in on an added account's row starts the stock browser sign-in; Refresh reads it once it is done. Fill-first (plan richos-hq 2026-10-04 §15): the Claude accounts section of the quota panel. quota.js renders it in both themes with contrast computed."},
@@ -5019,7 +5019,7 @@ module.exports = [
   {"s":"Waiting to start an agent","c":"ACTIONABLE","control":"#quota-release","fixture":null,"why":"These observed agents can be released through Let them continue now, which explicitly turns pause off. The dark and light quota.js hold fixtures exercise that control."},
   {"s":"Weekly quota reset","c":"INFORMATIONAL","why":"Reports the scope or availability supplied by the provider. This is not a request to change the five-hour pause policy or create a reset offer."},
   {"s":"Weekly reset availability is unknown. Refresh to check again.","c":"ACTIONABLE","control":"#quota-refresh","fixture":null,"why":"Refresh is in the same reading line; Open Claude Usage appears only inside the weekly-reset section, which round 16 does not draw (quota.js renderResets)."},
-  {"s":"<b>ended ago</b> — the new one has no reading yet","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): \"This window ended 4 min ago — the new one has no reading yet\": what the provider's last reading says about a window that has reset; the next reading replaces it by itself."},
+  {"s":"<b>ended ago</b>, the new one has no reading yet","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): \"This window ended 4 min ago — the new one has no reading yet\": what the provider's last reading says about a window that has reset; the next reading replaces it by itself."},
   {"s":"Your Mac could not save the delivery receipt. Your files are still on your phone.","c":"NOT-RENDERED","why":"An authenticated phone API delivery response. It is displayed by the phone client, not the desktop webview; retained files retry through the phone delivery path."},
   {"s":"Your Mac could not save this file just now. It is still on your phone and will be sent again.","c":"NOT-RENDERED","why":"An authenticated phone API delivery response. It is displayed by the phone client, not the desktop webview; retained files retry through the phone delivery path."},
   {"s":"Your approved reset was used. Checking the new allowance…","c":"INFORMATIONAL","why":"Reports the result of an already completed reset decision. No additional reset is implied or requested."},

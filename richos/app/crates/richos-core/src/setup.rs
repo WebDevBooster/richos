@@ -594,7 +594,7 @@ impl Component {
                  I only ask it to."
             }
             Component::Engine => {
-                "the part of me that knows how I work — my instructions and my team."
+                "the part of me that knows how I work: my instructions and my team."
             }
         }
     }
@@ -1081,13 +1081,13 @@ pub enum SetupError {
     #[error("I couldn't work out where your home folder is, so I have nowhere to install to. This is a problem with how RichOS was launched, not with your Mac.")]
     NoHome,
 
-    #[error("I couldn't reach the internet, so there's nothing to download yet. Connect and try again — nothing has been changed on your Mac.")]
+    #[error("I couldn't reach the internet, so there's nothing to download yet. Connect and try again. Nothing has been changed on your Mac.")]
     NoNetwork { url: String, detail: String },
 
     #[error("The download didn't arrive ({url} answered {status}). Nothing has been changed on your Mac.")]
     DownloadFailed { url: String, status: String },
 
-    #[error("The download stopped partway through — {got} bytes of an expected {expected}. Nothing has been installed; try again.")]
+    #[error("The download stopped partway through: {got} bytes of an expected {expected}. Nothing has been installed; try again.")]
     DownloadIncomplete { url: String, expected: u64, got: u64 },
 
     #[error("What downloaded isn't what this copy of RichOS expects, so I stopped and installed nothing. (expected {expected}, got {got}, from {url})")]
@@ -1104,7 +1104,7 @@ pub enum SetupError {
     #[error("The download opened, but what was inside it isn't a RichOS engine ({detail}). Nothing has been installed.")]
     EngineShapeInvalid { detail: String },
 
-    #[error("The download is the wrong engine — it says version {found}, and this copy of RichOS expects {expected}. Nothing has been installed.")]
+    #[error("The download is the wrong engine: it says version {found}, and this copy of RichOS expects {expected}. Nothing has been installed.")]
     EngineVersionMismatch { expected: String, found: String },
 
     #[error("Anthropic's installer for Claude Code stopped with an error (exit {code}). It said: {stderr}")]

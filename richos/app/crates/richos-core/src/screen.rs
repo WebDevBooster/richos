@@ -414,7 +414,7 @@ pub mod says {
     /// notice — nothing raises it through [`crate::assignment::raise_notice`], because §56 is
     /// a wait that looks after itself and a push about it would be the nag he did not ask for.
     pub fn waiting_for_the_screen() -> &'static str {
-        "Waiting for the screen to unlock — I'll carry on the moment it's back."
+        "Waiting for the screen to unlock. I'll carry on the moment it's back."
     }
 
     /// The durable `detail` on the assignment record. A whole sentence, so it keeps its
@@ -597,7 +597,7 @@ mod tests {
         // The CEO's own sentence, verbatim from the §56 brief.
         assert_eq!(
             says::waiting_for_the_screen(),
-            "Waiting for the screen to unlock — I'll carry on the moment it's back."
+            "Waiting for the screen to unlock. I'll carry on the moment it's back."
         );
     }
 

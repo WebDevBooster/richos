@@ -154,7 +154,7 @@ window.RichSplashLibrary =
   "variations": [
     {
       "id": "round-11/v1",
-      "name": "Splash screen #1 — the ruled standard, the rule struck along its own ghost",
+      "name": "Splash screen #1: the ruled standard, the rule struck along its own ghost",
       "source": "richos-hq design/mockups/rounds/round-11/v1/index.html",
       "tokens": {
         "ground": "#0C1322",
@@ -249,7 +249,7 @@ window.RichSplashLibrary =
     },
     {
       "id": "round-11/v2",
-      "name": "Splash screen #2 — midnight suede, the strap sewn live in gold thread",
+      "name": "Splash screen #2: midnight suede, the strap sewn live in gold thread",
       "source": "richos-hq design/mockups/rounds/round-11/v2/index.html",
       "tokens": {
         "ground": "#0C1322",

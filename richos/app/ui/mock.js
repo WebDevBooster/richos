@@ -1425,7 +1425,7 @@
   const SETUP_WHY = {
     "claude-code":
       "the program I think with. It comes from Anthropic and installs itself; I only ask it to.",
-    engine: "the part of me that knows how I work — my instructions and my team.",
+    engine: "the part of me that knows how I work: my instructions and my team.",
   };
   const SETUP_NAME = { "claude-code": "Claude Code", engine: "the RichOS engine" };
   const SETUP_ACCOUNT_NOTE =
@@ -1436,15 +1436,15 @@
   // `_notConnected` follows for `LEASE_UNAVAILABLE_MESSAGE`.
   const SETUP_INCOMPLETE = {
     engine:
-      "I can't take that on yet — the RichOS engine isn't on this Mac, and that's the part " +
+      "I can't take that on yet: the RichOS engine isn't on this Mac, and that's the part " +
       "of me that knows how I work. I've put the setting up back on your screen: press Set " +
       "it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
     claude:
-      "I can't take that on yet — Claude Code isn't on this Mac, and that's the program I " +
+      "I can't take that on yet: Claude Code isn't on this Mac, and that's the program I " +
       "think with. I've put the setting up back on your screen: press Set it up and I'll " +
       "fetch it. There's nothing to quit and nothing to reopen.",
     both:
-      "I can't take that on yet — this Mac doesn't have Claude Code or the RichOS engine, " +
+      "I can't take that on yet: this Mac doesn't have Claude Code or the RichOS engine, " +
       "and those are what I think with. I've put the setting up back on your screen: press " +
       "Set it up and I'll fetch them. There's nothing to quit and nothing to reopen.",
   };
@@ -1518,7 +1518,7 @@
         component: c,
         what:
           c === "claude-code"
-            ? "Getting Claude Code from Anthropic. This is the big one — a few minutes."
+            ? "Getting Claude Code from Anthropic. This is the big one: a few minutes."
             : "Getting my instructions.",
         index: i + 1,
         total,
@@ -1806,7 +1806,7 @@
     "This install has no company memory it can write to, so there is nothing to read " +
     "or correct here. That is a statement about this install, not about what is recorded.";
   const SPOKEN_DESK_ABSENT =
-    "I can't record corrections right now — my correction log could not be opened. " +
+    "I can't record corrections right now: my correction log could not be opened. " +
     "Nothing you say is being lost from the conversation itself.";
 
   // Written the way `loro-write --dry-run --json` writes it: front matter plus body, byte
@@ -1895,7 +1895,7 @@
 
   /// Verbatim from `FEEDBACK_STORE_UNAVAILABLE`, app/src-tauri/src/main.rs.
   const FEEDBACK_STORE_ABSENT =
-    "I can't keep an answer right now — the file I record them in wouldn't open, and I'm not going to ask you what you think and then lose it. That one is for whoever set RichOS up to look at; it isn't yours to fix.";
+    "I can't keep an answer right now: the file I record them in wouldn't open, and I'm not going to ask you what you think and then lose it. That one is for whoever set RichOS up to look at; it isn't yours to fix.";
   /// Verbatim from `FEEDBACK_PREVIEW_MISMATCH`, app/src-tauri/src/main.rs.
   const FEEDBACK_PREVIEW_MISMATCH =
     "I won't record that. What you were shown isn't what I would say now, so approving it would be approving something you haven't read. Ask me to show it again.";
@@ -1904,7 +1904,7 @@
   const FEEDBACK_QUESTION = "How is RichOS doing this session?";
   const FEEDBACK_OPTIONS = "1: Bad | 2: OK, but could be better | 3: Good | 0: Dismiss";
   const FEEDBACK_REPORT_OFFER =
-    "Will you let your Rich tell the RichOS developers — fully anonymized and generically — what annoyed you and why it happened?";
+    "Will you let your Rich tell the RichOS developers (fully anonymized and generically) what annoyed you and why it happened?";
   const FEEDBACK_DISCLOSURE_HEADING =
     "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.";
 
@@ -2052,27 +2052,27 @@
   // failing check rather than through a stale copy nobody looked at.
   const TECHY_NOTHING_RECORDED =
     "No machinery was recorded for this conversation. Retention started on 2026-08-28, and " +
-    "anything Rich did before that was never written down — so this is a gap in the record, " +
+    "anything Rich did before that was never written down, so this is a gap in the record, " +
     "not a quiet conversation.";
   const TECHY_NOT_RETAINED =
     "Nothing has been recorded on this machine yet. The technical view reads a store that " +
-    "hasn't been written to — it fills up as Rich works.";
+    "hasn't been written to. It fills up as Rich works.";
   const TECHY_UNREADABLE =
     "I can't read the technical record for this conversation. It's on this machine and I " +
-    "haven't lost it — something is refusing to open it, and whoever set RichOS up needs to " +
+    "haven't lost it. Something is refusing to open it, and whoever set RichOS up needs to " +
     "look.";
   // §1.5's between-turn lane, when it is empty. Verbatim from `machinery_view.rs`'s
   // `BETWEEN_TURNS_QUIET`; `techy.js` check 2 compares them.
   const TECHY_BETWEEN_TURNS_QUIET =
     "Nothing was recorded between turns in this conversation. Rich started keeping this on " +
-    "2026-08-30 — so in an older conversation that is a gap in the record, not proof the " +
+    "2026-08-30, so in an older conversation that is a gap in the record, not proof the " +
     "session was quiet.";
   const TECHY_RAW_NOT_RETAINED =
-    "The full output isn't kept this long — what's above is the whole record that was.";
+    "The full output isn't kept this long. What's above is the whole record that was.";
   const TECHY_RAW_TRUNCATED = "This output was longer than RichOS keeps; you're seeing the start of it.";
   const TECHY_RAW_UNREADABLE =
-    "I can't read the stored output for this one. It's on this machine and I haven't lost it " +
-    "— whoever set RichOS up needs to look.";
+    "I can't read the stored output for this one. It's on this machine and I haven't lost it. " +
+    "Whoever set RichOS up needs to look.";
 
   let techyDefault = false;
   const techyThreads = new Map(); // threadId -> bool  (ABSENT means "follows the tier above")
@@ -2948,7 +2948,7 @@
           if (!displayName)
             return Promise.reject(
               "I need a name for the company before I can file anything under it. Anything " +
-                "you'd recognize on a button is fine — you can change it later."
+                "you'd recognize on a button is fine. You can change it later."
             );
           const id = mockEntityIdFromName(displayName);
           if (!id)
@@ -2960,7 +2960,7 @@
             return Promise.reject(
               'I couldn\'t use "' + folder + '" as this company\'s folder: it isn\'t a full ' +
                 "path from the top of the disk. Give me a folder that's already on this Mac, " +
-                "or leave it blank — a company works without one, it just won't be picked " +
+                "or leave it blank: a company works without one, it just won't be picked " +
                 "automatically when you open RichOS from inside it."
             );
           entities.push({ id, display_name: displayName, status: "active", roots: folder ? [folder] : [] });
@@ -3230,7 +3230,7 @@
             // affordance suite asserts the two are byte-identical, so the preview cannot
             // quietly rehearse a sentence the product no longer says.
             return Promise.reject(
-              "I'm not connected to my thinking right now, so I can't take that on. Quit RichOS and open it again — that clears it most of the time. If it keeps happening, whoever set RichOS up has to sign me back in; that part isn't yours to fix."
+              "I'm not connected to my thinking right now, so I can't take that on. Quit RichOS and open it again. That clears it most of the time. If it keeps happening, whoever set RichOS up has to sign me back in; that part isn't yours to fix."
             );
           }
           // §26's scenario is started BY THE CEO PRESSING ENTER, not by a side door. The
@@ -3512,7 +3512,7 @@
         // is the right direction for a real machine with no speech model. The preview is not
         // that: ◉ is part of the shipping composer row the browser harness exists to
         // exercise, and pressing it here already says exactly what is true —
-        // "Talking out loud needs the desktop app — here in the preview, type to me."
+        // "Talking out loud needs the desktop app. Here in the preview, type to me."
         // Offered, and honest when pressed, which is the second of the two shapes the
         // 2026-09-04 voice fix allows.
         case "voice_readiness":
@@ -3526,7 +3526,7 @@
               // The window does not render it (it hides the button instead); it is here so
               // the preview reports what the product reports.
               reason:
-                "My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.",
+                "My ears aren't installed on this machine yet. Whoever set RichOS up adds those. I can still read what you type.",
               // NO DECODER, so there is nothing RichOS can download that would help. `offer`
               // is absent, and its absence is what keeps the talk button off this machine.
               state: "toolchain-missing",

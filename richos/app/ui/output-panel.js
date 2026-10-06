@@ -180,8 +180,8 @@
     const name = !known
       ? "Output"
       : n === 0
-        ? "Output — nothing produced yet in this thread"
-        : "Output — " + filesWord(n) + " from this thread";
+        ? "Output: nothing produced yet in this thread"
+        : "Output: " + filesWord(n) + " from this thread";
     for (const b of buttons()) {
       b.hidden = !state.thread;
       b.classList.toggle("is-empty", !known || n === 0);
@@ -468,7 +468,7 @@
       p.appendChild(node("b", null, title));
       p.appendChild(
         document.createTextNode(
-          " has produced a file yet. The moment Rich or the team writes one, it is listed here — and the count on the Output button says so."
+          " has produced a file yet. The moment Rich or the team writes one, it is listed here, and the count on the Output button says so."
         )
       );
       empty.appendChild(p);
@@ -1294,7 +1294,7 @@
     const title = state.thread && ctx.threadTitle ? ctx.threadTitle(state.thread) : "";
     pill.hidden = !pull.full;
     el("op-conv-t").textContent = title;
-    pill.setAttribute("aria-label", "Show the conversation" + (title ? " — " + title : ""));
+    pill.setAttribute("aria-label", "Show the conversation" + (title ? ": " + title : ""));
   }
 
   /// The overshoot past the stop, 0 to 1: the conversation dims and the spine thickens with it.

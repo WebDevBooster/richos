@@ -1199,7 +1199,7 @@ const FIXTURES = {
     // control the sentence now names (`#choose-company-btn`) on the screen underneath.
     return openDesk(browser, (m) => {
       m.setLoroReadFailure(
-        "I can't tell which company this work belongs to, so I won't guess — filing it under " +
+        "I can't tell which company this work belongs to, so I won't guess. Filing it under " +
           "the wrong one would mix two companies' records together, and that's not a mistake " +
           "worth risking to save you a question. Pick the company and I'll keep everything " +
           "under it from then on."
@@ -1676,7 +1676,7 @@ async function main() {
     // stands where the control is not. It was invisible; it is classified now.
     //
     // THE SENTINEL IS DERIVED, AND IT USED TO BE TYPED — 2026-09-10. It was the literal
-    // "I'll wait to restart until everything has finished — nothing will be interrupted.",
+    // "I'll wait to restart until everything has finished, so nothing will be interrupted.",
     // which was the §26 sentence on the day this was written and stopped being it at commit
     // 01e9b8d8, when updates stopped asking for a restart at all. The product change was
     // correct and this check went red for it: a self-test pinned to one spelling of a
@@ -2154,7 +2154,7 @@ async function main() {
     assert(!r.control, "a pinned company must not render a control that would refuse every answer");
     assertEqual(r.text, "Harbor Analytics", "the row does not state which company is in force");
     assert(
-      /whoever set RichOS up/.test(r.title),
+      /[Ww]hoever set RichOS up/.test(r.title),
       "a state he cannot change must name who can — the row says: " + JSON.stringify(r.title)
     );
     await page.close();

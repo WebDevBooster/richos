@@ -243,7 +243,7 @@ pub fn person_message(person: &str, log: Option<&Path>) -> String {
             out.push_str(&path.display().to_string());
         }
         None => out.push_str(
-            "\n\nRichOS could not write the details down either — there was nowhere on this \
+            "\n\nRichOS could not write the details down either: there was nowhere on this \
              Mac it was able to write to.",
         ),
     }
