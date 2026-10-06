@@ -3737,7 +3737,7 @@
     },
     "scripts/hooks/guard-inflight-notify.sh": {
       "source": "scripts/hooks/guard-inflight-notify.sh",
-      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "sha256": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
       "evidence": "Classifies a push as data, resolves its repository with git-jurisdiction and inspects Git/registry state. Does not execute the push or generated remediation text. The only setting read is delegated timeout selection in inflight.sh; root and seat helpers retain adoption checks.",
       "keys": [],
       "edges": [
@@ -3782,7 +3782,7 @@
     },
     "scripts/hooks/inflight-two-leads.test.sh": {
       "source": "scripts/hooks/inflight-two-leads.test.sh",
-      "sha256": "ea3347ec7a6635d1cf50f93d076cffcf3ea2c3dd0e27db2eff49b16e68b375ea",
+      "sha256": "d0e7211b41f7fc7eb699700b3ff87091455a8df0abca6c2a838012dfefb7eac2",
       "evidence": "Copies a finite list of guard, witness, runner and libraries into a new Git repository with a literal PROTECTED_PATHS config. All guard/CLI calls use that repository, private transcripts, teams and ack ledger. Native-agent helpers only create Git worktrees/locks, never model processes. No production config is copied or sourced; no mutation driver executes.",
       "keys": [],
       "edges": [
@@ -3833,7 +3833,7 @@
     },
     "scripts/hooks/inflight-notify.test.sh": {
       "source": "scripts/hooks/inflight-notify.test.sh",
-      "sha256": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
+      "sha256": "21269805e48be6fd1dead5a08b3474bcf369013842149c64ac20217dade1d431",
       "evidence": "Finite copied hooks/libraries run against newly initialized private repositories with literal PROTECTED_PATHS, private team/notice/ack ledgers and transcript data. All guard, Stop-hook, CLI and acknowledgement calls target these fixtures. Native teammate helpers create Git worktrees/locks, not model processes. The final timezone check imports real inflight.py but calls only time and ack readers with literal arguments; no production config is copied or sourced.",
       "keys": [],
       "edges": [
@@ -4796,7 +4796,7 @@
     },
     "scripts/hooks/inflight-notify.mutation.sh": {
       "source": "scripts/hooks/inflight-notify.mutation.sh",
-      "sha256": "489a6f902fd58d5a5030e09659356ae06a18e99fcbb03bae066cc55ef786dc88",
+      "sha256": "9eebb219f5fd40aa2dec6c34504679042fcd64684eb663936e1543acfcd298a6",
       "evidence": "Finite literal source mutants copy the fixed inflight test and helpers, then rerun that test. The test constructs its own literal entity configuration. No production configuration is transported or sourced.",
       "keys": [],
       "edges": [
@@ -7049,7 +7049,7 @@
     },
     "scripts/hooks/guard-inflight-notify.sh#benign-bash": {
       "source": "scripts/hooks/guard-inflight-notify.sh",
-      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "sha256": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
       "evidence": "Fixed Bash echo hello fixture exits at the literal command classifier before the push-only path can resolve teams, read INFLIGHT_ACK_TIMEOUT_MIN or call the predicate.",
       "keys": [],
       "edges": [
@@ -7678,7 +7678,7 @@
     },
     "scripts/hooks/verify-agent-prompt.sh": {
       "source": "scripts/hooks/verify-agent-prompt.sh",
-      "sha256": "862ddf86cca9e7c3b9039d656165f2f4b2afa655d0bc834bc25a59b6371aafda",
+      "sha256": "09a99984d637eae2cf061f4512450eae66bc4ba786b968b4df78471bb84b47dd",
       "evidence": "Full gate reads entity config, private team JSON and agent-definition data; generated Python strips or classifies literal prompt text. resolve_agent_def reads namespace values already in the caller, never a second config. Refusal advice only prints spawn/prepare commands.",
       "keys": [
         "CREATOR_TEAMMATE",
@@ -7718,7 +7718,7 @@
     },
     "scripts/hooks/verify-agent-prompt.test.sh": {
       "source": "scripts/hooks/verify-agent-prompt.test.sh",
-      "sha256": "f15ce2ebbc7fe50724f01611af88740067dddf38c88b7ad7f63161097ce1037e",
+      "sha256": "0f648bfb40b4a4b2a29320f87d8e809986381d13b2062111cea9b33e9fc8ce28",
       "evidence": "Full suite and inline mutants route hook calls through VERIFY_REPO_ROOT_OVERRIDE to private adopted Git fixtures with literal config and private teams. Inner-only named scopes return 3 on success, require exactly one assertion and retain ack setup dependencies. Prompt commands remain inert data.",
       "keys": [],
       "edges": [
@@ -9221,7 +9221,7 @@
     },
     "scripts/hooks/guard-inflight-notify.sh#operator-lease-payload": {
       "source": "scripts/hooks/guard-inflight-notify.sh",
-      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "sha256": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
       "evidence": "Operator-leads D1 supplies land-lease acquire, not a Git operation, scan or filesystem mutation. Reviewed classifier prefix is the same as the benign payload path; all settings read before classification remain. The suite explicitly supplies its literal entity config.",
       "keys": [],
       "edges": [
@@ -9869,7 +9869,7 @@
     },
     "scripts/hooks/guard-inflight-notify.sh#fenced-commit": {
       "source": "scripts/hooks/guard-inflight-notify.sh",
-      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "sha256": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
       "evidence": "The fixed fenced-commit dispatcher fixture supplies git -C <private repo> commit -m x. Reviewed prefix/classifier returns before push/merge-only, host-power or foreign-data paths. Settings read before classification remain bound.",
       "keys": [],
       "edges": [
@@ -10650,7 +10650,7 @@
     },
     "scripts/hooks/guard-inflight-notify.sh#inventory-write": {
       "source": "scripts/hooks/guard-inflight-notify.sh",
-      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "sha256": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
       "evidence": "The inventory parser expands dispatcher modules, while matcher_of finds no direct registration and chooses Write. This module sees a private Write payload or malformed JSON; its reviewed classifier prefix returns before Bash-only operations. Bootstrap helpers remain bound.",
       "keys": [],
       "edges": [
@@ -11356,7 +11356,7 @@
     },
     "scripts/prepare-agent-spawn.py": {
       "source": "scripts/prepare-agent-spawn.py",
-      "sha256": "67d78fa20c52b44fa56b70d36cb8e22a432a37563105a191cd81e6471fec9dfe",
+      "sha256": "b183c8fc36ff67717f73f44f97afd8ead961fe39e94bd47a167555cbd35b5bdf",
       "evidence": "Full prepare module reviewed: literal JSON validation and acknowledgement text construction. No command in the prepared prompt is executed.",
       "keys": [],
       "edges": []
@@ -13176,7 +13176,7 @@
     },
     "scripts/prepare-agent-spawn.test.py": {
       "source": "scripts/prepare-agent-spawn.test.py",
-      "sha256": "050fdf5a1fa75a04cc6b34cdc9580f7f7258225a93ff3e556728b559b90ba859",
+      "sha256": "de196dc3b000ae01b73f5c79c812e9ef7514acf5952a34846907979bf04a1cd5",
       "evidence": "Imports only the pure preparation helper. Actual prompt verifier calls use a newly written literal config via VERIFY_REPO_ROOT_OVERRIDE and explicit private entity/teams. Prepared inflight-ack text is never executed.",
       "keys": [],
       "edges": [
@@ -14154,7 +14154,7 @@
     },
     "scripts/hooks/guard-inflight-notify.sh#find-payload": {
       "source": "scripts/hooks/guard-inflight-notify.sh",
-      "sha256": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+      "sha256": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
       "evidence": "Source-bound foreign-app-data D1 dispatcher payload is exactly Bash find ~ -name x. Reviewed classifier exits before Git/commit/lease/publication operations; same prefix and helper set as existing benign contract. Retain all settings read before classification. Full file hash protects this boundary.",
       "keys": [],
       "edges": [
@@ -16299,7 +16299,7 @@
         "scripts/hooks/guard-idle-land.py": "ad0e35ede9dc136ba09cc26fcc6d6c2b34f7968acb7ff8f70fabed973ee158bb",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
         "scripts/hooks/guard-idle-land.test.sh": "e2d38c48015fd6ec75ef212767c2ce47e96f1f0542564239c63bbd99fabb998b",
-        "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "scripts/hooks/guard-inflight-notify.sh": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
         "scripts/hooks/guard-interactive-prompt.sh": "bab78bf4726313eb3c258f308f9b821391e582de500781a856cbabb9213a9179",
         "scripts/hooks/guard-interactive-prompt.test.sh": "47cfd426cfc6d972022d9427aa548d4c859ee28d7d64c0be484fcd59f3d373a0",
         "scripts/hooks/guard-main-checkout-writes.sh": "6e82fa3b4ada059d40200b56549e249d1048eb88b68a97d2961065a0504ededa",
@@ -16323,8 +16323,8 @@
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "scripts/hooks/guard-worktree-removal.test.sh": "2b7b5c289305b351e5e5f911d5bc68f5e257e6242ed769f22db04190ff97fcba",
         "scripts/hooks/idle-land.mutation.sh": "50afc330c98fe2813f880ee1e6c9532b8d91f98095e7cf68b1a90c3ead07623a",
-        "scripts/hooks/inflight-notify.mutation.sh": "489a6f902fd58d5a5030e09659356ae06a18e99fcbb03bae066cc55ef786dc88",
-        "scripts/hooks/inflight-notify.test.sh": "53bd65350d9690f1110d968e730c1f1596f3afb80e87a552dd07b91ccc263e78",
+        "scripts/hooks/inflight-notify.mutation.sh": "9eebb219f5fd40aa2dec6c34504679042fcd64684eb663936e1543acfcd298a6",
+        "scripts/hooks/inflight-notify.test.sh": "21269805e48be6fd1dead5a08b3474bcf369013842149c64ac20217dade1d431",
         "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/hooks/interactive-prompt.mutation.sh": "3872e019a151c07a5d387e3128451954efcd34e4b3ac738bfc6282a430833e27",
         "scripts/hooks/mechanical-findings.mutation.sh": "822097cb9972738d9d39a91ab187d2475cfb4008f63c3c421e5ef9e7f1818a6d",
@@ -16506,7 +16506,7 @@
         "scripts/hooks/teammate-idle-handoff.sh": "9e0e49d90653b6f80b9ccdcda91992bf8372e1ac53f0c8eda366c22e363d087c",
         "scripts/lib/worktree-ledger.py": "38f6cc15cd69ccd6aae90232db8b1b078866b6676b3f4795bdfe13212e1cb8ce",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
-        "scripts/hooks/verify-agent-prompt.sh": "862ddf86cca9e7c3b9039d656165f2f4b2afa655d0bc834bc25a59b6371aafda",
+        "scripts/hooks/verify-agent-prompt.sh": "09a99984d637eae2cf061f4512450eae66bc4ba786b968b4df78471bb84b47dd",
         "scripts/hooks/worker-created-handoff.sh": "a65bbd37af42971db667e9576cc1eb4cc95572b22cbab120a2bfb3e8005d53fd",
         "scripts/hooks/worker-ended-handoff.sh": "92a3dc39b502f1841b1c8f604eb5c42e5047fb678e86c76fb9dd3ab5aae97516",
         "scripts/hooks/worker-started-handoff.sh": "f18675f4938cae746d536661b44e49e7a3425c15acff5c7cd3ad2e1bf7ee9919",
@@ -16717,7 +16717,7 @@
         "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
         "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
         "scripts/hooks/guard-host-display-power.sh": "842c60b621850ccd41c61748fe478c37bb23a40592727e248890ffa5866be911",
-        "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "scripts/hooks/guard-inflight-notify.sh": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
         "scripts/hooks/guard-interactive-prompt.sh": "bab78bf4726313eb3c258f308f9b821391e582de500781a856cbabb9213a9179",
         "scripts/lib/interactive-prompt.py": "fd95664d486aa1cde400a9c216e1d2fda2eeb5f21a202a8ccce2b2d1a7b11af8",
@@ -16929,7 +16929,7 @@
         "scripts/hooks/guard-interactive-prompt.sh": "bab78bf4726313eb3c258f308f9b821391e582de500781a856cbabb9213a9179",
         "scripts/lib/interactive-prompt.py": "fd95664d486aa1cde400a9c216e1d2fda2eeb5f21a202a8ccce2b2d1a7b11af8",
         "scripts/hooks/guard-bash-main-writes.sh": "86d87ebcda5e74dc0e0e728bbe5b3c1a198f13946714c326d8c0fe2ae7573884",
-        "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "scripts/hooks/guard-inflight-notify.sh": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
         "scripts/lib/seat-jurisdiction.sh": "5a6c42a590bfb510dcab37039bb540c370d4aff731fd33211baf7bfe45c24fff",
         "scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "scripts/lib/inflight.sh": "db5588f3a0093a55befbcab454ee7e1921e1d8f8a049ff0c243da5020e418e43",
@@ -17161,7 +17161,7 @@
         "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
         "scripts/hooks/shell-evidence.py": "de4326ba4e1c9d8a415e27379efe3b4ecb15d4dd362419925628afe64c1cf240",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
-        "scripts/hooks/verify-agent-prompt.sh": "862ddf86cca9e7c3b9039d656165f2f4b2afa655d0bc834bc25a59b6371aafda",
+        "scripts/hooks/verify-agent-prompt.sh": "09a99984d637eae2cf061f4512450eae66bc4ba786b968b4df78471bb84b47dd",
         "scripts/hooks/guard-bash-main-writes.sh": "86d87ebcda5e74dc0e0e728bbe5b3c1a198f13946714c326d8c0fe2ae7573884",
         "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/hooks/guard-ci-red-lands.sh": "9dcac2ccec57f2fe1d47b8b5b86eda0590e5c784e587f732376b385c94232094",
@@ -17170,7 +17170,7 @@
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/hooks/guard-foreign-app-data.sh": "4360ace16a692e3cf5c7dd100dc206c496f0960b4584d66f76ff240bda3ee42c",
         "scripts/hooks/guard-hook-registration-commits.sh": "0e684c61c9c4d2bd3a724b6f4693090812cff645911916e4b4cb035b90790393",
-        "scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "scripts/hooks/guard-inflight-notify.sh": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
         "scripts/hooks/guard-interactive-prompt.sh": "bab78bf4726313eb3c258f308f9b821391e582de500781a856cbabb9213a9179",
         "scripts/lib/interactive-prompt.py": "fd95664d486aa1cde400a9c216e1d2fda2eeb5f21a202a8ccce2b2d1a7b11af8",
         "scripts/hooks/guard-land-lease-commands.sh": "e3fb182d2571b84f9a84599fd50f404bb53aee051f6a9bbf52f0f78e01b60078",
@@ -17284,7 +17284,7 @@
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
         "scripts/lib/testdevices.py": "c9295549c45a16f78d6c58386859a20acc5041ecbe2c6abb31315ba4ea1a4c3d",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/prepare-agent-spawn.py": "67d78fa20c52b44fa56b70d36cb8e22a432a37563105a191cd81e6471fec9dfe",
+        "scripts/prepare-agent-spawn.py": "b183c8fc36ff67717f73f44f97afd8ead961fe39e94bd47a167555cbd35b5bdf",
         "scripts/spawn.sh": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817",
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3"
       },

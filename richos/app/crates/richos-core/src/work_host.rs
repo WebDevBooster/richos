@@ -532,7 +532,7 @@ const REVIEW_PASSED_CONTINUATION: &str =
 /// message is the deliverable. The worker sentence above would send the back end to prepare a
 /// reviewer for an answer, which has nothing to review and nothing to land.
 const CONSULT_ENDED_CONTINUATION: &str =
-    "The teammate you consulted has ended — that is this app telling you, from its own record \
+    "The teammate you consulted has ended: that is this app telling you, from its own record \
      of the run, not a guess. Its final message is your deliverable: read it with the desktop \
      work tools (`inspect` returns it as `consult_answer` on that teammate's receipt) and carry \
      this assignment on from there. A consult changes no repository, so it needs no reviewer, \
@@ -5649,8 +5649,7 @@ mod tests {
         *h.commands.lock().unwrap() = Some(CommandReading::Clear);
         run(3);
         assert_eq!(h.fill.lock().unwrap().turns.last(), Some(&Some("2".to_string())), "the job ran under Work");
-        assert_eq!(quota.accounts.take_notice().as_deref(),
-            Some("Switched to Work: Account 1 reached 93% of its five-hour window. Nothing stopped."));
+        assert!(quota.accounts.take_notice().is_some_and(|line| line.starts_with("I switched the team to your **Work** account. Account 1 had used 93% of its 5-hour limit")));
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }

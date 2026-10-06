@@ -64,8 +64,10 @@ async function main() {
     const page = await open(browser, {});
     await page.waitForSelector(".nav-thread", {state: "attached"});
     assert(await page.isHidden("#setup-sheet"), "connected account interrupted launch");
+    // Since round 18 (Claude accounts in Settings), the door is the first account's card.
     await page.click("#set-btn");
-    await page.click("#set-account-open");
+    await page.click("#set-accounts-open");
+    await page.click('#accounts-sheet [data-act="sign-one"]');
     await page.waitForFunction(() => document.getElementById("setup-account").textContent.includes("is connected"));
     assert(await page.isVisible("#setup-sheet"), "settings did not open connection");
     assertEqual(page.errors.length, 0, "renderer errors");

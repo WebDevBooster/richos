@@ -163,7 +163,7 @@
         "richos/engine/scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "richos/engine/scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "richos/engine/scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
-        "richos/engine/scripts/hooks/verify-agent-prompt.sh": "862ddf86cca9e7c3b9039d656165f2f4b2afa655d0bc834bc25a59b6371aafda",
+        "richos/engine/scripts/hooks/verify-agent-prompt.sh": "09a99984d637eae2cf061f4512450eae66bc4ba786b968b4df78471bb84b47dd",
         "richos/engine/scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "richos/engine/scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
         "richos/engine/scripts/lib/stopwatch.sh": "1e54e36d5a28ddd3ba2a55a833c52e09e77e4553f9528eb28a7cd8b20f88e445",
@@ -173,7 +173,7 @@
         "richos/engine/scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "richos/engine/scripts/hooks/conceal.mutation.sh": "e9c89cc9df59ca229ef47ed34d71198ccfb2bac48d0701e91d8ba22755a68f5d",
         "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
-        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "f15ce2ebbc7fe50724f01611af88740067dddf38c88b7ad7f63161097ce1037e"
+        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "0f648bfb40b4a4b2a29320f87d8e809986381d13b2062111cea9b33e9fc8ce28"
       },
       "requires": {
         "paths": [],
@@ -367,7 +367,7 @@
         "richos/engine/scripts/lib/teammate-identity.py": "54fed25d0e79b1757690cdc2b63fe3281c985b8324fe27b2d12d7048e27badf2",
         "richos/engine/scripts/lib/git-jurisdiction.sh": "807f6081cce2e884b4e4e11bfd390e6fa4eaeb3b3c78a5fcb7e43e2868865c23",
         "richos/engine/scripts/lib/ceo-todos.py": "5e6264edc76c9dc03b0c569c63de251dd5b053bd88e40aa7101538bbbeaf406b",
-        "richos/engine/scripts/hooks/guard-inflight-notify.sh": "45525e1ccbfec898533bfd268b0780245d88663802d8f1951e1b47f3812b530d",
+        "richos/engine/scripts/hooks/guard-inflight-notify.sh": "2d5c5cf2de342b7978f4aad6222e7fc37d6a0b344023e576d7881111a4aba9ab",
         "richos/engine/scripts/lib/ceo-todos.sh": "03a36a2915fa3bc7029261d8a92418734b671093f2cb50b6294faedb83c24b7b",
         "richos/engine/scripts/hooks/guard-completeness-commits.sh": "fb36f214fcc59dd4bbbcdecae56368169d536327a6350afd864922df8ed2f395",
         "richos/engine/mega-lander/workspaces.py": "0106cd4ae9fa9d00664187c7f8e767f6fac6d4981d8f662dd9d267b82b27a5d9",

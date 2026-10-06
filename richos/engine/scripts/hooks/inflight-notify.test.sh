@@ -159,9 +159,14 @@ print(json.dumps({"hook_event_name": "Stop", "session_id": "deadbeef-1111-4000-8
                   "background_tasks": [], "session_crons": []}))'
 }
 
+# Since 2026-10-06 the push guard never refuses (case 2a). The debt predicate it used
+# to enforce is still computed -- the runner's `check` reads it -- and every case
+# below asks THAT, with exit 1 (debt) mapped to GRC=2 as before.
 run_guard() { # -> sets GRC / GOUT
-    GOUT="$(push_payload "${1:-$REPO}" | bash "$GUARD" 2>&1)"
+    GOUT="$(bash "$RUNNER" check --repo "${1:-$REPO}" --session deadbeef-1111-4000-8000-000000000000 2>&1)"
     GRC=$?
+    [ "$GRC" -eq 1 ] && GRC=2
+    return 0
 }
 
 echo "=== in-flight sweep: guard, witness, ack, and the silent case ==="
@@ -184,34 +189,24 @@ esac
 # 2. TRANSCRIPT ONE — a land with a live teammate behind and un-notified
 # ==========================================================================
 run_guard
-say "2 guard BLOCKED" "$GOUT"
-[ "$GRC" -eq 2 ] && ok "2a. the push is BLOCKED (exit 2)" \
-                 || bad "2a. the push is BLOCKED" "exit $GRC: $GOUT"
+say "2 predicate owes a notice" "$GOUT"
+[ "$GRC" -eq 2 ] && ok "2a0. the predicate still sees the debt (exit 1 from check)" \
+                 || bad "2a0. the predicate sees the debt" "exit $GRC: $GOUT"
+# 2a. THE CHANGE (CEO 2026-10-06): a push needs no notice and no waiver. The same
+# push, the same live un-notified teammate, and the guard lets it through
+# silently. It still leaves its footprint (6c), so it ran.
+GOUT="$(push_payload "$REPO" | bash "$GUARD" 2>&1)"; GRC=$?
+[ "$GRC" -eq 0 ] && ok "2a. the push is ALLOWED with a live un-notified teammate (exit 0)" \
+                 || bad "2a. the push is allowed with a live un-notified teammate" "exit $GRC: $GOUT"
 case "$GOUT" in
-    *"norm-sonnet-feature1"*) ok "2b. the refusal NAMES the teammate it is refusing on behalf of" ;;
-    *) bad "2b. the refusal names the teammate" "$GOUT" ;;
+    *"REFUSING"*|*"OWED-NO-NOTICE"*) bad "2b. the guard prints no refusal" "$GOUT" ;;
+    *) ok "2b. the guard prints no refusal and demands no notice or waiver" ;;
 esac
 case "$GOUT" in
-    *"$TIP"*) ok "2c. the refusal names the SHA that has to appear in the message" ;;
-    *) bad "2c. the refusal names the tip" "$GOUT" ;;
+    *"inflight-notify.sh waive"*|*"inflight-notify.sh notice"*) bad "2d. the guard points at no notice generator or waiver" "$GOUT" ;;
+    *) ok "2d. the guard points at no notice generator or waiver" ;;
 esac
-# 2d/2e. THE REFUSAL POINTS AT THE GENERATOR, NOT AT A TEMPLATE TO TYPE.
-# On 2026-09-02 the lander hand-composed a 25-line notice whose mandatory
-# content is five short fields, and the CEO called it "needlessly feeding tons
-# of noise to agents in flight. The answer offered was that the lander
-# would write shorter ones; he rejected it on the spot, because an intention is
-# not a mechanism. So the refusal must name the command that GENERATES the
-# message — and must NOT hand out a template to fill in by hand, which is the
-# thing that produced the 25 lines.
-case "$GOUT" in
-    *"inflight-notify.sh notice"*) ok "2d. the refusal points at the GENERATOR, not at a message to compose" ;;
-    *) bad "2d. the refusal points at the generator" "$GOUT" ;;
-esac
-case "$GOUT" in
-    *"scripts/inflight-ack.sh --sha"*)
-        bad "2e. the refusal does NOT hand out a hand-typed ack template (the generator emits it)" "$GOUT" ;;
-    *) ok "2e. the refusal does NOT hand out a hand-typed ack template — the generator emits it inside the body" ;;
-esac
+run_guard
 
 # ==========================================================================
 # 2f-2k. THE GENERATOR ITSELF
@@ -313,6 +308,7 @@ run_guard
 say "4 guard ALLOWED" "$GOUT"
 [ "$GRC" -eq 0 ] && ok "4a. once the notice naming this tip is witnessed, the push is ALLOWED" \
                  || bad "4a. the push is allowed after the notice" "exit $GRC: $GOUT"
+GOUT="$(push_payload "$REPO" | bash "$GUARD" 2>&1)"
 [ -z "$GOUT" ] && ok "4b. and it is allowed SILENTLY — a guard that talks on success gets muted" \
                || bad "4b. allowed silently" "$GOUT"
 
@@ -658,7 +654,12 @@ print(json.dumps({"tool_name": "Bash", "cwd": os.environ["CWD"],
                   "transcript_path": os.environ["TP"],
                   "tool_input": {"command": "git push origin main"}}))'
 }
-run_guard_t() { GOUT="$(push_payload_t "${1:-$REPO}" | bash "$GUARD" 2>&1)"; GRC=$?; }
+run_guard_t() {
+    local tp; tp="$(push_payload_t "${1:-$REPO}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("transcript_path",""))')"
+    GOUT="$(bash "$RUNNER" check --repo "${1:-$REPO}" --session deadbeef-1111-4000-8000-000000000000 --transcript "$tp" 2>&1)"; GRC=$?
+    [ "$GRC" -eq 1 ] && GRC=2
+    return 0
+}
 
 run_guard_t
 say "10a native debt" "$GOUT"

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# guard-inflight-notify.sh — BLOCKING PreToolUse guard on the Bash tool.
+# guard-inflight-notify.sh — PreToolUse guard on the Bash tool; NO LONGER REFUSES.
 #
-# REFUSES A LAND THAT LEAVES A LIVE TEAMMATE BEHIND AND UN-NOTIFIED.
+# Since 2026-10-06 a push needs no notice and no waiver: teammates merge main
+# themselves before handover. The text below is the history of the old refusal.
 #
 # The predicate — who is in flight, what moved under them, who was told, and
 # what an ack has to contain — lives in scripts/lib/inflight.py and NOWHERE
@@ -398,56 +399,8 @@ TEAMS_DIR="$INFLIGHT_TEAMS_DIR_RESOLVED"
 TIMEOUT_MIN="$(inflight_timeout_min "${SEAT_ROOT:-$REPO}")"
 inflight_register_repo "$TEAMS_DIR" "$REPO"
 
-# `set -e` is on, and a debt is signalled by exit 1 — so the status is captured
-# with `|| RC=$?` rather than a bare `$?`, which would end the hook on the very
-# condition it exists to report.
-RC=0
-REPORT="$(inflight_assess "$REPO" "" "$TEAMS_DIR" "$TIMEOUT_MIN" text "$SESSION_ID" "$TRANSCRIPT" 2>/dev/null)" || RC=$?
-
-case "$RC" in
-  0) exit 0 ;;                       # nothing in flight, or everyone disposed of
-  1) ;;                              # at least one live teammate is un-notified
-  *)
-    echo "ERROR: guard-inflight-notify.sh: the in-flight predicate could not run — refusing (fail-closed)." >&2
-    printf '%s\n' "$REPORT" >&2
-    exit 2 ;;
-esac
-
-TIP="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
-{
-    echo "=== IN-FLIGHT SWEEP: THIS PUSH LEAVES A LIVE TEAMMATE BEHIND — REFUSING ==="
-    echo "  repository : $REPO"
-    echo "  tip        : $TIP"
-    echo ""
-    echo "  Main has moved. The teammate(s) marked OWED-NO-NOTICE below were cut"
-    echo "  from an older base, are still live, and nothing has told them. That is"
-    echo "  the exact failure rich-lander/SKILL.md §8b was written from — twice in"
-    echo "  one day, costing two extra agents."
-    echo ""
-    printf '%s\n' "$REPORT"
-    echo ""
-    echo "  TO CLEAR THIS, per §8b — for each one, either:"
-    echo ""
-    echo "   1. MESSAGE IT — and do NOT compose the message. GENERATE it:"
-    echo "        $ENGINE_ROOT/scripts/inflight-notify.sh notice \\"
-    echo "            --impact <conflict|stale-record|grew-scope|none> \\"
-    echo "            --detail \"<one sentence: which of ITS assumptions this breaks>\""
-    echo ""
-    echo "      That prints a ready-to-send body per teammate with the sha, the"
-    echo "      paths and the teammate ALREADY FILLED IN from this same predicate."
-    echo "      Two fields are yours — impact and detail — and there is no blank"
-    echo "      space in it to inflate. Hand-composing this message produced a"
-    echo "      25-line notice whose mandatory content is five short fields, and"
-    echo "      the answer to that is a generator, not a resolution to be briefer."
-    echo ""
-    echo "      Send the body VERBATIM: the SHA in it is what the witness matches"
-    echo "      on, and the send itself is the record. Then re-run this push."
-    echo ""
-    echo "   2. WAIVE IT, on the record:"
-    echo "        $ENGINE_ROOT/scripts/inflight-notify.sh waive <worktree-path> --reason \"<why>\""
-    echo ""
-    echo "  See what you are deciding about first:"
-    echo "        $ENGINE_ROOT/scripts/inflight-notify.sh status"
-    echo "(hook: scripts/hooks/guard-inflight-notify.sh)"
-} >&2
-exit 2
+# CEO 2026-10-06: a push no longer requires a notice to, or a waiver for, any live
+# teammate. Each teammate merges main itself as its last step before handover
+# (the line prepare-agent-spawn.py puts in every spawn prompt). The repository is
+# still registered above, so the Stop hook still watches notices that WERE sent.
+exit 0

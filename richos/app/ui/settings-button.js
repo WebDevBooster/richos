@@ -35,7 +35,8 @@ window.RichSettings = (function () {
   var updates = null; // { render(container), onOpen() } — the update surface fills its own row
   var company = null; // { read(), write(id) } — which company this copy of Rich works for
   var repositories = null; // { open() }
-  var account = null; // { open() }
+  var account = null; // { open() }, the first account's sign-in, reached from its card (round 18)
+  var accounts = null; // { open(), paint() }, "Claude accounts" for everyone (round 18, accounts.js)
   var quota = null; // { open() }, desktop technical settings only
   var memory = null; // { open() } — where his memory is kept (audit-7 row 13)
   var phonePairing = null; // { open() } — "Use Rich from your phone" (plan §4.1)
@@ -437,6 +438,18 @@ window.RichSettings = (function () {
     if (quota) menu.appendChild(buildDisclosureRow("set-quota-open", "Claude Code quota", function () { quota.open(); }, "set-quota-state"));
     if (company) menu.appendChild(buildCompanyRow()); // ...then which company this copy is for
     if (home) menu.appendChild(buildHomeRow()); // ...and directly under it, the home screen's buttons
+    // CLAUDE ACCOUNTS, FOR EVERYONE (round 18, richos-hq design/mockups/rounds/round-18/; the CEO
+    // 2026-10-06, feedback item 9: "Non-technical users should also be able to take advantage of
+    // the multi-account setup"). Shown whatever Technical view is set to, with one plain line
+    // under it ("One account", "Using Home", "Using Work, switched 11:01 AM") and the week's mini
+    // bar, which `accounts.js` paints. It takes the place of the old account row, as round 18
+    // draws it, above the folders row: two rows about Claude accounts would confuse exactly the
+    // person this is for, and the first account's sign-in now lives in its card.
+    if (accounts) {
+      menu.appendChild(buildDisclosureRow("set-accounts-open", "Claude accounts", function () {
+        accounts.open();
+      }, "set-accounts-state"));
+    }
     // N2 (dev-walk audit, 2026-09-17): these two carried the class "set-bug" — a typo with
     // no rule anywhere in style.css, `grep -rn "\.set-bug" ui/` returns nothing — so they
     // rendered as raw, unstyled native buttons (pure white `#FEFEFE` in the dark theme,
@@ -455,7 +468,9 @@ window.RichSettings = (function () {
         repositories.open();
       }));
     }
-    if (account) {
+    // The old account row stays only where "Claude accounts" is not registered (a page with no
+    // accounts sheet behind it), so the first account's sign-in always has a door.
+    if (account && !accounts) {
       menu.appendChild(buildDisclosureRow("set-account-open", "Account connection", function () {
         account.open();
       }));
@@ -533,6 +548,7 @@ window.RichSettings = (function () {
     if (sw && techy) sw.checked = !!techy.read();
     var quotaRow = menuEl.querySelector("#set-quota-open");
     if (quotaRow) { quotaRow.hidden = !(techy && techy.read()); if (quota.paint) quota.paint(); }
+    if (accounts && accounts.paint && menuEl.querySelector("#set-accounts-open")) accounts.paint();
     // The updates row is painted by its owner, because this file does not know what is in
     // it. Called on every paint so a rebuild (a forced-dark flip) never leaves an empty row.
     // The company row is REBUILT rather than repainted when its shape can change (chosen
@@ -821,6 +837,12 @@ window.RichSettings = (function () {
      *  a page with no home screen behind it carries no door to a panel that is not there. */
     registerRepositories: function (host) { repositories = host || null; rebuild(); },
     registerAccount: function (host) { account = host || null; rebuild(); },
+    /** "Claude accounts" for everyone (round 18). `host.open()` opens the accounts sheet,
+     *  `host.paint()` writes the row's plain line and mini bar. */
+    registerAccounts: function (host) { accounts = host || null; rebuild(); },
+    /** The first account's sign-in (the setup sheet's account step), opened from its card in
+     *  the accounts sheet now that the old row is gone. */
+    openAccount: function () { close(); if (account && account.open) account.open(); },
     registerQuota: function (host) { quota = host || null; rebuild(); },
     /** WHERE HIS MEMORY IS KEPT. `host.open()` opens the same sheet the first-launch question
      *  uses, in whatever state `memory_status` reports at the press — which is why the row

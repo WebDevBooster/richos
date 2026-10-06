@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
 #
-# inflight-two-leads.test.sh: does the in-flight push guard refuse, or skip, ANOTHER LEAD's
-# worktree?
+# inflight-two-leads.test.sh: with two leads in one repository, is a push ever refused
+# because of ANOTHER LEAD's live worktree (or its own)?
 #
-# THE QUESTION (Frank's F4 on the operator contract, richos-hq bd685c14,
-# docs/verification/2026-09-26-operator-contract-review): behind the RichOS app, each
-# conversation has its own lead, which is its own Claude session with its own team directory
-# and its own SendMessage witness ledger. The guard reads WHO IS IN FLIGHT from
-# `git worktree list` (every lead's agents), and WHO WAS TOLD from the landing lead's own
-# ledger. Frank read the code and could not say from reading whether a worktree absent from
-# the landing lead's identity index is refused or skipped (`inflight.py` identity_index,
-# resolve_worktree_identity). This suite settles it by running the shipped guard and runner.
+# THE RULE (CEO 2026-10-06): a push needs no in-flight notice and no waiver, for any live
+# teammate, whichever lead it belongs to. Each worker catches up with main once, itself, as
+# the last step before handover. guard-inflight-notify.sh therefore never refuses.
+# History: Frank's F4 (richos-hq bd685c14) asked whether the old guard refused or skipped a
+# worktree absent from the landing lead's identity index; it refused. That refusal is gone.
 #
 # THE SHAPE, as the operator runs it: one repository, two lead sessions (A lands, B does not).
 #   A's agent : a native worktree, locked with a live pid, named in A's transcript.
 #   B's agent : a native worktree, locked with a live pid, named only in B's transcript.
 #   B's other : a hand-rolled worktree (spawn.sh's shape), presumed live, as the engine says.
-# All three are cut from the base; A's land moves main under all of them. A notifies its own
-# agent through the witness, exactly as a lead does, and then pushes.
-#
-# WHAT IS ASSERTED IS WHAT THE GUARD DOES TODAY. If Rich scopes the guard to a lead's own
-# agents, the refusal cases below turn red on purpose, and this file says why they were green.
+# All three are cut from the base; A's land moves main under all of them. Nobody is notified.
 #
 # Run directly:  scripts/hooks/inflight-two-leads.test.sh [--verbose]
 
@@ -152,73 +145,32 @@ for line in sys.stdin.read().splitlines():
         print(words[0]); break' "$2"
 }
 
-echo "=== in-flight guard, two leads: refuse or skip another lead's worktree? ==="
+echo "=== in-flight guard, two leads: a push is never refused for a live teammate ==="
 
-# ---- A notifies its own agent, by its unique name, as a lead does ------------------------
-send_as "$SID_A" "$TRANSCRIPT_A" mark-opus-leada1 "Main moved to $TIP while you were working."
-[ -s "$TEAM_A/inflight-notices.jsonl" ] && ok "0. the witness recorded lead A's notice in A's own ledger" \
-    || bad "0. lead A's notice was witnessed" "$(ls -la "$TEAM_A")"
-[ ! -s "$TEAM_B/inflight-notices.jsonl" ] && ok "0b. and nothing in lead B's ledger" \
-    || bad "0b. lead B's ledger is untouched" "$(cat "$TEAM_B/inflight-notices.jsonl")"
-
-# ---- 1. THE ANSWER: A's push -------------------------------------------------------------
-push_as "$SID_A" "$TRANSCRIPT_A"
-say "1 A pushes" "$GOUT"
-[ "$GRC" -eq 2 ] && ok "1a. A's push is REFUSED (exit 2): another lead's agents are not skipped" \
-    || bad "1a. A's push is refused" "exit $GRC: $GOUT"
-case "$GOUT" in
-    *"agent-$AID_B"*) ok "1b. the refusal names lead B's native worktree (agent-$AID_B)" ;;
-    *) bad "1b. the refusal names B's native worktree" "$GOUT" ;;
-esac
-case "$GOUT" in
-    *"norm-sonnet-leadb2"*) ok "1c. the refusal names lead B's hand-rolled worktree" ;;
-    *) bad "1c. the refusal names B's hand-rolled worktree" "$GOUT" ;;
-esac
-
+# ---- 0. The test is not vacuous: all three teammates are live and behind main -------------
 SOUT="$(INFLIGHT_TEAMS_DIR="$TEAM_A" INFLIGHT_TRANSCRIPT="$TRANSCRIPT_A" CLAUDE_SESSION_ID="$SID_A" \
         bash "$RUNNER" status --repo "$REPO" 2>&1)"
-say "1 status from A" "$SOUT"
-V_A="$(verdict_of "$SOUT" "agent-$AID_A")"
-V_B="$(verdict_of "$SOUT" "agent-$AID_B")"
-V_B2="$(verdict_of "$SOUT" "norm-sonnet-leadb2")"
-case "$V_A" in *NOTIFIED*) ok "1d. from A, A's own agent reads notified ($V_A)" ;;
-    *) bad "1d. A's own agent is notified" "$V_A :: $SOUT" ;; esac
-case "$V_B" in *OWED-NO-NOTICE*) ok "1e. from A, B's native agent reads OWED-NO-NOTICE ($V_B)" ;;
-    *) bad "1e. B's native agent is owed" "$V_B :: $SOUT" ;; esac
-case "$V_B2" in *OWED-NO-NOTICE*) ok "1f. from A, B's hand-rolled agent reads OWED-NO-NOTICE ($V_B2)" ;;
-    *) bad "1f. B's hand-rolled agent is owed" "$V_B2 :: $SOUT" ;; esac
-
-# ---- 2. What the generated notice would address B's native agent as ----------------------
-NOUT="$(INFLIGHT_TEAMS_DIR="$TEAM_A" INFLIGHT_TRANSCRIPT="$TRANSCRIPT_A" CLAUDE_SESSION_ID="$SID_A" \
-        bash "$RUNNER" notice --repo "$REPO" --impact none --detail "Lead A landed an unrelated change under you." 2>&1)"
-say "2 notice from A" "$NOUT"
-case "$NOUT" in
-    *"NO EXACT NAME JOIN"*) ok "2a. A cannot name B's native agent: the generated notice says NO EXACT NAME JOIN" ;;
-    *) bad "2a. the generated notice flags the missing name join for B's agent" "$NOUT" ;;
+say "0 status from A" "$SOUT"
+case "$SOUT" in
+    *"live worktrees: 3"*) ok "0. the sweep sees all three live worktrees (A's agent, B's native, B's hand-rolled)" ;;
+    *) bad "0. three live worktrees are in flight" "$SOUT" ;;
 esac
 
-# ---- 3. The ways through: a notice by the name B knows it by does not clear it -----------
-send_as "$SID_A" "$TRANSCRIPT_A" zach-opus-leadb1 "Main moved to $TIP."
+# ---- 1. Lead A pushes with NO notice sent to anyone --------------------------------------
 push_as "$SID_A" "$TRANSCRIPT_A"
-say "3a after a notice to B's agent by name" "$GOUT"
+say "1 A pushes" "$GOUT"
+[ "$GRC" -eq 0 ] && ok "1a. A's push is allowed (exit 0) with three live teammates and no notice" \
+    || bad "1a. A's push is allowed" "exit $GRC: $GOUT"
 case "$GOUT" in
-    *"agent-$AID_B"*) ok "3a. a notice from A to B's agent BY NAME clears nothing: A's index cannot join that name" ;;
-    *) bad "3a. a notice by name from A does not clear B's native agent" "exit $GRC: $GOUT" ;;
+    *"agent-$AID_B"*|*norm-sonnet-leadb2*|*"agent-$AID_A"*) bad "1b. the push names no teammate" "$GOUT" ;;
+    *) ok "1b. the push says nothing about any teammate's worktree (none of A's, B's native or B's hand-rolled)" ;;
 esac
-send_as "$SID_A" "$TRANSCRIPT_A" "$AID_B" "Main moved to $TIP."
-send_as "$SID_A" "$TRANSCRIPT_A" norm-sonnet-leadb2 "Main moved to $TIP."
-push_as "$SID_A" "$TRANSCRIPT_A"
-say "3b after notices by agent id and by worktree name" "$GOUT"
-[ "$GRC" -eq 0 ] && ok "3b. only a notice to B's raw agent id (and the hand-rolled one's name) lets A push" \
-    || bad "3b. notices by agent id clear A's push" "exit $GRC: $GOUT"
 
-# ---- 4. And lead B's own push, from the same repository, sees A's agent the same way ------
+# ---- 2. Lead B's own push, from the same repository, is allowed the same way --------------
 push_as "$SID_B" "$TRANSCRIPT_B"
-say "4 B pushes" "$GOUT"
-case "$GOUT" in
-    *"agent-$AID_A"*) ok "4. from B, A's agent is owed too: the refusal is symmetric" ;;
-    *) bad "4. B's push names A's agent" "exit $GRC: $GOUT" ;;
-esac
+say "2 B pushes" "$GOUT"
+[ "$GRC" -eq 0 ] && ok "2. B's push is allowed too: nothing depends on which lead a teammate belongs to" \
+    || bad "2. B's push is allowed" "exit $GRC: $GOUT"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
