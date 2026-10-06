@@ -129,11 +129,11 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   menus        the row's ⋯ menu and the file view's ⋯ menu, each open in both themes (contrast).
   overlap      after backend-worker: with the panel open, the work summary is opened from its
                chip; FAIL when the Output panel stays open beside it (§6.1, both ways).
-  job-question after panel and backend-worker (panel-check.md loose in Acme is what made the job
-               ask in the candidate-38 walk, run E): with the app never relaunched, the job's
-               question card is on the conversation and NO "last time RichOS was open" card or
-               "Status unavailable" row is (walk 38, D8). FAIL as not reproduced when no job is
-               blocked and no question card is shown: there is then nothing to check.
+  job-question after backend-worker: with the app never relaunched, a job's question card is on
+               the conversation and NO "last time RichOS was open" card or "Status unavailable" row
+               is (walk 38, D8). When the job did not ask on its own, the walk asks once through
+               the app's own job question tool (--questions-mcp) with the job's obligation as its
+               turn, the scope a work lease is given, and records which of the two happened.
   wrote        every "Wrote N files" in the conversation pressed in turn: the panel opens on it
                and the app's frame does not move (the header toggle and the composer hold).
   theme-flash  with the panel open, the guest's appearance is flipped while timeline.py captures
@@ -1617,32 +1617,76 @@ class OutputWalk(command_walk.CommandWalk):
         if self.present('back to Rich'):
             self.press('back to Rich')
             time.sleep(1)
-        blocked = [{k: a.get(k) for k in ('id', 'kind', 'state', 'detail')} for a in self.records()
-                   if a.get('thread_id') == self.facts['thread'] and a.get('state') == 'blocked']
-        note(app_pid=self.app_pid(), blocked_jobs=blocked)
-        # ONE read of the whole window, not three finds: after backend-worker the conversation is
-        # long, and the first run of this step (2026-10-06, walk-647cf54f10ca) had a single find
-        # for "Other answer" outlive ax.sh's 20 s guest deadline (exit 124). A tree read past the
-        # default 4000-node cap refuses as incomplete rather than answering "absent".
+        jobs = [a for a in self.records() if a.get('thread_id') == self.facts['thread'] and a.get('obligation_id')]
+        blocked = [{k: a.get(k) for k in ('id', 'kind', 'state', 'detail')} for a in jobs if a.get('state') == 'blocked']
+        note(app_pid=self.app_pid(), jobs=len(jobs), blocked_jobs=blocked)
+        seen = self.conversation_read()
+        note(asked_by='the job' if seen['question_cards'] else None, **seen)
+        if not seen['question_cards']:
+            if not jobs:
+                raise StepFailed('no job on this thread: run after backend-worker')
+            job = sorted(jobs, key=lambda a: (a.get('state') == 'blocked', a.get('registered_at_ms', 0)))[-1]
+            note(asked_by='the walk, through the job question tool', ask=self.ask_as_the_job(job))
+            end = time.monotonic() + 30
+            while time.monotonic() < end and not seen['question_cards']:
+                time.sleep(3)
+                seen = self.conversation_read()
+            note(**seen)
+        # The tree reads above are the verdict; the photograph illustrates them.
+        self.shot('job-question.png')
+        note(shots=['job-question.png'])
+        if seen['quit_card'] or seen['status_unavailable']:
+            raise StepFailed('a turn is drawn as cut off by a quit while the app never closed: %s'
+                             % json.dumps(seen['quit_card'] + seen['status_unavailable']))
+        if not seen['question_cards']:
+            raise StepFailed("the job's question card never reached the conversation")
+        return evidence
+
+    def conversation_read(self):
+        """ONE read of the whole window, not one find per word: after backend-worker the
+        conversation is long, and the first run of job-question (2026-10-06, walk-647cf54f10ca) had
+        a single find for "Other answer" outlive ax.sh's 20 s guest deadline (exit 124). A tree read
+        past its node cap refuses as incomplete rather than answering "absent". The tree holds the
+        whole conversation, scrolled or not (the wrote step reads rows at negative y)."""
         os.environ['TESTVM_AX_TIMEOUT'] = '150'
         nodes = [n for n in self.ax('tree', '--max', '30000', timeout=200) if 'x' in n and not n.get('meta')]
         words = lambda n: ' '.join(str(n.get(k) or '') for k in ('title', 'desc', 'value'))  # noqa: E731
-        card = [n for n in nodes if n.get('role') == 'AXButton' and 'Other answer' in words(n)]
-        quit_card = [words(n).strip() for n in nodes if QUIT_CARD in words(n)]
-        unavailable = [words(n).strip() for n in nodes if STATUS_UNAVAILABLE in words(n)]
-        # The accessibility tree holds the whole conversation, scrolled or not (the wrote step reads
-        # rows at negative y), so these reads are the verdict and the photograph is its illustration.
-        note(nodes_read=len(nodes), question_cards=len(card), quit_card=quit_card, status_unavailable=unavailable)
-        self.shot('job-question.png')
-        note(shots=['job-question.png'])
-        if not blocked and not card:
-            raise StepFailed('not reproduced: no job on this thread is blocked and no question card is shown')
-        if quit_card or unavailable:
-            raise StepFailed('a turn is drawn as cut off by a quit while the app never closed: %s'
-                             % json.dumps(quit_card + unavailable))
-        if not card:
-            raise StepFailed('a job is blocked (%s) but no question card is on the conversation' % json.dumps(blocked))
-        return evidence
+        return {'nodes_read': len(nodes),
+                'question_cards': len([n for n in nodes if n.get('role') == 'AXButton' and 'Other answer' in words(n)]),
+                'quit_card': [words(n).strip() for n in nodes if QUIT_CARD in words(n)],
+                'status_unavailable': [words(n).strip() for n in nodes if STATUS_UNAVAILABLE in words(n)]}
+
+    def ask_as_the_job(self, job):
+        """The job's own question tool, asked once. A back end asks through the app's
+        `--questions-mcp` server with the scope `native.rs` `prepare_question_scope` writes for a
+        work lease: turn and asker are the job's OBLIGATION. Whether the model chooses to ask is
+        not what D8 is about (the second run of this step, walk-dfbda3bd2dfa, had the job land
+        without asking), so when it did not, the walk makes the same call through the same binary
+        into the same store, and the evidence says which happened."""
+        exe = guest(self.vm, 'ps -o comm= -p %d' % self.app_pid(), 60).strip()
+        if not (exe.startswith(self.payload) and exe.endswith('/richos-tauri')):
+            raise StepFailed('the recorded app pid is not this payload\'s app: ' + exe)
+        scope = {'context': {'root': self.data + '/engine-state', 'entity_id': job['entity_id'],
+                             'thread_id': job['thread_id'], 'turn_id': job['obligation_id'],
+                             'asker': job['obligation_id'], 'session_id': 'output-walk-job-question',
+                             'engine': None, 'entity_root': None},
+                 'actions_allowed': True, 'answer_method': 'typed', 'surface': 'mac'}
+        question = {'text': 'Which name should the walk file get?',
+                    'options': [{'label': 'Name it walk-a.md', 'description': 'The first name.'},
+                                {'label': 'Name it walk-b.md', 'description': 'The second name.'}]}
+        frames = ''.join(json.dumps(f) + '\n' for f in (
+            {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}},
+            {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call',
+             'params': {'name': 'ask', 'arguments': {'questions': [question]}}}))
+        path = '/tmp/output-walk-job-question.scope.json'
+        out = guest(self.vm, 'printf %s ' + shlex.quote(json.dumps(scope)) + ' > ' + path + ' && printf %s '
+                    + shlex.quote(frames) + ' | ' + shlex.quote(exe) + ' --questions-mcp ' + path, 60)
+        replies = [json.loads(line) for line in out.splitlines() if line.startswith('{')]
+        result = next((r for r in replies if r.get('id') == 2), {}).get('result') or {}
+        text = (result.get('content') or [{}])[0].get('text', '')
+        if result.get('isError') or '"recorded":true' not in text:
+            raise StepFailed('the job question tool did not record the question: ' + out[-400:])
+        return {'executable': exe, 'obligation': job['obligation_id'], 'recorded': True}
 
     def wrote(self):
         """Every *Wrote N files* in the conversation, pressed in turn: the panel opens on that turn
