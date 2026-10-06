@@ -10,8 +10,8 @@
 // `create` writes, in a new mode-0700 folder:
 //   worker-secrets.json       (0600) the three Worker secrets, for `wrangler secret bulk`
 //   review-credentials.json   (0600) each reviewer's username and password, for the store notes
-// and prints each review host's Connect host id (public: the SHA-256 of its public key) with the
-// SQL that admits it to the Connect Worker. It never prints a password or a key.
+// and prints each review host's Connect host id (public: the SHA-256 of its public key). It never
+// prints a password or a key.
 
 import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, statSync, chmodSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
@@ -86,10 +86,8 @@ export async function create({ hostsFile, out, accessHostname = null, withPush =
 	writeFileSync(join(folder, 'review-credentials.json'), JSON.stringify({ access_page: accessHostname ? `https://${accessHostname}/` : null, credentials }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 	const lines = [`Wrote ${join(folder, 'worker-secrets.json')} and ${join(folder, 'review-credentials.json')} (mode 0600, folder 0700).`];
 	if (withPush) {
-		lines.push('', 'Connect host ids to admit (public values):');
+		lines.push('', 'Connect host ids (public values):');
 		for (const a of admitted) lines.push(`  ${a.hostname}  ${a.id}`);
-		lines.push('', 'SQL for the Connect D1 database (richos-connect):');
-		for (const a of admitted) lines.push(`  INSERT OR IGNORE INTO allowed_hosts(id) VALUES ('${a.id}');`);
 	} else {
 		lines.push('', 'No host keys were created: push is off for this deployment.');
 	}

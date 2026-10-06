@@ -575,7 +575,7 @@ const FIXTURES = {
     await page.waitForSelector("#phone-connect-start",{state:"visible"}); return page;
   },
   ...Object.fromEntries([
-    "connect-admission", "connect-setup-unreadable", "connect-helper-missing", "connect-history-full",
+    "connect-setup-unreadable", "connect-helper-missing", "connect-history-full",
     "connect-history-unreadable", "connect-unavailable", "connect-address-invalid", "connect-credential-invalid",
   ].map(name => [name, async (browser) => {
     const page = await FIXTURES["connect-setup"](browser);
@@ -1455,7 +1455,7 @@ const FIXTURES = {
 /// left as an unexplained asymmetry.
 const TEXT_RENDERING_FIXTURES = new Set([
   "question-edit", "question-saved", "question-retry", "question-deleted", "question-storage",
-  "connect-setup", "connect-admission", "connect-setup-unreadable", "connect-helper-missing", "connect-history-full",
+  "connect-setup", "connect-setup-unreadable", "connect-helper-missing", "connect-history-full",
   "connect-history-unreadable", "connect-unavailable", "connect-address-invalid", "connect-credential-invalid",
   "repository-empty", "permission-pending", "provider-start-error", "provider-poll-error", "provider-cancel-error",
   // The assignment surface renders its own words out of `work-summary.js`, with nothing but

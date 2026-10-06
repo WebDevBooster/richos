@@ -31,63 +31,34 @@ test('service signatures bind method, path, body, timestamp and a single-use non
   assert.equal((await f.send(await a.request('GET','/v1/host','',{time:1790036000000}))).status,404);
 });
 
-test('closed enrollment permits only operator-authorized public keys and capacity stays bounded', async t => {
-  const f=await fixture(t), a=await f.identity(), b=await f.identity();
-  f.env.ENROLLMENT_OPEN='false'; f.env.HOST_CAPACITY='1';
-  assert.equal((await f.send(await a.request('POST','/v1/hosts'))).status,403);
-  await f.store.statement('INSERT INTO allowed_hosts(id) VALUES(?)',a.id).run();
-  assert.equal((await f.send(await a.request('POST','/v1/hosts'))).status,200);
-  f.env.ENROLLMENT_OPEN='true';
-  assert.equal((await f.send(await b.request('POST','/v1/hosts'))).status,403);
-  assert.equal(f.tunnels.size,1);
-});
-
-test('closed enrollment: removing a host admission revokes every enable, never disable, until it is re-admitted', async t => {
+test('no admission step: a new Mac enrolls, disables and re-enables on its own signed requests (CEO 2026-10-06)', async t => {
+  // "Nothing is in a private pilot." The uploaded bindings carry no admission switch and the
+  // schema no admission table, so this runs on exactly what is deployed.
   const f=await fixture(t), a=await f.identity();
-  const admit=()=>f.store.statement('INSERT INTO allowed_hosts(id) VALUES(?)',a.id).run();
-  const revoke=()=>f.store.statement('DELETE FROM allowed_hosts WHERE id=?',a.id).run();
-  f.env.ENROLLMENT_OPEN='false'; await admit();
-  assert.equal((await f.send(await a.request('POST','/v1/hosts'))).status,200);
-  // An active host whose admission is removed can neither re-run enable nor stop being turned off.
-  await revoke();
-  let refused=await f.send(await a.request('POST','/v1/hosts'));
-  assert.equal(refused.status,403); assert.deepEqual(await refused.json(),{error:'enrollment_closed'});
+  assert.equal(f.env.ENROLLMENT_OPEN,undefined,'the deployed bindings have no admission switch');
+  let reply=await f.send(await a.request('POST','/v1/hosts'));
+  assert.equal(reply.status,200); assert.equal((await reply.json()).phase,'active');
   assert.equal((await f.send(await a.request('DELETE','/v1/host'))).status,200);
-  assert.equal((await f.store.get(a.id)).phase,'disabled'); assert.equal(f.tunnels.size,0); assert.equal(f.dns.size,0);
-  // A disabled host without admission cannot switch itself back on: refused, no provider call, row unchanged.
-  const before=await f.store.get(a.id), calls=f.calls.length;
-  refused=await f.send(await a.request('POST','/v1/hosts'));
-  assert.equal(refused.status,403); assert.deepEqual(await refused.json(),{error:'enrollment_closed'});
-  assert.deepEqual(await f.store.get(a.id),before); assert.equal(f.calls.length,calls); assert.equal(f.tunnels.size,0);
-  await f.reconcile(); assert.deepEqual(await f.store.get(a.id),before); assert.equal(f.tunnels.size,0);
-  // ...and can still disable (signed DELETE needs no admission).
-  assert.equal((await f.send(await a.request('DELETE','/v1/host'))).status,200);
-  assert.equal((await f.store.get(a.id)).phase,'disabled');
-  // Positive control: the re-admitted host enables normally, on a new generation.
-  await admit();
-  const back=await f.send(await a.request('POST','/v1/hosts'));
-  assert.equal(back.status,200); const view=await back.json();
-  assert.equal(view.phase,'active'); assert.equal(view.generation,2); assert.equal(f.tunnels.size,1); assert.equal(f.dns.size,1);
-});
-
-test('enable transition fails closed when the caller does not state open enrollment', async t => {
-  const f=await fixture(t), a=await f.identity();
-  await f.send(await a.request('POST','/v1/hosts')); await f.send(await a.request('DELETE','/v1/host'));
+  reply=await f.send(await a.request('POST','/v1/hosts'));
+  assert.equal(reply.status,200); const view=await reply.json();
+  assert.equal(view.phase,'active'); assert.equal(view.generation,2); assert.equal(f.tunnels.size,1);
+  // The lifecycle itself takes no admission option, and enable succeeds without one.
   const { transition }=await import('../service/connect/lifecycle.mjs');
-  const before=await f.store.get(a.id);
-  await assert.rejects(transition(f.store,f.provider,a.id,'enable','example.com'),/enrollment_closed/);
-  assert.deepEqual(await f.store.get(a.id),before); assert.equal(f.tunnels.size,0);
-  assert.equal((await transition(f.store,f.provider,a.id,'enable','example.com',{open:true})).phase,'active');
+  assert.equal((await f.send(await a.request('DELETE','/v1/host'))).status,200);
+  assert.equal((await transition(f.store,f.provider,a.id,'enable','example.com')).phase,'active');
+  assert.equal(await f.store.statement("SELECT name FROM sqlite_master WHERE name='allowed_hosts'").first(),null,
+    'the schema still creates an admission table');
 });
 
-test('open enrollment is unchanged: a host with no admission row disables and re-enables', async t => {
-  const f=await fixture(t), a=await f.identity();
-  assert.equal(f.env.ENROLLMENT_OPEN,'true');
+test('capacity stays bounded, and a full service answers capacity_reached, never an admission', async t => {
+  const f=await fixture(t), a=await f.identity(), b=await f.identity();
+  f.env.HOST_CAPACITY='1000';
+  assert.equal((await f.send(await a.request('GET','/v1/host'))).status,404,'a Worker configured for 1000 hosts serves requests');
+  f.env.HOST_CAPACITY='1';
   assert.equal((await f.send(await a.request('POST','/v1/hosts'))).status,200);
-  assert.equal(await f.store.statement('SELECT 1 FROM allowed_hosts WHERE id=?',a.id).first(),null);
-  assert.equal((await f.send(await a.request('DELETE','/v1/host'))).status,200);
-  const again=await f.send(await a.request('POST','/v1/hosts'));
-  assert.equal(again.status,200); assert.equal((await again.json()).generation,2); assert.equal(f.tunnels.size,1);
+  const full=await f.send(await b.request('POST','/v1/hosts'));
+  assert.equal(full.status,503); assert.deepEqual(await full.json(),{error:'capacity_reached'});
+  assert.equal(f.tunnels.size,1); assert.equal(await f.store.get(b.id),null);
 });
 
 for(const stage of ['create','configure','dns']) test(`provisioning recovers after lost ${stage} response without duplicate resources`, async t => {
@@ -164,11 +135,13 @@ test('managed artifact preserves only server secrets and packages the tested ser
   const artifact = managedArtifact(profile);
   assert.equal(artifact.metadata.main_module,'connect-worker.mjs');
   assert.deepEqual(artifact.metadata.keep_bindings,['secret_text']);
-  assert.equal(artifact.metadata.bindings.find(row=>row.name==='ENROLLMENT_OPEN').text,'false');
+  assert.equal(artifact.metadata.bindings.find(row=>row.name==='ENROLLMENT_OPEN'),undefined,'no admission switch is uploaded');
   assert.equal(artifact.metadata.bindings.find(row=>row.name==='DB').id,profile.databaseId);
   assert.equal(artifact.modules.length,8); // schema 3 adds connect/fcm.mjs
   assert(artifact.modules.every(row=>/^[a-f0-9]{64}$/.test(row.sha256)));
-  assert.throws(()=>managedArtifact({...profile,capacity:11}),/capacity/);
+  // The 10-host lifetime ceiling was the private pilot (CEO 2026-10-06); the profile's number is 1000.
+  assert.equal(managedArtifact({...profile,capacity:1000}).metadata.bindings.find(row=>row.name==='HOST_CAPACITY').text,'1000');
+  assert.throws(()=>managedArtifact({...profile,capacity:0}),/capacity/);
   assert.throws(()=>managedArtifact({...profile,domain:'https://example.com'}),/Invalid/);
 });
 

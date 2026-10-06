@@ -67,7 +67,6 @@
       <p class="overlay-note">Reach this Mac from your phone without setting up a VPN. Your Mac must stay awake with RichOS running.</p>
       <p class="overlay-note">Connections are encrypted through Cloudflare. Cloudflare can process the traffic; conversations are stored on your devices.</p>
       <p id="phone-connect-status" class="overlay-note" role="status"></p>
-      <p id="phone-connect-host" class="overlay-note"></p>
       <div class="desk-card-actions">
         <button id="phone-connect-start" type="button" class="desk-btn">Set up RichConnect for RichOS</button>
         <button id="phone-connect-disable" type="button" class="desk-btn" hidden>Turn off RichConnect for RichOS</button>
@@ -885,8 +884,6 @@
       : health === "connected" ? "This Mac is connected."
       : health === "reconnecting" ? "Reconnecting this Mac. Your phone keeps unsent messages until it can reach RichOS again."
       : health ? "Connecting this Mac…" : "First, set up this RichOS app on your Mac. Then pair your phone with it.";
-    field("phone-connect-host").textContent = managed && managed.hostId && !managed.endpoint
-      ? "Pilot setup reference: " + managed.hostId : "";
 
     const live = !!status.pairUrl;
     // **A CODE THAT RAN OUT IS A STATE OF THIS SCREEN, NOT A REASON TO LEAVE IT.**

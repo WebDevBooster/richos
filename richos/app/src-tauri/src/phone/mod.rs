@@ -815,7 +815,6 @@ fn serving_plan(
 #[serde(rename_all = "camelCase")]
 pub struct ConnectView {
     pub enabled: bool,
-    pub host_id: Option<String>,
     pub endpoint: Option<String>,
     pub phase: String,
     pub cleanup_pending: bool,
@@ -837,13 +836,13 @@ impl PhoneRuntime {
     fn connect_view(&self, supervisor: Option<&connect::supervisor::Supervisor>) -> ConnectView {
         match connect::state::load(&self.data_dir) {
             Ok(config) => ConnectView {
-                enabled: config.desired, host_id: config.host_id,
+                enabled: config.desired,
                 endpoint: config.allocation.as_ref().map(|a| a.endpoint.clone()),
                 phase: if config.cleanup_pending { "disabling".into() } else {
                     config.allocation.map(|a| a.phase).unwrap_or_else(|| "not-configured".into()) },
                 cleanup_pending: config.cleanup_pending, health: supervisor.map(|s| s.health()),
             },
-            Err(_) => ConnectView { enabled:false,host_id:None,endpoint:None,phase:"setup-unreadable".into(),cleanup_pending:false,health:None },
+            Err(_) => ConnectView { enabled:false,endpoint:None,phase:"setup-unreadable".into(),cleanup_pending:false,health:None },
         }
     }
     pub fn begin_connect(&self, app: tauri::AppHandle) -> Result<PhoneStatus, PhoneError> {

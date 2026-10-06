@@ -32,7 +32,7 @@ const FAKE_FCM_ACCOUNT = JSON.stringify({
 	private_key: ['placeholder, not a', 'PRIVATE', 'KEY'].join(' ')
 });
 
-async function connect(t, { admit = true } = {}) {
+async function connect(t, { full = false } = {}) {
 	const { Store } = await import('../../service/connect/store.mjs');
 	const { handle } = await import('../../service/connect-worker.mjs');
 	let time = 1_790_000_000_000;
@@ -43,7 +43,7 @@ async function connect(t, { admit = true } = {}) {
 	const provider = new Proxy({}, { get: () => () => { throw new Error('the review host must never provision a tunnel or DNS record'); } });
 	const env = {
 		DB: db, CF_API_TOKEN: 'server-only', CF_ACCOUNT_ID: 'a'.repeat(32), CF_ZONE_ID: 'b'.repeat(32), CONNECT_DOMAIN: 'example.com',
-		HOST_CAPACITY: '10', ENROLLMENT_OPEN: 'false', REQUEST_LIMIT: { limit: async () => ({ success: true }) },
+		HOST_CAPACITY: full ? '1' : '10', REQUEST_LIMIT: { limit: async () => ({ success: true }) },
 		APNS_TEAM_ID: 'A123456789', APNS_PRODUCTION_KEY_ID: 'B123456789', APNS_PRODUCTION_KEY: 'fixture', APNS_TOPICS: 'dev.richos.connect',
 		FCM_PROJECT_ID: 'richconnect-test', FCM_APPS: 'dev.richos.connect', FCM_SERVICE_ACCOUNT: FAKE_FCM_ACCOUNT
 	};
@@ -53,7 +53,8 @@ async function connect(t, { admit = true } = {}) {
 		fcm: { send: async (binding, job) => { sent.fcm.push({ binding, job }); return { outcome: 'sent' }; } }
 	};
 	const identity = await hostIdentity(pkcs8());
-	if (admit) await db.prepare('INSERT INTO allowed_hosts(id) VALUES (?)').bind(identity.id).run();
+	// A full service: the one slot HOST_CAPACITY allows is already another Mac's.
+	if (full) await db.prepare("INSERT INTO hosts(id,public_key,hostname,created_at,last_seen) VALUES ('other','key','other.example.com',0,0)").bind().run();
 	const fetchImpl = async (request) => {
 		if (!reachable) throw new TypeError('fetch failed');
 		return handle(request, env, ports);
@@ -148,8 +149,8 @@ test('the TEST copy dev.richos.connect.perf registers under its own ID on both p
 	assert.equal(other.status, 404, 'only the one test copy is added');
 });
 
-test('a review host that is not admitted is refused by the Worker; the phone is told to retry, not that it failed', async (t) => {
-	const c = await connect(t, { admit: false });
+test('a full Connect service refuses a review host; the phone is told to retry, not that it failed', async (t) => {
+	const c = await connect(t, { full: true });
 	const { host } = makeHost({ push: { control: c.control } });
 	const phone = await pairedPhone(host);
 	const response = await phone.signed('POST', '/api/pair', { native_push: APNS });

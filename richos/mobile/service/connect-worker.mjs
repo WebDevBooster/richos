@@ -19,7 +19,7 @@ const routes = new Set(['POST /v1/hosts', 'GET /v1/host', 'DELETE /v1/host', 'PO
 function configured(env) {
   return !!(env.DB && env.CF_API_TOKEN && /^[a-f0-9]{32}$/.test(env.CF_ACCOUNT_ID)
     && /^[a-f0-9]{32}$/.test(env.CF_ZONE_ID) && /^[a-z0-9][a-z0-9.-]+\.[a-z]{2,}$/.test(env.CONNECT_DOMAIN)
-    && env.REQUEST_LIMIT && Number.isInteger(Number(env.HOST_CAPACITY)) && Number(env.HOST_CAPACITY) > 0 && Number(env.HOST_CAPACITY) <= 10);
+    && env.REQUEST_LIMIT && Number.isInteger(Number(env.HOST_CAPACITY)) && Number(env.HOST_CAPACITY) > 0);
 }
 
 export async function handle(request, env, ports = {}) {
@@ -47,8 +47,9 @@ export async function handle(request, env, ports = {}) {
     let host = await store.get(identity.id);
     if (!host && !['/v1/hosts','/v1/push/hosts'].includes(url.pathname)) return json(404, { error: 'not_found' });
     if (!host) {
-      host = await store.enroll(identity, env.CONNECT_DOMAIN, Number(env.HOST_CAPACITY), env.ENROLLMENT_OPEN === 'true', url.pathname === '/v1/push/hosts');
-      if (!host) return json(403, { error: 'enrollment_closed' });
+      host = await store.enroll(identity, env.CONNECT_DOMAIN, Number(env.HOST_CAPACITY), url.pathname === '/v1/push/hosts');
+      // The one reason a signed Mac is not enrolled: the operator's HOST_CAPACITY is used up.
+      if (!host) return json(503, { error: 'capacity_reached' });
     }
     if (host.public_key !== identity.key) return json(404, { error: 'not_found' });
     if (!await store.nonce(identity.id, identity.nonce)) return json(409, { error: 'replayed_request' });
@@ -64,8 +65,7 @@ export async function handle(request, env, ports = {}) {
     }
     if (url.pathname === '/v1/hosts' || request.method === 'DELETE') {
       if (body !== '' && body !== '{}') return json(400, { error: 'invalid_request' });
-      return json(200, await transition(store, provider, identity.id, request.method === 'DELETE' ? 'disable' : 'enable', env.CONNECT_DOMAIN,
-        { open: env.ENROLLMENT_OPEN === 'true' }));
+      return json(200, await transition(store, provider, identity.id, request.method === 'DELETE' ? 'disable' : 'enable', env.CONNECT_DOMAIN));
     }
     if (!host.desired) return json(410, { error: 'connect_disabled', ...view(host) });
     if (request.method === 'GET') return json(200, view(host));
@@ -91,8 +91,6 @@ export async function handle(request, env, ports = {}) {
     if (error.message === 'body_too_large') return json(413, { error: 'body_too_large' });
     if (error instanceof SyntaxError) return json(400, { error: 'invalid_request' });
     if (error.message === 'busy') return json(409, { error: 'busy' });
-    // The same answer a never-admitted identity gets; the Mac already reads 403 as "an operator must admit this Mac".
-    if (error.message === 'enrollment_closed') return json(403, { error: 'enrollment_closed' });
     return json(503, { error: 'service_unavailable' });
   }
 }

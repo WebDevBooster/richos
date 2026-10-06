@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS nonces (
   PRIMARY KEY (host_id, nonce)
 );
 CREATE INDEX IF NOT EXISTS nonces_expiry ON nonces(expires_at);
-CREATE TABLE IF NOT EXISTS allowed_hosts (id TEXT PRIMARY KEY);
 -- Schema 2 additions are idempotent. No conversation content or labels.
 CREATE TABLE IF NOT EXISTS push_bindings (
   host_id TEXT PRIMARY KEY,

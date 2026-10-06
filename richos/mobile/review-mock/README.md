@@ -99,7 +99,7 @@ Where a review host differs from a Mac, it says so:
 | M2 | `src/config.mjs` refuses any name in `richos.ceo`, and so do the CLI and the template test. Only custom domains are routed; there is never a wildcard. |
 | M3 | `test/conformance.test.mjs` replays every Mac verdict and outcome in the corpus. |
 | M4 | There is no upstream except the Connect Worker's push routes. |
-| M5 | Each review host has its own admitted host identity, and the mock holds no APNs or FCM credential. **One deviation, raised as `esc-20260924T003116Z-d1e843d0`:** registrations use route `tailnet`, not `connect`. The `connect` shape needs a provisioned Cloudflare tunnel and a `c-<id>-g<n>.richos.ceo` DNS record per review host, which conflicts with M2. The Worker's device-hash check therefore does not apply to review hosts until F5's phone-signed registration exists. The route is one line in `src/registration.mjs`. |
+| M5 | Each review host has its own enrolled host identity, and the mock holds no APNs or FCM credential. **One deviation, raised as `esc-20260924T003116Z-d1e843d0`:** registrations use route `tailnet`, not `connect`. The `connect` shape needs a provisioned Cloudflare tunnel and a `c-<id>-g<n>.richos.ceo` DNS record per review host, which conflicts with M2. The Worker's device-hash check therefore does not apply to review hosts until F5's phone-signed registration exists. The route is one line in `src/registration.mjs`. |
 | M6 | Credentials are per review host and unlock only that host's fictional data. No operator secret is reachable through them. |
 | M7 | Previews are sealed as `notifications.rs` seals them (AES-256-GCM, a random 96-bit nonce, 240 characters, bound to the references), with fictional text. |
 | M8 | Replies are canned. The review notes below say so. |
@@ -119,9 +119,9 @@ monitoring). Its item 6, a reviewer Mac, is superseded by the CEO's choice of a 
    zone must be in the account that runs the Connect Worker, so the custom domains can be created.
    The template uses `example.org` placeholders.
 2. **Connect capacity (Sage F8).** Each review host with push is one host record in the Connect
-   Worker, which allows **10 lifetime records** in total. `unverified:` how many are left; settle
+   Worker, which allows `HOST_CAPACITY` lifetime records in total (10 in the deployed profile). `unverified:` how many are left; settle
    it with `SELECT count(*) FROM hosts` on the Connect D1. Raise `HOST_CAPACITY` deliberately if
-   needed, and never set `ENROLLMENT_OPEN`.
+   needed.
 3. **How many review hosts.** The template has three: Apple, Google and a spare.
 4. **M5's route** (escalation above).
 
@@ -149,16 +149,16 @@ mkdir -p /Volumes/E1TB/state/richos/review-mock && chmod 700 /Volumes/E1TB/state
 cp richos/mobile/review-mock/wrangler.example.toml /Volumes/E1TB/state/richos/review-mock/wrangler.toml
 
 # 2. Write REVIEW_HOSTS (the same JSON as in wrangler.toml) to a file, then create the secrets.
-#    This prints each review host's public Connect host id and the SQL that admits it.
+#    This prints each review host's public Connect host id.
 node richos/mobile/review-mock/bin/review-secrets.mjs create \
   --hosts /Volumes/E1TB/state/richos/review-mock/review-hosts.json \
   --out /Volumes/E1TB/state/richos/review-mock/secrets \
   --access <access name>
 
-# 3. Admit the printed host ids at the Connect Worker. <connect D1 database> is the database the
-#    Connect Worker binds as DB (its id is in richos-hq/docs/operations/richos-connect-deployment.json).
+# 3. Check the Connect Worker has room for the review hosts (nothing needs admitting: there is no
+#    admission step). <connect D1 database> is the database the Connect Worker binds as DB (its id
+#    is in richos-hq/docs/operations/richos-connect-deployment.json).
 wrangler d1 execute <connect D1 database> --remote --command "SELECT count(*) FROM hosts"
-wrangler d1 execute <connect D1 database> --remote --command "INSERT OR IGNORE INTO allowed_hosts(id) VALUES ('<printed id>')"
 
 # 4. Check the bundle and bindings without deploying, then deploy and install the secrets.
 wrangler deploy --dry-run --config /Volumes/E1TB/state/richos/review-mock/wrangler.toml --outdir /Volumes/E1TB/tmp/codex/review-mock-dry

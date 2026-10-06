@@ -26,7 +26,7 @@ export function artifact() {
 export function managedArtifact(profile) {
   for (const name of ['accountId', 'zoneId']) if (!/^[a-f0-9]{32}$/.test(profile[name])) throw Error('Invalid deployment identifier');
   if (!/^[a-f0-9-]{36}$/.test(profile.databaseId) || !/^[a-z0-9][a-z0-9.-]+\.[a-z]{2,}$/.test(profile.domain)) throw Error('Invalid deployment domain/database');
-  if (!Number.isInteger(profile.capacity) || profile.capacity < 1 || profile.capacity > 10) throw Error('Pilot capacity must be between 1 and 10');
+  if (!Number.isInteger(profile.capacity) || profile.capacity < 1) throw Error('Host capacity must be a whole number of at least 1');
   const push = profile.push || {};
   if (Object.keys(push).some(k=>!['teamId','sandboxKeyId','productionKeyId','topics'].includes(k))) throw Error('Invalid push profile');
   for (const key of ['teamId','sandboxKeyId','productionKeyId']) if (push[key] && !/^[A-Z0-9]{10}$/.test(push[key])) throw Error('Invalid push identifier');
@@ -49,7 +49,7 @@ export function managedArtifact(profile) {
         { name: 'DB', type: 'd1', id: profile.databaseId },
         { name: 'REQUEST_LIMIT', type: 'ratelimit', namespace_id: '18443', simple: { limit: 60, period: 60 } },
         ...Object.entries({ CF_ACCOUNT_ID: profile.accountId, CF_ZONE_ID: profile.zoneId, CONNECT_DOMAIN: profile.domain,
-          HOST_CAPACITY: String(profile.capacity), ENROLLMENT_OPEN: 'false',
+          HOST_CAPACITY: String(profile.capacity),
           ...(push.teamId ? {APNS_TEAM_ID:push.teamId,APNS_TOPICS:(push.topics || []).join(',')} : {}),
           ...(push.sandboxKeyId ? {APNS_SANDBOX_KEY_ID:push.sandboxKeyId} : {}),
           ...(push.productionKeyId ? {APNS_PRODUCTION_KEY_ID:push.productionKeyId} : {}),
