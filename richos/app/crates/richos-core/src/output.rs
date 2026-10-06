@@ -460,8 +460,9 @@ pub struct OutputStore {
 /// every row; only the list, its counts and the "Wrote N files" links leave these out.
 pub const SCRATCH_PREFIXES: &[&str] =
     &["/tmp", "/private/tmp", "/var/folders", "/private/var/folders", "/Volumes/E1TB/tmp/claude"];
-/// A path with a folder of any of these names anywhere in it is scratch: worktree `.claude/` folders.
-pub const SCRATCH_DIR_NAMES: &[&str] = &[".claude"];
+/// A path containing any of these folder sequences (slash-separated, consecutive) is scratch:
+/// agents' worktree folders. A project's own `.claude/agents/` or `.claude/skills/` is not.
+pub const SCRATCH_DIR_NAMES: &[&str] = &[".claude/worktrees"];
 
 /// [`SCRATCH_PREFIXES`] plus this process's `TMPDIR` (and `temp_dir()`), with `/private` spellings
 /// resolved, and [`SCRATCH_DIR_NAMES`].
@@ -494,7 +495,11 @@ impl ScratchRoots {
     pub fn is_scratch(&self, path: &str) -> bool {
         let one = |p: &Path| {
             self.prefixes.iter().any(|r| p.starts_with(r))
-                || p.components().any(|c| self.dir_names.iter().any(|n| c.as_os_str() == n.as_str()))
+                || self.dir_names.iter().any(|n| {
+                    let seq: Vec<&str> = n.split('/').filter(|x| !x.is_empty()).collect();
+                    let comps: Vec<_> = p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+                    !seq.is_empty() && comps.windows(seq.len()).any(|w| w.iter().zip(&seq).all(|(a, b)| a == b))
+                })
         };
         one(Path::new(path)) || canonical_of(path).is_some_and(|c| one(Path::new(&c)))
     }
@@ -1275,7 +1280,7 @@ mod tests {
         let proj = Dir::new("output-scratch-proj");
         let real = proj.file("notes.zip", "real");
         let scratch = Dir::new("output-scratch-tmp");
-        let roots = ScratchRoots::with(vec![scratch.0.clone()], vec![".claude".into()]);
+        let roots = ScratchRoots::with(vec![scratch.0.clone()], vec![".claude/worktrees".into()]);
         let claude = proj.0.join(".claude").join("worktrees").join("agent-1");
         std::fs::create_dir_all(&claude).unwrap();
         let in_claude = claude.join("notes.zip");
@@ -1311,6 +1316,9 @@ mod tests {
         let tmpdir = std::env::temp_dir().join("x.md");
         assert!(roots.is_scratch(&tmpdir.to_string_lossy()), "TMPDIR");
         assert!(!roots.is_scratch("/Users/alex/Documents/notes.zip"));
+        assert!(!roots.is_scratch("/Users/alex/proj/.claude/agents/notes.txt"), "a project's own .claude stays listed");
+        assert!(!roots.is_scratch("/Users/alex/proj/.claude/skills/x/SKILL.md"));
+        assert!(roots.is_scratch("/Users/alex/proj/.claude/worktrees/agent-1/notes.txt"));
         assert!(!roots.is_scratch("/tmpfoo/a.md"), "prefix is by folder, not by letters");
     }
 
