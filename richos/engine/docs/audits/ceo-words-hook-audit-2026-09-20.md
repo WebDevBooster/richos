@@ -154,6 +154,8 @@ session**, not this one.
 | `scripts/hooks/guard-agent-state-claims.py` | a | the transcript, joined on TOOL CALLS / agent ids | no | 1 non-comment hit(s), first: 251:    transcript = payload.get("transcript_path") |
 | `scripts/hooks/guard-agent-state-claims.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/guard-bash-main-writes.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
+| `scripts/hooks/guard-pierce.sh` | a | tool input / files on disk / its own state | no | added 2026-10-06, after this audit; fixed Python helper invocation only |
+| `scripts/lib/pierce.py` | a | TOOL INPUT — the orchestrator's own Agent brief | no | added 2026-10-06, after this audit; reads `tool_input.prompt`, the brief Rich wrote, never a message the CEO typed |
 | `scripts/hooks/guard-brief-scope.sh` | a | TOOL INPUT — the orchestrator's own Agent brief | no | `ti.get("prompt")` at -, where `ti` is tool_input: the brief Rich wrote, not a message the CEO typed |
 | `scripts/hooks/guard-ceo-ask-first.sh` | a | TOOL INPUT — the orchestrator's own Agent brief | no | `ti.get("prompt")` at 225, where `ti` is tool_input: the brief Rich wrote, not a message the CEO typed |
 | `scripts/hooks/guard-ceo-ruled-ask.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
@@ -233,6 +235,8 @@ session**, not this one.
 | `scripts/hooks/session-start-stall.sh` | a | files on disk (whether an orchestration.config exists) | no | added 2026-09-28, after this audit; 0 hits for the pattern set in it, `scripts/stall-watch.sh` and `scripts/lib/stall_watch.py`. It PRINTS a fixed notice and reads none of his words |
 | `scripts/hooks/shell-evidence.py` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/shell-evidence.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
+| `scripts/hooks/strip-ack-lines.py` | a | tool input (the spawn prompt) | no | added 2026-10-06, after this audit; it removes fixed acknowledgment-prefix lines from the prompt and reads none of his words |
+| `scripts/hooks/strip-ack-lines.sh` | a | tool input / files on disk / its own state | no | added 2026-10-06, after this audit; fixed Python helper invocation only |
 | `scripts/hooks/snapshot-agent-definitions.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/snapshot-enforcing-hooks.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/task-completed-handoff.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |

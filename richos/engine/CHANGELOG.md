@@ -10,6 +10,13 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Changed — acknowledgment lines reach the spawn guards, not the teammate (2026-10-06)
+
+- `scripts/hooks/strip-ack-lines.sh` (PreToolUse[Agent], last in the chain) returns the prompt without
+  lines such as `owned-state-ack:` or `reference:`. The host hands every parallel hook the original input,
+  so the guards still read them; the teammate boots without them. `cross-repo-worktree:` stays.
+  New hook: run `scripts/hooks/install.sh` after landing to mint its sidecar.
+
 ### Fixed — a held agent makes no model call while it waits (2026-10-04)
 
 - **What used quota during a hold.** The wait a held agent runs returned STILL WAITING

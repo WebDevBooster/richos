@@ -472,7 +472,7 @@ run_layer_R() {
     # guard-pierce delegates to its installation-relative Python module; that
     # module reads runtime project/desktop roots, without this shell bootstrap.
     R_ROOTLESS_HOOKS="guard-brief-scope guard-pierce notice-claim-capability handoff-facts-annotate \
-    notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota session-start-stall shell-evidence \
+    notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota session-start-stall shell-evidence strip-ack-lines \
     task-completed-handoff teammate-idle-handoff \
     worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
     guard-ci-red-lands guard-land-lease-commands guard-foreign-app-data guard-shared-scratchpad guard-unguarded-rm"
@@ -1235,6 +1235,7 @@ guard-bash-main-writes.sh|PreToolUse
 dispatch-pretooluse.sh|PreToolUse
 dispatch-pretooluse.sh|PreToolUse
 shell-evidence.sh|PreToolUse
+strip-ack-lines.sh|PreToolUse
 guard-interactive-prompt.sh|PreToolUse
 guard-inflight-notify.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
