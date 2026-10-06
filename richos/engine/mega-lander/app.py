@@ -563,7 +563,7 @@ SPAWN_EVIDENCE = ("agent_id", "tool_use_id", "spawned_at", "started_at", "end", 
 
 
 def settle_undispatched(scope, path, record):
-    """Settle a `preparing` or `unknown` receipt that provably never dispatched.
+    """Settle a preparation that provably never dispatched, including Pierce refusals.
 
     WHY AN UNCERTAIN RECEIPT IS KEPT AT ALL, and that reason still holds: a
     preparation that failed after `spawn.py` began may have created workspaces,
@@ -573,7 +573,8 @@ def settle_undispatched(scope, path, record):
     WHY IT CAN NEVER HAVE STARTED A WORKER. Its payload reaches `Agent` only
     through `dispatch_intent`, which refuses every receipt whose status is not
     `prepared` and moves it to `dispatching` first. A receipt still `preparing`
-    or `unknown` therefore never passed that gate, and the canonical record says
+    or `unknown`, or `prepared` after inspection returned findings, therefore
+    never passed that gate, and the canonical record says
     the same thing independently: `register_spawn` writes `tool_use_id` and
     `spawned_at` at the PreToolUse[Agent] hook, `bind_agent` and `record_start`
     write `agent_id` and `started_at`. With none of them present nothing ran.
@@ -889,7 +890,7 @@ def prepare(scope_path, scope, args):
         for old_path, old in receipts(root):
             if old["request"]["obligation_id"] == obligation and old["request"]["role"] == role:
                 refresh(old)
-                if old["status"] in ("preparing","unknown"):
+                if old["status"] in ("preparing","unknown") or (old["status"] == "prepared" and old.get("pierce_refused")):
                     settle_undispatched(scope, old_path, old)
                 if old["status"] in ("preparing","prepared","dispatching","running","unknown"):
                     raise ValueError("this obligation already has unresolved work; inspect its receipt before retrying")
@@ -1083,8 +1084,8 @@ def view(record, include_payload=False):
     return result
 
 
-def dispatch_intent(scope, payload):
-    """Called before canonical PreToolUse guards, never from a model tool."""
+def dispatch_intent(scope, payload, inspect_only=False, review_refused=False):
+    """Validate before controls; record dispatch only after they admit the call."""
     if payload.get("agent_id"): raise ValueError("workers cannot dispatch another worker")
     ti = payload.get("tool_input",{})
     with locked(scope) as root:
@@ -1097,6 +1098,13 @@ def dispatch_intent(scope, payload):
         if payload.get("session_id") != scope["binding"]["session_id"] or not payload.get("tool_use_id"):
             raise ValueError("dispatch has no matching native call identity")
         read_scope(os.environ["RICHOS_APP_SCOPE"])
+        if inspect_only:
+            return
+        if review_refused:
+            record["pierce_refused"] = True
+            save(path,record)
+            return
+        record.pop("pierce_refused", None)
         record.update(status="dispatching",tool_use_id=payload["tool_use_id"])
         save(path,record)
 

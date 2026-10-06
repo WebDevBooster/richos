@@ -919,6 +919,7 @@ guard-no-home-network-phone.sh
 notice-disk-alert.sh
 left-off-report.sh
 guard-brief-scope.sh
+guard-pierce.sh
 guard-hook-registration-commits.sh
 commit-ceo-inputs.sh
 handoff-facts-annotate.sh
