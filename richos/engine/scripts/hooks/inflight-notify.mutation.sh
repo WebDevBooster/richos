@@ -169,20 +169,22 @@ mutant witness-logs-body "4d." scripts/hooks/notice-inflight-sends.sh \
 # 5. LIVENESS: a hand-rolled worktree takes no lock, so absence of a lock is
 #    absence of evidence. Treating it as death is how the whole sweep goes
 #    quiet in exactly the topology this operation runs in.
-mutant handrolled-presumed-dead "2a." scripts/lib/inflight.py \
+mutant handrolled-presumed-dead "2a0." scripts/lib/inflight.py \
     '            wt["liveness"] = "presumed LIVE (hand-rolled worktree — no lock is ever taken here, so quiet is not death)"
             wt["live"] = True' \
     '            wt["liveness"] = "assumed dead"
             wt["live"] = False' \
     "Every hand-rolled worktree — the shape this was built in — would be invisible."
 
-# 6. ONLY AT A LANDING. Without the main-checkout test the guard fires on an
-#    engineer pushing their own branch from their own worktree: the wrong
-#    person, blocked on a file they do not own.
-mutant fires-inside-worktrees "7g." scripts/hooks/guard-inflight-notify.sh \
-    '[ "$(cd "$REPO" && pwd -P)" = "$(cd "$MAIN_CHECKOUT" && pwd -P)" ] || exit 0' \
-    ': ' \
-    "Engineers would be blocked by a guard aimed at the lander."
+# 6. THE PUSH GUARD NEVER REFUSES (CEO 2026-10-06). Teammates merge main themselves
+#    before handover, so a push needs no notice and no waiver. Make the guard
+#    refuse again and a live un-notified teammate would block the lander.
+mutant guard-refuses-again "2a." scripts/hooks/guard-inflight-notify.sh \
+    'still watches notices that WERE sent.
+exit 0' \
+    'still watches notices that WERE sent.
+exit 2' \
+    "The lander would be blocked on a notice nobody has to send any more."
 
 # 7. THE ACK IS ABOUT ONE COMMIT. An ack that matches any sha is a teammate
 #    acknowledging a land it has never heard of.
@@ -314,21 +316,7 @@ mutant teams-dir-pointer-ignored "11c." scripts/lib/teammate-identity.py \
 # the ones most exposed to passing for free: "the body is short" and "the field
 # was pre-filled" are both satisfied by a generator that emits nothing at all.
 
-# 17. THE REFUSAL POINTS AT THE GENERATOR. Point it back at a message to
-#     compose and the whole mechanism is a suggestion again.
-mutant refusal-points-at-hand-composition "2d." scripts/hooks/guard-inflight-notify.sh \
-    'echo "        $ENGINE_ROOT/scripts/inflight-notify.sh notice \\"' \
-    'echo "        (compose it yourself, and name the sha) \\"' \
-    "The lander would be told to write the message, which is what produced 25 lines."
-
-# 18. AND IT DOES NOT ALSO HAND OUT A TEMPLATE. A refusal that prints a
-#     fill-in-the-blanks ack command next to the generator invites the hand
-#     path back in, and the hand path is the defect.
-mutant refusal-reprints-ack-template "2e." scripts/hooks/guard-inflight-notify.sh \
-    'echo "      Send the body VERBATIM: the SHA in it is what the witness matches"' \
-    'echo "        scripts/inflight-ack.sh --sha $TIP --impact <kind> --detail x"
-    echo "      Send the body VERBATIM: the SHA in it is what the witness matches"' \
-    "Two paths would be offered, and the hand-typed one is the one that failed."
+# 17/18. (retired 2026-10-06: they mutated the refusal banner, which no longer exists.)
 
 # 19. THE SHA IS PRE-FILLED. A generated notice that asks for the sha is a
 #     template, and a typed sha is the 2026-09-01 in-flight notice that

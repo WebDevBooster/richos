@@ -618,10 +618,10 @@ if [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
     ACK_APPLIES=1
   fi
   if [ "$ACK_APPLIES" -eq 1 ]; then
-    if ! printf '%s' "$PROMPT" | grep -E >/dev/null 'inflight-ack\.sh|inflight-acks/' \
+    if ! printf '%s' "$PROMPT" | grep -E >/dev/null 'inflight-ack\.sh|inflight-acks/|git merge main' \
        && ! printf '%s' "$(sanitized_prompt)" | grep -iE >/dev/null '^[[:space:]]*no-inflight-ack:[[:space:]]*[^[:space:]]'; then
       FAIL=1
-      FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract — either name the helper (scripts/inflight-ack.sh, reachable at ~/.claude/richos-engine/scripts/inflight-ack.sh) or spell out the ack file itself (<worktree>/.claude/inflight-acks/<sha12>.<teammate>.ack with its sha/impact/detail/paths/teammate keys) — because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
+      FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so main can move under it. The prompt must tell it to run `git merge main` in its own worktree as its last step before hand over (scripts/prepare-agent-spawn.py adds that line), or carry the older ack contract (scripts/inflight-ack.sh). If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
     fi
   fi
 fi
