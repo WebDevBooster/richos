@@ -66,6 +66,16 @@ FIVE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
                  is recorded. PASS when the composer is back. Evidence: relaunch-observed.json, relaunch-app.log, and on a
                  miss relaunch-tree.txt and relaunch.png.
 
+TWO STEPS FOR THE PROTO-TEAMMATE SHELF, slice 1 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md
+§2), run as --steps identity,first-run,team,agents:
+  team           writes a fictional teammate of the user's own, <app data>/team/walkmate.md, before the
+                 work lease opens.
+  agents         asks the back end to name every agent type its Agent tool lists. PASS needs all of: the
+                 question registered and closed (the back end answered it); its last notice names dean,
+                 clark, reed, frank and walkmate; every running lease's --plugin-dir registers the four,
+                 and one of them walkmate; all five on coordination/.claude/agents; no shelf name
+                 (engine/team/shelf) on either. Evidence: agents-observed.json.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -90,7 +100,16 @@ StepFailed = adopt_walk.StepFailed
 command = adopt_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'watch', 'task', 'observe']
-MORE_STEPS = ['background', 'next-job', 'deadline', 'late-approval', 'relaunch']
+MORE_STEPS = ['background', 'next-job', 'deadline', 'late-approval', 'relaunch', 'team', 'agents']
+# The proto-teammate shelf, slice 1 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md §2):
+# every lease registers these four plus every file in <app data>/team/, and never the shelf.
+ALWAYS_ACTIVE = ('dean', 'clark', 'reed', 'frank')
+# A fictional teammate of the user's own, written by `team` before the work lease opens.
+WALK_TEAMMATE = 'walkmate'
+WALK_TEAMMATE_BODY = ('---\nname: walkmate\ndescription: Fictional walk teammate. Never use it for work.\n'
+                      'model: sonnet\ntools: Read\n---\n\nA fictional teammate written by command-walk.py.\n')
+AGENTS_TASK = ('Please do this check yourself, without starting anyone: look at the list of agent types '
+               'your Agent tool offers and tell me every name on that list, word for word, one per line.')
 # The pane's words while an assignment waits on its command (work_host.rs COMMAND_STILL_RUNNING_DETAIL).
 STILL_RUNNING = 'A command it started is still running.'
 BACKGROUND_TASK = ('Please start this harmless test command in the background for me with your shell tool, in '
@@ -329,6 +348,48 @@ class CommandWalk(adopt_walk.Walk):
                 pressed[0] += 1
             time.sleep(2)
         return record
+
+    def team(self):
+        """A teammate of the user's own in <app data>/team/, written before the work lease opens."""
+        folder = self.data + '/team'
+        guest(self.vm, 'mkdir -p ' + shlex.quote(folder) + ' && printf %s ' + shlex.quote(WALK_TEAMMATE_BODY)
+              + ' > ' + shlex.quote(folder + '/' + WALK_TEAMMATE + '.md'))
+        return {'written': folder + '/' + WALK_TEAMMATE + '.md'}
+
+    def leases(self):
+        """Every running provider child in the guest: its --plugin-dir and what that plugin registers."""
+        script = ('import json,re,subprocess,os\n'
+                  'out=[]\n'
+                  'ps=subprocess.run(["ps","-axww","-o","pid=,args="],capture_output=True,text=True).stdout\n'
+                  'for line in ps.splitlines():\n'
+                  '    m=re.search(r"--plugin-dir (.+?/engine-profiles/[0-9a-f-]{36})",line)\n'
+                  '    if not m: continue\n'
+                  '    try: agents=json.load(open(m.group(1)+"/.claude-plugin/plugin.json")).get("agents")\n'
+                  '    except Exception as e: agents=str(e)\n'
+                  '    out.append({"pid":int(line.split()[0]),"plugin":m.group(1),"agents":agents,\n'
+                  '                "work_tools":"richos_work" in line})\n'
+                  'print(json.dumps(out))\n')
+        return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script), 60))
+
+    def agents(self):
+        """The back end names the four and the user's own teammate from its Agent tool's listing."""
+        if not self.facts.get('thread'):
+            raise StepFailed('first-run must have run (no thread on record)')
+        sent = self.send(self.a.agents_task)
+        pressed = [0]
+        record = self.settled_read(self.until_closed(lambda: self.ours(sent), self.a.within, pressed))
+        roster = guest(self.vm, 'ls ' + shlex.quote(self.data + '/coordination/.claude/agents')).split()
+        shelf = [Path(n).stem for n in guest(self.vm, 'ls ' + shlex.quote(self.payload + '/engine/team/shelf')
+                                             + ' 2>/dev/null || true').split()]
+        leases = self.leases()
+        evidence = {'assignment': record, 'roster': roster, 'leases': leases, 'shelf': shelf,
+                    'approvals_pressed': pressed[0]}
+        (self.out / 'agents-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        failures = agents_verdict(record, roster, leases, shelf)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return {'notice': record['notices'][-1]['text'], 'roster': roster,
+                'leases': [{'pid': l['pid'], 'agents': l['agents'], 'work_tools': l['work_tools']} for l in leases]}
 
     def next_job(self):
         """His next job arrives while a background command runs (bgdone2 item 2): the first job must
@@ -610,6 +671,42 @@ def yield_verdict(first, second, first_meanwhile, marker, sent, seconds, obligat
     return failures
 
 
+def agents_verdict(record, roster, leases, shelf):
+    """Why the back end's Agent listing does NOT show slice 1's registration ([] = it does).
+
+    The four are in every running lease's plugin; the user's own teammate (written after the front
+    desk's lease opened) in at least one, the work lease; both on the roster; no shelf name in
+    either; and the back end's own answer, a closed assignment, names all five."""
+    failures = []
+    wanted = list(ALWAYS_ACTIVE) + [WALK_TEAMMATE]
+    names = lambda agents: [Path(a).stem for a in agents] if isinstance(agents, list) else []
+    if not record:
+        failures.append('no assignment was registered for the question, so the back end did not answer it')
+    elif record.get('state') in OPEN:
+        failures.append(f"the assignment was still {record.get('state')}")
+    else:
+        said = ((record.get('notices') or [{}])[-1].get('text') or '').lower()
+        missing = [n for n in wanted if not re.search(r'\b' + n + r'\b', said)]
+        if missing:
+            failures.append(f'the back end did not name {missing} from its Agent listing: {said!r}')
+    if not leases:
+        failures.append('no running provider child with an engine plugin was found in the guest')
+    for lease in leases:
+        absent = [n for n in ALWAYS_ACTIVE if n not in names(lease.get('agents'))]
+        if absent:
+            failures.append(f"lease pid {lease.get('pid')} does not register {absent}: {lease.get('agents')}")
+    if leases and not any(WALK_TEAMMATE in names(l.get('agents')) for l in leases):
+        failures.append(f'no running lease registers the user\'s own {WALK_TEAMMATE}')
+    on_roster = [Path(n).stem for n in roster]
+    absent = [n for n in wanted if n not in on_roster]
+    if absent:
+        failures.append(f'the roster lacks {absent}: {roster}')
+    leaked = sorted({n for n in shelf if n in on_roster or any(n in names(l.get('agents')) for l in leases)})
+    if leaked:
+        failures.append(f'shelf teammates are registered: {leaked}')
+    return failures
+
+
 def verdict(record, short, subject, commands):
     """Why this closed assignment does NOT show a command run and its result reported ([] = it does).
 
@@ -643,6 +740,7 @@ def main():
     p.add_argument('--late-bound', type=float, default=30, help='seconds from the late Approve to the command')
     p.add_argument('--relaunch-within', type=float, default=120, help='seconds for the composer to come back')
     p.add_argument('--yield-seconds', type=int, default=90, help="how long next-job's background command sleeps")
+    p.add_argument('--agents-task', default=AGENTS_TASK, help="what `agents` asks the back end")
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
