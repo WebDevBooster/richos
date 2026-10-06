@@ -91,6 +91,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -747,7 +748,7 @@ def parse_args(argv):
     return args
 
 
-def main(argv):
+def _main(argv):
     try:
         args = parse_args(argv)
     except Refusal as exc:
@@ -931,6 +932,12 @@ def main(argv):
     # looks identical either way), so the caller carries the answer.
     mine = not os.path.exists(W.agent_path(W.named_key(session, args["name"])))
     created = None
+    # AN INTERRUPT IS A FAILURE OF OUR OWN MAKING TOO (see main()): from here on a
+    # SIGTERM, SIGINT or SIGHUP raises _Interrupted, and main() runs the same _rollback
+    # a refusal uses, with the facts recorded here.
+    _CREATING.update(session=session, name=args["name"], mine=mine,
+                     quiet=args["audience"] == APP)
+    _arm_interrupt()
     # EVERY WORKSPACE, UNDER THE ONE NAME, AND A FAILURE OF ANY OF THEM UNDOES
     # ALL OF THEM. `withdraw_cc` withdraws the whole registration - every
     # workspace on it, its branches and the record - so a half-created teammate
@@ -966,6 +973,47 @@ def main(argv):
 
     _print_report(notes, post, guards, created, args, findings)
     return _emit(payload, args, post, notes, created)
+
+
+class _Interrupted(BaseException):
+    """A termination signal arrived after creation began. BaseException so no
+    `except Exception` between the signal and main() can swallow it."""
+
+
+_SIGNALS = ("SIGTERM", "SIGINT", "SIGHUP")
+_CREATING = {}
+
+
+def _arm_interrupt():
+    def _raise(signum, _frame):
+        raise _Interrupted(signal.Signals(signum).name)
+    for n in _SIGNALS:
+        signal.signal(getattr(signal, n), _raise)
+
+
+def _disarm_interrupt(ignore=False):
+    """`ignore` while the rollback itself runs, so a second signal cannot cut it short."""
+    for n in _SIGNALS:
+        signal.signal(getattr(signal, n), signal.SIG_IGN if ignore else
+                      (signal.default_int_handler if n == "SIGINT" else signal.SIG_DFL))
+
+
+def main(argv):
+    """Rich stopped a running spawn on 2026-10-06 and it left a registered, never-started
+    workspace and its branch, which stall-watch then reported as a silent agent. The
+    handlers are armed only once creation starts (before that nothing exists). The signal
+    raises out of whatever is running, so subprocess.run kills the creating child on the
+    way, and the very same _rollback a refusal uses runs. Exit 4: created and rolled back."""
+    try:
+        return _main(argv)
+    except _Interrupted as exc:
+        _disarm_interrupt(ignore=True)
+        print("spawn: interrupted by %s - rolling back." % exc, file=sys.stderr)
+        _rollback(_CREATING["session"], _CREATING["name"], _CREATING["mine"],
+                  quiet=_CREATING["quiet"])
+        return 4
+    finally:
+        _disarm_interrupt()
 
 
 def _rollback(session, name, mine, quiet=False):

@@ -25,10 +25,25 @@ pub struct Repository {
     pub initialized: bool,
 }
 
-/// Validate scope before touching the selected directory. Only an explicitly
-/// selected empty directory may be initialized. Existing changes are untouched.
+/// Validate scope before touching the selected directory, then make sure it has Git.
+///
+/// EVERY CONNECTED FOLDER GETS GIT TRACKING (CEO, 2026-10-06). A repository's main checkout
+/// connects as it is, its history and local changes untouched. A folder without Git gets
+/// `git init` and its files become the first commit (an empty folder gets an empty one).
+/// Every refusal comes before Git is touched.
+///
+/// `initialize_empty` NO LONGER CHANGES ANYTHING: the checkbox it carried is gone, because
+/// a folder gets Git whatever it holds. It stays in the signature only so the four live
+/// probes under `examples/` (which pass `true` for an empty folder, where the outcome is the
+/// same) build unchanged; the app and the tests call [`connect_folder`].
 pub fn connect(registry: &EntityRegistry, entity: &EntityId, selected: &Path,
-    initialize_empty: bool, runtime: &EngineRuntime, protected: &[&Path]) -> Result<(EntityRegistry, Repository), String> {
+    _initialize_empty: bool, runtime: &EngineRuntime, protected: &[&Path]) -> Result<(EntityRegistry, Repository), String> {
+    connect_folder(registry, entity, selected, runtime, protected)
+}
+
+/// [`connect`] without the retired flag: connect `selected` to `entity`, giving it Git.
+pub fn connect_folder(registry: &EntityRegistry, entity: &EntityId, selected: &Path,
+    runtime: &EngineRuntime, protected: &[&Path]) -> Result<(EntityRegistry, Repository), String> {
     if !selected.is_absolute() { return Err("Choose an absolute folder path.".into()); }
     let root = std::fs::canonicalize(selected).map_err(|_| "Choose an existing folder.".to_string())?;
     if !root.is_dir() { return Err("Choose a folder, not a file.".into()); }
@@ -46,30 +61,56 @@ pub fn connect(registry: &EntityRegistry, entity: &EntityId, selected: &Path,
         }
     }
     let inside = git(runtime, &root, &["rev-parse", "--show-toplevel"])?;
-    let mut initialized = if inside.status.success() {
+    let created = if inside.status.success() {
         let top = std::fs::canonicalize(answer(inside)?).map_err(|e|e.to_string())?;
         if top != root || !root.join(".git").is_dir() || root.join(".git").is_symlink() {
             return Err("Choose the repository's main checkout, not a subfolder or linked worktree.".into());
         }
         false
     } else {
-        let empty = std::fs::read_dir(&root).map_err(|e|e.to_string())?.next().is_none();
-        if !initialize_empty || !empty { return Err("Choose an existing Git repository or explicitly initialize an empty folder.".into()); }
+        // A `.git` that Git cannot read is somebody's damaged repository, never ours to replace.
+        if root.join(".git").symlink_metadata().is_ok() { return Err("Git could not verify this repository.".into()); }
         answer(git(runtime, &root, &["init", "--template=", "-q", "--initial-branch=main"] )?)?;
-        answer(git(runtime, &root, &["commit", "--allow-empty", "-q", "-m", "Initialize repository"] )?)?;
         true
     };
-    let head = git(runtime, &root, &["rev-parse", "--verify", "HEAD"] )?;
-    if !head.status.success() && initialize_empty {
-        // Recover a first initialization interrupted after Git created its metadata.
-        // Only the explicit empty-directory action can create this initial commit.
-        let no_files = std::fs::read_dir(&root).map_err(|e|e.to_string())?
-            .collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?.iter().all(|e|e.file_name() == ".git");
-        let index = answer(git(runtime, &root, &["ls-files"] )?)?;
-        if !no_files || !index.is_empty() { return Err("This repository has files but no initial commit.".into()); }
-        answer(git(runtime, &root, &["commit", "--allow-empty", "-q", "-m", "Initialize repository"] )?)?;
-        initialized = true;
-    } else { answer(head)?; }
+    let initialized = match first_commit(runtime, &root, created) {
+        Ok(initialized) => initialized,
+        Err(error) => {
+            // This call made the `.git` a moment ago; a set-up that failed leaves none behind.
+            if created {
+                if let Err(cleanup) = std::fs::remove_dir_all(root.join(".git")) {
+                    return Err(format!("{error} The Git folder it started could not be removed: {cleanup}"));
+                }
+            }
+            return Err(error);
+        }
+    };
     let branch = answer(git(runtime, &root, &["symbolic-ref", "--short", "HEAD"] )?)?;
     Ok((next, Repository {root, branch, initialized}))
+}
+
+/// Make sure HEAD names a commit; `true` when this call made the first one.
+///
+/// `richos.initializing=true` sits in the repository's own config from `init` until the
+/// first commit exists, so a set-up killed between the two is finished by the next connect
+/// rather than refused forever. A repository with no commit that RichOS did NOT start is
+/// finished only when it is empty, which is all an older version could leave behind; one
+/// with files is his to commit, and is refused as before.
+fn first_commit(runtime: &EngineRuntime, root: &Path, created: bool) -> Result<bool, String> {
+    const MARK: &str = "richos.initializing";
+    if created { answer(git(runtime, root, &["config", MARK, "true"])?)?; }
+    let head = git(runtime, root, &["rev-parse", "--verify", "HEAD"] )?;
+    if head.status.success() { return Ok(false); }
+    let ours = created || answer(git(runtime, root, &["config", "--get", MARK])?).is_ok_and(|v| v == "true");
+    if !ours {
+        let no_files = std::fs::read_dir(root).map_err(|e|e.to_string())?
+            .collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())?.iter().all(|e|e.file_name() == ".git");
+        let index = answer(git(runtime, root, &["ls-files"] )?)?;
+        if !no_files || !index.is_empty() { return Err("This repository has files but no initial commit.".into()); }
+    }
+    // `-A` honors any `.gitignore` already in the folder; nothing is pushed and no remote is added.
+    answer(git(runtime, root, &["add", "-A"] )?)?;
+    answer(git(runtime, root, &["commit", "--allow-empty", "-q", "-m", "Initialize repository"] )?)?;
+    if ours { answer(git(runtime, root, &["config", "--unset", MARK])?)?; }
+    Ok(true)
 }

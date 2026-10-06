@@ -11,16 +11,16 @@
   // `close()`'s refusal to close mid-connect rather than working around it.
   sheet.setAttribute("data-dismiss", "control:#repository-close");
   sheet.innerHTML = `<div class="overlay-panel overlay-panel--compact">
-    <h2 id="repositories-title" class="overlay-title">Connected repositories</h2>
-    <p class="overlay-note">Connect the repositories Rich may use for this company's assignments. Existing files and local changes stay in place.</p>
+    <h2 id="repositories-title" class="overlay-title">Connected project folders (repositories)</h2>
+    <p class="overlay-note">Connect a project folder as this company’s home for Rich. Connecting it does not move or change its existing files.</p>
+    <p class="overlay-note repository-guidance">One folder per company is usually enough. But in rare cases additional folders might be needed. Ask Rich if you’re unsure.</p>
     <label class="entity-add-label" for="repository-company">Company</label>
     <select id="repository-company" class="entity-add-input"></select>
     <ul id="repository-list"></ul>
-    <label class="entity-add-label" for="repository-folder">Repository folder</label>
-    <input id="repository-folder" class="entity-add-input" type="text" placeholder="/Users/you/Projects/project" autocomplete="off" spellcheck="false">
-    <label class="overlay-note"><input id="repository-initialize" type="checkbox"> Initialize Git if this folder is empty</label>
+    <label class="entity-add-label" for="repository-folder">Project folder location</label>
+    <input id="repository-folder" class="entity-add-input" type="text" placeholder="Click and select folder" autocomplete="off" spellcheck="false">
     <p id="repository-message" class="overlay-note" role="status"></p>
-    <div class="desk-card-actions"><button id="repository-connect" class="desk-btn desk-btn--confirm" type="button">Connect repository</button>
+    <div class="desk-card-actions"><button id="repository-connect" class="desk-btn desk-btn--confirm" type="button">Connect folder</button>
     <button id="repository-close" class="desk-btn" type="button">Close</button></div></div>`;
   document.body.appendChild(sheet);
   const field = id => sheet.querySelector("#" + id);
@@ -33,7 +33,7 @@
       // leaving `overflow-wrap: anywhere` alone to pick a point mid-word.
       const row = document.createElement("li"); row.appendChild(window.RichWrapPath(path)); row.style.overflowWrap = "anywhere"; list.appendChild(row);
     }
-    if (!list.children.length) { const row = document.createElement("li"); row.textContent = "No repositories connected."; list.appendChild(row); }
+    if (!list.children.length) { const row = document.createElement("li"); row.textContent = "No project folders connected yet."; list.appendChild(row); }
     field("repository-connect").disabled = busy || !company;
   }
   async function refresh(preferred) {
@@ -48,11 +48,23 @@
   async function open() {
     returnFocus = document.activeElement; sheet.hidden = false;
     field("repository-message").textContent = "Loading connections…";
-    try { await refresh(); field("repository-message").textContent = companies.length ? "" : "Add a company before connecting repositories."; }
+    // PRE-SELECTED WHEREVER POSSIBLE (CEO feedback 2026-10-06, item 2b): the company he is
+    // in, else the only company there is. He can still choose another one.
+    const onScreen = window.RichCompanyOnScreen ? window.RichCompanyOnScreen() : null;
+    try {
+      await refresh(onScreen);
+      if (!field("repository-company").value && companies.length === 1) { field("repository-company").value = companies[0].id; renderList(); }
+      field("repository-message").textContent = companies.length ? "" : "Add a company before connecting a folder.";
+    }
     catch (error) { companies = []; renderList(); field("repository-message").textContent = String(error); }
-    field("repository-company").focus();
+    // With the company already chosen, the next thing to do is the folder.
+    field(field("repository-company").value ? "repository-folder" : "repository-company").focus();
   }
   function close() { if (busy) return; sheet.hidden = true; returnFocus?.focus(); }
+  // A click in the folder field opens the system folder chooser (CEO feedback 2026-10-06,
+  // item 2c): main.js's shared picker, the same one the first-run company sheet uses. Once
+  // he has chosen, Connect folder is the next thing to press.
+  window.RichFolderPicker.attach(field("repository-folder"), "Choose a project folder", () => field("repository-connect").focus());
   field("repository-company").addEventListener("change", renderList);
   field("repository-close").addEventListener("click", close);
   sheet.addEventListener("keydown", event => {
@@ -67,12 +79,13 @@
     const entityId = field("repository-company").value;
     if (busy || !entityId) return;
     busy = true; renderList(); field("repository-close").disabled = true;
-    field("repository-message").textContent = "Checking this repository…";
+    field("repository-message").textContent = "Checking this folder…";
     try {
-      const result = await bridge.invoke("connect_repository", {entityId, folder:field("repository-folder").value.trim(), initializeEmpty:field("repository-initialize").checked});
+      // Every connected folder gets Git (CEO, 2026-10-06); the message says when it was set up.
+      const result = await bridge.invoke("connect_repository", {entityId, folder:field("repository-folder").value.trim()});
       await refresh(entityId);
-      field("repository-message").textContent = result.repository.initialized ? "Git initialized and repository connected." : "Repository connected.";
-      field("repository-folder").value = ""; field("repository-initialize").checked = false;
+      field("repository-message").textContent = result.repository.initialized ? "Folder connected. Git was set up to track its files." : "Folder connected.";
+      field("repository-folder").value = "";
     } catch (error) { field("repository-message").textContent = String(error); }
     finally { busy = false; renderList(); field("repository-close").disabled = false; }
   });

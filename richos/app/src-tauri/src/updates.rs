@@ -5,10 +5,14 @@
 //! installer stages under `~/Applications/.richos-updater` and the UI reports when the
 //! update is ready for the next normal launch.
 //!
-//! A live update never replaces its running bundle, restarts the app or discards input.
-//! Startup activation uses an exclusive session lease before any runtime work starts;
-//! every participating app retains a shared lease for its full lifetime. The separate
-//! work verdict still hides the download action while a turn or worker is active.
+//! A live update never replaces its running bundle or discards input. Startup activation
+//! uses an exclusive session lease before any runtime work starts; every participating app
+//! retains a shared lease for its full lifetime. The separate work verdict still hides the
+//! download action while a turn or worker is active.
+//!
+//! Once an update this app downloaded is ready and the same work verdict is clear, the app
+//! relaunches into it after a short notice (CEO feedback 2026-10-06, item 1); while work
+//! runs it waits, and relaunches when the work ends. `update_relaunch.rs` holds the how.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -135,7 +139,7 @@ impl Failure {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateView {
     /// `unconfigured` | `idle` | `checking` | `upToDate` | `available` | `downloading`
-    /// | `installing` | `ready` | `failed`
+    /// | `installing` | `ready` | `restarting` | `failed`
     pub state: &'static str,
     /// The version running right now, and the ONLY thing the window may ever call the version.
     ///
@@ -223,6 +227,19 @@ pub struct UpdateView {
     /// next open it" — so the flag travels with the state instead of being inferred by
     /// comparing two numbers on the way out.
     pub ready_is_rollback: bool,
+
+    // ---- the relaunch (CEO feedback, 2026-10-06, item 1) ------------------------------
+    /// **This app downloaded the update that is ready, so it relaunches into it as soon as
+    /// nothing is running.** His words: *"the app should automatically re-launch immediately
+    /// after downloading the new version. Avoiding/preventing a re-launch is only meant for
+    /// when there are workers running."*
+    ///
+    /// Only an update staged BY THIS PROCESS sets it. A `ready` found by `check` was staged
+    /// earlier and survived a launch that could not activate it (another RichOS session held
+    /// the lease), so relaunching would meet the same lease and loop; that case keeps the
+    /// next-launch sentence. A rollback never sets it: going back is a separate button with
+    /// its own promise.
+    pub restarts_when_idle: bool,
 }
 
 impl UpdateView {
@@ -246,6 +263,7 @@ impl UpdateView {
             ready_since: None,
             rollback_version: None,
             ready_is_rollback: false,
+            restarts_when_idle: false,
         }
     }
 
@@ -266,6 +284,7 @@ impl UpdateView {
         // deliberately survives: it is a fact about this Mac's history, and a check that
         // found nothing does not change where back is.
         self.ready_is_rollback = false;
+        self.restarts_when_idle = false;
     }
 }
 
@@ -278,6 +297,8 @@ pub struct Updates {
     view: Mutex<UpdateView>,
     pending: Mutex<Option<tauri_plugin_updater::Update>>,
     operation: AtomicBool,
+    /// A relaunch notice is on screen; a second one must not start beside it.
+    relaunching: AtomicBool,
 }
 
 impl Updates {
@@ -355,6 +376,7 @@ pub fn init(app: &AppHandle) {
         view: Mutex::new(UpdateView::new(version, endpoint, placeholder)),
         pending: Mutex::new(None),
         operation: AtomicBool::new(false),
+        relaunching: AtomicBool::new(false),
     });
 }
 
@@ -1089,7 +1111,95 @@ pub fn spawn_work_watcher(app: AppHandle) {
                 continue;
             }
             refresh_work_verdict(&app);
+            // The work he was waiting on may just have ended.
+            relaunch_if_clear(&app);
         }
+    });
+}
+
+// ---------------------------------------------------------------------------------------
+// The relaunch (CEO feedback, 2026-10-06, item 1)
+// ---------------------------------------------------------------------------------------
+
+/// How long the notice is on screen before RichOS quits and comes back. Long enough to read
+/// one sentence in the pill or the row; short enough that it is still "immediately".
+const RELAUNCH_NOTICE: Duration = Duration::from_secs(3);
+
+/// How long a declined quit may leave the notice up before the row goes back to `ready`.
+/// The quit path is bounded at 2 s; this is that, with room.
+const RELAUNCH_DECLINED: Duration = Duration::from_secs(10);
+
+/// THE WHOLE DECISION, pure so it is tested without a window or a gate.
+///
+/// * `ready` and `restarts_when_idle`: an update this app downloaded is prepared.
+/// * `!busy`: the work gate is clear. While work runs the answer is no, and the watcher
+///   asks again every [`WATCH_INTERVAL`], so the relaunch follows the end of the work.
+/// * `has_window`: a window is open. With none, the app is quitting by itself as its work
+///   ends (§2.4a), and a relaunch would put back a window he closed.
+pub fn should_relaunch(state: &str, restarts_when_idle: bool, busy: bool, has_window: bool) -> bool {
+    state == "ready" && restarts_when_idle && !busy && has_window
+}
+
+/// Relaunch into the prepared update if nothing is running; otherwise do nothing and let
+/// the watcher ask again.
+fn relaunch_if_clear(app: &AppHandle) {
+    let view = app.state::<Updates>().snapshot();
+    if !view.restarts_when_idle || view.state != "ready" {
+        return;
+    }
+    let verdict = refresh_work_verdict(app);
+    if !should_relaunch(view.state, view.restarts_when_idle, verdict.busy, !app.webview_windows().is_empty()) {
+        return;
+    }
+    if app
+        .state::<Updates>()
+        .relaunching
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        transition(&app, |v| v.state = "restarting");
+        tokio::time::sleep(RELAUNCH_NOTICE).await;
+        // ASKED AGAIN AT THE LAST MOMENT: he may have sent a message during the notice.
+        let verdict = refresh_work_verdict(&app);
+        let still = should_relaunch("ready", true, verdict.busy, !app.webview_windows().is_empty());
+        let back_to_ready = |app: &AppHandle, keep: bool| {
+            transition(app, |v| {
+                v.state = "ready";
+                v.restarts_when_idle = keep;
+            });
+            app.state::<Updates>().relaunching.store(false, Ordering::Release);
+        };
+        if !still {
+            // Work started: today's behavior, and the watcher relaunches when it ends.
+            back_to_ready(&app, true);
+            return;
+        }
+        let regular = app
+            .try_state::<crate::AppState>()
+            .map(|s| s.can_come_back)
+            .unwrap_or(true);
+        if let Err(error) = crate::update_relaunch::spawn_helper(regular) {
+            // Nothing quits without something to bring it back. The update stays prepared
+            // and activates at the next launch, which the row says again.
+            eprintln!("[richos] update relaunch: could not start the helper: {error}");
+            back_to_ready(&app, false);
+            return;
+        }
+        eprintln!(
+            "[richos] update ready and nothing is running: relaunching into {}",
+            app.state::<Updates>().snapshot().available_version.unwrap_or_default()
+        );
+        // The app's own quit path: every lease settles and the clean-exit marker is written.
+        app.exit(0);
+        // Still here: the quit was declined (registered work appeared in the last instant and
+        // he chose to keep it). The helper starts nothing after its own bound, and this does
+        // not try again, so there is never a second helper waiting on the same quit.
+        tokio::time::sleep(RELAUNCH_DECLINED).await;
+        back_to_ready(&app, false);
     });
 }
 
@@ -1120,7 +1230,15 @@ pub async fn update_check(app: AppHandle) -> UpdateView {
 
 #[tauri::command(async)]
 pub async fn update_install(app: AppHandle) -> UpdateView {
-    install(&app).await
+    let view = install(&app).await;
+    // THE PRESS THAT DOWNLOADED IT ARMS THE RELAUNCH, and only that press: the selftest
+    // calls `install` directly and exits at `ready`, as `updater-e2e.sh` requires.
+    if view.state != "ready" || view.ready_is_rollback {
+        return view;
+    }
+    transition(&app, |v| v.restarts_when_idle = true);
+    relaunch_if_clear(&app);
+    app.state::<Updates>().snapshot()
 }
 
 /// The third verb, reached the same way the other two are.
@@ -1281,6 +1399,24 @@ mod tests {
         assert!(f.headline.contains("not signed by RichOS"));
         // The vendor's own words survive into the payload.
         assert!(f.detail.contains("not base64"));
+    }
+
+    /// CEO feedback 2026-10-06, item 1: relaunch at once when nothing runs, wait while
+    /// anything does, and never for a `ready` this app did not download.
+    #[test]
+    fn a_downloaded_update_relaunches_only_when_nothing_is_running() {
+        assert!(should_relaunch("ready", true, false, true), "idle: relaunch now");
+        assert!(!should_relaunch("ready", true, true, true), "work running: wait for it");
+        assert!(
+            !should_relaunch("ready", false, false, true),
+            "staged by an earlier launch that could not activate it: a relaunch would loop"
+        );
+        assert!(!should_relaunch("ready", true, false, false), "no window: never put one back");
+        for other in ["available", "downloading", "installing", "restarting", "failed"] {
+            assert!(!should_relaunch(other, true, false, true), "{other}: nothing to relaunch into");
+        }
+        let fresh = UpdateView::new("0.1.0".into(), "https://example.com/u".into(), false);
+        assert!(!fresh.restarts_when_idle, "nothing is armed before a download");
     }
 
     #[test]

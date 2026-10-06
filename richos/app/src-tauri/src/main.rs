@@ -14,6 +14,8 @@ mod events;
 // `activation` because it is armed by activation's own three-fact rule and by nothing else.
 mod startup_alert;
 mod update_startup;
+/// The relaunch into a downloaded update once nothing is running (CEO feedback 2026-10-06, item 1).
+mod update_relaunch;
 // HOW BIG THE WINDOW OPENS AND WHERE — derived from the display it opens on, never from a
 // constant. `docs/hardware-choices-2026-09-10.md` D2. Deliberately free of every Tauri type
 // so the arithmetic is unit-testable and can be dry-run with no window created at all
@@ -2040,6 +2042,11 @@ fn main() {
     if std::env::args().nth(1).as_deref() == Some("--richos-connect-guard") {
         std::process::exit(phone::connect::supervisor::guard_main());
     }
+    // The update relaunch helper: waits for the app to quit, then starts it again so the
+    // downloaded update activates. Before any lease or alert, like the guard above.
+    if let Some(code) = update_relaunch::helper_main() {
+        std::process::exit(code);
+    }
     // This is compile-generated metadata, before any application runtime exists.
     // Use the same merged build version for the probe, startup and final app.
     let context = tauri::generate_context!();
@@ -3661,6 +3668,7 @@ fn main() {
             answer_permission,
             repository_connections,
             connect_repository,
+            pick_folder,
             memory_status,
             provision_memory,
             // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
@@ -5635,17 +5643,44 @@ fn repository_connections(state: State<AppState>) -> serde_json::Value {
     })).collect::<Vec<_>>()})
 }
 
+/// THE SYSTEM FOLDER CHOOSER, for every field where he gives a folder (CEO feedback
+/// 2026-10-06, item 2c, and 2026-10-06_03: a click on the field opens a Finder window). One
+/// command for all of them, run HERE from Rust exactly as `output_save_copy` runs the save
+/// sheet: no `dialog:` permission is granted to the page, which can only ask for a folder
+/// and receive the path he chose, or `None` when he cancels.
+///
+/// Settings chosen, not inherited: parent is the asking window, so it is a sheet on the app;
+/// the title is the asking field's (`title`), so the sheet says what the folder is for;
+/// creating a folder is allowed, as every Mac chooser allows; the starting folder is NOT
+/// set, so macOS opens where he last chose in this app. Waited for on the blocking pool,
+/// never on the main thread (the plugin's own rule).
 #[tauri::command(async)]
-fn connect_repository(state: State<AppState>, entity_id: String, folder: String,
-    initialize_empty: bool) -> Result<serde_json::Value, String> {
+async fn pick_folder(app: tauri::AppHandle, window: tauri::WebviewWindow, title: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .set_parent(&window)
+            .set_title(title)
+            .set_can_create_directories(true)
+            .blocking_pick_folder()
+            .and_then(|chosen| chosen.into_path().ok())
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| format!("The folder chooser did not open: {e}"))
+}
+
+#[tauri::command(async)]
+fn connect_repository(state: State<AppState>, entity_id: String, folder: String) -> Result<serde_json::Value, String> {
     let id = EntityId::parse(&entity_id).map_err(|e|e.to_string())?;
     let engine = state.engine_dir.lock().unwrap().clone();
     let runtime = richos_core::runtime::verify_engine(&engine).map_err(|e|e.to_string())?;
     // Serialize registry mutations and hold the idle spine until both copies agree.
     let mut current = state.registry.lock().unwrap();
     let mut spine = state.spine.try_lock().map_err(|_| "Wait for the current turn to stop before connecting a repository.".to_string())?;
-    let (next, repository) = richos_core::repositories::connect(&current, &id,
-        Path::new(folder.trim()), initialize_empty, &runtime, &[&engine, &state.data_dir])?;
+    let (next, repository) = richos_core::repositories::connect_folder(&current, &id,
+        Path::new(folder.trim()), &runtime, &[&engine, &state.data_dir])?;
     next.save(&state.registry_path).map_err(|e| format!("The repository was verified but its connection could not be saved: {e}"))?;
     *current = next.clone();
     spine.set_entity_registry(next);
