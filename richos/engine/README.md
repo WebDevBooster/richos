@@ -31,6 +31,26 @@ corpus starts empty; installing the engine does not import an operator's knowled
 private roster or terminal configuration. Installed acceptance is recorded against
 an exact app and engine candidate separately from source-level test results.
 
+`PreToolUse[Agent]` automatically runs Pierce before a new worker starts, in
+terminal plugin sessions and desktop sessions. It inspects the final assignment,
+original user messages and available inherited instructions with Opus and
+read-only file tools. It returns findings to the planner, without proposing a
+fix. The planner revises the assignment or dismisses the exact report with
+`scripts/lib/pierce.py --dismiss <report-id> --reason '<reason>'`, then retries.
+A dismissal expires after 15 minutes and does not transfer to changed user
+context, assignments or instructions. Unavailable inspections are reported as
+unavailable, never PASS. Dry-run spawn checks, resumes and Pierce's own launch
+do not start another inspection. The inspector has a five-minute deadline and
+uses Claude Code's subscription authentication with safe mode and restricted
+Read, Glob and Grep tools, without inherited plugins, hooks or shell access.
+Reports live under the Claude config directory's `state/pierce`, or the desktop
+engine state's `pierce` directory. This uses the shared plugin when the terminal
+session lives in `femcboost`; it does not require the session to move to RichOS.
+When Zach's `strip-ack-lines` hook is registered, Pierce uses that hook's shared
+function to inspect the assignment the teammate receives. The guards still read
+the original acknowledgment lines. Generated compaction summaries and task
+notifications are excluded from the original user messages.
+
 `ceo-wiki/` is retired as the new-install scaffold. Its public historical templates
 are retained under `reference/legacy-ceo-wiki/`. Existing adopter-owned stores and
 legacy references are preserved during upgrade; personal migration is separate.

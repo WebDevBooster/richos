@@ -471,7 +471,7 @@ python3 - "$GUARD" <<'PY_MUTANT'
 from pathlib import Path
 import sys
 path=Path(sys.argv[1]);source=path.read_text()
-old='''    if br.startswith("codex/"):
+old='''    if br.startswith("codex/") or any(real.startswith(r + os.sep) for r in CODEX_WORKTREE_ROOTS):
         return "codex"
 '''
 assert source.count(old)==1

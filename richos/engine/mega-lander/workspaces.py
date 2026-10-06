@@ -1618,6 +1618,22 @@ def _check_planned_workspace(p, name):
     return main
 
 
+def _pierce_before_registration(payload):
+    # Native hook callbacks carry transcript_path. Standalone registry fixtures
+    # and dry-run payloads do not. The separate Agent hook still refuses a real
+    # dispatch whose original user context cannot be established.
+    if not payload.get("transcript_path"):
+        return
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    inspector = _import_path("workspace_pierce", os.path.join(here, "scripts/lib/pierce.py"))
+    try:
+        reason = inspector.refusal(inspector.inspect(payload))
+    except (OSError, ValueError) as error:
+        raise SpecError("Pierce inspection unavailable: %s" % error)
+    if reason:
+        raise SpecError(reason)
+
+
 def register_spawn(payload, entity, dry=False):
     """PreToolUse[Agent], point 3: the registration a spawn needs. Raises
     SpecError -> the spawn does not happen. Returns the record.
@@ -1650,6 +1666,10 @@ def register_spawn(payload, entity, dry=False):
         raise SpecError("the spawn payload carries no session_id/tool_use_id, so it cannot be registered")
     if not NAME_RE.match(name):
         raise SpecError("the spawn has no usable name, so it cannot be registered")
+    if not dry:
+        # Command hooks can run concurrently. Inspection must finish BEFORE
+        # this guard records any spawn evidence or acts on continuation state.
+        _pierce_before_registration(payload)
     cc_paths = [realpath(p) for p in prompt_lines(prompt, "cross-repo-worktree") if p]
     if ti.get("cwd"):
         cc_paths.append(realpath(str(ti.get("cwd"))))
@@ -1837,6 +1857,7 @@ def register_readonly(payload, entity):
     ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
     if not sid or not tuid:
         raise SpecError("the spawn payload carries no session_id/tool_use_id, so it cannot be registered")
+    _pierce_before_registration(payload)
     name = str(ti.get("name") or "")
     if not NAME_RE.match(name):
         name = "readonly-" + _key_segment(tuid)[:40]

@@ -54,7 +54,7 @@ function rustSentence(needle) {
   return unique[0];
 }
 
-const NOT_SIGNED_IN = rustSentence("not connected to your Anthropic account");
+const NOT_SIGNED_IN = rustSentence("not connected to your Claude account");
 const TRANSIENT = rustSentence("lost my connection to the part of me that thinks");
 
 // The exact sentence `InterruptionRecord::new` writes when Rich had written nothing. It is
@@ -233,12 +233,12 @@ async function main() {
   await run.check("it names the account and the route that exists", async () => {
     const c = await cardText(page);
     const whole = c.body.concat(c.notes).join(" ");
-    assert(whole.includes("Anthropic account"), "the account is never mentioned: " + whole);
+    assert(whole.includes("Claude account"), "the account is never mentioned: " + whole);
     // The route is IN the authored sentence rather than beside it — see the Rust comment on
     // `NotSignedIn`'s arm. A second string returned by a `route()` method would have reached
     // his screen while being invisible to the affordance registry.
     assert(
-      whole.includes("Settings") && whole.includes("Account connection"),
+      whole.includes("Settings") && whole.includes("Claude accounts"),
       "the route the app actually has must be offered: " + whole
     );
     assert(!whole.includes("\u2192"), "an arrow is read aloud as nothing: " + whole);

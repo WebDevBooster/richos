@@ -303,7 +303,9 @@ impl EngineProfile {
         // root?"). What was wrong was that its reach was written down nowhere, so every
         // reader had to infer it and one inferred it narrow.
         for event in ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop", "Stop"] {
-            hooks.insert(event.into(), json!([{"hooks":[{"type":"command","command":command,"timeout":25}]}]));
+            // Agent dispatch includes Pierce's bounded five-minute inspection.
+            let timeout = if event == "PreToolUse" { 330 } else { 25 };
+            hooks.insert(event.into(), json!([{"hooks":[{"type":"command","command":command,"timeout":timeout}]}]));
         }
         write(&plugin.join("hooks/hooks.json"), &json!({"hooks":hooks}).to_string())?;
         // Spawn preflight runs the canonical guards directly. The real provider
@@ -446,6 +448,7 @@ impl EngineProfile {
     }
 
     pub fn configure(&self, command: &mut Command, session: &str, scope: &Path) {
+        let provider = command.get_program().to_os_string();
         crate::runtime::isolate_interpreter_environment(command);
         // App bindings replace terminal component roots, test overrides and
         // transcript discovery. The provider's account location is unchanged.
@@ -491,6 +494,8 @@ impl EngineProfile {
                 "claudeMdExcludes":["**/CLAUDE.md", "**/CLAUDE.local.md", "**/.claude/rules/**"]}).to_string())
             .env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1")
             .env("PATH", self.runtime.path()).env_remove("CLAUDECODE")
+            // Hooks inherit the runtime-only PATH, which excludes Claude's installer path.
+            .env("RICHOS_CLAUDE_BIN", provider)
             .env("PYTHONDONTWRITEBYTECODE", "1")
             // A settings-isolated provider must not execute terminal Git hooks
             // or borrow a developer's identity through global Git configuration.

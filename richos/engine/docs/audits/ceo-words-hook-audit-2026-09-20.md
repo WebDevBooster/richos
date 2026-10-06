@@ -154,6 +154,8 @@ session**, not this one.
 | `scripts/hooks/guard-agent-state-claims.py` | a | the transcript, joined on TOOL CALLS / agent ids | no | 1 non-comment hit(s), first: 251:    transcript = payload.get("transcript_path") |
 | `scripts/hooks/guard-agent-state-claims.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
 | `scripts/hooks/guard-bash-main-writes.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |
+| `scripts/hooks/guard-pierce.sh` | a | tool input / files on disk / its own state | no | added 2026-10-06, after this audit; fixed Python helper invocation only |
+| `scripts/lib/pierce.py` | a | TOOL INPUT — the orchestrator's own Agent brief | no | added 2026-10-06, after this audit; reads `tool_input.prompt`, the brief Rich wrote, never a message the CEO typed |
 | `scripts/hooks/guard-brief-scope.sh` | a | TOOL INPUT — the orchestrator's own Agent brief | no | `ti.get("prompt")` at -, where `ti` is tool_input: the brief Rich wrote, not a message the CEO typed |
 | `scripts/hooks/guard-ceo-ask-first.sh` | a | TOOL INPUT — the orchestrator's own Agent brief | no | `ti.get("prompt")` at 225, where `ti` is tool_input: the brief Rich wrote, not a message the CEO typed |
 | `scripts/hooks/guard-ceo-ruled-ask.sh` | a | tool input / files on disk / its own state | no | 0 non-comment hits for the pattern set |

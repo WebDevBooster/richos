@@ -21,8 +21,8 @@ def load(name, path):
     return module
 
 
-def run(command, payload):
-    result = subprocess.run(command, input=json.dumps(payload), text=True, capture_output=True, timeout=20)
+def run(command, payload, timeout=20):
+    result = subprocess.run(command, input=json.dumps(payload), text=True, capture_output=True, timeout=timeout)
     if result.stdout:
         sys.stdout.write(result.stdout)
     if result.stderr:
@@ -110,7 +110,7 @@ def handle(payload):
         context = work.worker_context(active, payload)
         if context: print(json.dumps(context))
     if event == "PreToolUse" and payload.get("tool_name") == "Agent":
-        work.dispatch_intent(active, payload)
+        work.dispatch_intent(active, payload, inspect_only=True)
         # WHICH GUARDS JUDGE A DISPATCH THE APP MAKES — read from
         # spawn-guard-audience.declaration, never typed here.
         #
@@ -130,10 +130,18 @@ def handle(payload):
         # here: it ran above, for every tool, exactly as its matcherless
         # registration says it should.
         audience = load("richos_spawn_guard_audience", ENGINE / "scripts/lib/spawn-guard-audience.py")
+        try:
+            run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-pierce.sh")], payload, timeout=315)
+        except RuntimeError:
+            work.dispatch_intent(active, payload, review_refused=True)
+            raise
         for guard in audience.user_work_ids():
-            if guard == "guard-sealed-worktree.sh":
+            if guard in ("guard-sealed-worktree.sh", "guard-pierce.sh"):
                 continue
             run(["/bin/bash", str(ENGINE / "scripts/hooks" / guard)], payload)
+        # Only a call that passed every control is a dispatch attempt. In particular,
+        # returning findings must leave the prepared receipt available for dismissal.
+        work.dispatch_intent(active, payload)
     if event in ("SessionStart", "SubagentStart", "SubagentStop", "PostToolUse", "SessionEnd"):
         run(ws + ["hook"], payload)
     if event == "PostToolUse" and payload.get("tool_name") == "Agent":

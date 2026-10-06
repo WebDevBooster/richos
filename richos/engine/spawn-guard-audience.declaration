@@ -112,6 +112,11 @@ audience: user-work
 reason: It refuses a command, brief, message or spawn that would change THIS machine's display, sleep, lock, session or input state, and the machine on the far side of a background assignment is the user's own, not a development session's.
 user_message: This work asked to change your computer's screen, sleep, or lock settings, so I did not start it. Nothing was created.
 
+id: guard-pierce.sh
+audience: user-work
+reason: It inspects the assignment and inherited instructions against the user's original request before a worker starts, returning findings to the planner for revision or explicit dismissal.
+user_message: This assignment needs review, so I did not start the work. Nothing was created.
+
 # ===========================================================================
 # OPERATOR-SESSION — the app runs none of these, ever
 # ===========================================================================

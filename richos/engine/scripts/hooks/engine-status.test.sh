@@ -541,6 +541,10 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # and not the other.
 # shell-evidence.sh was registered on 2026-09-06 to preserve Bash pipeline and
 # sequence failures; acknowledge it here as well as in the derived probe inventory.
+# guard-pierce.sh, added 2026-10-06 (Codex): the PreToolUse[Agent] brief inspector. It
+# runs scripts/lib/pierce.py on a real dispatch (never spawn.sh's dry runs) and returns
+# findings to the brief's author; it never rewrites the prompt. Registered in
+# hooks/hooks.json and .claude/settings.local.json; Layer R exempts it as rootless.
 # strip-ack-lines.sh, added 2026-10-06: a PreToolUse[Agent] input transformer, last in
 # the chain. It returns the spawn prompt without acknowledgment lines (owned-state-ack:,
 # reference: and the like); the guards run in parallel on the original input, so they
@@ -923,6 +927,7 @@ guard-no-home-network-phone.sh
 notice-disk-alert.sh
 left-off-report.sh
 guard-brief-scope.sh
+guard-pierce.sh
 guard-hook-registration-commits.sh
 commit-ceo-inputs.sh
 handoff-facts-annotate.sh

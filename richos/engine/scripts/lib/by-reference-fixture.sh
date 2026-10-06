@@ -56,6 +56,7 @@ fi
 # probe is always told about it explicitly via RICHOS_ENTITY_ROOT.
 make_sandbox() {
     local sb
+    # scratch-exempt: shared setup for exempt by-reference *.test.sh suites; each case removes its fixture.
     sb="$(cd "$(mktemp -d -t byref.XXXXXX)" && pwd -P)"
 
     mkdir -p "$sb/engine" "$sb/entity/.claude/agents" "$sb/home/.claude/plugins" "$sb/.claude-plugin"
