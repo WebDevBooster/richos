@@ -447,6 +447,20 @@ this copy holds no record of an earlier version it came from. Afterwards the row
 *RichOS will go back to 0.1.0 when you next open it*, and the newer version is still offered,
 so the way back is not a one-way door.
 
+**When nothing is running, RichOS restarts into the update by itself (CEO feedback
+2026-10-06, item 1).** His words: *"the app should automatically re-launch immediately after
+downloading the new version. Avoiding/preventing a re-launch is only meant for when there are
+workers running and an immediate relaunch would destroy their work."* So once an update this
+copy downloaded is prepared and the work gate is clear, the row and the pill say *Restarting
+into RichOS 1.2.1…* for three seconds, RichOS quits through its own quit path, and a small
+helper (`src-tauri/src/update_relaunch.rs`) starts it again the moment the old process and its
+session lease are gone, which is what lets the new start activate the update. The window, the
+open conversation and an unsent draft come back where they were. While a turn, a worker or
+background work runs, nothing changes from before except the sentence: *RichOS will restart
+into this update as soon as that work is done*, and the watcher relaunches within five seconds
+of the work ending. An update prepared by an earlier launch that could not activate it keeps
+the next-launch sentence, so a relaunch can never loop.
+
 ---
 
 ## What is NOT proven, in those words

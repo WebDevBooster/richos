@@ -779,6 +779,105 @@ async function main() {
     return calls.join(" -> ") + " | “" + row.headline + "”";
   });
 
+  // ---- 22. the relaunch (CEO feedback 2026-10-06, item 1) -------------------------------
+  //
+  // His words: "there was no work going on at the time. So, there was nothing that could be
+  // interrupted. In this case, the app should automatically re-launch immediately after
+  // downloading the new version. Avoiding/preventing a re-launch is only meant for when there
+  // are workers running." `updates.rs` decides and relaunches (its own unit test holds the
+  // decision); this proves the page half: what he is told before it happens, that the pill
+  // says it with the menu shut, that his draft is parked at once, and that while work runs
+  // the row promises the relaunch for when the work is done instead of the next launch.
+  await run.check("22. a downloaded update restarts when nothing runs, after one short notice", async () => {
+    const live = { endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" };
+    const page = await openApp(browser);
+    await openThread(page, "hiring");
+    await settled(page);
+
+    // --- IDLE: download, then the notice -------------------------------------------------
+    await setState(
+      page,
+      view(Object.assign({ state: "available", availableVersion: "0.1.2", checkedAt: Date.now() }, live)),
+      [view(Object.assign({ state: "ready", availableVersion: "0.1.2", percent: 100, restartsWhenIdle: true }, live))]
+    );
+    await openMenu(page);
+    await page.click("#update-install");
+    await settledAfterCommand(page, "update_install");
+    let row = await readRow(page);
+    assertEqual(row.headline, "RichOS 0.1.2 is ready.", "downloaded");
+    assert(row.sub.indexOf("will restart into it in a moment") >= 0, "and it says the restart is next: " + row.sub);
+    assertEqual(row.sub.indexOf("next time RichOS opens"), -1, "not the next launch: " + row.sub);
+
+    // His unsent sentence is parked the instant the notice arrives, not on the composer's
+    // 400 ms debounce: typed and noticed in one turn of the page, then read straight back.
+    const parked = await page.evaluate(() => {
+      const input = document.getElementById("input");
+      input.value = "half a sentence he has not sent";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      window.localStorage.removeItem("richos.view.drafts");
+      window.__RICHOS_MOCK__.updateSet(
+        Object.assign({}, window.RichUpdates.state(), { state: "restarting" }),
+        []
+      );
+      return window.localStorage.getItem("richos.view.drafts") || "";
+    });
+    assert(parked.indexOf("half a sentence he has not sent") >= 0, "the draft was parked before the relaunch: " + parked);
+    await page.waitForFunction(() => window.RichUpdates.state().state === "restarting");
+    await flushFrames(page);
+    row = await readRow(page);
+    assertEqual(row.state, "restarting", "the row took the notice");
+    assertEqual(row.headline, "Restarting into RichOS 0.1.2…", "the notice names the version");
+    assert(row.sub.indexOf("Your window and conversation will be right where you left them.") >= 0, "and says he loses nothing: " + row.sub);
+    assertEqual(row.check, null, "no control: nothing to press while it restarts");
+    assertEqual(row.install, null, "no control: nothing to press while it restarts");
+    assertEqual(row.back, null, "no control: nothing to press while it restarts");
+    assertEqual(row.mark, "ready", "the settings button keeps its mark");
+
+    // With the menu SHUT, the pill carries the same sentence.
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => {
+      const m = document.getElementById("set-menu");
+      return !m || m.hidden;
+    });
+    const cue = await readCue(page);
+    assertEqual(cue.count, 1, "the notice is in the chrome with the menu shut");
+    assertEqual(cue.cueState, "restarting", "as the restart notice");
+    assertEqual(cue.text, "Restarting into RichOS 0.1.2…", "the pill and the row say the same thing");
+    assertEqual(cue.onTop, true, "and nothing covers it");
+    await settled(page);
+    await evidence(page, SHOTS + "/updates-cue-restarting");
+    await page.close();
+
+    // --- WORKING: the relaunch waits for the work, and says so --------------------------
+    const p2 = await openApp(browser);
+    await settled(p2);
+    await setState(
+      p2,
+      view(Object.assign({
+        state: "ready", availableVersion: "0.1.2", percent: 100, restartsWhenIdle: true,
+        busy: true, busyReason: "2 workers are still running.",
+      }, live))
+    );
+    const waiting = await readWaiting(p2);
+    assertEqual(waiting.count, 1, "working: the waiting cue, not the pill");
+    assert(waiting.label.indexOf("as soon as that work is done") >= 0, "it promises the restart after the work: " + waiting.label);
+    assertEqual(waiting.label.indexOf("next time RichOS opens"), -1, "and not the next launch: " + waiting.label);
+    assertEqual(waiting.label.indexOf("—"), -1, "no dashes in what is new: " + waiting.label);
+    await openMenu(p2);
+    row = await readRow(p2);
+    assert(row.sub.indexOf("2 workers are still running.") >= 0, "it names what is running: " + row.sub);
+    assert(row.sub.indexOf("RichOS will restart into this update as soon as that work is done. Nothing will be interrupted.") >= 0, "and when it restarts: " + row.sub);
+    assertEqual(row.sub.indexOf("next time RichOS opens"), -1, "not the next launch: " + row.sub);
+
+    // --- NOT DOWNLOADED HERE: the next-launch promise stands ----------------------------
+    await setState(p2, view(Object.assign({ state: "ready", availableVersion: "0.1.2", percent: 100 }, live)));
+    row = await readRow(p2);
+    assertEqual(row.headline, "RichOS 0.1.2 is ready for the next launch.", "a ready this app did not download");
+    assert(row.sub.indexOf("next time RichOS opens") >= 0, "keeps the next-launch sentence: " + row.sub);
+    await p2.close();
+    return "idle: ready, then a named notice in the row and the pill, draft parked at once; working: restart after the work";
+  });
+
   // ---- 10. the row survives a menu rebuild ----------------------------------------------
   await run.check("10. a menu rebuild does not leave an empty Updates row", async () => {
     const page = await openApp(browser);
