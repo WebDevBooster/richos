@@ -459,3 +459,31 @@ fn a_lease_registers_the_always_active_and_the_users_team_and_drops_what_is_no_l
     let profile = EngineProfile::prepare(&engine(), &fresh.0, fresh.runtime()).unwrap();
     assert_eq!(registered(&profile), stock);
 }
+
+/// **Slice 5: the digest that renews a back end when its team changed** (plan §1, §6). It
+/// moves with every change the next lease would register (a teammate saved, refitted or
+/// retired) and with none it would not (the shelf, a temporary file, a duty name, a file that
+/// is not a definition), so a renewal is never spent on a change no lease can see.
+#[test]
+fn the_team_digest_moves_with_what_a_lease_registers_and_nothing_else() {
+    use richos_core::engine_profile::team_digest;
+    let f = Scratch::new();
+    let team = f.0.join("team");
+    let digest = || team_digest(&engine(), &f.0).unwrap();
+    let fresh = digest();
+    std::fs::create_dir_all(&team).unwrap();
+    assert_eq!(digest(), fresh, "an empty team folder registers nothing new");
+    for (file, body) in [("notes.txt", "not a definition"), (".0a1b.incoming", "---\nname: mark\n---\n"),
+                         ("worker.md", "---\nname: worker\n---\n"), ("Scout.md", "---\nname: Scout\n---\n")] {
+        std::fs::write(team.join(file), body).unwrap();
+        assert_eq!(digest(), fresh, "{file} is not registered, so it must not renew a back end");
+    }
+    std::fs::write(team.join("mark.md"), "---\nname: mark\nmodel: sonnet\n---\nFitted engineer.\n").unwrap();
+    let saved = digest();
+    assert_ne!(saved, fresh, "a saved teammate must move the digest");
+    assert_eq!(digest(), saved, "the digest is stable while nothing changes");
+    std::fs::write(team.join("mark.md"), "---\nname: mark\nmodel: opus\n---\nFitted engineer.\n").unwrap();
+    assert_ne!(digest(), saved, "a refit must move the digest");
+    std::fs::remove_file(team.join("mark.md")).unwrap();
+    assert_eq!(digest(), fresh, "retiring the teammate gives the stock team's digest again");
+}

@@ -293,6 +293,11 @@ struct Inner {
     /// `EngineProfile::configure` gave it as `--add-dir` roots and as the auto mode's trusted
     /// list. `None` when there is no lease, or the registry could not be read then.
     lease_repositories: Option<Vec<PathBuf>>,
+    /// **The team this back end was opened with** — the factory's
+    /// [`LeaseFactory::team_digest`], read just before the lease was spawned, so a teammate
+    /// saved while it opened can only cost one renewal too many, never one too few. `None`
+    /// when there is no lease or the factory could not say; nothing is renewed on a `None`.
+    lease_team: Option<String>,
     /// **His answers inside the prompt in flight, not yet taken** (the work-path design, richos-hq
     /// `docs/plans/2026-09-27-work-path-answer-delivery-design.md` D1-D3). Set under this lock
     /// before the send and cleared at the back end's first item of that turn, or when the prompt
@@ -350,6 +355,7 @@ impl Backend {
                 last_rotation_reason: None,
                 rotation_deferred_since: None,
                 lease_repositories: None,
+                lease_team: None,
                 carrying: Vec::new(),
                 taken_unsaved: Vec::new(),
                 answer_starts: std::collections::HashMap::new(),
@@ -651,6 +657,29 @@ const ANSWER_NOT_TAKEN: &str = "The back end did not take your answer, after two
 /// The recorded reason for a renewal made because his company's connected repositories
 /// changed after this back end was opened (`run_one`'s step 0b).
 pub const REPOSITORIES_CHANGED: &str = "repositories-connected";
+
+/// The recorded reason for a renewal made because the team the back end's lease registered
+/// is no longer the team on disk: a teammate saved, refitted or retired since it opened
+/// (proto-teammate shelf plan §1, slice 5).
+pub const TEAM_CHANGED: &str = "team-changed";
+
+/// **How a successor renewed for its team in the middle of an assignment is told so** (slice
+/// 5): the account-switch opening's words, with the reason that is true here.
+const MID_RUN_TEAM_HANDOVER_OPENING: &str = "You are the standing background worker for one of \
+    the CEO's conversations, and this connection is taking over from the previous one in the \
+    middle of an assignment, because the team changed while it worked: a connection registers \
+    its teammates once, when it opens, and this one has the team as it is now. The assignment \
+    is yours now, part-way through: what its earlier turns did is done, and none of it is to \
+    be started again.\n";
+
+/// **What the back end is told on the turn a team renewal gave it** (slice 5): nothing was
+/// open, its last turn changed the team, and the host renewed it so the change is registered.
+/// A saved teammate is now one it can name; the assignment goes on from where it was.
+const TEAM_CHANGED_CONTINUATION: &str = "The team changed during your last turn, and this app \
+    has renewed your connection so the change is registered: every teammate saved with \
+    `richos_work.team` is now in your Agent tool listing, and `richos_work.prepare` takes its \
+    name. This is the same assignment on the same seat. Carry it on from where you were; if \
+    nothing of it remains, give the report you would have given.";
 
 /// What the Under the hood pane says while an assignment waits on a command its back end
 /// started in the background.
@@ -1306,6 +1335,9 @@ impl WorkHost {
             // 0c. Fill-first: this back end's account must be left (its freshest reading and
             //     measured speed, `claude_accounts.rs`) — move it now, at this boundary.
             self.renew_if_account_changed(backend, binding);
+            // 0d. A teammate saved, refitted or retired since this back end opened (slice 5).
+            //     After the two above, because either renewal registers the team as it is now.
+            self.renew_if_team_changed(backend, binding);
         }
 
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
@@ -1799,7 +1831,32 @@ impl WorkHost {
                     .into_iter()
                     .filter(|c| !commands_seen.contains(&c.task_id))
                     .collect();
-                if mine.is_empty() {
+                if mine.is_empty() && self.team_changed(backend)
+                    && !matches!(self.outcome(backend, record), Outcome::Settled)
+                    && self.pending_decision(record).is_none()
+                {
+                    // **NOTHING IS OPEN, AND ITS LAST TURN CHANGED THE TEAM** (proto-teammate
+                    // shelf slice 5, plan §1). The back end saved the teammate Dean fitted and
+                    // ended its turn, because it cannot name that teammate until its connection
+                    // is renewed. So the host renews it here, between two turns of the one run,
+                    // carrying the assignment, and gives the successor the next turn: the
+                    // teammate is usable in the same assignment, which is not started again. A
+                    // command it started that may still be running defers the renewal, as every
+                    // renewal is deferred, and the run then ends as it would have; the next
+                    // assignment's start renews it (step 0d).
+                    let context = || {
+                        format!("{prompt}\n\nWhat you had said on it so far:\n{}", assignment::sanitize_answer(&answer))
+                    };
+                    if !self.renew_team_between_turns(backend, binding, record, &work, context) {
+                        break;
+                    }
+                    waits += 1;
+                    // Its words add to the account, as a helper's continuation's do.
+                    helper_turn = true;
+                    chars.set(TEAM_CHANGED_CONTINUATION.len());
+                    measured.set(None);
+                    TEAM_CHANGED_CONTINUATION.to_string()
+                } else if mine.is_empty() {
                     // **NOTHING IS OPEN, AND THE BACK END SAID IT IS WAITING ON A HELPER**
                     // ([`declares_waiting_on_a_helper`]): the job is not over, so it is not
                     // settled. The host waits for the next helper run to end, then hands the
@@ -1870,7 +1927,12 @@ impl WorkHost {
                 let context = || {
                     format!("{prompt}\n\nWhat you had said on it so far:\n{}", assignment::sanitize_answer(&answer))
                 };
-                if self.switch_account_between_turns(backend, binding, record, &work, context) {
+                // **AND THE TEAM** (proto-teammate shelf slice 5): a teammate saved during the
+                // turn that just ended is registered here, on a successor carrying the run.
+                // After the account check, because a switch registers the team as it is now.
+                if self.switch_account_between_turns(backend, binding, record, &work, context)
+                    || self.renew_team_between_turns(backend, binding, record, &work, context)
+                {
                     chars.set(continuation.len());
                     measured.set(None);
                 }
@@ -3182,16 +3244,16 @@ impl WorkHost {
             }
         }
         handoff.truncate(handoff.char_indices().nth(HANDOFF_BUDGET_CHARS).map(|(i, _)| i).unwrap_or(handoff.len()));
-        // Step 2 — the successor, opened first.
-        let mut fresh = self
-            .factory
-            .lock()
-            .unwrap()
-            .spawn_work(binding)
-            .map_err(|e| e.to_string())?;
+        // Step 2 — the successor, opened first. Its team is read just before it is spawned
+        // (see `Inner::lease_team`).
+        let (team, fresh) = {
+            let factory = self.factory.lock().unwrap();
+            (factory.team_digest(), factory.spawn_work(binding))
+        };
+        let mut fresh = fresh.map_err(|e| e.to_string())?;
         // Step 3 — the payload: the durable register, compacted, plus the handoff if the
         // outgoing back end managed one.
-        let payload = self.handover_payload_with(binding, &handoff, carrying.map(|(_, context)| context));
+        let payload = self.handover_payload_with(binding, &handoff, carrying.map(|(_, context)| context), reason);
         if let Err(why) = fresh.reprime(&payload, &mut |_item: TurnItem| {}) {
             // The successor is dropped unused; the incumbent keeps working. A back end
             // that could not be primed must never take an assignment, because an unprimed
@@ -3219,6 +3281,7 @@ impl WorkHost {
         inner.rotations += 1;
         inner.last_rotation_reason = Some(reason.to_string());
         inner.lease_repositories = repositories;
+        inner.lease_team = team;
         if carrying.is_some() {
             inner.cancel = cancel;
         }
@@ -3252,13 +3315,14 @@ impl WorkHost {
     /// ([`Self::rotate_carrying`]): its brief and what it has said so far, and that the next
     /// message continues it. Without `carrying` the text is the between-assignments payload,
     /// unchanged.
-    fn handover_payload_with(&self, binding: &ThreadBinding, handoff: &str, carrying: Option<&str>) -> String {
+    fn handover_payload_with(&self, binding: &ThreadBinding, handoff: &str, carrying: Option<&str>, reason: &str) -> String {
         let mut payload = String::from(match carrying {
             None => {
                 "You are the standing background worker for one of the CEO's conversations, and \
                  this connection is taking over from the previous one. Nothing is running on you \
                  yet.\n"
             }
+            Some(_) if reason == TEAM_CHANGED => MID_RUN_TEAM_HANDOVER_OPENING,
             Some(_) => MID_RUN_HANDOVER_OPENING,
         });
         if let Some(context) = carrying {
@@ -3357,12 +3421,12 @@ impl WorkHost {
         if lease.is_some() {
             return Ok(());
         }
-        let opened = self
-            .factory
-            .lock()
-            .unwrap()
-            .spawn_work(binding)
-            .map_err(|e| e.to_string())?;
+        // The team it registers, read just before it is spawned (see `Inner::lease_team`).
+        let (team, opened) = {
+            let factory = self.factory.lock().unwrap();
+            (factory.team_digest(), factory.spawn_work(binding))
+        };
+        let opened = opened.map_err(|e| e.to_string())?;
         // **A back end that finished opening after quit began is not kept** (hunt 2026-09-29
         // part 1, finding 28). Quit no longer waits without bound for this lock, so it may
         // already have swept past this back end; keeping the lease would hand a connection to
@@ -3373,6 +3437,7 @@ impl WorkHost {
             if !inner.closing {
                 inner.lease_session = Some(opened.session_id().to_string());
                 inner.lease_repositories = self.connected_repositories(binding);
+                inner.lease_team = team;
             }
             inner.closing
         };
@@ -3509,7 +3574,13 @@ impl WorkHost {
             return false;
         }
         eprintln!("[richos] work: this run moved to the next Claude account between two of its turns and carries on there");
-        // What a relaunch reconciles against is the session the run is on now (spec §6.1).
+        self.note_successor_session(backend, record);
+        true
+    }
+
+    /// What a relaunch reconciles against is the session a run is on now (spec §6.1): written
+    /// after a renewal between two of its turns moved it to a successor.
+    fn note_successor_session(&self, backend: &Arc<Backend>, record: &Assignment) {
         let session = backend.inner.lock().unwrap().lease_session.clone();
         if let Some(session) = session {
             let pins = assignment::read(&self.state, &record.entity_id, &record.thread_id, &record.id)
@@ -3519,6 +3590,83 @@ impl WorkHost {
                 eprintln!("[richos] work: the run's new connection was not recorded: {error}");
             }
         }
+    }
+
+    /// **Has the team on disk moved since this back end's lease registered its own?** The
+    /// third renewal reason (proto-teammate shelf plan §1, slice 5), on the design of
+    /// `operator_snapshot.rs`: a session reads its definitions once, at start, so the digest of
+    /// what it read is kept and compared at each boundary. `false` with no lease, or when
+    /// either digest is unknown: a reading that failed is never a change.
+    fn team_changed(&self, backend: &Arc<Backend>) -> bool {
+        if backend.lease.lock().unwrap().is_none() {
+            return false;
+        }
+        let Some(opened_with) = backend.inner.lock().unwrap().lease_team.clone() else { return false };
+        let Some(now) = self.factory.lock().unwrap().team_digest() else { return false };
+        opened_with != now
+    }
+
+    /// `true`, and said in the log, when a command this back end started may still be
+    /// running: retiring its lease would end that command, so a renewal waits for the next
+    /// boundary (reap gap C6). Unreadable is never read as nothing running.
+    fn renewal_waits_for_a_command(&self, backend: &Arc<Backend>, why: &str) -> bool {
+        let commands = backend.lease.lock().unwrap().as_ref().and_then(|lease| lease.running_commands());
+        let waits = matches!(
+            commands,
+            Some(crate::lease_commands::CommandReading::Running(_) | crate::lease_commands::CommandReading::Unreadable)
+        );
+        if waits {
+            eprintln!("[richos] back end: {why}; renewal deferred while a command it started may still be running");
+        }
+        waits
+    }
+
+    /// **A TEAMMATE SAVED, REFITTED OR RETIRED SINCE THIS BACK END OPENED** — `run_one` step
+    /// 0d (slice 5). The same renewal as a repository connected since it opened
+    /// ([`Self::renew_if_repositories_changed`]): at an assignment boundary with nothing live,
+    /// the successor opened first and primed from the register, deferred while a command it
+    /// started may still be running, and a failed renewal leaves the incumbent working.
+    fn renew_if_team_changed(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding) {
+        if !self.team_changed(backend) || self.renewal_waits_for_a_command(backend, "its team changed since it opened") {
+            return;
+        }
+        let started = std::time::Instant::now();
+        match self.rotate(backend, binding, TEAM_CHANGED) {
+            Ok(()) => eprintln!(
+                "[richos] back end: renewed because its team changed, before the next assignment, in {} ms",
+                started.elapsed().as_millis()
+            ),
+            Err(why) => eprintln!("[richos] back end: not renewed for its changed team ({why})"),
+        }
+    }
+
+    /// **THE TEAM, BETWEEN THE TURNS OF ONE RUN** (slice 5; plan §1: *"a teammate Dean
+    /// activates is usable on the back end's next turn after Dean's run ends, in the same
+    /// assignment, with no restart of the job"*). Beside [`Self::switch_account_between_turns`]
+    /// and built the same way: never inside a turn, the assignment carried across
+    /// ([`Self::rotate_carrying`]) to a successor that registers the team as it is now, and a
+    /// command the back end started that may still be running defers it to the next boundary.
+    ///
+    /// `true` when the run is now on the renewed lease. A renewal that fails leaves the run on
+    /// the incumbent, still bound, and the saved teammate waits for the next boundary.
+    fn renew_team_between_turns(
+        self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment,
+        work: &WorkAssignment, context: impl FnOnce() -> String,
+    ) -> bool {
+        if !self.team_changed(backend) || self.renewal_waits_for_a_command(backend, "its team changed during this run") {
+            return false;
+        }
+        let context = context();
+        let started = std::time::Instant::now();
+        if let Err(why) = self.rotate_carrying(backend, binding, TEAM_CHANGED, Some((work, &context))) {
+            eprintln!("[richos] work: this run keeps its connection for now; renewing it for the changed team failed ({why})");
+            return false;
+        }
+        eprintln!(
+            "[richos] work: this run's connection was renewed between two of its turns because its team changed, in {} ms, and the run carries on there",
+            started.elapsed().as_millis()
+        );
+        self.note_successor_session(backend, record);
         true
     }
 
@@ -4376,6 +4524,16 @@ mod tests {
         /// Fill-first: the account this lease was spawned under, and the shared script.
         account: Option<String>,
         fill: Arc<Mutex<FillFirst>>,
+        team: Arc<Mutex<TeamScript>>,
+    }
+
+    /// **The team on disk, for the fake factory** (slice 5): what `team_digest` answers, and
+    /// what each work turn changes it to, one entry per turn (`None` changes nothing), as the
+    /// back end saving a teammate with `richos_work.team` during that turn would.
+    #[derive(Default)]
+    struct TeamScript {
+        digest: Option<String>,
+        in_turn: VecDeque<Option<String>>,
     }
 
     /// **Fill-first's knobs for the fake back end.** With a quota service set, every lease is
@@ -4446,6 +4604,12 @@ mod tests {
                 return Ok(reason);
             }
             let reply = self.replies.lock().unwrap().pop_front().unwrap_or_else(|| self.answer_reply.clone());
+            {
+                let mut team = self.team.lock().unwrap();
+                if let Some(Some(saved)) = team.in_turn.pop_front() {
+                    team.digest = Some(saved);
+                }
+            }
             if !self.silent.load(Ordering::SeqCst) {
                 self.first_item_gate.wait_until_open();
             }
@@ -4621,11 +4785,15 @@ mod tests {
         unrun: Arc<Mutex<VecDeque<String>>>,
         fail_next: Arc<Mutex<VecDeque<String>>>,
         fill: Arc<Mutex<FillFirst>>,
+        team: Arc<Mutex<TeamScript>>,
     }
 
     impl LeaseFactory for WorkFactory {
         fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
             Err(CognitionError::Protocol("a conversation lease is not what this factory is for".into()))
+        }
+        fn team_digest(&self) -> Option<String> {
+            self.team.lock().unwrap().digest.clone()
         }
         fn spawn_work(&self, _binding: &ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
             // BEFORE the counter and before the refusal, because this is the point the one
@@ -4675,6 +4843,7 @@ mod tests {
                 first_item_gate: self.first_item_gate.clone(),
                 unrun: self.unrun.clone(),
                 fail_next: self.fail_next.clone(),
+                team: self.team.clone(),
             }))
         }
     }
@@ -4721,6 +4890,7 @@ mod tests {
         unrun: Arc<Mutex<VecDeque<String>>>,
         fail_next: Arc<Mutex<VecDeque<String>>>,
         fill: Arc<Mutex<FillFirst>>,
+        team: Arc<Mutex<TeamScript>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -4763,7 +4933,9 @@ mod tests {
         let broken = Arc::new(AtomicBool::new(false));
         let attempts = Arc::new(AtomicUsize::new(0));
         let fill = Arc::new(Mutex::new(FillFirst::default()));
+        let team = Arc::new(Mutex::new(TeamScript::default()));
         let factory = WorkFactory {
+            team: team.clone(),
             fill: fill.clone(),
             broken: broken.clone(),
             attempts: attempts.clone(),
@@ -4799,7 +4971,7 @@ mod tests {
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
             work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies,
-            silent, first_item_gate, unrun, fail_next, broken, attempts, fill }
+            silent, first_item_gate, unrun, fail_next, broken, attempts, fill, team }
     }
 
     /// **A second lease factory over the SAME scripted state as `h`'s** — every knob and every
@@ -4807,6 +4979,7 @@ mod tests {
     /// (design §4.1 tests 2 and 3), or a host with a different notifier.
     fn factory_over(h: &Harness, step_ms: u64) -> WorkFactory {
         WorkFactory {
+            team: h.team.clone(),
             fill: h.fill.clone(),
             broken: h.broken.clone(),
             attempts: h.attempts.clone(),
@@ -8873,6 +9046,137 @@ mod tests {
         *h.commands.lock().unwrap() = Some(CommandReading::Clear);
         run(5);
         assert_eq!(h.host.rotations("thread-one").0, 2);
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **A TEAMMATE SAVED SINCE THE BACK END OPENED IS ITS TEAMMATE FROM THE NEXT ASSIGNMENT
+    /// ON** (proto-teammate shelf plan §1, slice 5, the first seam). A lease registers its
+    /// team once, when it opens (`EngineProfile::prepare`), so the host keeps the digest of the
+    /// team it opened with and renews the back end at the start of an assignment when the team
+    /// on disk has moved, beside a connected repository and an account switch.
+    ///
+    /// Controls: nothing changed, nothing renewed; a command still running defers it to the
+    /// next boundary; a factory that cannot say what the team is renews nothing.
+    #[test]
+    fn a_team_changed_since_the_back_end_opened_renews_it_before_the_next_assignment() {
+        use crate::lease_commands::CommandReading;
+        let h = harness(5);
+        h.team.lock().unwrap().digest = Some("stock five".into());
+        h.host.start();
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        let run = |n: u64| {
+            h.host
+                .register(&h.binding, &Registration { obligation_id: format!("obligation-team-{n}"), ..registration(&h) })
+                .unwrap();
+            assert!(h.host.wait_for_completed(n, std::time::Duration::from_secs(10)));
+        };
+        run(1);
+        run(2);
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1);
+        assert_eq!(h.host.rotations("thread-one").0, 0, "a back end was renewed with its team unchanged");
+
+        // Dean's fitted Mark is saved: the next assignment gets a back end that registers him.
+        h.team.lock().unwrap().digest = Some("stock five and mark".into());
+        run(3);
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2, "the assignment ran on a back end that never registered Mark");
+        assert_eq!(h.host.rotations("thread-one"), (1, Some(TEAM_CHANGED.to_string())));
+        assert_eq!(h.reprimes.lock().unwrap().len(), 1, "the successor was not primed from the register");
+
+        // A command still running defers it; once it ends, the next boundary renews.
+        h.team.lock().unwrap().digest = Some("stock five and mark, refitted".into());
+        *h.commands.lock().unwrap() = Some(CommandReading::Running(1));
+        run(4);
+        assert_eq!(h.host.rotations("thread-one").0, 1, "a renewal ended a command the back end was running");
+        *h.commands.lock().unwrap() = Some(CommandReading::Clear);
+        run(5);
+        assert_eq!(h.host.rotations("thread-one"), (2, Some(TEAM_CHANGED.to_string())));
+
+        // A team that cannot be read is not a changed team.
+        h.team.lock().unwrap().digest = None;
+        run(6);
+        assert_eq!(h.host.rotations("thread-one").0, 2, "an unreadable team renewed the back end");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **THE WALK'S SHAPE: DEAN FITS AN ENGINEER, THE BACK END SAVES HIM, AND HE DOES THE JOB IN
+    /// THE SAME ASSIGNMENT** (plan §1, slice 5, the second seam: *"a teammate Dean activates is
+    /// usable on the back end's next turn after Dean's run ends, in the same assignment, with no
+    /// restart of the job"*).
+    ///
+    /// The back end saves the teammate during a turn and ends it, because it cannot name him
+    /// until its connection is renewed; nothing is open and the job is not over. The host renews
+    /// the back end there, between two turns of the one run, carrying the assignment (the
+    /// account switch's road: handoff asked mid-run, successor primed with the job and bound to
+    /// the same seat), and gives the successor the next turn, saying the team is registered.
+    /// The brief is sent once: the job is not started again.
+    ///
+    /// Control: a command the back end started that may still be running defers the renewal,
+    /// and the run ends as it did before; the next assignment's start renews it.
+    #[test]
+    fn a_teammate_saved_during_a_run_is_registered_for_its_next_turn_in_the_same_assignment() {
+        use crate::cognition::ObligationState;
+        use crate::lease_commands::CommandReading;
+        const SAVED: &str = "Dean fitted Mark to the Acme repository and I saved him to the team. Mark makes the change next.";
+        const CARRIED_ON: &str = "Mark made the change and Frank reviewed it.";
+        const HANDOFF: &str = "Mark is saved as team/mark.md; the change is still to be made.";
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.background.lock().unwrap() = Some(Vec::new());
+        *h.handoff_reply.lock().unwrap() = HANDOFF.into();
+        h.replies.lock().unwrap().extend([SAVED.to_string(), CARRIED_ON.to_string()]);
+        {
+            let mut team = h.team.lock().unwrap();
+            team.digest = Some("stock five".into());
+            // The first turn saves Mark; the second changes nothing.
+            team.in_turn.extend([Some("stock five and mark".to_string()), None]);
+        }
+        h.host.start();
+        let job = h.host
+            .register(&h.binding, &Registration { title: "add a health check endpoint".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the run never finished");
+
+        assert_eq!(h.host.rotations("thread-one"), (1, Some(TEAM_CHANGED.to_string())),
+            "the back end was not renewed between the turn that saved Mark and the next one");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2);
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 2, "the run did not go on after the turn that saved Mark: {prompts:?}");
+        assert_eq!(prompts.iter().filter(|p| p.contains("Original request (verbatim)")).count(), 1, "the brief was sent again");
+        assert_eq!(prompts[1], TEAM_CHANGED_CONTINUATION);
+        let handoffs = h.handoffs.lock().unwrap().clone();
+        assert_eq!(handoffs.len(), 1);
+        assert!(handoffs[0].contains(HANDOFF_ASK_MID_RUN), "{}", handoffs[0]);
+        let primed = h.reprimes.lock().unwrap().clone();
+        assert_eq!(primed.len(), 1);
+        assert!(primed[0].starts_with(MID_RUN_TEAM_HANDOVER_OPENING), "{}", primed[0]);
+        for carried in ["add a health check endpoint", "Original request (verbatim)", SAVED, HANDOFF] {
+            assert!(primed[0].contains(carried), "the successor was not told {carried:?}: {}", primed[0]);
+        }
+        let bound = h.bound.lock().unwrap().clone();
+        assert_eq!(bound.len(), 2, "the successor did not take the assignment's seat");
+        assert_eq!(bound[0], bound[1]);
+        let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!(row.work_session.as_deref(), Some("work-session-rotated-1"), "{row:?}");
+
+        // ---- control: a command it started may still be running --------------------------
+        *h.commands.lock().unwrap() = Some(CommandReading::Running(1));
+        h.team.lock().unwrap().in_turn.push_back(Some("stock five, mark and norm".to_string()));
+        h.host
+            .register(&h.binding, &Registration { obligation_id: "obligation-team-2".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(h.host.rotations("thread-one").0, 1, "a renewal ended a command the back end was running");
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 3, "a deferred renewal still gave the run another turn");
+        *h.commands.lock().unwrap() = Some(CommandReading::Clear);
+        h.host
+            .register(&h.binding, &Registration { obligation_id: "obligation-team-3".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        assert_eq!(h.host.rotations("thread-one"), (2, Some(TEAM_CHANGED.to_string())),
+            "the deferred renewal did not happen at the next assignment's start");
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }

@@ -187,6 +187,25 @@ pub fn active_team(engine: &Path, data: &Path) -> Result<std::collections::BTree
     Ok(team)
 }
 
+/// **The digest of the team a lease registers** (proto-teammate shelf plan §1 and §6, slice 5):
+/// every name and definition [`active_team`] returns, so it moves exactly when the next lease
+/// would register something different, and never for a file that would not be registered (the
+/// shelf, a duty name, a temporary file, a link). The design is `operator_snapshot.rs`'s, digest
+/// the definitions a session read at start and renew it when the digest moves; its file set is
+/// the operator's, so the code is not shared. Each part is length-prefixed, so no two teams
+/// share a digest by where one body ends and the next name starts.
+pub fn team_digest(engine: &Path, data: &Path) -> Result<String, RuntimeError> {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    for (name, body) in active_team(engine, data)? {
+        for part in [name.as_bytes(), body.as_bytes()] {
+            hasher.update((part.len() as u64).to_le_bytes());
+            hasher.update(part);
+        }
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 impl EngineProfile {
     pub fn prepare(engine: &Path, data: &Path, runtime: EngineRuntime) -> Result<Self, RuntimeError> {
         if !engine.is_absolute() || !data.is_absolute() { return Err(RuntimeError("desktop roots must be absolute".into())); }
