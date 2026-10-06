@@ -62,6 +62,8 @@ class OutputWalkTests(unittest.TestCase):
         frank = {"name": "frank-opus-ba9876543210", "subagent_type": "richos-app-engine:frank", "model": "opus"}
         landed = [{"workerName": mark["name"], "source": "land"}, {"workerName": mark["name"], "source": "command"}]
         self.assertEqual(output.named_verdict("mark", [mark, frank], landed, ["by Mark"], ["Mark, Ended"]), [])
+        # The guest reads the line inside the row button's own name.
+        self.assertEqual(output.named_verdict("mark", [mark], landed, ["notes.zip ~/Acme/ by Mark"], []), [])
         # What main does: the generic worker on the fixed sonnet, its agent name on the label.
         generic = {"name": "worker-sonnet-0123456789ab", "subagent_type": "richos-app-engine:worker", "model": "sonnet"}
         failures = output.named_verdict("mark", [generic], [{"workerName": generic["name"], "source": "land"}],

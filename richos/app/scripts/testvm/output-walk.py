@@ -378,7 +378,8 @@ def named_verdict(teammate, spawns, workers, by_labels, chips):
     """Why the backend-worker job was NOT done by the named teammate, shown by its name ([] = it was).
 
     spawns: every Agent call the back end made ({name, subagent_type, model}); workers: the record's
-    worker rows ({workerName, source}); by_labels: the Output panel's "by ..." texts; chips: the
+    worker rows ({workerName, source}); by_labels: the names of the Output panel's rows that carry a
+    "by ..." line; chips: the
     conversation's worker controls' names, which may hold none (only their raw names are judged)."""
     failures = []
     if not spawns:
@@ -398,7 +399,7 @@ def named_verdict(teammate, spawns, workers, by_labels, chips):
     if not landed or not all((w.get('workerName') or '').startswith(teammate + '-') for w in landed):
         failures.append(f"the landed files are not {teammate}'s: " + json.dumps([w.get('workerName') for w in landed]))
     want = 'by ' + teammate.capitalize()
-    if want not in by_labels:
+    if not any(want in label for label in by_labels):
         failures.append(f'the Output panel does not say {want!r}: {by_labels}')
     raw = [t for t in by_labels + chips if re.search(r'[a-z0-9]-(opus|sonnet|haiku)-[0-9a-f]{12}', t)]
     if raw:
@@ -664,7 +665,11 @@ class OutputWalk(command_walk.CommandWalk):
         self.open_panel()
         self.to_list()
         time.sleep(1)
-        by_labels = [h.get('value') for h in self.in_panel(self.texts('by '))]
+        # A row is role="button" and its children are presentational, so WebKit gives the guest no
+        # static text for its "by ..." line: it is in the row button's own name (walk-8dd60bef80d8
+        # found no text node while named-by.png showed "by Mark" on both rows).
+        by_labels = [n.get('desc') or n.get('title') or '' for n in self.in_panel(self.find_all('by ', role='AXButton'))]
+        by_labels += [h.get('value') or '' for h in self.in_panel(self.texts('by '))]
         name = teammate.capitalize()
         chips = sorted({n.get('desc') or n.get('title') or '' for words in (name, '-sonnet-', '-opus-')
                         for n in self.outside_panel(self.find_all(words, role='AXButton'))})
