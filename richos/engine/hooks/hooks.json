@@ -148,7 +148,7 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-worktree-isolation.sh",
-            "timeout": 60
+            "timeout": 330
           },
           {
             "type": "command",
@@ -184,6 +184,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-brief-scope.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-pierce.sh",
+            "timeout": 330
           },
           {
             "type": "command",

@@ -26,6 +26,32 @@ MARK="---\nname: mark\ndescription: Fictional fixture engineer.\nmodel: sonnet\n
 DUTY_TOP={"worker":"# Your duty in this assignment: implement","reviewer":"# Your duty in this assignment: review"}
 
 class DesktopWork(unittest.TestCase):
+    def test_pierce_findings_leave_dispatch_retryable_and_allow_revised_preparation(self):
+        ready = self.call("prepare", self.args)
+        envelope = {"session_id": self.session, "tool_use_id": "pierce-call",
+                    "tool_input": ready["agent_payload"]}
+        self.app.dispatch_intent(self.scope, envelope, inspect_only=True)
+        self.assertEqual(self.call("inspect", {})["records"][0]["status"], "prepared")
+        self.app.dispatch_intent(self.scope, envelope, review_refused=True)
+        self.assertEqual(self.call("inspect", {})["records"][0]["status"], "prepared")
+        # A changed brief uses a new request. Only this provably never-dispatched
+        # preparation is withdrawn, through the existing clean-workspace checks.
+        replacement = self.call("prepare", {**self.args, "request_id": "revised-brief",
+                                            "brief": "Implement the corrected fictional requirement."})
+        self.assertEqual(replacement["status"], "prepared")
+        self.app.dispatch_intent(self.scope, {"session_id": self.session, "tool_use_id": "revised-call",
+                                             "tool_input": replacement["agent_payload"]})
+        records = self.call("inspect", {})["records"]
+        self.assertEqual(next(row for row in records if row["id"] == replacement["id"])["status"], "dispatching")
+
+    def test_pierce_dismissal_can_retry_the_exact_prepared_payload(self):
+        ready = self.call("prepare", self.args)
+        envelope = {"session_id": self.session, "tool_use_id": "pierce-call",
+                    "tool_input": ready["agent_payload"]}
+        self.app.dispatch_intent(self.scope, envelope, review_refused=True)
+        self.app.dispatch_intent(self.scope, {**envelope, "tool_use_id": "dismissed-call"})
+        self.assertEqual(self.call("inspect", {})["records"][0]["status"], "dispatching")
+
     def setUp(self):
         self.scratch=tempfile.TemporaryDirectory(prefix="app work fixture ");self.addCleanup(self.scratch.cleanup)
         self.root=Path(self.scratch.name).resolve();self.coord=self.root/"coordination";self.repo=self.root/"target project"

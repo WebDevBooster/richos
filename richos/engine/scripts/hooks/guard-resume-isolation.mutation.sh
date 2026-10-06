@@ -81,6 +81,7 @@ _mutant_body() {
     cp "$ENGINE_ROOT/scripts/hooks/guard-resume-isolation.sh" \
        "$ENGINE_ROOT/scripts/hooks/guard-resume-isolation.test.sh" "$dir/scripts/hooks/"
     cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
+       "$ENGINE_ROOT/scripts/lib/entity-sandbox.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/agent-liveness.py" \
        "$ENGINE_ROOT/scripts/lib/pause_protocol.py" \

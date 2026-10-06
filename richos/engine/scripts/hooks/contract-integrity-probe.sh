@@ -469,7 +469,9 @@ run_layer_R() {
     #     agent_id, and the Claude scratch roots; no repository decides it.
     #   guard-unguarded-rm — the Bash rule that refuses an rm Claude Code would prompt the CEO
     #     about. Its subject is the COMMAND's text and the payload's cwd, not a repository.
-    R_ROOTLESS_HOOKS="guard-brief-scope notice-claim-capability handoff-facts-annotate \
+    # guard-pierce delegates to its installation-relative Python module; that
+    # module reads runtime project/desktop roots, without this shell bootstrap.
+    R_ROOTLESS_HOOKS="guard-brief-scope guard-pierce notice-claim-capability handoff-facts-annotate \
     notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota session-start-stall shell-evidence \
     task-completed-handoff teammate-idle-handoff \
     worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
@@ -1213,6 +1215,7 @@ guard-model-ceiling.sh|PreToolUse
 guard-stale-staging.sh|PreToolUse
 guard-owned-state.sh|PreToolUse
 guard-brief-scope.sh|PreToolUse
+guard-pierce.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse

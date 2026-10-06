@@ -142,7 +142,9 @@ mutant enforce-flag-ignored "y." "$P" \
     "report-only exists so an adopter can read its own numbers before arming it; a flag that does nothing is a lie in the config."
 
 # --- 2. ARM 1: WHAT IS READ, AND WHAT IS NOT ------------------------------
-mutant list-items-scanned "f." "$P" \
+# The raw bullet in f. is also excluded by subject anchoring. f3. reaches
+# the announcement recognizer when this list exclusion is removed.
+mutant list-items-scanned "f3." "$P" \
     '                or LIST_LINE_RE.match(line) or TABLE_LINE_RE.match(line)):' \
     '                or TABLE_LINE_RE.match(line)):' \
     "a bulleted plan is not a statement; 4 of the 13 corpus false fires were list items."

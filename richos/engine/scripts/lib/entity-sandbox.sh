@@ -23,6 +23,7 @@
 
 entity_sandbox() { # <engine-root> [--git] -> prints the new directory
     local engine="$1" dir
+    # scratch-exempt: test-only hook fixture setup extracted from exempt suites; the caller removes it.
     dir="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/entity-sandbox.XXXXXX")" && pwd -P)" || return 1
     cp "$engine/orchestration.config" "$dir/orchestration.config" || return 1
     if [ -d "$engine/.claude/agents" ]; then
