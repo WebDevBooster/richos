@@ -550,12 +550,21 @@
     );
   }
 
+  /// **A teammate is shown by its name** (proto-teammate shelf plan §7): the engine starts a
+  /// named teammate as `<teammate>-<model>-<id>` (`mark-sonnet-1a2b3c4d5e6f`), the shape
+  /// `teammate-name.sh` enforces, and a person reads "Mark". Anything not of that shape is
+  /// shown as it came; the Output panel's "by …" uses this same function.
+  function teammateName(raw) {
+    const m = /^([a-z][a-z0-9]{1,15})-[a-z]+-[a-z0-9]{1,12}$/.exec(raw || "");
+    return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) : raw;
+  }
+
   /// §7.1 wants a display NAME. `workerName` is carried only by a `created` row — a run
   /// first witnessed at `started` genuinely has none, and nothing invents one. The
   /// fallbacks descend through what was actually observed and stop before the `agentId`:
   /// an opaque harness id is machinery, and §5.3 keeps the CEO default semantic.
   function workerDisplayName(w) {
-    if (w.workerName) return w.workerName;
+    if (w.workerName) return teammateName(w.workerName);
     if (w.agentType) return w.agentType;
     return "A teammate";
   }
@@ -3346,6 +3355,7 @@
     workerGroupSummary,
     workerStateSpec,
     workerDisplayName,
+    teammateName,
     joinNames,
     renderWorkerInspector,
     ENDED_EXPLANATION,

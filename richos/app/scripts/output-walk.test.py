@@ -56,6 +56,30 @@ class OutputWalkTests(unittest.TestCase):
         self.assertEqual((report["vm"], report["expect_sha"]), ("fixture-vm", "fixture-sha"))
         self.assertEqual(owner.call_args.args[0].within, 900)
 
+    def test_named_passes_only_for_the_seeded_teammate_shown_by_its_name(self):
+        """Slice 2 of the proto-teammate shelf plan: named's verdict, offline."""
+        mark = {"name": "mark-sonnet-0123456789ab", "subagent_type": "richos-app-engine:mark", "model": "sonnet"}
+        frank = {"name": "frank-opus-ba9876543210", "subagent_type": "richos-app-engine:frank", "model": "opus"}
+        landed = [{"workerName": mark["name"], "source": "land"}, {"workerName": mark["name"], "source": "command"}]
+        self.assertEqual(output.named_verdict("mark", [mark, frank], landed, ["by Mark"], ["Mark, Ended"]), [])
+        # The guest reads the line inside the row button's own name.
+        self.assertEqual(output.named_verdict("mark", [mark], landed, ["notes.zip ~/Acme/ by Mark"], []), [])
+        # What main does: the generic worker on the fixed sonnet, its agent name on the label.
+        generic = {"name": "worker-sonnet-0123456789ab", "subagent_type": "richos-app-engine:worker", "model": "sonnet"}
+        failures = output.named_verdict("mark", [generic], [{"workerName": generic["name"], "source": "land"}],
+                                        ["by worker-sonnet-0123456789ab"], [])
+        self.assertTrue(any("not <teammate>-<model>-<id12>" in f for f in failures), failures)
+        self.assertTrue(any("never started" in f for f in failures), failures)
+        self.assertTrue(any("does not say 'by Mark'" in f for f in failures), failures)
+        self.assertTrue(any("engine's agent name" in f for f in failures), failures)
+        # Started on another model than its name, or as another definition.
+        wrong = dict(frank, model="sonnet", subagent_type="richos-app-engine:worker")
+        failures = output.named_verdict("mark", [mark, wrong], landed, ["by Mark"], [])
+        self.assertEqual(len(failures), 2, failures)
+        # Another teammate landed the files.
+        failures = output.named_verdict("mark", [mark], [{"workerName": frank["name"], "source": "land"}], ["by Mark"], [])
+        self.assertTrue(any("not mark's" in f for f in failures), failures)
+
     def test_explicit_steps_keep_order_and_hyphenated_dispatch(self):
         result, calls, report, _owner = self.dispatch("scroll,job-question,pdf")
         self.assertEqual((result, calls), (0, ["scroll", "job-question", "pdf"]))

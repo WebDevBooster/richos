@@ -172,8 +172,15 @@ async function main() {
         // And a name-less worker falls back through what was OBSERVED, never to a raw id.
         noName: window.RichTimeline.workerDisplayName({ agentId: "agt_x1y2" }),
         typeOnly: window.RichTimeline.workerDisplayName({ agentId: "agt_x", agentType: "sage" }),
+        // A named teammate as the engine starts it (proto-teammate shelf plan §7): its name.
+        named: window.RichTimeline.workerDisplayName({ agentId: "agt_m", workerName: "mark-sonnet-1a2b3c4d5e6f" }),
+        namedOpus: window.RichTimeline.workerDisplayName({ agentId: "agt_f", workerName: "frank-opus-0f1e2d3c4b5a" }),
+        otherShape: window.RichTimeline.workerDisplayName({ agentId: "agt_o", workerName: "deeply-analyst" }),
       };
     });
+    assertEqual(r.named, "Mark", "a named teammate reads as its name, not the engine's agent name");
+    assertEqual(r.namedOpus, "Frank");
+    assertEqual(r.otherShape, "deeply-analyst", "a name of another shape is shown as it came");
     assertEqual(r.unknown, "Ended", "run_ended must not read as Done/Finished/Completed");
     assertEqual(r.unknownQualifier, "outcome not recorded");
     for (const [k, v] of Object.entries(r)) {

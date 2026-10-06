@@ -138,11 +138,65 @@ fn git(runtime: &EngineRuntime, cwd: &Path, args: &[&str]) -> Result<(), Runtime
     Ok(())
 }
 
+/// **The named teammates every install has from its first lease** (proto-teammate shelf plan,
+/// richos-hq `docs/plans/2026-10-06-proto-teammate-shelf.md` §2): stock definitions shipped in
+/// `engine/agents/`, replaced with the engine on update. Pierce, who reads the back end's briefs
+/// (CEO §111), is always active like the four the plan names.
+pub const ALWAYS_ACTIVE: [&str; 5] = ["dean", "clark", "reed", "frank", "pierce"];
+
+/// **The two duties, never a teammate** (plan §3, slice 2): `worker` implements and `reviewer`
+/// reviews. Each is a duty text (`engine/mega-lander/duties/<duty>.md`) the dispatch adapter puts
+/// at the top of a named teammate's brief, not a definition, so neither is registered and
+/// neither name can be a teammate's.
+pub const DUTIES: [&str; 2] = ["worker", "reviewer"];
+
+/// **The user's own teammates: `<app data>/team/<name>.md`**, activated from the shelf or
+/// hired by Dean. Outside the engine, so an engine update never touches them. The shelf
+/// itself (`engine/team/shelf/`) is never registered.
+pub const USER_TEAM: &str = "team";
+
+/// Every definition this lease registers, by name: the stock ones, then the user's. A user's
+/// file of the same name as a stock one is the user's refit of it and wins (plan §10 point 3:
+/// the user's copy is never overwritten). A file whose name could not be an agent type
+/// (`[a-z0-9-]`, not starting with `-`), a symbolic link, or one of the two duty names is
+/// not registered: those two are the engine's app mechanics, never a person.
+pub fn active_team(engine: &Path, data: &Path) -> Result<std::collections::BTreeMap<String, String>, RuntimeError> {
+    let mut team = std::collections::BTreeMap::new();
+    for name in ALWAYS_ACTIVE {
+        let body = std::fs::read_to_string(engine.join(format!("agents/{name}.md"))).map_err(|e| RuntimeError(e.to_string()))?;
+        team.insert(name.to_string(), body);
+    }
+    let folder = data.join(USER_TEAM);
+    let entries = match std::fs::read_dir(&folder) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(team),
+        Err(e) => return Err(RuntimeError(format!("the team folder could not be read: {e}"))),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| RuntimeError(e.to_string()))?;
+        let path = entry.path();
+        if !entry.file_type().map_err(|e| RuntimeError(e.to_string()))?.is_file()
+            || path.extension().is_none_or(|ext| ext != "md") { continue; }
+        let Some(name) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+        if name.is_empty() || name.starts_with('-') || DUTIES.contains(&name)
+            || !name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') { continue; }
+        let body = std::fs::read_to_string(&path).map_err(|e| RuntimeError(format!("team/{name}.md could not be read: {e}")))?;
+        team.insert(name.to_string(), body);
+    }
+    Ok(team)
+}
+
 impl EngineProfile {
     pub fn prepare(engine: &Path, data: &Path, runtime: EngineRuntime) -> Result<Self, RuntimeError> {
         if !engine.is_absolute() || !data.is_absolute() { return Err(RuntimeError("desktop roots must be absolute".into())); }
-        for name in ["scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "mega-lander/app.py", "mega-lander/DESKTOP.md", "agents/worker.md", "agents/reviewer.md"] {
+        for name in ["scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "mega-lander/app.py", "mega-lander/DESKTOP.md"] {
             if !engine.join(name).is_file() { return Err(RuntimeError(format!("missing desktop engine entry point: {name}"))); }
+        }
+        for name in ALWAYS_ACTIVE {
+            if !engine.join(format!("agents/{name}.md")).is_file() { return Err(RuntimeError(format!("missing desktop engine entry point: agents/{name}.md"))); }
+        }
+        for duty in DUTIES {
+            if !engine.join(format!("mega-lander/duties/{duty}.md")).is_file() { return Err(RuntimeError(format!("missing desktop engine entry point: mega-lander/duties/{duty}.md"))); }
         }
         std::fs::create_dir_all(data).map_err(|e| RuntimeError(e.to_string()))?;
         let data = std::fs::canonicalize(data).map_err(|e| RuntimeError(e.to_string()))?;
@@ -173,7 +227,7 @@ impl EngineProfile {
         if git(&runtime, &coordination, &["rev-parse", "--verify", "HEAD"]).is_err() {
             git(&runtime, &coordination, &["commit", "--allow-empty", "-q", "-m", "Initialize private app coordination"])?;
         }
-        for child in ["engine-state", "engine-profiles", "coordination/.claude", "coordination/.claude/agents"] {
+        for child in ["engine-state", "engine-profiles", "coordination/.claude", "coordination/.claude/agents", USER_TEAM] {
             if data.join(child).is_symlink() {
                 return Err(RuntimeError(format!("private app path cannot be redirected: {child}")));
             }
@@ -185,18 +239,27 @@ impl EngineProfile {
             std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).map_err(|e| RuntimeError(e.to_string()))?;
         }
         let plugin = data.join("engine-profiles").join(uuid::Uuid::new_v4().to_string());
-        for role in ["worker", "reviewer"] {
-            let body = std::fs::read_to_string(engine.join(format!("agents/{role}.md"))).map_err(|e| RuntimeError(e.to_string()))?;
-            write(&plugin.join(format!("agents/{role}.md")), &body)?;
+        let team = active_team(&engine, &data)?;
+        for (name, body) in &team {
+            write(&plugin.join(format!("agents/{name}.md")), body)?;
             // The canonical guard resolves this explicit private roster. No
             // namespace search through host settings or whitespace-split roots.
-            write(&coordination.join(format!(".claude/agents/{role}.md")), &body)?;
+            write(&coordination.join(format!(".claude/agents/{name}.md")), body)?;
         }
+        // A teammate no longer active leaves the roster, so the guard stops resolving it.
+        let roster = coordination.join(".claude/agents");
+        for entry in std::fs::read_dir(&roster).map_err(|e| RuntimeError(e.to_string()))? {
+            let path = entry.map_err(|e| RuntimeError(e.to_string()))?.path();
+            let stale = path.extension().is_some_and(|ext| ext == "md")
+                && path.file_stem().and_then(|s| s.to_str()).is_none_or(|name| !team.contains_key(name));
+            if stale { std::fs::remove_file(&path).map_err(|e| RuntimeError(e.to_string()))?; }
+        }
+        let agents: Vec<String> = team.keys().map(|name| format!("./agents/{name}.md")).collect();
         write(&coordination.join("orchestration.config"), &format!(
             "# Generated desktop coordination, not target-repository configuration.\nALLOWED_MODELS=\"opus sonnet haiku\"\nMODEL_TIERS=\"opus > sonnet > haiku\"\nSESSION_TEAMS_DIR={}\n", quote(&state.join("teams"))))?;
         write(&coordination.join(".gitignore"), ".claude/\norchestration.config\napp-owned-coordination.json\n")?;
         write(&plugin.join(".claude-plugin/plugin.json"), &json!({"name":PLUGIN_NAME, "version":"1.2.0",
-            "agents":["./agents/worker.md", "./agents/reviewer.md"]}).to_string())?;
+            "agents":agents}).to_string())?;
         write(&plugin.join("gitconfig"), "[user]\n\tname = RichOS\n\temail = richos@localhost\n")?;
         let command = format!("{} {}", quote(&runtime.python), quote(&engine.join("scripts/app-engine-hook.py")));
         let mut hooks = serde_json::Map::new();

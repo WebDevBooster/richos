@@ -19,7 +19,9 @@ The engine has five principal components:
 - [ASS Kicker](ass-kicker/README.md) checks briefs, reported actions and execution evidence.
 - [Voice](voice/README.md) owns shared speech-model definitions and provisioning for Talk to Rich and the speech tools.
 
-Version 1.2.0 supplies generic worker and reviewer roles for the desktop profile.
+The desktop profile registers named teammates: Dean, Clark, Reed, Frank and Pierce
+(`agents/`) and the user's own. Each runs as the worker or the reviewer of an
+assignment, with that duty's app instructions (`mega-lander/duties/`) at the top of its brief.
 Engine code, app coordination and target repositories have separate roots. A fresh
 corpus starts empty; installing the engine does not import an operator's knowledge,
 private roster or terminal configuration. Installed acceptance is recorded against

@@ -1,9 +1,9 @@
----
-name: reviewer
-description: Independently reviews a specified artifact and commit against the authorized assignment.
-model: sonnet
-tools: Read, Glob, Grep, Bash
----
+# Your duty in this assignment: review
+
+You independently review a specified artifact and commit against the authorized
+assignment. Who you are and how you judge come from your own definition; how this
+app runs the review comes from this section, and where the two differ about the
+mechanics below, this section wins.
 
 The app validates the `cross-repo-worktree:` assignment line before launching
 you. Review in that registered target worktree, using absolute paths and

@@ -159,6 +159,16 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                group, a front-desk worker's inspector (after front-desk-worker) and the Settings
                version line; every node's box recorded for qa/frame.py.
 
+  named        the proto-teammate shelf, slice 2 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md
+               §3, §7), after backend-worker. A lease reads its team once at launch, so the teammate
+               is seeded into the fixture home before run-walk.py boots:
+                 command-walk.py --seed-team FIXTURE_HOME engine/team/shelf/mark.md
+                 run-walk.py ... -- output-walk.py ... --steps identity,first-run,connect,backend-worker,named
+               PASS when every Agent call the back end made is <teammate>-<model>-<id12> of type
+               richos-app-engine:<teammate> on that model, one of them is --teammate (default mark),
+               every land row is that teammate's, the Output panel says "by Mark", and no label shows
+               an engine agent name. Evidence: named-observed.json, named-by.png.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -185,7 +195,7 @@ command = command_walk.command
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
          'md-view', 'previews', 'save-copy', 'attach', 'pull',
          'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll', 'wrote',
-         'theme-flash', 'sidebar', 'scratch', 'labels']
+         'theme-flash', 'sidebar', 'scratch', 'labels', 'named']
 # The candidate walk's steps: never in the default list, which runs the witness checks.
 CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll',
                    'wrote', 'theme-flash', 'sidebar', 'scratch', 'labels')
@@ -356,6 +366,44 @@ def project(rows):
             key = retired.get(r['path']) or retired.get(r.get('canonical')) or key
         entries.setdefault(key, []).append(r)
     return entries
+
+
+# The proto-teammate shelf, slice 2 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md §3, §7):
+# an agent the back end starts is `<teammate>-<model>-<id12>`, and a person reads the teammate's name.
+NAMED_AGENT = re.compile(r'^([a-z][a-z0-9]{1,15})-(opus|sonnet|haiku)-([0-9a-f]{12})$')
+DUTIES = ('worker', 'reviewer')
+
+
+def named_verdict(teammate, spawns, workers, by_labels, chips):
+    """Why the backend-worker job was NOT done by the named teammate, shown by its name ([] = it was).
+
+    spawns: every Agent call the back end made ({name, subagent_type, model}); workers: the record's
+    worker rows ({workerName, source}); by_labels: the names of the Output panel's rows that carry a
+    "by ..." line; chips: any control or text on screen found carrying an engine agent name."""
+    failures = []
+    if not spawns:
+        failures.append('the back end started no agent')
+    for s in spawns:
+        m = NAMED_AGENT.match(s.get('name') or '')
+        if not m or m.group(1) in DUTIES:
+            failures.append(f"{s.get('name')!r} is not <teammate>-<model>-<id12> of a named teammate")
+            continue
+        if s.get('subagent_type') != 'richos-app-engine:' + m.group(1):
+            failures.append(f"{s['name']} was started as {s.get('subagent_type')!r}, not its own definition")
+        if s.get('model') != m.group(2):
+            failures.append(f"{s['name']} was started on {s.get('model')!r}, not the model its name says")
+    if not any((s.get('name') or '').startswith(teammate + '-') for s in spawns):
+        failures.append(f'the seeded {teammate} was never started')
+    landed = [w for w in workers if w.get('source') == 'land']
+    if not landed or not all((w.get('workerName') or '').startswith(teammate + '-') for w in landed):
+        failures.append(f"the landed files are not {teammate}'s: " + json.dumps([w.get('workerName') for w in landed]))
+    want = 'by ' + teammate.capitalize()
+    if not any(want in label for label in by_labels):
+        failures.append(f'the Output panel does not say {want!r}: {by_labels}')
+    raw = [t for t in by_labels + chips if re.search(r'[a-z0-9]-(opus|sonnet|haiku)-[0-9a-f]{12}', t)]
+    if raw:
+        failures.append(f"a label shows the engine's agent name: {raw}")
+    return failures
 
 
 class OutputWalk(command_walk.CommandWalk):
@@ -593,6 +641,50 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed("no command row for %s in the worker's worktree with its agent id (the carve-out)" % MADE)
         if missing:
             raise StepFailed('listed but no longer where it was written: ' + json.dumps(missing))
+        return evidence
+
+    def named(self):
+        """Slice 2 of the proto-teammate shelf (plan §3, §7), after backend-worker in the same run,
+        with the teammate seeded into the fixture home (command-walk.py --seed-team HOME FILE): the
+        back end started the seeded teammate as `<teammate>-<model>-<id12>` of its own definition on
+        its own model, the landed files are that teammate's, and the Output panel says "by Mark"."""
+        evidence, note = self.observed('named')
+        teammate = self.a.teammate
+        seen = json.loads((self.out / 'backend-worker-observed.json').read_text())
+        spawns = []
+        for session in seen.get('work_sessions') or []:
+            for c in self.callbacks(session):
+                if (c.get('hook_event_name') == 'PreToolUse' and c.get('tool_name') in ('Agent', 'Task')
+                        and not c.get('agent_id')):
+                    ti = c.get('tool_input') or {}
+                    spawns.append({k: ti.get(k) for k in ('name', 'subagent_type', 'model')})
+        workers = [{k: r.get(k) for k in ('path', 'workerName', 'source')}
+                   for r in self.record() if r.get('actor') == 'worker']
+        note(teammate=teammate, spawns=spawns, worker_rows=workers)
+        self.open_panel()      # a panel opened here opens on its list
+        time.sleep(1.5)
+        name = teammate.capitalize()
+        # A row is role="button" and its children are presentational, so WebKit gives the guest no
+        # static text for its "by ..." line: it is in the row button's own name (walk-8dd60bef80d8
+        # found no text node while named-by.png showed "by Mark" on both rows). Each read is one
+        # find that stops at its first hit: a search for something absent walks the whole window,
+        # and walk-d52bc94af25c's ("All output") outlived ax.sh. The search for an engine agent name
+        # is such a search, so a read that times out is recorded, not judged.
+        by_labels, raw, unread = [], [], []
+        for words, into in (('by ' + name, by_labels), ('-sonnet-', raw), ('-opus-', raw)):
+            try:
+                into += [n.get('desc') or n.get('title') or n.get('value') or ''
+                         for n in self.ax('find', '--title', words, '--contains', '--first') if 'x' in n]
+            except StepFailed as exc:
+                if not ('notfound' in str(exc) or 'nothing matched' in str(exc)):
+                    unread.append(f'{words}: {str(exc)[-200:]}')
+            except subprocess.TimeoutExpired as exc:
+                unread.append(f'{words}: {exc}')
+        note(by_labels=by_labels, raw_names=raw, unread=unread)
+        self.shot('named-by.png')
+        failures = named_verdict(teammate, spawns, workers, by_labels, raw)
+        if failures:
+            raise StepFailed('; '.join(failures))
         return evidence
 
     def front_desk_worker(self):
@@ -2318,13 +2410,14 @@ def main():
     p.add_argument('--relaunch-within', type=float, default=120,
                    help='sidebar: seconds for the composer to come back after the relaunch')
     p.add_argument('--steps', default=','.join(s for s in STEPS
-                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull')
+                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull', 'named')
                                                and s not in CANDIDATE_STEPS),
                    help='default: every step but open-reveal (alone, with --no-app) and the panel steps, '
                         'which run together after identity, first-run and connect: '
                         '--steps identity,first-run,connect,tools,panel,previews,save-copy,attach,pull '
                         '(S4 panel, S5 previews, S6 save-copy, S7 attach, S9 pull); md-view runs after panel')
     p.add_argument('--probe', type=Path, help='open-reveal: the built examples/output_files_probe')
+    p.add_argument('--teammate', default='mark', help='named: the teammate seeded into the fixture home')
     a = p.parse_args()
     steps = a.steps.split(',')
     unknown = [s for s in steps if s not in STEPS]

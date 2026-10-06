@@ -66,6 +66,21 @@ FIVE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
                  is recorded. PASS when the composer is back. Evidence: relaunch-observed.json, relaunch-app.log, and on a
                  miss relaunch-tree.txt and relaunch.png.
 
+TWO STEPS FOR THE PROTO-TEAMMATE SHELF, slice 1 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md
+§2), run as --steps identity,first-run,connect,team,task,agents. The front desk's leases open at
+launch, before any step, and a lease reads its team once (plan §1), so the user's own teammate is
+seeded into the FIXTURE HOME before run-walk.py boots: `command-walk.py --seed-team FIXTURE_HOME [DEFINITION ...]`
+writes FIXTURE_HOME/Library/Application Support/com.richos.app/team/walkmate.md and exits. `task`
+registers the proven task, which opens the back end's lease.
+  team           the seeded <app data>/team/walkmate.md is in the guest (refused otherwise).
+  agents         waits up to --within seconds for the back end's lease (the one given richos_work),
+                 then asks the back end to name every agent type its Agent tool lists. PASS needs all
+                 of: the question registered and closed (the back end answered it); its last notice
+                 names dean, clark, reed, frank, pierce and walkmate; every running lease's
+                 --plugin-dir registers the always-active five, and the back end's walkmate too; all
+                 six on coordination/.claude/agents; no shelf name (engine/team/shelf) on either.
+                 Evidence: agents-observed.json.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -90,7 +105,20 @@ StepFailed = adopt_walk.StepFailed
 command = adopt_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'watch', 'task', 'observe']
-MORE_STEPS = ['background', 'next-job', 'deadline', 'late-approval', 'relaunch']
+MORE_STEPS = ['background', 'next-job', 'deadline', 'late-approval', 'relaunch', 'team', 'agents']
+# The proto-teammate shelf, slice 1 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md §2):
+# every lease registers these four plus every file in <app data>/team/, and never the shelf.
+ALWAYS_ACTIVE = ('dean', 'clark', 'reed', 'frank', 'pierce')
+# A fictional teammate of the user's own, seeded by --seed-team before the leases open.
+WALK_TEAMMATE = 'walkmate'
+WALK_TEAMMATE_BODY = ('---\nname: walkmate\ndescription: Fictional walk teammate. Never use it for work.\n'
+                      'model: sonnet\ntools: Read\n---\n\nA fictional teammate written by command-walk.py.\n')
+# Asked of the back end once `task` has opened its lease. Worded for the front desk's third case,
+# "the other one has to find out" (doctrine/front-desk.md): on 2026-10-06 a bare question about
+# "your Agent tool" was answered by the front desk from its own lease, and a job worded with
+# "yourself" was run by the front desk itself; neither registered anything.
+AGENTS_TASK = ('Please ask the other one to check which agent types its Agent tool lists, '
+               'and tell me every name, one per line.')
 # The pane's words while an assignment waits on its command (work_host.rs COMMAND_STILL_RUNNING_DETAIL).
 STILL_RUNNING = 'A command it started is still running.'
 BACKGROUND_TASK = ('Please start this harmless test command in the background for me with your shell tool, in '
@@ -329,6 +357,57 @@ class CommandWalk(adopt_walk.Walk):
                 pressed[0] += 1
             time.sleep(2)
         return record
+
+    def team(self):
+        """The user's own teammate, seeded in the fixture home, is in the guest's <app data>/team/."""
+        path = self.data + '/team/' + WALK_TEAMMATE + '.md'
+        if guest(self.vm, 'cat ' + shlex.quote(path) + ' 2>/dev/null || true') != WALK_TEAMMATE_BODY.strip():
+            raise StepFailed(f'{path} is not the seeded teammate: run command-walk.py --seed-team FIXTURE_HOME '
+                             'before run-walk.py boots (the leases open at launch)')
+        return {'seeded': path}
+
+    def leases(self):
+        """Every running provider child in the guest: its --plugin-dir and what that plugin registers."""
+        script = ('import json,re,subprocess,os\n'
+                  'out=[]\n'
+                  'ps=subprocess.run(["ps","-axww","-o","pid=,args="],capture_output=True,text=True).stdout\n'
+                  'for line in ps.splitlines():\n'
+                  '    m=re.search(r"--plugin-dir (.+?/engine-profiles/[0-9a-f-]{36})",line)\n'
+                  '    if not m: continue\n'
+                  '    try: agents=json.load(open(m.group(1)+"/.claude-plugin/plugin.json")).get("agents")\n'
+                  '    except Exception as e: agents=str(e)\n'
+                  '    out.append({"pid":int(line.split()[0]),"plugin":m.group(1),"agents":agents,\n'
+                  '                "work_tools":"richos_work" in line})\n'
+                  'print(json.dumps(out))\n')
+        return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script), 60))
+
+    def agents(self):
+        """The back end names the always-active five and the user's own teammate from its Agent listing."""
+        if not self.facts.get('thread'):
+            raise StepFailed('first-run must have run (no thread on record)')
+        # `task` registered work, so the back end's lease opens: wait for it (the one given
+        # richos_work), then read the registration first, so a failed send still leaves it.
+        end, leases = time.monotonic() + self.a.within, []
+        while time.monotonic() < end:
+            leases = self.leases()
+            if any(l.get('work_tools') for l in leases):
+                break
+            time.sleep(3)
+        roster = guest(self.vm, 'ls ' + shlex.quote(self.data + '/coordination/.claude/agents')).split()
+        shelf = [Path(n).stem for n in guest(self.vm, 'ls ' + shlex.quote(self.payload + '/engine/team/shelf')
+                                             + ' 2>/dev/null || true').split()]
+        evidence = {'roster': roster, 'leases': leases, 'shelf': shelf}
+        (self.out / 'agents-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        sent = self.send(self.a.agents_task)
+        pressed = [0]
+        record = self.settled_read(self.until_closed(lambda: self.ours(sent), self.a.within, pressed))
+        evidence.update({'assignment': record, 'approvals_pressed': pressed[0]})
+        (self.out / 'agents-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        failures = agents_verdict(record, roster, leases, shelf)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return {'notice': record['notices'][-1]['text'], 'roster': roster,
+                'leases': [{'pid': l['pid'], 'agents': l['agents'], 'work_tools': l['work_tools']} for l in leases]}
 
     def next_job(self):
         """His next job arrives while a background command runs (bgdone2 item 2): the first job must
@@ -610,6 +689,47 @@ def yield_verdict(first, second, first_meanwhile, marker, sent, seconds, obligat
     return failures
 
 
+def agents_verdict(record, roster, leases, shelf):
+    """Why the back end's Agent listing does NOT show slice 1's registration ([] = it does).
+
+    The always-active five are in every running lease's plugin; the back end's lease (the one given richos_work)
+    is open and registers the user's own teammate too; all five on the roster; no shelf name in
+    either; and the back end's own answer, a closed assignment, names all five."""
+    failures = []
+    wanted = list(ALWAYS_ACTIVE) + [WALK_TEAMMATE]
+    names = lambda agents: [Path(a).stem for a in agents] if isinstance(agents, list) else []
+    if not record:
+        failures.append('no assignment was registered for the question, so the back end did not answer it')
+    elif record.get('state') in OPEN:
+        failures.append(f"the assignment was still {record.get('state')}")
+    else:
+        said = ((record.get('notices') or [{}])[-1].get('text') or '').lower()
+        missing = [n for n in wanted if not re.search(r'\b' + n + r'\b', said)]
+        if missing:
+            failures.append(f'the back end did not name {missing} from its Agent listing: {said!r}')
+    if not leases:
+        failures.append('no running provider child with an engine plugin was found in the guest')
+    for lease in leases:
+        absent = [n for n in ALWAYS_ACTIVE if n not in names(lease.get('agents'))]
+        if absent:
+            failures.append(f"lease pid {lease.get('pid')} does not register {absent}: {lease.get('agents')}")
+    back_end = [l for l in leases if l.get('work_tools')]
+    if leases and not back_end:
+        failures.append('no running lease carries richos_work, so the back end\'s lease was not open')
+    for lease in back_end:
+        if WALK_TEAMMATE not in names(lease.get('agents')):
+            failures.append(f"the back end's lease pid {lease.get('pid')} does not register the user's own "
+                            f"{WALK_TEAMMATE}: {lease.get('agents')}")
+    on_roster = [Path(n).stem for n in roster]
+    absent = [n for n in wanted if n not in on_roster]
+    if absent:
+        failures.append(f'the roster lacks {absent}: {roster}')
+    leaked = sorted({n for n in shelf if n in on_roster or any(n in names(l.get('agents')) for l in leases)})
+    if leaked:
+        failures.append(f'shelf teammates are registered: {leaked}')
+    return failures
+
+
 def verdict(record, short, subject, commands):
     """Why this closed assignment does NOT show a command run and its result reported ([] = it does).
 
@@ -630,7 +750,24 @@ def verdict(record, short, subject, commands):
     return failures
 
 
+def seed_team(home, definitions=()):
+    """Write the walk's own teammate into a fixture home, where the app's data folder will be, and
+    copy each given definition (a shelf file, e.g. engine/team/shelf/mark.md) beside it as an
+    activated teammate of the user's own: output-walk.py's named step needs one who writes code."""
+    folder = Path(home) / 'Library/Application Support/com.richos.app/team'
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / (WALK_TEAMMATE + '.md')).write_text(WALK_TEAMMATE_BODY)
+    print(folder / (WALK_TEAMMATE + '.md'))
+    for definition in definitions:
+        target = folder / Path(definition).name
+        target.write_bytes(Path(definition).read_bytes())
+        print(target)
+    return 0
+
+
 def main():
+    if sys.argv[1:2] == ['--seed-team']:
+        return seed_team(sys.argv[2], sys.argv[3:])
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('vm')
     p.add_argument('--out', type=Path, required=True)
@@ -643,6 +780,7 @@ def main():
     p.add_argument('--late-bound', type=float, default=30, help='seconds from the late Approve to the command')
     p.add_argument('--relaunch-within', type=float, default=120, help='seconds for the composer to come back')
     p.add_argument('--yield-seconds', type=int, default=90, help="how long next-job's background command sleeps")
+    p.add_argument('--agents-task', default=AGENTS_TASK, help="what `agents` asks the back end")
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')

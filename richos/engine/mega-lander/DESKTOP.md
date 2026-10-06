@@ -42,8 +42,9 @@ For an authorized implementation assignment:
    operational records belong to ECS; personal facts and knowledge corrections
    use the existing Loro proposal and confirmation desk.
 3. Inspect saved work before retrying or continuing. Use `richos_work.prepare`
-   for the generic worker against the exact connected target; the assignment it
-   belongs to comes from your connection, not from you.
+   with `role: worker` against the exact connected target, and `teammate` naming
+   the active teammate whose description in your Agent tool listing fits the job
+   best; the assignment it belongs to comes from your connection, not from you.
    Supply a concrete brief with the requested result and meaningful validation.
    The tool creates the isolated implementation worktree and returns one exact
    `agent_payload`. If this same worker also needs a workspace in other
@@ -59,7 +60,8 @@ For an authorized implementation assignment:
    and gives you another turn the moment the worker has actually ended, saying
    so in its own words; then inspect its observed result and carry on. Stop and
    quit stop owned execution; there is no promise to keep working while closed.
-5. Prepare a separate reviewer with `role: reviewer` and `review_of` the worker's
+5. Prepare a separate reviewer with `role: reviewer`, `teammate` naming the
+   active teammate who fits reviewing this work, and `review_of` the worker's
    receipt. Review the exact commit and run the checks appropriate to the change.
    A worker stopping is not success. A reviewer asking for changes means revise
    and review again before integration.
