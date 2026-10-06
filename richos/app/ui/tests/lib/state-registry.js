@@ -3483,7 +3483,7 @@ module.exports = [
 
   // Shipped repository, permission, account and saved-work surfaces.
   {
-    "s": "<div class=\"overlay-panel overlay-panel--compact\"> <h2 id=\"repositories-title\" class=\"overlay-title\">Connected repositories</h2> <p class=\"overlay-note\">Connect the repositories Rich may use for this company's assignments. Existing files and local changes stay in place.</p> <label class=\"entity-add-label\" for=\"repository-company\">Company</label> <select id=\"repository-company\" class=\"entity-add-input\"></select> <ul id=\"repository-list\"></ul> <label class=\"entity-add-label\" for=\"repository-folder\">Repository folder</label> <input id=\"repository-folder\" class=\"entity-add-input\" type=\"text\" placeholder=\"/Users/you/Projects/project\" autocomplete=\"off\" spellcheck=\"false\"> <label class=\"overlay-note\"><input id=\"repository-initialize\" type=\"checkbox\"> Initialize Git if this folder is empty</label> <p id=\"repository-message\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"><button id=\"repository-connect\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Connect repository</button> <button id=\"repository-close\" class=\"desk-btn\" type=\"button\">Close</button></div></div>",
+    "s": "<div class=\"overlay-panel overlay-panel--compact\"> <h2 id=\"repositories-title\" class=\"overlay-title\">Connected repositories</h2> <p class=\"overlay-note\">Connect the repositories Rich may use for this company's assignments. Existing files and local changes stay in place.</p> <label class=\"entity-add-label\" for=\"repository-company\">Company</label> <select id=\"repository-company\" class=\"entity-add-input\"></select> <ul id=\"repository-list\"></ul> <label class=\"entity-add-label\" for=\"repository-folder\">Repository folder</label> <input id=\"repository-folder\" class=\"entity-add-input\" type=\"text\" placeholder=\"/Users/you/Projects/project\" autocomplete=\"off\" spellcheck=\"false\"> <p id=\"repository-message\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"><button id=\"repository-connect\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Connect repository</button> <button id=\"repository-close\" class=\"desk-btn\" type=\"button\">Close</button></div></div>",
     "c": "FRAGMENT",
     "why": "Composite HTML for the repository connection dialog. Its interactive controls and visible wording are exercised by the dedicated browser suite; this literal is parsed as markup rather than rendered as one sentence."
   },  // The disclosure over the raw request (audit-9 row 5). Two labels, one control: each says
@@ -3566,9 +3566,9 @@ module.exports = [
     "why": "The unselected option asks for an explicit company choice."
   },
   {
-    "s": "Git initialized and repository connected.",
+    "s": "Folder connected. Git was set up to track its files.",
     "c": "INFORMATIONAL",
-    "why": "Confirms the completed repository connection."
+    "why": "Confirms a connection that also set up Git, because every connected folder gets Git tracking (CEO, 2026-10-06): the folder had none, so its files became the first commit. Nothing was pushed and nothing is left to do."
   },
   {
     "s": "No repositories connected.",

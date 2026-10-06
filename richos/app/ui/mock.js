@@ -2896,11 +2896,14 @@
         case "connect_repository": {
           const company = entities.find(e => e.id === args.entityId);
           if (!company) return Promise.reject("Choose a registered company.");
-          if (window.__RICHOS_MOCK_PRESET__?.repositoryRefusal) return Promise.reject("Choose an existing Git repository or explicitly initialize an empty folder.");
+          if (window.__RICHOS_MOCK_PRESET__?.repositoryRefusal) return Promise.reject("That folder overlaps another company's folder.");
           if (!args.folder || !args.folder.startsWith("/")) return Promise.reject("Choose an absolute folder path.");
           if (!company.connected_repositories) company.connected_repositories = [];
           if (!company.connected_repositories.includes(args.folder)) company.connected_repositories.push(args.folder);
-          return {entity_id:company.id, repository:{root:args.folder, branch:"main", initialized:args.initializeEmpty === true}};
+          // `repositories::connect` gives every folder Git (CEO, 2026-10-06): `initialized` is
+          // false only for a folder that already had it, which a suite names in `gitFolders`.
+          const hadGit = (window.__RICHOS_MOCK_PRESET__?.gitFolders || []).includes(args.folder);
+          return {entity_id:company.id, repository:{root:args.folder, branch:"main", initialized:!hadGit}};
         }
         case "entity_choice":
           return entityChoiceOf();

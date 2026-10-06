@@ -6,6 +6,7 @@ async function main(){
  const browser=await loadPlaywright().webkit.launch();
  await run.check("two repositories connect to an explicitly selected company",async()=>{
   const page=await browser.newPage({viewport:{width:1280,height:900}});const errors=[];page.on("pageerror",e=>errors.push(String(e)));
+  await page.addInitScript(()=>window.__RICHOS_MOCK_PRESET__={gitFolders:["/fictional/first project"]});
   await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
   await page.click("#set-btn");await page.click("#set-repositories-open");
   await page.waitForSelector("#repository-company option:nth-child(2)",{state:"attached"});
@@ -14,11 +15,14 @@ async function main(){
   await page.selectOption("#repository-company",company);
   await page.fill("#repository-folder","/fictional/first project");await page.click("#repository-connect");
   await page.waitForFunction(()=>document.getElementById("repository-message").textContent==="Repository connected.");
-  await page.fill("#repository-folder","/fictional/second project");await page.check("#repository-initialize");await page.click("#repository-connect");
-  await page.waitForFunction(()=>document.getElementById("repository-message").textContent.includes("Git initialized"));
+  await page.fill("#repository-folder","/fictional/second project");await page.click("#repository-connect");
+  // CEO, 2026-10-06: every connected folder gets Git, so there is no opt-in to tick, and
+  // the message says when Git was set up.
+  await page.waitForFunction(()=>document.getElementById("repository-message").textContent==="Folder connected. Git was set up to track its files.");
+  assertEqual(await page.locator("#repository-initialize").count(),0,"the Initialize Git checkbox is gone");
   assertEqual(await page.locator("#repository-list li").count(),2,"connections retained");
   await page.click("#repository-close");assert(await page.isHidden("#repositories-sheet"),"close failed");
-  assertEqual(errors.length,0,"renderer errors");await page.close();return "explicit company, two folders and opt-in Git initialization";
+  assertEqual(errors.length,0,"renderer errors");await page.close();return "explicit company, two folders, and Git set up for the one without it";
  });
  await run.check("a refused connection stays unconnected and says why",async()=>{
   const page=await browser.newPage({viewport:{width:1280,height:900}});
@@ -28,7 +32,7 @@ async function main(){
   await page.waitForSelector("#repository-company option:nth-child(2)",{state:"attached"});
   await page.selectOption("#repository-company",await page.locator("#repository-company option").nth(1).getAttribute("value"));
   await page.fill("#repository-folder","/fictional/nonempty");await page.click("#repository-connect");
-  await page.waitForFunction(()=>document.getElementById("repository-message").textContent.includes("empty folder"));
+  await page.waitForFunction(()=>document.getElementById("repository-message").textContent.includes("overlaps"));
   assert((await page.textContent("#repository-list")).includes("No repositories"),"refusal rendered as connected");
   assertEqual(await page.inputValue("#repository-folder"),"/fictional/nonempty","retry lost entered folder");
   assert(!await page.isDisabled("#repository-connect"),"retry disabled");await page.close();return "backend refusal preserved with retry available";

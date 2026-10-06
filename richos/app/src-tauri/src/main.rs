@@ -5577,16 +5577,15 @@ fn repository_connections(state: State<AppState>) -> serde_json::Value {
 }
 
 #[tauri::command(async)]
-fn connect_repository(state: State<AppState>, entity_id: String, folder: String,
-    initialize_empty: bool) -> Result<serde_json::Value, String> {
+fn connect_repository(state: State<AppState>, entity_id: String, folder: String) -> Result<serde_json::Value, String> {
     let id = EntityId::parse(&entity_id).map_err(|e|e.to_string())?;
     let engine = state.engine_dir.lock().unwrap().clone();
     let runtime = richos_core::runtime::verify_engine(&engine).map_err(|e|e.to_string())?;
     // Serialize registry mutations and hold the idle spine until both copies agree.
     let mut current = state.registry.lock().unwrap();
     let mut spine = state.spine.try_lock().map_err(|_| "Wait for the current turn to stop before connecting a repository.".to_string())?;
-    let (next, repository) = richos_core::repositories::connect(&current, &id,
-        Path::new(folder.trim()), initialize_empty, &runtime, &[&engine, &state.data_dir])?;
+    let (next, repository) = richos_core::repositories::connect_folder(&current, &id,
+        Path::new(folder.trim()), &runtime, &[&engine, &state.data_dir])?;
     next.save(&state.registry_path).map_err(|e| format!("The repository was verified but its connection could not be saved: {e}"))?;
     *current = next.clone();
     spine.set_entity_registry(next);

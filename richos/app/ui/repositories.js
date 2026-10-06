@@ -18,7 +18,6 @@
     <ul id="repository-list"></ul>
     <label class="entity-add-label" for="repository-folder">Repository folder</label>
     <input id="repository-folder" class="entity-add-input" type="text" placeholder="/Users/you/Projects/project" autocomplete="off" spellcheck="false">
-    <label class="overlay-note"><input id="repository-initialize" type="checkbox"> Initialize Git if this folder is empty</label>
     <p id="repository-message" class="overlay-note" role="status"></p>
     <div class="desk-card-actions"><button id="repository-connect" class="desk-btn desk-btn--confirm" type="button">Connect repository</button>
     <button id="repository-close" class="desk-btn" type="button">Close</button></div></div>`;
@@ -69,10 +68,11 @@
     busy = true; renderList(); field("repository-close").disabled = true;
     field("repository-message").textContent = "Checking this repository…";
     try {
-      const result = await bridge.invoke("connect_repository", {entityId, folder:field("repository-folder").value.trim(), initializeEmpty:field("repository-initialize").checked});
+      // Every connected folder gets Git (CEO, 2026-10-06); the message says when it was set up.
+      const result = await bridge.invoke("connect_repository", {entityId, folder:field("repository-folder").value.trim()});
       await refresh(entityId);
-      field("repository-message").textContent = result.repository.initialized ? "Git initialized and repository connected." : "Repository connected.";
-      field("repository-folder").value = ""; field("repository-initialize").checked = false;
+      field("repository-message").textContent = result.repository.initialized ? "Folder connected. Git was set up to track its files." : "Repository connected.";
+      field("repository-folder").value = "";
     } catch (error) { field("repository-message").textContent = String(error); }
     finally { busy = false; renderList(); field("repository-close").disabled = false; }
   });
