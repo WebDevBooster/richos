@@ -108,7 +108,11 @@ class Pierce(unittest.TestCase):
             **self.payload["tool_input"], "prompt": self.payload["tool_input"]["prompt"] + suffix}}
 
     def test_revision_checks_delta_and_previous_findings_without_repeating_standing_context(self):
-        definition = self.project / ".claude/agents/fixture.md"
+        project_alias = self.root / "project alias"
+        project_alias.symlink_to(self.project.resolve(), target_is_directory=True)
+        self.payload["cwd"] = str(project_alias)
+        os.environ["CLAUDE_PROJECT_DIR"] = str(project_alias)
+        definition = project_alias / ".claude/agents/fixture.md"
         definition.write_text("Long standing worker instructions.\n" * 1000)
         reports = [{"verdict": "FINDINGS", "report": '1. "Remove the API" is not requested.'},
                    {"verdict": "PASS", "report": "The changed line retains the API."}]
@@ -122,7 +126,9 @@ class Pierce(unittest.TestCase):
         self.assertEqual(request["review"]["previous_report"], reports[0]["report"])
         self.assertEqual(request["review"]["previous_assignment"], self.payload["tool_input"]["prompt"])
         self.assertIn("+" + revised["tool_input"]["prompt"], request["review"]["changed_lines"])
-        self.assertIn(str(definition), request["standing_instruction_sources"])
+        self.assertNotEqual(str(definition), str(definition.resolve()))
+        self.assertIn(str(definition.resolve()), request["standing_instruction_sources"])
+        self.assertIn(str(definition.resolve().parent), request["read_roots"])
         self.assertLess(len(request["standing_instructions"]), 150)
 
     def test_each_revision_follows_the_latest_findings_and_preserves_series_deadline(self):
