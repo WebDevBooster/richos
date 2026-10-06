@@ -107,6 +107,48 @@ class OutputWalkTests(unittest.TestCase):
             failures = output.consult_verdict("clark", [r], [s], i, w, a)
             self.assertTrue(len(failures) == 1 and said in failures[0], (said, failures))
 
+    def test_shelf_passes_only_for_an_activated_engineer_in_the_same_assignment(self):
+        """Slice 5 of the proto-teammate shelf plan: the end-to-end walk's verdict, offline."""
+        shelf = ["mark", "norm", "sage"]
+        job = [{"state": "settled", "obligation_id": "obl-1"}]
+        mark = "mark-sonnet-0123456789ab"
+        receipts = [
+            {"name": "dean-sonnet-aaaaaaaaaaaa", "request": {"role": "consult", "teammate": "dean", "obligation_id": "obl-1"}},
+            {"name": mark, "request": {"role": "worker", "teammate": "mark", "obligation_id": "obl-1"}},
+            {"name": "frank-opus-bbbbbbbbbbbb", "request": {"role": "reviewer", "teammate": "frank", "obligation_id": "obl-1"}},
+        ]
+        spawns = [{"name": mark, "subagent_type": "richos-app-engine:mark", "model": "sonnet"}]
+        lands = [{"workerName": mark, "source": "land"}]
+        line = output.SHELF_LINE
+        self.assertEqual(output.shelf_verdict(shelf, ["mark"], receipts, spawns, lands, line, [4200], job), [])
+        # What the base does: Mark is saved, the run ends, nothing is renewed, nobody does the job.
+        failures = output.shelf_verdict(shelf, ["mark"], receipts[:1], [], [], "", [], [dict(job[0], state="failed")])
+        for said in ("did not settle", "was prepared as the worker", "nobody reviewed",
+                     "does not read back", "never renewed"):
+            self.assertTrue(any(said in f for f in failures), (said, failures))
+        # Dean may activate a reviewer too: the engineer is the one prepared as the worker.
+        self.assertEqual(output.shelf_verdict(shelf, ["mark", "sage"], receipts, spawns, lands, line, [4200], job), [])
+        # Each way it can be wrong, named once.
+        other = [dict(r, request=dict(r["request"], obligation_id="obl-2")) for r in receipts]
+        cases = [
+            ([], receipts, spawns, lands, line, [4200], job, "no shelf teammate was activated"),
+            (["mark"], receipts[1:], spawns, lands, line, [4200], job, "never consulted Dean"),
+            (["mark"], receipts, [dict(spawns[0], subagent_type="richos-app-engine:worker")], lands, line, [4200], job,
+             "was started as"),
+            (["mark"], receipts, [], lands, line, [4200], job, "never started"),
+            (["mark"], receipts, spawns, lands, line, [4200], job + job, "not one assignment"),
+            (["mark"], receipts[:2], spawns, lands, line, [4200], job, "nobody reviewed"),
+            (["mark"], receipts, spawns, [{"workerName": "frank-opus-bbbbbbbbbbbb"}], line, [4200], job, "not landed"),
+            (["mark"], receipts, spawns, lands, line, [], job, "never renewed"),
+        ]
+        for saved, r, s, l, rb, ms, a, said in cases:
+            failures = output.shelf_verdict(shelf, saved, r, s, l, rb, ms, a)
+            self.assertTrue(len(failures) == 1 and said in failures[0], (said, failures))
+        # Receipts of another assignment are not this job's: Dean, the worker and the reviewer are missing.
+        failures = output.shelf_verdict(shelf, ["mark"], other, spawns, lands, line, [4200], job)
+        self.assertTrue(any("never consulted Dean" in f for f in failures), failures)
+        self.assertTrue(any("nobody reviewed" in f for f in failures), failures)
+
     def test_explicit_steps_keep_order_and_hyphenated_dispatch(self):
         result, calls, report, _owner = self.dispatch("scroll,job-question,pdf")
         self.assertEqual((result, calls), (0, ["scroll", "job-question", "pdf"]))
