@@ -10149,7 +10149,7 @@
     },
     "scripts/hooks/strip-ack-lines.sh": {
       "source": "scripts/hooks/strip-ack-lines.sh",
-      "sha256": "de457706dd9804547e78d85c18bf3637f979523ce2830e0302b494c630bbc954",
+      "sha256": "3717335915e80faa4e3c822cd3e48f41bc3d9a637c1b214de091e80553cc9a0a",
       "evidence": "Full wrapper reviewed: fixed Python helper invocation only.",
       "keys": [],
       "edges": [
