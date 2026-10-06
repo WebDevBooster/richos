@@ -989,6 +989,7 @@ module.exports = [
   { s: "back to Rich", c: "CONTROL", why: "#slideover-close." },
   { s: "How much should Rich interrupt you?", c: "CONTROL", why: "Assertiveness popover title over its radios." },
   { s: "Only when it's urgent", c: "CONTROL", why: "Assertiveness radio label." },
+  { s: "Show it when RichOS starts", c: "CONTROL", why: "The splash screen's off switch in the gear's general settings (CEO 2026-10-06 item 7): a checkbox label, and the control IS the state." },
   { s: "Which company is this work in?", c: "CONTROL", why: "Entity picker title over its list. \"company\", never \"entity\" — Ray candidate-.11 §3.5." },
   { s: "Search entities, threads and conversations…", c: "CONTROL", why: "#search-input placeholder." },
   { s: "Talk to Rich", c: "CONTROL", why: "#talk-toggle title." },
