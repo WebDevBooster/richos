@@ -1620,12 +1620,19 @@ class OutputWalk(command_walk.CommandWalk):
         blocked = [{k: a.get(k) for k in ('id', 'kind', 'state', 'detail')} for a in self.records()
                    if a.get('thread_id') == self.facts['thread'] and a.get('state') == 'blocked']
         note(app_pid=self.app_pid(), blocked_jobs=blocked)
-        card = self.find_all('Other answer', role='AXButton')
-        quit_card = [h.get('value') for h in self.texts(QUIT_CARD)]
-        unavailable = [h.get('value') for h in self.texts(STATUS_UNAVAILABLE)]
+        # ONE read of the whole window, not three finds: after backend-worker the conversation is
+        # long, and the first run of this step (2026-10-06, walk-647cf54f10ca) had a single find
+        # for "Other answer" outlive ax.sh's 20 s guest deadline (exit 124). A tree read past the
+        # default 4000-node cap refuses as incomplete rather than answering "absent".
+        os.environ['TESTVM_AX_TIMEOUT'] = '150'
+        nodes = [n for n in self.ax('tree', '--max', '30000', timeout=200) if 'x' in n and not n.get('meta')]
+        words = lambda n: ' '.join(str(n.get(k) or '') for k in ('title', 'desc', 'value'))  # noqa: E731
+        card = [n for n in nodes if n.get('role') == 'AXButton' and 'Other answer' in words(n)]
+        quit_card = [words(n).strip() for n in nodes if QUIT_CARD in words(n)]
+        unavailable = [words(n).strip() for n in nodes if STATUS_UNAVAILABLE in words(n)]
         # The accessibility tree holds the whole conversation, scrolled or not (the wrote step reads
         # rows at negative y), so these reads are the verdict and the photograph is its illustration.
-        note(question_cards=len(card), quit_card=quit_card, status_unavailable=unavailable)
+        note(nodes_read=len(nodes), question_cards=len(card), quit_card=quit_card, status_unavailable=unavailable)
         self.shot('job-question.png')
         note(shots=['job-question.png'])
         if not blocked and not card:
