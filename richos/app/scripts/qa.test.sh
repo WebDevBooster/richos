@@ -39,6 +39,7 @@
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
 #   R5-R8   redact --phones: the gate flags a phone-shaped fixture, the redactor
 #           covers it, the gate then passes the output, the evidence survives
+#   R9-R12  redact --homes: the same four for a /Users/<name> home path
 #   A1-A19  phone-android: taps by the words on screen, refuses an unnamed or
 #           unattached phone, times out as a failure, reads a closure state and
 #           an idle-frame rhythm, types through a key map, reads the editable
@@ -365,6 +366,21 @@ else
     ok "R8 the rest of the phone card survives the redaction"
   else
     bad "R8 the rest of the phone card survives the redaction" "over-redaction. Read: $(printf '%s' "$LEFT" | tr '\n' ' ' | cut -c1-160)"
+  fi
+
+  # The same agreement for a home path (the gate's second shape): the candidate 38 walk's
+  # frames carried the guest's /Users/admin/... in attachment lines and work receipts.
+  run "$QA/ocr-gate.sh" "$FIX/home-control.png"
+  expect "R9 the gate flags the home-path fixture (it is a real positive)" 1 "OCR GATE: 1 of 1"
+  run "$QA/redact.py" "$FIX/home-control.png" "$TMP/home-red.png" --homes
+  expect "R10 --homes covers the path and re-reads the output" 0 "or home-path-shaped string survives"
+  run "$QA/ocr-gate.sh" "$TMP/home-red.png"
+  expect "R11 the gate passes what the redactor produced" 0 "0 of 1"
+  LEFT="$("$TESS" "$TMP/home-red.png" stdout 2>/dev/null || true)"
+  if printf '%s' "$LEFT" | grep -qi 'nothing here is real'; then
+    ok "R12 the rest of the home card survives the redaction"
+  else
+    bad "R12 the rest of the home card survives the redaction" "over-redaction. Read: $(printf '%s' "$LEFT" | tr '\n' ' ' | cut -c1-160)"
   fi
 fi
 

@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """redact.py — black out what must not ship, and PROVE it is gone.
 
-  redact.py <in.png> <out.png> [--addresses] [--phones] [--box x,y,w,h ...] [--pad N]
+  redact.py <in.png> <out.png> [--addresses] [--phones] [--homes] [--box x,y,w,h ...] [--pad N]
   redact.py --help
 
   --addresses   find address-shaped text by OCR and cover it (the default when
-                neither --box nor --phones is given)
+                none of --box, --phones and --homes is given)
   --phones      find phone-shaped digit runs by OCR and cover them: the same
                 pattern ocr-gate.sh calls a shape hit, matched across the words
                 of one OCR line, so the gate and the redactor agree
+  --homes       find `/Users/<name>`-shaped home paths by OCR and cover them: ocr-gate.sh's
+                second SHAPE, verbatim, matched the same way as --phones. Added with the
+                candidate 38 walk, whose frames carry the guest's own home path
+                (/Users/admin/testvm/...) in attachment lines and work receipts
   --box         cover an exact rectangle, as many times as you like
   --pad N       grow every OCR-derived box by N pixels (default 3)
   --no-verify   skip the re-scan (and say so in the output)
@@ -53,10 +57,13 @@ ADDR = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 LOOSE = re.compile(r"@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[A-Za-z0-9._%+-]+@")
 # ocr-gate.sh's third SHAPE, verbatim: a phone-shaped run of digits.
 PHONE = re.compile(r"\+?[0-9][0-9 ()-]{8,}[0-9]")
+# ocr-gate.sh's second SHAPE, verbatim: a home path.
+HOME = re.compile(r"/Users/[A-Za-z][A-Za-z0-9._-]+")
 
 
-def phone_boxes(png, pad):
-    """Boxes covering every phone-shaped run, matched over each OCR line's joined words."""
+def phone_boxes(png, pad, pattern=PHONE):
+    """Boxes covering every run `pattern` matches (a phone-shaped run unless told otherwise),
+    matched over each OCR line's joined words."""
     lines = {}
     for w in qaocr.words(png):
         lines.setdefault(w["line"], []).append(w)
@@ -68,7 +75,7 @@ def phone_boxes(png, pad):
                 text += " "
             spans.append((len(text), len(text) + len(w["text"]), w))
             text += w["text"]
-        for m in PHONE.finditer(text):
+        for m in pattern.finditer(text):
             group = [w for a, b, w in spans if a < m.end() and b > m.start()]
             box = (min(g["l"] for g in group) - pad, min(g["t"] for g in group) - pad,
                    max(g["l"] + g["w"] for g in group) + pad, max(g["t"] + g["h"] for g in group) + pad)
@@ -146,8 +153,9 @@ def main(argv):
         del argv[i:i + 2]
 
     want_phones = "--phones" in argv
-    want_addresses = "--addresses" in argv or not (manual or want_phones)
-    argv = [a for a in argv if a not in ("--addresses", "--phones")]
+    want_homes = "--homes" in argv
+    want_addresses = "--addresses" in argv or not (manual or want_phones or want_homes)
+    argv = [a for a in argv if a not in ("--addresses", "--phones", "--homes")]
 
     if len(argv) != 2:
         qaimg.die("usage: redact.py <in.png> <out.png> [--addresses] [--box x,y,w,h]")
@@ -173,6 +181,12 @@ def main(argv):
         except qaocr.OcrUnavailable as exc:
             qaimg.die("%s\nWithout a reader this tool cannot FIND a phone number, and a "
                       "redactor that covers nothing must not report success." % exc)
+    if want_homes:
+        try:
+            boxes += phone_boxes(src, pad, HOME)
+        except qaocr.OcrUnavailable as exc:
+            qaimg.die("%s\nWithout a reader this tool cannot FIND a home path, and a "
+                      "redactor that covers nothing must not report success." % exc)
 
     covered = 0
     for x0, y0, x1, y1 in boxes:
@@ -194,16 +208,18 @@ def main(argv):
 
     try:
         seen = qaocr.text(dst)
-        left = ADDR.findall(seen) + (PHONE.findall(seen) if want_phones else [])
+        left = (ADDR.findall(seen) + (PHONE.findall(seen) if want_phones else [])
+                + (HOME.findall(seen) if want_homes else []))
     except qaocr.OcrUnavailable as exc:
         print("  RE-SCAN IMPOSSIBLE: %s" % exc, file=sys.stderr)
         return 2
     if left:
-        print("  STILL LEGIBLE: %d address- or phone-shaped string(s) survive in %s"
+        print("  STILL LEGIBLE: %d address-, phone- or home-path-shaped string(s) survive in %s"
               % (len(left), dst), file=sys.stderr)
         print("  Widen --pad, or add an explicit --box over the region.", file=sys.stderr)
         return 1
-    print("  re-scan: no address-shaped%s string survives in the output" % (" or phone-shaped" if want_phones else ""))
+    print("  re-scan: no address-shaped%s%s string survives in the output"
+          % (" or phone-shaped" if want_phones else "", " or home-path-shaped" if want_homes else ""))
     return 0
 
 

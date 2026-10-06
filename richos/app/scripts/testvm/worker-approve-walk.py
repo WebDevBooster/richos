@@ -132,6 +132,20 @@ class WorkerApproveWalk(command_walk.CommandWalk):
                     self.facts['approvals'] = presses
                     self.save()
             time.sleep(3)
+        # --settle: the job then goes on to its review and its land, and is watched to the end
+        # (the candidate 38 walk: "the job reaches its review and its land with no stopped refusal").
+        settle_end = time.monotonic() + self.a.settle
+        while record and self.a.settle and time.monotonic() < settle_end:
+            record = self.by_id(record.get('id')) or record
+            if record.get('state') not in OPEN:
+                break
+            if len(presses) < self.a.approvals:
+                pressed = self.approve_with_shot(record.get('title', ''), 'approve-%d.png' % (len(presses) + 1))
+                if pressed:
+                    presses.append(pressed | {'state': record.get('state')})
+                    self.facts['approvals'] = presses
+                    self.save()
+            time.sleep(5)
         if record:
             record = self.by_id(record.get('id')) or record
         sessions = [record['work_session']] if record and record.get('work_session') else []
@@ -166,6 +180,21 @@ class WorkerApproveWalk(command_walk.CommandWalk):
             raise StepFailed("the worker's pandoc command never ran (no PostToolUse for it)")
         if not made:
             raise StepFailed('%s is on disk in neither the worker worktree nor the Acme folder' % MADE)
+        if self.a.settle:
+            words = ' '.join([str((record or {}).get('detail') or '')] +
+                             [n.get('text', '') if isinstance(n, dict) else str(n) for n in (record or {}).get('notices') or []])
+            landed = self.exists_in_guest_path(self.company + '/' + MADE)
+            settled = {'final_state': (record or {}).get('state'), 'landed_in_acme': landed,
+                       'says_stopped': 'stopped' in words.lower(), 'final_words': words[:1500]}
+            evidence['settle'] = settled
+            (self.out / 'worker-approve-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
+            self.shot('worker-approve-settled.png')
+            if settled['final_state'] != 'settled':
+                raise StepFailed('the job ended %s, not settled: %s' % (settled['final_state'], words[:300]))
+            if not landed:
+                raise StepFailed('%s was not landed in the Acme folder' % MADE)
+            # `says_stopped` is recorded for the walker to read, not judged here: "Nothing stopped."
+            # is a sentence the app says on purpose.
         return {'approvals_pressed': len(presses), 'worker_pandoc_ran': len(ran), 'made_on_disk': made,
                 'raised_after_a_lead_turn_ended': evidence['worker_pandoc_raised_after_a_lead_turn_ended'],
                 'state': (record or {}).get('state')}
@@ -194,6 +223,9 @@ class WorkerApproveWalk(command_walk.CommandWalk):
     def exists_made(self):
         return bool(self.where_made())
 
+    def exists_in_guest_path(self, path):
+        return guest(self.vm, 'test -f ' + shlex.quote(path) + ' && echo yes || echo no', 60).strip() == 'yes'
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -202,6 +234,9 @@ def main():
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for the worker command to run')
     p.add_argument('--approvals', type=int, default=6, help='most Approve presses in the run')
+    p.add_argument('--settle', type=float, default=0, metavar='SECONDS',
+                   help='after the command ran, watch the job to its end for at most SECONDS; PASS then also '
+                        'needs it settled, notes.pdf landed in the Acme folder and no "stopped" in its words')
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     a.task = WORKER_TASK

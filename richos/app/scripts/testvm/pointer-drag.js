@@ -29,15 +29,19 @@ function run() {
   for (var i = 0; i < 20 && frontPid() !== P.pid; i++) delay(0.1);
   if (frontPid() !== P.pid) return error("notfront", "refusing: the app under test is not frontmost, so nothing was dragged");
 
+  // P.right: the RIGHT button (CGMouseButton 1). Given one point twice it is a real right-click,
+  // a `contextmenu` event in the app (the Output panel row's menu, PRD §6.3).
+  var button = P.right ? 1 : 0;
   function mouse(type, x, y) {
-    var ev = $.CGEventCreateMouseEvent($(), type, { x: x, y: y }, 0);
+    var ev = $.CGEventCreateMouseEvent($(), type, { x: x, y: y }, type === 5 ? 0 : button);
     $.CGEventPost(0, ev);
   }
   var pts = P.points;
-  // 5 moved, 1 left down, 6 left dragged, 2 left up (CGEventType).
+  // 5 moved; left: 1 down, 6 dragged, 2 up; right: 3 down, 7 dragged, 4 up (CGEventType).
+  var DOWN = P.right ? 3 : 1, DRAGGED = P.right ? 7 : 6, UP = P.right ? 4 : 2;
   mouse(5, pts[0][0], pts[0][1]);
   delay(0.25);
-  mouse(1, pts[0][0], pts[0][1]);
+  mouse(DOWN, pts[0][0], pts[0][1]);
   delay(0.25);
   var sent = 0;
   for (var k = 1; k < pts.length; k++) {
@@ -45,15 +49,16 @@ function run() {
     var dist = Math.max(Math.abs(tx - fx), Math.abs(ty - fy));
     var steps = Math.max(1, Math.ceil(dist / P.step));
     for (var s = 1; s <= steps; s++) {
-      mouse(6, fx + (tx - fx) * s / steps, fy + (ty - fy) * s / steps);
-      sent += 1;
+      // A right-click on one point moves nothing: no dragged event, so the app sees a click.
+      if (dist > 0) mouse(DRAGGED, fx + (tx - fx) * s / steps, fy + (ty - fy) * s / steps);
+      if (dist > 0) sent += 1;
       delay(P.pause);
     }
     // A hand rests at each point it was asked to reach before it moves on.
     delay(P.rest);
   }
   var last = pts[pts.length - 1];
-  mouse(2, last[0], last[1]);
+  mouse(UP, last[0], last[1]);
   delay(0.3);
-  return out({ dragged: true, points: pts, moves: sent, pid: P.pid });
+  return out({ dragged: true, button: P.right ? "right" : "left", points: pts, moves: sent, pid: P.pid });
 }

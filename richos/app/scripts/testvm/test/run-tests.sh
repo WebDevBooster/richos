@@ -1632,6 +1632,10 @@ t "hand-file: a drag of an updated file never hands over the older Desktop copy 
   node "$HERE/hand-file.test.js" >"$TMP/handfile-node.log" 2>&1; ok $? "$(cat "$TMP/handfile-node.log")"
 t_done
 
+t "pointer-drag: a left drag, a right-click (--right) with no dragged event, and the frontmost refusal"
+  node "$HERE/pointer-drag.test.js" >"$TMP/pointer-drag.log" 2>&1; ok $? "$(cat "$TMP/pointer-drag.log")"
+t_done
+
 t "keychain: a GUI setting that did not take is a failed prerequisite"
   out="$(STUB_KEYCHAIN_SETTINGS='lock-on-sleep timeout=300s' "$TESTVM_DIR/keychain.sh" prepare richos-test-a "$GUEST_HOME_UNDER_TEST" 2>&1)"
   no $?; has "$out" "did not retain no-timeout"
