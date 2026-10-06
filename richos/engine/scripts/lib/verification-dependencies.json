@@ -3782,7 +3782,7 @@
     },
     "scripts/hooks/inflight-two-leads.test.sh": {
       "source": "scripts/hooks/inflight-two-leads.test.sh",
-      "sha256": "ea3347ec7a6635d1cf50f93d076cffcf3ea2c3dd0e27db2eff49b16e68b375ea",
+      "sha256": "d0e7211b41f7fc7eb699700b3ff87091455a8df0abca6c2a838012dfefb7eac2",
       "evidence": "Copies a finite list of guard, witness, runner and libraries into a new Git repository with a literal PROTECTED_PATHS config. All guard/CLI calls use that repository, private transcripts, teams and ack ledger. Native-agent helpers only create Git worktrees/locks, never model processes. No production config is copied or sourced; no mutation driver executes.",
       "keys": [],
       "edges": [
