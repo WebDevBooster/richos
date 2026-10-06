@@ -1463,7 +1463,7 @@ impl Ledger {
             }
             parts.push(format!(
                 "Everything else loaded: {} of {} records. Nothing was deleted and nothing was \
-                 rewritten — every record is still exactly where it was on disk.",
+                 rewritten: every record is still exactly where it was on disk.",
                 self.records_applied, self.records_read,
             ));
             (headline, parts.join(" "))

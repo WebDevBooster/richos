@@ -171,7 +171,7 @@ async function main() {
       assertEqual(b.count, "9");
       assert(b.countShown, "the count is not shown");
       assertEqual(b.pressed, "false");
-      assertEqual(b.label, "Output — 9 files from this thread");
+      assertEqual(b.label, "Output: 9 files from this thread");
     }
     const place = await page.evaluate(() => {
       const top = document.getElementById("out-top");
@@ -543,7 +543,7 @@ async function main() {
     let s = await panelState(page);
     for (const b of [s.top, s.bottom]) {
       assert(!b.countShown, "an empty thread's button shows a count");
-      assertEqual(b.label, "Output — nothing produced yet in this thread");
+      assertEqual(b.label, "Output: nothing produced yet in this thread");
     }
     await page.click("#out-top");
     await page.waitForSelector(".op-empty");
@@ -557,7 +557,7 @@ async function main() {
     }));
     assertEqual(
       line.text,
-      "Nothing in Q4 hiring has produced a file yet. The moment Rich or the team writes one, it is listed here — and the count on the Output button says so."
+      "Nothing in Q4 hiring has produced a file yet. The moment Rich or the team writes one, it is listed here, and the count on the Output button says so."
     );
     assertEqual(line.bold, "Q4 hiring");
     assertEqual(line.focus, "op-empty", "focus moves to the sentence's container");
@@ -1794,7 +1794,7 @@ async function pullChecks(run, browser, byName) {
     near(g.panel, g.appWidth - g.railWidth, 1, "open completely is the whole stage");
     near(g.stage, 0, 0.5, "the conversation at zero width");
     assertEqual(g.stageVisibility, "hidden", "the conversation is hidden, not removed");
-    assertEqual(g.pill, "Show the conversation — Acme deal");
+    assertEqual(g.pill, "Show the conversation: Acme deal");
     assertEqual(g.pillText, "Acme deal");
     assertEqual(g.composerIn, "op-float", "the composer is not in the panel");
     assertEqual(g.valuetext, "Open completely");
@@ -2032,7 +2032,7 @@ async function pullChecks(run, browser, byName) {
     assert(!r.wordShown, "the bottom button kept its word at 360px");
     assert(r.topWordShown, "the top button lost its word (only the bottom one drops it)");
     assertEqual(r.count, "9");
-    assertEqual(r.name, "Output — 9 files from this thread", "its name is unchanged");
+    assertEqual(r.name, "Output: 9 files from this thread", "its name is unchanged");
     assertEqual(r.inside, [], "controls spill out of the 360px conversation");
     const before = await p.evaluate(() => document.querySelectorAll(".tl-user-bubble").length);
     await p.fill("#input", "and the narrow one sends");

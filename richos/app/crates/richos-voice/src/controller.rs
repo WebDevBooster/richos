@@ -1191,7 +1191,7 @@ impl VoiceNotice {
     pub fn ceo_message(&self) -> &'static str {
         match self {
             VoiceNotice::SoundButNoWords => {
-                "I can hear sound, but I'm not getting words out of it — the microphone may \
+                "I can hear sound, but I'm not getting words out of it. The microphone may \
                  be picking up the room rather than you. Voice is still on."
             }
             // STATES THE CONSEQUENCE, not just the observation. "I didn't catch that"
@@ -1264,7 +1264,7 @@ impl VoiceNotice {
             // imperative, and worse, it is an instruction to use the product more carefully
             // to work around a limitation — which is not a thing to ask of him.
             VoiceNotice::CouldNotListenWhileSpeaking => {
-                "While I was speaking, I couldn't tell your voice from my own — so if you \
+                "While I was speaking, I couldn't tell your voice from my own, so if you \
                  said something just then, it didn't reach me and I haven't sent anything. \
                  I'm listening now."
             }

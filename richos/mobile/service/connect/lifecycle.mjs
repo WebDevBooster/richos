@@ -6,13 +6,9 @@ export function view(host) {
     error: host.last_error, pollAfterSeconds: 60 };
 }
 
-// `open` is true only for open enrollment (ENROLLMENT_OPEN=true); it defaults to closed so a caller
-// that forgets it fails closed. With enrollment closed, `enable` needs a live allowed_hosts row every
-// time, not only at first enrollment. It is checked before the lease, so a refused host's row is left
-// exactly as it was and no provider call is made. `disable` and `reconcile` never need admission,
-// so a host can always be turned off.
-export async function transition(store, provider, id, action, domain, { open = false } = {}) {
-  if (action === 'enable' && !open && !(await store.admitted(id))) throw Error('enrollment_closed');
+// No action needs an operator's admission: an enrolled Mac enables, disables and reconciles on its
+// own signed request (CEO 2026-10-06: "Nothing is in a private pilot").
+export async function transition(store, provider, id, action, domain) {
   const lease = await store.lease(id);
   if (!lease) throw Error('busy');
   try {

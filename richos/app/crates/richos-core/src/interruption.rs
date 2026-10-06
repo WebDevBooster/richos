@@ -189,20 +189,20 @@ impl InterruptionCause {
             // whole of what D6 was about.
             InterruptionCause::NotSignedIn => {
                 "I couldn't start that, because I'm not connected to your Anthropic account \
-                 right now — either nobody has signed in on this Mac yet, or the sign-in ran \
+                 right now: either nobody has signed in on this Mac yet, or the sign-in ran \
                  out. You can connect it in Settings, under Account connection, and then \
                  send this to me again."
             }
             InterruptionCause::CredentialRejected => {
                 "I couldn't start that. There is an account credential set up on this Mac and \
                  Anthropic turned it down, so the request never left the machine. This one \
-                 needs whoever set RichOS up — it isn't something you can fix from here, and \
+                 needs whoever set RichOS up. It isn't something you can fix from here, and \
                  asking me again won't change it."
             }
             InterruptionCause::ProviderMissing => {
                 "I couldn't start that. The copy of Claude Code RichOS tried to run isn't on \
                  this Mac where I expected it, so there was nothing here to think with. This \
-                 one needs whoever set RichOS up — it isn't something you can fix from here, \
+                 one needs whoever set RichOS up. It isn't something you can fix from here, \
                  and asking me again won't change it."
             }
             InterruptionCause::StoppedByCeo => {
@@ -213,7 +213,7 @@ impl InterruptionCause {
                  kind of thing usually clears on its own, so asking again is worth a try."
             }
             InterruptionCause::Unknown => {
-                "That stopped before I finished, and I can't tell you why — I don't recognize \
+                "That stopped before I finished, and I can't tell you why: I don't recognize \
                  what came back. Asking again is reasonable; if it stops the same way, it \
                  needs whoever set RichOS up."
             }

@@ -369,7 +369,7 @@ impl TailnetState {
             }
             TailnetState::Stopped => {
                 "Tailscale is signed in and switched off, so its name for this Mac does not work \
-                 anywhere — not even on a phone sitting beside it. Switch it back on."
+                 anywhere, not even on a phone sitting beside it. Switch it back on."
             }
             TailnetState::InUseByAnotherUser => {
                 "Tailscale is being used by a different account on this Mac, so I cannot read it \

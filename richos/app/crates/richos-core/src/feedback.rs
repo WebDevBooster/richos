@@ -47,7 +47,7 @@ pub const PROMPT_OPTIONS: &str = "1: Bad | 2: OK, but could be better | 3: Good 
 
 /// The follow-up, offered **only** after `1` or `2` — see [`Rating::invites_report`].
 pub const REPORT_OFFER: &str = "Will you let your Rich tell the RichOS developers \
-— fully anonymized and generically — what annoyed you and why it happened?";
+(fully anonymized and generically) what annoyed you and why it happened?";
 
 // ---------------------------------------------------------------------------
 // THE RATING

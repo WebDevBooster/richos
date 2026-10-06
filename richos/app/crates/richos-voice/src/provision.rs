@@ -399,7 +399,7 @@ impl Finding {
             ),
             Failure::NoSpace => format!(
                 "Not enough free disk to download {file}: it needs {} free (the model plus 10%) and \
-                 this disk has {}. Free up {} and try again — nothing was started.",
+                 this disk has {}. Free up {} and try again. Nothing was started.",
                 human(self.want_u64()),
                 human(self.have_u64()),
                 human(self.want_u64().saturating_sub(self.have_u64()))
@@ -433,12 +433,12 @@ impl Finding {
     pub fn ceo_message(&self) -> String {
         match self.kind {
             Failure::NoSpace => format!(
-                "There isn't enough room on this disk for my speech model — it needs about {} free, \
+                "There isn't enough room on this disk for my speech model: it needs about {} free, \
                  and there's {}. Free up some space and ask me again. Nothing was downloaded.",
                 human(self.want_u64()),
                 human(self.have_u64())
             ),
-            Failure::HtmlBody => "The network sent me a sign-in page instead of my speech model — that's \
+            Failure::HtmlBody => "The network sent me a sign-in page instead of my speech model. That's \
                  what hotel, airport and conference wifi does. Sign in to the network, then ask me \
                  again. Nothing was installed."
                 .into(),
@@ -460,7 +460,7 @@ impl Finding {
             // no control under it. NAMES THE PARTY instead, the way every other unfixable-by-him
             // state in this product does.
             Failure::Unpinned => "I don't have a way to check that this speech model is genuine, so I won't install \
-                 it — whoever set RichOS up can put that right. I can still read what you type."
+                 it. Whoever set RichOS up can put that right. I can still read what you type."
                 .into(),
             Failure::HashMismatch => "What arrived isn't the speech model I was expecting, so I threw it \
                  away rather than listen to you through it. Ask me again when you're on a network you \

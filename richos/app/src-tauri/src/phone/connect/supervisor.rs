@@ -16,7 +16,7 @@ pub struct Supervisor {
 impl Supervisor {
     pub fn start(helper: &Path, token: String) -> Result<Self, PhoneError> {
         if token.is_empty() || token.len() > 8192 || token.contains(char::is_whitespace) {
-            return Err(PhoneError::Malformed("RichOS Connect returned an invalid connection credential.".into()));
+            return Err(PhoneError::Malformed("RichConnect for RichOS returned an invalid connection credential.".into()));
         }
         let helper = helper.to_path_buf();
         if !helper.is_file() { return Err(PhoneError::Malformed("This RichOS build is missing its Connect helper. Whoever set RichOS up needs to install a complete build.".into())); }

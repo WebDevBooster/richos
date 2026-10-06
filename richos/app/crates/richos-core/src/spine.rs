@@ -2015,7 +2015,7 @@ impl Spine {
         )?;
 
         // **SAID AT ONCE, EVEN WHILE A TURN RUNS** (round 16, state `switched-line`: Rich's
-        // "Switched to Work — …" line sits above "• 3 agents working on Work", the row that
+        // "Switched to Work: …" line sits above "• 3 agents working on Work", the row that
         // exists only while a turn runs). This used to be deferred to the turn's end so it
         // would not "collide with the working row"; round 16 draws the two together, and the
         // switch notice is raised INSIDE the turn that runs on the new account

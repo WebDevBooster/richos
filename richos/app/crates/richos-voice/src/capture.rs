@@ -67,21 +67,21 @@ impl CaptureError {
     pub fn ceo_message(&self) -> String {
         match self {
             CaptureError::NoInputDevice => {
-                "I can't find a microphone on this machine — plug one in and tap ◉ again.".into()
+                "I can't find a microphone on this machine. Plug one in and tap ◉ again.".into()
             }
             CaptureError::DeviceConfig(_) | CaptureError::BuildStream(_) => {
                 // "Check that RichOS is allowed to use it" named a permission and not the
                 // place it lives, which for a reader who has never opened System Settings is
                 // an instruction he cannot follow. It now names the pane.
                 "I couldn't open the microphone. In System Settings, under Privacy and Security, \
-                 give RichOS microphone access — then tap ◉ again."
+                 give RichOS microphone access, then tap ◉ again."
                     .into()
             }
             CaptureError::UnsupportedFormat(_) => {
                 // "Try a different input device" is a thing to do with no place to do it in;
                 // there is no device picker anywhere in RichOS. Naming the pane is the whole
                 // difference between an instruction and a shrug.
-                "This microphone gives me audio I can't work with — pick a different one in \
+                "This microphone gives me audio I can't work with. Pick a different one in \
                  System Settings, under Sound, then tap ◉ again."
                     .into()
             }

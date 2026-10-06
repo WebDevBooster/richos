@@ -26,11 +26,32 @@
 // runs every .js file in this directory, so it is registered by existing, and its row in this
 // README keeps `docs-claims.js`'s own table check green.
 
+// NO M-DASH OR N-DASH IN ANY UI TEXT (CEO feedback 2026-10-06, item 3: "No UI text should
+// contain any m-dashes or n-dashes"). The last check below reads, every run:
+//
+//   1. every string literal, text node and readable attribute (placeholder, title,
+//      aria-label) in every shipped UI file, derived by `lib/ui-sources.js` from the tree.
+//      Not only the prose `state-strings.js` inventories: a lone dash used as a label is UI
+//      text too. HTML comments inside a template literal are dropped, because code comments
+//      are not UI text; so are `${...}` holes, which are code.
+//   2. the Rust sentences the UI relays: the CEO-facing scrape (`rustStrings()`, the same set
+//      the affordance rule classifies) plus every sentence-shaped literal (a capital first
+//      letter, sentence punctuation last, four words or more) outside tests and examples.
+//
+// WHAT IT DOES NOT READ, NAMED: `mock.js` and `home/field-data.js` (browser-preview sample
+// data, blind spot B4); a Rust literal on a log, print, assert or panic line (a terminal, not
+// the screen); a model prompt whose text opens with an all-caps header word or carries an
+// all-caps run of two words ("ONBOARDING", "COMPANY MEMORY"), which Rich reads and the CEO
+// does not; lowercase Rust error text relayed through `String(e)` (blind spot B5, an
+// unbounded set). And it cannot see what Rich himself writes in a reply: that is generated at
+// run time, not shipped text.
+
 "use strict";
 
 const fs = require("fs");
 const path = require("path");
 const { createRun, assert, assertEqual, rustSentenceAfter, UI_DIR } = require("./lib/harness");
+const STRINGS = require("./lib/state-strings");
 
 const APP_DIR = path.resolve(UI_DIR, "..");
 const PROVIDER_AUTH_RS = path.join(APP_DIR, "crates", "richos-core", "src", "provider_auth.rs");
@@ -94,8 +115,90 @@ async function main() {
     return `"${msg}"`;
   });
 
+  await run.check("no UI text holds an m-dash or an n-dash (CEO 2026-10-06 item 3), and the scan is not vacuous", async () => {
+    const hits = dashedUiText();
+    assertEqual(hits, [], "UI text with an m-dash or n-dash; rewrite each with a comma, colon, period or parentheses");
+
+    // Positive controls, never written to disk: each extractor, over a planted dash in the
+    // exact shape it reads, must see it. And the two negative controls: a dash in a code
+    // comment and in an HTML comment inside a template literal is NOT UI text.
+    const D = String.fromCharCode(0x2014), N = String.fromCharCode(0x2013);
+    const js = 'const a = "Saved ' + D + ' all good"; // a comment ' + D + " is fine\n" +
+      "const b = `<p>Range 1" + N + "4</p><!-- a comment " + D + " is fine -->`;";
+    const jsHits = jsDashes(js, "planted.js");
+    assertEqual(jsHits.length, 2, "positive control: the JS extractor saw " + JSON.stringify(jsHits));
+    const htmlHits = htmlDashes('<p title="a ' + D + ' b">Text ' + N + " here</p><!-- " + D + " -->", "planted.html");
+    assertEqual(htmlHits.length, 2, "positive control: the HTML extractor saw " + JSON.stringify(htmlHits));
+    const rs = 'const S: &str = "I could not do that ' + D + ' try again later.";\n\n\n' +
+      'fn f() {\n    eprintln!("Log line ' + D + ' this one is for a terminal.");\n}\n\n\n' +
+      'const P: &str = "ONBOARDING ' + D + ' you have nothing on file about this.";';
+    const rsHits = rustSentenceDashes(rs, "planted.rs");
+    assertEqual(rsHits.length, 1, "positive control: the Rust sentence net saw " + JSON.stringify(rsHits));
+    return "UI files, the CEO-facing Rust scrape and sentence-shaped Rust literals hold no dash";
+  });
+
   const failed = run.report();
   return failed;
+}
+
+// ---- the dash scan (item 3) -----------------------------------------------------------
+
+const DASH = /[–—]/;
+const snippet = (t) => {
+  const i = t.search(DASH);
+  return t.slice(Math.max(0, i - 40), i + 40).replace(/\s+/g, " ");
+};
+
+function jsDashes(src, name) {
+  const out = [];
+  for (const lit of STRINGS.jsStringLiterals(src)) {
+    const text = lit.text.replace(/<!--[\s\S]*?-->/g, " ");
+    if (DASH.test(text)) out.push(name + ":" + lit.line + "  " + snippet(text));
+  }
+  return out;
+}
+
+function htmlDashes(src, name) {
+  return STRINGS.htmlVisibleStrings(src)
+    .filter((s) => DASH.test(s.text))
+    .map((s) => name + ":" + s.line + "  " + snippet(s.text));
+}
+
+const RUST_MACHINE_LINE = /\b(eprintln|println|print|panic|assert|assert_eq|assert_ne|debug_assert|unreachable|todo|unimplemented|debug|info|warn|trace)!|\.expect\(/;
+const PROMPT_HEADER = /^[A-Z]{4,}\b|\b[A-Z][A-Z']{2,}\b[ :]+[A-Z][A-Z']{1,}\b/;
+
+/// Sentence-shaped Rust literals outside test modules, minus log/assert lines and prompts.
+function rustSentenceDashes(src, name) {
+  const lines = src.split("\n");
+  const tests = STRINGS.testModuleRanges(lines);
+  const out = [];
+  for (const lit of STRINGS.rustStringLiterals(src)) {
+    const idx = lit.line - 1;
+    if (tests.some(([a, b]) => idx >= a && idx <= b)) continue;
+    const t = lit.text.trim();
+    if (!DASH.test(t)) continue;
+    if (RUST_MACHINE_LINE.test([lines[idx - 2] || "", lines[idx - 1] || "", lines[idx]].join("\n"))) continue;
+    if (!(/^[A-Z]/.test(t) && /[.?!]["”)]?$/.test(t) && t.split(/\s+/).length >= 4)) continue;
+    if (PROMPT_HEADER.test(t)) continue;
+    out.push(name + ":" + lit.line + "  " + snippet(t));
+  }
+  return out;
+}
+
+function dashedUiText() {
+  const hits = [];
+  for (const name of STRINGS.uiSources()) {
+    const src = fs.readFileSync(path.join(UI_DIR, name), "utf8");
+    hits.push(...(name.endsWith(".html") ? htmlDashes(src, name) : jsDashes(src, name)));
+  }
+  for (const r of STRINGS.rustStrings()) if (DASH.test(r.text)) hits.push(r.file + ":" + r.line + "  " + snippet(r.text));
+  const repoRoot = path.resolve(UI_DIR, "..", "..", "..");
+  for (const f of STRINGS.rustSourceFiles()) {
+    for (const h of rustSentenceDashes(fs.readFileSync(f, "utf8"), path.relative(repoRoot, f))) {
+      if (!hits.includes(h)) hits.push(h);
+    }
+  }
+  return hits;
 }
 
 main().then((f) => process.exit(f ? 1 : 0));

@@ -866,7 +866,7 @@ impl DeviceDesk {
         let mut state = self.state.lock().unwrap();
         if state.device.is_some() {
             return Err(PhoneError::Malformed(
-                "a phone is already paired — forget it first, which also closes the listener".into(),
+                "a phone is already paired; forget it first, which also closes the listener".into(),
             ));
         }
         let window = PairingWindow::open()?;

@@ -307,42 +307,21 @@
           <label class="popover-option"><input type="radio" name="raw-retention" value="forever" /> Forever</label>
           <p class="popover-hint" id="retention-hint"></p>
 
-          <!-- THE SPLASH SCREEN'S OFF SWITCH IS NOT HERE ANY MORE, AND THAT IS THE POINT.
+          <!-- THE SPLASH SCREEN'S OFF SWITCH LIVES HERE, AND ONLY HERE (CEO 2026-10-06, feedback
+               item 7): "Move the splash screen toggle to the general settings section (i.e.
+               remove from quick settings because ideally I don't want them to turn it off)".
+               The universal settings menu (settings-button.js) is the QUICK settings, one
+               click from every screen; this gear popover is the general settings. So the
+               switch is in one panel, as Ray's candidate .11 defect 3.4 required, and it is
+               the panel that is harder to reach by accident.
 
-               It lives in exactly one panel now: the universal settings menu
-               (`settings-button.js`'s `buildSplashRow`, `#set-splash`). Ray's candidate .11
-               walk, defect 3.4: "Splash screen appears in BOTH panels, which is how you can
-               tell the split is not deliberate."
-
-               HE READ THE DUPLICATION CORRECTLY AND THE HISTORY BEHIND IT SAID OTHERWISE,
-               which is why this note is long. The two copies were deliberate — one state,
-               two doors, the same shape Techy Mode has — and `tests/appearance.js` check 11b
-               was written as a guard-rail over exactly that, after the CEO restated on
-               2026-08-31 that turning the splash off FROM SETTINGS is a requirement. So the
-               question was never "was it deliberate", it was "does a person meet one control
-               or two". He met two, could not tell which was authoritative, and concluded the
-               product did not know either.
-
-               THE CEO'S REQUIREMENT IS UNTOUCHED BY THE REMOVAL, and that is what makes this
-               safe rather than a trade. His word is "from settings", and §15 makes the
-               universal menu the thing "settings" means — "that little settings button is
-               ALWAYS EVERYWHERE ON EVERY PAGE". The switch is now on the panel that is on
-               every screen, including the ones this popover does not exist on, so it is
-               reachable from strictly MORE places than before.
-
-               WHAT THE POPOVER KEEPS is what it alone owns: his name, how much Rich should
-               interrupt him, the technical view and how long its output is kept. Technical
-               view / Techy Mode is still one state behind two doors and is deliberately left
-               that way — the rail's switch opens the three-way scope sheet from inside a
-               conversation, which the menu's plain toggle cannot do, so they are two
-               different controls over one state rather than one control drawn twice.
-
-               MEASURED SIDE EFFECT, and it is the reason the other half of defect 3.4 is not
-               in this commit: the popover was 617px of content in 628px of room at the
-               1024x700 window (tauri.conf.json's own minimum) — eleven pixels of headroom.
-               This removal gives it back about fifty. It is still not enough for the "All
-               settings" door that was built, measured at 676px and 782px, and reverted; see
-               the commit and esc-20260919T013156Z-c0af478b. -->
+               The title names the SUBJECT ("Splash screen", the CEO's own word for the
+               curtain, audit-10 row 1) and the label names the ACT. It governs the curtain
+               only; the home screen has no switch, by his 2026-09-01 ruling. It is the last
+               group because it is a thing he decides once, not while working. -->
+          <div class="popover-divider" role="presentation"></div>
+          <p class="popover-title">Splash screen</p>
+          <label class="popover-option"><input type="checkbox" id="splash-enabled" /> Show it when RichOS starts</label>
 
 
         </div>
@@ -510,7 +489,7 @@
                hidden with nothing in it. §3.3's "byte-identical when off" is unaffected. -->
           <section id="between-turns" hidden aria-labelledby="between-turns-title">
             <h2 id="between-turns-title">Between turns</h2>
-            <p id="between-turns-lede">Not part of any one exchange — this is what the session said with no turn running.</p>
+            <p id="between-turns-lede">Not part of any one exchange: this is what the session said with no turn running.</p>
             <div id="between-turns-rows"></div>
             <!-- The honest empty state, written in Rust (`machinery_view.rs`) and rendered
                  verbatim: an empty lane must say WHY it is empty, not imply the feature is
@@ -964,7 +943,7 @@
               placeholder="Northwind Traders"
             />
             <label class="entity-add-label" for="entity-add-folder">
-              Its folder on this Mac <span class="entity-add-optional">— optional</span>
+              Its folder on this Mac <span class="entity-add-optional">(optional)</span>
             </label>
             <input
               id="entity-add-folder"
@@ -977,7 +956,7 @@
             />
             <p class="entity-add-hint">
               Give me a folder and I'll pick this company on my own whenever you start RichOS
-              from inside it. Leave it blank and you'll just pick it yourself — everything else
+              from inside it. Leave it blank and you'll just pick it yourself. Everything else
               works the same.
             </p>
             <p id="entity-add-error" class="setup-error" role="alert" hidden></p>
@@ -1262,7 +1241,7 @@
                 <button id="feedback-history-retry" class="desk-btn" type="button">Try again</button>
               </div>
               <p id="feedback-history-empty" class="desk-empty" hidden>
-                Nothing is recorded here yet. RichOS never puts the question to you on its own — this
+                Nothing is recorded here yet. RichOS never puts the question to you on its own. This
                 panel is the only place it is asked.
               </p>
               <div id="feedback-history-list" class="desk-list"></div>

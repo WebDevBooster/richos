@@ -59,18 +59,17 @@
          removed the route, so the key went with it. Filled from LEAD below. -->
     <p class="overlay-note" id="phone-lead"></p>
     <div id="phone-route-choice" hidden class="desk-card-actions">
-      <button id="phone-use-connect" type="button" class="desk-btn">RichOS Connect</button>
+      <button id="phone-use-connect" type="button" class="desk-btn">RichConnect for RichOS</button>
       <button id="phone-use-tailnet" type="button" class="desk-btn">Use Tailscale</button>
     </div>
     <div id="phone-connect" hidden>
-      <h3 class="phone-step-title">RichOS Connect</h3>
+      <h3 class="phone-step-title">RichConnect for RichOS</h3>
       <p class="overlay-note">Reach this Mac from your phone without setting up a VPN. Your Mac must stay awake with RichOS running.</p>
       <p class="overlay-note">Connections are encrypted through Cloudflare. Cloudflare can process the traffic; conversations are stored on your devices.</p>
       <p id="phone-connect-status" class="overlay-note" role="status"></p>
-      <p id="phone-connect-host" class="overlay-note"></p>
       <div class="desk-card-actions">
-        <button id="phone-connect-start" type="button" class="desk-btn">Set up RichOS Connect</button>
-        <button id="phone-connect-disable" type="button" class="desk-btn" hidden>Turn off RichOS Connect</button>
+        <button id="phone-connect-start" type="button" class="desk-btn">Set up RichConnect for RichOS</button>
+        <button id="phone-connect-disable" type="button" class="desk-btn" hidden>Turn off RichConnect for RichOS</button>
       </div>
     </div>
 
@@ -245,7 +244,7 @@
              that is asked for one is on an origin that is not this Mac's — and the only person
              who can notice that is the person holding the phone. -->
         <p class="overlay-note">Nothing has to be installed on your phone for this. If your phone
-          asks you to install a profile, something is wrong — tell me.</p>
+          asks you to install a profile, something is wrong. Tell me.</p>
       </div>
 
       <!-- THE ONE FAILURE THIS PATH ACTUALLY DIES OF, named where it happens. Sage's §2.3 failure
@@ -315,20 +314,20 @@
       <h3 class="phone-step-title">First: Tailscale has no password</h3>
       <p class="overlay-note">Tailscale has no username and password. It only offers
         <strong>Sign in with Google</strong>, <strong>Apple</strong>, <strong>Microsoft</strong> or
-        <strong>GitHub</strong> — and whichever one you pick, that identity <strong>is</strong> your
+        <strong>GitHub</strong>, and whichever one you pick, that identity <strong>is</strong> your
         private network.</p>
       <p class="overlay-note">So this Mac and your phone have to sign in with the
         <strong>same</strong> one. Two different identities make two separate networks that cannot
-        see each other, and neither device says so — the phone simply never finds this Mac.</p>
+        see each other, and neither device says so: the phone simply never finds this Mac.</p>
       <p class="overlay-note">There is no "connect to my Mac" step in Tailscale, on either device.
         Signing in on both with the same identity is the whole connection. If the phone cannot find
-        this Mac, reinstalling Tailscale will not help — the identity is the only thing that
+        this Mac, reinstalling Tailscale will not help: the identity is the only thing that
         decides it.</p>
       <p class="overlay-note">If you would rather not use a personal identity on both devices, make
-        one that is only for this — a new Google account, which costs nothing — and sign in with
+        one that is only for this: a new Google account, which costs nothing, and sign in with
         that one here and on the phone.</p>
       <div class="desk-card-actions">
-        <button id="phone-identity-ok" class="desk-btn desk-btn--confirm" type="button">I understand — show me what to do</button>
+        <button id="phone-identity-ok" class="desk-btn desk-btn--confirm" type="button">I understand, show me what to do</button>
       </div>
     </div>
 
@@ -524,8 +523,8 @@
       "It cannot send you notifications yet. On your phone, open the Share menu in Safari and " +
       "choose \u201cAdd to Home Screen\u201d, then allow notifications when Rich asks.",
     android:
-      "It cannot send you notifications yet. Allow notifications on your phone when Rich asks " +
-      "\u2014 Chrome on Android does not need Rich installed first.",
+      "It cannot send you notifications yet. Allow notifications on your phone when Rich asks. " +
+      "Chrome on Android does not need Rich installed first.",
     other:
       "It cannot send you notifications yet. Allow notifications on your phone when Rich asks. " +
       "On an iPhone you have to add Rich to the Home Screen first, from Safari\u2019s Share menu.",
@@ -569,7 +568,7 @@
   /// longer comment on it.
   const PAIRED_FORGET_NOTE_OLD =
     "Forgetting it here stops this Mac answering it, and deletes the keys. This phone was " +
-    "paired by an older version of RichOS, which connected a way this one does not use — pair " +
+    "paired by an older version of RichOS, which connected a way this one does not use. Pair " +
     "it again to keep using it. If that older version put a RichOS profile on the phone, you " +
     "can remove it in the phone's own settings; nothing RichOS does now needs one.";
 
@@ -795,7 +794,7 @@
       // reused. Telling him afterwards, on the phone screen, is telling him after he has already
       // picked — and by then the fix is signing out of an account he just created.
       note2:
-        "Whichever you pick, you will sign in to the SAME one on your phone — your Tailscale account is your private network, and devices signed in to it are what can reach each other. Nothing else connects them.",
+        "Whichever you pick, you will sign in to the SAME one on your phone: your Tailscale account is your private network, and devices signed in to it are what can reach each other. Nothing else connects them.",
       url: "",
       action: { label: "Open Tailscale", target: TAILSCALE_APP },
     },
@@ -818,7 +817,7 @@
       await bridge.invoke("open_external", { target });
     } catch (error) {
       field("phone-message").textContent =
-        "I could not open that on this Mac. The address is written out above — type it into your browser.";
+        "I could not open that on this Mac. The address is written out above. Type it into your browser.";
     }
   }
 
@@ -854,10 +853,10 @@
     }
     line.textContent = tailnet.account
       ? "Your phone is not on this network yet. On the phone, sign in with " + tailnet.account +
-        ", then come back here. Reinstalling the app will not help — the identity is the only " +
+        ", then come back here. Reinstalling the app will not help: the identity is the only " +
         "thing that decides it."
       : "Your phone is not on this network yet. On the phone, sign in with the same account this " +
-        "Mac uses, then come back here. Reinstalling the app will not help — the identity is the " +
+        "Mac uses, then come back here. Reinstalling the app will not help: the identity is the " +
         "only thing that decides it.";
   }
   // The states that are not a step of their own borrow the nearest screen that tells the truth.
@@ -884,9 +883,7 @@
       ? "Connect is off on this Mac. Its remote address is being removed."
       : health === "connected" ? "This Mac is connected."
       : health === "reconnecting" ? "Reconnecting this Mac. Your phone keeps unsent messages until it can reach RichOS again."
-      : health ? "Connecting this Mac…" : "Set up this Mac, then pair your phone with its code.";
-    field("phone-connect-host").textContent = managed && managed.hostId && !managed.endpoint
-      ? "Pilot setup reference: " + managed.hostId : "";
+      : health ? "Connecting this Mac…" : "First, set up this RichOS app on your Mac. Then pair your phone with it.";
 
     const live = !!status.pairUrl;
     // **A CODE THAT RAN OUT IS A STATE OF THIS SCREEN, NOT A REASON TO LEAVE IT.**
@@ -1140,7 +1137,7 @@
       field("phone-ts-why").innerHTML = tailnet.account
         ? "Your Tailscale account <strong>is</strong> your private network. Devices signed in to " +
           "it can reach each other. So on your phone, sign in with <strong>" +
-          escapeText(tailnet.account) + "</strong> — exactly what this Mac used — even if you " +
+          escapeText(tailnet.account) + "</strong>, exactly what this Mac used, even if you " +
           "would normally keep your phone and your Mac apart. Nothing else connects them."
         : "Your Tailscale account <strong>is</strong> your private network. Devices signed in to " +
           "it can reach each other. So sign in on your phone with the same account you used on " +
@@ -1151,7 +1148,7 @@
       // is the difference between an instruction he can follow and one he cannot.
       field("phone-ts-step2").innerHTML = tailnet.account
         ? "Sign in with <strong>" + escapeText(tailnet.account) +
-          "</strong> — the same one this Mac is signed in to. A different provider makes a " +
+          "</strong>, the same one this Mac is signed in to. A different provider makes a " +
           "different network, and then the two will never see each other."
         : "Sign in with the <strong>same</strong> identity you used on this Mac. A different " +
           "provider makes a different network, and then the two will never see each other.";

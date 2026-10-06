@@ -1274,7 +1274,7 @@ fn no_network_installs_nothing_and_leaves_no_residue() {
 
     assert_eq!(err.kind(), "no-network");
     assert!(err.machine_unchanged());
-    assert!(err.to_string().contains("nothing has been changed on your Mac"), "{err}");
+    assert!(err.to_string().contains("Nothing has been changed on your Mac"), "{err}");
     assert!(siblings_of(dest.parent().unwrap()).is_empty(), "residue after a failed download");
 }
 

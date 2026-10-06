@@ -52,7 +52,7 @@ impl Allocation {
         if self.id != identity.id() || self.generation == 0 || self.generation > 1_000_000
             || self.endpoint != format!("https://c-{}-g{}.richos.ceo", self.id, self.generation)
             || !["pending", "active", "disabled"].contains(&self.phase.as_str()) {
-            return Err(PhoneError::Malformed("RichOS Connect returned an invalid Mac address. Try again later.".into()));
+            return Err(PhoneError::Malformed("RichConnect for RichOS returned an invalid Mac address. Try again later.".into()));
         }
         Ok(())
     }
@@ -103,9 +103,6 @@ impl Client {
         })
     }
     pub fn allocation(&self, reply: &Reply) -> Result<Allocation, PhoneError> {
-        if reply.status == 403 {
-            return Err(PhoneError::Malformed("RichOS Connect is in a private pilot. An operator must admit this Mac before setup can continue.".into()));
-        }
         if reply.status != 200 { return Err(unavailable()); }
         let allocation: Allocation = serde_json::from_value(reply.value.clone()).map_err(|_| unavailable())?;
         allocation.validate(&self.identity)?;
@@ -113,7 +110,7 @@ impl Client {
     }
 }
 pub fn unavailable() -> PhoneError {
-    PhoneError::Malformed("RichOS Connect could not be reached. Your conversations are kept on your devices. Try again shortly.".into())
+    PhoneError::Malformed("RichConnect for RichOS could not be reached. Your conversations are kept on your devices. Try again shortly.".into())
 }
 
 #[cfg(test)]
@@ -188,6 +185,19 @@ mod tests {
         assert!(verifier.verify(canonical.replace("POST","DELETE").as_bytes(),&signature).is_err());
         assert_ne!(identity.id(),Identity::open(&MemorySecrets::default()).unwrap().id());
     }
+    #[test]
+    fn a_refused_setup_never_names_a_private_pilot_or_an_operator_admission() {
+        // CEO 2026-10-06 item 5: "Nothing is in a private pilot." The service no longer has an
+        // admission step, so no answer it gives (a 403 included) may be read as one.
+        let client = Client::new(Identity::open(&MemorySecrets::default()).unwrap());
+        for status in [403u16, 503] {
+            let reply = Reply { status, value: serde_json::json!({"error": "capacity_reached"}) };
+            let said = client.allocation(&reply).expect_err("a refused setup is an error").to_string();
+            assert_eq!(said, unavailable().to_string(), "status {status}");
+            assert!(!said.contains("pilot") && !said.contains("admit"), "status {status}: {said}");
+        }
+    }
+
     #[test]
     fn allocation_cannot_redirect_the_connector_to_another_host() {
         let identity = Identity::open(&MemorySecrets::default()).unwrap();

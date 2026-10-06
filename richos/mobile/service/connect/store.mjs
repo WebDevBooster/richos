@@ -10,17 +10,14 @@ export class Store {
     ]);
     return results[1].meta.changes === 1;
   }
-  async enroll(identity, domain, capacity, open, pushOnly = false) {
+  async enroll(identity, domain, capacity, pushOnly = false) {
     const now = this.now();
     // A single SQL statement enforces capacity even across Worker isolates.
     await this.statement(`INSERT OR IGNORE INTO hosts(id,public_key,hostname,created_at,last_seen,desired,phase)
-      SELECT ?,?,?,?,?,?,? WHERE (SELECT count(*) FROM hosts) < ?
-      AND (? = 1 OR EXISTS(SELECT 1 FROM allowed_hosts WHERE id=?))`,
-    identity.id, identity.key, `c-${identity.id}-g1.${domain}`, now, now, pushOnly ? 0 : 1, pushOnly ? 'disabled' : 'pending', capacity, open ? 1 : 0, identity.id).run();
+      SELECT ?,?,?,?,?,?,? WHERE (SELECT count(*) FROM hosts) < ?`,
+    identity.id, identity.key, `c-${identity.id}-g1.${domain}`, now, now, pushOnly ? 0 : 1, pushOnly ? 'disabled' : 'pending', capacity).run();
     return this.get(identity.id);
   }
-  // Closed-pilot admission for an EXISTING host. Deleting the allowed_hosts row revokes every later enable.
-  async admitted(id) { return !!(await this.statement('SELECT 1 AS ok FROM allowed_hosts WHERE id=?', id).first()); }
   async lease(id) {
     const token = crypto.randomUUID(), now = this.now();
     const result = await this.statement('UPDATE hosts SET lease_id=?,lease_until=? WHERE id=? AND lease_until < ?', token, now + 120_000, id, now).run();

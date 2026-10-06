@@ -47,7 +47,8 @@ test('create: protected files outside Git, public ids printed, secrets never pri
 	for (const h of HOSTS) {
 		assert.ok(!printed.includes(keys[h.hostname]), 'no host key is printed');
 		const { id } = await hostIdentity(keys[h.hostname]);
-		assert.ok(printed.includes(`INSERT OR IGNORE INTO allowed_hosts(id) VALUES ('${id}');`), 'the admission SQL names each public id');
+		assert.ok(printed.includes(`  ${h.hostname}  ${id}`), 'each public host id is printed');
+		assert.ok(!printed.includes('allowed_hosts'), 'no admission step is printed: nothing is in a private pilot');
 	}
 	const env = { ACCESS_HOSTNAME: 'review.example.com', REVIEW_HOSTS: JSON.stringify(HOSTS), ...secrets, HOSTS: { idFromName() {} }, LOGIN_LIMIT: { limit() {} } };
 	const read = readConfig(env);

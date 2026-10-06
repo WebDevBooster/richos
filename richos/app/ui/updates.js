@@ -202,7 +202,7 @@ window.RichUpdates = (function () {
           ? RESTART_WHEN_DONE
           : v.state === "ready"
             ? "This update will activate next time RichOS opens. Your work will continue uninterrupted."
-            : "I'll wait until everything has finished — nothing will be interrupted."
+            : "I'll wait until everything has finished, so nothing will be interrupted."
       );
     }
     var since = readyFor(v.readySince);
@@ -840,7 +840,7 @@ window.RichUpdates = (function () {
         ? back
           ? " It will go back automatically next time RichOS opens. Your work will continue uninterrupted."
           : " It will activate automatically next time RichOS opens. Your work will continue uninterrupted."
-        : " I'll wait until everything has finished — nothing will be interrupted.";
+        : " I'll wait until everything has finished, so nothing will be interrupted.";
     return head + why + tail;
   }
 

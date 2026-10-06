@@ -77,7 +77,7 @@
         other.onclick=()=>{form.hidden=!form.hidden;draft.other=!form.hidden;other.setAttribute("aria-expanded",String(!form.hidden));if(!form.hidden)input.focus();};
         form.onsubmit=event=>{event.preventDefault();if(input.value.trim())submit(q.multiple?[...selected]:[],input.value.trim(),"typed");};
       }
-      controls.append(node("p",`↑ ↓ move · 1–${q.options.length} choose · ${q.multiple?"Space toggles · Send answer confirms":"Enter answers"} · Esc back to the composer`,"ask-hint"));
+      controls.append(node("p",`↑ ↓ move · 1-${q.options.length} choose · ${q.multiple?"Space toggles · Send answer confirms":"Enter answers"} · Esc back to the composer`,"ask-hint"));
     }
     async function submit(optionIds,text,method) {
       if(busy || pendingAnswer())return;

@@ -1384,7 +1384,7 @@ pub mod says {
         let answer = answer.trim();
         if answer.is_empty() {
             return format!(
-                "I came back from {title} with nothing I can tell you — the answer never \
+                "I came back from {title} with nothing I can tell you: the answer never \
                  reached me. Ask me again and I'll go at it properly."
             );
         }

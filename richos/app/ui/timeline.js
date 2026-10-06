@@ -265,7 +265,7 @@
         }
         const d = formatDuration(nowMs - t.startedAt);
         return {
-          label: d ? `Stopping — ${d}` : "Stopping",
+          label: d ? `Stopping · ${d}` : "Stopping",
           duration: d,
           tone: "active",
           note: STOP_MEANING,
@@ -306,7 +306,7 @@
             label: "Stopped before it finished",
             duration: null,
             tone: "stopped",
-            note: "How long it ran was not recorded — the turn ended without writing an end time.",
+            note: "How long it ran was not recorded: the turn ended without writing an end time.",
             live: false,
           };
         }
@@ -517,7 +517,7 @@
       glyph: "◐",
       tone: "active",
       qualifier: null,
-      note: "This run is open — no end has been recorded for it.",
+      note: "This run is open: no end has been recorded for it.",
       pulse: true,
     },
     // THE ONE THIS SLICE CHOSE. See the block above.
@@ -527,7 +527,7 @@
       tone: "ended",
       qualifier: "outcome not recorded",
       note:
-        "This run has ended. Nothing recorded whether the work finished, stopped or failed — so I'm not going to call it either way.",
+        "This run has ended. Nothing recorded whether the work finished, stopped or failed, so I'm not going to call it either way.",
       pulse: false,
     },
   };
@@ -2605,7 +2605,7 @@
   // CEO stopped himself (`You stopped after {duration}`), so reusing it here would read as
   // an attribution rather than a possibility.
   const ENDED_EXPLANATION =
-    "This run has ended. Nothing recorded whether the work finished, was cut short or failed — so I'm not going to call it either way.";
+    "This run has ended. Nothing recorded whether the work finished, was cut short or failed, so I'm not going to call it either way.";
 
   function renderWorkerInspector(w, opts) {
     opts = opts || {};
@@ -2696,7 +2696,7 @@
     // Shortened to what is still true once the output record exists (output side-panel PRD
     // §12.10): the files a worker touched are listed, under its name, in the Output panel.
     const gap = elem("p", "insp-note insp-gap");
-    gap.textContent = "I don't have this worker's brief or its output — the files it touched are in Output.";
+    gap.textContent = "I don't have this worker's brief or its output. The files it touched are in Output.";
     frag.appendChild(gap);
 
     return frag;
@@ -2797,7 +2797,7 @@
   ///
   /// So the label is what the control actually does, and the phrasing is lifted from the
   /// one sentence in this file that was already accurate about it — the unknown card's
-  /// *"Your message is safe — I'll put it back in the box for you."* Declared once, used by
+  /// *"Your message is safe: I'll put it back in the box for you."* Declared once, used by
   /// both cards, because the CEO's job is identical in each.
   const RETRY_LABEL = "Put it back in the box";
 
@@ -2978,7 +2978,7 @@
     const canRetry = !!(turn.user && turn.user.text);
     card.appendChild(elem("p", "tl-intervention-note",
       canRetry
-        ? "Anything I'd written is above. Your message is safe — I'll put it back in the box for you."
+        ? "Anything I'd written is above. Your message is safe: I'll put it back in the box for you."
         : "Anything I'd written is above. Nothing of yours was lost."));
     if (canRetry) {
       const retry = elem("button", "tl-intervention-action", RETRY_LABEL);

@@ -704,9 +704,19 @@ function shaderStrings() {
   return out;
 }
 
+/// Every Rust source file the scrape walks (`RUST_ROOTS`, tests and examples excluded), for a
+/// check that reads more of it than `rustStrings()` does (`dialect.js`'s dash scan).
+function rustSourceFiles() {
+  const files = [];
+  for (const r of RUST_ROOTS) walk(r, files);
+  return files;
+}
+
 module.exports = {
   inventory,
   testModuleRanges,
+  rustStringLiterals,
+  rustSourceFiles,
   previewDataStrings,
   shaderStrings,
   rustStrings,

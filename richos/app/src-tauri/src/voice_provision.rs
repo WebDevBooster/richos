@@ -91,18 +91,18 @@ impl ModelObserver for TauriModelEmitter {
 
 /// No decoder on this machine, or weights that are not the pinned weights: two gaps RichOS
 /// cannot close by downloading anything it has a hash for.
-const NO_HEARING_HERE: &str = "I can't set up my hearing on this machine — whoever set RichOS up adds that. \
+const NO_HEARING_HERE: &str = "I can't set up my hearing on this machine. Whoever set RichOS up adds that. \
      I can still read what you type.";
 
 /// The resolver asked for a model that is not in the pin table. RichOS will not download a model
 /// it cannot verify, and this is what that refusal reads as. Says nothing about checksums: that is
 /// a word that tells him nothing he can act on.
 const MODEL_NOT_PINNED: &str = "I can't prove the speech model this machine needs is the genuine one, so I won't download it \
-     — whoever set RichOS up can put that right. I can still read what you type.";
+    . Whoever set RichOS up can put that right. I can still read what you type.";
 
 /// `HOME` is unset. Not a launch a double-click produces, so this is a machine somebody
 /// configured rather than one he can fix.
-const NOWHERE_TO_PUT_IT: &str = "I can't tell where to put my speech model on this machine — whoever set RichOS up can put \
+const NOWHERE_TO_PUT_IT: &str = "I can't tell where to put my speech model on this machine. Whoever set RichOS up can put \
      that right. I can still read what you type.";
 
 /// What he reads when HE stopped the download. Not a failure, and it must not wear one.

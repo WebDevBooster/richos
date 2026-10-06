@@ -85,9 +85,9 @@ const FIXTURE = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "mac
 /// returned was a prefix of the real sentence, so `assertEqual` was the only thing between
 /// a green run and four checks silently asserting a substring.
 const NOTHING_RECORDED = rustSentence(MACHINERY_RS, "Retention started on 2026-08-28");
-const NOT_RETAINED = rustSentence(MACHINERY_RS, "it fills up as Rich works");
-const UNREADABLE = rustSentence(MACHINERY_RS, "something is refusing to open it");
-const RAW_NOT_RETAINED = rustSentence(MAIN_RS, "what's above is the whole record that was");
+const NOT_RETAINED = rustSentence(MACHINERY_RS, "fills up as Rich works");
+const UNREADABLE = rustSentence(MACHINERY_RS, "is refusing to open it");
+const RAW_NOT_RETAINED = rustSentence(MAIN_RS, "above is the whole record that was");
 const RAW_TRUNCATED = rustSentence(MAIN_RS, "you're seeing the start of it");
 const BETWEEN_TURNS_QUIET = rustSentence(MACHINERY_RS, "not proof the");
 

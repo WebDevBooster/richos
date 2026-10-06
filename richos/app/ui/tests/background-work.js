@@ -177,7 +177,7 @@ async function main() {
     const rows = await page.locator("#slideover-body section").all();
     assertEqual(rows.length, 2, "both assignments rendered");
     const answered = (await rows[0].innerText()).toLowerCase();
-    assert(answered.includes("it's in your conversation"), "the answered task does not point at his conversation: " + answered);
+    assert(/it's in your conversation/i.test(answered), "the answered task does not point at his conversation: " + answered);
     for (const word of FORBIDDEN) {
       assert(!answered.includes(word), `the answered task said "${word}": ${answered}`);
     }
