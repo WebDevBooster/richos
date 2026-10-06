@@ -3576,6 +3576,7 @@ fn main() {
             claude_account_sign_in,
             claude_account_sign_in_poll,
             claude_account_remove,
+            claude_account_use_first,
             set_claude_at_threshold,
             approve_claude_reset,
             revoke_claude_reset,
@@ -5411,6 +5412,13 @@ fn claude_account_remove(state: State<AppState>, id: String) -> Result<richos_co
         richos_core::provider_auth::logout_in(&resolve_claude_bin(), &folder);
     }
     state.quota.remove_account(&id).map_err(|e| e.to_string())
+}
+
+/// **Use first** (the CEO 2026-10-06, feedback item 8): he picks the account that drains first.
+/// Saved, so it survives a relaunch; the switch at 99% of its week works from it as from any.
+#[tauri::command(async)]
+fn claude_account_use_first(state: State<AppState>, id: String) -> Result<richos_core::quota::View, String> {
+    state.quota.use_account_first(&id).map_err(|e| e.to_string())
 }
 
 /// The one setting (his answer 2): at 93% of the five-hour window, Pause or Switch.
