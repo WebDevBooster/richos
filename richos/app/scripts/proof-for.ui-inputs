@@ -138,6 +138,7 @@ home-fit.js             @shell @home
 home.js                 @shell @home richos/app/ui/mock.js richos/app/ui/home/field-data.js richos/app/ui/splash.js richos/app/ui/settings-button.js richos/app/ui/theme-boot.js richos/app/ui/tests/fixtures/slow-round-trips-preload.js
 ticker-wrap.js          @shell @home
 settings-fit.js         @shell @phone richos/app/ui/settings-button.js
+rail-initials-fit.js    @shell
 speckled-ground.js      @shell @home @splash richos/app/ui/speckle.js richos/app/ui/speckle-app.js richos/app/ui/speckle.css richos/app/ui/timeline.js richos/app/ui/mock.js
 
 # ---- one screen each -----------------------------------------------------------------------
