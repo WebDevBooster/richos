@@ -125,6 +125,64 @@ class DesktopWork(unittest.TestCase):
         # The same request for another teammate is different work.
         with self.assertRaisesRegex(ValueError,"different work"):self.call("prepare",{**self.args,"teammate":"mark"})
 
+    def test_a_consult_needs_no_repository_is_read_only_and_hands_back_its_final_message(self):
+        """Slice 3 of the proto-teammate shelf plan (richos-hq
+        docs/plans/2026-10-06-proto-teammate-shelf.md §3): a third duty, `consult`, with no
+        repository and no workspace; writes are refused as for a reviewer; the teammate's final
+        message is the deliverable, handed back to the back end on its receipt."""
+        ask={"request_id":"ask-clark","obligation_id":"fixture-task","role":"consult","teammate":"clark",
+             "title":"Research a fictional question","brief":"Which fictional fixture format is older? Answer in one line."}
+        for key,value in (("repo",str(self.repo)),("repos",[str(self.repo)]),("integration","main"),("review_of","0"*64)):
+            with self.assertRaisesRegex(ValueError,"a consult changes no repository, so it takes no "+key):
+                self.call("prepare",{**ask,"request_id":"with-"+key,key:value})
+        ready=self.call("prepare",ask)
+        self.assertEqual(ready["status"],"prepared")
+        self.assertRegex(ready["name"],r"^clark-sonnet-[0-9a-f]{12}$")
+        self.assertEqual((ready["request"]["repo"],ready["request"]["repos"],ready["request"]["role"]),(None,[],"consult"))
+        payload=ready["agent_payload"]
+        self.assertEqual((payload["subagent_type"],payload["model"]),("richos-app-engine:clark","sonnet"))
+        duty=(ENGINE/"mega-lander/duties/consult.md").read_text().strip()
+        self.assertTrue(duty.startswith("# Your duty in this assignment: consult"))
+        self.assertNotIn("cross-repo-worktree:",payload["prompt"])
+        self.assertIn(duty+"\n\n"+ask["brief"],payload["prompt"])
+        # No workspace: nothing under the target worktrees, nothing in the canonical registry.
+        self.assertFalse((self.root/"engine-state/target-worktrees").exists() and any((self.root/"engine-state/target-worktrees").rglob("*")))
+        self.assertNotIn("retained_target",ready)
+        self.start_fixture_worker(ready,"consult-clark")
+        canonical=self.app.W.load_agent(self.app.W.named_key(self.session,ready["name"]))
+        self.assertEqual([w["kind"] for w in self.app.W.live_workspaces(canonical)],["native"])
+        # Read-only: every file edit is refused, a read is told it is a consult.
+        for tool in ("Write","Edit","MultiEdit","NotebookEdit"):
+            with self.assertRaisesRegex(ValueError,"a consult changes no files"):
+                self.app.worker_context(self.scope,{"session_id":self.session,"agent_id":"consult-clark","cwd":str(self.coord),
+                                                    "tool_name":tool,"tool_input":{"file_path":str(self.repo/"x.txt")}})
+        context=self.app.worker_context(self.scope,{"session_id":self.session,"agent_id":"consult-clark","cwd":str(self.coord),
+                                                     "tool_name":"Read","tool_input":{"file_path":str(self.repo/"x.txt")}})
+        self.assertIn("you are consulted and change no repository",context["hookSpecificOutput"]["additionalContext"])
+        # The final message is the deliverable, handed back on the receipt.
+        answer="The fictional CSV fixture is older than the fictional JSON one, by the dates in their headers."
+        self.finish_fixture_worker("consult-clark",answer)
+        record=self.call("inspect")["records"][0]
+        self.assertEqual(record["status"],"run-ended")
+        self.assertEqual((record["consult_answer"]["message"],record["consult_answer"]["answered"],record["consult_answer"]["source"]),
+                         (answer,True,"SubagentStop"))
+        # A delivered handback is the report when the stop says only that it was delivered.
+        again=self.call("prepare",{**ask,"request_id":"ask-clark-again"})
+        self.start_fixture_worker(again,"consult-clark-2")
+        self.app.observe(self.scope,{"hook_event_name":"PostToolUse","session_id":self.session,"agent_id":"consult-clark-2",
+                                     "tool_name":"SubagentHandback","tool_use_id":"handback-2","tool_input":{"message":answer+" Checked twice."},
+                                     "tool_response":{"success":True}})
+        self.finish_fixture_worker("consult-clark-2","Report delivered to caller.")
+        with self.app.locked(self.scope) as root: second=self.app.read_record(root,again["id"])
+        self.assertEqual(second["consult_answer"]["message"],answer+" Checked twice.")
+        self.assertNotIn("consult_handback",second)
+        # Nothing to land, and no work unit that would stop the assignment closing on the answer.
+        with self.assertRaisesRegex(ValueError,"a consult has nothing to land"):
+            self.call("integrate",{"worker_id":ready["id"],"reviewer_id":again["id"]})
+        work=self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"inspect","binding":self.scope["binding"],
+                                                   "query":{"section":"work","offset":0,"limit":100,"include_closed":True}})
+        self.assertEqual(work["records"],[],"a consult was projected as a work unit")
+
     def test_preflight_refusal_allows_a_corrected_request_without_claiming_a_start(self):
         subprocess.run(["git", "-C", str(self.repo), "branch", "-m", "integration"], check=True)
         missing = {k:v for k,v in self.args.items() if k != "integration"}

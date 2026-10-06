@@ -21,7 +21,9 @@ The engine has five principal components:
 
 The desktop profile registers named teammates: Dean, Clark, Reed, Frank and Pierce
 (`agents/`) and the user's own. Each runs as the worker or the reviewer of an
-assignment, with that duty's app instructions (`mega-lander/duties/`) at the top of its brief.
+assignment, or is consulted on a job that changes no repository (no workspace, no file edits,
+its final message handed back), with that duty's app instructions (`mega-lander/duties/`) at
+the top of its brief.
 Engine code, app coordination and target repositories have separate roots. A fresh
 corpus starts empty; installing the engine does not import an operator's knowledge,
 private roster or terminal configuration. Installed acceptance is recorded against
