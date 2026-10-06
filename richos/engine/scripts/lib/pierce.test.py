@@ -103,6 +103,104 @@ class Pierce(unittest.TestCase):
             P.inspect({**self.payload, "tool_use_id": "call-2"})
             self.assertEqual(reviewer.call_count, 2)
 
+    def revised(self, suffix=" Do not change the API."):
+        return {**self.payload, "tool_use_id": "call-2", "tool_input": {
+            **self.payload["tool_input"], "prompt": self.payload["tool_input"]["prompt"] + suffix}}
+
+    def test_revision_checks_delta_and_previous_findings_without_repeating_standing_context(self):
+        project_alias = self.root / "project alias"
+        project_alias.symlink_to(self.project.resolve(), target_is_directory=True)
+        self.payload["cwd"] = str(project_alias)
+        os.environ["CLAUDE_PROJECT_DIR"] = str(project_alias)
+        definition = project_alias / ".claude/agents/fixture.md"
+        definition.write_text("Long standing worker instructions.\n" * 1000)
+        reports = [{"verdict": "FINDINGS", "report": '1. "Remove the API" is not requested.'},
+                   {"verdict": "PASS", "report": "The changed line retains the API."}]
+        with patch.object(P, "invoke", side_effect=reports) as reviewer:
+            P.inspect(self.payload)
+            revised = self.revised()
+            result = P.inspect(revised)
+        request = reviewer.call_args.args[0]
+        self.assertEqual(result["review_mode"], "revision")
+        self.assertEqual(request["user_requests_in_order"], P.human_context(revised))
+        self.assertEqual(request["review"]["previous_report"], reports[0]["report"])
+        self.assertEqual(request["review"]["previous_assignment"], self.payload["tool_input"]["prompt"])
+        self.assertIn("+" + revised["tool_input"]["prompt"], request["review"]["changed_lines"])
+        self.assertNotEqual(str(definition), str(definition.resolve()))
+        self.assertIn(str(definition.resolve()), request["standing_instruction_sources"])
+        self.assertIn(str(definition.resolve().parent), request["read_roots"])
+        self.assertLess(len(request["standing_instructions"]), 150)
+
+    def test_each_revision_follows_the_latest_findings_and_preserves_series_deadline(self):
+        with patch.object(P, "invoke", side_effect=[
+                {"verdict": "FINDINGS", "report": "First actual fault"},
+                {"verdict": "FINDINGS", "report": "Second changed-line fault"},
+                {"verdict": "PASS", "report": "Fixed"}]) as reviewer:
+            P.inspect(self.payload)
+            lane = next(P.state_dir().glob("revision-*.json"))
+            started = json.loads(lane.read_text())["started"]
+            P.inspect(self.revised())
+            self.assertEqual(json.loads(lane.read_text())["started"], started)
+            result = P.inspect(self.revised(" Do not change the API. Test that behavior."))
+        self.assertEqual(result["review_mode"], "revision")
+        self.assertEqual(reviewer.call_args.args[0]["review"]["previous_report"], "Second changed-line fault")
+        self.assertEqual(json.loads(lane.read_text())["started"], started)
+
+    def test_context_changes_cannot_inherit_an_earlier_review(self):
+        changes = ("user", "definition", "session", "name", "model", "profile")
+        for change in changes:
+            with self.subTest(change=change), patch.object(P, "invoke", return_value={
+                    "verdict": "FINDINGS", "report": "Original fault"}) as reviewer:
+                payload = {**self.payload, "session_id": change}
+                P.inspect(payload)
+                revised = {**self.revised(), "session_id": change}
+                if change == "user":
+                    self.transcript.write_text(self.transcript.read_text() + '\n' + json.dumps(
+                        {"type": "user", "message": {"content": "New constraint"}}))
+                elif change == "definition":
+                    (self.project / ".claude/agents/fixture.md").write_text("New instructions")
+                elif change == "session":
+                    revised["session_id"] = "another-session"
+                elif change == "name":
+                    revised["tool_input"]["name"] = "different-worker"
+                elif change == "model":
+                    revised["tool_input"]["model"] = "sonnet"
+                with patch.object(P, "REVIEW_RULES", P.REVIEW_RULES + ("New rule" if change == "profile" else "")):
+                    result = P.inspect(revised)
+                self.assertEqual(result["review_mode"], "initial")
+                self.assertNotIn("previous_report", reviewer.call_args.args[0]["review"])
+
+    def test_pass_dismissal_outage_expiry_and_unrelated_work_require_cold_review(self):
+        for previous in ("PASS", "dismissed", "UNAVAILABLE", "expired", "unrelated"):
+            with self.subTest(previous=previous), patch.object(P, "invoke", return_value={
+                    "verdict": "FINDINGS", "report": "Original fault"}) as reviewer:
+                payload = {**self.payload, "session_id": previous}
+                first = P.inspect(payload)
+                path = P.state_dir() / (first["id"] + ".json")
+                if previous in ("PASS", "UNAVAILABLE"):
+                    first["verdict"] = previous
+                    path.write_text(json.dumps(first))
+                elif previous == "dismissed":
+                    first["dismissal"] = "Explicit reason"
+                    path.write_text(json.dumps(first))
+                elif previous == "expired":
+                    for lane in P.state_dir().glob("revision-*.json"):
+                        value = json.loads(lane.read_text()); value["started"] = 0
+                        lane.write_text(json.dumps(value))
+                revised = {**self.revised(), "session_id": previous}
+                if previous == "unrelated":
+                    revised["tool_input"]["prompt"] = "zzzzzzzzzzz"
+                self.assertEqual(P.inspect(revised)["review_mode"], "initial")
+
+    def test_same_brief_new_native_call_rechecks_delegated_file_facts(self):
+        with patch.object(P, "invoke", return_value={"verdict": "FINDINGS", "report": "Fault"}) as reviewer:
+            P.inspect(self.payload)
+            P.inspect(self.payload)
+            self.assertEqual(reviewer.call_count, 1)
+            retry = {**self.payload, "tool_use_id": "call-2"}
+            self.assertEqual(P.inspect(retry)["review_mode"], "initial")
+            self.assertEqual(reviewer.call_count, 2)
+
     def test_unavailable_is_never_pass(self):
         with patch.object(P, "invoke", side_effect=ValueError("timeout")):
             result = P.inspect(self.payload)
@@ -153,6 +251,7 @@ class Pierce(unittest.TestCase):
         self.assertEqual(argv[argv.index("--model") + 1], "opus")
         self.assertEqual(argv[argv.index("--tools") + 1], "Read,Glob,Grep")
         self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
+        self.assertIn("Judge only changed lines", argv[argv.index("--system-prompt") + 1])
 
     def test_desktop_uses_host_selected_provider_outside_restricted_path(self):
         env = self.fake_provider({"verdict": "PASS", "report": "PASS. Read fixture evidence."})
