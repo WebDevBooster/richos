@@ -535,9 +535,11 @@ button {
   outline-offset: 2px;
 }
 
+/* 34px, not 26px: at the 14px floor a wide pair ("MW") is as wide as a 26px disc and the W's
+   top corner stuck out past the edge (walk 40, D12). `tests/rail-initials-fit.js` measures it. */
 .rail-initials {
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   display: grid;
   place-items: center;
@@ -546,7 +548,7 @@ button {
   color: var(--on-gold);
   font-size: 0.875rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   line-height: 1;
 }
 
