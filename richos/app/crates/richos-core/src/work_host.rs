@@ -5458,8 +5458,7 @@ mod tests {
         *h.commands.lock().unwrap() = Some(CommandReading::Clear);
         run(3);
         assert_eq!(h.fill.lock().unwrap().turns.last(), Some(&Some("2".to_string())), "the job ran under Work");
-        assert_eq!(quota.accounts.take_notice().as_deref(),
-            Some("Switched to Work — Account 1 reached 93% of its five-hour window. Nothing stopped."));
+        assert!(quota.accounts.take_notice().is_some_and(|line| line.starts_with("I switched the team to your **Work** account. Account 1 had used 93% of its 5-hour limit")));
         h.host.shutdown();
         std::fs::remove_dir_all(&h.root).unwrap();
     }

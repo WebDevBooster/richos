@@ -131,6 +131,21 @@ pub fn clock(at_ms: u64, utc_offset_minutes: i32, now_ms: u64) -> String {
         format!("{} {time}", &day[..3])
     }
 }
+/// A moment as round 18's lines say it: "today at 2:10 PM", "tomorrow at 9:00 AM", "on
+/// Thursday at 9:00 AM" (the mockup's `whenLong`), at the webview's offset. Before the webview
+/// has said its offset, the span: "in 2 d 3 h".
+pub fn when_long(at_ms: u64, utc_offset_minutes: Option<i32>, now_ms: u64) -> String {
+    let Some(offset) = utc_offset_minutes else { return format!("in {}", words(at_ms.saturating_sub(now_ms))) };
+    let offset = time::UtcOffset::from_whole_seconds(offset.clamp(-1439, 1439) * 60).unwrap_or(time::UtcOffset::UTC);
+    let local = |ms: u64| time::OffsetDateTime::from_unix_timestamp(i64::try_from((ms + 30_000) / 60_000 * 60).unwrap_or(i64::MAX))
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH).to_offset(offset);
+    let (at, now) = (local(at_ms), local(now_ms));
+    let hour = match at.hour() % 12 { 0 => 12, h => h };
+    let time = format!("{hour}:{:02} {}", at.minute(), if at.hour() < 12 { "AM" } else { "PM" });
+    if at.date() == now.date() { format!("today at {time}") }
+    else if now.date().next_day() == Some(at.date()) { format!("tomorrow at {time}") }
+    else { format!("on {} at {time}", at.weekday()) }
+}
 pub const BACKOFF_MS: u64 = 600_000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -261,6 +276,19 @@ pub struct View {
     /// normal schedule, never in a loop and never after the failure backoff.
     #[serde(default)]
     pub empty_at: Option<u64>,
+    /// **Round 18, for everyone** (`ui/accounts.js`): Recent changes, oldest first.
+    #[serde(default)]
+    pub changes: Vec<crate::claude_accounts::Change>,
+    /// Rich's one-time suggestion of a second account, once said, with its answer.
+    #[serde(default)]
+    pub nudge: Option<crate::claude_accounts::Said>,
+    /// Rich's lines in the conversation that are about accounts, by turn.
+    #[serde(default)]
+    pub notes: Vec<crate::claude_accounts::NoteTurn>,
+    /// The one account's name, when there is only one and it has been named (round 18 shows
+    /// "Your Claude account" until it is). `None` with two or more: `accounts` names them.
+    #[serde(default)]
+    pub first_label: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -603,6 +631,10 @@ impl Snapshot {
             agents_working: 0,
             last_switch: None,
             empty_at: self.empty_at.filter(|_| answered_empty),
+            changes: Vec::new(),
+            nudge: None,
+            notes: Vec::new(),
+            first_label: None,
         }
     }
 }
@@ -633,6 +665,10 @@ pub struct Service {
     /// Rich's other lines about the quota, said once each at `Digest`: usage back to normal
     /// (plan answer 11), and every account used up (round 16).
     notes: Mutex<std::collections::VecDeque<String>>,
+    /// Rich's lines about ACCOUNTS (round 18): the one-time suggestion of a second account
+    /// (`nudge`) and every account close to its week (`bothNear`), each with its kind, so the
+    /// conversation can draw the buttons round 18 puts under them (`note_accounts`).
+    account_notes: Mutex<std::collections::VecDeque<(String, String)>>,
     was_held: std::sync::atomic::AtomicBool,
     /// When leases and agent dispatches started, for the EXPECTED rise (answer 10).
     starts: Mutex<std::collections::VecDeque<u64>>,
@@ -717,6 +753,7 @@ impl Service {
             alert: Mutex::new(None),
             was_fast: std::sync::atomic::AtomicBool::new(false),
             notes: Mutex::new(std::collections::VecDeque::new()),
+            account_notes: Mutex::new(std::collections::VecDeque::new()),
             was_held: std::sync::atomic::AtomicBool::new(false),
             starts: Mutex::new(std::collections::VecDeque::new()),
             agents_working: std::sync::atomic::AtomicUsize::new(0),
@@ -793,6 +830,12 @@ impl Service {
             }
         }
         view.agents_working = self.agents_working.load(std::sync::atomic::Ordering::SeqCst);
+        view.changes = self.accounts.changes();
+        view.nudge = self.accounts.nudge();
+        view.notes = self.accounts.notes();
+        if self.accounts.count() == 1 && in_use.label != "Account 1" {
+            view.first_label = Some(in_use.label);
+        }
         view
     }
 
@@ -830,6 +873,7 @@ impl Service {
         self.decide();
         self.note_speed();
         self.note_held();
+        self.note_accounts();
         let _best_effort = self.publish();
         self.accounts.in_use().id
     }
@@ -961,6 +1005,91 @@ impl Service {
     /// Rich's lines can say a clock time. The caller's, never read from a timezone here.
     pub fn set_utc_offset(&self, minutes: i32) {
         *self.utc_offset_minutes.lock().unwrap() = Some(minutes);
+        self.accounts.set_utc_offset(minutes);
+    }
+
+    /// **Rich's lines about accounts, for someone who is not technical** (round 18, richos-hq
+    /// `design/mockups/rounds/round-18/`; the CEO 2026-10-06, feedback item 9: "Non-technical
+    /// users should also be able to take advantage of the multi-account setup").
+    /// - **The suggestion, once ever** (`one-nudge`): one account, at
+    ///   [`crate::claude_accounts::NUDGE_WEEKLY_PERCENT`] of its week. Most people will
+    ///   discover a second account here; the buttons are drawn under it by the conversation.
+    /// - **Every account close to its week** (`both-near-chat`): each at
+    ///   [`crate::claude_accounts::NEAR_WEEKLY_PERCENT`] or more. Said once while that lasts.
+    ///
+    /// Round 18's "At today's pace, both run out in about 7 hours" is a fixture in the mockup
+    /// (its NOTES.md, "Limits"); nothing here measures a pace across accounts, so the line says
+    /// what happens when they run out and not when.
+    fn note_accounts(&self) {
+        use crate::claude_accounts::{NEAR_WEEKLY_PERCENT, NUDGE_WEEKLY_PERCENT};
+        let now = crate::util::now_millis();
+        let readings = self.readings();
+        let offset = *self.utc_offset_minutes.lock().unwrap();
+        let week = |id: &str| readings.get(id)
+            .and_then(|r| r.windows.iter().find(|w| w.id == "seven_day").cloned());
+        let list = self.accounts.list();
+        if list.len() == 1 {
+            let Some(w) = week(&list[0].id) else { return };
+            if w.used_percent < NUDGE_WEEKLY_PERCENT { return; }
+            match self.accounts.say_once("nudge", now) {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(error) => { eprintln!("[richos] claude accounts: the suggestion could not be recorded ({error})"); return; }
+            }
+            let fresh = w.resets_at.filter(|t| *t > now)
+                .map(|t| format!(" It is fresh again {}. If it runs out before then, the team pauses until it is.", when_long(t, offset, now)))
+                .unwrap_or_default();
+            self.account_notes.lock().unwrap().push_back(("nudge".into(), format!(
+                "Your Claude account has used **{}%** of this week's limit.{fresh}\n\n\
+                 If you have a second Claude account, for example one for work, I can switch to it \
+                 when this one is nearly full, so the team keeps working.", w.used_percent.floor())));
+            return;
+        }
+        // Every account has a reading and is close to its week. Ordered as the sheet orders
+        // them: the one in use first, then by when its week is fresh again.
+        let in_use = self.accounts.in_use().id;
+        let mut near: Vec<(String, Window)> = Vec::new();
+        for account in &list {
+            match week(&account.id) {
+                Some(w) if w.used_percent >= NEAR_WEEKLY_PERCENT => near.push((account.label.clone(), w)),
+                _ => {
+                    if let Err(error) = self.accounts.clear_both_near() { eprintln!("[richos] claude accounts: {error}"); }
+                    return;
+                }
+            }
+        }
+        match self.accounts.say_once("bothNear", now) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => { eprintln!("[richos] claude accounts: the line could not be recorded ({error})"); return; }
+        }
+        let first = list.iter().position(|a| a.id == in_use).unwrap_or(0);
+        let lead = near.remove(first);
+        near.sort_by_key(|(_, w)| w.resets_at.unwrap_or(u64::MAX));
+        near.insert(0, lead);
+        let all = if near.len() == 2 { "both of your Claude accounts are".to_string() } else { format!("all {} of your Claude accounts are", near.len()) };
+        let figures: Vec<String> = near.iter().enumerate()
+            .map(|(i, (label, w))| if i == 0 { format!("{label} has used {}%", w.used_percent.floor()) } else { format!("{label} {}%", w.used_percent.floor()) })
+            .collect();
+        let figures = match figures.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+            _ => figures.join(""),
+        };
+        let back = near.iter().filter_map(|(label, w)| w.resets_at.filter(|t| *t > now).map(|t| (label, t))).min_by_key(|(_, t)| *t);
+        let then = match back {
+            Some((label, t)) => format!("When they run out, the team pauses until {label} is fresh again {}. Nothing is lost.", when_long(t, offset, now)),
+            None => "When they run out, the team pauses until one of them is fresh again. Nothing is lost.".to_string(),
+        };
+        self.account_notes.lock().unwrap().push_back(("bothNear".into(), format!(
+            "Heads up: {all} close to their weekly limit. {figures}.\n\n{then} \
+             If you have another Claude account, add it and the team keeps going.")));
+    }
+
+    /// Rich's lines about accounts (`note_accounts`), each `(kind, text)`, taken once by whoever
+    /// says them in the conversation; the caller records the turn with
+    /// [`crate::claude_accounts::Accounts::noted`].
+    pub fn take_account_notes(&self) -> Vec<(String, String)> {
+        self.account_notes.lock().unwrap().drain(..).collect()
     }
 
     /// Rich's other quota lines, each taken once by whoever says it in the conversation.
@@ -1156,6 +1285,7 @@ impl Service {
         }
         self.note_speed();
         self.note_held();
+        self.note_accounts();
         self.resets.refresh(bin, force || changed);
         self.view()
     }
@@ -1642,8 +1772,11 @@ for line in sys.stdin:
         assert!(view.accounts[1].in_use && !view.accounts[0].in_use);
         assert_eq!(service.accounts.take_notice(), None, "nothing has run under Work yet");
         service.accounts.ran_on(&work.id);
-        assert_eq!(service.accounts.take_notice().as_deref(),
-            Some("Switched to Work — Account 1 reached 93% of its five-hour window. Nothing stopped."));
+        // Round 18's words. The five-hour reset is 2099, and before the webview has said its
+        // offset the span is said, so only the parts that do not move with the clock are exact.
+        let line = service.accounts.take_notice().unwrap();
+        assert!(line.starts_with("I switched the team to your **Work** account. Account 1 had used 93% of its 5-hour limit, and it is fresh again in "), "{line}");
+        assert!(line.ends_with(".\n\nNothing stopped. The team carried on right where it was."), "{line}");
         assert_eq!(view.last_switch.as_ref().map(|s| (s.from.as_str(), s.to.as_str(), s.why.as_str(), s.used)),
             Some(("1", work.id.as_str(), "fiveHour", Some(93.))), "the card after a switch reads it from the view");
         let published: View = gate::read_json(&root.path().join("engine-state/claude-quota.json")).unwrap();
@@ -1728,6 +1861,94 @@ for line in sys.stdin:
         service.remove_account(&work.id).unwrap();
         assert_eq!(service.view().held_until, None);
         assert_eq!(gate::admission(&state, crate::util::now_millis()), Admission::Disabled);
+    }
+
+    /// A reading the lease on `account` streamed, `hours` ahead so each one is newer than the
+    /// last and none measures as fast.
+    fn stream(service: &Service, account: &str, weekly: f64, weekly_reset: &str, hours: u64) {
+        let windows = vec![
+            Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: 10., resets_at: reset(&json!("2099-01-01T00:00:00Z")), duration_ms: 5 * 3_600_000 },
+            Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: weekly, resets_at: reset(&json!(weekly_reset)), duration_ms: 168 * 3_600_000 },
+        ];
+        service.before_turn(account, Some((windows, crate::util::now_millis() + hours * 3_600_000)));
+    }
+
+    /// **Round 18: Rich suggests a second account, once** (the CEO 2026-10-06, feedback item 9:
+    /// "Non-technical users should also be able to take advantage of the multi-account setup").
+    /// One account at 85% of its week: nothing. At 86%: the line, with its kind, so the
+    /// conversation can put Add a second account and Not now under it. Never again after that,
+    /// not even after a relaunch; Not now is remembered and published.
+    #[test]
+    #[cfg(unix)]
+    fn one_account_at_86_percent_of_its_week_rich_suggests_a_second_account_once_ever() {
+        let root = Scratch::new();
+        let bin = fake_claude(root.path());
+        let service = Service::open(root.path()).unwrap();
+        service.set_utc_offset(0);
+        usage(&root.path().join("usage-1.json"), 10., 85., "2099-01-05T09:00:00Z");
+        service.refresh(&bin, true);
+        assert!(service.take_account_notes().is_empty(), "85% says nothing");
+        stream(&service, "1", 86.4, "2099-01-05T09:00:00Z", 1);
+        let notes = service.take_account_notes();
+        assert_eq!(notes, vec![("nudge".to_string(),
+            "Your Claude account has used **86%** of this week's limit. It is fresh again on Monday at 9:00 AM. \
+             If it runs out before then, the team pauses until it is.\n\nIf you have a second Claude account, \
+             for example one for work, I can switch to it when this one is nearly full, so the team keeps working.".to_string())]);
+        assert!(!notes[0].1.contains('\u{2014}') && !notes[0].1.contains('\u{2013}'), "no m-dash or n-dash");
+        service.accounts.noted("nudge", "turn_nudge").unwrap();
+        service.before_turn("1", None);
+        assert!(service.take_account_notes().is_empty(), "said once");
+        let service = Service::open(root.path()).unwrap();
+        service.before_turn("1", None);
+        assert!(service.take_account_notes().is_empty(), "said once ever, a relaunch included");
+        service.accounts.answer_nudge("notNow").unwrap();
+        let view = service.view();
+        assert_eq!(view.nudge.as_ref().and_then(|n| n.turn.as_deref()), Some("turn_nudge"));
+        assert_eq!(view.nudge.as_ref().and_then(|n| n.answer.as_deref()), Some("notNow"));
+        assert_eq!(view.notes, vec![crate::claude_accounts::NoteTurn { turn: "turn_nudge".into(), kind: "nudge".into() }]);
+    }
+
+    /// **Round 18: every account close to its weekly limit, said once while it lasts.** Home at
+    /// 96% and Work at 93%: the line names both figures and when the soonest is fresh again. A
+    /// second check says nothing. Once Work's week is fresh (5%) and then near again, it is said
+    /// again. One account under 90% says nothing.
+    #[test]
+    #[cfg(unix)]
+    fn when_every_account_is_near_its_week_rich_says_so_once_while_that_lasts() {
+        let root = Scratch::new();
+        let bin = fake_claude(root.path());
+        let service = Service::open(root.path()).unwrap();
+        service.set_utc_offset(0);
+        service.accounts.rename("1", "Home").unwrap();
+        let work = service.accounts.add("Work").unwrap();
+        let work_usage = work.folder.clone().unwrap().join("usage.json");
+        usage(&root.path().join("usage-1.json"), 10., 96., "2099-01-03T09:00:00Z");
+        usage(&work_usage, 10., 89., "2099-01-04T06:00:00Z");
+        service.refresh(&bin, true);
+        assert!(service.take_account_notes().is_empty(), "Work at 89% is not near");
+        stream(&service, &work.id, 93., "2099-01-04T06:00:00Z", 1);
+        assert_eq!(service.take_account_notes(), vec![("bothNear".to_string(),
+            "Heads up: both of your Claude accounts are close to their weekly limit. Home has used 96% and Work 93%.\n\n\
+             When they run out, the team pauses until Home is fresh again on Saturday at 9:00 AM. Nothing is lost. \
+             If you have another Claude account, add it and the team keeps going.".to_string())]);
+        service.before_turn("1", None);
+        assert!(service.take_account_notes().is_empty(), "said once while it lasts");
+        stream(&service, &work.id, 5., "2099-01-11T06:00:00Z", 2);
+        assert!(service.take_account_notes().is_empty());
+        stream(&service, &work.id, 94., "2099-01-11T06:00:00Z", 3);
+        assert_eq!(service.take_account_notes().len(), 1, "near again after it was not: said again");
+    }
+
+    #[test]
+    fn round_18_says_a_moment_as_today_tomorrow_or_the_weekday() {
+        // 2001-09-09T01:46:40Z, a Sunday.
+        let now = 1_000_000_000_000;
+        assert_eq!(when_long(now + 3_600_000, Some(0), now), "today at 2:47 AM");
+        assert_eq!(when_long(now + 24 * 3_600_000, Some(0), now), "tomorrow at 1:47 AM");
+        assert_eq!(when_long(now + 72 * 3_600_000, Some(0), now), "on Wednesday at 1:47 AM");
+        // Two hours west, now is Saturday 11:46 PM and an hour on is Sunday 12:47 AM.
+        assert_eq!(when_long(now + 3_600_000, Some(-120), now), "tomorrow at 12:47 AM", "the webview's offset");
+        assert_eq!(when_long(now + 3 * 3_600_000, None, now), "in 3 h", "before the webview has said its offset");
     }
 
     /// **Round 16's lines about speed, said once each.** One account at 4 points a minute (the

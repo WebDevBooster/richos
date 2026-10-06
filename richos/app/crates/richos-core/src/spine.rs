@@ -4317,15 +4317,24 @@ impl Spine {
                 None => return,
             },
         };
+        // The kind, when the line is about accounts (round 18): its turn is recorded, so the
+        // conversation draws the buttons round 18 puts under it (See your accounts, Add a
+        // second account, Not now).
         let mut pending = vec![
-            (AttentionTier::InterruptNow, quota.take_alert()),
-            (AttentionTier::Digest, quota.accounts.take_notice()),
+            (AttentionTier::InterruptNow, None, quota.take_alert()),
+            (AttentionTier::Digest, Some("switched".to_string()), quota.accounts.take_notice()),
         ];
-        pending.extend(quota.take_notes().into_iter().map(|note| (AttentionTier::Digest, Some(note))));
-        for (tier, text) in pending {
+        pending.extend(quota.take_notes().into_iter().map(|note| (AttentionTier::Digest, None, Some(note))));
+        pending.extend(quota.take_account_notes().into_iter().map(|(kind, note)| (AttentionTier::Digest, Some(kind), Some(note))));
+        for (tier, kind, text) in pending {
             if let Some(text) = text {
-                if let Err(error) = self.raise_proactive(Some(&thread), tier, &text) {
-                    eprintln!("[richos] claude accounts: a notice could not be written ({error})");
+                match self.raise_proactive(Some(&thread), tier, &text) {
+                    Ok(turn) => if let Some(kind) = kind {
+                        if let Err(error) = quota.accounts.noted(&kind, &turn) {
+                            eprintln!("[richos] claude accounts: a line's buttons could not be recorded ({error})");
+                        }
+                    },
+                    Err(error) => eprintln!("[richos] claude accounts: a notice could not be written ({error})"),
                 }
             }
         }

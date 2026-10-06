@@ -100,6 +100,21 @@ struct Stored {
     limited_until: BTreeMap<String, u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_switch: Option<LastSwitch>,
+    /// Round 18's **Recent changes**, oldest first, the last [`CHANGES_KEPT`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    changes: Vec<Change>,
+    /// Rich's one-time suggestion of a second account (round 18, `one-nudge`): said at most
+    /// once on this Mac, ever.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nudge: Option<Said>,
+    /// Rich's "close to their weekly limit" line (round 18, `both-near-chat`): said once while
+    /// every account is near its week, and again only after one of them is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    both_near: Option<Said>,
+    /// Which of Rich's lines in the conversation are about accounts, so the conversation can
+    /// put round 18's buttons under them. The last [`CHANGES_KEPT`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<NoteTurn>,
 }
 impl Default for Stored {
     fn default() -> Self {
@@ -109,7 +124,75 @@ impl Default for Stored {
             at_threshold: AtThreshold::Pause,
             limited_until: BTreeMap::new(),
             last_switch: None,
+            changes: Vec::new(),
+            nudge: None,
+            both_near: None,
+            notes: Vec::new(),
         }
+    }
+}
+
+/// How many Recent changes rows, and how many account lines in the conversation, are kept.
+pub const CHANGES_KEPT: usize = 20;
+
+/// Round 18's one-time suggestion of a second account, at this share of a single account's
+/// week (the mockup's value; its NOTES.md calls it "a fixture value, not a rule").
+pub const NUDGE_WEEKLY_PERCENT: f64 = 86.0;
+
+/// Round 18's "close to the weekly limit": the share of the week at which a card's meter reads
+/// "Almost used up", and at which, when every account is there, Rich says so.
+pub const NEAR_WEEKLY_PERCENT: f64 = 90.0;
+
+/// **One row of round 18's Recent changes.** Labels are kept as they were at the time, so a
+/// removed account still reads by its name.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Change {
+    /// Epoch ms.
+    pub at: u64,
+    /// `added`, `removed`, `chose` or `switched`.
+    pub kind: String,
+    /// The account added, removed, chosen or switched to.
+    pub id: String,
+    pub label: String,
+    /// For `switched`: the account that was left, and why (`weekly`, `fiveHour` or `limit`),
+    /// with the figure it was read at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used: Option<f64>,
+}
+
+/// A line Rich said once: when, the conversation turn it was written as, and (the suggestion
+/// only) the answer, `notNow`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Said {
+    pub at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
+}
+
+/// One of Rich's lines in the conversation that is about accounts: `nudge`, `switched` or
+/// `bothNear`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteTurn {
+    pub turn: String,
+    pub kind: String,
+}
+
+/// "your **Work** account", or "**Account 1**" when the label already says account (round 18:
+/// "I switched the team to your Work account").
+pub fn account_phrase(label: &str) -> String {
+    if label.to_lowercase().split_whitespace().any(|w| w == "account") {
+        format!("**{label}**")
+    } else {
+        format!("your **{label}** account")
     }
 }
 
@@ -210,6 +293,20 @@ pub fn parse_usage_limit(error: &str) -> Option<Option<u64>> {
         .and_then(|n| n.parse().ok()))
 }
 
+/// A Recent changes row, keeping the last [`CHANGES_KEPT`].
+fn push_change(state: &mut Stored, change: Change) {
+    state.changes.push(change);
+    let extra = state.changes.len().saturating_sub(CHANGES_KEPT);
+    state.changes.drain(..extra);
+}
+
+/// Was `id`'s adding finished (its sign-in came back as a different account) since it was
+/// last created? Ids are reused after a removal, so the latest row about it decides.
+fn fully_added(state: &Stored, id: &str) -> bool {
+    state.changes.iter().rev().find(|c| c.id == id && (c.kind == "added" || c.kind == "removed"))
+        .is_some_and(|c| c.kind == "added")
+}
+
 /// A switch that is decided but has not happened yet: no turn or job has run under `to`.
 struct PendingSwitch {
     /// The account the leases were on before this switch (before any chain of switches that
@@ -227,6 +324,9 @@ pub struct Accounts {
     /// ([`Accounts::ran_on`]). A switch that waits on a running command shows nothing.
     pending: Mutex<Option<PendingSwitch>>,
     notice: Mutex<Option<String>>,
+    /// The webview's offset from UTC (`quota::Service::set_utc_offset`), so the switch line
+    /// can say as a clock time when the account it left is fresh again.
+    utc_offset_minutes: Mutex<Option<i32>>,
 }
 
 impl Accounts {
@@ -245,7 +345,7 @@ impl Accounts {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Stored::default(),
             Err(e) => return Err(e),
         };
-        Ok(Self { path, root: data_dir.join("claude-accounts"), state: Mutex::new(state), pending: Mutex::new(None), notice: Mutex::new(None) })
+        Ok(Self { path, root: data_dir.join("claude-accounts"), state: Mutex::new(state), pending: Mutex::new(None), notice: Mutex::new(None), utc_offset_minutes: Mutex::new(None) })
     }
 
     fn save(&self, state: &Stored) -> io::Result<()> {
@@ -260,6 +360,84 @@ impl Accounts {
             .unwrap_or_else(|| state.accounts[0].clone())
     }
     pub fn at_threshold(&self) -> AtThreshold { self.state.lock().unwrap().at_threshold }
+    /// Round 18's Recent changes, oldest first.
+    pub fn changes(&self) -> Vec<Change> { self.state.lock().unwrap().changes.clone() }
+    /// Rich's one-time suggestion of a second account, once it has been said.
+    pub fn nudge(&self) -> Option<Said> { self.state.lock().unwrap().nudge.clone() }
+    /// Rich's lines in the conversation that are about accounts.
+    pub fn notes(&self) -> Vec<NoteTurn> { self.state.lock().unwrap().notes.clone() }
+    /// The webview's offset from UTC, minutes east positive (`quota::Service::set_utc_offset`).
+    pub fn set_utc_offset(&self, minutes: i32) { *self.utc_offset_minutes.lock().unwrap() = Some(minutes); }
+    pub fn utc_offset(&self) -> Option<i32> { *self.utc_offset_minutes.lock().unwrap() }
+
+    /// **The added account's sign-in finished, as a different Claude account** (round 18: "Work
+    /// is ready"). Recent changes says "You added Work." once per adding: a later Sign in on the
+    /// same account adds no second row.
+    pub fn signed_in(&self, id: &str, now: u64) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let Some(account) = state.accounts.iter().find(|a| a.id == id).cloned() else { return Ok(()) };
+        if fully_added(&state, id) { return Ok(()); }
+        let mut next = state.clone();
+        push_change(&mut next, Change { at: now, kind: "added".into(), id: id.into(), label: account.label, from: None, why: None, used: None });
+        self.save(&next)?;
+        *state = next;
+        Ok(())
+    }
+
+    /// **Is a line about accounts due, and has it not been said?** Marks it said, so each is
+    /// queued once: `nudge` once ever, `bothNear` once while it is true ([`Accounts::clear_both_near`]).
+    pub fn say_once(&self, kind: &str, now: u64) -> io::Result<bool> {
+        let mut state = self.state.lock().unwrap();
+        let slot = match kind { "nudge" => &state.nudge, "bothNear" => &state.both_near, _ => return Ok(false) };
+        if slot.is_some() { return Ok(false); }
+        let mut next = state.clone();
+        let said = Some(Said { at: now, turn: None, answer: None });
+        if kind == "nudge" { next.nudge = said } else { next.both_near = said }
+        self.save(&next)?;
+        *state = next;
+        Ok(true)
+    }
+
+    /// Not every account is near its week any more, so the line may be said again next time.
+    pub fn clear_both_near(&self) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if state.both_near.is_none() { return Ok(()); }
+        let mut next = state.clone();
+        next.both_near = None;
+        self.save(&next)?;
+        *state = next;
+        Ok(())
+    }
+
+    /// **A line about accounts was written into the conversation as `turn`**, so the
+    /// conversation can draw round 18's buttons under it.
+    pub fn noted(&self, kind: &str, turn: &str) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let mut next = state.clone();
+        next.notes.push(NoteTurn { turn: turn.into(), kind: kind.into() });
+        let extra = next.notes.len().saturating_sub(CHANGES_KEPT);
+        next.notes.drain(..extra);
+        match kind {
+            "nudge" => if let Some(said) = next.nudge.as_mut() { said.turn = Some(turn.into()) },
+            "bothNear" => if let Some(said) = next.both_near.as_mut() { said.turn = Some(turn.into()) },
+            _ => {}
+        }
+        self.save(&next)?;
+        *state = next;
+        Ok(())
+    }
+
+    /// **Not now** on Rich's suggestion (round 18): remembered, so the conversation answers "You
+    /// can add one any time in Settings, under Claude accounts." and offers nothing again.
+    pub fn answer_nudge(&self, answer: &str) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let mut next = state.clone();
+        let said = next.nudge.get_or_insert(Said { at: crate::util::now_millis(), turn: None, answer: None });
+        said.answer = Some(answer.into());
+        self.save(&next)?;
+        *state = next;
+        Ok(())
+    }
     pub fn limited_until(&self, id: &str) -> Option<u64> { self.state.lock().unwrap().limited_until.get(id).copied() }
     pub fn last_switch(&self) -> Option<LastSwitch> { self.state.lock().unwrap().last_switch.clone() }
     pub fn folder(&self, id: &str) -> Option<PathBuf> {
@@ -320,6 +498,11 @@ impl Accounts {
         let mut state = self.state.lock().unwrap();
         let Some(account) = state.accounts.iter().find(|a| a.id == id).cloned() else { return Ok(()) };
         let mut next = state.clone();
+        // An account whose sign-in never finished (Cancel in round 18's add flow) leaves no row
+        // in Recent changes; one that was added says it was removed.
+        if fully_added(&state, id) {
+            push_change(&mut next, Change { at: crate::util::now_millis(), kind: "removed".into(), id: id.into(), label: account.label.clone(), from: None, why: None, used: None });
+        }
         next.accounts.retain(|a| a.id != id);
         next.limited_until.remove(id);
         if next.in_use == id { next.in_use = ACCOUNT_ONE.into(); }
@@ -334,7 +517,9 @@ impl Accounts {
         Ok(())
     }
 
-    fn switch_to(&self, state: &mut Stored, to: &str, why: Gone, now: u64) -> io::Result<()> {
+    /// `fresh_at` is when the account being left is fresh again (the reset of the window that
+    /// made it go), when that is known.
+    fn switch_to(&self, state: &mut Stored, to: &str, why: Gone, fresh_at: Option<u64>, now: u64) -> io::Result<()> {
         let from = state.accounts.iter().find(|a| a.id == state.in_use).map(|a| a.label.clone()).unwrap_or_default();
         let to_label = state.accounts.iter().find(|a| a.id == to).map(|a| a.label.clone()).unwrap_or_default();
         let (kind, used) = match why {
@@ -346,15 +531,24 @@ impl Accounts {
         let mut next = state.clone();
         next.last_switch = Some(LastSwitch { from: next.in_use.clone(), to: to.into(), at: now, why: kind.into(), used });
         next.in_use = to.into();
+        push_change(&mut next, Change { at: now, kind: "switched".into(), id: to.into(), label: to_label.clone(), from: Some(from.clone()), why: Some(kind.into()), used });
         self.save(&next)?;
         *state = next;
-        // **Rich's one line in the conversation** (round 16, "The switch"). A switch at a turn
-        // boundary stops nothing; a usage-limit refusal re-serves the step it cut on the next
-        // account (`spine.rs`, `work_host.rs`).
+        // **Rich's line in the conversation, in round 18's words** ("I switched the team to your
+        // Work account. Home had used 99% of its weekly limit, and it is fresh again on Thursday
+        // at 9:00 AM." / "Nothing stopped. ..."). A switch at a turn boundary stops nothing; a
+        // usage-limit refusal re-serves the step it cut on the next account (`spine.rs`,
+        // `work_host.rs`). The clock time needs the webview's offset; before it has said one,
+        // the span is said instead.
+        let fresh = fresh_at.filter(|t| *t > now)
+            .map(|t| format!(", and it is fresh again {}", crate::quota::when_long(t, *self.utc_offset_minutes.lock().unwrap(), now)))
+            .unwrap_or_default();
+        let lead = format!("I switched the team to {}.", account_phrase(&to_label));
+        let carried = "Nothing stopped. The team carried on right where it was.";
         let text = match why {
-            Gone::FiveHour(used) => format!("Switched to {to_label} — {from} reached {}% of its five-hour window. Nothing stopped.", used.floor()),
-            Gone::Weekly(used) => format!("Switched to {to_label} — {from}'s weekly window reached {}%. Nothing stopped.", used.floor()),
-            Gone::Limit => format!("Switched to {to_label} — {from} reached a usage limit; the step it turned away runs again on {to_label}."),
+            Gone::FiveHour(used) => format!("{lead} {from} had used {}% of its 5-hour limit{fresh}.\n\n{carried}", used.floor()),
+            Gone::Weekly(used) => format!("{lead} {from} had used {}% of its weekly limit{fresh}.\n\n{carried}", used.floor()),
+            Gone::Limit => format!("{lead} {from} reached a Claude usage limit, so the step it turned away runs again on {to_label}."),
         };
         // Deciding is not switching: running leases move at their next turn boundary, and one
         // with a command running waits longer (`spine.rs` / `work_host.rs`,
@@ -386,6 +580,9 @@ impl Accounts {
         let mut next = state.clone();
         next.in_use = id.into();
         next.last_switch = None;
+        // Round 18's Recent changes: "You chose Work."
+        let label = next.accounts.iter().find(|a| a.id == id).map(|a| a.label.clone()).unwrap_or_default();
+        push_change(&mut next, Change { at: crate::util::now_millis(), kind: "chose".into(), id: id.into(), label, from: None, why: None, used: None });
         self.save(&next)?;
         *state = next;
         *self.pending.lock().unwrap() = None;
@@ -433,7 +630,13 @@ impl Accounts {
             .filter_map(|a| readings.get(&a.id).map(|r| (a.id.as_str(), r)))
             .filter(|(id, r)| gone(r, at, pause, limit(id), now).is_none()));
         let Some(next) = next.map(str::to_string) else { return Ok(false) };
-        self.switch_to(&mut state, &next, why, now)?;
+        // When the account being left is fresh again: the reset of the window that made it go.
+        let window = match why { Gone::Weekly(_) => Some("seven_day"), Gone::FiveHour(_) => Some("five_hour"), Gone::Limit => None };
+        let fresh_at = match why {
+            Gone::Limit => limit(&current),
+            _ => mine.windows.iter().find(|w| Some(w.id.as_str()) == window).and_then(|w| w.resets_at),
+        };
+        self.switch_to(&mut state, &next, why, fresh_at, now)?;
         Ok(true)
     }
 
@@ -554,7 +757,7 @@ pub(crate) mod tests {
         accounts.ran_on("1");
         assert_eq!(accounts.take_notice(), None, "a turn on the account being left says nothing");
         accounts.ran_on("3");
-        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Personal — Account 1's weekly window reached 99%. Nothing stopped."));
+        assert_eq!(accounts.take_notice().as_deref(), Some("I switched the team to your **Personal** account. Account 1 had used 99% of its weekly limit, and it is fresh again in 2 d.\n\nNothing stopped. The team carried on right where it was."));
         let last = accounts.last_switch().unwrap();
         assert_eq!((last.from.as_str(), last.to.as_str(), last.at, last.why.as_str(), last.used), ("1", "3", NOW, "weekly", Some(99.)));
         // Staying is fill-first: Personal has room, so nothing moves, even though Work is
@@ -594,7 +797,7 @@ pub(crate) mod tests {
         assert!(accounts.evaluate(&readings(one, reading(0., HOUR, 99., 48 * HOUR)), Some(93), NOW).unwrap());
         assert_eq!(accounts.in_use().id, "1", "at 99% of its week the switch moves on");
         accounts.ran_on("1");
-        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Account 1 — Work's weekly window reached 99%. Nothing stopped."));
+        assert_eq!(accounts.take_notice().as_deref(), Some("I switched the team to **Account 1**. Work had used 99% of its weekly limit, and it is fresh again in 2 d.\n\nNothing stopped. The team carried on right where it was."));
         assert!(accounts.use_first("9").is_err(), "an account that is not on this Mac cannot be picked");
         assert_eq!(accounts.in_use().id, "1");
     }
@@ -657,5 +860,62 @@ pub(crate) mod tests {
         fast.windows[1].used_percent = 96.;
         assert!(accounts.evaluate(&readings(fast, reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
         assert_eq!(accounts.in_use().id, "2", "switched at 96%, before 99%");
+    }
+
+    /// **Round 18, why it switched: the line in the conversation**, in the mockup's words (the
+    /// CEO 2026-10-06, feedback item 9). Which account the team is on now, which one was left
+    /// and why, and when that one is fresh again, as a clock time once the webview has said its
+    /// offset. A usage-limit refusal says the step runs again. No m-dash or n-dash.
+    #[test]
+    fn the_switch_line_says_which_account_why_and_when_the_one_left_is_fresh_again() {
+        let (_dir, accounts) = two_accounts();
+        accounts.rename("1", "Home").unwrap();
+        accounts.set_utc_offset(0);
+        accounts.set_at_threshold(AtThreshold::Switch).unwrap();
+        // NOW is Sunday 2001-09-09 1:46:40 AM UTC; Home's five-hour window resets an hour on.
+        assert!(accounts.evaluate(&readings(reading(95., HOUR, 30., 72 * HOUR), reading(5., HOUR, 5., 96 * HOUR)), Some(93), NOW).unwrap());
+        accounts.ran_on("2");
+        let line = accounts.take_notice().unwrap();
+        assert_eq!(line, "I switched the team to your **Work** account. Home had used 95% of its 5-hour limit, and it is fresh again today at 2:47 AM.\n\nNothing stopped. The team carried on right where it was.");
+        assert!(!line.contains('\u{2014}') && !line.contains('\u{2013}'));
+        // Work's week at 99.4%, fresh again Wednesday: back to Home.
+        assert!(accounts.evaluate(&readings(reading(5., 5 * HOUR, 30., 72 * HOUR), reading(5., HOUR, 99.4, 72 * HOUR)), Some(93), NOW).unwrap());
+        accounts.ran_on("1");
+        assert_eq!(accounts.take_notice().as_deref(), Some("I switched the team to your **Home** account. Work had used 99% of its weekly limit, and it is fresh again on Wednesday at 1:47 AM.\n\nNothing stopped. The team carried on right where it was."));
+        // A usage-limit refusal inside a turn on Home: the step runs again on Work.
+        let room = readings(reading(5., 5 * HOUR, 30., 72 * HOUR), reading(5., HOUR, 10., 72 * HOUR));
+        assert_eq!(accounts.limit_reached("1", Some(NOW + HOUR), &room, Some(93), NOW).unwrap(), AfterLimit::Continue);
+        accounts.ran_on("2");
+        assert_eq!(accounts.take_notice().as_deref(), Some("I switched the team to your **Work** account. Home reached a Claude usage limit, so the step it turned away runs again on Work."));
+    }
+
+    /// **Round 18, why it switched: Recent changes**, the third place. Adding is said once the
+    /// sign-in comes back as a different account (not when the folder is made, and once however
+    /// often it signs in again); choosing, the automatic switch with its reason, and removing
+    /// are each a row. An adding canceled during its sign-in leaves no row at all. The rows
+    /// survive a relaunch.
+    #[test]
+    fn recent_changes_record_adding_choosing_switching_and_removing_and_a_canceled_adding_leaves_nothing() {
+        let dir = Scratch::new();
+        let accounts = Accounts::open(dir.path()).unwrap();
+        let work = accounts.add("Work").unwrap();
+        assert!(accounts.changes().is_empty(), "added is said when the sign-in comes back, not before");
+        accounts.signed_in(&work.id, NOW).unwrap();
+        accounts.signed_in(&work.id, NOW + 1).unwrap();
+        accounts.use_first(&work.id).unwrap();
+        assert!(accounts.evaluate(&readings(reading(10., HOUR, 30., 72 * HOUR), reading(0., HOUR, 99., 48 * HOUR)), Some(93), NOW + 2).unwrap());
+        accounts.remove(&work.id).unwrap();
+        let spare = accounts.add("Spare").unwrap();
+        assert_eq!(spare.id, work.id, "the id is reused, and its old rows must not count as this adding");
+        accounts.remove(&spare.id).unwrap();
+        let rows = |a: &Accounts| a.changes().iter().map(|c| (c.kind.clone(), c.label.clone(), c.from.clone(), c.why.clone())).collect::<Vec<_>>();
+        let expected = vec![
+            ("added".to_string(), "Work".to_string(), None, None),
+            ("chose".into(), "Work".into(), None, None),
+            ("switched".into(), "Account 1".into(), Some("Work".to_string()), Some("weekly".to_string())),
+            ("removed".into(), "Work".into(), None, None),
+        ];
+        assert_eq!(rows(&accounts), expected);
+        assert_eq!(rows(&Accounts::open(dir.path()).unwrap()), expected, "Recent changes survive a relaunch");
     }
 }
