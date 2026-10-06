@@ -82,6 +82,52 @@ async function main(){
   assertEqual(await page.inputValue("#repository-company"),"northwind","choosing another company still works");
   await page.close();return "Lumen Labs pre-selected from the thread on screen; folder field focused; still changeable";
  });
+ await run.check("2c  a click in the folder field opens the folder chooser, and the chosen folder fills it",async()=>{
+  // CEO feedback 2026-10-06_01, item 2c and repositories2.mov: "a seamless experience would
+  // be if I clicked here and the Finder would have opened".
+  const page=await browser.newPage({viewport:{width:1280,height:900}});
+  await page.addInitScript(()=>window.__RICHOS_MOCK_PRESET__={pickedFolder:"/fictional/picked project"});
+  await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
+  await page.click("#set-btn");await page.click("#set-repositories-open");
+  await page.waitForSelector("#repository-company option:nth-child(2)",{state:"attached"});
+  await page.click("#repository-folder");
+  await page.waitForFunction(()=>document.getElementById("repository-folder").value==="/fictional/picked project");
+  assertEqual(await page.evaluate(()=>window.__RICHOS_FOLDER_ASKS__),["Choose a project folder"],"one chooser, titled for this field");
+  await page.waitForFunction(()=>document.activeElement&&document.activeElement.id==="repository-connect");
+  await page.click("#repository-connect");
+  await page.waitForFunction(()=>document.getElementById("repository-message").textContent.startsWith("Folder connected."));
+  assert((await page.textContent("#repository-list")).includes("picked"),"the chosen folder is connected");
+  await page.close();return "click, chosen folder in the field, Connect folder focused and connecting it";
+ });
+ await run.check("2c  closing the chooser keeps the field, and a typed path still works",async()=>{
+  const page=await browser.newPage({viewport:{width:1280,height:900}});
+  await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
+  await page.click("#set-btn");await page.click("#set-repositories-open");
+  await page.waitForSelector("#repository-company option:nth-child(2)",{state:"attached"});
+  await page.fill("#repository-folder","/fictional/typed project");
+  await page.click("#repository-folder");
+  await page.waitForFunction(()=>(window.__RICHOS_FOLDER_ASKS__||[]).length===1);
+  assertEqual(await page.inputValue("#repository-folder"),"/fictional/typed project","closing the chooser left the typed path");
+  await page.close();return "typed path kept when the chooser is closed without a folder";
+ });
+ await run.check("2c  the first-run company sheet's folder field uses the same chooser",async()=>{
+  // CEO feedback 2026-10-06_03: "Clicking into 'Its folder on this Mac' also needs to open a
+  // finder or folder picker", and its placeholder becomes "Click and select folder".
+  const page=await browser.newPage({viewport:{width:1280,height:900}});
+  await page.addInitScript(()=>window.__RICHOS_MOCK_PRESET__={chosenEntity:null,memory:"none",pickedFolder:"/fictional/company folder"});
+  await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
+  await page.waitForSelector("#memory-setup:not([hidden])");await page.click("#memory-setup-later");
+  await page.waitForSelector("#entity-picker:not([hidden])");
+  await page.evaluate(()=>[...document.querySelectorAll("#entity-picker button")].find(x=>/add/i.test(x.textContent)).click());
+  await page.waitForSelector("#entity-add-folder",{state:"visible"});
+  assertEqual(await page.getAttribute("#entity-add-folder","placeholder"),"Click and select folder","placeholder");
+  await page.click("#entity-add-folder");
+  await page.waitForFunction(()=>document.getElementById("entity-add-folder").value==="/fictional/company folder");
+  assertEqual(await page.evaluate(()=>window.__RICHOS_FOLDER_ASKS__),["Choose the company's folder"],"one chooser, titled for this field");
+  await page.fill("#entity-add-folder","/fictional/typed");
+  assertEqual(await page.inputValue("#entity-add-folder"),"/fictional/typed","typing a path still works");
+  await page.close();return "same chooser, its own title, placeholder Click and select folder, typing still works";
+ });
  await browser.close();process.exit(run.report()?1:0);
 }
 main().catch(e=>{console.error(e);process.exit(1);});

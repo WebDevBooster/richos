@@ -5331,6 +5331,37 @@ for (const field of [entityAddNameEl, entityAddFolderEl]) {
   });
 }
 
+/// ONE FOLDER PICKER FOR EVERY FIELD THAT TAKES A FOLDER (CEO feedback 2026-10-06, item 2c
+/// and repositories2.mov; 2026-10-06_03: "In general, input fields like these should always
+/// make it as easy as possible for the user to select the folder"). A click in the field
+/// opens the system folder chooser (`pick_folder`, run by the shell from Rust); the folder he
+/// chooses fills the field, and closing the chooser without one leaves it as it was. The
+/// field stays a text field, so typing or pasting a path still works. Every folder field in
+/// the app takes this, and only this, so they behave identically: the first-run company
+/// sheet's below, and the connected-folders sheet's in `repositories.js`.
+function attachFolderPicker(input, title, onPicked) {
+  let picking = false;
+  input.addEventListener("click", async () => {
+    if (picking || input.disabled || input.readOnly) return;
+    picking = true;
+    try {
+      const chosen = await Bridge.invoke("pick_folder", { title });
+      if (typeof chosen === "string" && chosen) {
+        input.value = chosen;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        if (onPicked) onPicked(chosen);
+      }
+    } catch (error) {
+      // The chooser could not open. The field still takes a typed path, so nothing is lost.
+      console.warn("[richos] folder chooser:", error);
+    } finally {
+      picking = false;
+    }
+  });
+}
+window.RichFolderPicker = { attach: attachFolderPicker };
+attachFolderPicker(entityAddFolderEl, "Choose the company's folder");
+
 chooseCompanyBtnEl.addEventListener("click", () => openEntityPicker(chooseCompany, { forCompany: true }));
 
 /// The same answer, as a durable SETTING — one state, two doors, the same arrangement

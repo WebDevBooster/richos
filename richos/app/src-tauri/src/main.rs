@@ -3658,6 +3658,7 @@ fn main() {
             answer_permission,
             repository_connections,
             connect_repository,
+            pick_folder,
             memory_status,
             provision_memory,
             // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
@@ -5574,6 +5575,34 @@ fn repository_connections(state: State<AppState>) -> serde_json::Value {
     serde_json::json!({"companies":registry.entities().iter().map(|e| serde_json::json!({
         "id":e.id, "name":e.display_name, "repositories":e.connected_repositories
     })).collect::<Vec<_>>()})
+}
+
+/// THE SYSTEM FOLDER CHOOSER, for every field where he gives a folder (CEO feedback
+/// 2026-10-06, item 2c, and 2026-10-06_03: a click on the field opens a Finder window). One
+/// command for all of them, run HERE from Rust exactly as `output_save_copy` runs the save
+/// sheet: no `dialog:` permission is granted to the page, which can only ask for a folder
+/// and receive the path he chose, or `None` when he cancels.
+///
+/// Settings chosen, not inherited: parent is the asking window, so it is a sheet on the app;
+/// the title is the asking field's (`title`), so the sheet says what the folder is for;
+/// creating a folder is allowed, as every Mac chooser allows; the starting folder is NOT
+/// set, so macOS opens where he last chose in this app. Waited for on the blocking pool,
+/// never on the main thread (the plugin's own rule).
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle, window: tauri::WebviewWindow, title: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        app.dialog()
+            .file()
+            .set_parent(&window)
+            .set_title(title)
+            .set_can_create_directories(true)
+            .blocking_pick_folder()
+            .and_then(|chosen| chosen.into_path().ok())
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| format!("The folder chooser did not open: {e}"))
 }
 
 #[tauri::command(async)]

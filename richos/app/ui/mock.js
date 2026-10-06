@@ -2891,6 +2891,13 @@
           mockPhone.paired = false;
           mockPhone.pairing = false;
           return null;
+        // The shell's system folder chooser. The mock records every ask (with the asking
+        // field's title) and answers with the suite's `pickedFolder`, or `null`, which is
+        // what the shell returns when he closes the chooser without a folder.
+        case "pick_folder":
+          window.__RICHOS_FOLDER_ASKS__ = window.__RICHOS_FOLDER_ASKS__ || [];
+          window.__RICHOS_FOLDER_ASKS__.push(args?.title ?? null);
+          return window.__RICHOS_MOCK_PRESET__?.pickedFolder ?? null;
         case "repository_connections":
           return {companies: entities.map(e => ({id:e.id, name:e.display_name, repositories:e.connected_repositories || []}))};
         case "connect_repository": {

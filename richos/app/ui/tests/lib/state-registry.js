@@ -3566,6 +3566,21 @@ module.exports = [
     "why": "The unselected option asks for an explicit company choice."
   },
   {
+    "s": "Click and select folder",
+    "c": "CONTROL",
+    "why": "The placeholder of every folder field (CEO feedback 2026-10-06, items 2c/2d and 2026-10-06_03). It names the field's own action: a click opens the system folder chooser through main.js's shared attachFolderPicker; a typed path still works."
+  },
+  {
+    "s": "Choose a project folder",
+    "c": "CONTROL",
+    "why": "The title of the system folder chooser opened from the connected folders sheet's folder field (pick_folder). It names what the chooser is for; the chooser's own Open and Cancel are the controls."
+  },
+  {
+    "s": "Choose the company's folder",
+    "c": "CONTROL",
+    "why": "The title of the system folder chooser opened from the first-run company sheet's folder field (pick_folder). It names what the chooser is for; the chooser's own Open and Cancel are the controls."
+  },
+  {
     "s": "Connected folders (repositories)",
     "c": "CONTROL",
     "why": "The settings menu row that opens the connected folders sheet (CEO feedback 2026-10-06, item 2a: it replaced Connected repositories). A row he presses, not a state."

@@ -61,6 +61,10 @@
     field(field("repository-company").value ? "repository-folder" : "repository-company").focus();
   }
   function close() { if (busy) return; sheet.hidden = true; returnFocus?.focus(); }
+  // A click in the folder field opens the system folder chooser (CEO feedback 2026-10-06,
+  // item 2c): main.js's shared picker, the same one the first-run company sheet uses. Once
+  // he has chosen, Connect folder is the next thing to press.
+  window.RichFolderPicker.attach(field("repository-folder"), "Choose a project folder", () => field("repository-connect").focus());
   field("repository-company").addEventListener("change", renderList);
   field("repository-close").addEventListener("click", close);
   sheet.addEventListener("keydown", event => {
