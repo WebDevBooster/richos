@@ -3524,7 +3524,7 @@ module.exports = [
 
   // Shipped repository, permission, account and saved-work surfaces.
   {
-    "s": "<div class=\"overlay-panel overlay-panel--compact\"> <h2 id=\"repositories-title\" class=\"overlay-title\">Connected repositories</h2> <p class=\"overlay-note\">Connect the repositories Rich may use for this company's assignments. Existing files and local changes stay in place.</p> <label class=\"entity-add-label\" for=\"repository-company\">Company</label> <select id=\"repository-company\" class=\"entity-add-input\"></select> <ul id=\"repository-list\"></ul> <label class=\"entity-add-label\" for=\"repository-folder\">Repository folder</label> <input id=\"repository-folder\" class=\"entity-add-input\" type=\"text\" placeholder=\"/Users/you/Projects/project\" autocomplete=\"off\" spellcheck=\"false\"> <label class=\"overlay-note\"><input id=\"repository-initialize\" type=\"checkbox\"> Initialize Git if this folder is empty</label> <p id=\"repository-message\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"><button id=\"repository-connect\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Connect repository</button> <button id=\"repository-close\" class=\"desk-btn\" type=\"button\">Close</button></div></div>",
+    "s": "<div class=\"overlay-panel overlay-panel--compact\"> <h2 id=\"repositories-title\" class=\"overlay-title\">Connected project folders (repositories)</h2> <p class=\"overlay-note\">Connect a project folder as this company’s home for Rich. Connecting it does not move or change its existing files.</p> <p class=\"overlay-note repository-guidance\">One folder per company is usually enough. But in rare cases additional folders might be needed. Ask Rich if you’re unsure.</p> <label class=\"entity-add-label\" for=\"repository-company\">Company</label> <select id=\"repository-company\" class=\"entity-add-input\"></select> <ul id=\"repository-list\"></ul> <label class=\"entity-add-label\" for=\"repository-folder\">Project folder location</label> <input id=\"repository-folder\" class=\"entity-add-input\" type=\"text\" placeholder=\"Click and select folder\" autocomplete=\"off\" spellcheck=\"false\"> <p id=\"repository-message\" class=\"overlay-note\" role=\"status\"></p> <div class=\"desk-card-actions\"><button id=\"repository-connect\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Connect folder</button> <button id=\"repository-close\" class=\"desk-btn\" type=\"button\">Close</button></div></div>",
     "c": "FRAGMENT",
     "why": "Composite HTML for the repository connection dialog. Its interactive controls and visible wording are exercised by the dedicated browser suite; this literal is parsed as markup rather than rendered as one sentence."
   },  // The disclosure over the raw request (audit-9 row 5). Two labels, one control: each says
@@ -3576,9 +3576,9 @@ module.exports = [
     "fixture": "provider-poll-error"
   },
   {
-    "s": "Add a company before connecting repositories.",
+    "s": "Add a company before connecting a folder.",
     "c": "ACTIONABLE",
-    "why": "Close the repository sheet to reach company creation in the main company picker; a repository cannot be attached until a company exists.",
+    "why": "Close the connected folders sheet to reach company creation in the main company picker; a folder cannot be connected until a company exists.",
     "control": "#repository-close"
   },
   {
@@ -3592,9 +3592,9 @@ module.exports = [
     "why": "An account-kind option in the sign-in selector."
   },
   {
-    "s": "Checking this repository…",
+    "s": "Checking this folder…",
     "c": "INFORMATIONAL",
-    "why": "The native repository validation is in progress."
+    "why": "The native folder check, and Git set-up where the folder has none, is in progress."
   },
   {
     "s": "Checking your account connection.",
@@ -3607,14 +3607,34 @@ module.exports = [
     "why": "The unselected option asks for an explicit company choice."
   },
   {
-    "s": "Git initialized and repository connected.",
-    "c": "INFORMATIONAL",
-    "why": "Confirms the completed repository connection."
+    "s": "Click and select folder",
+    "c": "CONTROL",
+    "why": "The placeholder of every folder field (CEO feedback 2026-10-06, items 2c/2d and 2026-10-06_03). It names the field's own action: a click opens the system folder chooser through main.js's shared attachFolderPicker; a typed path still works."
   },
   {
-    "s": "No repositories connected.",
+    "s": "Choose a project folder",
+    "c": "CONTROL",
+    "why": "The title of the system folder chooser opened from the connected folders sheet's folder field (pick_folder). It names what the chooser is for; the chooser's own Open and Cancel are the controls."
+  },
+  {
+    "s": "Choose the company's folder",
+    "c": "CONTROL",
+    "why": "The title of the system folder chooser opened from the first-run company sheet's folder field (pick_folder). It names what the chooser is for; the chooser's own Open and Cancel are the controls."
+  },
+  {
+    "s": "Connected folders (repositories)",
+    "c": "CONTROL",
+    "why": "The settings menu row that opens the connected folders sheet (CEO feedback 2026-10-06, item 2a: it replaced Connected repositories). A row he presses, not a state."
+  },
+  {
+    "s": "Folder connected. Git was set up to track its files.",
+    "c": "INFORMATIONAL",
+    "why": "Confirms a connection that also set up Git, because every connected folder gets Git tracking (CEO, 2026-10-06): the folder had none, so its files became the first commit. Nothing was pushed and nothing is left to do."
+  },
+  {
+    "s": "No project folders connected yet.",
     "c": "ACTIONABLE",
-    "why": "The company selector begins the explicit connection flow; repositories.js checks selection, folder entry and connection.",
+    "why": "The empty state of the connected folders sheet (CEO copy, 2026-10-06, item 2d). The company selector begins the connection flow; repositories.js checks selection, folder entry and connection.",
     "control": "#repository-company",
     "fixture": "repository-empty"
   },
