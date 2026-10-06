@@ -3668,6 +3668,12 @@ Bridge.listen("rich://mock-worker-status", ({ payload }) => {
 function openSlideOver() {
   // Two panes never own the screen at once (§7.2's pane is a sibling, not a second modal).
   closeWorkerInspector();
+  // Nor does the Output panel (output side-panel PRD §6.1, "the same courtesy both ways"):
+  // opening it closes this slide-over (its `onOpen` below), and this closes it. Without this
+  // line Under the hood, where every Approve lives, opened OVER the panel and cut its head to
+  // "OUTPU" (walk 38, D7). `close` repaints both Output buttons unpressed; focus stays with the
+  // chip he pressed.
+  if (window.RichOutput && window.RichOutput.isOpen()) window.RichOutput.close({ keepFocus: true });
   renderSlideOver();
   slideoverEl.hidden = false;
   slideoverBackdrop.hidden = false;
