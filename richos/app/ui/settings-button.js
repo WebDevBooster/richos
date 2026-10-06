@@ -32,7 +32,6 @@ window.RichSettings = (function () {
   var durable = null; // { saveTheme(pref), saveScale(pct) }
   var techy = null; // { read(), write(on) }
   var bug = null; // { open() } — what "Bust a bug" actually opens, when that exists
-  var splash = null; // { read(), write(on) } — the opening screen's off switch
   var updates = null; // { render(container), onOpen() } — the update surface fills its own row
   var company = null; // { read(), write(id) } — which company this copy of Rich works for
   var repositories = null; // { open() }
@@ -202,39 +201,6 @@ window.RichSettings = (function () {
       type: "checkbox",
       id: "set-techy",
       "aria-labelledby": "set-techy-label",
-    });
-    row.appendChild(label);
-    row.appendChild(input);
-    return row;
-  }
-
-  /// The opening screen's off switch, as a SECOND entrance to the switch that already
-  /// exists behind the rail's gear.
-  ///
-  /// It is here because the CEO restated on 2026-08-31 that turning the splash off FROM
-  /// SETTINGS is a requirement, and this button is what "settings" now means: the one piece
-  /// of chrome that is on every screen. The gear's own preferences panel keeps its copy —
-  /// nothing was moved and nothing was lost — so this is the same pattern as Techy Mode, one
-  /// state with two doors, and `RichSettings.paint()` in the shell's render path is what
-  /// keeps the two from ever showing different answers.
-  ///
-  /// It sits BELOW the three rows §15 fixed, because that ruling governs their order and
-  /// says nothing about this one, and because the three above it are things he changes while
-  /// working while this is a thing he decides once.
-  function buildSplashRow() {
-    var row = elem("div", "set-row", { id: "set-splash-row" });
-    var label = elem("span", "set-name", { id: "set-splash-label" });
-    // "Splash screen", not "Opening screen" — audit-10 row 1, and the full argument is
-    // beside the same switch's other door in `index.html`. Short version: there are two
-    // surfaces at launch, this switch governs only the CURTAIN, and "Opening screen" is the
-    // phrase a person maps onto the HOME screen — which has no switch, by the CEO's ruling
-    // that it "must be shown in the app after the splash screen". Two consecutive audits
-    // read the old name that way and filed a FAIL.
-    label.textContent = "Splash screen";
-    var input = elem("input", "set-switch", {
-      type: "checkbox",
-      id: "set-splash",
-      "aria-labelledby": "set-splash-label",
     });
     row.appendChild(label);
     row.appendChild(input);
@@ -469,7 +435,6 @@ window.RichSettings = (function () {
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)
     if (techy) menu.appendChild(buildTechyRow()); // ...and directly under that, Techy Mode
     if (quota) menu.appendChild(buildDisclosureRow("set-quota-open", "Claude Code quota", function () { quota.open(); }, "set-quota-state"));
-    if (splash) menu.appendChild(buildSplashRow()); // ...then the opening screen's off switch
     if (company) menu.appendChild(buildCompanyRow()); // ...then which company this copy is for
     if (home) menu.appendChild(buildHomeRow()); // ...and directly under it, the home screen's buttons
     // N2 (dev-walk audit, 2026-09-17): these two carried the class "set-bug" — a typo with
@@ -568,8 +533,6 @@ window.RichSettings = (function () {
     if (sw && techy) sw.checked = !!techy.read();
     var quotaRow = menuEl.querySelector("#set-quota-open");
     if (quotaRow) { quotaRow.hidden = !(techy && techy.read()); if (quota.paint) quota.paint(); }
-    var sp = menuEl.querySelector("#set-splash");
-    if (sp && splash) sp.checked = !!splash.read();
     // The updates row is painted by its owner, because this file does not know what is in
     // it. Called on every paint so a rebuild (a forced-dark flip) never leaves an empty row.
     // The company row is REBUILT rather than repainted when its shape can change (chosen
@@ -725,12 +688,6 @@ window.RichSettings = (function () {
         if (techy && techy.write) techy.write(sw.checked);
       });
     }
-    var spEl = menuEl.querySelector("#set-splash");
-    if (spEl) {
-      spEl.addEventListener("change", function () {
-        if (splash && splash.write) splash.write(spEl.checked);
-      });
-    }
     var bugEl = menuEl.querySelector("#bug-btn");
     if (bugEl) bugEl.addEventListener("click", bustABug);
     wireCompany(menuEl);
@@ -845,15 +802,6 @@ window.RichSettings = (function () {
      *  `RichSettings.paint()` after any change is what keeps the other entrance honest. */
     registerTechy: function (host) {
       techy = host || null;
-      rebuild();
-    },
-
-    /** The opening screen's off switch, registered with the SAME read and write the gear's
-     *  own checkbox uses — one state, two doors, exactly as Techy Mode is. Registering the
-     *  capability is also what makes the row exist, so a page with no shell behind it does
-     *  not offer to switch off a screen it cannot reach. */
-    registerSplash: function (host) {
-      splash = host || null;
       rebuild();
     },
 
