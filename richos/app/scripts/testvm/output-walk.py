@@ -520,10 +520,15 @@ class OutputWalk(command_walk.CommandWalk):
         worktree, notes.zip's worktree row is the command witness's with the worker's agent id
         (the carve-out, on the real hook), and the list the app will serve names each file once,
         at the Acme path, with nothing no longer where it was written."""
+        # csv's rule: a search for an Approve the panel is not offering walks the whole window, and
+        # twice on 2026-10-06 (walk-cd848ba70bf6, walk-cd6101d284a0) the search after the first
+        # press outlived ax.sh's 20 s and ended this step while the job ran on. A slow search is
+        # recorded and the loop goes on; a job that never settles still fails below.
+        os.environ['TESTVM_AX_TIMEOUT'] = '35'
         turn, sent = self.send(WORKER_TASK)
         names = ('notes.md', MADE)
         end = time.monotonic() + self.a.within
-        workers, lands = [], []
+        workers, lands, slow = [], [], []
         while time.monotonic() < end:
             rows = self.record()
             workers = [r for r in rows if r.get('actor') == 'worker']
@@ -532,7 +537,10 @@ class OutputWalk(command_walk.CommandWalk):
             settled = bool(ours) and all(a.get('state') not in OPEN for a in ours)
             if settled or {Path(r.get('path', '')).name for r in lands} >= set(names):
                 break
-            self.approve_pending(sent)
+            try:
+                self.approve_pending(sent)
+            except (StepFailed, subprocess.TimeoutExpired) as exc:
+                slow.append(str(exc)[-200:])
             time.sleep(5)
         time.sleep(10)  # the work host projects after the back-end turn that landed; one more pass
         rows = self.save_record('record-after-backend-worker.jsonl')
@@ -555,7 +563,7 @@ class OutputWalk(command_walk.CommandWalk):
                     'worker_rows': workers, 'land_rows': lands, 'mislabeled_as_rich': mislabeled,
                     'in_acme_folder': on_disk, 'read_back': reads, 'listed': {k: len(v) for k, v in listed.items()},
                     'recorded_not_listed': sorted(k for k in everything if k not in listed),
-                    'no_longer_where_written': missing,
+                    'no_longer_where_written': missing, 'approve_search_failures': slow,
                     'assignments': [{k: a.get(k) for k in ('id', 'kind', 'state', 'work_session')}
                                     for a in self.assignments_since(sent)]}
         (self.out / 'backend-worker-observed.json').write_text(json.dumps(evidence, indent=2) + '\n')
