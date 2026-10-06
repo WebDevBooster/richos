@@ -5588,7 +5588,7 @@ fn repository_connections(state: State<AppState>) -> serde_json::Value {
 /// creating a folder is allowed, as every Mac chooser allows; the starting folder is NOT
 /// set, so macOS opens where he last chose in this app. Waited for on the blocking pool,
 /// never on the main thread (the plugin's own rule).
-#[tauri::command]
+#[tauri::command(async)]
 async fn pick_folder(app: tauri::AppHandle, window: tauri::WebviewWindow, title: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_dialog::DialogExt;
