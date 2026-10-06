@@ -116,6 +116,7 @@ provider-auth.js        @shell
 inspector.js            @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 output.js               @shell richos/app/ui/timeline.js richos/app/ui/mock.js richos/app/src-tauri/src/output_files.rs
 interruption.js         @shell richos/app/ui/timeline.js
+job-question.js         @shell richos/app/ui/timeline.js
 local-notice.js         @shell richos/app/ui/timeline.js
 operator-notice.js      @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 markdown.js             @shell richos/app/ui/timeline.js
