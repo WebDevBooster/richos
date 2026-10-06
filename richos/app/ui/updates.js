@@ -85,6 +85,11 @@
 // presses it) and stays true of the one that is coming (it installs itself), so no sentence
 // here becomes a lie in either direction.
 //
+// THE RELAUNCH (CEO feedback 2026-10-06, item 1) is the one place a sentence here promises an
+// act RichOS does by itself, and it is only said where `updates.rs` does it: an update THIS
+// app downloaded (`restartsWhenIdle`) is relaunched into once nothing is running, after the
+// `restarting` notice. While work runs, the row says it will restart when the work is done.
+//
 // CONTRAST: every pair this file switches between is listed with its computed ratio, both
 // themes, in `style.css`'s `.update-*` block. Nothing here is exempt from the floor and
 // nothing here claims to be.
@@ -165,6 +170,16 @@ window.RichUpdates = (function () {
     return days === 1 ? "It has been ready for a day." : "It has been ready for " + days + " days.";
   }
 
+  /// THE RELAUNCH (CEO feedback 2026-10-06, item 1): *"the app should automatically re-launch
+  /// immediately after downloading the new version. Avoiding/preventing a re-launch is only
+  /// meant for when there are workers running."* `updates.rs` relaunches into an update this
+  /// app downloaded the moment its work gate is clear; these are the sentences for it.
+  var RESTART_WHEN_DONE =
+    "RichOS will restart into this update as soon as that work is done. Nothing will be interrupted.";
+  var RESTART_IN_A_MOMENT = "Nothing is running, so RichOS will restart into it in a moment.";
+  var RESTARTING_SUB =
+    "Nothing is running, so RichOS is restarting to finish the update. Your window and conversation will be right where you left them.";
+
   /// The clauses the work gate adds, joined to whatever the state already said.
   ///
   /// `busyReason` is composed in Rust (`work_gate::decide`) and rendered VERBATIM — the count
@@ -178,10 +193,16 @@ window.RichUpdates = (function () {
       // MODE-PROOF ON PURPOSE. It does not say the button comes back and it does not say
       // RichOS will install by itself; each of those is true of exactly one of the two update
       // modes, and this sentence has to survive mode 1 landing without becoming a lie.
+      //
+      // The one exception is an update THIS app downloaded (`restartsWhenIdle`, CEO feedback
+      // 2026-10-06 item 1): `updates.rs` relaunches into it when the work ends, so that is
+      // what the row says.
       out.push(
-        v.state === "ready"
-          ? "This update will activate next time RichOS opens. Your work will continue uninterrupted."
-          : "I'll wait until everything has finished, so nothing will be interrupted."
+        v.state === "ready" && v.restartsWhenIdle
+          ? RESTART_WHEN_DONE
+          : v.state === "ready"
+            ? "This update will activate next time RichOS opens. Your work will continue uninterrupted."
+            : "I'll wait until everything has finished, so nothing will be interrupted."
       );
     }
     var since = readyFor(v.readySince);
@@ -261,7 +282,9 @@ window.RichUpdates = (function () {
         return {
           headline: back
             ? "RichOS will go back to " + v.availableVersion + " when you next open it."
-            : "RichOS " + v.availableVersion + " is ready for the next launch.",
+            : v.restartsWhenIdle
+              ? "RichOS " + v.availableVersion + " is ready."
+              : "RichOS " + v.availableVersion + " is ready for the next launch.",
           // The gate's own words come FIRST when it is busy: "nothing is lost" is true of the
           // install and says nothing about the turn he is watching, which is the thing he is
           // actually asking about.
@@ -269,8 +292,19 @@ window.RichUpdates = (function () {
             gateClauses(v),
             back
               ? "It will go back automatically next time RichOS opens. Your work will continue uninterrupted."
-              : "It will activate automatically next time RichOS opens. Your work will continue uninterrupted."
+              : v.restartsWhenIdle
+                ? v.busy
+                  ? ""
+                  : RESTART_IN_A_MOMENT
+                : "It will activate automatically next time RichOS opens. Your work will continue uninterrupted."
           ),
+        };
+      case "restarting":
+        // The one short notice before the relaunch. Seconds long, and the window comes back
+        // on the same conversation.
+        return {
+          headline: "Restarting into RichOS " + v.availableVersion + "…",
+          sub: RESTARTING_SUB,
         };
       case "failed":
         return {
@@ -433,7 +467,7 @@ window.RichUpdates = (function () {
     var canAct = !busy && v.state !== "checking" && !downloading;
     // "Check" disappears where it would be the wrong thing to press: with an update waiting
     // or installed, the next act is not another check.
-    nodes.check.hidden = v.state === "available" || v.state === "ready";
+    nodes.check.hidden = v.state === "available" || v.state === "ready" || v.state === "restarting";
     nodes.check.disabled = !canAct || v.state === "unconfigured";
     nodes.check.textContent = v.state === "failed" && !isSignature(v) ? "Try again" : "Check for updates";
 
@@ -458,6 +492,7 @@ window.RichUpdates = (function () {
       !backTo ||
       !!v.busy ||
       v.state === "ready" ||
+      v.state === "restarting" ||
       v.state === "checking" ||
       v.state === "unconfigured" ||
       downloading;
@@ -518,7 +553,7 @@ window.RichUpdates = (function () {
       ? ""
       : v.state === "available"
         ? "available"
-        : v.state === "ready"
+        : v.state === "ready" || v.state === "restarting"
           ? "ready"
           : "";
     var dot = btn.querySelector(".update-mark");
@@ -619,6 +654,8 @@ window.RichUpdates = (function () {
   var GLYPH = {
     available: ["M12 3.5v10.5", "M7.5 10 12 14.5 16.5 10", "M4.5 19.5h15"],
     ready: ["M5 12l4 4L19 6"],
+    // A circling arrow: RichOS is about to come back on the new version.
+    restarting: ["M19.5 12a7.5 7.5 0 1 1-2.2-5.3", "M19.5 4.5v4.2h-4.2"],
   };
 
   function cue(v) {
@@ -629,8 +666,14 @@ window.RichUpdates = (function () {
     // row's own button. With the control removed there is nothing to lead to, so the pill is
     // removed as well rather than leading somewhere empty. `waitingCue` takes its place in
     // the same chrome, saying the same fact with nothing to press.
+    //
+    // `restarting` is here too: it is the short notice before the relaunch (CEO feedback
+    // 2026-10-06, item 1), and the pill is where he sees it with the menu shut. Its label is
+    // the row's own headline, so the two say the same thing.
     var want =
-      v && !v.busy && (v.state === "available" || v.state === "ready") ? v.state : "";
+      v && ((!v.busy && (v.state === "available" || v.state === "ready")) || v.state === "restarting")
+        ? v.state
+        : "";
 
     // NO UPDATE, NO ELEMENT. Removed from the document, not hidden and not disabled.
     if (!want) {
@@ -666,6 +709,12 @@ window.RichUpdates = (function () {
           ? "RichOS will go back to " + v.availableVersion + "."
           : "RichOS " + v.availableVersion + " is ready."
         : sentences(v).headline;
+    // The restart notice leads nowhere new: the row says the same sentence and offers no act.
+    if (want === "restarting") {
+      node.lastChild.textContent = said;
+      node.setAttribute("aria-label", said + " " + RESTARTING_SUB);
+      return;
+    }
     node.lastChild.textContent = said;
     // A BUTTON'S NAME SHOULD SAY WHAT PRESSING IT DOES, and the visible label is a statement
     // rather than an act — so the accessible name is the statement PLUS the act. It starts
@@ -779,11 +828,15 @@ window.RichUpdates = (function () {
       v.state === "ready"
         ? back
           ? "RichOS will go back to " + v.availableVersion + " when you next open it."
-          : version + " is ready for the next launch."
+          : v.restartsWhenIdle
+            ? version + " is ready."
+            : version + " is ready for the next launch."
         : version + " is ready to install.";
     var why = v.busyReason ? " " + String(v.busyReason) : "";
     var tail =
-      v.state === "ready"
+      v.state === "ready" && v.restartsWhenIdle && !back
+        ? " " + RESTART_WHEN_DONE
+        : v.state === "ready"
         ? back
           ? " It will go back automatically next time RichOS opens. Your work will continue uninterrupted."
           : " It will activate automatically next time RichOS opens. Your work will continue uninterrupted."
@@ -855,6 +908,16 @@ window.RichUpdates = (function () {
   function apply(next) {
     if (!next || typeof next !== "object") return;
     view = next;
+    // THE RELAUNCH IS SECONDS AWAY: park the draft and the scroll position NOW rather than
+    // on the composer's 400 ms debounce, so the window comes back exactly where he was.
+    // `parkViewStateNow` is `main.js`'s, a global of that classic script.
+    if (next.state === "restarting" && typeof window.parkViewStateNow === "function") {
+      try {
+        window.parkViewStateNow();
+      } catch (_e) {
+        /* parking is best effort; the relaunch still reopens the same conversation */
+      }
+    }
     paint();
   }
 

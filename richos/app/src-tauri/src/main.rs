@@ -14,6 +14,8 @@ mod events;
 // `activation` because it is armed by activation's own three-fact rule and by nothing else.
 mod startup_alert;
 mod update_startup;
+/// The relaunch into a downloaded update once nothing is running (CEO feedback 2026-10-06, item 1).
+mod update_relaunch;
 // HOW BIG THE WINDOW OPENS AND WHERE — derived from the display it opens on, never from a
 // constant. `docs/hardware-choices-2026-09-10.md` D2. Deliberately free of every Tauri type
 // so the arithmetic is unit-testable and can be dry-run with no window created at all
@@ -2039,6 +2041,11 @@ fn main() {
     }
     if std::env::args().nth(1).as_deref() == Some("--richos-connect-guard") {
         std::process::exit(phone::connect::supervisor::guard_main());
+    }
+    // The update relaunch helper: waits for the app to quit, then starts it again so the
+    // downloaded update activates. Before any lease or alert, like the guard above.
+    if let Some(code) = update_relaunch::helper_main() {
+        std::process::exit(code);
     }
     // This is compile-generated metadata, before any application runtime exists.
     // Use the same merged build version for the probe, startup and final app.

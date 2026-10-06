@@ -138,6 +138,19 @@ if printf '%s' "$payload" | grep -q '"planned": \[\]'; then
 fi
 exit 0
 G
+# Fault injection for the interrupt case: once the workspace exists, say so by
+# touching a marker and hold still, so the test can interrupt a spawn that has
+# created and registered its workspace but has not finished.
+cat >"$GUARDS/stall-after-create.sh" <<'G'
+#!/usr/bin/env bash
+payload="$(cat)"
+[ -n "${STALL_MARKER:-}" ] || exit 0
+if printf '%s' "$payload" | grep -q '"planned": \[\]'; then
+  : >"$STALL_MARKER"
+  exec sleep 30
+fi
+exit 0
+G
 chmod +x "$GUARDS"/*.sh
 cat >"$GUARDS/engine-hooks.json" <<J
 {"hooks": {"PreToolUse": [
@@ -145,7 +158,8 @@ cat >"$GUARDS/engine-hooks.json" <<J
   {"matcher": "Agent", "hooks": [
     {"type": "command", "command": "bash $SCRIPT_DIR/hooks/guard-worktree-isolation.sh"},
     {"type": "command", "command": "bash $GUARDS/refuse-a.sh"},
-    {"type": "command", "command": "bash $GUARDS/refuse-after-create.sh"}]},
+    {"type": "command", "command": "bash $GUARDS/refuse-after-create.sh"},
+    {"type": "command", "command": "bash $GUARDS/stall-after-create.sh"}]},
   {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash $GUARDS/never-runs.sh"}]}
 ]}}
 J
@@ -368,6 +382,35 @@ fi
 run "zach-sonnet-c3" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run
 [ "$RC" -eq 0 ] && ok "and the name is FREE again, so the retry is the same command" \
                 || bad "the name is free after a rollback" "rc=$RC $OUT"
+
+# AN INTERRUPT AFTER CREATION is the same failure as a refusal after creation
+# (Rich stopped a running spawn on 2026-10-06 and it left a WORKING row and a branch).
+for SIG in TERM INT HUP; do
+    IDX=$(( ${IDX:-0} + 1 ))
+    N="zach-sonnet-i$IDX"
+    MARK="$SANDBOX/stalled-$SIG"
+    rm -f "$MARK"
+    STALL_MARKER="$MARK" "$SPAWN" "$N" --repo "$TARGET" --type zach --brief "$BRIEF" \
+        --project-dir "$PROJECT" >"$SANDBOX/int-$SIG.out" 2>&1 &
+    SPID=$!
+    for _ in $(seq 1 100); do [ -e "$MARK" ] && break; sleep 0.2; done
+    if [ ! -e "$MARK" ]; then
+        kill -KILL "$SPID" 2>/dev/null; wait "$SPID" 2>/dev/null
+        bad "SIG$SIG: the spawn reached the point after creation" "$(cat "$SANDBOX/int-$SIG.out")"
+        continue
+    fi
+    REG="$RICHOS_WORKSPACES_DIR/agents/$RICHOS_SESSION_ID--$N.json"
+    PRE_REG=absent; [ -e "$REG" ] && PRE_REG=present
+    kill -"$SIG" "$SPID"
+    wait "$SPID"; IRC=$?
+    if [ "$PRE_REG" = present ] && [ "$IRC" -eq 4 ] && [ ! -e "$SANDBOX/widgets-wt/$N" ] \
+       && ! git -C "$TARGET" rev-parse --verify --quiet "refs/heads/cc/$N" >/dev/null \
+       && [ ! -e "$REG" ]; then
+        ok "SIG$SIG after creation rolls back: no workspace, no branch, no registration (exit 4)"
+    else
+        bad "SIG$SIG after creation rolls back" "rc=$IRC before=$PRE_REG $(cat "$SANDBOX/int-$SIG.out")"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 echo "  several repositories, ONE teammate (point 10)"
