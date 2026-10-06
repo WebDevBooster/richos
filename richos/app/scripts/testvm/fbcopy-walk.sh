@@ -16,7 +16,8 @@
 #   3-phone            "Use Rich from your phone": "RichConnect for RichOS" where it is offered,
 #                      no "RichOS Connect", no "private pilot" (items 4 and 5)
 # and greps every tree for an m-dash or n-dash (item 3). Verdicts go to <out-dir>/verdict.txt,
-# one line each, PASS or FAIL; the walk exits 1 when any line is FAIL.
+# one line each, PASS, FAIL or UNKNOWN (a screen that could not be read); the walk exits 1 when any
+# line is FAIL or UNKNOWN.
 set -u
 VM="$1"
 S="${2:?usage: fbcopy-walk.sh <vm> <out-dir>}"
@@ -34,7 +35,19 @@ wait_for() {
   note "never appeared: $1"
   return 1
 }
-tree() { ax tree --depth 40 > "$S/$1-ax.txt" 2>&1 || verdict FAIL "capture $1: the accessibility tree could not be read"; }
+# A tree read that fails, or that returns the harness's own error object (the 2026-10-06 run got
+# "TCC grant did not take" from every read), is kept apart as <name>-ax.err and is no evidence:
+# every item that depends on it is UNKNOWN, never a PASS over an empty read and never a FAIL
+# over the harness's own words.
+tree() {
+  if ax tree --depth 40 > "$S/$1-ax.tmp" 2>&1 && ! head -1 "$S/$1-ax.tmp" | grep -q '"error"'; then
+    mv "$S/$1-ax.tmp" "$S/$1-ax.txt"
+  else
+    mv "$S/$1-ax.tmp" "$S/$1-ax.err"
+    verdict UNKNOWN "capture $1: the accessibility tree could not be read (see $1-ax.err)"
+  fi
+}
+read_ok() { [ -f "$S/$1-ax.txt" ]; }
 shot() { "$T/shot.sh" "$VM" "$S/$1.png" || verdict FAIL "capture $1: no frame"; }
 has() { grep -qF -- "$2" "$S/$1-ax.txt"; }
 
@@ -69,7 +82,8 @@ ax click --title 'Settings' --role AXPopUpButton || note "no Settings menu butto
 sleep 3
 tree 1-quick-settings
 shot 1-quick-settings
-if has 1-quick-settings 'Text size'; then
+if ! read_ok 1-quick-settings; then verdict UNKNOWN "item 7: the quick settings were not read"
+elif has 1-quick-settings 'Text size'; then
   if has 1-quick-settings 'Splash screen'; then verdict FAIL "item 7: the quick settings menu still has a Splash screen row"
   else verdict PASS "item 7: the quick settings menu has no Splash screen row"; fi
 else verdict FAIL "item 7: the quick settings menu did not open (no Text size row in the tree)"; fi
@@ -79,11 +93,13 @@ ax click --title 'Use Rich from your phone' --contains --first || note "no phone
 sleep 4
 tree 3-phone
 shot 3-phone
-if has 3-phone 'RichOS Connect'; then verdict FAIL "item 4: the phone popup still says RichOS Connect"
+if ! read_ok 3-phone; then verdict UNKNOWN "items 4 and 5: the phone popup was not read"
+elif has 3-phone 'RichOS Connect'; then verdict FAIL "item 4: the phone popup still says RichOS Connect"
 else verdict PASS "item 4: the phone popup never says RichOS Connect"; fi
-if has 3-phone 'RichConnect for RichOS'; then verdict PASS "item 4: the phone popup offers RichConnect for RichOS"
+if read_ok 3-phone && has 3-phone 'RichConnect for RichOS'; then verdict PASS "item 4: the phone popup offers RichConnect for RichOS"
 else note "item 4: RichConnect for RichOS is not offered on this guest's first screen (route chooser hidden)"; fi
-if has 3-phone 'private pilot' || has 3-phone 'Pilot setup reference'; then verdict FAIL "item 5: the phone popup mentions a pilot"
+if ! read_ok 3-phone; then :
+elif has 3-phone 'private pilot' || has 3-phone 'Pilot setup reference'; then verdict FAIL "item 5: the phone popup mentions a pilot"
 else verdict PASS "item 5: no pilot wording in the phone popup"; fi
 ax click --title 'Close' --first || ax --key 53 || true
 sleep 2
@@ -93,17 +109,20 @@ ax click --title 'Settings' --role AXButton --first || note "no rail gear button
 sleep 3
 tree 2-general-settings
 shot 2-general-settings
-if has 2-general-settings 'Show it when RichOS starts'; then verdict PASS "item 7: the general settings hold the splash switch"
+if ! read_ok 2-general-settings; then verdict UNKNOWN "items 6 and 7: the general settings were not read"
+elif has 2-general-settings 'Show it when RichOS starts'; then verdict PASS "item 7: the general settings hold the splash switch"
 else verdict FAIL "item 7: the general settings do not hold the splash switch"; fi
-if has 2-general-settings 'Nothing is ever removed'; then verdict PASS "item 6: a fresh install keeps the stored output forever"
+if ! read_ok 2-general-settings; then :
+elif has 2-general-settings 'Nothing is ever removed'; then verdict PASS "item 6: a fresh install keeps the stored output forever"
 else verdict FAIL "item 6: the retention hint is not the forever one on a fresh install"; fi
 ax --key 53 || true
 
 note "item 3: dashes in any tree"
-if grep -lE $'\xe2\x80\x93|\xe2\x80\x94' "$S"/*-ax.txt > "$S/dash-files.txt" 2>/dev/null; then
+if ! ls "$S"/*-ax.txt >/dev/null 2>&1; then verdict UNKNOWN "item 3: no screen was read, so nothing was scanned"
+elif grep -lE $'\xe2\x80\x93|\xe2\x80\x94' "$S"/*-ax.txt > "$S/dash-files.txt" 2>/dev/null; then
   grep -nE $'\xe2\x80\x93|\xe2\x80\x94' "$S"/*-ax.txt > "$S/dash-lines.txt" 2>/dev/null || true
   verdict FAIL "item 3: an m-dash or n-dash is on screen (see dash-lines.txt)"
 else verdict PASS "item 3: no m-dash or n-dash in any screen this walk read"; fi
 
-grep -q '^FAIL' "$S/verdict.txt" && exit 1
+grep -qE '^(FAIL|UNKNOWN)' "$S/verdict.txt" && exit 1
 exit 0
