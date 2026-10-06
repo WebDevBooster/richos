@@ -187,6 +187,7 @@ async function main() {
     // The account being added is not a card until its sign-in is the right one: the 2026-10-06
     // VM walk drew Work as "Next" with Use this one now while this screen said it was not added.
     assertEqual(await page.locator(".acc-card").count(), 1, "the account being added is not a card yet");
+    assertEqual(await text(page, ".acc-card .acc-name"), "Home", "the one card has the name step 1 gave it");
     assertEqual(await text(page, ".acc-add-title"), "That is the account you already use");
     assert((await text(page, "#acc-add")).includes("You signed in as Home again. To add Work, sign in with your other Claude account."));
     assert((await text(page, "#acc-add")).includes("In your browser, sign out of Claude first, then press Try again."));

@@ -66,10 +66,13 @@
   function list() {
     if (!view) return [];
     if (multi()) return settled();
-    return [{ id: "1", label: view.firstLabel || "", inUse: true, windows: view.windows || [], checkedAt: view.checkedAt, exhaustedUntil: null, message: view.message }];
+    // While a second account is being added, step 1 has already named this one ("Home"), and
+    // the screen says "You signed in as Home again"; its card says the same name.
+    const named = view.accounts.length > 1 && settled()[0] ? settled()[0].label : "";
+    return [{ id: "1", label: view.firstLabel || named, inUse: true, windows: view.windows || [], checkedAt: view.checkedAt, exhaustedUntil: null, message: view.message }];
   }
   const inUse = () => list().find(a => a.inUse) || list()[0] || null;
-  const nameOf = a => multi() ? a.label : (view.firstLabel || "Your Claude account");
+  const nameOf = a => multi() ? a.label : (a.label || "Your Claude account");
   const win = (a, id) => (a && a.windows || []).find(w => w.id === id) || null;
   const weekOf = a => win(a, "seven_day");
   const resetOf = a => (weekOf(a) && weekOf(a).resetsAt) || Infinity;
