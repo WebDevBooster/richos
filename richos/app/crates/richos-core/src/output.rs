@@ -450,6 +450,59 @@ pub struct OutputStore {
     /// Announces every append that wrote something. One store, cloned into the spine and the
     /// work host, so every writer announces through the same chokepoint.
     observer: Option<std::sync::Arc<dyn OutputObserver>>,
+    /// Folders whose files are recorded but never listed or counted (CEO 2026-10-06, PRD §13 Q3).
+    /// `None` lists everything: the default, so a fixture under the system temp folder is listed.
+    scratch: Option<ScratchRoots>,
+}
+
+/// THE SCRATCH SET — the one place that says which files the panel hides (CEO 2026-10-06, PRD
+/// §13 Q3: "the panel lists only files written into your projects and folders"). The record keeps
+/// every row; only the list, its counts and the "Wrote N files" links leave these out.
+pub const SCRATCH_PREFIXES: &[&str] =
+    &["/tmp", "/private/tmp", "/var/folders", "/private/var/folders", "/Volumes/E1TB/tmp/claude"];
+/// A path containing any of these folder sequences (slash-separated, consecutive) is scratch:
+/// agents' worktree folders. A project's own `.claude/agents/` or `.claude/skills/` is not.
+pub const SCRATCH_DIR_NAMES: &[&str] = &[".claude/worktrees"];
+
+/// [`SCRATCH_PREFIXES`] plus this process's `TMPDIR` (and `temp_dir()`), with `/private` spellings
+/// resolved, and [`SCRATCH_DIR_NAMES`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScratchRoots {
+    prefixes: Vec<PathBuf>,
+    dir_names: Vec<String>,
+}
+
+impl ScratchRoots {
+    pub fn standard() -> Self {
+        let mut prefixes: Vec<PathBuf> = SCRATCH_PREFIXES.iter().map(PathBuf::from).collect();
+        if let Some(t) = std::env::var_os("TMPDIR").filter(|t| !t.is_empty()) {
+            prefixes.push(PathBuf::from(t));
+        }
+        prefixes.push(std::env::temp_dir());
+        let resolved: Vec<PathBuf> = prefixes.iter().filter_map(|p| std::fs::canonicalize(p).ok()).collect();
+        prefixes.extend(resolved);
+        prefixes.retain(|p| p.is_absolute() && p.components().count() > 1);
+        prefixes.sort();
+        prefixes.dedup();
+        ScratchRoots { prefixes, dir_names: SCRATCH_DIR_NAMES.iter().map(|s| s.to_string()).collect() }
+    }
+
+    /// Roots given outright (tests).
+    pub fn with(prefixes: Vec<PathBuf>, dir_names: Vec<String>) -> Self {
+        ScratchRoots { prefixes, dir_names }
+    }
+
+    pub fn is_scratch(&self, path: &str) -> bool {
+        let one = |p: &Path| {
+            self.prefixes.iter().any(|r| p.starts_with(r))
+                || self.dir_names.iter().any(|n| {
+                    let seq: Vec<&str> = n.split('/').filter(|x| !x.is_empty()).collect();
+                    let comps: Vec<_> = p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+                    !seq.is_empty() && comps.windows(seq.len()).any(|w| w.iter().zip(&seq).all(|(a, b)| a == b))
+                })
+        };
+        one(Path::new(path)) || canonical_of(path).is_some_and(|c| one(Path::new(&c)))
+    }
 }
 
 impl std::fmt::Debug for OutputStore {
@@ -462,12 +515,19 @@ impl OutputStore {
     /// A store rooted at `root` (normally `<app-data>/output`). Nothing is created until the
     /// first append.
     pub fn new(root: impl AsRef<Path>) -> Self {
-        OutputStore { root: root.as_ref().to_path_buf(), observer: None }
+        OutputStore { root: root.as_ref().to_path_buf(), observer: None, scratch: None }
     }
 
     /// The same store, announcing every append that wrote something.
     pub fn with_observer(mut self, observer: std::sync::Arc<dyn OutputObserver>) -> Self {
         self.observer = Some(observer);
+        self
+    }
+
+    /// The same store, hiding files under `roots` from every list and count. Filtered where the
+    /// list is built; the record is untouched.
+    pub fn with_scratch(mut self, roots: ScratchRoots) -> Self {
+        self.scratch = Some(roots);
         self
     }
 
@@ -581,8 +641,20 @@ impl OutputStore {
     /// The record, projected and re-stated (§4.3, §4.6). No convergence: this is exactly what
     /// the file holds.
     pub fn project(&self, thread_id: &str) -> std::io::Result<OutputList> {
+        self.project_with(thread_id, true)
+    }
+
+    /// The whole record, scratch files included: for opening a file a link names directly.
+    pub fn project_unfiltered(&self, thread_id: &str) -> std::io::Result<OutputList> {
+        self.project_with(thread_id, false)
+    }
+
+    fn project_with(&self, thread_id: &str, hide_scratch: bool) -> std::io::Result<OutputList> {
         let read = self.read(thread_id)?;
-        let files = project(thread_id, &read.rows);
+        let mut files = project(thread_id, &read.rows);
+        if let Some(roots) = self.scratch.as_ref().filter(|_| hide_scratch) {
+            files.retain(|e| !roots.is_scratch(&e.path));
+        }
         Ok(OutputList {
             count: files.len(),
             missing: files.iter().filter(|e| !e.exists).count(),
@@ -1201,6 +1273,53 @@ mod tests {
             .flat_map(|(i, f)| MachineryRecord::from_native_event(f, "sess", i as u64))
             .map(|r| r.stamp("thr_out", Some(turn), false))
             .collect()
+    }
+
+    #[test]
+    fn output_scratch_files_are_recorded_but_not_listed_or_counted() {
+        let proj = Dir::new("output-scratch-proj");
+        let real = proj.file("notes.zip", "real");
+        let scratch = Dir::new("output-scratch-tmp");
+        let roots = ScratchRoots::with(vec![scratch.0.clone()], vec![".claude/worktrees".into()]);
+        let claude = proj.0.join(".claude").join("worktrees").join("agent-1");
+        std::fs::create_dir_all(&claude).unwrap();
+        let in_claude = claude.join("notes.zip");
+        std::fs::write(&in_claude, "x").unwrap();
+        let in_scratch = scratch.file("notes.zip", "copy");
+        let store = OutputStore::new(proj.0.join("output")).with_scratch(roots);
+        let rows = vec![
+            row("a", Some("t1"), &real),
+            row("b", Some("t1"), &in_scratch),
+            row("c", Some("t1"), &in_claude.to_string_lossy()),
+        ];
+        assert_eq!(store.append("thr_out", &rows).unwrap().len(), 3);
+        assert_eq!(store.read("thr_out").unwrap().rows.len(), 3, "the record keeps all three");
+        let list = store.project("thr_out").unwrap();
+        assert_eq!(list.count, 1);
+        assert_eq!(list.files.len(), 1);
+        assert_eq!(list.files[0].path, real);
+        assert_eq!(store.project_unfiltered("thr_out").unwrap().count, 3);
+    }
+
+    #[test]
+    fn output_the_standard_scratch_set_names_every_kind() {
+        let roots = ScratchRoots::standard();
+        for p in [
+            "/tmp/x/a.md",
+            "/private/tmp/rv-zip-a1/notes.zip",
+            "/var/folders/ab/cd/T/a.md",
+            "/Volumes/E1TB/tmp/claude/echo/a.md",
+            "/Users/alex/ab/richos-wt/x/.claude/worktrees/agent-1/a.md",
+        ] {
+            assert!(roots.is_scratch(p), "{p}");
+        }
+        let tmpdir = std::env::temp_dir().join("x.md");
+        assert!(roots.is_scratch(&tmpdir.to_string_lossy()), "TMPDIR");
+        assert!(!roots.is_scratch("/Users/alex/Documents/notes.zip"));
+        assert!(!roots.is_scratch("/Users/alex/proj/.claude/agents/notes.txt"), "a project's own .claude stays listed");
+        assert!(!roots.is_scratch("/Users/alex/proj/.claude/skills/x/SKILL.md"));
+        assert!(roots.is_scratch("/Users/alex/proj/.claude/worktrees/agent-1/notes.txt"));
+        assert!(!roots.is_scratch("/tmpfoo/a.md"), "prefix is by folder, not by letters");
     }
 
     #[test]

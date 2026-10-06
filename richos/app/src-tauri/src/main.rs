@@ -2809,6 +2809,7 @@ fn main() {
             // turn end the hook's `writes.jsonl` for this lease (a front-desk worker's writes,
             // the files a command made). The SAME store goes to the work host below.
             let output_store = richos_core::output::OutputStore::for_data_dir(&data_dir)
+                .with_scratch(richos_core::output::ScratchRoots::standard())
                 .with_observer(Arc::new(TauriOutputEmitter { app: app.handle().clone() }));
             spine.set_output_store(output_store.clone(), Some(data_dir.join("engine-state").join("evidence")));
 

@@ -175,10 +175,10 @@ command = command_walk.command
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
          'md-view', 'previews', 'save-copy', 'attach', 'pull',
          'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll', 'wrote',
-         'theme-flash', 'sidebar']
+         'theme-flash', 'sidebar', 'scratch']
 # The candidate walk's steps: never in the default list, which runs the witness checks.
 CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll',
-                   'wrote', 'theme-flash', 'sidebar')
+                   'wrote', 'theme-flash', 'sidebar', 'scratch')
 # The scroll step's files: enough rows that the Output list overflows the window at the split.
 SCROLL_COUNT = 30
 SCROLL_NAME = re.compile(r'^scroll-\d\d\.txt$')
@@ -1840,6 +1840,52 @@ class OutputWalk(command_walk.CommandWalk):
             self.close_panel()
         if failures:
             raise StepFailed('; '.join(failures))
+        return evidence
+
+    def scratch(self):
+        """A reviewer's scratch copy is recorded and never listed (CEO 2026-10-06, PRD §13 Q3): after
+        backend-worker, a copy of notes.zip is made at /private/tmp/rv-zip-a1/ and a row for it is
+        appended to the record the way the reviewer's was (a clone of the worker's own notes.zip
+        command row, so the row's shape is the app's). PASS when the record still holds that row, the
+        Output button counts the files the record holds LESS that one, and the opened panel shows
+        notes.zip once and nothing from rv-zip-a1."""
+        evidence, note = self.observed('scratch')
+        rows = self.record()
+        base = [r for r in rows if r.get('source') == 'command' and r.get('path', '').endswith('/' + MADE)]
+        if not base:
+            raise StepFailed('no notes.zip command row to clone: run backend-worker first')
+        scratch = '/private/tmp/rv-zip-a1/' + MADE
+        guest(self.vm, 'mkdir -p /private/tmp/rv-zip-a1 && cp %s %s' % (shlex.quote(self.company + '/' + MADE),
+                                                                         shlex.quote(scratch)), 60)
+        row = dict(base[-1], path=scratch, canonical=scratch, key='mach:scratch-walk-1')
+        row.pop('landedFrom', None)
+        rec = self.data + '/output/' + self.facts['thread'] + '.jsonl'
+        guest(self.vm, 'printf "%s\\n" ' + shlex.quote(json.dumps(row, sort_keys=True)) + ' >> ' + shlex.quote(rec), 60)
+        after = self.save_record('record-scratch.jsonl')
+        kept = [r for r in after if r.get('path') == scratch]
+        listed = [k for k in project(after) if not k.startswith('/private/tmp/')]
+        note(row=row, kept_in_record=len(kept), expected_count=len(listed), listed=sorted(listed))
+        if not kept:
+            raise StepFailed('the scratch row did not reach the record: it must stay whole')
+        self.close_panel()
+        self.wait_for('from this thread', role='AXCheckBox', seconds=60)
+        buttons = self.find_all('from this thread', role='AXCheckBox')
+        names = [n.get('title') or n.get('desc') or '' for n in buttons]
+        note(buttons=names)
+        want = '%d file' % len(listed)
+        if not names or not all(want in n for n in names):
+            raise StepFailed('the Output button should count %d files, it says %s' % (len(listed), names))
+        self.open_panel()
+        time.sleep(1.5)
+        self.shot('scratch-panel.png')
+        zips = self.in_panel(self.find_all(MADE))
+        seen = self.in_panel(self.find_all('rv-zip-a1'))
+        # One row is several nodes (its name, its group, its actions): the nodes are one row when
+        # they sit within one row's height of each other (a row is ~76 px; two rows are not).
+        ys = [n['y'] for n in zips]
+        note(zip_nodes=len(zips), zip_node_y=ys, scratch_nodes=len(seen))
+        if not zips or max(ys) - min(ys) > 60 or seen:
+            raise StepFailed('the panel lists notes.zip in %d places (y %s) and %d scratch nodes' % (len(zips), ys, len(seen)))
         return evidence
 
     def theme_flash(self):
