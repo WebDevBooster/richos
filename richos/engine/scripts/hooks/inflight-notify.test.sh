@@ -122,9 +122,6 @@ WT="$SANDBOX/wt/norm-sonnet-feature1"
 mkdir -p "$SANDBOX/wt"
 git -C "$REPO" worktree add -q -b worktree-norm "$WT" >/dev/null 2>&1
 echo "teammate work" > "$WT/src/b.txt"
-# The teammate's branch also changes src/a.txt, the file the land below moves:
-# only a teammate whose files overlap what moved is owed a notice.
-printf 'teammate edit\n' > "$WT/src/a.txt"
 git -C "$WT" add -A
 git -C "$WT" commit -q -m "teammate commit"
 
@@ -179,8 +176,8 @@ case "$SOUT" in
     *) bad "1a. the runner names the live teammate" "$SOUT" ;;
 esac
 case "$SOUT" in
-    *"OVERLAPS 1 of its own file(s): src/a.txt"*) ok "1b. the overlap is named — the teammate and the land both changed src/a.txt" ;;
-    *) bad "1b. the overlap is named" "$SOUT" ;;
+    *"OVERLAPS"*) bad "1b. no false overlap is reported (the teammate touched a different file)" "$SOUT" ;;
+    *) ok "1b. no false overlap — the teammate changed src/b.txt, the land changed src/a.txt" ;;
 esac
 
 # ==========================================================================
@@ -605,7 +602,6 @@ native_teammate() { # <agent-id> <branch> <file> -> echoes the worktree path
     # and is owed nothing, which is a test that passes by testing nothing.
     git -C "$REPO" worktree add -q -b "$br" "$wt" "$BASE_SHA" >/dev/null 2>&1
     echo "native teammate work" > "$wt/src/$f"
-    echo "native teammate edit" > "$wt/src/a.txt"   # overlaps the land: only then is a notice owed
     git -C "$wt" add -A
     git -C "$wt" commit -q -m "native teammate commit $br"
     # The harness locks a native worktree while its agent runs and the lock
@@ -768,7 +764,6 @@ AID_U1="a9c0ffee42424242"
 HWT_U1="$SANDBOX/wt/zach-opus-u1"
 git -C "$REPO" worktree add -q -b worktree-zach-u1 "$HWT_U1" "$BASE_SHA" >/dev/null 2>&1
 echo "hand-rolled teammate work" > "$HWT_U1/src/f.txt"
-echo "edit" > "$HWT_U1/src/a.txt"   # overlaps the land: only then is a notice owed
 git -C "$HWT_U1" add -A
 git -C "$HWT_U1" commit -q -m "hand-rolled teammate commit"
 transcript_spawn zach-opus-u1 "$AID_U1"
@@ -788,7 +783,6 @@ say "10l notice addressed by raw agent id" "$GOUT"
 # nobody was spawned under resolves to nothing and clears nothing.
 git -C "$REPO" worktree add -q -b worktree-zach-v1 "$SANDBOX/wt/zach-opus-v1" "$BASE_SHA" >/dev/null 2>&1
 echo x > "$SANDBOX/wt/zach-opus-v1/src/g.txt"
-echo x > "$SANDBOX/wt/zach-opus-v1/src/a.txt"   # overlaps the land: only then is a notice owed
 git -C "$SANDBOX/wt/zach-opus-v1" add -A
 git -C "$SANDBOX/wt/zach-opus-v1" commit -q -m "another hand-rolled teammate"
 printf '%s' "$(CWD="$REPO" send_payload "adeadbeefdeadbeef" "Main moved to $TIP.")" \
@@ -1018,27 +1012,6 @@ case "$AGE" in
     "age=5 ack_age=5 overdue=False") ok "13. a notice 5 s old reads 5 s old in BST, and is not overdue" ;;
     *) bad "13. a notice's age is read as UTC under daylight saving" "$AGE" ;;
 esac
-
-# ==========================================================================
-# 14. A TEAMMATE WHOSE FILES DO NOT OVERLAP WHAT MOVED IS NOT OWED A NOTICE
-# ==========================================================================
-WT2="$SANDBOX/wt/ace-sonnet-other1"
-git -C "$REPO" worktree add -q -b worktree-ace "$WT2" "$BASE_SHA" >/dev/null 2>&1
-echo "unrelated" > "$WT2/src/c.txt"
-git -C "$WT2" add -A
-git -C "$WT2" commit -q -m "unrelated teammate commit"
-SOUT="$(bash "$RUNNER" status --repo "$REPO" 2>&1)"
-say "14 status" "$SOUT"
-case "$SOUT" in
-    *"NOT-AFFECTED"*"ace-sonnet-other1"*) ok "14a. a teammate with no overlap is recorded NOT-AFFECTED" ;;
-    *) bad "14a. no-overlap teammate is NOT-AFFECTED" "$SOUT" ;;
-esac
-run_guard
-if printf '%s\n' "$GOUT" | grep -E 'OWED-NO-NOTICE.*ace-sonnet-other1' >/dev/null; then
-    bad "14b. the unaffected teammate is not owed a notice by the guard" "$GOUT"
-else
-    ok "14b. the unaffected teammate is not owed a notice by the guard"
-fi
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

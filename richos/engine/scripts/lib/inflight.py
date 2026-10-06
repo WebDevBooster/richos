@@ -1281,11 +1281,6 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
             wt["verdict"] = "CLEAN-LANDED"
         elif not wt["behind"] or not wt["moved_shas"]:
             wt["verdict"] = "CLEAN-NOT-BEHIND"
-        elif not wt["overlap"]:
-            # CEO 2026-10-06: a teammate catches up with main itself, once, just
-            # before it hands over. Main moving is only worth a message when the
-            # files it changed are files this teammate's branch also changed.
-            wt["verdict"] = "NOT-AFFECTED"
         elif wt["waiver"]:
             wt["verdict"] = "WAIVED"
         elif not wt["notice"]:
