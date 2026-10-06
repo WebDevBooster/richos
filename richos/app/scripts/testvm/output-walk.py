@@ -168,6 +168,24 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                richos-app-engine:<teammate> on that model, one of them is --teammate (default mark),
                every land row is that teammate's, the Output panel says "by Mark", and no label shows
                an engine agent name. Evidence: named-observed.json, named-by.png.
+  consult      the proto-teammate shelf, slice 3 (same plan, §3), after identity and first-run, with no
+               repository connected: --steps identity,first-run,consult. Typed: a research question
+               for Clark. PASS when the back end consulted clark-<model>-<id12> of his own definition
+               with no repository and no workspace, his final message is on the consult's receipt,
+               the back end read it back with richos_work inspect, and the job settled.
+               Evidence: consult-observed.json, consult-story.json.
+  shelf        the proto-teammate shelf end to end, slice 5 (same plan, §1 and §8), on a FRESH install
+               (no --seed-team: only the always-active five are on the team), after identity,
+               first-run and connect: --steps identity,first-run,connect,shelf. Typed: a code job
+               (health.md in the Acme repository, committed and landed) that names no teammate and
+               says an engineer from the shelf should do it. PASS when, in ONE assignment that
+               settles: the back end consulted Dean; a shelf teammate's fitted copy appeared in
+               <app data>/team/; that teammate was started as <name>-<model>-<id12> of its own
+               definition as the worker and landed health.md with its exact line; a reviewer
+               reviewed that worker; every receipt carries the assignment's obligation; and the app
+               log says the back end was renewed between two turns of the run because its team
+               changed, with how long the renewal took (ms). Evidence: shelf-observed.json,
+               shelf-story.json, shelf-app.log.
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -195,7 +213,7 @@ command = command_walk.command
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
          'md-view', 'previews', 'save-copy', 'attach', 'pull',
          'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll', 'wrote',
-         'theme-flash', 'sidebar', 'scratch', 'labels', 'named']
+         'theme-flash', 'sidebar', 'scratch', 'labels', 'named', 'consult', 'shelf']
 # The candidate walk's steps: never in the default list, which runs the witness checks.
 CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll',
                    'wrote', 'theme-flash', 'sidebar', 'scratch', 'labels')
@@ -371,7 +389,117 @@ def project(rows):
 # The proto-teammate shelf, slice 2 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md §3, §7):
 # an agent the back end starts is `<teammate>-<model>-<id12>`, and a person reads the teammate's name.
 NAMED_AGENT = re.compile(r'^([a-z][a-z0-9]{1,15})-(opus|sonnet|haiku)-([0-9a-f]{12})$')
-DUTIES = ('worker', 'reviewer')
+DUTIES = ('worker', 'reviewer', 'consult')
+# Slice 3's research question: plainly Clark's role, with no repository in it, so the back end
+# has no code job to prepare and every word of the brief comes from here.
+CONSULT_TASK = ('Please have Clark, the researcher on the team, find out which was published first, the CSV '
+                'format as RFC 4180 or the JSON format as RFC 4627, with the year of each, and tell me his '
+                'answer. This changes no files and no repository.')
+# Slice 5's code job, on a fresh install where no engineer is on the team yet: it names no
+# teammate, so which shelf engineer joins is the back end's and Dean's call. Every word of the file
+# is given, and the worded form is WORKER_TASK's, proven to reach the back end as a code job.
+SHELF_FILE = 'health.md'
+SHELF_LINE = 'Health check for the walk test.'
+SHELF_TASK = ('Please add a file named %s whose whole content is the line "%s" to the Acme repository, '
+              'commit it and land it. Nobody on the team is an engineer yet, so have one of the engineers '
+              'from the shelf join the team to do it, and have the change reviewed.' % (SHELF_FILE, SHELF_LINE))
+# work_host.rs's two log lines for a team renewal (slice 5): between two turns of one run, and at
+# the start of an assignment. Each ends with how long the renewal took.
+RENEWED_BETWEEN_TURNS = re.compile(r"renewed between two of its turns because its team changed, in (\d+) ms")
+RENEWED_AT_START = re.compile(r"renewed because its team changed, before the next assignment, in (\d+) ms")
+
+
+def consult_verdict(teammate, receipts, spawns, inspects, worktrees, assignments):
+    """Why a consult did NOT reach the back end as the teammate's answer ([] = it did). Slice 3 of
+    the proto-teammate shelf plan (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md §3).
+
+    receipts: every work receipt in the guest; spawns: the back end's Agent calls ({name,
+    subagent_type, model, prompt}); inspects: the back end's own richos_work inspect results, as
+    text; worktrees: target worktree folders named for a consult; assignments: this send's jobs."""
+    failures = []
+    consults = [r for r in receipts if (r.get('request') or {}).get('role') == 'consult']
+    if not consults:
+        return ['no consult receipt was written: the back end prepared no consult']
+    for r in consults:
+        name, request = r.get('name') or '', r.get('request') or {}
+        m = NAMED_AGENT.match(name)
+        if not m or m.group(1) != teammate or request.get('teammate') != teammate:
+            failures.append(f'{name!r} is not a consult of {teammate}')
+        if request.get('repo') is not None or request.get('repos'):
+            failures.append(f'{name} names a repository: {request.get("repo")!r} {request.get("repos")!r}')
+        spawn = [s for s in spawns if s.get('name') == name]
+        if not spawn:
+            failures.append(f'{name} was never started')
+        elif m and (spawn[0].get('subagent_type') != 'richos-app-engine:' + m.group(1) or spawn[0].get('model') != m.group(2)):
+            failures.append(f'{name} was started as {spawn[0].get("subagent_type")!r} on {spawn[0].get("model")!r}')
+        elif 'cross-repo-worktree:' in (spawn[0].get('prompt') or ''):
+            failures.append(f'{name} was given a workspace')
+        answer = r.get('consult_answer') or {}
+        if not answer.get('answered'):
+            failures.append(f'{name} has no answer on its receipt: {json.dumps(answer)[:300]}')
+        elif not any(answer.get('message_sha256', '-') in text for text in inspects):
+            failures.append(f"the back end never read {name}'s answer back with inspect")
+    if worktrees:
+        failures.append(f'a workspace was created for a consult: {worktrees}')
+    if not assignments or any(a.get('state') != 'settled' for a in assignments):
+        failures.append('the job did not settle on the answer: '
+                        + json.dumps([{k: a.get(k) for k in ('state', 'detail')} for a in assignments]))
+    return failures
+
+
+def shelf_verdict(shelf, saved, receipts, spawns, lands, read_back, renewals, assignments):
+    """Why the code job was NOT done end to end by a teammate activated from the shelf in the same
+    assignment ([] = it was). Slice 5 of the proto-teammate shelf plan (richos-hq
+    docs/plans/2026-10-06-proto-teammate-shelf.md §1, §8).
+
+    shelf: the shelf's names; saved: the names in <app data>/team/ after the job (a fresh install
+    has none before it); receipts: every work receipt in the guest; spawns: the back end's Agent
+    calls ({name, subagent_type, model}); lands: the record's land rows for the job's file;
+    read_back: the landed file's first line in the Acme folder; renewals: the app log's
+    between-turns team renewals, in ms; assignments: this send's jobs."""
+    failures = []
+    if len(assignments) != 1:
+        failures.append(f'the job was not one assignment: {len(assignments)}')
+    elif assignments[0].get('state') != 'settled':
+        failures.append('the job did not settle: ' + json.dumps({k: assignments[0].get(k) for k in ('state', 'detail')}))
+    obligations = {a.get('obligation_id') for a in assignments if a.get('obligation_id')}
+    activated = [n for n in saved if n in shelf]
+    if not activated:
+        failures.append(f'no shelf teammate was activated into the team folder: {saved}')
+    # Only this assignment's receipts count: Dean, the engineer and the reviewer must all be in it.
+    by_role = {}
+    for r in receipts:
+        request = r.get('request') or {}
+        if request.get('obligation_id') in obligations:
+            by_role.setdefault(request.get('role'), []).append(r)
+    if not any((r.get('request') or {}).get('teammate') == 'dean' for r in by_role.get('consult', [])):
+        failures.append('the back end never consulted Dean')
+    # The engineer is the activated teammate who was prepared as the worker (Dean may activate a
+    # reviewer too).
+    prepared = [(r.get('request') or {}).get('teammate') for r in by_role.get('worker', [])]
+    name = next((n for n in prepared if n in activated), None)
+    if activated and not name:
+        failures.append(f'no activated teammate ({", ".join(activated)}) was prepared as the worker: {json.dumps(prepared)}')
+    workers = [r for r in by_role.get('worker', []) if name and (r.get('request') or {}).get('teammate') == name]
+    for w in workers:
+        m = NAMED_AGENT.match(w.get('name') or '')
+        spawn = [s for s in spawns if s.get('name') == w.get('name')]
+        if not m or m.group(1) != name:
+            failures.append(f"{w.get('name')!r} is not {name}-<model>-<id12>")
+        elif not spawn:
+            failures.append(f"{w.get('name')} was never started")
+        elif spawn[0].get('subagent_type') != 'richos-app-engine:' + name or spawn[0].get('model') != m.group(2):
+            failures.append(f"{w.get('name')} was started as {spawn[0].get('subagent_type')!r} on {spawn[0].get('model')!r}")
+    if not by_role.get('reviewer'):
+        failures.append('nobody reviewed the change')
+    if name and (not lands or not all((r.get('workerName') or '').startswith(name + '-') for r in lands)):
+        failures.append(f"{SHELF_FILE} was not landed by the activated teammate: "
+                        + json.dumps([r.get('workerName') for r in lands]))
+    if read_back != SHELF_LINE:
+        failures.append(f'{SHELF_FILE} in the Acme folder does not read back as written: {read_back!r}')
+    if not renewals:
+        failures.append('the back end was never renewed between two turns of the run for its changed team')
+    return failures
 
 
 def named_verdict(teammate, spawns, workers, by_labels, chips):
@@ -683,6 +811,140 @@ class OutputWalk(command_walk.CommandWalk):
         note(by_labels=by_labels, raw_names=raw, unread=unread)
         self.shot('named-by.png')
         failures = named_verdict(teammate, spawns, workers, by_labels, raw)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def consult(self):
+        """Slice 3 of the proto-teammate shelf (plan §3), after identity and first-run, with no
+        repository connected: a research question for Clark. PASS when the back end consulted
+        Clark as `clark-<model>-<id12>` of his own definition, with no repository and no workspace,
+        Clark's final message is on the consult's receipt, the back end read it back with
+        richos_work inspect, and the job settled on the back end's report."""
+        evidence, note = self.observed('consult')
+        teammate = 'clark'
+        turn, sent = self.send(CONSULT_TASK)
+        note(turn=turn, task=CONSULT_TASK)
+        end = time.monotonic() + self.a.within
+        ours = []
+        while time.monotonic() < end:
+            ours = self.assignments_since(sent)
+            if ours and all(a.get('state') not in OPEN for a in ours):
+                break
+            time.sleep(5)
+        time.sleep(5)  # the work host settles and closes after the back end's last turn
+        ours = self.assignments_since(sent)
+        sessions = sorted({a.get('work_session') for a in ours if a.get('work_session')})
+        script = ('import json,glob,sys\n'
+                  'rows=[]\n'
+                  'for p in glob.glob(sys.argv[1]+"/engine-state/work-receipts/*/*.json"):\n'
+                  '    try: rows.append(json.load(open(p)))\n'
+                  '    except Exception: pass\n'
+                  'print(json.dumps(rows))\n')
+        receipts = json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data), 60))
+        spawns, inspects, ended = [], [], []
+        for session in sessions:
+            for c in self.callbacks(session):
+                event, tool = c.get('hook_event_name'), str(c.get('tool_name') or '')
+                if event == 'PreToolUse' and tool in ('Agent', 'Task') and not c.get('agent_id'):
+                    ti = c.get('tool_input') or {}
+                    spawns.append({k: ti.get(k) for k in ('name', 'subagent_type', 'model', 'prompt')})
+                if event == 'PostToolUse' and 'richos_work' in tool and tool.endswith('inspect') and not c.get('agent_id'):
+                    inspects.append(json.dumps(c.get('tool_response')))
+                if event == 'SubagentStop':
+                    ended.append({'agent': c.get('agent_id'), 'last': str(c.get('last_assistant_message', ''))[:600]})
+        names = [r.get('name') for r in receipts if (r.get('request') or {}).get('role') == 'consult']
+        worktrees = [p for p in guest(self.vm, 'ls -d ' + shlex.quote(self.data) + '/engine-state/target-worktrees/*/* 2>/dev/null || true',
+                                      60).split() if any(n and p.endswith('/' + n) for n in names)]
+        note(work_sessions=sessions,
+             consult_receipts=[{k: r.get(k) for k in ('name', 'status', 'request', 'consult_answer')}
+                               for r in receipts if (r.get('request') or {}).get('role') == 'consult'],
+             spawns=[{**s, 'prompt': (s.get('prompt') or '')[:400]} for s in spawns],
+             backend_inspects_with_an_answer=[t[:1500] for t in inspects if 'consult_answer' in t],
+             subagent_stops=ended, consult_worktrees=worktrees,
+             assignments=[{k: a.get(k) for k in ('id', 'kind', 'state', 'detail', 'work_session')} for a in ours],
+             rich_said=self.words_since(sent)[:2000], turn_story=self.turn_story(turn))
+        (self.out / 'consult-story.json').write_text(json.dumps(self.work_story(sent, sessions), indent=2) + '\n')
+        failures = consult_verdict(teammate, receipts, spawns, inspects, worktrees, ours)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def receipts(self):
+        script = ('import json,glob,sys\n'
+                  'rows=[]\n'
+                  'for p in glob.glob(sys.argv[1]+"/engine-state/work-receipts/*/*.json"):\n'
+                  '    try: rows.append(json.load(open(p)))\n'
+                  '    except Exception: pass\n'
+                  'print(json.dumps(rows))\n')
+        return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data), 60))
+
+    def shelf(self):
+        """Slice 5 of the proto-teammate shelf (plan §1, §8), end to end on a fresh install: a code
+        job comes in, Dean fits an engineer from the shelf, the back end saves him and its turn
+        ends, the app renews the back end between two turns of the same run, the engineer does the
+        job, a reviewer reviews it, and it lands. PASS per shelf_verdict; the renewal's duration is
+        read off the app log."""
+        evidence, note = self.observed('shelf')
+        os.environ['TESTVM_AX_TIMEOUT'] = '35'   # backend-worker's rule for the Approve search
+        shelf = sorted(guest(self.vm, 'ls ' + shlex.quote(self.payload) + '/engine/team/shelf 2>/dev/null || true',
+                             60).replace('.md', '').split())
+        if not shelf:
+            shelf = sorted(p.stem for p in (HERE.parents[2] / 'engine/team/shelf').glob('*.md'))
+        team = shlex.quote(self.data + '/team')
+        before = guest(self.vm, 'ls ' + team + ' 2>/dev/null || true', 60).split()
+        note(shelf=shelf, team_before=before, task=SHELF_TASK)
+        if before:
+            raise StepFailed(f'not a fresh install: the team folder already holds {before}')
+        turn, sent = self.send(SHELF_TASK)
+        note(turn=turn)
+        end = time.monotonic() + self.a.within
+        slow = []
+        while time.monotonic() < end:
+            ours = self.assignments_since(sent)
+            if ours and all(a.get('state') not in OPEN for a in ours):
+                break
+            try:
+                self.approve_pending(sent)
+            except (StepFailed, subprocess.TimeoutExpired) as exc:
+                slow.append(str(exc)[-200:])
+            time.sleep(5)
+        time.sleep(10)  # the work host settles and projects after the back end's last turn
+        ours = self.assignments_since(sent)
+        saved = sorted(n[:-3] for n in guest(self.vm, 'ls ' + team + ' 2>/dev/null || true', 60).split()
+                       if n.endswith('.md'))
+        receipts = self.receipts()
+        log = guest(self.vm, 'cat ' + shlex.quote(self.payload + '/app.log') + ' 2>/dev/null || true', 120)
+        (self.out / 'shelf-app.log').write_text(log + '\n')
+        between = [int(ms) for ms in RENEWED_BETWEEN_TURNS.findall(log)]
+        at_start = [int(ms) for ms in RENEWED_AT_START.findall(log)]
+        # Every back-end session's own Agent calls: a renewal moves the run to a new session, so the
+        # assignment's work_session names only the last one.
+        script = ('import json,glob,sys\n'
+                  'out=[]\n'
+                  'for p in sorted(glob.glob(sys.argv[1]+"/engine-state/evidence/*/callbacks.jsonl")):\n'
+                  '    for line in open(p):\n'
+                  '        try: c=json.loads(line).get("callback",{})\n'
+                  '        except Exception: continue\n'
+                  '        if c.get("hook_event_name")=="PreToolUse" and c.get("tool_name") in ("Agent","Task") and not c.get("agent_id"):\n'
+                  '            ti=c.get("tool_input") or {}\n'
+                  '            out.append({k:ti.get(k) for k in ("name","subagent_type","model")})\n'
+                  'print(json.dumps(out))\n')
+        spawns = json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data), 60))
+        acme = self.company + '/' + SHELF_FILE
+        rows = self.save_record('record-after-shelf.jsonl')
+        lands = [r for r in rows if r.get('source') == 'land' and r.get('path') == acme]
+        read_back = guest(self.vm, 'head -1 ' + shlex.quote(acme) + ' 2>/dev/null || true', 60).strip()
+        sessions = sorted({a.get('work_session') for a in ours if a.get('work_session')})
+        note(team_after=saved, spawns=spawns, renewed_between_turns_ms=between, renewed_at_start_ms=at_start,
+             receipts=[{k: r.get(k) for k in ('name', 'status')} | {'request': {k: (r.get('request') or {}).get(k)
+                       for k in ('role', 'teammate', 'obligation_id', 'review_of')}} for r in receipts],
+             land_rows=lands, read_back=read_back, approve_search_failures=slow,
+             assignments=[{k: a.get(k) for k in ('id', 'kind', 'state', 'detail', 'obligation_id', 'work_session')}
+                          for a in ours],
+             rich_said=self.words_since(sent)[:2000], turn_story=self.turn_story(turn))
+        (self.out / 'shelf-story.json').write_text(json.dumps(self.work_story(sent, sessions), indent=2) + '\n')
+        failures = shelf_verdict(shelf, saved, receipts, spawns, lands, read_back, between, ours)
         if failures:
             raise StepFailed('; '.join(failures))
         return evidence
@@ -2410,7 +2672,7 @@ def main():
     p.add_argument('--relaunch-within', type=float, default=120,
                    help='sidebar: seconds for the composer to come back after the relaunch')
     p.add_argument('--steps', default=','.join(s for s in STEPS
-                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull', 'named')
+                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull', 'named', 'consult', 'shelf')
                                                and s not in CANDIDATE_STEPS),
                    help='default: every step but open-reveal (alone, with --no-app) and the panel steps, '
                         'which run together after identity, first-run and connect: '

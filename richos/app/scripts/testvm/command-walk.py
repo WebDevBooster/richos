@@ -20,7 +20,7 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   identity   the running app says it was built from --expect-sha
   first-run  adopt-walk.py's: memory setup declined, company "Acme" registered with a folder that
              is a Git repository, the business questions declined
-  connect    that folder connected through Settings > Connected repositories (a company folder
+  connect    that folder connected through Settings > Connected folders (a company folder
              alone is not consent: `entity.rs` `connected_repositories`)
   watch      adopt-watch.py started in the guest (assignment states on the guest's clock)
   task       typed into the Mac's composer: run the harmless test command `git log --oneline`
@@ -146,12 +146,12 @@ OPEN = {'registered', 'preparing', 'running', 'blocked', 'waiting-for-screen', '
 class CommandWalk(adopt_walk.Walk):
     def connect(self):
         self.press('Settings', role='AXPopUpButton')
-        self.press('Connected repositories', role='AXMenuItem')
+        self.press('Connected folders', role='AXMenuItem')
         self.wait_for('Company', role='AXPopUpButton')
         self.ax('click', '--title', 'Company', '--role', 'AXPopUpButton', '--first')
         self.ax('click', '--title', 'Acme', '--role', 'AXMenuItem', '--first')
-        self.type_into(self.company, '--role', 'AXTextField', '--title', 'Repository folder')
-        self.press('Connect repository')
+        self.type_into(self.company, '--role', 'AXTextField', '--title', 'Project folder location')
+        self.press('Connect folder')
         registry = self.data + '/entities.json'
         end = time.monotonic() + 30
         while time.monotonic() < end:

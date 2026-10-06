@@ -125,6 +125,130 @@ class DesktopWork(unittest.TestCase):
         # The same request for another teammate is different work.
         with self.assertRaisesRegex(ValueError,"different work"):self.call("prepare",{**self.args,"teammate":"mark"})
 
+    def test_a_consult_needs_no_repository_is_read_only_and_hands_back_its_final_message(self):
+        """Slice 3 of the proto-teammate shelf plan (richos-hq
+        docs/plans/2026-10-06-proto-teammate-shelf.md §3): a third duty, `consult`, with no
+        repository and no workspace; writes are refused as for a reviewer; the teammate's final
+        message is the deliverable, handed back to the back end on its receipt."""
+        ask={"request_id":"ask-clark","obligation_id":"fixture-task","role":"consult","teammate":"clark",
+             "title":"Research a fictional question","brief":"Which fictional fixture format is older? Answer in one line."}
+        for key,value in (("repo",str(self.repo)),("repos",[str(self.repo)]),("integration","main"),("review_of","0"*64)):
+            with self.assertRaisesRegex(ValueError,"a consult changes no repository, so it takes no "+key):
+                self.call("prepare",{**ask,"request_id":"with-"+key,key:value})
+        ready=self.call("prepare",ask)
+        self.assertEqual(ready["status"],"prepared")
+        self.assertRegex(ready["name"],r"^clark-sonnet-[0-9a-f]{12}$")
+        self.assertEqual((ready["request"]["repo"],ready["request"]["repos"],ready["request"]["role"]),(None,[],"consult"))
+        payload=ready["agent_payload"]
+        self.assertEqual((payload["subagent_type"],payload["model"]),("richos-app-engine:clark","sonnet"))
+        duty=(ENGINE/"mega-lander/duties/consult.md").read_text().strip()
+        self.assertTrue(duty.startswith("# Your duty in this assignment: consult"))
+        self.assertNotIn("cross-repo-worktree:",payload["prompt"])
+        self.assertIn(duty+"\n\n"+ask["brief"],payload["prompt"])
+        # No workspace: nothing under the target worktrees, nothing in the canonical registry.
+        self.assertFalse((self.root/"engine-state/target-worktrees").exists() and any((self.root/"engine-state/target-worktrees").rglob("*")))
+        self.assertNotIn("retained_target",ready)
+        self.start_fixture_worker(ready,"consult-clark")
+        canonical=self.app.W.load_agent(self.app.W.named_key(self.session,ready["name"]))
+        self.assertEqual([w["kind"] for w in self.app.W.live_workspaces(canonical)],["native"])
+        # Read-only: every file edit is refused, a read is told it is a consult.
+        for tool in ("Write","Edit","MultiEdit","NotebookEdit"):
+            with self.assertRaisesRegex(ValueError,"a consult changes no files"):
+                self.app.worker_context(self.scope,{"session_id":self.session,"agent_id":"consult-clark","cwd":str(self.coord),
+                                                    "tool_name":tool,"tool_input":{"file_path":str(self.repo/"x.txt")}})
+        context=self.app.worker_context(self.scope,{"session_id":self.session,"agent_id":"consult-clark","cwd":str(self.coord),
+                                                     "tool_name":"Read","tool_input":{"file_path":str(self.repo/"x.txt")}})
+        self.assertIn("you are consulted and change no repository",context["hookSpecificOutput"]["additionalContext"])
+        # The final message is the deliverable, handed back on the receipt.
+        answer="The fictional CSV fixture is older than the fictional JSON one, by the dates in their headers."
+        self.finish_fixture_worker("consult-clark",answer)
+        record=self.call("inspect")["records"][0]
+        self.assertEqual(record["status"],"run-ended")
+        self.assertEqual((record["consult_answer"]["message"],record["consult_answer"]["answered"],record["consult_answer"]["source"]),
+                         (answer,True,"SubagentStop"))
+        # A delivered handback is the report when the stop says only that it was delivered.
+        again=self.call("prepare",{**ask,"request_id":"ask-clark-again"})
+        self.start_fixture_worker(again,"consult-clark-2")
+        self.app.observe(self.scope,{"hook_event_name":"PostToolUse","session_id":self.session,"agent_id":"consult-clark-2",
+                                     "tool_name":"SubagentHandback","tool_use_id":"handback-2","tool_input":{"message":answer+" Checked twice."},
+                                     "tool_response":{"success":True}})
+        self.finish_fixture_worker("consult-clark-2","Report delivered to caller.")
+        with self.app.locked(self.scope) as root: second=self.app.read_record(root,again["id"])
+        self.assertEqual(second["consult_answer"]["message"],answer+" Checked twice.")
+        self.assertNotIn("consult_handback",second)
+        # Nothing to land, and no work unit that would stop the assignment closing on the answer.
+        with self.assertRaisesRegex(ValueError,"a consult has nothing to land"):
+            self.call("integrate",{"worker_id":ready["id"],"reviewer_id":again["id"]})
+        work=self.app.ECS.execute(self.root/"ecs",{"protocol":1,"command":"inspect","binding":self.scope["binding"],
+                                                   "query":{"section":"work","offset":0,"limit":100,"include_closed":True}})
+        self.assertEqual(work["records"],[],"a consult was projected as a work unit")
+
+    def test_the_team_tool_lists_and_shows_the_shelf_and_saves_the_users_own_copy(self):
+        """Slice 4 of the proto-teammate shelf plan (richos-hq
+        docs/plans/2026-10-06-proto-teammate-shelf.md §2, §4, §10): the back end lists the
+        shelf, shows one shelf teammate's text for Dean's consult, and saves the definition he
+        fits as <app data>/team/<name>.md. The saved copy is the user's: saving over it is
+        refused unless the user asked for a change. Saving registers nothing; the lease does."""
+        self.assertIn("team",[tool["name"] for tool in self.app.TOOLS])
+        shelf=sorted(p.stem for p in (ENGINE/"team/shelf").glob("*.md"))
+        self.assertGreaterEqual(len(shelf),20)
+        listed=self.call("team",{"action":"list"})["shelf"]
+        # Every shelf teammate, by its own name, and none of them activated yet.
+        self.assertEqual([row["name"] for row in listed],shelf)
+        for row in listed:
+            self.assertTrue(row["description"] and row["model"],row)
+            self.assertIs(row["activated"],False)
+        stock=(ENGINE/"team/shelf/sage.md").read_text()
+        self.assertEqual(self.call("team",{"action":"show","name":"sage"}),{"name":"sage","text":stock})
+        for name in ("dean","../agents/dean","worker"):
+            with self.assertRaisesRegex(ValueError,"is not on the shelf"):self.call("team",{"action":"show","name":name})
+
+        # Dean's fitted definition, saved under the shelf name into the user's own folder.
+        fitted=stock.rstrip("\n")+"\n\n## This project\n\nThe fictional depot service, in its connected repository.\n"
+        mine=self.root/"team/sage.md"
+        self.assertFalse(mine.exists())
+        saved=self.call("team",{"action":"save","name":"sage","text":fitted})
+        self.assertEqual((saved["saved"],saved["replaced"],saved["registered"]),(str(mine),False,False))
+        # Slice 5: the app renews the connection when the turn ends, so the back end is told to
+        # end it rather than report or try to start the teammate it cannot name yet.
+        self.assertIn("End your turn now without a report",saved["note"])
+        self.assertIn("next turn in this same assignment",saved["note"])
+        self.assertEqual(mine.read_text(),fitted)
+        self.assertEqual(mine.stat().st_mode&0o777,0o600)
+        self.assertEqual({row["name"]:row["activated"] for row in self.call("team",{"action":"list"})["shelf"]}["sage"],True)
+        # The shelf is never written, and nothing is registered until the next lease.
+        self.assertEqual((ENGINE/"team/shelf/sage.md").read_text(),stock)
+        self.assertFalse((self.coord/".claude/agents/sage.md").exists())
+        with self.assertRaisesRegex(ValueError,"sage is not an active teammate"):
+            self.call("prepare",{**self.args,"request_id":"too-soon","teammate":"sage"})
+
+        # The user's copy is kept: the shelf text again is refused, and the fitting survives.
+        with self.assertRaisesRegex(ValueError,"that copy is the user's: it is kept"):
+            self.call("team",{"action":"save","name":"sage","text":stock})
+        self.assertEqual(mine.read_text(),fitted)
+        # A change the user asked for (here: a move to Sonnet) replaces it.
+        moved=fitted.replace("model: opus","model: sonnet",1)
+        self.assertNotEqual(moved,fitted)
+        self.assertIs(self.call("team",{"action":"save","name":"sage","text":moved,"replace":True})["replaced"],True)
+        self.assertEqual(mine.read_text(),moved)
+
+        # Only a definition that could be started by that name is saved.
+        nora="---\nname: nora\ndescription: Fictional.\nmodel: sonnet\n---\nA fictional teammate.\n"
+        refusals=[({"name":"sage2","text":stock},"names itself 'sage'"),
+                  ({"name":"nora","text":"---\nname: nora\ndescription: Fictional.\n---\nNo model.\n"},"names no model"),
+                  ({"name":"nora","text":"---\nname: nora\nmodel: sonnet\n---\nNo description.\n"},"has no description"),
+                  ({"name":"nora","text":"```markdown\n---\nname: nora\n```\n"},"without a code fence"),
+                  ({"name":"worker","text":stock},"never a duty"),
+                  ({"name":"Nora","text":stock},"lowercase"),
+                  ({"name":"nora","text":"---\n"+"x"*70000},"at most"),
+                  ({"name":"nora","text":nora,"replace":"yes"},"replace must be true or false"),
+                  ({"name":"nora","text":stock,"repo":str(self.repo)},"only name, text and replace")]
+        for args,reason in refusals:
+            with self.assertRaisesRegex(ValueError,reason):self.call("team",{"action":"save",**args})
+        self.assertEqual(sorted(p.name for p in (self.root/"team").iterdir()),["sage.md"])
+        for args in ({},{"action":"delete","name":"sage"},{"action":"list","name":"sage"}):
+            with self.assertRaises(ValueError):self.call("team",args)
+
     def test_preflight_refusal_allows_a_corrected_request_without_claiming_a_start(self):
         subprocess.run(["git", "-C", str(self.repo), "branch", "-m", "integration"], check=True)
         missing = {k:v for k,v in self.args.items() if k != "integration"}

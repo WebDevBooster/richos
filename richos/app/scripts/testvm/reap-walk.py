@@ -18,7 +18,7 @@ process group, out of reach of the old group kill), and nothing that was not end
 WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   identity      the running app says it was built from --expect-sha
   first-run     adopt-walk.py's first run: memory setup declined, company Acme with a Git folder
-  connect       Settings -> Connected repositories -> Acme's folder, so an assignment has a real
+  connect       Settings -> Connected folders -> Acme's folder, so an assignment has a real
                 repository (without it the front desk has been seen to invent one)
   seed          reap-guest.py copied into the repository as heartbeat.py, and into the payload
   watch         reap-guest.py's death watcher started: every recorded heartbeat's end, guest ms
@@ -316,11 +316,11 @@ class Walk(adopt.Walk):
     # --- steps --------------------------------------------------------------------------------
     def connect(self):
         self.press('Settings', role='AXPopUpButton')
-        self.press('Connected repositories', role='AXMenuItem')
+        self.press('Connected folders', role='AXMenuItem')
         self.ax('click', '--title', 'Company', '--role', 'AXPopUpButton', '--in', 'dialog', '--first')
         self.press('Acme', role='AXMenuItem', contains=False)
-        self.type_into(self.company, '--role', 'AXTextField', '--title', 'Repository folder')
-        self.ax('click', '--title', 'Connect repository', '--role', 'AXButton', '--in', 'dialog', '--first')
+        self.type_into(self.company, '--role', 'AXTextField', '--title', 'Project folder location')
+        self.ax('click', '--title', 'Connect folder', '--role', 'AXButton', '--in', 'dialog', '--first')
         time.sleep(2)
         entities = guest(self.vm, 'cat ' + shlex.quote(self.data + '/entities.json'))
         self.ax('click', '--title', 'Close', '--role', 'AXButton', '--in', 'dialog', '--first')

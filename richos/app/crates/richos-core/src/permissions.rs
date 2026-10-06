@@ -416,7 +416,15 @@ impl ScopedPermissions {
             return allow();
         }
         // These tools implement their own explicit host scope and write contracts.
-        if matches!(tool,"mcp__richos_work__repositories"|"mcp__richos_work__prepare"|"mcp__richos_work__inspect"|"mcp__richos_work__complete"|"mcp__richos_continuity__checkpoint"|"mcp__richos_continuity__inspect"|
+        if matches!(tool,"mcp__richos_work__repositories"|"mcp__richos_work__prepare"|"mcp__richos_work__inspect"|"mcp__richos_work__complete"|
+            // The team tool (proto-teammate shelf plan slice 4, richos-hq
+            // docs/plans/2026-10-06-proto-teammate-shelf.md section 10 point 2: the back end
+            // activates a shelf teammate when a job needs it, without asking). It lists and
+            // shows the shelf and writes one file, `<app data>/team/<name>.md`, under its own
+            // contract: a definition that could not be started by that name is refused, and
+            // the user's existing copy is kept unless `replace` says the user asked for it.
+            "mcp__richos_work__team"|
+            "mcp__richos_continuity__checkpoint"|"mcp__richos_continuity__inspect"|
             "mcp__richos_onboarding__save_company_notes"|"mcp__richos_onboarding__decline_onboarding"|
             // The assignment register (`assignment_tools.rs`). App-owned, with its own host
             // scope and write contract, exactly like the two onboarding tools beside it: the
@@ -797,8 +805,8 @@ impl ScopedPermissions {
     /// Its predecessor was named `the_step_that_changes_his_repository_is_the_one_that_has_to_ask`
     /// and asserted the exact opposite — `integrate` reaching his queue and waiting — so the
     /// day the ruling landed it landed against a measurement rather than a memory. **All
-    /// FIVE** work tools now go through on a background lease and none of them touches the
-    /// queue.
+    /// SIX** work tools now go through on a background lease and none of them touches the
+    /// queue (the sixth, `team`, since proto-teammate shelf slice 4).
     ///
     /// **Both arms are here because either alone passes for the wrong reason.** A desk that
     /// allowed everything would satisfy the first arm and be no desk at all, so the second
@@ -809,13 +817,13 @@ impl ScopedPermissions {
         let desk=Arc::new(PermissionDesk::default());
         let (p,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
         for tool in ["mcp__richos_work__repositories","mcp__richos_work__prepare","mcp__richos_work__inspect",
-                     "mcp__richos_work__complete","mcp__richos_work__integrate"] {
+                     "mcp__richos_work__complete","mcp__richos_work__integrate","mcp__richos_work__team"] {
             assert_eq!(work_lease.wait(&json!({"tool_name":tool,"input":{}}),Duration::from_millis(20)).behavior(),
                 "allow","{tool} asked him for permission to do the job he gave it");
         }
         assert!(desk.background_queue().is_empty(),"a work tool reached his queue; a land is not a question");
         // POSITIVE CONTROL, same lease, same desk, same call: the queue still works, so the
-        // five allows above are a fact about those five tools and not about a desk that has
+        // six allows above are a fact about those six tools and not about a desk that has
         // stopped refusing anything.
         assert_eq!(work_lease.wait(&json!({"tool_name":"Bash","input":{}}),Duration::from_millis(20)).behavior(),"deny");
         assert_eq!(desk.background_queue().len(),1,"a genuine permission request no longer reaches him");
@@ -862,7 +870,7 @@ impl ScopedPermissions {
     /// pass for the wrong reason: a front desk that reached nothing at all would satisfy the
     /// refusal and be useless, and a back end that reached nothing would make the app unable
     /// to work while this test stayed green.
-    #[test] fn the_front_desk_reaches_no_work_tool_and_the_back_end_reaches_all_five(){
+    #[test] fn the_front_desk_reaches_no_work_tool_and_the_back_end_reaches_all_six(){
         let desk=Arc::new(PermissionDesk::default());
         let (front,conversation)=joined(&desk,"ceo","turn-9");
         let (back,work_lease)=joined(&desk,WORK_AUDIENCE,"obligation-7");
@@ -870,8 +878,9 @@ impl ScopedPermissions {
         // loop carried four names and asserted the fifth separately, because the fifth was
         // the one that waited for him; it no longer does, so it belongs with its siblings and
         // there is no longer a name in this file that a sixth work tool could hide behind.
+        // The sixth came (`team`, proto-teammate shelf slice 4) and was added here.
         for tool in ["mcp__richos_work__repositories","mcp__richos_work__prepare","mcp__richos_work__inspect",
-                     "mcp__richos_work__complete","mcp__richos_work__integrate"] {
+                     "mcp__richos_work__complete","mcp__richos_work__integrate","mcp__richos_work__team"] {
             let refused=conversation.wait(&json!({"tool_name":tool,"input":{}}),Duration::from_millis(20));
             assert_eq!(refused.behavior(),"deny","the front desk still reaches {tool}");
             // The refusal names the way OUT, not just the door: a model told "no" with no
