@@ -330,6 +330,13 @@ def project(rows):
 
 
 class OutputWalk(command_walk.CommandWalk):
+    def ax(self, mode, *args, app=None, timeout=40):
+        """adopt-walk's ax, whose host-side wait outlasts the guest deadline a step has raised
+        (TESTVM_AX_TIMEOUT): with the default 40 s wait, a step that raised the deadline to 150 s
+        still had its finds cut at 40 s by subprocess (candidate 39, the scroll step's 30 rows)."""
+        raised = int(os.environ.get('TESTVM_AX_TIMEOUT', '20')) + 30
+        return super().ax(mode, *args, app=app, timeout=max(timeout, raised))
+
     # --- what the guest holds ------------------------------------------------------------------
     def lines(self, path, timeout=60):
         text = guest(self.vm, 'cat ' + shlex.quote(path) + ' 2>/dev/null || true', timeout)
@@ -1779,10 +1786,15 @@ class OutputWalk(command_walk.CommandWalk):
         if len(rows) < SCROLL_COUNT:
             raise StepFailed('%d of %d scroll files reached the record within %d s'
                              % (len(rows), SCROLL_COUNT, self.a.within))
+        # Thirty rows make every whole-window find slow: the first run of this step (2026-10-06,
+        # walk-7224f7188f3a) had to_list's find for "All output" outlive the 35 s deadline (124).
+        # The long deadline, as job-question takes, and the photographs before any row is read.
+        os.environ['TESTVM_AX_TIMEOUT'] = '150'
         self.close_panel()
         self.open_panel()
         self.to_list()
         time.sleep(2)
+        note(shots=self.flip_theme('scroll'))
         win = self.script('tell application "System Events" to get {position, size} of front window of '
                           '(first process whose unix id is %d)' % self.app_pid())
         x, y, w, h = [int(float(v)) for v in win.replace(' ', '').split(',')]
@@ -1792,7 +1804,6 @@ class OutputWalk(command_walk.CommandWalk):
         note(window={'x': x, 'y': y, 'w': w, 'h': h}, divider_x=self.divider_x(),
              close=self.find_all('Close the output panel')[:1], rows_listed=len(listed),
              rows_below_window=len(below), lowest_row_y=max((r['y'] for r in listed), default=None))
-        note(shots=self.flip_theme('scroll'))
         if not below:
             raise StepFailed('the list does not reach past the window (%d rows listed): nothing to scroll'
                              % len(listed))
