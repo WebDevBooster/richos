@@ -63,5 +63,11 @@ with tempfile.TemporaryDirectory() as root:
 with tempfile.TemporaryDirectory() as root:
     r, v = box(root, screen=GOOD + 'Splash screen\n')
     check(r.returncode != 0 and 'FAIL  item 7' in v, 'a splash row in the quick settings fails item 7', f'exit {r.returncode}, {v!r}')
+with tempfile.TemporaryDirectory() as root:
+    # The 2026-10-06 guest: every tree read answered with the harness's own error, whose text
+    # carries a dash. No item may be judged on it, PASS or FAIL.
+    r, v = box(root, screen='{"error": "guest_deadline", "detail": "TCC grant did not take — re-run setup"}\n')
+    check(r.returncode != 0 and 'UNKNOWN' in v and 'PASS' not in v and 'FAIL  item' not in v,
+          'a tree read that returns the harness error is UNKNOWN, never a verdict', f'exit {r.returncode}, {v!r}')
 print(f'fbcopy-walk.test.py: {failed} failed')
 sys.exit(1 if failed else 0)
