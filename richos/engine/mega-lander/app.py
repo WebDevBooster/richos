@@ -681,16 +681,29 @@ def teammate_model(teammate):
     if teammate in DUTIES or path.is_symlink() or not path.is_file():
         active = sorted(p.stem for p in roster.glob("*.md") if TEAMMATE_NAME.fullmatch(p.stem) and p.stem not in DUTIES)
         raise ValueError(f"{teammate} is not an active teammate. Active teammates: {', '.join(active) or 'none'}")
-    lines = path.read_text(encoding="utf-8").split("\n")
+    return definition_model(teammate, front_matter(path.read_text(encoding="utf-8")))
+
+
+def front_matter(body):
+    """A definition's first frontmatter block, keys lowercased, values unquoted: the reading
+    scripts/lib/resolve-model.sh gives the isolation guard."""
+    lines = body.split("\n")
     front = {}
     if lines and lines[0].strip() == "---":
         for line in lines[1:]:
             if line.strip() == "---": break
             key, _, value = line.partition(":")
             front.setdefault(key.strip().lower(), value.strip().strip("\"'"))
+    return front
+
+
+def definition_model(teammate, front):
+    """The model a definition named `teammate` starts on, or a refusal saying why it cannot be
+    started by that name: its `name:` must be `teammate` and its `model:` must contain one of
+    the coordination folder's ALLOWED_MODELS (a verbose id reduced to the alias it contains)."""
     if front.get("name") != teammate:
         raise ValueError(f"{teammate}'s definition names itself {front.get('name')!r}, so it cannot be started by that name")
-    config = (root / "orchestration.config").read_text(encoding="utf-8")
+    config = (Path(os.environ["RICHOS_ENTITY_ROOT"]) / "orchestration.config").read_text(encoding="utf-8")
     allowed = re.search(r'^ALLOWED_MODELS="([^"]*)"', config, re.M)
     allowed = allowed.group(1).split() if allowed else []
     written = front.get("model", "").lower()
@@ -699,6 +712,92 @@ def teammate_model(teammate):
         raise ValueError(f"{teammate}'s definition names no model this app can start "
                          f"(model: {written or 'missing'}; one of {', '.join(allowed)})")
     return model
+
+
+# **THE SHELF AND THE USER'S OWN TEAM** (proto-teammate shelf plan §2, §4 and §10; slice 4).
+# The shelf (`engine/team/shelf/`) is the stock teammates no install registers; it ships and
+# is replaced with the engine. The user's own teammates are `<app data>/team/<name>.md`, which
+# `EngineProfile::prepare` registers at every lease start and an engine update never touches.
+# `team` is the back end's only way to either: it cannot read engine code, so it lists and
+# shows the shelf here, and it saves the definition Dean fitted there. A saved copy is the
+# user's and is kept: saving over it needs `replace`, for a change the user asked for (§10
+# point 3). Nothing here registers a teammate; the next lease does.
+SHELF = ENGINE / "team/shelf"
+# The bound on a saved definition: about four times the largest shelf file (13,844 bytes),
+# and inside the MCP transport's 128 KiB request line once JSON-escaped.
+DEFINITION_LIMIT = 64 * 1024
+
+
+def user_team():
+    """`<app data>/team/`: app data is the parent of the engine state folder, the root the app
+    gives `EngineProfile::prepare` (engine_profile.rs, USER_TEAM)."""
+    folder = state().parent / "team"
+    if folder.is_symlink():
+        raise ValueError("the user's team folder cannot be redirected")
+    return folder
+
+
+def shelf_names():
+    return sorted(p.stem for p in SHELF.glob("*.md")
+                  if TEAMMATE_NAME.fullmatch(p.stem) and not p.is_symlink() and p.is_file())
+
+
+def team(args):
+    action = args.get("action")
+    if action == "list":
+        if set(args) - {"action"}: raise ValueError("listing the shelf takes no other field")
+        mine = user_team()
+        rows = []
+        for name in shelf_names():
+            front = front_matter((SHELF / (name + ".md")).read_text(encoding="utf-8"))
+            rows.append({"name": name, "description": front.get("description", ""),
+                         "model": front.get("model", ""), "activated": (mine / (name + ".md")).is_file()})
+        return {"shelf": rows}
+    if action == "show":
+        if set(args) - {"action", "name"}: raise ValueError("showing a shelf teammate takes only its name")
+        name = text(args, "name", 64)
+        if name not in shelf_names():
+            raise ValueError(f"{name} is not on the shelf. The shelf: {', '.join(shelf_names()) or 'empty'}")
+        return {"name": name, "text": (SHELF / (name + ".md")).read_text(encoding="utf-8")}
+    if action == "save":
+        if set(args) - {"action", "name", "text", "replace"}:
+            raise ValueError("saving a teammate takes only name, text and replace")
+        name = text(args, "name", 64)
+        if not TEAMMATE_NAME.fullmatch(name) or name in DUTIES:
+            raise ValueError("name must be a teammate's name: 2 to 16 lowercase letters and digits, never a duty")
+        body = args.get("text")
+        if not isinstance(body, str) or not body.strip() or len(body) > DEFINITION_LIMIT:
+            raise ValueError(f"text must be the whole definition, at most {DEFINITION_LIMIT} characters")
+        if not body.startswith("---\n"):
+            raise ValueError("text must be the definition itself, starting at its --- line, without a code fence")
+        front = front_matter(body)
+        definition_model(name, front)
+        if not front.get("description"):
+            raise ValueError(f"{name}'s definition has no description, so the back end could not tell when to use it")
+        replace = args.get("replace", False)
+        if not isinstance(replace, bool): raise ValueError("replace must be true or false")
+        folder = user_team()
+        folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path = folder / (name + ".md")
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise ValueError(f"team/{name}.md cannot be redirected")
+        existed = path.exists()
+        if existed and not replace:
+            raise ValueError(f"{name} is already the user's teammate, and that copy is the user's: it is kept. "
+                             "Set replace only to make a change the user asked for")
+        temporary = folder / ("." + uuid.uuid4().hex + ".incoming")
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(body if body.endswith("\n") else body + "\n")
+                stream.flush(); os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {"saved": str(path), "name": name, "replaced": existed,
+                "registered": False,
+                "note": f"{name} is registered when this session is next renewed; until then prepare refuses the name."}
+    raise ValueError("action must be list, show or save")
 
 
 def connected_repositories(scope, args):
@@ -1917,6 +2016,7 @@ def call(scope_path, name, args):
     if name == "prepare": return prepare(scope_path,scope,args)
     if name == "integrate": return integrate(scope_path,scope,args)
     if name == "complete": return complete(scope_path,scope,args)
+    if name == "team": return team(args)
     if name == "inspect":
         if set(args) - {"offset","limit"}: raise ValueError("unsupported inspection fields")
         offset,limit = args.get("offset",0),args.get("limit",20)
@@ -1944,6 +2044,7 @@ TOOLS = [
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
     {"name":"prepare","description":"Prepare a named teammate as the worker (role worker: implements), the reviewer (role reviewer: reviews) or a consultant (role consult: answers, changing no repository) for the assignment this connection is carrying. A consult takes no repo, repos, integration, base, review_of or continue_of, gets no workspace and may not edit files; its final message is its deliverable, which inspect returns as consult_answer once its run has ended. Set teammate to the name of the active teammate whose role fits the job best, as your Agent tool lists them; a name that is not active is refused with the names that are. The teammate runs on its own model with its own definition, and the duty's app instructions are put at the top of your brief for you. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. A failed preparation that never dispatched is settled when a new request_id prepares a replacement: anything it created is withdrawn, and dirty files are refused rather than discarded. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker. Its reviewer and any continuation name the same repos, and review, integration and cleanup then cover every one of those repositories.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","teammate","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","title","brief","teammate"],"additionalProperties":False}},
     {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. If the branch moved since the work started, the reviewed commit is merged with a merge commit only when Git merges the two without a conflict. No push, rebase or conflict resolution. Dirty targets and conflicting changes are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
+    {"name":"team","description":"The shelf of named teammates not yet active, and the user's own team. action list: every shelf teammate with its description, model and whether the user already has an activated copy. action show: one shelf teammate's whole definition, by name. action save: write a definition as the user's own teammate, team/<name>.md, from name and text (the definition itself, starting at its --- line, its name: line equal to name, with a description and a model). To activate a shelf teammate, show it, consult Dean with that text and the job, and save the definition he returns under the same name. A saved copy is the user's and a later shelf update never replaces it; saving over it is refused unless replace is true, which is only for a change the user asked for. A saved teammate is registered when this session is next renewed.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","show","save"]},"name":{"type":"string"},"text":{"type":"string"},"replace":{"type":"boolean"}},"required":["action"],"additionalProperties":False}},
     {"name":"inspect","description":"Reconcile scoped dispatch receipts against actual provider and workspace observations. A run ending is not task completion. Inspect unresolved work before retrying after a restart.","inputSchema":{"type":"object","properties":{"offset":{"type":"integer"},"limit":{"type":"integer"}},"additionalProperties":False}},
 ]
 if __name__ == "__main__":

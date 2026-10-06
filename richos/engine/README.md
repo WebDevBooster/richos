@@ -23,7 +23,9 @@ The desktop profile registers named teammates: Dean, Clark, Reed, Frank and Pier
 (`agents/`) and the user's own. Each runs as the worker or the reviewer of an
 assignment, or is consulted on a job that changes no repository (no workspace, no file edits,
 its final message handed back), with that duty's app instructions (`mega-lander/duties/`) at
-the top of its brief.
+the top of its brief. The shelf (`team/shelf/`) holds stock teammates no install registers;
+the back end's `richos_work.team` tool lists and shows them and saves the definition Dean fits
+as the user's own (`<app data>/team/<name>.md`), which an engine update never replaces.
 Engine code, app coordination and target repositories have separate roots. A fresh
 corpus starts empty; installing the engine does not import an operator's knowledge,
 private roster or terminal configuration. Installed acceptance is recorded against
