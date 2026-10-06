@@ -1842,6 +1842,42 @@ async function main() {
     return "unset: empty circle + 'Set your name'; named: AB + Alex Booster";
   });
 
+  // ---- 12h. every scrolling surface declares its color scheme (walk 39, D11) -----------------
+
+  await run.check("12h  every scrolling surface draws its scroll bars in the theme's own scheme", async () => {
+    // WebKit paints a native scroll bar in the element's computed `color-scheme`, and with none
+    // declared that is light in both themes: a #FAFAFA track in dark. The scheme is declared on
+    // the root with the theme, so this reads the COMPUTED value off every element that scrolls
+    // (overflow auto/scroll, `html` included) with the technical view on, so Under the hood is
+    // in the document. The PDF frame is the one declared exception: its page is the file's own
+    // white in both themes (§6.9), and a dark scheme there would ask WebKit to darken it.
+    for (const theme of ["dark", "light"]) {
+      const page = track(await openApp(browser, { stored: { theme, font_scale: 100, user_name: "Alex Booster" } }));
+      await openThread(page, "acme");
+      await techyOnEverywhere(page);
+      const found = await page.evaluate(() => {
+        const out = { scrollers: 0, wrong: [] };
+        const rootScheme = getComputedStyle(document.documentElement).colorScheme;
+        for (const n of [document.documentElement, ...document.querySelectorAll("*")]) {
+          const cs = getComputedStyle(n);
+          if (!/(auto|scroll)/.test(cs.overflowX + " " + cs.overflowY)) continue;
+          if (n.matches && n.matches(".of-pdf")) continue;
+          out.scrollers++;
+          if (cs.colorScheme !== rootScheme) {
+            out.wrong.push((n.id ? "#" + n.id : n.tagName.toLowerCase()) + "." + String(n.className).replace(/\s+/g, ".") + " = " + cs.colorScheme);
+          }
+        }
+        out.rootScheme = rootScheme;
+        return out;
+      });
+      assertEqual(found.rootScheme, theme, theme + ": the root does not declare the theme's color-scheme");
+      assert(found.scrollers >= 5, theme + ": only " + found.scrollers + " scrolling surfaces found — that is not this app");
+      assertEqual(found.wrong, [], theme + ": a scrolling surface with a color-scheme other than the theme's");
+      await page.close();
+    }
+    return "root declares dark/light with the theme and every scroller on the page inherits it";
+  });
+
   // ---- 17. the evidence ------------------------------------------------------------------
 
   await run.check("17  every surface, photographed in BOTH themes", async () => {
