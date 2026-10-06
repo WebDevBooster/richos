@@ -246,8 +246,14 @@ print("var AX_PARAMS = %s;" % json.dumps(p))
     cat "$errf" >&2
     rm -f "$errf"
     echo "[testvm] the accessibility read failed (exit $rc)." >&2
-    echo "         If the error mentions 'not allowed assistive access', the Accessibility" >&2
-    echo "         TCC grant did not take — re-run testvm/setup.sh --reprovision." >&2
+    if [ "$rc" -eq 124 ]; then
+      echo "         Exit 124 is the read's own deadline, NOT a TCC failure (a missing grant says" >&2
+      echo "         'not allowed assistive access'). On a busy host or a heavy app tree, retry" >&2
+      echo "         with a narrower read (--window N, --depth N) before suspecting the grant." >&2
+    else
+      echo "         If the error mentions 'not allowed assistive access', the Accessibility" >&2
+      echo "         TCC grant did not take — re-run testvm/setup.sh --reprovision." >&2
+    fi
     echo "         If it produced nothing at all, the read hit its ${AX_TIMEOUT}s deadline" >&2
     echo "         Check the target process and any SecurityAgent dialog before retrying." >&2
     return "$rc"
