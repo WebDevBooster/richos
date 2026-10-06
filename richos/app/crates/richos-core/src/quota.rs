@@ -1057,6 +1057,28 @@ impl Service {
         Ok(self.view())
     }
 
+    /// **He picks the account that drains first** (the CEO 2026-10-06, feedback item 8). Only an
+    /// account with a reading and room can be picked: one never read may not be signed in, and
+    /// one with no room would be left again before its first turn. The automatic switch at 99%
+    /// of the week then works from the account he picked, as from any other (`decide`).
+    pub fn use_account_first(&self, id: &str) -> io::Result<View> {
+        let account = self.accounts.list().into_iter().find(|a| a.id == id)
+            .ok_or_else(|| io::Error::other("That account is no longer on this Mac."))?;
+        let readings = self.readings();
+        let Some(reading) = readings.get(id) else {
+            return Err(io::Error::other(format!("{} has no reading yet. Sign it in, then refresh.", account.label)));
+        };
+        let pause = self.policy.lock().unwrap().line();
+        let now = crate::util::now_millis();
+        if crate::claude_accounts::gone(reading, self.accounts.at_threshold(), pause, self.accounts.limited_until(id), now).is_some() {
+            return Err(io::Error::other(format!("{} has no room right now, so Rich would switch away from it at once.", account.label)));
+        }
+        self.accounts.use_first(id)?;
+        self.decide();
+        let _best_effort = self.publish();
+        Ok(self.view())
+    }
+
     pub fn set_at_threshold(&self, value: crate::claude_accounts::AtThreshold) -> io::Result<View> {
         self.accounts.set_at_threshold(value)?;
         self.decide();
@@ -1626,6 +1648,45 @@ for line in sys.stdin:
             Some(("1", work.id.as_str(), "fiveHour", Some(93.))), "the card after a switch reads it from the view");
         let published: View = gate::read_json(&root.path().join("engine-state/claude-quota.json")).unwrap();
         assert_eq!(published.windows[0].used_percent, 10.);
+    }
+
+    /// **Feedback item 8 (the CEO 2026-10-06), on readings taken by the real probe under each
+    /// folder.** Account 1 is at 30% of its week; Work is at 97%. He picks Work: it is in use and
+    /// the published reading is Work's. The pick survives a relaunch of the service. At 99% the
+    /// automatic switch moves back to Account 1. An account with no reading, or with no room,
+    /// cannot be picked, and the refusal says why.
+    #[test]
+    #[cfg(unix)]
+    fn he_picks_the_account_that_drains_first_and_it_survives_a_relaunch() {
+        let root = Scratch::new();
+        let bin = fake_claude(root.path());
+        let service = Service::open(root.path()).unwrap();
+        let work = service.accounts.add("Work").unwrap();
+        let spare = service.accounts.add("Spare").unwrap();
+        let work_usage = work.folder.clone().unwrap().join("usage.json");
+        usage(&root.path().join("usage-1.json"), 10., 30., "2099-01-05T00:00:00Z");
+        usage(&work_usage, 10., 97., "2099-01-06T00:00:00Z");
+        service.set_policy(policy()).unwrap();
+        service.refresh(&bin, true);
+        assert_eq!(service.accounts.in_use().id, "1");
+        let refused = service.use_account_first(&spare.id).unwrap_err().to_string();
+        assert_eq!(refused, "Spare has no reading yet. Sign it in, then refresh.");
+        assert_eq!(service.accounts.in_use().id, "1");
+
+        let view = service.use_account_first(&work.id).unwrap();
+        assert_eq!(service.accounts.in_use().id, work.id);
+        assert!(view.accounts.iter().any(|a| a.id == work.id && a.in_use));
+        assert_eq!(view.windows.iter().find(|w| w.id == "seven_day").unwrap().used_percent, 97., "the published reading is Work's");
+        drop(service);
+
+        let service = Service::open(root.path()).unwrap();
+        assert_eq!(service.accounts.in_use().id, work.id, "the pick survives a relaunch");
+        usage(&work_usage, 10., 99., "2099-01-06T00:00:00Z");
+        service.refresh(&bin, true);
+        assert_eq!(service.accounts.in_use().id, "1", "at 99% of Work's week the switch moves on");
+        let refused = service.use_account_first(&work.id).unwrap_err().to_string();
+        assert_eq!(refused, "Work has no room right now, so Rich would switch away from it at once.");
+        assert_eq!(service.accounts.in_use().id, "1");
     }
 
     /// **All accounts exhausted** (Frank's finding 2): held until the soonest reset among

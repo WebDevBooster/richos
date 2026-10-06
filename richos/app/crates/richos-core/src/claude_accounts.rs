@@ -23,6 +23,10 @@
 //!     (`quota::Reading`, plan answers 10 and 11; back to 99% and 93% once the speed is down).
 //! - **Choosing the next** (his answer 1): the one whose weekly window resets soonest, among
 //!   accounts with room. No list-order option and no setting for it.
+//! - **Choosing the first is his** (the CEO 2026-10-06, feedback item 8: *"I should be able to
+//!   change/switch which account drains first"*): [`Accounts::use_first`] puts the account he
+//!   picks in use. It is saved like any switch, so it survives a relaunch, and from then on it
+//!   is left exactly as above: at 99% of its week, to the account whose week resets soonest.
 //! - **All accounts gone:** work is held until the soonest reset among them (Frank's
 //!   finding 2). A usage-limit refusal inside a turn (the backstop, for one turn that by itself
 //!   uses up what remained) marks its account gone until its reset.
@@ -366,6 +370,28 @@ impl Accounts {
         Ok(())
     }
 
+    /// **He chose the account that drains first** (feedback item 8, 2026-10-06). `id` is put in
+    /// use now and saved, so the choice survives a relaunch. Running leases move to it at their
+    /// next turn boundary, exactly as after an automatic switch (`account_switch_due` in
+    /// `spine.rs` and `work_host.rs`); nothing inside a turn is touched. Nothing is announced:
+    /// he made the change himself, so a pending automatic switch's line is dropped, and the
+    /// record of the last automatic switch goes too, because it no longer describes the account
+    /// in use. Choosing the account already in use changes nothing.
+    pub fn use_first(&self, id: &str) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if !state.accounts.iter().any(|a| a.id == id) {
+            return Err(io::Error::other("That account is no longer on this Mac."));
+        }
+        if state.in_use == id { return Ok(()); }
+        let mut next = state.clone();
+        next.in_use = id.into();
+        next.last_switch = None;
+        self.save(&next)?;
+        *state = next;
+        *self.pending.lock().unwrap() = None;
+        Ok(())
+    }
+
     /// The account a switch would move to now: among the others with a reading and room, the
     /// one whose weekly window resets soonest (his answer 1). `None` when none has room.
     pub fn next(&self, readings: &BTreeMap<String, Reading>, pause: Option<u8>, now: u64) -> Option<Account> {
@@ -537,6 +563,40 @@ pub(crate) mod tests {
         assert_eq!(accounts.in_use().id, "3");
         // The choice survives a restart.
         assert_eq!(Accounts::open(dir.path()).unwrap().in_use().id, "3");
+    }
+
+    /// **Feedback item 8 (the CEO 2026-10-06): he picks which account drains first**, his own
+    /// test case: Account 1 in use at 30% of its week, Work at 97%. He picks Work. It stays in
+    /// use at 97% and at 98.9% (fill-first; Account 1 having more room never pulls it back),
+    /// the choice survives a relaunch, and at 99% the automatic switch moves to Account 1 with
+    /// the usual one line. Picking makes no line of its own and drops the last automatic
+    /// switch's card.
+    #[test]
+    fn he_picks_the_account_that_drains_first_and_the_99_percent_switch_still_happens_from_it() {
+        let (dir, accounts) = two_accounts();
+        let one = reading(10., HOUR, 30., 72 * HOUR);
+        assert!(accounts.evaluate(&readings(reading(95., HOUR, 99., 48 * HOUR), reading(5., HOUR, 20., 72 * HOUR)), None, NOW).unwrap());
+        assert!(accounts.last_switch().is_some());
+        accounts.use_first("1").unwrap();
+        assert_eq!(accounts.in_use().id, "1");
+        assert_eq!(accounts.last_switch(), None, "the automatic switch's card no longer describes the account in use");
+        accounts.ran_on("2");
+        assert_eq!(accounts.take_notice(), None, "his own choice is not announced as a switch");
+
+        accounts.use_first("2").unwrap();
+        assert_eq!(accounts.in_use().id, "2");
+        assert!(!accounts.evaluate(&readings(one.clone(), reading(0., HOUR, 97., 48 * HOUR)), Some(93), NOW).unwrap());
+        assert!(!accounts.evaluate(&readings(one.clone(), reading(0., HOUR, 98.9, 48 * HOUR)), Some(93), NOW).unwrap());
+        assert_eq!(accounts.in_use().id, "2", "his pick drains first");
+        let accounts = Accounts::open(dir.path()).unwrap();
+        assert_eq!(accounts.in_use().id, "2", "the pick survives a relaunch");
+
+        assert!(accounts.evaluate(&readings(one, reading(0., HOUR, 99., 48 * HOUR)), Some(93), NOW).unwrap());
+        assert_eq!(accounts.in_use().id, "1", "at 99% of its week the switch moves on");
+        accounts.ran_on("1");
+        assert_eq!(accounts.take_notice().as_deref(), Some("Switched to Account 1 — Work's weekly window reached 99%. Nothing stopped."));
+        assert!(accounts.use_first("9").is_err(), "an account that is not on this Mac cannot be picked");
+        assert_eq!(accounts.in_use().id, "1");
     }
 
     /// **Round 16: the one switch is the subject of the sentence.** Switch chosen, Account 1's
