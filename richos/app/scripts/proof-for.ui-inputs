@@ -115,6 +115,7 @@ provider-auth.js        @shell
 # ---- the timeline renderer ---------------------------------------------------------------
 inspector.js            @shell richos/app/ui/timeline.js richos/app/ui/mock.js
 output.js               @shell richos/app/ui/timeline.js richos/app/ui/mock.js richos/app/src-tauri/src/output_files.rs
+output-truth.js         @shell richos/app/ui/mock.js
 interruption.js         @shell richos/app/ui/timeline.js
 local-notice.js         @shell richos/app/ui/timeline.js
 operator-notice.js      @shell richos/app/ui/timeline.js richos/app/ui/mock.js
