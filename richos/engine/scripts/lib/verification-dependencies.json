@@ -10138,8 +10138,8 @@
     },
     "scripts/lib/pierce.py": {
       "source": "scripts/lib/pierce.py",
-      "sha256": "f61c5b63ac67fe5d69909fa49ec6236fb8f23abd9d6a30bd605f633096fd24e5",
-      "evidence": "Full program reviewed (2026-10-06): reads the outgoing Agent prompt as data, the project and user CLAUDE.md and agent definitions, and its own state; runs one reviewer subprocess on the prompt and imports the strip-ack-lines transformer when that hook is registered. It reads none of the CEO's words.",
+      "sha256": "17e9e5cb911ee766900a18a4b685655511e626be59520a3751baf31ddae0cee8",
+      "evidence": "Full program reviewed again after the revision-review change (2026-10-06): reads the outgoing Agent prompt as data, diffs it against the preceding prompt of the same named spawn kept in its own state, reads the project and user CLAUDE.md and agent definitions, and its own state; runs one reviewer subprocess on the prompt and imports the strip-ack-lines transformer when that hook is registered. It reads none of the CEO's words.",
       "keys": [],
       "edges": [
         {
