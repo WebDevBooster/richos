@@ -107,6 +107,37 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                      geometry says (the stop is the rail's right edge + 360 px, read off the
                      accessibility tree) and every control is found by its name.
 
+  THE CANDIDATE WALK'S STEPS (added with the candidate 38 walk, 2026-10-06): what the slice steps
+  above never pressed, the way the CEO will use it. All run in the same run as the slice steps:
+    --steps identity,first-run,connect,tools,empty,backend-worker,panel,md-view,previews,csv,
+            save-copy,attach,buttons,link,actions,missing,overlap,wrote,theme-flash,pull,sidebar
+  empty        before any file: both Output buttons say "nothing produced yet"; the panel's empty
+               sentence, in both themes.
+  csv          typed: a shell command writes walk-table.csv. Its table preview (the first rows)
+               in both themes; then panel-check.md's Preview | Source switch, both ways.
+  buttons      BOTH Output buttons (top and bottom, found by name, told apart by height) carry the
+               same count and each opens the panel; the list's rows, their order and their groups
+               are recorded (a worker's landed file, newest first).
+  link         a file link in the conversation, pressed with the panel closed, opens that file's
+               own view in the panel.
+  actions      Open (the row's), Open with (the file view's ▾), Show in Finder (the row's ⋯),
+               Copy path (the row's right-click, a real right button: pointer-drag.sh --right),
+               the file view's ⋯ and its Copy path.
+  missing      walk-table.csv deleted in the guest (the deletion checked), the panel reopened:
+               its row says it is gone, and its actions are off with the reason (each item's
+               enabled state and AXHelp), in the row's ⋯ and in its own view.
+  menus        the row's ⋯ menu and the file view's ⋯ menu, each open in both themes (contrast).
+  overlap      after backend-worker: with the panel open, the work summary is opened from its
+               chip; FAIL when the Output panel stays open beside it (§6.1, both ways).
+  wrote        every "Wrote N files" in the conversation pressed in turn: the panel opens on it
+               and the app's frame does not move (the header toggle and the composer hold).
+  theme-flash  with the panel open, the guest's appearance is flipped while timeline.py captures
+               the panel (in the guest) on one clock; the frames are pulled for contrast.py.
+  sidebar      the sidebar hidden by its button (the conversation takes the width), ⌘⇧S both ways,
+               then a relaunch with it hidden: it comes back hidden; shown again by its button.
+  pull         (above) also records the composer at the stop and fails when it has grown taller
+               than the one line it is with the panel closed.
+
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
 import argparse
@@ -130,7 +161,18 @@ StepFailed = command_walk.StepFailed
 command = command_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
-         'md-view', 'previews', 'save-copy', 'attach', 'pull']
+         'md-view', 'previews', 'save-copy', 'attach', 'pull',
+         'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'wrote', 'theme-flash', 'sidebar']
+# The candidate walk's steps: never in the default list, which runs the witness checks.
+CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'wrote', 'theme-flash', 'sidebar')
+# The csv step's file, and a table every word of which is given.
+CSV_NAME = 'walk-table.csv'
+CSV_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
+            "and tell me when it has finished: printf 'region,units\\nNorth,12\\nSouth,7\\n' > " + CSV_NAME)
+# VERBATIM from output-panel.js MISSING_SENTENCE (and output_files.rs MISSING): the reason every
+# action of a file that is no longer where it was written gives.
+MISSING_SENTENCE = ('This file is no longer where it was written. If it was moved, open it from its new place; '
+                    'if Rich writes it again, it will be listed here.')
 # Slice S9 (PRD §9.1): the conversation at its narrowest. Restated, not imported, so the walk
 # derives the stop independently of the code under test.
 STAGE_MIN = 360
@@ -714,6 +756,9 @@ class OutputWalk(command_walk.CommandWalk):
         at_stop = self.node('Output panel width')
         note(divider_at_stop=at_stop)
         near(at_stop['x'], stop, 4, 'the divider at the stop after a 50 px overshoot')
+        # The conversation at its narrowest: its message field must still be one line (judged
+        # below against the field with the panel closed).
+        note(composer_at_stop=self.node('Message to Rich', role='AXTextArea'))
         self.shot('pull-stop.png')
 
         # 2. Pulled 180 px past it: open completely, ‹ <thread> at the head.
@@ -758,6 +803,9 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the panel did not close')
         if whole['x'] > left + 400:
             raise StepFailed('the composer is not back in the whole conversation: ' + json.dumps(whole))
+        if evidence['composer_at_stop']['h'] > whole['h'] + 6:
+            raise StepFailed('the message field grew at the stop: %.0f px tall, %.0f px with the panel closed'
+                             % (evidence['composer_at_stop']['h'], whole['h']))
         self.shot('pull-closed.png')
 
         # 6. The sidebar back and the panel reopened: a split width, never open completely.
@@ -1036,6 +1084,670 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('the conversation folder does not hold a copy of the recorded file: ' + json.dumps(stored))
         return evidence
 
+    # --- the candidate walk: what the slice steps never pressed ------------------------------------
+    def observed(self, name):
+        """An evidence dict and its `note`, written to `<name>-observed.json` at every note, so a
+        step that fails half-way keeps what it saw."""
+        evidence = {}
+        path = self.out / (name + '-observed.json')
+
+        def note(**facts):
+            evidence.update(facts)
+            path.write_text(json.dumps(evidence, indent=2) + '\n')
+        return evidence, note
+
+    def find_all(self, title, role=None, contains=True, by='--title'):
+        """Every node matching, [] when nothing does (a find is exhaustive without --first)."""
+        args = [by, title] + (['--role', role] if role else []) + (['--contains'] if contains else [])
+        try:
+            return [n for n in self.ax('find', *args) if 'x' in n and not n.get('meta')]
+        except StepFailed as exc:
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+                return []
+            raise
+
+    def texts(self, words):
+        """Static texts whose value carries `words`."""
+        return self.find_all(words, role='AXStaticText', by='--value')
+
+    def script(self, text, timeout=60):
+        """One AppleScript in the guest through ax.sh; its answer without ax.sh's timing lines."""
+        out = command([HERE / 'ax.sh', self.vm, text], timeout)
+        return '\n'.join(l for l in out.splitlines() if not l.startswith('{')).strip()
+
+    def app_pid(self):
+        state = Path(os.environ.get('TESTVM_ROOT', str(Path.home() / '.richos-testvm'))) / 'run' / self.vm
+        return int((state / 'app.pid').read_text().strip())
+
+    def front(self):
+        """The app under test frontmost, by its pid (other apps' windows were opened over it)."""
+        self.script('tell application "System Events" to set frontmost of (first process whose unix id is %d) to true'
+                    % self.app_pid())
+        time.sleep(0.8)
+
+    def clipboard(self):
+        return self.script('the clipboard as text')
+
+    def close_panel(self):
+        if self.present('Close the output panel'):
+            self.press('Close the output panel')
+            time.sleep(1.2)
+
+    def to_list(self):
+        """The open panel back at its list (Escape steps a file view back, §6.8)."""
+        if self.present('All output'):
+            self.press('All output')
+            time.sleep(1.2)
+
+    def divider_x(self):
+        found = self.find_all('Output panel width')
+        return found[0]['x'] if found else None
+
+    def in_panel(self, nodes):
+        left = self.divider_x()
+        return [n for n in nodes if left is not None and n['x'] >= left]
+
+    def outside_panel(self, nodes):
+        left = self.divider_x()
+        return [n for n in nodes if left is None or n['x'] + n['w'] <= left]
+
+    def empty(self):
+        """§6.7's empty state, on the thread before anything is written: both Output buttons are
+        named for it and the panel says it, in both themes."""
+        evidence, note = self.observed('empty')
+        self.wait_for('nothing produced yet', role='AXCheckBox', seconds=60)
+        buttons = self.find_all('nothing produced yet', role='AXCheckBox')
+        note(buttons=buttons)
+        self.press('nothing produced yet', role='AXCheckBox')
+        self.wait_for('Close the output panel', seconds=20)
+        time.sleep(1.5)
+        line = self.texts('has produced a file yet')
+        note(empty_line=line, head=self.texts('Nothing produced yet'))
+        note(shots=self.flip_theme('empty'))
+        self.close_panel()
+        if len(buttons) != 2:
+            raise StepFailed('expected two Output buttons named "nothing produced yet", found %d' % len(buttons))
+        if not line:
+            raise StepFailed('the panel did not say "has produced a file yet"')
+        return evidence
+
+    def csv(self):
+        """A CSV previews as a table inside the panel, and Markdown's Preview | Source switch
+        works both ways, each photographed in both themes."""
+        evidence, note = self.observed('csv')
+        # A long conversation with the panel open makes a whole-window search slow: the first
+        # candidate 38 run's Approve search outlived ax.sh's 20 s and ended this step.
+        os.environ['TESTVM_AX_TIMEOUT'] = '35'
+        turn, sent = self.send(CSV_TASK)
+        end = time.monotonic() + self.a.within
+        rows, slow = [], []
+        while time.monotonic() < end:
+            rows = [r for r in self.record() if r.get('path', '').endswith('/' + CSV_NAME)]
+            if rows:
+                break
+            try:
+                self.approve_pending(sent)
+            except (StepFailed, subprocess.TimeoutExpired) as exc:
+                slow.append(str(exc)[-200:])
+                note(approve_search_failures=slow)
+            time.sleep(5)
+        self.save_record('record-csv.jsonl')
+        note(turn=turn, turn_story=self.turn_story(turn), rows=rows)
+        if not rows:
+            raise StepFailed('no row for %s reached the record within %d s' % (CSV_NAME, self.a.within))
+        failures = []
+        self.open_panel()
+        self.to_list()
+        self.wait_for(CSV_NAME, seconds=20)
+        self.press(CSV_NAME)
+        self.wait_for('All output', seconds=20)
+        time.sleep(3)
+        table = self.find_all(CSV_NAME + ', the first rows')
+        cells = self.texts('North')
+        note(table=table, cell_north=cells, csv_shots=self.flip_theme('preview-csv'))
+        if not table:
+            failures.append('no table named "%s, the first rows" in its view' % CSV_NAME)
+        if not cells:
+            failures.append('the table does not show its cell "North"')
+        self.to_list()
+        # Markdown: Preview | Source.
+        self.wait_for('panel-check.md', seconds=20)
+        self.press('panel-check.md')
+        self.wait_for('All output', seconds=20)
+        time.sleep(2)
+        note(md_preview_heading=self.heading('Panel check'))
+        source_role = self.press_any('Source', ['AXCheckBox', 'AXToggle', 'AXButton'])
+        time.sleep(1.5)
+        raw = self.texts('# Panel check')
+        note(source_role=source_role, source_text=raw, source_shots=self.flip_theme('md-source'))
+        if not raw:
+            failures.append('Source did not show the file\'s text "# Panel check"')
+        self.press_any('Preview', ['AXCheckBox', 'AXToggle', 'AXButton'])
+        time.sleep(1.5)
+        back = self.heading('Panel check')
+        note(preview_again_heading=back, raw_after_preview=bool(self.texts('# Panel check')))
+        self.shot('md-preview-again.png')
+        if back is not True:
+            failures.append('Preview did not bring the heading "Panel check" back')
+        self.to_list()
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def buttons(self):
+        """Both Output buttons carry the count and each opens the panel; then the list, as a
+        person reads it: every recorded file a row, its words, its height in the list."""
+        evidence, note = self.observed('buttons')
+        self.close_panel()
+        found = self.find_all('from this thread', role='AXCheckBox')
+        note(buttons=found)
+        if len(found) != 2:
+            raise StepFailed('expected two Output buttons, found %d: %s' % (len(found), json.dumps(found)))
+        names = {n.get('desc') or n.get('title') for n in found}
+        presses = []
+        for nth in range(2):
+            node = self.find_all('from this thread', role='AXCheckBox')[nth]
+            where = 'top' if node['y'] == min(n['y'] for n in found) else 'bottom'
+            self.ax('click', '--title', 'from this thread', '--role', 'AXCheckBox', '--contains', '--nth', str(nth))
+            self.wait_for('Close the output panel', seconds=20)
+            time.sleep(1.5)
+            head = self.in_panel(self.texts('from this thread'))
+            presses.append({'nth': nth, 'button': where, 'name': node.get('desc') or node.get('title'),
+                            'panel_head': [h.get('value') for h in head]})
+            note(presses=presses)
+            self.shot('buttons-%s.png' % where)
+            self.close_panel()
+        # The list, opened from the top button.
+        self.open_panel()
+        self.to_list()
+        time.sleep(1)
+        listed = project(self.record())
+        rows = {}
+        for key in listed:
+            name = Path(key).name
+            hits = self.in_panel(self.find_all(name, role='AXButton'))
+            rows[key] = [{k: h.get(k) for k in ('title', 'desc', 'x', 'y', 'w', 'h')} for h in hits]
+        order = sorted(((r[0]['y'], Path(k).name) for k, r in rows.items() if r), key=lambda t: t[0])
+        newest = {k: max(r.get('at', 0) for r in v) for k, v in listed.items()}
+        turns = {k: v[-1].get('turnId') for k, v in listed.items()}
+        note(names=sorted(names), listed=sorted(listed), rows=rows, order_by_height=order,
+             newest_at={Path(k).name: newest[k] for k in listed}, turn_of={Path(k).name: turns[k] for k in listed},
+             workers=[h.get('value') for h in self.in_panel(self.texts('by worker'))],
+             group_words=[h.get('value') for h in self.in_panel(self.texts('Today'))])
+        self.shot('buttons-list.png')
+        failures = []
+        if len(names) != 1:
+            failures.append('the two buttons are named differently: %s' % sorted(names))
+        for p in presses:
+            if not p['panel_head']:
+                failures.append('the %s button did not open the panel on its list' % p['button'])
+        missing = [Path(k).name for k, r in rows.items() if not r]
+        if missing:
+            failures.append('listed in the record but no row in the panel: %s' % missing)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def link(self):
+        """A file link in the conversation opens that file in the panel (§6.5)."""
+        evidence, note = self.observed('link')
+        self.close_panel()
+        target = None
+        for name in (ATTACH_NAME, CSV_NAME, 'preview-page.png', 'panel-check.md'):
+            links = self.find_all(name, role='AXButton')
+            if links:
+                target = name
+                break
+        note(name=target, links=links if target else [])
+        if not target:
+            raise StepFailed('no file link in the conversation names any file this walk wrote')
+        lowest = max(range(len(links)), key=lambda i: links[i]['y'])
+        self.ax('click', '--title', target, '--role', 'AXButton', '--contains', '--nth', str(lowest))
+        self.wait_for('Close the output panel', seconds=20)
+        time.sleep(2)
+        on = self.present('All output')
+        head = self.in_panel(self.texts(target))
+        note(pressed=links[lowest], file_view=on, panel_names_it=[h.get('value') for h in head])
+        self.shot('link-opened.png')
+        self.to_list()
+        if not on or not head:
+            raise StepFailed('the link did not open %s in the panel (file view %s, named %s)' % (target, on, bool(head)))
+        return evidence
+
+    def menu_items(self):
+        """Every menu item on screen: its words, whether it is enabled and its AXHelp (the
+        `title` a disabled action carries as its reason)."""
+        try:
+            found = [n for n in self.ax('find', '--role', 'AXMenuItem') if 'x' in n and not n.get('meta')]
+        except StepFailed as exc:
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+                return []
+            raise
+        return [{k: m.get(k) for k in ('title', 'desc', 'enabled', 'help', 'x', 'y')} for m in found]
+
+    def actions(self):
+        """S6's actions from every entrance a person has: the row's Open, the file view's ▾ for
+        Open with, the row's ⋯ for Show in Finder, the row's right-click and the file view's ⋯
+        for Copy path; then a file that is gone, and the reasons its actions give."""
+        evidence, note = self.observed('actions')
+        failures = []
+        listed = project(self.record())
+        path_of = {Path(k).name: k for k in listed}
+        png, md = 'preview-page.png', 'panel-check.md'
+        self.open_panel()
+        self.to_list()
+        # 1. Open: the row's own Open (hover action), by its name.
+        before = self.windows()
+        try:
+            self.press('Open ' + png)
+            after = self.wait_for_window(lambda p, w: png in w)
+            opened = [(p, w) for p, w in after if png in w and (p, w) not in before]
+            note(open_pressed=True, open_windows=after)
+            self.shot('actions-1-open.png')
+            if not opened:
+                failures.append('Open: no window named for %s appeared' % png)
+            # The app it opened is left to the guest's own cleanup: an Apple Event to quit it
+            # needs a consent the guest does not grant. The app under test comes back to the front.
+        except (StepFailed, subprocess.TimeoutExpired) as exc:
+            failures.append('Open: ' + str(exc)[:300])
+        self.front()
+        # 2. Open with: the file view's ▾ lists the other apps.
+        try:
+            self.press(png)
+            self.wait_for('All output', seconds=20)
+            time.sleep(2)
+            role = self.press_any('Other ways to open', ['AXPopUpButton', 'AXMenuButton', 'AXButton'])
+            time.sleep(1)
+            items = self.menu_items()
+            note(open_menu_role=role, open_menu=items)
+            self.shot('actions-2-open-with-menu.png')
+            others = [i for i in items if (i.get('title') or i.get('desc') or '').startswith('Open in ')][1:]
+            if not others:
+                failures.append('Open with: the ▾ offered no app beside the default: %s' % [i.get('title') for i in items])
+                self.script('tell application "System Events" to key code 53')
+            else:
+                label = others[0].get('title') or others[0].get('desc')
+                app = label[len('Open in '):]
+                before = self.windows()
+                self.press(label, role='AXMenuItem')
+                after = self.wait_for_window(lambda p, w: p == app and png in w)
+                note(open_with=label, open_with_windows=after)
+                self.shot('actions-3-open-with.png')
+                if not any(p == app and png in w and (p, w) not in before for p, w in after):
+                    failures.append('Open with %s: no window of %s appeared' % (app, app))
+        except (StepFailed, subprocess.TimeoutExpired) as exc:
+            failures.append('Open with: ' + str(exc)[:300])
+        self.front()
+        self.to_list()
+        # 3. Show in Finder, from the row's ⋯.
+        try:
+            folder = Path(path_of.get(png, '')).parent.name
+            self.press_any('More actions for ' + png, ['AXPopUpButton', 'AXMenuButton', 'AXButton'])
+            time.sleep(1)
+            note(row_menu=self.menu_items())
+            self.press('Show in Finder', role='AXMenuItem')
+            after = self.wait_for_window(lambda p, w: p == 'Finder' and w == folder)
+            note(finder_windows=after, finder_folder=folder)
+            self.shot('actions-4-show-in-finder.png')
+            if not any(p == 'Finder' and w == folder for p, w in after):
+                failures.append('Show in Finder: no Finder window for %s' % folder)
+            # Not closed with an Apple Event to Finder: the guest grants none, and asking raises a
+            # consent prompt that holds the call open (the first candidate 38 run timed out here).
+            # The app is brought back to the front below instead.
+        except (StepFailed, subprocess.TimeoutExpired) as exc:
+            failures.append('Show in Finder: ' + str(exc)[:300])
+        self.front()
+        self.to_list()
+        # 4. Copy path, from the row's right-click (a real right button).
+        try:
+            self.script('set the clipboard to "seed"')
+            row = [n for n in self.in_panel(self.find_all(md, role='AXButton')) if 'More actions' not in (n.get('title') or '')
+                   and not (n.get('desc') or '').startswith(('Open ', 'More actions'))]
+            note(right_click_row=row[:1])
+            at = '%.0f,%.0f' % (row[0]['x'] + 40, row[0]['y'] + row[0]['h'] / 2)
+            note(right_click=command([HERE / 'pointer-drag.sh', self.vm, at, at, '--right'], 90).strip().splitlines()[-1])
+            time.sleep(1)
+            note(context_menu=self.menu_items())
+            self.shot('actions-5-right-click.png')
+            self.press('Copy path', role='AXMenuItem')
+            time.sleep(1)
+            got = self.clipboard()
+            note(copied_from_right_click=got, recorded_path=path_of.get(md))
+            if got != path_of.get(md):
+                failures.append('Copy path (right-click): the clipboard holds %r, not the recorded path' % got)
+        except (StepFailed, IndexError, subprocess.TimeoutExpired) as exc:
+            failures.append('right-click Copy path: ' + str(exc)[:300])
+        # 5. The file view's ⋯, and its Copy path.
+        try:
+            self.script('set the clipboard to "seed"')
+            self.press(md)
+            self.wait_for('All output', seconds=20)
+            time.sleep(1.5)
+            self.press_any('More actions', ['AXPopUpButton', 'AXMenuButton', 'AXButton'], contains=False)
+            time.sleep(1)
+            note(file_view_menu=self.menu_items())
+            self.shot('actions-6-file-view-menu.png')
+            self.press('Copy path', role='AXMenuItem')
+            time.sleep(1)
+            got = self.clipboard()
+            note(copied_from_file_view=got)
+            if got != path_of.get(md):
+                failures.append('Copy path (file view ⋯): the clipboard holds %r' % got)
+        except (StepFailed, subprocess.TimeoutExpired) as exc:
+            failures.append('file view ⋯ Copy path: ' + str(exc)[:300])
+        self.to_list()
+        self.front()
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def missing(self):
+        """A recorded file that is gone (§6.7): deleted in the guest, and the deletion proven,
+        then the panel reopened. Its row says so, and its actions are off with the reason as
+        their tooltip (AXHelp), from the row's ⋯ and in its own view; Copy path stays on."""
+        evidence, note = self.observed('missing')
+        failures = []
+        gone = next((k for k in project(self.record()) if Path(k).name == CSV_NAME), None)
+        if not gone:
+            raise StepFailed('no %s in the record: run the csv step first' % CSV_NAME)
+        before = self.exists_in_guest(gone)
+        guest(self.vm, 'rm -f ' + shlex.quote(gone), 60)
+        after = self.exists_in_guest(gone)
+        note(path=gone, existed_before=before, exists_after_rm=after)
+        if after:
+            raise StepFailed('the file could not be deleted in the guest: ' + gone)
+        self.close_panel()
+        self.open_panel()
+        self.to_list()
+        # The row's own words are not separate texts in the tree (a role="button" row's children
+        # are presentational), so the panel's head, which counts the gone files, is what is read:
+        # "N files from this thread · 1 no longer where it was written". The frame shows the row.
+        line, end = [], time.monotonic() + 20
+        while time.monotonic() < end and not line:
+            line = [h.get('value') for h in self.in_panel(self.texts('no longer where it was written'))
+                    if 'from this thread' in (h.get('value') or '')]
+            time.sleep(1)
+        head = [h.get('value') for h in self.in_panel(self.texts('from this thread'))]
+        note(missing_line=line, panel_head=head)
+        self.shot('missing-1-list.png')
+        if not line:
+            failures.append('the panel does not count the gone file 20 s after it reopened: %s' % head)
+
+        def row_menu(tag):
+            """The row's ⋯, its items read and photographed; the failures it shows."""
+            self.to_list()
+            self.press_any('More actions for ' + CSV_NAME, ['AXPopUpButton', 'AXMenuButton', 'AXButton'])
+            time.sleep(1)
+            items = self.menu_items()
+            note(**{tag + '_row_menu': items})
+            self.shot('missing-%s-row-menu.png' % tag)
+            self.script('tell application "System Events" to key code 53')
+            time.sleep(1)
+            found = []
+
+            def item(label):
+                return next((i for i in items if (i.get('title') or i.get('desc') or '').startswith(label)), None)
+            for label in ('Open', 'Show in Finder', 'Save a copy', 'Add to chat'):
+                i = item(label)
+                if not i:
+                    found.append('%s: no %s item' % (tag, label))
+                elif i.get('enabled') is not False or i.get('help') != MISSING_SENTENCE:
+                    found.append('%s: %s is enabled=%s with reason %r' % (tag, label, i.get('enabled'), i.get('help')))
+            copy = item('Copy path')
+            if not copy or copy.get('enabled') is False:
+                found.append('%s: Copy path should stay on: %s' % (tag, copy))
+            return found
+
+        def file_view(tag):
+            self.to_list()
+            self.press(CSV_NAME)
+            self.wait_for('All output', seconds=20)
+            time.sleep(2)
+            sentence = self.in_panel(self.texts('no longer where it was written'))
+            opens = [{k: n.get(k) for k in ('title', 'desc', 'enabled', 'help')}
+                     for n in self.in_panel(self.find_all('Open', role='AXButton'))]
+            note(**{tag + '_view_sentence': [s.get('value') for s in sentence], tag + '_view_open_controls': opens})
+            self.shot('missing-%s-file-view.png' % tag)
+            found = []
+            if not any(MISSING_SENTENCE in (s.get('value') or '') for s in sentence):
+                found.append('%s: the file view does not say the §6.7 sentence' % tag)
+            if any(o.get('enabled') for o in opens if (o.get('title') or '').startswith('Open in') or o.get('title') == 'Open'):
+                found.append('%s: the file view\'s Open is lit beside the sentence that the file is gone' % tag)
+            return found
+
+        # A. As the panel shows it after a reopen, before anything tells it the file is gone.
+        failures += row_menu('a')
+        failures += file_view('a')
+        # B. After the app has been told: its own Open answers that the file is gone (a press a
+        # person would make), which is the one thing that makes the panel read its list again.
+        learned = None
+        try:
+            opener = next((o['title'] for o in evidence.get('a_view_open_controls', [])
+                           if (o.get('title') or '').startswith('Open')), None)
+            if opener:
+                self.press(opener)
+                time.sleep(2)
+                learned = [h.get('value') for h in self.texts('no longer where it was written')]
+                self.shot('missing-b-after-open.png')
+        except (StepFailed, subprocess.TimeoutExpired) as exc:
+            learned = 'the press failed: ' + str(exc)[:200]
+        note(b_pressed_open_and_heard=learned)
+        self.to_list()
+        time.sleep(1)
+        b_line = [h.get('value') for h in self.in_panel(self.texts('no longer where it was written'))
+                  if 'from this thread' in (h.get('value') or '')]
+        note(b_missing_line=b_line)
+        if not b_line:
+            failures.append('b: after Open answered, the panel still does not count the gone file')
+        failures += row_menu('b')
+        failures += file_view('b')
+        self.to_list()
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def menus(self):
+        """The row's ⋯ menu and the file view's ⋯ menu, each open and photographed in both
+        themes, for contrast.py (after the panel step: panel-check.md)."""
+        evidence, note = self.observed('menus')
+        self.open_panel()
+        self.to_list()
+        self.press_any('More actions for panel-check.md', ['AXPopUpButton', 'AXMenuButton', 'AXButton'])
+        time.sleep(1)
+        note(row_menu=self.menu_items(), row_shots=self.flip_theme('menu-row'))
+        self.script('tell application "System Events" to key code 53')
+        time.sleep(1)
+        self.press('panel-check.md')
+        self.wait_for('All output', seconds=20)
+        time.sleep(1.5)
+        self.press_any('More actions', ['AXPopUpButton', 'AXMenuButton', 'AXButton'], contains=False)
+        time.sleep(1)
+        note(file_menu=self.menu_items(), file_shots=self.flip_theme('menu-file'))
+        self.script('tell application "System Events" to key code 53')
+        time.sleep(1)
+        self.to_list()
+        if not evidence['row_menu'] or not evidence['file_menu']:
+            raise StepFailed('a menu did not open: row %d items, file view %d items'
+                             % (len(evidence['row_menu']), len(evidence['file_menu'])))
+        return evidence
+
+    def overlap(self):
+        """One right-hand pane at a time (PRD §6.1), from the other side: with the Output panel
+        open, the work summary ("Under the hood", the chip under the conversation) is opened the
+        way a person approving a job opens it. Records whether the Output panel is still open
+        beside it, and photographs it. Needs a job on the thread (run after backend-worker)."""
+        evidence, note = self.observed('overlap')
+        self.open_panel()
+        self.to_list()
+        time.sleep(1)
+        if not self.present('Open the work summary'):
+            note(work_summary_control=False)
+            raise StepFailed('no "Open the work summary" control on this thread: run after backend-worker')
+        self.press('Open the work summary')
+        time.sleep(2)
+        output_open = self.present('Close the output panel')
+        close = self.find_all('Close the output panel')
+        back = self.find_all('back to Rich')
+        note(output_still_open=output_open, output_close=close[:1], slide_over_back=back[:1])
+        shots = self.flip_theme('overlap')
+        note(shots=shots)
+        if back:
+            self.press('back to Rich')
+            time.sleep(1)
+        if output_open:
+            raise StepFailed('the Output panel stayed open under the work summary: two right-hand panes at once')
+        return evidence
+
+    def wrote(self):
+        """Every *Wrote N files* in the conversation, pressed in turn: the panel opens on that turn
+        and the app's frame never moves (nightly a1a26a615: one press scrolled the shell 417 px)."""
+        evidence, note = self.observed('wrote')
+        self.close_panel()
+        found = self.find_all('Wrote ', role='AXButton')
+        note(found=[{k: n.get(k) for k in ('title', 'desc', 'y')} for n in found])
+        if not found:
+            raise StepFailed('no "Wrote N files" in the conversation')
+        presses, failures = [], []
+        for nth in range(len(found)):
+            toggle0 = self.node('Hide the sidebar')
+            composer0 = self.node('Message to Rich', role='AXTextArea')
+            self.ax('click', '--title', 'Wrote ', '--role', 'AXButton', '--contains', '--nth', str(nth))
+            self.wait_for('Close the output panel', seconds=20)
+            time.sleep(1.5)
+            toggle1 = self.node('Hide the sidebar')
+            composer1 = self.node('Message to Rich', role='AXTextArea')
+            close = self.node('Close the output panel')
+            p = {'nth': nth, 'label': found[nth].get('title') or found[nth].get('desc'),
+                 'toggle_moved': round(toggle1['y'] - toggle0['y'], 1),
+                 'composer_bottom_moved': round((composer1['y'] + composer1['h']) - (composer0['y'] + composer0['h']), 1),
+                 'close_level_gap': round(abs(close['y'] - toggle1['y']), 1)}
+            presses.append(p)
+            note(presses=presses)
+            self.shot('wrote-%d.png' % (nth + 1))
+            if abs(p['toggle_moved']) > 4 or abs(p['composer_bottom_moved']) > 4 or p['close_level_gap'] > 40:
+                failures.append('press %d moved the frame: %s' % (nth + 1, json.dumps(p)))
+            self.close_panel()
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def theme_flash(self):
+        """With the panel open, the guest's appearance flips while timeline.py photographs the
+        panel in the guest, on one clock. The frames come back for contrast.py, frame by frame."""
+        evidence, note = self.observed('theme-flash')
+        self.open_panel()
+        self.to_list()
+        time.sleep(1)
+        left = self.divider_x()
+        close = self.node('Close the output panel')
+        x, y = int(left), int(max(0, close['y'] - 24))
+        w, h = int(close['x'] + close['w'] + 24 - left), 560
+        remote = self.payload + '/qa'
+        qa = HERE.parent / 'qa'
+        guest(self.vm, 'mkdir -p ' + shlex.quote(remote + '/lib'), 60)
+        command([HERE / 'guest.sh', self.vm, '--push', qa / 'timeline.py', remote + '/timeline.py'], 120)
+        for lib in ('qaimg.py', 'qaocr.py'):
+            command([HERE / 'guest.sh', self.vm, '--push', qa / 'lib' / lib, remote + '/lib/' + lib], 120)
+        first_dark = 'Dark' in guest(self.vm, 'defaults read -g AppleInterfaceStyle 2>/dev/null || true')
+        note(region=[x, y, w, h], first_theme='dark' if first_dark else 'light',
+             nodes={'head': self.in_panel(self.texts('from this thread'))[:1], 'close': close})
+        flash = remote + '/flash'
+        guest(self.vm, '(cd {r} && python3 timeline.py capture {f} 7 --region {x},{y},{w},{h} --wait-only --baseline 1 '
+                       '> {r}/flash.log 2>&1; echo $? > {r}/flash.exit) >/dev/null 2>&1 &'.format(
+                           r=shlex.quote(remote), f=shlex.quote(flash), x=x, y=y, w=w, h=h), 60)
+        time.sleep(2.5)
+        command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to tell appearance preferences '
+                 'to set dark mode to ' + ('false' if first_dark else 'true')], 60)
+        flipped = self.clock()
+        end = time.monotonic() + 40
+        while time.monotonic() < end and not self.exists_in_guest(remote + '/flash.exit'):
+            time.sleep(1)
+        log = guest(self.vm, 'cat ' + shlex.quote(remote + '/flash.log') + ' ' + shlex.quote(remote + '/flash.exit')
+                    + ' 2>/dev/null || true', 60)
+        command([HERE / 'ax.sh', self.vm, 'tell application "System Events" to tell appearance preferences '
+                 'to set dark mode to ' + ('true' if first_dark else 'false')], 60)
+        guest(self.vm, 'cd {r} && tar -czf flash.tgz flash'.format(r=shlex.quote(remote)), 120)
+        command([HERE / 'guest.sh', self.vm, '--pull', remote + '/flash.tgz', self.out / 'flash.tgz'], 120)
+        note(flipped_guest_ms=round(flipped), capture_log=log[-3000:])
+        if not (self.out / 'flash.tgz').is_file():
+            raise StepFailed('the frames did not come back from the guest')
+        return evidence
+
+    def sidebar(self):
+        """S8 as a person uses it: the sidebar away by its button (the conversation takes the
+        width) and back, ⌘⇧S both ways, and hidden across a relaunch."""
+        evidence, note = self.observed('sidebar')
+        failures = []
+        self.close_panel()
+        composer0 = self.node('Message to Rich', role='AXTextArea')
+        rail0 = self.find_all('Entities and threads')
+        self.press_named('Hide the sidebar')
+        time.sleep(1.2)
+        composer1 = self.node('Message to Rich', role='AXTextArea')
+        rail1 = [n for n in self.find_all('Entities and threads') if n['w'] > 0]
+        note(composer_shown=composer0, rail_shown=rail0[:1], composer_hidden=composer1, rail_hidden=rail1[:1],
+             hidden_shots=self.flip_theme('sidebar-hidden'))
+        if not self.present('Show the sidebar'):
+            failures.append('the toggle does not offer "Show the sidebar" after hiding it')
+        # The conversation's column is centered with a reading width (the composer keeps its own
+        # width), so the stage taking the rail's room shows as the column moving left by half of it.
+        shift = composer0['x'] - composer1['x']
+        note(column_shift=shift)
+        if rail1 or not rail0 or abs(shift - rail0[0]['w'] / 2) > 24:
+            failures.append('the conversation did not take the rail\'s width: the column moved %.0f px, '
+                            'the rail was %s px wide and is %s' % (shift, rail0[0]['w'] if rail0 else '?',
+                                                                    'still there' if rail1 else 'gone'))
+        # ⌘⇧S, both ways, sent to the app's own pid frontmost.
+        keys = []
+        for want in ('Hide the sidebar', 'Show the sidebar'):
+            self.front()
+            self.script('tell application "System Events"\n'
+                        '  if (unix id of (first process whose frontmost is true)) is not %d then error "not frontmost"\n'
+                        '  keystroke "s" using {command down, shift down}\n'
+                        'end tell' % self.app_pid())
+            time.sleep(1.2)
+            keys.append({'expect': want, 'present': self.present(want)})
+        note(keyboard=keys)
+        failures += ['⌘⇧S did not toggle to offer "%s"' % k['expect'] for k in keys if not k['present']]
+        # Hidden across a relaunch.
+        if not self.present('Show the sidebar'):
+            self.press_named('Hide the sidebar')
+            time.sleep(1.2)
+        # The relaunch, by relaunch.py, and then the way a person comes back: the home screen's
+        # "Talk to Rich" door, which lands in the conversation. (CommandWalk.relaunch presses the
+        # thread in the rail, which is not there while the sidebar is hidden: the first run failed
+        # on that press, not on the app.)
+        from relaunch import relaunch
+        note(relaunched=relaunch(self.vm))
+        seen, end = [], time.monotonic() + self.a.relaunch_within
+        while time.monotonic() < end:
+            s = {'composer': self.present('Message to Rich', role='AXTextArea'),
+                 'show_sidebar': self.present('Show the sidebar'), 'hide_sidebar': self.present('Hide the sidebar'),
+                 'home_door': self.present('Talk to Rich')}
+            seen.append(s)
+            note(after_relaunch=seen)
+            if s['composer'] and (s['show_sidebar'] or s['hide_sidebar']):
+                break
+            if s['home_door'] and not s['composer']:
+                self.shot('sidebar-relaunch-home.png')
+                self.press('Talk to Rich')
+                time.sleep(3)
+                continue
+            time.sleep(4)
+        time.sleep(2)
+        kept = self.present('Show the sidebar')
+        note(hidden_after_relaunch=kept)
+        self.shot('sidebar-after-relaunch.png')
+        if not kept:
+            failures.append('the sidebar came back shown after the relaunch')
+        self.press_named('Show the sidebar')
+        time.sleep(1.2)
+        note(shown_again=self.present('Hide the sidebar'))
+        self.shot('sidebar-shown-again.png')
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
     def open_reveal(self):
         if not self.a.probe or not self.a.probe.is_file():
             raise StepFailed('--probe must name the built examples/output_files_probe binary')
@@ -1093,8 +1805,11 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=900, help='seconds for each file to reach the record')
+    p.add_argument('--relaunch-within', type=float, default=120,
+                   help='sidebar: seconds for the composer to come back after the relaunch')
     p.add_argument('--steps', default=','.join(s for s in STEPS
-                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull')),
+                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull')
+                                               and s not in CANDIDATE_STEPS),
                    help='default: every step but open-reveal (alone, with --no-app) and the panel steps, '
                         'which run together after identity, first-run and connect: '
                         '--steps identity,first-run,connect,tools,panel,previews,save-copy,attach,pull '
