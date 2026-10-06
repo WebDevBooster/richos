@@ -501,8 +501,10 @@ def project(scope, path, record):
     save(path, record)
 
 
-def build_spawn_command(repo_dests, name, role, brief_path, title, integration=None, base=None):
-    """The exact `spawn.py` invocation for one worker/reviewer, given
+def build_spawn_command(repo_dests, name, teammate, model, brief_path, title, integration=None, base=None):
+    """The exact `spawn.py` invocation for one named teammate (proto-teammate shelf plan §3,
+    richos-hq `docs/plans/2026-10-06-proto-teammate-shelf.md`): its own definition,
+    `richos-app-engine:<teammate>`, on its own definition's `model:` (§5), given
     `repo_dests` = [(repo_str, dest_str), ...] in order, PRIMARY repository
     first. One `--repo` per entry (`spawn.sh`'s own convention: given once per
     repository the teammate works in). `--dir` is scoped with the
@@ -523,7 +525,7 @@ def build_spawn_command(repo_dests, name, role, brief_path, title, integration=N
     command = [sys.executable, str(ENGINE / "scripts/lib/spawn.py"), name]
     for repo, _dest in repo_dests:
         command += ["--repo", repo]
-    command += ["--type", f"richos-app-engine:{role}", "--model", "sonnet",
+    command += ["--type", f"richos-app-engine:{teammate}", "--model", model,
                 "--brief", str(brief_path), "--description", title,
                 # WHOSE GUARDS JUDGE THIS. Everything reached from here is the
                 # APP's dispatch, on a non-technical user's own Mac, and Rich
@@ -629,8 +631,54 @@ def never_dispatched(record):
     return record["status"] == "blocked" and not record.get("tool_use_id") and not record.get("agent_id")
 
 
+# **THE DUTY, NOT THE PERSON** (proto-teammate shelf plan §3): `role` says what this run does,
+# and every check keyed on it is unchanged; who does it is the named `teammate`. Each duty's
+# app mechanics (registered target, `git -C`, the RICHOS_REVIEW line) go at the top of every
+# brief for that duty, so any named teammate carries them.
+DUTIES = {"worker": ENGINE / "mega-lander/duties/worker.md", "reviewer": ENGINE / "mega-lander/duties/reviewer.md"}
+# The teammate token of `<teammate>-<model>-<id12>`: scripts/lib/teammate-name.sh's role part.
+TEAMMATE_NAME = re.compile(r"[a-z][a-z0-9]{1,15}")
+
+
+def teammate_model(teammate):
+    """The model an ACTIVE teammate runs on: its own definition's `model:` line (plan §5).
+
+    Active means on the roster this lease registered, `<entity root>/.claude/agents/`, which
+    is the same file the isolation guard resolves `richos-app-engine:<teammate>` to and the
+    same bytes the lease's plugin carries (`EngineProfile::prepare`). A name that is not
+    there is refused with the names that are. The `model:` line gets the guard's own reading
+    (scripts/lib/resolve-model.sh): the first frontmatter block, lowercased, a verbose id
+    reduced to the alias it contains, which must be one ALLOWED_MODELS lists."""
+    if not TEAMMATE_NAME.fullmatch(teammate):
+        raise ValueError("teammate must be an active teammate's name: 2 to 16 lowercase letters and digits")
+    root = Path(os.environ["RICHOS_ENTITY_ROOT"])
+    roster = root / ".claude/agents"
+    path = roster / (teammate + ".md")
+    if teammate in DUTIES or path.is_symlink() or not path.is_file():
+        active = sorted(p.stem for p in roster.glob("*.md") if TEAMMATE_NAME.fullmatch(p.stem) and p.stem not in DUTIES)
+        raise ValueError(f"{teammate} is not an active teammate. Active teammates: {', '.join(active) or 'none'}")
+    lines = path.read_text(encoding="utf-8").split("\n")
+    front = {}
+    if lines and lines[0].strip() == "---":
+        for line in lines[1:]:
+            if line.strip() == "---": break
+            key, _, value = line.partition(":")
+            front.setdefault(key.strip().lower(), value.strip().strip("\"'"))
+    if front.get("name") != teammate:
+        raise ValueError(f"{teammate}'s definition names itself {front.get('name')!r}, so it cannot be started by that name")
+    config = (root / "orchestration.config").read_text(encoding="utf-8")
+    allowed = re.search(r'^ALLOWED_MODELS="([^"]*)"', config, re.M)
+    allowed = allowed.group(1).split() if allowed else []
+    written = front.get("model", "").lower()
+    model = next((m for m in allowed if m in written), None)
+    if not model:
+        raise ValueError(f"{teammate}'s definition names no model this app can start "
+                         f"(model: {written or 'missing'}; one of {', '.join(allowed)})")
+    return model
+
+
 def prepare(scope_path, scope, args):
-    if set(args) - {"request_id","obligation_id","repo","repos","title","brief","role","integration","base","review_of","continue_of"}:
+    if set(args) - {"request_id","obligation_id","repo","repos","title","brief","role","teammate","integration","base","review_of","continue_of"}:
         raise ValueError("unsupported preparation fields")
     request_id = text(args,"request_id",128)
     # **THE SCOPE WINS, AND IT WINS SILENTLY** -- see `carried_obligation`. A work
@@ -673,9 +721,11 @@ def prepare(scope_path, scope, args):
         extra_repos.append(extra)
     repos_all = [repo] + extra_repos
     role = args.get("role", "worker")
-    if role not in ("worker","reviewer"): raise ValueError("only the shipped worker and reviewer roles are supported")
+    if role not in DUTIES: raise ValueError("role must be worker (implements) or reviewer (reviews)")
+    teammate = text(args,"teammate",64)
+    model = teammate_model(teammate)
     title, brief = text(args,"title",256), text(args,"brief",32000)
-    normalized = {"obligation_id":obligation,"repo":str(repo),"repos":[str(r) for r in repos_all],"title":title,"brief":brief,"role":role,
+    normalized = {"obligation_id":obligation,"repo":str(repo),"repos":[str(r) for r in repos_all],"title":title,"brief":brief,"role":role,"teammate":teammate,
         "integration":args.get("integration"),"base":args.get("base"),"review_of":args.get("review_of"),"continue_of":args.get("continue_of")}
     identity = hashlib.sha256(json.dumps([scope["binding"]["entity_id"],scope["binding"]["thread_id"],request_id],separators=(",", ":")).encode()).hexdigest()
     # The conversation-wide lock is held while the request is checked and its
@@ -703,7 +753,7 @@ def prepare(scope_path, scope, args):
                     settle_undispatched(scope, old_path, old)
                 if old["status"] in ("preparing","prepared","dispatching","running","unknown"):
                     raise ValueError("this obligation already has unresolved work; inspect its receipt before retrying")
-        name = f"{role}-sonnet-{identity[:12]}"
+        name = f"{teammate}-{model}-{identity[:12]}"
         record = {"schema":1,"id":identity,"request_id":request_id,"binding":scope["binding"],
             "instruction_ref":instruction["ledger_ref"],"request":normalized,"name":name,"status":"preparing"}
         if args.get("continue_of") is not None:
@@ -770,7 +820,9 @@ def prepare(scope_path, scope, args):
         save(path,record)
         brief_path = root / (identity + ".brief")
         fd = os.open(brief_path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
-        with os.fdopen(fd,"w") as out: out.write(brief); out.flush(); os.fsync(out.fileno())
+        # The duty's app mechanics first, then the assignment (plan §3).
+        duty = DUTIES[role].read_text(encoding="utf-8").strip()
+        with os.fdopen(fd,"w") as out: out.write(duty + "\n\n" + brief); out.flush(); os.fsync(out.fileno())
         base_dir = state() / "target-worktrees" / folder(scope).name / name
         if len(repos_all) == 1:
             repo_dests = [(str(repos_all[0]), str(base_dir))]
@@ -787,7 +839,7 @@ def prepare(scope_path, scope, args):
         # Several repositories: every workspace starts at that repository's own
         # exact commit, never the primary's commit alone.
         base_value = started_from.get("commits") or started_from.get("commit", base_value)
-        command = build_spawn_command(repo_dests, name, role, brief_path, title,
+        command = build_spawn_command(repo_dests, name, teammate, model, brief_path, title,
                                        integration=args.get("integration"), base=base_value)
         # From here the receipt is owned by THIS process while the lock is let go:
         # a second request for the same assignment must see "being prepared" and
@@ -1801,7 +1853,7 @@ TOOLS = [
     {"name":"pause_message","description":"Generate the one standard pause message. Submit message_payload unchanged to SendMessage. Do not write, append or summarize pause instructions yourself. Preparation and delivery do not confirm a pause. No process is stopped and no message is sent by this tool.","inputSchema":{"type":"object","properties":{"to":{"type":"string"},"reason":{"type":"string","enum":["manual","quota"]},"reset":{"type":"string","pattern":"^(?:[01][0-9]|2[0-3]):[0-5][0-9]Z$"}},"required":["to"],"additionalProperties":False}},
     {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Your connection already knows which assignment you are carrying, so leave obligation_id out; never invent one. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. An assignment you handled yourself, with no worker, is closed by the app from your report: do not call this for it. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["worker_ids"],"additionalProperties":False}},
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
-    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for the assignment this connection is carrying. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. A failed preparation that never dispatched is settled when a new request_id prepares a replacement: anything it created is withdrawn, and dirty files are refused rather than discarded. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker. Its reviewer and any continuation name the same repos, and review, integration and cleanup then cover every one of those repositories.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief"],"additionalProperties":False}},
+    {"name":"prepare","description":"Prepare a named teammate as the worker (role worker: implements) or the reviewer (role reviewer: reviews) for the assignment this connection is carrying. Set teammate to the name of the active teammate whose role fits the job best, as your Agent tool lists them; a name that is not active is refused with the names that are. The teammate runs on its own model with its own definition, and the duty's app instructions are put at the top of your brief for you. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. A failed preparation that never dispatched is settled when a new request_id prepares a replacement: anything it created is withdrawn, and dirty files are refused rather than discarded. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker. Its reviewer and any continuation name the same repos, and review, integration and cleanup then cover every one of those repositories.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","teammate","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief","teammate"],"additionalProperties":False}},
     {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. If the branch moved since the work started, the reviewed commit is merged with a merge commit only when Git merges the two without a conflict. No push, rebase or conflict resolution. Dirty targets and conflicting changes are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
     {"name":"inspect","description":"Reconcile scoped dispatch receipts against actual provider and workspace observations. A run ending is not task completion. Inspect unresolved work before retrying after a restart.","inputSchema":{"type":"object","properties":{"offset":{"type":"integer"},"limit":{"type":"integer"}},"additionalProperties":False}},
 ]

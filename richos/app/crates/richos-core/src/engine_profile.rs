@@ -144,9 +144,11 @@ fn git(runtime: &EngineRuntime, cwd: &Path, args: &[&str]) -> Result<(), Runtime
 /// (CEO §111), is always active like the four the plan names.
 pub const ALWAYS_ACTIVE: [&str; 5] = ["dean", "clark", "reed", "frank", "pierce"];
 
-/// The two unnamed definitions the dispatch adapter still keys on. Registered until slice 2 of
-/// the same plan turns them into duty texts; then this list goes.
-pub const GENERIC_DUTIES: [&str; 2] = ["worker", "reviewer"];
+/// **The two duties, never a teammate** (plan §3, slice 2): `worker` implements and `reviewer`
+/// reviews. Each is a duty text (`engine/mega-lander/duties/<duty>.md`) the dispatch adapter puts
+/// at the top of a named teammate's brief, not a definition, so neither is registered and
+/// neither name can be a teammate's.
+pub const DUTIES: [&str; 2] = ["worker", "reviewer"];
 
 /// **The user's own teammates: `<app data>/team/<name>.md`**, activated from the shelf or
 /// hired by Dean. Outside the engine, so an engine update never touches them. The shelf
@@ -156,11 +158,11 @@ pub const USER_TEAM: &str = "team";
 /// Every definition this lease registers, by name: the stock ones, then the user's. A user's
 /// file of the same name as a stock one is the user's refit of it and wins (plan §10 point 3:
 /// the user's copy is never overwritten). A file whose name could not be an agent type
-/// (`[a-z0-9-]`, not starting with `-`), a symbolic link, or one of the generic duty names is
-/// not registered: those two stay the engine's app mechanics.
+/// (`[a-z0-9-]`, not starting with `-`), a symbolic link, or one of the two duty names is
+/// not registered: those two are the engine's app mechanics, never a person.
 pub fn active_team(engine: &Path, data: &Path) -> Result<std::collections::BTreeMap<String, String>, RuntimeError> {
     let mut team = std::collections::BTreeMap::new();
-    for name in ALWAYS_ACTIVE.iter().chain(GENERIC_DUTIES.iter()) {
+    for name in ALWAYS_ACTIVE {
         let body = std::fs::read_to_string(engine.join(format!("agents/{name}.md"))).map_err(|e| RuntimeError(e.to_string()))?;
         team.insert(name.to_string(), body);
     }
@@ -176,7 +178,7 @@ pub fn active_team(engine: &Path, data: &Path) -> Result<std::collections::BTree
         if !entry.file_type().map_err(|e| RuntimeError(e.to_string()))?.is_file()
             || path.extension().is_none_or(|ext| ext != "md") { continue; }
         let Some(name) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-        if name.is_empty() || name.starts_with('-') || GENERIC_DUTIES.contains(&name)
+        if name.is_empty() || name.starts_with('-') || DUTIES.contains(&name)
             || !name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') { continue; }
         let body = std::fs::read_to_string(&path).map_err(|e| RuntimeError(format!("team/{name}.md could not be read: {e}")))?;
         team.insert(name.to_string(), body);
@@ -190,8 +192,11 @@ impl EngineProfile {
         for name in ["scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "mega-lander/app.py", "mega-lander/DESKTOP.md"] {
             if !engine.join(name).is_file() { return Err(RuntimeError(format!("missing desktop engine entry point: {name}"))); }
         }
-        for name in ALWAYS_ACTIVE.iter().chain(GENERIC_DUTIES.iter()) {
+        for name in ALWAYS_ACTIVE {
             if !engine.join(format!("agents/{name}.md")).is_file() { return Err(RuntimeError(format!("missing desktop engine entry point: agents/{name}.md"))); }
+        }
+        for duty in DUTIES {
+            if !engine.join(format!("mega-lander/duties/{duty}.md")).is_file() { return Err(RuntimeError(format!("missing desktop engine entry point: mega-lander/duties/{duty}.md"))); }
         }
         std::fs::create_dir_all(data).map_err(|e| RuntimeError(e.to_string()))?;
         let data = std::fs::canonicalize(data).map_err(|e| RuntimeError(e.to_string()))?;

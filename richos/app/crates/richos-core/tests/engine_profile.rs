@@ -37,9 +37,11 @@ fn app_profile_creates_neutral_coordination_and_one_hook_per_event() {
         assert!(groups[0].get("matcher").is_none(),
             "{event} was registered with a matcher; the app hook's reach is no longer every tool");
     }
-    for role in ["worker", "reviewer"] {
-        assert_eq!(std::fs::read(profile.plugin.join(format!("agents/{role}.md"))).unwrap(),
-            std::fs::read(engine().join(format!("agents/{role}.md"))).unwrap());
+    // Slice 2 of the proto-teammate shelf plan: the two duties are texts the dispatch adapter
+    // puts in a named teammate's brief, never registered definitions.
+    for duty in ["worker", "reviewer"] {
+        assert!(!profile.plugin.join(format!("agents/{duty}.md")).exists(), "{duty} is registered");
+        assert!(engine().join(format!("mega-lander/duties/{duty}.md")).is_file(), "the {duty} duty text is missing");
     }
     assert!(profile.coordination.join(".git").is_dir());
     assert!(!profile.coordination.join("ceo-wiki").exists());
@@ -383,8 +385,9 @@ fn a_declaration_that_cannot_be_read_is_an_error_and_never_an_empty_allowlist() 
 /// `docs/plans/2026-10-06-proto-teammate-shelf.md` §2, §9 step 2): every lease registers the
 /// five always-active teammates (Dean, Clark, Reed, Frank and Pierce) and every file in
 /// `<app data>/team/`, in the plugin's `agents` list and in the private roster the isolation
-/// guard reads; a teammate no longer active leaves the roster; the two generic files stay until
-/// slice 2; the shelf is never registered.
+/// guard reads; a teammate no longer active leaves the roster; the shelf is never registered.
+/// Since slice 2 the two generic duties are not registered either, and a user file named for
+/// one is not.
 #[test]
 fn a_lease_registers_the_always_active_and_the_users_team_and_drops_what_is_no_longer_active() {
     let f = Scratch::new();
@@ -415,10 +418,10 @@ fn a_lease_registers_the_always_active_and_the_users_team_and_drops_what_is_no_l
     };
 
     let first = EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
-    let expected = ["clark", "dean", "frank", "mark", "pierce", "reed", "reviewer", "worker"];
+    let expected = ["clark", "dean", "frank", "mark", "pierce", "reed"];
     assert_eq!(registered(&first), expected);
     assert_eq!(on_roster(), expected);
-    for stock in ["clark", "reed", "frank", "pierce", "worker", "reviewer"] {
+    for stock in ["clark", "reed", "frank", "pierce"] {
         let shipped = std::fs::read(engine().join(format!("agents/{stock}.md"))).unwrap();
         assert_eq!(std::fs::read(first.plugin.join(format!("agents/{stock}.md"))).unwrap(), shipped);
         assert_eq!(std::fs::read(roster.join(format!("{stock}.md"))).unwrap(), shipped);
@@ -441,13 +444,15 @@ fn a_lease_registers_the_always_active_and_the_users_team_and_drops_what_is_no_l
     std::fs::remove_file(team.join("mark.md")).unwrap();
     std::fs::remove_file(team.join("dean.md")).unwrap();
     std::fs::write(roster.join("retired.md"), "---\nname: retired\n---\n").unwrap();
+    // The generic worker an install registered before slice 2 leaves the roster the same way.
+    std::fs::write(roster.join("worker.md"), "---\nname: worker\n---\n").unwrap();
     let next = EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
-    let stock = ["clark", "dean", "frank", "pierce", "reed", "reviewer", "worker"];
+    let stock = ["clark", "dean", "frank", "pierce", "reed"];
     assert_eq!(registered(&next), stock);
     assert_eq!(on_roster(), stock);
     assert_eq!(std::fs::read(roster.join("dean.md")).unwrap(), std::fs::read(engine().join("agents/dean.md")).unwrap());
 
-    // A fresh install has no team folder at all and gets the stock seven.
+    // A fresh install has no team folder at all and gets the stock five.
     let fresh = Scratch::new();
     let profile = EngineProfile::prepare(&engine(), &fresh.0, fresh.runtime()).unwrap();
     assert_eq!(registered(&profile), stock);
