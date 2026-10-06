@@ -52,7 +52,7 @@ impl Allocation {
         if self.id != identity.id() || self.generation == 0 || self.generation > 1_000_000
             || self.endpoint != format!("https://c-{}-g{}.richos.ceo", self.id, self.generation)
             || !["pending", "active", "disabled"].contains(&self.phase.as_str()) {
-            return Err(PhoneError::Malformed("RichOS Connect returned an invalid Mac address. Try again later.".into()));
+            return Err(PhoneError::Malformed("RichConnect for RichOS returned an invalid Mac address. Try again later.".into()));
         }
         Ok(())
     }
@@ -113,7 +113,7 @@ impl Client {
     }
 }
 pub fn unavailable() -> PhoneError {
-    PhoneError::Malformed("RichOS Connect could not be reached. Your conversations are kept on your devices. Try again shortly.".into())
+    PhoneError::Malformed("RichConnect for RichOS could not be reached. Your conversations are kept on your devices. Try again shortly.".into())
 }
 
 #[cfg(test)]

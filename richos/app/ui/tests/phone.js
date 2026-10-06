@@ -2531,6 +2531,29 @@ async function openSheet(browser, theme, preset) {
     return "Managed setup, pairing instructions, disable and alternate route controls work in WebKit";
   });
 
+  await run.check("The popup names RichConnect for RichOS and says the CEO's setup sentence (feedback 2026-10-06 item 4)", async () => {
+    // His words, verbatim: "Change copy of 'RichOS Connect' instances to 'RichConnect for
+    // RichOS'", and the setup line reads "First, set up this RichOS app on your Mac. Then pair
+    // your phone with it." Read off the rendered sheet, not the source.
+    const page = await openSheet(browser, "dark", { phoneConnect: { enabled:false,phase:"not-configured" }, phoneTailnet:{state:"absent"} });
+    const words = await page.evaluate(() => ({
+      route: document.getElementById("phone-use-connect").textContent.trim(),
+      heading: document.querySelector("#phone-connect .phone-step-title").textContent.trim(),
+      start: document.getElementById("phone-connect-start").textContent.trim(),
+      stop: document.getElementById("phone-connect-disable").textContent.trim(),
+      status: document.getElementById("phone-connect-status").textContent.trim(),
+      sheet: document.getElementById("phone-sheet").innerText,
+    }));
+    assertEqual(words.route, "RichConnect for RichOS", "the route button");
+    assertEqual(words.heading, "RichConnect for RichOS", "the Connect heading");
+    assertEqual(words.start, "Set up RichConnect for RichOS", "the setup button");
+    assertEqual(words.stop, "Turn off RichConnect for RichOS", "the turn-off button");
+    assertEqual(words.status, "First, set up this RichOS app on your Mac. Then pair your phone with it.", "the setup sentence");
+    assert(!/RichOS Connect/.test(words.sheet), "the popup still says RichOS Connect somewhere: " + words.sheet);
+    await page.close();
+    return words.status;
+  });
+
   await run.check("Connect keeps a saved pairing visible while the listener recovers", async () => {
     const page = await openSheet(browser, "dark", { phoneConnect:{enabled:true,phase:"active"}, phonePaired:true, phonePairedVia:"connect", phoneListenerStopped:true });
     assert(await page.locator("#phone-paired").isVisible());
