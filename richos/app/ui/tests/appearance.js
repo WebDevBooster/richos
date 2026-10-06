@@ -1539,13 +1539,6 @@ async function main() {
     /// under the floor fails as STALE — which is what would have caught this list going quiet
     /// after the three labels raised in the commit before this one.
     const BELOW_FLOOR = {
-      ".rail-initials": {
-        kind: "mono",
-        why:
-          "the identity circle at the foot of the rail: at most two initials, uppercased by " +
-          "`initials_from` in richos-core's config.rs, in a 26px disc. A monogram, not a run " +
-          "of text — the NAME beside it is `.rail-user-name` at 1rem and is what is read.",
-      },
       ".send-glyph": { kind: "glyph", why: "the send arrow inside the send button — the button's accessible name carries the word" },
       ".rail-icon-btn": { kind: "glyph", why: "the rail's icon buttons (the drawer's and the pane's close): one symbol each, each with an aria-label of its own" },
       ".nav-disclosure": { kind: "glyph", why: "the group disclosure triangle in the rail — rotation is the state, and the group's label is beside it" },
@@ -1554,10 +1547,6 @@ async function main() {
       ".tl-activity-mark": { kind: "glyph", why: "the activity row's status shape, the same symbol vocabulary as .nav-status, beside 16px text that says the state" },
       ".tl-tech-chevron": { kind: "glyph", why: "the technical row's expand chevron. Its ink is measured on the painted glass, on the plain ground with the speckle hidden, by contrast.js check 17 (6.46:1 dark, 5.14:1 light) against a 4.5:1 floor, which is stricter than the 3:1 a non-text indicator owes" },
       ".chrome-select-chevron": { kind: "glyph", why: "the `this opens a list` cue on a <select>; aria-hidden and pointer-events:none, so the control's own accessible name is the whole of what is read" },
-      ".nav-group-label": { kind: "caps", why: "the company eyebrow over a group of conversations — all caps, letter-spaced, the app's standard micro-label" },
-      ".entity-block-title": { kind: "caps", why: "the entity view's section eyebrow — all caps, letter-spaced" },
-      ".result-group": { kind: "caps", why: "the search results' group eyebrow — all caps, letter-spaced" },
-      ".insp-label": { kind: "caps", why: "the worker inspector's field labels — all caps, letter-spaced, each one word over the value it names" },
     };
 
     const below = resolved.filter((r) => r.px !== null && r.px < 14);

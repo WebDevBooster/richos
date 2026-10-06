@@ -544,7 +544,7 @@ button {
   border-radius: 50%;
   background: var(--gold);
   color: var(--on-gold);
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   line-height: 1;
@@ -2048,7 +2048,7 @@ body.bp-narrow .first-run {
   border: none;
   padding: 3px 6px;
   border-radius: 5px;
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2460,7 +2460,7 @@ body.bp-narrow .first-run {
 }
 
 .entity-block-title {
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2827,7 +2827,7 @@ body.bp-narrow .first-run {
 }
 
 .result-group {
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4265,7 +4265,7 @@ body.bp-narrow .tl-user-bubble {
 
 .insp-label {
   margin: 0;
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-faint);
