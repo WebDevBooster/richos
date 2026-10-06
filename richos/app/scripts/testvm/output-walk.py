@@ -1516,8 +1516,16 @@ class OutputWalk(command_walk.CommandWalk):
             return found
 
         # A. As the panel shows it after a reopen, before anything tells it the file is gone.
-        failures += row_menu('a')
-        failures += file_view('a')
+        a_failures = row_menu('a') + file_view('a')
+        failures += a_failures
+        if not a_failures:
+            # Since the walk-38 D6 fix the reopen itself reads the disk, so A already sees the file
+            # gone and its Open is disabled. B's press would have nothing to press: a search for
+            # "Open" then finds the next control with that word, "Open the work summary", whose
+            # Under the hood closes this panel (D7) — a walk artifact, never an app verdict.
+            note(b_skipped='A passed: the panel knew at reopen, so there is nothing for Open to tell it')
+            self.to_list()
+            return evidence
         # B. After the app has been told: its own Open answers that the file is gone (a press a
         # person would make), which is the one thing that makes the panel read its list again.
         learned = None
