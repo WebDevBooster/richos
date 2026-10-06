@@ -173,6 +173,8 @@ needed "claims native isolation, flag set" && run_case "claims native isolation,
 # --- 6. ack-contract-missing ---
 needed "worktree spawn without the ack contract" && run_case "worktree spawn without the ack contract"  2 \
     "$(json_agent 'Build the feature in your worktree and commit there.' '{"isolation":"worktree"}')"
+needed "worktree spawn with the merge-main line" && run_case "worktree spawn with the merge-main line"    0 \
+    "$(json_agent 'Build the feature and commit. Your last step before you hand over: run git merge main inside your own worktree. Then hand over.' '{"isolation":"worktree"}')"
 needed "worktree spawn naming inflight-ack.sh" && run_case "worktree spawn naming inflight-ack.sh"    0 \
     "$(json_agent 'Build the feature and commit. If I message you that main moved under you, run scripts/inflight-ack.sh --sha <sha> --impact <kind> --detail "..." --paths "..." — I cannot rely on a reply reaching me.' '{"isolation":"worktree"}')"
 # The FORMAT is the contract, not the script — and the script is not even at a

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an isolated Agent tool input with the mandatory acknowledgement contract.
+"""Build an isolated Agent tool input with the mandatory merge-main-at-handover line.
 
 Read task-specific Agent input JSON from --file (or stdin), print prepared JSON.
 This creates no worktree, dispatches nobody and grants no guard exemptions.
@@ -10,7 +10,6 @@ import argparse
 import json
 from pathlib import Path
 import re
-import shlex
 import sys
 
 
@@ -29,11 +28,13 @@ def prepare(value):
         raise ValueError("; ".join(problems))
     result = dict(value, isolation="worktree")
     result.pop("cwd", None)
-    helper = shlex.quote(str(Path(__file__).resolve().parent / "inflight-ack.sh"))
-    contract = ("If notified that main moved, inspect the change and acknowledge it durably from your worktree: "
-                f"{helper} --sha <sha> --impact <conflict|stale-record|grew-scope|none> "
-                '--detail "<your assessment>" --paths "<paths or none>". A chat reply alone is not the acknowledgement.')
-    if not re.search(r"inflight-ack\.sh|inflight-acks/", result["prompt"]):
+    contract = ("Your last step before you hand over, and only if you committed anything: in each repository you committed to, "
+                "run `git merge main` inside your own worktree. `main` here is the local branch named `main`, not `origin/main`. "
+                "Never rebase. If git reports a conflict, resolve it and commit the merge. If the conflict is in a screenshot "
+                "baseline picture (a `.png` under `ui/tests/shots-*`), regenerate that picture from the merged tree and look at it: "
+                "if it shows anything besides your change and main's change together, do not commit it; say what it shows in your "
+                "report. Merge only once; if main moves again after your merge, do not merge again. Then hand over.")
+    if not re.search(r"inflight-ack\.sh|inflight-acks/|git merge main", result["prompt"]):
         result["prompt"] = result["prompt"].rstrip() + "\n\n" + contract
     return result
 
