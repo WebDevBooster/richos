@@ -195,9 +195,9 @@ module.exports = [
   // -----------------------------------------------------------------------------------
   {
     s:
-      "I couldn't start that, because I'm not connected to your Anthropic account right " +
-      "now — either nobody has signed in on this Mac yet, or the sign-in ran out. You can " +
-      "connect it in Settings, under Account connection, and then send this to me again.",
+      "I couldn't start that, because I'm not connected to your Claude account right " +
+      "now. Either nobody has signed in on this Mac yet, or the sign-in ran out. You can " +
+      "connect it in Settings, under Claude accounts, and then send this to me again.",
     c: "ACTIONABLE",
     control: "#rail-settings",
     fixture: null,
