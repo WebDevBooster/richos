@@ -149,9 +149,11 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   pull         (above) also records the composer at the stop and fails when it has grown taller
                than the one line it is with the panel closed.
   scratch      after backend-worker: cloned record rows for a /private/tmp copy and a project's
-               .claude/worktrees/ copy of notes.zip (hidden) and its own .claude/agents/ file
-               (listed); the Output button's count and the panel's rows, and no file link anywhere
-               for a temporary file the job itself left (CEO 2026-10-06, PRD §13 Q3).
+               .claude/worktrees/ copy of notes.zip (hidden), and a typed shell command that
+               writes the project's own .claude/agents/ file (listed); both Output buttons' count
+               and the panel's rows; and no file link outside the panel that OPENS a temporary
+               file the job itself left, read from the file view's Copy path (CEO 2026-10-06,
+               PRD §13 Q3). backend-worker's "listed once" leaves the same scratch set out.
   labels       (candidate 40) the 14 px labels on screen in both themes: a name set so the rail
                draws initials, the company label, its overview's section title, a search result
                group, a front-desk worker's inspector (after front-desk-worker) and the Settings
@@ -329,6 +331,17 @@ tell application "System Events"
   return "pressed"
 end tell
 '''
+
+
+# THE SCRATCH SET as the app states it (richos-core output.rs SCRATCH_PREFIXES and
+# SCRATCH_DIR_NAMES; the CEO's answer to PRD §13 Q3, 2026-10-06: "the panel lists only files
+# written into your projects and folders"). The guest's TMPDIR is under /var/folders. A path here is
+# kept in the record and left out of every list, count and link the walk expects.
+SCRATCH_PREFIXES = ('/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/', '/Volumes/E1TB/tmp/claude/')
+
+
+def scratch_path(path):
+    return path.startswith(SCRATCH_PREFIXES) or '/.claude/worktrees/' in path
 
 
 def project(rows):
@@ -525,7 +538,11 @@ class OutputWalk(command_walk.CommandWalk):
         rows = self.save_record('record-after-backend-worker.jsonl')
         workers = [r for r in rows if r.get('actor') == 'worker']
         lands = [r for r in rows if r.get('source') == 'land']
-        listed = project(rows)
+        # The list the app serves leaves the scratch set out: a reviewer's copy under /private/tmp
+        # with the worker's own file name (walk-cc28852ef5be: /private/tmp/rv1/o/notes.md) is
+        # recorded, never listed, so it is not a second notes.md at a second path.
+        everything = project(rows)
+        listed = {k: v for k, v in everything.items() if not scratch_path(k)}
         on_disk = {n: self.exists_in_guest(self.company + '/' + n) for n in names}
         # "Opens": there is no open-file command before slice S3, so the landed copy is read back
         # at the listed path: notes.md's line, and notes.zip's zip header.
@@ -537,6 +554,7 @@ class OutputWalk(command_walk.CommandWalk):
         evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'work_sessions': sessions,
                     'worker_rows': workers, 'land_rows': lands, 'mislabeled_as_rich': mislabeled,
                     'in_acme_folder': on_disk, 'read_back': reads, 'listed': {k: len(v) for k, v in listed.items()},
+                    'recorded_not_listed': sorted(k for k in everything if k not in listed),
                     'no_longer_where_written': missing,
                     'assignments': [{k: a.get(k) for k in ('id', 'kind', 'state', 'work_session')}
                                     for a in self.assignments_since(sent)]}
@@ -1869,14 +1887,15 @@ class OutputWalk(command_walk.CommandWalk):
         under the project's `.claude/worktrees/agent-walk/` (an agent's worktree: hidden) and
         AGENTS_FILE under the project's own `.claude/agents/` (listed, and counted). Any row the job
         itself left in a temporary folder (walk 39: a reviewer's /private/tmp/rev-notes-fresh.zip) is
-        recorded, and FAILS when a file link for it is anywhere in the window (the "Produced N files"
-        strip, a "Wrote N files" group or the panel)."""
+        recorded, and FAILS when a file link outside the panel OPENS it (scratch_links: a link is
+        judged by the path its file view copies, never by its words, which a landed file shares).
+        Both Output buttons must carry the count."""
         evidence, note = self.observed('scratch')
         rows = self.record()
         base = [r for r in rows if r.get('source') == 'command' and r.get('path', '').endswith('/' + MADE)]
         if not base:
             raise StepFailed('no notes.zip command row to clone: run backend-worker first')
-        hidden = lambda k: k.startswith(('/private/tmp/', '/tmp/')) or '/.claude/worktrees/' in k  # noqa: E731
+        hidden = scratch_path
         by_job = sorted({r['path'] for r in rows if hidden(r.get('path', ''))})
         note(left_by_the_job=by_job)
         scratch = '/private/tmp/rv-zip-a1/' + MADE
@@ -1931,7 +1950,7 @@ class OutputWalk(command_walk.CommandWalk):
         names = [n.get('title') or n.get('desc') or '' for n in buttons]
         note(buttons=names)
         want = '%d file' % len(listed)
-        if not names or not all(want in n for n in names):
+        if len(names) != 2 or not all(want in n for n in names):
             raise StepFailed('the Output button should count %d files, it says %s' % (len(listed), names))
         self.open_panel()
         time.sleep(1.5)
@@ -1942,20 +1961,67 @@ class OutputWalk(command_walk.CommandWalk):
         # One row is several nodes (its name, its group, its actions): the nodes are one row when
         # they sit within one row's height of each other (a row is ~76 px; two rows are not).
         ys = [n['y'] for n in zips]
-        links = [{k: n.get(k) for k in ('role', 'title', 'desc', 'x', 'y')}
-                 for name in sorted({Path(p).name for p in by_job}) for n in self.find_all(name, role='AXButton')]
         note(zip_nodes=len(zips), zip_node_y=ys, scratch_nodes=len(seen), agents_nodes=len(agent_rows),
-             agents_node_y=[n['y'] for n in agent_rows], links_to_the_jobs_scratch=links)
+             agents_node_y=[n['y'] for n in agent_rows])
         failures = []
         if not zips or max(ys) - min(ys) > 60 or seen:
             failures.append('the panel lists notes.zip in %d places (y %s) and %d scratch nodes' % (len(zips), ys, len(seen)))
         if not agent_rows:
             failures.append("the project's own .claude/agents/%s is not listed" % AGENTS_FILE)
-        if links:
-            failures.append("a file link names the job's own temporary file: %s" % json.dumps(links))
+        failures += self.scratch_links(by_job, listed, note)
         if failures:
             raise StepFailed('; '.join(failures))
         return evidence
+
+    def scratch_links(self, by_job, listed, note):
+        """Every file link outside the panel whose words are the name of a file the job left in the
+        scratch set, judged by WHERE IT OPENS, never by its words. A link is drawn only from the
+        listed files (output-panel.js `links.forText` and `forTurn`), so a reviewer's
+        /private/tmp/rv1/o/notes.zip and the landed ~/Acme/notes.zip carry the same words, and a
+        match by name failed on the landed file's own links (walk-cc28852ef5be). A link whose name
+        no listed file has is a failure on sight; a shared name is pressed, the file view's ⋯ Copy
+        path read back, and FAILS when that path is in the scratch set. [] when every link opens a
+        listed file."""
+        listed_names = {Path(k).name for k in listed}
+        left = self.divider_x()
+        seen, failures = [], []
+        for name in sorted({Path(p).name for p in by_job}):
+            nodes = self.find_all(name, role='AXButton')
+            links = [(i, n) for i, n in enumerate(nodes)
+                     if (n.get('title') or '').strip() == name and (left is None or n['x'] + n.get('w', 0) <= left)]
+            for i, n in links:
+                entry = {'name': name, 'x': n.get('x'), 'y': n.get('y'), 'opens': None}
+                seen.append(entry)
+                if name not in listed_names:
+                    failures.append('a file link is named %s, which only the scratch set holds' % name)
+                    note(links_named_like_the_jobs_scratch=seen)
+                    continue
+                try:
+                    self.script('set the clipboard to "seed"')
+                    self.ax('click', '--title', name, '--role', 'AXButton', '--contains', '--nth', str(i))
+                    self.wait_for('All output', seconds=20)
+                    time.sleep(1.5)
+                    if len(seen) == 1:
+                        self.shot('scratch-link-opened.png')
+                    self.press_any('More actions', ['AXPopUpButton', 'AXMenuButton', 'AXButton'], contains=False)
+                    time.sleep(1)
+                    self.press('Copy path', role='AXMenuItem')
+                    time.sleep(1)
+                    entry['opens'] = self.clipboard()
+                except (StepFailed, subprocess.TimeoutExpired) as exc:
+                    entry['error'] = str(exc)[:300]
+                    self.script('tell application "System Events" to key code 53')  # a menu left open
+                    time.sleep(0.5)
+                note(links_named_like_the_jobs_scratch=seen)
+                got = entry['opens'] or ''
+                if not got.startswith('/'):
+                    failures.append('could not read where the %s link at y %s opens: %s'
+                                    % (name, n.get('y'), entry.get('error') or repr(got)))
+                elif scratch_path(got):
+                    failures.append('the %s link at y %s opens the scratch copy %s' % (name, n.get('y'), got))
+                self.to_list()
+        note(links_named_like_the_jobs_scratch=seen)
+        return failures
 
     def set_name(self, footer, name, note, opener='No name is set'):
         """The rail footer (an AXPopUpButton: aria-haspopup) pressed by its name, the preferences
