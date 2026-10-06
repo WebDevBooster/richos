@@ -17,6 +17,7 @@
 # usage files, so no real Claude account is read, signed in or switched. In <out-dir>:
 #   0-quick-settings-one     the Settings menu, one account: the row reads "N% weekly used"
 #   1-two-accounts           Account 1 (30% weekly) in use, Work (97% weekly) next
+#   2-confirmation           Round 18's line, photographed the moment Use this one now is pressed
 #   2-work-in-use-{dark,light}  after Use this one now on Work; claude-accounts.json inUse "2"
 #   3-turn-on-work           a turn after the pick; calls.log shows it ran under Work's folder
 #   4-after-relaunch         the app relaunched: Work still in use
@@ -43,6 +44,10 @@ wait_for() {
   note "never appeared: $1"
   return 1
 }
+# The line above the lanes ("In use now: <b>Work</b>. Next: ...") is several accessibility
+# nodes, so it is never matched as one string (the 2026-10-06 run: on screen in every shot,
+# never found by text). Which account is in use is read from the record and from the lanes'
+# "Use <name> now" buttons, which only an account NOT in use carries; the shots show the line.
 has() {  # has <words> <check name>: the words are on screen, read rather than assumed
   for _ in $(seq 1 10); do
     ax find --value "$1" --contains --first >/dev/null 2>&1 && { note "read: $1"; return 0; }
@@ -149,15 +154,15 @@ WORK="$DATA/claude-accounts/2/usage.json"
 usage "$WORK" 10 97 || fail "Work's 97% usage fixture"
 ax click --title 'Refresh' --first || true
 sleep 8
-has 'In use now: Account 1' "1 the line names the account in use"
-has 'Next: Work' "1 the line names the next account"
+has 'Use Work now' "1 Work, with room and not in use, offers Use this one now"
 shot 1-two-accounts
 
 note "2 Use this one now on Work"
 ax click --title 'Use Work now' --first || fail "2 no Use this one now on Work"
-sleep 5
-has 'In use now: Work' "2 Work is in use"
-has 'so Rich will switch again when it reaches 99%' "2 the confirmation names the 99% switch"
+sleep 1
+# The confirmation is said in passing (3.6 s), so it is photographed at once, not searched for.
+shot 2-confirmation
+has 'Use Account 1 now' "2 Account 1 is no longer in use"
 "$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/2-accounts-after-pick.txt" 2>&1 || fail "2 the accounts record"
 grep -q '"inUse": *"2"' "$S/2-accounts-after-pick.txt" || fail "2 claude-accounts.json does not record Work in use"
 close_panel; theme Dark; open_panel; shot 2-work-in-use-dark
@@ -175,15 +180,15 @@ note "4 relaunch: the pick survives"
 relaunch_app > "$S/4-relaunch.txt" 2>&1 || fail "4 relaunching the app"
 sleep 10
 open_panel
-has 'In use now: Work' "4 Work is still in use after the relaunch"
+has 'Use Account 1 now' "4 Account 1 is still not in use after the relaunch"
 shot 4-after-relaunch
 "$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/4-accounts-after-relaunch.txt" 2>&1 || fail "4 the accounts record"
+grep -q '"inUse": *"2"' "$S/4-accounts-after-relaunch.txt" || fail "4 claude-accounts.json does not record Work in use after the relaunch"
 
 note "5 Work's week reaches 99%: the automatic switch moves on"
 usage "$WORK" 10 99 || fail "Work's 99% usage fixture"
 ax click --title 'Refresh' --first || true
 sleep 8
-has 'In use now: Account 1' "5 Account 1 is in use after Work reached 99%"
 "$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/5-accounts-after-99.txt" 2>&1 || fail "5 the accounts record"
 grep -q '"inUse": *"1"' "$S/5-accounts-after-99.txt" || fail "5 claude-accounts.json does not record Account 1 in use"
 shot 5-switched-at-99-sheet
