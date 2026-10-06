@@ -3566,6 +3566,11 @@ module.exports = [
     "why": "The unselected option asks for an explicit company choice."
   },
   {
+    "s": "Connected folders (repositories)",
+    "c": "CONTROL",
+    "why": "The settings menu row that opens the connected folders sheet (CEO feedback 2026-10-06, item 2a: it replaced Connected repositories). A row he presses, not a state."
+  },
+  {
     "s": "Folder connected. Git was set up to track its files.",
     "c": "INFORMATIONAL",
     "why": "Confirms a connection that also set up Git, because every connected folder gets Git tracking (CEO, 2026-10-06): the folder had none, so its files became the first commit. Nothing was pushed and nothing is left to do."

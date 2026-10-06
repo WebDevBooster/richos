@@ -56,6 +56,14 @@ async function main(){
   assertEqual(seen.connect,"Connect folder","primary button");assertEqual(seen.close,"Close","secondary button");
   await page.close();return "headline, description, guidance, labels, empty state, placeholder and both buttons";
  });
+ await run.check("2a  the settings row says Connected folders (repositories)",async()=>{
+  // CEO feedback 2026-10-06_01, item 2a.
+  const page=await browser.newPage({viewport:{width:1280,height:900}});
+  await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
+  await page.click("#set-btn");await page.waitForSelector("#set-repositories-open");
+  assertEqual((await page.textContent("#set-repositories-open")).trim(),"Connected folders (repositories)","the settings menu row");
+  await page.close();return "the row reads Connected folders (repositories)";
+ });
  await browser.close();process.exit(run.report()?1:0);
 }
 main().catch(e=>{console.error(e);process.exit(1);});
