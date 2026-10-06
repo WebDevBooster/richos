@@ -1613,6 +1613,9 @@ class OutputWalk(command_walk.CommandWalk):
         conversation at all; the job's question card must be there (the positive control), and
         neither the quit card nor a "Status unavailable" row may be."""
         evidence, note = self.observed('job-question')
+        # Every read in this step gets the long deadline, the first ones included: on a loaded host
+        # (2026-10-06, walk-164baac388a9, host 95% busy) close_panel's find outlived the 20 s default.
+        os.environ['TESTVM_AX_TIMEOUT'] = '150'
         self.close_panel()
         if self.present('back to Rich'):
             self.press('back to Rich')
