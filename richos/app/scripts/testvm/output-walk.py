@@ -379,8 +379,7 @@ def named_verdict(teammate, spawns, workers, by_labels, chips):
 
     spawns: every Agent call the back end made ({name, subagent_type, model}); workers: the record's
     worker rows ({workerName, source}); by_labels: the names of the Output panel's rows that carry a
-    "by ..." line; chips: the
-    conversation's worker controls' names, which may hold none (only their raw names are judged)."""
+    "by ..." line; chips: any control or text on screen found carrying an engine agent name."""
     failures = []
     if not spawns:
         failures.append('the back end started no agent')
@@ -662,20 +661,28 @@ class OutputWalk(command_walk.CommandWalk):
         workers = [{k: r.get(k) for k in ('path', 'workerName', 'source')}
                    for r in self.record() if r.get('actor') == 'worker']
         note(teammate=teammate, spawns=spawns, worker_rows=workers)
-        self.open_panel()
-        self.to_list()
-        time.sleep(1)
+        self.open_panel()      # a panel opened here opens on its list
+        time.sleep(1.5)
+        name = teammate.capitalize()
         # A row is role="button" and its children are presentational, so WebKit gives the guest no
         # static text for its "by ..." line: it is in the row button's own name (walk-8dd60bef80d8
-        # found no text node while named-by.png showed "by Mark" on both rows).
-        by_labels = [n.get('desc') or n.get('title') or '' for n in self.in_panel(self.find_all('by ', role='AXButton'))]
-        by_labels += [h.get('value') or '' for h in self.in_panel(self.texts('by '))]
-        name = teammate.capitalize()
-        chips = sorted({n.get('desc') or n.get('title') or '' for words in (name, '-sonnet-', '-opus-')
-                        for n in self.outside_panel(self.find_all(words, role='AXButton'))})
-        note(by_labels=by_labels, conversation_controls=chips)
+        # found no text node while named-by.png showed "by Mark" on both rows). Each read is one
+        # find that stops at its first hit: a search for something absent walks the whole window,
+        # and walk-d52bc94af25c's ("All output") outlived ax.sh. The search for an engine agent name
+        # is such a search, so a read that times out is recorded, not judged.
+        by_labels, raw, unread = [], [], []
+        for words, into in (('by ' + name, by_labels), ('-sonnet-', raw), ('-opus-', raw)):
+            try:
+                into += [n.get('desc') or n.get('title') or n.get('value') or ''
+                         for n in self.ax('find', '--title', words, '--contains', '--first') if 'x' in n]
+            except StepFailed as exc:
+                if not ('notfound' in str(exc) or 'nothing matched' in str(exc)):
+                    unread.append(f'{words}: {str(exc)[-200:]}')
+            except subprocess.TimeoutExpired as exc:
+                unread.append(f'{words}: {exc}')
+        note(by_labels=by_labels, raw_names=raw, unread=unread)
         self.shot('named-by.png')
-        failures = named_verdict(teammate, spawns, workers, by_labels, chips)
+        failures = named_verdict(teammate, spawns, workers, by_labels, raw)
         if failures:
             raise StepFailed('; '.join(failures))
         return evidence
