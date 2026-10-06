@@ -1895,11 +1895,18 @@ for line in sys.stdin:
              If it runs out before then, the team pauses until it is.\n\nIf you have a second Claude account, \
              for example one for work, I can switch to it when this one is nearly full, so the team keeps working.".to_string())]);
         assert!(!notes[0].1.contains('\u{2014}') && !notes[0].1.contains('\u{2013}'), "no m-dash or n-dash");
+        stream(&service, "1", 86.6, "2099-01-05T09:00:00Z", 2);
+        assert!(service.take_account_notes().is_empty(), "queued once");
+        // Queued while no conversation could take it, and lost to a relaunch: queued again,
+        // because it is recorded as said only once it is written into the conversation.
+        let service = Service::open(root.path()).unwrap();
+        stream(&service, "1", 86.8, "2099-01-05T09:00:00Z", 1);
+        assert_eq!(service.take_account_notes().len(), 1, "a line never written is queued again");
         service.accounts.noted("nudge", "turn_nudge").unwrap();
-        service.before_turn("1", None);
+        stream(&service, "1", 87., "2099-01-05T09:00:00Z", 2);
         assert!(service.take_account_notes().is_empty(), "said once");
         let service = Service::open(root.path()).unwrap();
-        service.before_turn("1", None);
+        stream(&service, "1", 88., "2099-01-05T09:00:00Z", 1);
         assert!(service.take_account_notes().is_empty(), "said once ever, a relaunch included");
         service.accounts.answer_nudge("notNow").unwrap();
         let view = service.view();

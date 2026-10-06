@@ -327,6 +327,8 @@ pub struct Accounts {
     /// The webview's offset from UTC (`quota::Service::set_utc_offset`), so the switch line
     /// can say as a clock time when the account it left is fresh again.
     utc_offset_minutes: Mutex<Option<i32>>,
+    /// Rich's lines about accounts that are queued and not yet written (`say_once`).
+    queued: Mutex<std::collections::BTreeSet<String>>,
 }
 
 impl Accounts {
@@ -345,7 +347,7 @@ impl Accounts {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Stored::default(),
             Err(e) => return Err(e),
         };
-        Ok(Self { path, root: data_dir.join("claude-accounts"), state: Mutex::new(state), pending: Mutex::new(None), notice: Mutex::new(None), utc_offset_minutes: Mutex::new(None) })
+        Ok(Self { path, root: data_dir.join("claude-accounts"), state: Mutex::new(state), pending: Mutex::new(None), notice: Mutex::new(None), utc_offset_minutes: Mutex::new(None), queued: Mutex::new(std::collections::BTreeSet::new()) })
     }
 
     fn save(&self, state: &Stored) -> io::Result<()> {
@@ -386,20 +388,20 @@ impl Accounts {
 
     /// **Is a line about accounts due, and has it not been said?** Marks it said, so each is
     /// queued once: `nudge` once ever, `bothNear` once while it is true ([`Accounts::clear_both_near`]).
-    pub fn say_once(&self, kind: &str, now: u64) -> io::Result<bool> {
-        let mut state = self.state.lock().unwrap();
-        let slot = match kind { "nudge" => &state.nudge, "bothNear" => &state.both_near, _ => return Ok(false) };
-        if slot.is_some() { return Ok(false); }
-        let mut next = state.clone();
-        let said = Some(Said { at: now, turn: None, answer: None });
-        if kind == "nudge" { next.nudge = said } else { next.both_near = said }
-        self.save(&next)?;
-        *state = next;
-        Ok(true)
+    ///
+    /// It is recorded as said when it is WRITTEN into the conversation ([`Accounts::noted`]), not
+    /// when it is queued: a line queued while no conversation is open, and lost to a relaunch,
+    /// is queued again rather than never said. Until then it is queued at most once.
+    pub fn say_once(&self, kind: &str, _now: u64) -> io::Result<bool> {
+        let state = self.state.lock().unwrap();
+        let said = match kind { "nudge" => state.nudge.is_some(), "bothNear" => state.both_near.is_some(), _ => return Ok(false) };
+        if said { return Ok(false); }
+        Ok(self.queued.lock().unwrap().insert(kind.to_string()))
     }
 
     /// Not every account is near its week any more, so the line may be said again next time.
     pub fn clear_both_near(&self) -> io::Result<()> {
+        self.queued.lock().unwrap().remove("bothNear");
         let mut state = self.state.lock().unwrap();
         if state.both_near.is_none() { return Ok(()); }
         let mut next = state.clone();
@@ -417,13 +419,15 @@ impl Accounts {
         next.notes.push(NoteTurn { turn: turn.into(), kind: kind.into() });
         let extra = next.notes.len().saturating_sub(CHANGES_KEPT);
         next.notes.drain(..extra);
+        let said = || Said { at: crate::util::now_millis(), turn: Some(turn.into()), answer: None };
         match kind {
-            "nudge" => if let Some(said) = next.nudge.as_mut() { said.turn = Some(turn.into()) },
-            "bothNear" => if let Some(said) = next.both_near.as_mut() { said.turn = Some(turn.into()) },
+            "nudge" => next.nudge = Some(said()),
+            "bothNear" => next.both_near = Some(said()),
             _ => {}
         }
         self.save(&next)?;
         *state = next;
+        self.queued.lock().unwrap().remove(kind);
         Ok(())
     }
 
