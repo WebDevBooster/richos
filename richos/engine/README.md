@@ -51,6 +51,16 @@ function to inspect the assignment the teammate receives. The guards still read
 the original acknowledgment lines. Generated compaction summaries and task
 notifications are excluded from the original user messages.
 
+A revised refused brief continues its preceding review: Pierce checks the changed
+lines and unresolved findings, with the original human requests retained. It
+reads unchanged standing instructions from their source files only when needed.
+The continuation expires 15 minutes after its first inspection and applies only
+to the same named worker, model, human context, instructions and roots. A passed
+or dismissed review, a changed context or an unrelated assignment requires a
+fresh inspection. Required guard acknowledgments and the generated merge-main
+handover contract are protocol, not editorial findings. Real new scope errors
+and instructions that defeat that contract still need review.
+
 `ceo-wiki/` is retired as the new-install scaffold. Its public historical templates
 are retained under `reference/legacy-ceo-wiki/`. Existing adopter-owned stores and
 legacy references are preserved during upgrade; personal migration is separate.
