@@ -748,8 +748,33 @@
     const prev = model.items.get(item.id);
     const merged = prev && prev.kind === item.kind ? Object.assign({}, prev, item) : item;
     model.items.set(item.id, merged);
-    if (item.turnId) turnRecord(model, item.turnId);
+    placeTurn(model, item);
     return !prev || prev.kind !== item.kind; // structural change?
+  }
+
+  /// **A QUESTION GIVES ITS TURN A PLACE, NEVER A RECORD** (nightly-38 walk, D8).
+  ///
+  /// A turn record is the ledger's word on a turn: `work_duration` (every ledger turn has
+  /// one, `Timeline::project`) or a live `turn-status`. A question card is the one item on
+  /// the wire that is NOT projected from a ledger turn — `question_host.rs` appends it from
+  /// the question store, and a background job's question carries its OBLIGATION as `turnId`
+  /// (`native.rs` `prepare_question_scope`), which no ledger turn has. Recording it here
+  /// gave that id `turnRecord`'s defaults, `queued` and not live, which is precisely a turn
+  /// a quit left running: "Status unavailable" and the quit card were drawn under a job's
+  /// open question while RichOS had never closed.
+  ///
+  /// So a question only takes its slot in the order (where it was asked, between the turns
+  /// around it) and is drawn by `renderTurn`'s no-record lane, like a local notice. A
+  /// question inside a real turn loses nothing: that turn's `work_duration` row records it.
+  function placeTurn(model, item) {
+    if (!item.turnId) return;
+    if (item.kind !== "question") {
+      turnRecord(model, item.turnId);
+      return;
+    }
+    if (!model.turns.has(item.turnId) && !model.turnOrder.includes(item.turnId)) {
+      model.turnOrder.push(item.turnId);
+    }
   }
 
   // ---- the reload path -----------------------------------------------------------------
@@ -834,7 +859,7 @@
       putItem(model, previous && JSON.stringify(previous) === JSON.stringify(raw) ? previous : raw);
     }
     // A turn that contributed only a duration row still needs its place in the order.
-    for (const raw of snapshot.items) if (raw.turnId) turnRecord(model, raw.turnId);
+    for (const raw of snapshot.items) placeTurn(model, raw);
     // §58: the questions still in flight go back onto the rebuilt records. Last, so every
     // turn the snapshot mentions already exists.
     stampQuestions(model);
