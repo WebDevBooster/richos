@@ -80,6 +80,33 @@ class OutputWalkTests(unittest.TestCase):
         failures = output.named_verdict("mark", [mark], [{"workerName": frank["name"], "source": "land"}], ["by Mark"], [])
         self.assertTrue(any("not mark's" in f for f in failures), failures)
 
+    def test_consult_passes_only_for_clarks_answer_read_back_with_no_workspace(self):
+        """Slice 3 of the proto-teammate shelf plan: consult's verdict, offline."""
+        name = "clark-sonnet-0123456789ab"
+        receipt = {"name": name, "request": {"role": "consult", "teammate": "clark", "repo": None, "repos": []},
+                   "consult_answer": {"answered": True, "message_sha256": "ab" * 32}}
+        spawn = {"name": name, "subagent_type": "richos-app-engine:clark", "model": "sonnet",
+                 "prompt": "# Your duty in this assignment: consult\n\nWhich was first?"}
+        inspects = [json.dumps({"records": [{"consult_answer": {"message_sha256": "ab" * 32}}]})]
+        settled = [{"state": "settled", "detail": "answered"}]
+        self.assertEqual(output.consult_verdict("clark", [receipt], [spawn], inspects, [], settled), [])
+        # What main does: no consult at all, the back end answered itself or prepared nothing.
+        self.assertEqual(output.consult_verdict("clark", [], [], [], [], settled),
+                         ["no consult receipt was written: the back end prepared no consult"])
+        # Each way it can be wrong, named once.
+        cases = [
+            (dict(receipt, consult_answer={"answered": False}), spawn, inspects, [], settled, "no answer on its receipt"),
+            (receipt, spawn, [], [], settled, "never read"),
+            (receipt, dict(spawn, prompt="cross-repo-worktree: /x\n\nbrief"), inspects, [], settled, "given a workspace"),
+            (receipt, dict(spawn, subagent_type="richos-app-engine:worker"), inspects, [], settled, "was started as"),
+            (receipt, spawn, inspects, ["/d/engine-state/target-worktrees/p/" + name], settled, "workspace was created"),
+            (receipt, spawn, inspects, [], [{"state": "failed"}], "did not settle"),
+            (dict(receipt, request=dict(receipt["request"], repo="/Acme")), spawn, inspects, [], settled, "names a repository"),
+        ]
+        for r, s, i, w, a, said in cases:
+            failures = output.consult_verdict("clark", [r], [s], i, w, a)
+            self.assertTrue(len(failures) == 1 and said in failures[0], (said, failures))
+
     def test_explicit_steps_keep_order_and_hyphenated_dispatch(self):
         result, calls, report, _owner = self.dispatch("scroll,job-question,pdf")
         self.assertEqual((result, calls), (0, ["scroll", "job-question", "pdf"]))

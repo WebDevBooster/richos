@@ -168,6 +168,12 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                richos-app-engine:<teammate> on that model, one of them is --teammate (default mark),
                every land row is that teammate's, the Output panel says "by Mark", and no label shows
                an engine agent name. Evidence: named-observed.json, named-by.png.
+  consult      the proto-teammate shelf, slice 3 (same plan, §3), after identity and first-run, with no
+               repository connected: --steps identity,first-run,consult. Typed: a research question
+               for Clark. PASS when the back end consulted clark-<model>-<id12> of his own definition
+               with no repository and no workspace, his final message is on the consult's receipt,
+               the back end read it back with richos_work inspect, and the job settled.
+               Evidence: consult-observed.json, consult-story.json.
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -195,7 +201,7 @@ command = command_walk.command
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
          'md-view', 'previews', 'save-copy', 'attach', 'pull',
          'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll', 'wrote',
-         'theme-flash', 'sidebar', 'scratch', 'labels', 'named']
+         'theme-flash', 'sidebar', 'scratch', 'labels', 'named', 'consult']
 # The candidate walk's steps: never in the default list, which runs the witness checks.
 CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll',
                    'wrote', 'theme-flash', 'sidebar', 'scratch', 'labels')
@@ -371,7 +377,50 @@ def project(rows):
 # The proto-teammate shelf, slice 2 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md §3, §7):
 # an agent the back end starts is `<teammate>-<model>-<id12>`, and a person reads the teammate's name.
 NAMED_AGENT = re.compile(r'^([a-z][a-z0-9]{1,15})-(opus|sonnet|haiku)-([0-9a-f]{12})$')
-DUTIES = ('worker', 'reviewer')
+DUTIES = ('worker', 'reviewer', 'consult')
+# Slice 3's research question: plainly Clark's role, with no repository in it, so the back end
+# has no code job to prepare and every word of the brief comes from here.
+CONSULT_TASK = ('Please have Clark, the researcher on the team, find out which was published first, the CSV '
+                'format as RFC 4180 or the JSON format as RFC 4627, with the year of each, and tell me his '
+                'answer. This changes no files and no repository.')
+
+
+def consult_verdict(teammate, receipts, spawns, inspects, worktrees, assignments):
+    """Why a consult did NOT reach the back end as the teammate's answer ([] = it did). Slice 3 of
+    the proto-teammate shelf plan (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md §3).
+
+    receipts: every work receipt in the guest; spawns: the back end's Agent calls ({name,
+    subagent_type, model, prompt}); inspects: the back end's own richos_work inspect results, as
+    text; worktrees: target worktree folders named for a consult; assignments: this send's jobs."""
+    failures = []
+    consults = [r for r in receipts if (r.get('request') or {}).get('role') == 'consult']
+    if not consults:
+        return ['no consult receipt was written: the back end prepared no consult']
+    for r in consults:
+        name, request = r.get('name') or '', r.get('request') or {}
+        m = NAMED_AGENT.match(name)
+        if not m or m.group(1) != teammate or request.get('teammate') != teammate:
+            failures.append(f'{name!r} is not a consult of {teammate}')
+        if request.get('repo') is not None or request.get('repos'):
+            failures.append(f'{name} names a repository: {request.get("repo")!r} {request.get("repos")!r}')
+        spawn = [s for s in spawns if s.get('name') == name]
+        if not spawn:
+            failures.append(f'{name} was never started')
+        elif m and (spawn[0].get('subagent_type') != 'richos-app-engine:' + m.group(1) or spawn[0].get('model') != m.group(2)):
+            failures.append(f'{name} was started as {spawn[0].get("subagent_type")!r} on {spawn[0].get("model")!r}')
+        elif 'cross-repo-worktree:' in (spawn[0].get('prompt') or ''):
+            failures.append(f'{name} was given a workspace')
+        answer = r.get('consult_answer') or {}
+        if not answer.get('answered'):
+            failures.append(f'{name} has no answer on its receipt: {json.dumps(answer)[:300]}')
+        elif not any(answer.get('message_sha256', '-') in text for text in inspects):
+            failures.append(f"the back end never read {name}'s answer back with inspect")
+    if worktrees:
+        failures.append(f'a workspace was created for a consult: {worktrees}')
+    if not assignments or any(a.get('state') != 'settled' for a in assignments):
+        failures.append('the job did not settle on the answer: '
+                        + json.dumps([{k: a.get(k) for k in ('state', 'detail')} for a in assignments]))
+    return failures
 
 
 def named_verdict(teammate, spawns, workers, by_labels, chips):
@@ -683,6 +732,61 @@ class OutputWalk(command_walk.CommandWalk):
         note(by_labels=by_labels, raw_names=raw, unread=unread)
         self.shot('named-by.png')
         failures = named_verdict(teammate, spawns, workers, by_labels, raw)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def consult(self):
+        """Slice 3 of the proto-teammate shelf (plan §3), after identity and first-run, with no
+        repository connected: a research question for Clark. PASS when the back end consulted
+        Clark as `clark-<model>-<id12>` of his own definition, with no repository and no workspace,
+        Clark's final message is on the consult's receipt, the back end read it back with
+        richos_work inspect, and the job settled on the back end's report."""
+        evidence, note = self.observed('consult')
+        teammate = 'clark'
+        turn, sent = self.send(CONSULT_TASK)
+        note(turn=turn, task=CONSULT_TASK)
+        end = time.monotonic() + self.a.within
+        ours = []
+        while time.monotonic() < end:
+            ours = self.assignments_since(sent)
+            if ours and all(a.get('state') not in OPEN for a in ours):
+                break
+            time.sleep(5)
+        time.sleep(5)  # the work host settles and closes after the back end's last turn
+        ours = self.assignments_since(sent)
+        sessions = sorted({a.get('work_session') for a in ours if a.get('work_session')})
+        script = ('import json,glob,sys\n'
+                  'rows=[]\n'
+                  'for p in glob.glob(sys.argv[1]+"/engine-state/work-receipts/*/*.json"):\n'
+                  '    try: rows.append(json.load(open(p)))\n'
+                  '    except Exception: pass\n'
+                  'print(json.dumps(rows))\n')
+        receipts = json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data), 60))
+        spawns, inspects, ended = [], [], []
+        for session in sessions:
+            for c in self.callbacks(session):
+                event, tool = c.get('hook_event_name'), str(c.get('tool_name') or '')
+                if event == 'PreToolUse' and tool in ('Agent', 'Task') and not c.get('agent_id'):
+                    ti = c.get('tool_input') or {}
+                    spawns.append({k: ti.get(k) for k in ('name', 'subagent_type', 'model', 'prompt')})
+                if event == 'PostToolUse' and 'richos_work' in tool and tool.endswith('inspect') and not c.get('agent_id'):
+                    inspects.append(json.dumps(c.get('tool_response')))
+                if event == 'SubagentStop':
+                    ended.append({'agent': c.get('agent_id'), 'last': str(c.get('last_assistant_message', ''))[:600]})
+        names = [r.get('name') for r in receipts if (r.get('request') or {}).get('role') == 'consult']
+        worktrees = [p for p in guest(self.vm, 'ls -d ' + shlex.quote(self.data) + '/engine-state/target-worktrees/*/* 2>/dev/null || true',
+                                      60).split() if any(n and p.endswith('/' + n) for n in names)]
+        note(work_sessions=sessions,
+             consult_receipts=[{k: r.get(k) for k in ('name', 'status', 'request', 'consult_answer')}
+                               for r in receipts if (r.get('request') or {}).get('role') == 'consult'],
+             spawns=[{**s, 'prompt': (s.get('prompt') or '')[:400]} for s in spawns],
+             backend_inspects_with_an_answer=[t[:1500] for t in inspects if 'consult_answer' in t],
+             subagent_stops=ended, consult_worktrees=worktrees,
+             assignments=[{k: a.get(k) for k in ('id', 'kind', 'state', 'detail', 'work_session')} for a in ours],
+             rich_said=self.words_since(sent)[:2000], turn_story=self.turn_story(turn))
+        (self.out / 'consult-story.json').write_text(json.dumps(self.work_story(sent, sessions), indent=2) + '\n')
+        failures = consult_verdict(teammate, receipts, spawns, inspects, worktrees, ours)
         if failures:
             raise StepFailed('; '.join(failures))
         return evidence
@@ -2410,7 +2514,7 @@ def main():
     p.add_argument('--relaunch-within', type=float, default=120,
                    help='sidebar: seconds for the composer to come back after the relaunch')
     p.add_argument('--steps', default=','.join(s for s in STEPS
-                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull', 'named')
+                                               if s not in ('open-reveal', 'panel', 'md-view', 'previews', 'save-copy', 'attach', 'pull', 'named', 'consult')
                                                and s not in CANDIDATE_STEPS),
                    help='default: every step but open-reveal (alone, with --no-app) and the panel steps, '
                         'which run together after identity, first-run and connect: '
