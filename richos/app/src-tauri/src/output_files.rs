@@ -659,7 +659,7 @@ impl OutputFiles {
     /// `output_file(output_id)` (§5.4).
     pub fn file(&self, output_id: &str) -> Result<EntryDetail, String> {
         let located = self.locate(output_id)?;
-        let listed = self.store.project(&located.thread_id).map_err(|_| RECORD_UNREADABLE.to_string())?;
+        let listed = self.store.project_unfiltered(&located.thread_id).map_err(|_| RECORD_UNREADABLE.to_string())?;
         let entry = listed.files.into_iter().find(|e| e.id == output_id).ok_or_else(|| NOT_IN_RECORD.to_string())?;
         let checked = check(&located);
         let problem = checked.as_ref().err().map(|p| p.why());
