@@ -675,16 +675,25 @@
   }
 
   /// The facts line under a viewer (§6.4): its first part bold, the rest after a middle dot.
+  ///
+  /// EACH DOT TRAVELS WITH THE PART AFTER IT, never alone. When the separators were flex items
+  /// of their own, a part that wrapped left its dot at the end of the line above: "2 rows ·
+  /// Comma-separated ·" over "The whole sheet opens in TextEdit" (walk 38, D9). Now a part that
+  /// starts a line carries its dot into the line's left margin, which the line's own box clips
+  /// (`.of-meta` in style.css), so no line starts or ends with a lone "·".
   function factsLine(parts) {
     const p = node("p", "of-meta");
+    const row = node("span", "of-facts");
     parts.filter(Boolean).forEach((text, n) => {
-      if (n) {
-        const dot = node("span", null, "·");
-        dot.setAttribute("aria-hidden", "true");
-        p.appendChild(dot);
-      }
-      p.appendChild(node(n ? "span" : "b", null, text));
+      if (!n) return row.appendChild(node("b", null, text));
+      const part = node("span", "of-fact");
+      const dot = node("span", "of-dot", "·");
+      dot.setAttribute("aria-hidden", "true");
+      part.appendChild(dot);
+      part.appendChild(document.createTextNode(text));
+      row.appendChild(part);
     });
+    p.appendChild(row);
     return p;
   }
 
