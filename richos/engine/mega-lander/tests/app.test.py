@@ -209,6 +209,10 @@ class DesktopWork(unittest.TestCase):
         self.assertFalse(mine.exists())
         saved=self.call("team",{"action":"save","name":"sage","text":fitted})
         self.assertEqual((saved["saved"],saved["replaced"],saved["registered"]),(str(mine),False,False))
+        # Slice 5: the app renews the connection when the turn ends, so the back end is told to
+        # end it rather than report or try to start the teammate it cannot name yet.
+        self.assertIn("End your turn now without a report",saved["note"])
+        self.assertIn("next turn in this same assignment",saved["note"])
         self.assertEqual(mine.read_text(),fitted)
         self.assertEqual(mine.stat().st_mode&0o777,0o600)
         self.assertEqual({row["name"]:row["activated"] for row in self.call("team",{"action":"list"})["shelf"]}["sage"],True)
