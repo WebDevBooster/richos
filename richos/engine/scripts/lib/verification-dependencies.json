@@ -7678,7 +7678,7 @@
     },
     "scripts/hooks/verify-agent-prompt.sh": {
       "source": "scripts/hooks/verify-agent-prompt.sh",
-      "sha256": "ca6a4a41c32b82baec9515ea321816d9383e958ecdc4b6ecda82992478055117",
+      "sha256": "09a99984d637eae2cf061f4512450eae66bc4ba786b968b4df78471bb84b47dd",
       "evidence": "Full gate reads entity config, private team JSON and agent-definition data; generated Python strips or classifies literal prompt text. resolve_agent_def reads namespace values already in the caller, never a second config. Refusal advice only prints spawn/prepare commands.",
       "keys": [
         "CREATOR_TEAMMATE",
@@ -16506,7 +16506,7 @@
         "scripts/hooks/teammate-idle-handoff.sh": "9e0e49d90653b6f80b9ccdcda91992bf8372e1ac53f0c8eda366c22e363d087c",
         "scripts/lib/worktree-ledger.py": "38f6cc15cd69ccd6aae90232db8b1b078866b6676b3f4795bdfe13212e1cb8ce",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
-        "scripts/hooks/verify-agent-prompt.sh": "ca6a4a41c32b82baec9515ea321816d9383e958ecdc4b6ecda82992478055117",
+        "scripts/hooks/verify-agent-prompt.sh": "09a99984d637eae2cf061f4512450eae66bc4ba786b968b4df78471bb84b47dd",
         "scripts/hooks/worker-created-handoff.sh": "a65bbd37af42971db667e9576cc1eb4cc95572b22cbab120a2bfb3e8005d53fd",
         "scripts/hooks/worker-ended-handoff.sh": "92a3dc39b502f1841b1c8f604eb5c42e5047fb678e86c76fb9dd3ab5aae97516",
         "scripts/hooks/worker-started-handoff.sh": "f18675f4938cae746d536661b44e49e7a3425c15acff5c7cd3ad2e1bf7ee9919",
@@ -17161,7 +17161,7 @@
         "scripts/hooks/shell-evidence.sh": "01d511155b7df5a4be0ab6cb25aaac934a467e086d5c31f2afd6ee9c7bcc370a",
         "scripts/hooks/shell-evidence.py": "de4326ba4e1c9d8a415e27379efe3b4ecb15d4dd362419925628afe64c1cf240",
         "scripts/hooks/turn-manifest.sh": "f5e92311f9896874e5294533673dd08160f3e4cfba4a262e161ae96e377331ae",
-        "scripts/hooks/verify-agent-prompt.sh": "ca6a4a41c32b82baec9515ea321816d9383e958ecdc4b6ecda82992478055117",
+        "scripts/hooks/verify-agent-prompt.sh": "09a99984d637eae2cf061f4512450eae66bc4ba786b968b4df78471bb84b47dd",
         "scripts/hooks/guard-bash-main-writes.sh": "86d87ebcda5e74dc0e0e728bbe5b3c1a198f13946714c326d8c0fe2ae7573884",
         "scripts/hooks/guard-ceo-todos-commits.sh": "94bd412597be8471b954d4eb845cc12fcffbde97d6a3b4b53416c26080f0b845",
         "scripts/hooks/guard-ci-red-lands.sh": "9dcac2ccec57f2fe1d47b8b5b86eda0590e5c784e587f732376b385c94232094",
