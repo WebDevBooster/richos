@@ -408,7 +408,8 @@
     const body = node("span", "obody");
     body.appendChild(node("span", "oname", f.name));
     body.appendChild(node("span", "opath", f.exists ? f.folder + "/" : MISSING_LINE));
-    if (f.actor === "worker" && f.workerName) body.appendChild(node("span", "oby", "by " + f.workerName));
+    // The teammate by its name ("by Mark"), read by timeline.js's one rule (plan §7).
+    if (f.actor === "worker" && f.workerName) body.appendChild(node("span", "oby", "by " + window.RichTimeline.teammateName(f.workerName)));
     row.appendChild(body);
     // S6's hover actions (Open in <app>, ⋯) and the row's context menu land here. They come back
     // BESIDE the row, in a wrapper, never inside it: a `role="button"` row's children are
