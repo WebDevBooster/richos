@@ -970,8 +970,10 @@ const SURFACES = [
       // (`main.js` `syncQuestionInert`) the top-right control is inert while a sheet is up,
       // so the menu is not a door on this preset. The walked surface is unchanged.
       if (await p.isHidden("#setup-sheet")) {
+        // Since round 18 the door is the first account's card in Claude accounts.
         await p.click("#set-btn");
-        await p.click("#set-account-open");
+        await p.click("#set-accounts-open");
+        await p.click('#accounts-sheet [data-act="sign-one"]');
       }
       await p.waitForSelector("#setup-sheet:not([hidden])");
       await p.waitForSelector("#provider-account-kind:not([hidden])");

@@ -556,8 +556,9 @@
           Object.assign(baseOf(turn, turnId + ":text:" + idx, run.startSeq, "stream", run.at), {
             kind: "rich_message",
             turnId,
-            // ALWAYS "unknown" for a streamed reply — `STREAMED_MESSAGE_PHASE` (live.rs).
-            phase: "unknown",
+            // ALWAYS "unknown" for a streamed reply — `STREAMED_MESSAGE_PHASE` (live.rs). A line
+            // Rich raised himself is "proactive", the one real phase (the ledger records it).
+            phase: turn.proactive ? "proactive" : "unknown",
             text: run.text,
           })
         );
@@ -2411,11 +2412,27 @@
     const list = mockAccounts.length ? mockAccounts : (fixture.accounts || []);
     const accounts = list.length > 1 ? structuredClone(list) : [];
     const atThreshold = mockAtThreshold !== "pause" ? mockAtThreshold : (fixture.atThreshold || "pause");
+    // Round 18 (accounts.js): Recent changes, Rich's suggestion and its answer, his lines about
+    // accounts by turn, and the one account's name; the preset may carry each, and the preview's
+    // own Add, Use this one now, Remove and Not now change them as the app's record does.
+    const inUse = accounts.find(a => a.inUse) || list[0];
+    const firstLabel = accounts.length ? null : (inUse && inUse.label && inUse.label !== "Account 1" ? inUse.label : (fixture.firstLabel ?? null));
     return { refreshIntervalMs: 5 * 60000, ...fixture, resets: structuredClone(resetOffers), policy: { ...quotaPolicy }, admission,
-      accounts, atThreshold, heldUntil: fixture.heldUntil ?? null };
+      accounts, atThreshold, heldUntil: fixture.heldUntil ?? null, changes: structuredClone(mockChanges), nudge: mockNudge && { ...mockNudge },
+      notes: structuredClone(mockNotes), firstLabel, lastSwitch: mockLastSwitch === undefined ? (fixture.lastSwitch ?? null) : mockLastSwitch };
   }
   let mockAccounts = structuredClone(preset.quota?.accounts || []);
   let mockAtThreshold = preset.quota?.atThreshold || "pause";
+  let mockChanges = structuredClone(preset.quota?.changes || []);
+  let mockNudge = structuredClone(preset.quota?.nudge || null);
+  let mockNotes = structuredClone(preset.quota?.notes || []);
+  let mockLastSwitch = undefined;
+  // The add flow's sign-in, answered in order by `preset.signIn` (round 18: "connected", or
+  // "same-account" for the same Claude account signed in again); "connected" when it runs out.
+  let mockSigning = null;
+  const mockSignIn = structuredClone(preset.signIn || []);
+  window.__accountCalls = [];
+  const changed = (kind, id, label, extra) => mockChanges.push({ at: Date.now(), kind, id, label, ...(extra || {}) });
   window.RichBridge = {
     isMock: true,
 
@@ -2455,12 +2472,27 @@
           if (!mockAccounts.length) mockAccounts.push({ id: "1", label: (args.currentLabel || "").trim() || "Account 1", inUse: true, windows: structuredClone(quotaView().windows), checkedAt: Date.now(), exhaustedUntil: null, message: null });
           const id = String(Math.max(...mockAccounts.map(a => Number(a.id))) + 1);
           mockAccounts.push({ id, label: (args.label || "").trim() || `Account ${id}`, inUse: false, windows: [], checkedAt: null, exhaustedUntil: null, message: null });
+          window.__accountCalls.push({ cmd, ...args }); mockSigning = id;
           return quotaView();
         }
         case "claude_account_remove": {
           if (args.id === "1") throw "Account 1 is your own Claude Code sign-in and cannot be removed here.";
+          const gone = mockAccounts.find(a => a.id === args.id);
+          if (gone && gone.windows.length) changed("removed", gone.id, gone.label);
           mockAccounts = mockAccounts.filter(a => a.id !== args.id);
           if (!mockAccounts.some(a => a.inUse) && mockAccounts.length) mockAccounts[0].inUse = true;
+          return quotaView();
+        }
+        case "claude_account_discard": {
+          // Cancel in round 18's add flow: the half-added account goes, with no Recent changes row.
+          window.__accountCalls.push({ cmd, ...args }); mockSigning = null;
+          mockAccounts = mockAccounts.filter(a => a.id !== args.id);
+          if (mockAccounts.length === 1) { mockAccounts[0].inUse = true; }
+          return quotaView();
+        }
+        case "claude_account_nudge_answer": {
+          window.__accountCalls.push({ cmd, ...args });
+          mockNudge = { ...(mockNudge || { at: Date.now() }), answer: args.answer };
           return quotaView();
         }
         case "claude_account_use_first": {
@@ -2468,11 +2500,31 @@
           const pick = mockAccounts.find(a => a.id === args.id);
           if (!pick) throw "That account is no longer on this Mac.";
           if (!pick.windows.length) throw `${pick.label} has no reading yet. Sign it in, then refresh.`;
+          if (!pick.inUse) { changed("chose", pick.id, pick.label); mockLastSwitch = null; }
           for (const a of mockAccounts) a.inUse = a.id === args.id;
           return quotaView();
         }
-        case "claude_account_sign_in": return { state: "connecting", message: "Complete sign-in in your browser, then return here." };
-        case "claude_account_sign_in_poll": return null;
+        case "claude_account_sign_in": {
+          window.__accountCalls.push({ cmd, ...args }); mockSigning = args.id;
+          return { state: "connecting", message: "Complete sign-in in your browser, then return here." };
+        }
+        case "claude_account_sign_in_poll": {
+          // As main.rs answers it: (id, view, the name of the account it already is).
+          if (!mockSigning) return null;
+          const id = mockSigning; mockSigning = null;
+          const added = mockAccounts.find(a => a.id === id);
+          if ((mockSignIn.shift() || "connected") === "same-account") {
+            return [id, { state: "same-account", message: "That is the Claude account this Mac already uses. Sign in with your other one." }, mockAccounts[0].label];
+          }
+          if (added) {
+            const at = Date.now();
+            added.windows = [{ id: "five_hour", label: "Five-hour", usedPercent: 0, resetsAt: at + 3 * 3600000, durationMs: 5 * 3600000 },
+              { id: "seven_day", label: "Weekly", usedPercent: 3, resetsAt: at + 4 * 86400000, durationMs: 7 * 86400000 }];
+            added.checkedAt = at;
+            changed("added", added.id, added.label);
+          }
+          return [id, { state: "connected", message: "Your Anthropic account is connected." }, null];
+        }
         case "set_claude_at_threshold": { mockAtThreshold = args.value; return quotaView(); }
         // ---- screenshots and files on the Mac composer (CEO §86) -------------------------
         case "attach_pasted_file": {
@@ -4443,6 +4495,28 @@
       };
       messagesByThread[threadId].push(msg);
       emit("rich://mock-proactive", { threadId, message: msg, tier: "digest" });
+    },
+    /// ROUND 18: one of Rich's lines about Claude accounts, as the back end writes it: a
+    /// proactive turn (`raise_proactive`), recorded by kind (`Accounts::noted`) so the
+    /// conversation draws its buttons. `kind` is "nudge", "switched" or "bothNear".
+    simulateAccountNote(kind, text, threadId) {
+      const thread = threadId || threads[0].id;
+      const turnId = uid("turn"), at = now();
+      const t = threads.find((x) => x.id === thread);
+      turnsById.set(turnId, { threadId: thread, entityId: t ? t.entity_id : null, userText: null, proactive: true,
+        runs: [{ text, startSeq: 0, at }], state: "completed", createdAt: at, startedAt: at, endedAt: at, activities: [] });
+      mockNotes.push({ turn: turnId, kind });
+      if (kind === "nudge" && !mockNudge) mockNudge = { at, turn: turnId };
+      emit("rich://proactive-message", { threadId: thread, turnId, tier: "digest", at });
+      return turnId;
+    },
+    /// ROUND 18: an automatic switch has just happened (the record's `lastSwitch` and its Recent
+    /// changes row), as `claude_accounts.rs switch_to` leaves it.
+    simulateAccountSwitch(fromId, toId, why, used) {
+      const from = mockAccounts.find(a => a.id === fromId), to = mockAccounts.find(a => a.id === toId);
+      for (const a of mockAccounts) a.inUse = a.id === toId;
+      mockLastSwitch = { from: fromId, to: toId, at: Date.now(), why, used };
+      changed("switched", toId, to.label, { from: from.label, why, used });
     },
     simulateProactiveInterrupt(threadId = "acme") {
       const turnId = uid("turn");
