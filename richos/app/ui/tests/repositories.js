@@ -14,7 +14,7 @@ async function main(){
   const company=await page.locator("#repository-company option").nth(1).getAttribute("value");
   await page.selectOption("#repository-company",company);
   await page.fill("#repository-folder","/fictional/first project");await page.click("#repository-connect");
-  await page.waitForFunction(()=>document.getElementById("repository-message").textContent==="Repository connected.");
+  await page.waitForFunction(()=>document.getElementById("repository-message").textContent==="Folder connected.");
   await page.fill("#repository-folder","/fictional/second project");await page.click("#repository-connect");
   // CEO, 2026-10-06: every connected folder gets Git, so there is no opt-in to tick, and
   // the message says when Git was set up.
@@ -33,9 +33,28 @@ async function main(){
   await page.selectOption("#repository-company",await page.locator("#repository-company option").nth(1).getAttribute("value"));
   await page.fill("#repository-folder","/fictional/nonempty");await page.click("#repository-connect");
   await page.waitForFunction(()=>document.getElementById("repository-message").textContent.includes("overlaps"));
-  assert((await page.textContent("#repository-list")).includes("No repositories"),"refusal rendered as connected");
+  assert((await page.textContent("#repository-list")).includes("No project folders connected yet."),"refusal rendered as connected");
   assertEqual(await page.inputValue("#repository-folder"),"/fictional/nonempty","retry lost entered folder");
   assert(!await page.isDisabled("#repository-connect"),"retry disabled");await page.close();return "backend refusal preserved with retry available";
+ });
+ await run.check("2d  the sheet says his copy, word for word",async()=>{
+  // CEO feedback 2026-10-06_01, item 2d: the table is the specification.
+  const page=await browser.newPage({viewport:{width:1280,height:900}});
+  await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
+  await page.click("#set-btn");await page.click("#set-repositories-open");
+  await page.waitForSelector("#repository-company option:nth-child(2)",{state:"attached"});
+  const seen=await page.evaluate(()=>{const q=s=>document.querySelector(s);const notes=[...document.querySelectorAll("#repositories-sheet .overlay-panel > p.overlay-note:not([role])")].map(n=>n.textContent);
+   return {headline:q("#repositories-title").textContent,description:notes[0],guidance:notes[1],guidanceSize:notes[1]?getComputedStyle(document.querySelectorAll("#repositories-sheet .overlay-panel > p.overlay-note:not([role])")[1]).fontSize:null,descriptionSize:getComputedStyle(document.querySelectorAll("#repositories-sheet .overlay-panel > p.overlay-note:not([role])")[0]).fontSize,
+    company:q('label[for="repository-company"]').textContent,folder:q('label[for="repository-folder"]').textContent,placeholder:q("#repository-folder").placeholder,
+    connect:q("#repository-connect").textContent,close:q("#repository-close").textContent,empty:q("#repository-list").textContent};});
+  assertEqual(seen.headline,"Connected project folders (repositories)","headline");
+  assertEqual(seen.description,"Connect a project folder as this company\u2019s home for Rich. Connecting it does not move or change its existing files.","description");
+  assertEqual(seen.guidance,"One folder per company is usually enough. But in rare cases additional folders might be needed. Ask Rich if you\u2019re unsure.","guidance");
+  assert(parseFloat(seen.guidanceSize)<parseFloat(seen.descriptionSize)&&parseFloat(seen.guidanceSize)>=14,`guidance is smaller text and never below 14px: ${seen.guidanceSize} under ${seen.descriptionSize}`);
+  assertEqual(seen.company,"Company","company label");assertEqual(seen.empty,"No project folders connected yet.","empty state");
+  assertEqual(seen.folder,"Project folder location","folder label");assertEqual(seen.placeholder,"Click and select folder","placeholder");
+  assertEqual(seen.connect,"Connect folder","primary button");assertEqual(seen.close,"Close","secondary button");
+  await page.close();return "headline, description, guidance, labels, empty state, placeholder and both buttons";
  });
  await browser.close();process.exit(run.report()?1:0);
 }
