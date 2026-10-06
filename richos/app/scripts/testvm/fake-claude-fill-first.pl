@@ -42,8 +42,22 @@ sub usage {
 open(my $log, '>>', "$dir/calls.log");
 print $log join(' ', time(), ($folder || 'account-1'), @ARGV), "\n"; close $log;
 if (grep { $_ eq '--version' } @ARGV) { print "2.1.288 (Claude Code)\n"; exit 0; }
+# WHO EACH FOLDER IS SIGNED IN AS (round 18's "That is the account you already use"): `auth
+# status` names an email, as Claude Code's does. Account 1 is account-1@fixture.invalid; an
+# added folder is added-<n>@fixture.invalid unless its sign-in wrote another. While
+# /Users/admin/fill-first/login-as exists, `auth login` under a folder signs that folder in as
+# the address it holds, so a walk can sign in with the account already in use. No network.
 if (@ARGV && $ARGV[0] eq 'auth') {
-  if (($ARGV[1] // '') eq 'status') { print $json->encode({ loggedIn => JSON::PP::true, configDirectory => $folder }), "\n"; }
+  my ($id) = $folder =~ /claude-accounts\/(\d+)/;
+  if (($ARGV[1] // '') eq 'login' && $folder && open(my $as, '<', "$dir/login-as")) {
+    my $who = <$as> // ''; close $as; $who =~ s/\s+\z//;
+    if (length $who && open(my $out, '>', "$folder/email")) { print $out $who; close $out; }
+  }
+  if (($ARGV[1] // '') eq 'status') {
+    my $email = $folder ? "added-" . ($id // 'x') . '@fixture.invalid' : 'account-1@fixture.invalid';
+    if ($folder && open(my $in, '<', "$folder/email")) { my $e = <$in> // ''; close $in; $e =~ s/\s+\z//; $email = $e if length $e; }
+    print $json->encode({ loggedIn => JSON::PP::true, configDirectory => $folder, email => $email, orgId => 'fixture-org' }), "\n";
+  }
   exit 0;
 }
 my $five_reset = time() + 3 * 3600; my $week_reset = time() + 4 * 86400;
