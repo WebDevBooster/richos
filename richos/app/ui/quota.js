@@ -564,15 +564,17 @@
   function paintMenu() {
     const row = document.getElementById("set-quota-open"), text = document.getElementById("set-quota-state");
     if (!row || !text) return;
-    const five = view?.windows?.find(w => w.id === "five_hour"), n = activity?.held?.filter(r => r.kind === "agent").length || 0;
+    // The WEEKLY window, labeled (the CEO 2026-10-06: "not supposed to be the weekly?"): the
+    // account switch happens at 99% of the week. The sheet itself keeps both windows.
+    const week = view?.windows?.find(w => w.id === "seven_day"), n = activity?.held?.filter(r => r.kind === "agent").length || 0;
     const cur = inUseAcct(), nx = multi() ? nextAcct() : null;
-    let reading = five ? `${Math.round(five.usedPercent)}% used` : "";
-    if (five && multi() && cur) reading = `${cur.label} ${Math.round(five.usedPercent)}%${nx ? " · next " + nx.label : ""}`;
-    text.textContent = multi() && view?.heldUntil > Date.now() ? "every account used up" : n ? `holding ${n} ${n === 1 ? "agent" : "agents"}` : five ? `${reading}${stale() ? " · stale" : ""}${fastNow() ? " · fast" : ""}` : "no reading";
+    let reading = week ? `${Math.round(week.usedPercent)}% weekly used` : "";
+    if (week && multi() && cur) reading = `${cur.label} ${Math.round(week.usedPercent)}% weekly${nx ? " · next " + nx.label : ""}`;
+    text.textContent = multi() && view?.heldUntil > Date.now() ? "every account used up" : n ? `holding ${n} ${n === 1 ? "agent" : "agents"}` : week ? `${reading}${stale() ? " · stale" : ""}${fastNow() ? " · fast" : ""}` : "no reading";
     let mini = row.querySelector(".quota-mini");
     if (!mini) { mini = node("span", "quota-mini"); mini.setAttribute("aria-hidden", "true"); mini.appendChild(node("i", "")); row.insertBefore(mini, row.lastChild); }
-    mini.hidden = !five;
-    mini.classList.toggle("is-stale", stale()); mini.firstChild.style.width = Math.min(100, five?.usedPercent || 0) + "%";
+    mini.hidden = !week;
+    mini.classList.toggle("is-stale", stale()); mini.firstChild.style.width = Math.min(100, week?.usedPercent || 0) + "%";
   }
   const resetLimitName = id => ({ five_hour: "five-hour quota", seven_day: "weekly quota", seven_day_overage_included: "weekly allowance including overage" }[id] || id.replaceAll("_", " "));
   function renderResets() {

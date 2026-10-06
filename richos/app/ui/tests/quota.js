@@ -627,6 +627,27 @@ async function main() {
     assert(await one.locator("#quota-order").isHidden(), "one account: no order line");
     await one.close();
   });
+  await run.check("quick settings show the WEEKLY window, labeled (the CEO 2026-10-06: the switch is at 99% weekly)", async () => {
+    // One account: the five-hour window is at 94%, the week at 32%.
+    let page = await open("dark", quota);
+    await enableTechnical(page);
+    await page.waitForFunction(() => /weekly/.test(document.getElementById("set-quota-state").textContent));
+    assertEqual(await page.locator("#set-quota-state").innerText(), "32% weekly used");
+    assertEqual(await page.evaluate(() => document.querySelector("#set-quota-open .quota-mini i").style.width), "32%", "the mini bar is the week");
+    await page.close();
+    // Two accounts: Home in use (week 32%), Work next.
+    page = await open("dark", twoAccounts());
+    await enableTechnical(page);
+    await page.waitForFunction(() => /weekly/.test(document.getElementById("set-quota-state").textContent));
+    assertEqual(await page.locator("#set-quota-state").innerText(), "Home 32% weekly · next Work");
+    await page.close();
+    // A stale reading keeps its mark.
+    page = await open("dark", { ...quota, state: "stale", checkedAt: now - 3600000 });
+    await enableTechnical(page);
+    await page.waitForFunction(() => /weekly/.test(document.getElementById("set-quota-state").textContent));
+    assertEqual(await page.locator("#set-quota-state").innerText(), "32% weekly used · stale");
+    await page.close();
+  });
   // ---- Round 16, the eleven differences echo-opus-panel16b closed ------------------------
   await run.check("round 16: Refresh has its icon, times read as round 16 writes them, the ruler key is round 16's, nothing below it", async () => {
     const page = await open("dark", twoAccounts(), 100, null, true, { viewport: { width: 1400, height: 835 } });
