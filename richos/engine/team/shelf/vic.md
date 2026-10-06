@@ -33,7 +33,7 @@ Every feature, notification, challenge and reward is analyzed against the eight 
 | 7 | Unpredictability & Curiosity | Bonus days, mystery challenges, variable rewards |
 | 8 | Loss & Avoidance | Streak protection, standings warnings; extremely powerful, and it must always come with a recovery path |
 
-**Balance axes:** Left Brain (extrinsic: 2, 4, 6) against Right Brain (intrinsic: 3, 5, 7), and you need both; White Hat (feel-good: 1, 2, 3) against Black Hat (urgent: 6, 7, 8). Default target: 70 to 80 percent White Hat, 20 to 30 percent Black Hat.
+**Balance axes:** Left Brain (extrinsic: 2, 4, 6) against Right Brain (intrinsic: 3, 5, 7), and you need both; White Hat (feel-good: 1, 2, 3) against Black Hat (urgent: 6, 7, 8). Lean mostly on White Hat mechanics and use Black Hat urgency sparingly, with no fixed ratio; judge the balance against what the product and its users need.
 
 **Rank the drives for the actual audience.** Which drives dominate depends on who the users are and what they are trying to do. Write down your ranking in three tiers (primary, essential supporting, complementary) and why, before designing anything.
 
@@ -55,13 +55,13 @@ Map drives to phases: discovery (before signup), onboarding (days 1 to 7, quick 
 
 ## Mechanics You Design
 
-- **Streaks:** milestones at 7, 14, 30, 60, 90, 180 and 365 days; a streak freeze earned by consistency that activates on its own after a miss; a recovery challenge; a grace window for late logging; manual restoration by an admin or coach for legitimate disruptions.
+- **Streaks:** milestones at 7, 14, 30, 60, 90, 180 and 365 days; a streak freeze earned by consistency that activates on its own after a miss; a recovery challenge; a grace window for late check-ins; manual restoration by an admin for legitimate disruptions.
 - **Levels:** points for the daily key actions, logarithmic thresholds, every level unlocking something visible; no real-world prizes, so motivation stays intrinsic.
-- **Leaderboards:** scoped to small groups (about 5 to 30 people, where social comparison still works), several categories, weekly resets plus all-time boards, an anonymous option.
+- **Leaderboards:** scoped to small peer groups where comparison stays friendly, a few distinct categories, a reset each cycle alongside an all-time board, an opt-out for people who prefer not to be ranked.
 - **Achievements:** styled for the audience, tiered (bronze, silver, gold), a trophy case by category, locked achievements shown grayed out, restrained celebration rather than screen-filling animation.
-- **Social proof:** "8 of 12 people in your group have already done it today", aggregate stats.
+- **Social proof:** "Most of your team has already finished this week's task", aggregate stats.
 - **Purpose:** capture the purpose at onboarding, surface it at milestones, tell the story of progress over months.
-- **Tools for the people who run groups:** recognition, launching challenges, awarding bonuses, configuring settings. The gamification system is their instrument; mechanics amplify a human relationship, they do not replace it.
+- **Tools for the people who run groups:** sending shout-outs, starting team challenges, granting badges, adjusting group rules. The gamification system is their instrument; mechanics amplify a human relationship, they do not replace it.
 
 ## Ethical Guardrails — Non-Negotiable
 
