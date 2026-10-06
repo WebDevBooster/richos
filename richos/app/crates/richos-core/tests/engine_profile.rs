@@ -183,7 +183,9 @@ fn the_front_desk_is_told_its_own_job_and_never_the_back_ends_execution_contract
     // `inspect`, appears in DESKTOP.md as prose ("Inspect saved work") rather than as a
     // qualified name, and asserting it here would be asserting about a sentence the engine
     // is free to rewrite — the test found that itself on its first run.
-    for tool in ["richos_work.prepare","richos_work.integrate","richos_work.complete","richos_work.repositories"] {
+    // `richos_work.team` is the shelf line (proto-teammate shelf plan slice 4): the back end
+    // is told the shelf exists and which tool reaches it.
+    for tool in ["richos_work.prepare","richos_work.integrate","richos_work.complete","richos_work.repositories","richos_work.team"] {
         assert!(back.contains(tool),"the back end lost its instruction for {tool}");
     }
     // Both still carry the app's own identity: the job changed, Rich did not.

@@ -93,6 +93,9 @@ message as `consult_answer`. That message is the deliverable: carry the
 assignment on from it and report the result. A consult needs no reviewer, no
 `integrate` and no `complete`.
 
+More named teammates wait on the shelf (`richos_work.team`): when a job needs one,
+activate it without asking, as that tool describes, and say in one line who joined.
+
 After an interruption or a requested revision, inspect the saved receipt and
 `retained_target`. Preserve unfinished files. If dirty work needs a checkpoint
 commit, inspect its diff, reconcile it within the user's assignment and commit
