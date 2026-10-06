@@ -1849,6 +1849,49 @@ fn resolve_rollback(root: &Path) -> io::Result<RollbackTarget> {
     }
     Ok(RollbackTarget::Available(previous.version))
 }
+/// WAIT UNTIL NO RICHOS SESSION HOLDS THE SESSION LEASE, so a relaunch can activate.
+///
+/// Activation needs the EXCLUSIVE side of `session.lock` at startup, and every running app
+/// keeps the shared side until its process ends. A relaunch started while the previous
+/// process is still exiting would take the shared side, skip activation, and come back on
+/// the old version. So the relaunch helper asks this first. `true` means the lease could be
+/// taken exclusively at that instant (it is released again at once, before returning);
+/// `false` means `within` passed with a session still holding it. A missing lease file has
+/// no holder, so it is `true`.
+pub fn wait_for_sessions_to_end(home: &Path, within: std::time::Duration) -> io::Result<bool> {
+    let path = root(home)?.join("session.lock");
+    let deadline = std::time::Instant::now() + within;
+    loop {
+        let free = lock_step(|| -> io::Result<bool> {
+            let file = match OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+                .open(&path)
+            {
+                Ok(file) => file,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(true),
+                Err(e) => return Err(e),
+            };
+            // Closing the file (dropped on return) releases the exclusive side again.
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                return Ok(true);
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::WouldBlock {
+                Ok(false)
+            } else {
+                Err(error)
+            }
+        })?;
+        if free {
+            return Ok(true);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
 #[cfg(test)]
 fn install_verified(home: &Path, bytes: &[u8], version: &str) -> io::Result<Published> {
     let p = stage_verified(home, bytes, version)?;
@@ -2602,6 +2645,32 @@ released lease, so the next session refused to activate over a session that had 
             !second.can_activate(),
             "a session is running, so the next startup may not activate over it"
         );
+    }
+
+    /// A relaunch waits for the running session to end, and only then sees a free lease.
+    #[test]
+    fn waiting_for_sessions_sees_a_running_session_and_its_end() {
+        let t = home();
+        let h = canonical(&t);
+        assert!(
+            wait_for_sessions_to_end(&h, std::time::Duration::ZERO).unwrap(),
+            "no lease file yet, so no session holds it"
+        );
+        let mut running = StartupLease::acquire(&h).unwrap();
+        running.begin_session().unwrap();
+        let started = std::time::Instant::now();
+        assert!(
+            !wait_for_sessions_to_end(&h, std::time::Duration::from_millis(200)).unwrap(),
+            "a running session holds the shared side, so activation would be skipped"
+        );
+        assert!(started.elapsed() >= std::time::Duration::from_millis(200));
+        drop(running);
+        assert!(
+            wait_for_sessions_to_end(&h, std::time::Duration::from_millis(200)).unwrap(),
+            "the session ended, so the relaunch can activate"
+        );
+        let next = StartupLease::acquire(&h).unwrap();
+        assert!(next.can_activate(), "waiting must not leave the lease held");
     }
 
     #[cfg(target_os = "macos")]
