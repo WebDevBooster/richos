@@ -148,6 +148,16 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                then a relaunch with it hidden: it comes back hidden; shown again by its button.
   pull         (above) also records the composer at the stop and fails when it has grown taller
                than the one line it is with the panel closed.
+  scratch      after backend-worker: cloned record rows for a /private/tmp copy and a project's
+               .claude/worktrees/ copy of notes.zip (hidden), and a typed shell command that
+               writes the project's own .claude/agents/ file (listed); both Output buttons' count
+               and the panel's rows; and no file link outside the panel that OPENS a temporary
+               file the job itself left, read from the file view's Copy path (CEO 2026-10-06,
+               PRD §13 Q3). backend-worker's "listed once" leaves the same scratch set out.
+  labels       (candidate 40) the 14 px labels on screen in both themes: a name set so the rail
+               draws initials, the company label, its overview's section title, a search result
+               group, a front-desk worker's inspector (after front-desk-worker) and the Settings
+               version line; every node's box recorded for qa/frame.py.
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -175,10 +185,10 @@ command = command_walk.command
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
          'md-view', 'previews', 'save-copy', 'attach', 'pull',
          'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll', 'wrote',
-         'theme-flash', 'sidebar', 'scratch']
+         'theme-flash', 'sidebar', 'scratch', 'labels']
 # The candidate walk's steps: never in the default list, which runs the witness checks.
 CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll',
-                   'wrote', 'theme-flash', 'sidebar', 'scratch')
+                   'wrote', 'theme-flash', 'sidebar', 'scratch', 'labels')
 # The scroll step's files: enough rows that the Output list overflows the window at the split.
 SCROLL_COUNT = 30
 SCROLL_NAME = re.compile(r'^scroll-\d\d\.txt$')
@@ -242,6 +252,14 @@ WORKER_TASK = ('Please add a file named notes.md whose whole content is the line
                'and land both files.')
 WORKTREES = '/engine-state/target-worktrees/'
 MADE = 'notes.zip'
+# Candidate 40: the scratch step's file under a project's own .claude/agents/ (listed, written for
+# real by a typed shell command), and the name the labels step sets, so the rail draws initials
+# ("WT"); OUTPUT_WALK_NAME gives another, such as "Mona Wells" for two of the widest capitals.
+AGENTS_FILE = 'walk-agent.md'
+AGENTS_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
+               "and tell me when it has finished: mkdir -p .claude/agents && printf 'walk agent\\n' > .claude/agents/"
+               + AGENTS_FILE)
+LABELS_NAME = os.environ.get('OUTPUT_WALK_NAME', 'Walk Tester')
 FRONT_DESK_TASK = ('This is a test of your own Agent tool. Do not register an assignment for it. In this turn, '
                    'use your Agent tool yourself to start one worker that writes a file named direct.md '
                    'containing the word direct in my Acme folder.')
@@ -313,6 +331,17 @@ tell application "System Events"
   return "pressed"
 end tell
 '''
+
+
+# THE SCRATCH SET as the app states it (richos-core output.rs SCRATCH_PREFIXES and
+# SCRATCH_DIR_NAMES; the CEO's answer to PRD §13 Q3, 2026-10-06: "the panel lists only files
+# written into your projects and folders"). The guest's TMPDIR is under /var/folders. A path here is
+# kept in the record and left out of every list, count and link the walk expects.
+SCRATCH_PREFIXES = ('/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/', '/Volumes/E1TB/tmp/claude/')
+
+
+def scratch_path(path):
+    return path.startswith(SCRATCH_PREFIXES) or '/.claude/worktrees/' in path
 
 
 def project(rows):
@@ -509,7 +538,11 @@ class OutputWalk(command_walk.CommandWalk):
         rows = self.save_record('record-after-backend-worker.jsonl')
         workers = [r for r in rows if r.get('actor') == 'worker']
         lands = [r for r in rows if r.get('source') == 'land']
-        listed = project(rows)
+        # The list the app serves leaves the scratch set out: a reviewer's copy under /private/tmp
+        # with the worker's own file name (walk-cc28852ef5be: /private/tmp/rv1/o/notes.md) is
+        # recorded, never listed, so it is not a second notes.md at a second path.
+        everything = project(rows)
+        listed = {k: v for k, v in everything.items() if not scratch_path(k)}
         on_disk = {n: self.exists_in_guest(self.company + '/' + n) for n in names}
         # "Opens": there is no open-file command before slice S3, so the landed copy is read back
         # at the listed path: notes.md's line, and notes.zip's zip header.
@@ -521,6 +554,7 @@ class OutputWalk(command_walk.CommandWalk):
         evidence = {'turn': turn, 'turn_story': self.turn_story(turn), 'work_sessions': sessions,
                     'worker_rows': workers, 'land_rows': lands, 'mislabeled_as_rich': mislabeled,
                     'in_acme_folder': on_disk, 'read_back': reads, 'listed': {k: len(v) for k, v in listed.items()},
+                    'recorded_not_listed': sorted(k for k in everything if k not in listed),
                     'no_longer_where_written': missing,
                     'assignments': [{k: a.get(k) for k in ('id', 'kind', 'state', 'work_session')}
                                     for a in self.assignments_since(sent)]}
@@ -1848,44 +1882,255 @@ class OutputWalk(command_walk.CommandWalk):
         appended to the record the way the reviewer's was (a clone of the worker's own notes.zip
         command row, so the row's shape is the app's). PASS when the record still holds that row, the
         Output button counts the files the record holds LESS that one, and the opened panel shows
-        notes.zip once and nothing from rv-zip-a1."""
+        notes.zip once and nothing from rv-zip-a1.
+        (Candidate 40) Two more cloned rows, the two sides of the `.claude` rule: a copy of notes.zip
+        under the project's `.claude/worktrees/agent-walk/` (an agent's worktree: hidden) and
+        AGENTS_FILE under the project's own `.claude/agents/` (listed, and counted). Any row the job
+        itself left in a temporary folder (walk 39: a reviewer's /private/tmp/rev-notes-fresh.zip) is
+        recorded, and FAILS when a file link outside the panel OPENS it (scratch_links: a link is
+        judged by the path its file view copies, never by its words, which a landed file shares).
+        Both Output buttons must carry the count."""
         evidence, note = self.observed('scratch')
         rows = self.record()
         base = [r for r in rows if r.get('source') == 'command' and r.get('path', '').endswith('/' + MADE)]
         if not base:
             raise StepFailed('no notes.zip command row to clone: run backend-worker first')
+        hidden = scratch_path
+        by_job = sorted({r['path'] for r in rows if hidden(r.get('path', ''))})
+        note(left_by_the_job=by_job)
         scratch = '/private/tmp/rv-zip-a1/' + MADE
-        guest(self.vm, 'mkdir -p /private/tmp/rv-zip-a1 && cp %s %s' % (shlex.quote(self.company + '/' + MADE),
-                                                                         shlex.quote(scratch)), 60)
-        row = dict(base[-1], path=scratch, canonical=scratch, key='mach:scratch-walk-1')
-        row.pop('landedFrom', None)
+        worktree = self.company + '/.claude/worktrees/agent-walk/' + MADE
+        agents = self.company + '/.claude/agents/' + AGENTS_FILE
+        # The copy is made from the worker's own notes.zip, wherever the record says it is: a job
+        # that stopped at a question before landing (walk-588e50ca56b6, walk-70878a11adec) left none
+        # in the Acme folder, and the step is about the list, not about the land.
+        made = [r['path'] for r in rows if r.get('path', '').endswith('/' + MADE)]
+        source = next((p for p in reversed(made) if self.exists_in_guest(p)), None)
+        if source is None:
+            raise StepFailed('no notes.zip on disk at any recorded path to copy')
+        guest(self.vm, 'mkdir -p /private/tmp/rv-zip-a1 %s && cp %s %s && cp %s %s' % (
+            shlex.quote(str(Path(worktree).parent)),
+            shlex.quote(source), shlex.quote(scratch),
+            shlex.quote(source), shlex.quote(worktree)), 60)
         rec = self.data + '/output/' + self.facts['thread'] + '.jsonl'
-        guest(self.vm, 'printf "%s\\n" ' + shlex.quote(json.dumps(row, sort_keys=True)) + ' >> ' + shlex.quote(rec), 60)
+        added = []
+        for n, path in enumerate((scratch, worktree), 1):
+            row = dict(base[-1], path=path, canonical=path, key='mach:scratch-walk-%d' % n)
+            row.pop('landedFrom', None)
+            added.append(row)
+            guest(self.vm, 'printf "%s\\n" ' + shlex.quote(json.dumps(row, sort_keys=True)) + ' >> ' + shlex.quote(rec), 60)
+        row = added[0]
+        # The listed side is a REAL write, typed to Rich like the scroll step's: a row appended
+        # behind the app's back is in the record but announces nothing, so the Output button keeps
+        # its old count until the app recounts (walk-f20b6f118bcd read 3 with 4 listable rows). The
+        # real write's announcement recounts the whole record, the two hidden rows above included.
+        turn, sent = self.send(AGENTS_TASK)
+        end = time.monotonic() + self.a.within
+        while time.monotonic() < end and not any(r.get('path') == agents for r in self.record()):
+            try:
+                self.approve_pending(sent)
+            except (StepFailed, subprocess.TimeoutExpired):
+                pass
+            time.sleep(5)
+        self.turn_end(turn, 300)
+        time.sleep(3)
         after = self.save_record('record-scratch.jsonl')
-        kept = [r for r in after if r.get('path') == scratch]
-        listed = [k for k in project(after) if not k.startswith('/private/tmp/')]
-        note(row=row, kept_in_record=len(kept), expected_count=len(listed), listed=sorted(listed))
-        if not kept:
-            raise StepFailed('the scratch row did not reach the record: it must stay whole')
+        kept = [r for r in after if r.get('path') in (scratch, worktree)]
+        listed = [k for k in project(after) if not hidden(k)]
+        note(row=row, added=added, kept_in_record=len(kept), expected_count=len(listed), listed=sorted(listed),
+             agents_turn=turn, agents_turn_story=self.turn_story(turn),
+             agents_rows=[{k: r.get(k) for k in ('source', 'actor', 'path')} for r in after if r.get('path') == agents])
+        if len(kept) != 2:
+            raise StepFailed('%d of the 2 cloned rows reached the record: it must stay whole' % len(kept))
+        if not any(r.get('path') == agents for r in after):
+            raise StepFailed('the .claude/agents file never reached the record within %d s' % self.a.within)
         self.close_panel()
         self.wait_for('from this thread', role='AXCheckBox', seconds=60)
         buttons = self.find_all('from this thread', role='AXCheckBox')
         names = [n.get('title') or n.get('desc') or '' for n in buttons]
         note(buttons=names)
         want = '%d file' % len(listed)
-        if not names or not all(want in n for n in names):
+        if len(names) != 2 or not all(want in n for n in names):
             raise StepFailed('the Output button should count %d files, it says %s' % (len(listed), names))
         self.open_panel()
         time.sleep(1.5)
         self.shot('scratch-panel.png')
         zips = self.in_panel(self.find_all(MADE))
-        seen = self.in_panel(self.find_all('rv-zip-a1'))
+        seen = self.in_panel(self.find_all('rv-zip-a1')) + self.in_panel(self.find_all('agent-walk'))
+        agent_rows = self.in_panel(self.find_all(AGENTS_FILE))
         # One row is several nodes (its name, its group, its actions): the nodes are one row when
         # they sit within one row's height of each other (a row is ~76 px; two rows are not).
         ys = [n['y'] for n in zips]
-        note(zip_nodes=len(zips), zip_node_y=ys, scratch_nodes=len(seen))
+        note(zip_nodes=len(zips), zip_node_y=ys, scratch_nodes=len(seen), agents_nodes=len(agent_rows),
+             agents_node_y=[n['y'] for n in agent_rows])
+        failures = []
         if not zips or max(ys) - min(ys) > 60 or seen:
-            raise StepFailed('the panel lists notes.zip in %d places (y %s) and %d scratch nodes' % (len(zips), ys, len(seen)))
+            failures.append('the panel lists notes.zip in %d places (y %s) and %d scratch nodes' % (len(zips), ys, len(seen)))
+        if not agent_rows:
+            failures.append("the project's own .claude/agents/%s is not listed" % AGENTS_FILE)
+        failures += self.scratch_links(by_job, listed, note)
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def scratch_links(self, by_job, listed, note):
+        """Every file link outside the panel whose words are the name of a file the job left in the
+        scratch set, judged by WHERE IT OPENS, never by its words. A link is drawn only from the
+        listed files (output-panel.js `links.forText` and `forTurn`), so a reviewer's
+        /private/tmp/rv1/o/notes.zip and the landed ~/Acme/notes.zip carry the same words, and a
+        match by name failed on the landed file's own links (walk-cc28852ef5be). A link whose name
+        no listed file has is a failure on sight; a shared name is pressed, the file view's ⋯ Copy
+        path read back, and FAILS when that path is in the scratch set. [] when every link opens a
+        listed file."""
+        listed_names = {Path(k).name for k in listed}
+        left = self.divider_x()
+        seen, failures = [], []
+        for name in sorted({Path(p).name for p in by_job}):
+            nodes = self.find_all(name, role='AXButton')
+            links = [(i, n) for i, n in enumerate(nodes)
+                     if (n.get('title') or '').strip() == name and (left is None or n['x'] + n.get('w', 0) <= left)]
+            for i, n in links:
+                entry = {'name': name, 'x': n.get('x'), 'y': n.get('y'), 'opens': None}
+                seen.append(entry)
+                if name not in listed_names:
+                    failures.append('a file link is named %s, which only the scratch set holds' % name)
+                    note(links_named_like_the_jobs_scratch=seen)
+                    continue
+                try:
+                    self.script('set the clipboard to "seed"')
+                    self.ax('click', '--title', name, '--role', 'AXButton', '--contains', '--nth', str(i))
+                    self.wait_for('All output', seconds=20)
+                    time.sleep(1.5)
+                    if len(seen) == 1:
+                        self.shot('scratch-link-opened.png')
+                    self.press_any('More actions', ['AXPopUpButton', 'AXMenuButton', 'AXButton'], contains=False)
+                    time.sleep(1)
+                    self.press('Copy path', role='AXMenuItem')
+                    time.sleep(1)
+                    entry['opens'] = self.clipboard()
+                except (StepFailed, subprocess.TimeoutExpired) as exc:
+                    entry['error'] = str(exc)[:300]
+                    self.script('tell application "System Events" to key code 53')  # a menu left open
+                    time.sleep(0.5)
+                note(links_named_like_the_jobs_scratch=seen)
+                got = entry['opens'] or ''
+                if not got.startswith('/'):
+                    failures.append('could not read where the %s link at y %s opens: %s'
+                                    % (name, n.get('y'), entry.get('error') or repr(got)))
+                elif scratch_path(got):
+                    failures.append('the %s link at y %s opens the scratch copy %s' % (name, n.get('y'), got))
+                self.to_list()
+        note(links_named_like_the_jobs_scratch=seen)
+        return failures
+
+    def set_name(self, footer, name, note, opener='No name is set'):
+        """The rail footer (an AXPopUpButton: aria-haspopup) pressed by its name, the preferences
+        popover photographed, `name` typed into its "Your name" field and committed with Return."""
+        self.press(opener, role=footer['role'])
+        time.sleep(1.5)
+        self.shot('labels-name-popover.png')
+        fields = self.find_all('Your name')
+        note(name_fields=[{k: n.get(k) for k in ('role', 'title', 'desc', 'x', 'y')} for n in fields[:4]])
+        field = next((n for n in fields if n.get('role') in ('AXTextField', 'AXTextArea', 'AXComboBox')), None)
+        if field is None:
+            raise StepFailed('the popover shows no "Your name" field')
+        self.type_into(name, '--role', field['role'], '--title', 'Your name')
+        self.script('tell application "System Events" to key code 36')
+        time.sleep(1)
+        self.script('tell application "System Events" to key code 53')
+        time.sleep(1)
+
+    def labels(self):
+        """Candidate 40 (echo-sonnet-polish1): the five readable labels raised from 11 px to 14 px, each
+        put on the screen the way a person reaches it, and photographed in both themes, with the
+        accessibility box of every one recorded so qa/frame.py can measure the ink on the frame:
+          rail     a name set in the preferences popover ("Set your name"), so the rail's initials
+                   are drawn; the company label over its conversations;
+          entity   the company's overview (its label pressed): the "Threads" section title;
+          search   the Search overlay with a query that finds the company: its result group;
+          worker   a front-desk worker's chip (front-desk-worker before this step) opened: the
+                   inspector's "Latest update" label, when the worker left one;
+          version  the Settings menu's version line, read and photographed (identity).
+        Each part records what it found; the step FAILS on a part that could not be reached."""
+        evidence, note = self.observed('labels')
+        os.environ['TESTVM_AX_TIMEOUT'] = '60'
+        self.close_panel()
+        failures = []
+        # rail: the name, and with it the initials
+        # The rail's footer, found by its words (its first run, walk-84f043ae847b, found no AXButton
+        # named "No name is set"): every node that carries them is recorded, and the first is
+        # pressed at its center, as a person clicks it.
+        offers = self.find_all('No name is set') + self.find_all('Set your name') + self.texts('Set your name')
+        note(name_offers=[{k: n.get(k) for k in ('role', 'title', 'desc', 'value', 'x', 'y', 'w', 'h')} for n in offers[:6]])
+        # The footer is an AXPopUpButton (aria-haspopup); a click --at its center opened no field in
+        # walk-d21ba7898a56, so it is pressed by its name, and the popover photographed.
+        if offers:
+            try:
+                self.set_name(offers[0], LABELS_NAME, note)
+            except StepFailed as exc:
+                note(name_error=str(exc)[:400])
+                self.script('tell application "System Events" to key code 53')
+        named = self.find_all(LABELS_NAME)
+        group = self.find_all('Acme overview')
+        note(name_nodes=named[:3], company_label=group[:1])
+        if not named:
+            failures.append('the name never reached the rail')
+        chips = self.find_all('open worker details')
+        note(worker_chips=[{k: c.get(k) for k in ('title', 'desc', 'x', 'y')} for c in chips[:3]])
+        note(rail_shots=self.flip_theme('labels-rail'))
+        # entity: the company's overview
+        if group:
+            self.press('Acme overview')
+            time.sleep(2)
+            titles = self.find_all('Threads', by='--value', contains=False)
+            note(entity_titles=titles[:2])
+            note(entity_shots=self.flip_theme('labels-entity'))
+            if not titles:
+                failures.append('the overview has no "Threads" title')
+        else:
+            failures.append('no "Acme overview" label in the rail')
+        # search: a query that finds the company
+        self.press('Search')
+        time.sleep(1)
+        # openSearch() puts the focus in its field: typed there as a person types.
+        self.script('tell application "System Events" to keystroke "Acme"')
+        time.sleep(3)
+        heads = [n for n in self.find_all('Acme', role='AXStaticText', by='--value', contains=False)]
+        note(search_group_nodes=heads[:4])
+        note(search_shots=self.flip_theme('labels-search'))
+        self.script('tell application "System Events" to key code 53')
+        time.sleep(1)
+        if not heads:
+            failures.append('the search shows no result group')
+        # worker: the inspector of a worker's chip on the conversation (read before the overview
+        # replaced the conversation in the main pane, so the conversation is opened again). Only a
+        # front-desk Agent-tool worker draws a chip; when the front desk declines to start one there
+        # is nothing to open, and the evidence says so rather than the step failing on the app.
+        if chips:
+            self.press('Running', role='AXButton')
+            time.sleep(2)
+            self.press('open worker details')
+            time.sleep(2)
+            label = self.find_all('Latest update', role='AXStaticText', by='--value')
+            note(inspector_label=label[:2])
+            note(worker_shots=self.flip_theme('labels-worker'))
+            if not label:
+                failures.append('the worker inspector shows no "Latest update" label (the worker left none)')
+        else:
+            note(worker_part='not reached: no worker chip on the conversation')
+        self.script('tell application "System Events" to key code 53')
+        time.sleep(1)
+        # version: the Settings menu's line
+        self.press('Settings', role='AXPopUpButton')
+        time.sleep(2)
+        version = self.find_all('1.2.0-nightly', by='--value')
+        note(version=[n.get('value') for n in version[:2]])
+        note(version_shots=self.flip_theme('labels-settings'))
+        self.script('tell application "System Events" to key code 53')
+        if not version:
+            failures.append('the Settings menu shows no version line')
+        if failures:
+            raise StepFailed('; '.join(failures))
         return evidence
 
     def theme_flash(self):

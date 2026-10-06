@@ -176,6 +176,43 @@ class OutputWalkTests(unittest.TestCase):
         self.assertEqual(trace, [])
         self.assertEqual(json.loads((self.out / "scroll-observed.json").read_text())["recorded"], 0)
 
+    def test_scratch_path_is_the_apps_scratch_set(self):
+        # The same paths as richos-core's output_the_standard_scratch_set_names_every_kind.
+        for p in ["/tmp/x/a.md", "/private/tmp/rv-zip-a1/notes.zip", "/var/folders/ab/cd/T/a.md",
+                  "/Volumes/E1TB/tmp/claude/echo/a.md", "/Users/a/proj/.claude/worktrees/agent-1/a.md"]:
+            self.assertTrue(output.scratch_path(p), p)
+        for p in ["/Users/a/Documents/notes.zip", "/Users/a/proj/.claude/agents/notes.txt",
+                  "/Users/a/proj/.claude/skills/x/SKILL.md", "/tmpfoo/a.md"]:
+            self.assertFalse(output.scratch_path(p), p)
+
+    def links_fixture(self, opens):
+        walk = self.walk()
+        walk.divider_x = Mock(return_value=1141)
+        # A strip link outside the panel, and the panel's own row for the same file.
+        walk.find_all = lambda title, **kw: [{"title": title, "x": 606, "y": 90, "w": 80},
+                                             {"title": title + " ~/Acme/ by worker", "x": 1141, "y": 370, "w": 300}]
+        walk.ax = Mock(return_value=[])
+        walk.wait_for = walk.press_any = walk.press = walk.to_list = walk.shot = Mock()
+        walk.script = Mock(return_value="")
+        walk.clipboard = Mock(return_value=opens)
+        return walk
+
+    @patch.object(output.time, "sleep")
+    def test_scratch_links_judge_a_link_by_where_it_opens_not_by_its_name(self, _sleep):
+        listed = ["/Users/admin/home/Acme/notes.zip"]
+        job = ["/private/tmp/rv1/o/notes.zip"]
+        note = Mock()
+        walk = self.links_fixture("/Users/admin/home/Acme/notes.zip")
+        self.assertEqual(walk.scratch_links(job, listed, note), [])
+        walk.ax.assert_called_once_with("click", "--title", "notes.zip", "--role", "AXButton", "--contains", "--nth", "0")
+        failed = self.links_fixture("/private/tmp/rv1/o/notes.zip").scratch_links(job, listed, note)
+        self.assertEqual(len(failed), 1)
+        self.assertIn("opens the scratch copy", failed[0])
+        unread = self.links_fixture("seed").scratch_links(job, listed, note)
+        self.assertIn("could not read where", unread[0])
+        only_scratch = self.links_fixture("").scratch_links(["/private/tmp/rv1/x.zip"], listed, note)
+        self.assertIn("only the scratch set holds", only_scratch[0])
+
 
 if __name__ == "__main__":
     unittest.main()
