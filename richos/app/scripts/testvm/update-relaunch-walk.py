@@ -41,6 +41,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -65,6 +66,34 @@ class Walk(adopt.Walk):
         self.state = Path(os.environ.get('TESTVM_ROOT', str(Path.home() / '.richos-testvm'))) / 'run' / a.vm
         self.dest = self.home + '/Applications/RichOS.app'
 
+    def ax(self, mode, *args, app=None, timeout=150):
+        # An accessibility read that hits ax.sh's own guest deadline (exit 124, "guest_deadline")
+        # on a busy host is asked again, at most three times in all; any other failure, and a
+        # deadline that persists, is raised as before. First run of this walk: a single
+        # deadline on "Start the questions" ended it at first-run with the app healthy.
+        for attempt in range(3):
+            try:
+                return super().ax(mode, *args, app=app, timeout=timeout)
+            except StepFailed as exc:
+                if 'guest_deadline' not in str(exc) or attempt == 2:
+                    raise
+                time.sleep(2)
+
+    def present(self, title, role='AXButton', app=None):
+        # Inside a bounded wait, a read that keeps hitting the guest deadline is "not seen yet",
+        # so the wait's own bound decides, not one slow read on a loaded host.
+        try:
+            return super().present(title, role, app)
+        except StepFailed as exc:
+            if 'guest_deadline' in str(exc):
+                return False
+            raise
+
+    def wait_for(self, title, role='AXButton', app=None, seconds=30):
+        # adopt-walk.py's own waits are 30 s; on a loaded host one accessibility read can take
+        # most of that, so every wait here gets at least --within.
+        return super().wait_for(title, role, app, max(seconds, self.a.within))
+
     def log_path(self):
         return self.facts.get('log') or (self.payload + '/app.log')
 
@@ -72,7 +101,7 @@ class Walk(adopt.Walk):
         return guest(self.vm, 'cat ' + shlex.quote(self.log_path()) + ' 2>/dev/null || true', 60)
 
     def windows(self):
-        return command([HERE / 'ax.sh', self.vm, '--windows'], 40).strip()
+        return command([HERE / 'ax.sh', self.vm, '--windows'], 150).strip()
 
     def composer(self):
         rows = self.ax('find', '--role', 'AXTextArea', '--title', 'Message to Rich', '--contains', '--first')
@@ -132,26 +161,42 @@ class Walk(adopt.Walk):
         self.wait_for('Download update', seconds=20)
         pressed = time.monotonic()
         self.press('Download update')
-        notice = None
-        new = None
+        # 1. THE NOTICE. It is on screen for three seconds once the download is verified and
+        #    staged, then the app writes "relaunching into" and quits. A frame of the guest's
+        #    screen is taken on every turn of this loop (a screen capture, which does not wait
+        #    on the app's accessibility tree the way a find does on a loaded host), and the
+        #    frames are read afterwards for the notice's own words.
+        frames = self.out / 'download-frames'
+        frames.mkdir(exist_ok=True)
         end = pressed + self.a.within
+        n = 0
+        after_line = None
         while time.monotonic() < end:
-            if notice is None and self.present('Restarting into RichOS'):
-                notice = round(time.monotonic() - pressed, 1)
-                self.shot('2-restarting-notice.png')
-            alive = guest(self.vm, 'kill -0 ' + old + ' 2>/dev/null && echo alive || true') == 'alive'
-            if not alive:
-                rows = guest(self.vm, 'ps -axo pid=,ppid=,comm=')
-                for line in rows.splitlines():
+            n += 1
+            command([HERE / 'shot.sh', self.vm, frames / ('%03d.png' % n)], 60)
+            if after_line is None and 'relaunching into' in self.log():
+                after_line = n
+            if after_line is not None and n >= after_line + 1:
+                break
+        relaunch_line = next((x for x in self.log().splitlines() if 'relaunching into' in x), '')
+        if not relaunch_line:
+            raise StepFailed(f'no relaunch within {self.a.within} s of the press')
+        hits = subprocess.run([str(HERE.parent / 'qa' / 'ocr-find.sh'), 'restarting', str(frames),
+                               '--quiet'], capture_output=True, text=True, timeout=300)
+        notice = [Path(x.split()[1]).name for x in hits.stdout.splitlines() if x.startswith('HIT')]
+        if notice:
+            shutil.copy(frames / notice[0], self.out / '2-restarting-notice.png')
+        # 2. THE OLD PROCESS ENDS AND A NEW ONE STARTS BY ITSELF from the installed bundle.
+        new = None
+        while time.monotonic() < end and not new:
+            if guest(self.vm, 'kill -0 ' + old + ' 2>/dev/null && echo alive || true') != 'alive':
+                for line in guest(self.vm, 'ps -axo pid=,ppid=,comm=').splitlines():
                     parts = line.split(None, 2)
-                    if len(parts) == 3 and parts[0] != old and parts[1] == '1' and parts[2].startswith(self.dest) \
-                            and parts[2].endswith('/richos-tauri'):
+                    if len(parts) == 3 and parts[0] != old and parts[1] == '1' \
+                            and parts[2].startswith(self.dest) and parts[2].endswith('/richos-tauri'):
                         new = parts[0]
-                if new:
-                    break
-            time.sleep(0.5)
-        if notice is None:
-            raise StepFailed('the restart notice never appeared')
+            if not new:
+                time.sleep(0.5)
         if not new:
             raise StepFailed(f'no new RichOS process within {self.a.within} s of the press')
         relaunched = round(time.monotonic() - pressed, 1)
@@ -165,18 +210,19 @@ class Walk(adopt.Walk):
         want = f"{self.facts['version_before']} -> {self.a.expect_version}"
         if want not in line:
             raise StepFailed('the relaunch did not activate the update: ' + (line or 'no activation line'))
-        relaunch_line = next((x for x in log.splitlines() if 'relaunching into' in x), '')
         version = guest(self.vm, '/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" '
                         + shlex.quote(self.dest + '/Contents/Info.plist'))
         if version != self.a.expect_version:
             raise StepFailed('the installed bundle is ' + version)
         self.facts.update({'pid_after': int(new), 'version_after': version})
         self.save()
-        return {'notice_after_s': notice, 'new_process_after_s': relaunched, 'pid_after': int(new),
+        if not notice:
+            raise StepFailed(f'relaunched and activated, but none of {n} frames shows the restart notice')
+        return {'notice_frames': notice, 'frames': n, 'new_process_after_s': relaunched, 'pid_after': int(new),
                 'relaunch_line': relaunch_line, 'activation_line': line, 'installed_version': version}
 
     def after(self):
-        end = time.monotonic() + 60
+        end = time.monotonic() + self.a.within
         frame = ''
         while time.monotonic() < end:
             try:
