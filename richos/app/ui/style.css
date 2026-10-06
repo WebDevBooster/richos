@@ -7312,6 +7312,25 @@ body.bp-narrow #rail,
   --ctl-line: #4c6087;
 }
 
+/* THE PANEL'S SCROLL BARS FOLLOW THE THEME (walk 38, D10). With no `color-scheme`, WebKit draws a
+   native scroll bar in the light scheme whatever the page looks like: in dark, the list's track
+   was #FAFAFA with a #C2C2C2 thumb, wherever the Mac shows scroll bars always (a mouse, or
+   "Show scroll bars: Always"). The panel declares its scheme with its theme, so the list, the
+   file view and a wide table scroll on a dark track in dark and a light one in light. The PDF
+   frame keeps `normal`, as before: its page is the file's own white in both themes (§6.9), and
+   a dark scheme on the frame would ask WebKit to draw the document behind it dark. */
+#outpanel {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] #outpanel {
+  color-scheme: light;
+}
+
+#outpanel .of-pdf {
+  color-scheme: normal;
+}
+
 /* ---- the button: the same control at the top and at the bottom (§6.2) ---- */
 .out-btn {
   display: inline-flex;
