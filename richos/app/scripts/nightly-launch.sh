@@ -226,7 +226,10 @@ folder_app_pids() {  # <folder>
 }
 
 plist_value() {  # <plist> <key>
-  /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null
+  # A missing file or key yields nothing: PlistBuddy prints "File Doesn't Exist, Will Create"
+  # on stdout for a missing file, which must never be taken for a value.
+  [ -f "$1" ] || return 0
+  /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
 }
 marker_value() {  # <marker> <key>
   sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1
