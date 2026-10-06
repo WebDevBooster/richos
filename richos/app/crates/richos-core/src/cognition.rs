@@ -84,6 +84,16 @@ pub trait LeaseFactory: Send {
         None
     }
 
+    /// **The digest of the team the next lease would register**
+    /// (`engine_profile::team_digest`; proto-teammate shelf plan §1, slice 5). A lease reads its
+    /// team once, when it starts, so the work host records this when it opens one and renews the
+    /// back end at the next boundary when it has moved: a teammate saved mid-assignment is
+    /// usable on the back end's next turn. `None` — the default, and any reading that fails —
+    /// means this factory cannot say, and nothing is renewed on the strength of it.
+    fn team_digest(&self) -> Option<String> {
+        None
+    }
+
     /// Spawn the SECOND lease — the background-work spec's work lease (§2.1).
     ///
     /// **It is a separate method rather than an argument, because the two leases differ in

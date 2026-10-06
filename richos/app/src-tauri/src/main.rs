@@ -489,6 +489,15 @@ impl LeaseFactory for EngineLeaseFactory {
         Some(self.quota.clone())
     }
 
+    /// **The team the next work lease would register** (proto-teammate shelf slice 5): the
+    /// same engine folder and app data `spawn_work` hands `EngineProfile::prepare`, read with
+    /// the same function it registers from. A folder that cannot be read is `None`, which
+    /// renews nothing.
+    fn team_digest(&self) -> Option<String> {
+        let engine = self.engine_dir.lock().ok()?.clone();
+        richos_core::engine_profile::team_digest(&engine, &self.data_dir).ok()
+    }
+
     /// **The second lease** — the background-work spec §2.1's work lease, in this same
     /// process, owned by the work host.
     ///

@@ -65,7 +65,16 @@ pub fn read(state: &Path, entity: &str, thread: &str) -> Result<WorkSummary, Str
             row["request"][key].as_str().filter(|s| !s.is_empty() && s.len() <= 4096)
                 .map(str::to_owned).ok_or_else(|| "A saved work record is incomplete.".into())
         };
-        let (state, detail) = if row["integration"]["verified"] == true {
+        // A consult (plan §3, slice 3) has no repository and nothing to integrate: its record
+        // is the teammate's answer, handed back to the back end.
+        let consult = row["request"]["role"].as_str() == Some("consult");
+        let (state, detail) = if consult && row["status"] == "run-ended" {
+            if row["consult_answer"]["answered"] == true {
+                ("answered", "The teammate's answer was handed back to Rich. It changed no repository.")
+            } else {
+                ("run-ended", "The teammate's run ended with no answer on record. It changed no repository.")
+            }
+        } else if row["integration"]["verified"] == true {
             if row["integration"]["cleanup_pending"].as_array().is_some_and(|a| a.is_empty()) {
                 ("integrated", "Reviewed commit integrated locally. Workspace cleanup verified. This does not mark the whole assignment complete.")
             } else {
@@ -86,7 +95,8 @@ pub fn read(state: &Path, entity: &str, thread: &str) -> Result<WorkSummary, Str
                 _ => return Err("A saved work record has an unsupported state.".into()),
             }
         };
-        summary.items.push(WorkItem { title: field("title")?, repository: field("repo")?, role: field("role")?, state: state.into(), detail: detail.into() });
+        let repository = if consult { "no repository".to_string() } else { field("repo")? };
+        summary.items.push(WorkItem { title: field("title")?, repository, role: field("role")?, state: state.into(), detail: detail.into() });
     }
     Ok(summary)
 }
@@ -166,6 +176,15 @@ pub struct WorkTrail {
     /// is integrated; a worktree or a branch was left behind. Reported, never softened, and
     /// never allowed to read as a failed land.
     pub cleanup_pending: bool,
+    /// Consult receipts (plan §3, slice 3): a teammate asked on a job that changes no
+    /// repository. **Never a worker**: it has nothing to land, so it is not counted in
+    /// `workers` or `not_landed`, and an assignment answered with its help still closes on the
+    /// back end's own report.
+    pub consults: usize,
+    /// **The helper whose run ended most recently was a consult**, by the end time its own
+    /// receipt carries (`end_observation.at`). What the back end is told next depends on it: a
+    /// consult's answer is to be read, not reviewed.
+    pub last_ended_was_consult: bool,
 }
 
 /// Read one assignment's trail. `obligation` is the assignment's obligation id, which the
@@ -251,8 +270,21 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
         reviews_passed: verdicts.iter().filter(|(_, v)| v == "passed").count(),
         ..Default::default()
     };
+    let mut last_end = f64::NEG_INFINITY;
+    for row in &rows {
+        if row["status"].as_str() == Some("run-ended") {
+            if let Some(at) = row["end_observation"]["at"].as_f64().filter(|at| *at > last_end) {
+                last_end = at;
+                trail.last_ended_was_consult = row["request"]["role"].as_str() == Some("consult");
+            }
+        }
+    }
     for row in &rows {
         if row["request"]["role"].as_str() == Some("reviewer") {
+            continue;
+        }
+        if row["request"]["role"].as_str() == Some("consult") {
+            trail.consults += 1;
             continue;
         }
         trail.workers += 1;
@@ -315,6 +347,39 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
     }
     fn temp() -> std::path::PathBuf {
         std::env::temp_dir().join(format!("work-trail-{}", uuid::Uuid::new_v4()))
+    }
+
+    /// **A consult is read as an answer and never as a worker** (plan §3, slice 3). Its receipt
+    /// carries no repository, so the saved-work view used to refuse the whole thread as
+    /// "incomplete"; and counted as a worker it would make an assignment answered with a
+    /// teammate's help look like code work that never landed. Which helper ended last is read
+    /// off the end times the receipts carry, in both orders.
+    #[test] fn a_consult_is_an_answer_with_no_repository_and_never_a_worker() {
+        let root = temp();
+        let mut consult = receipt("ccc", "obligation-7", "consult");
+        consult["request"]["repo"] = Value::Null;
+        consult["consult_answer"] = serde_json::json!({"message":"The older fixture is the CSV one.","answered":true});
+        consult["end_observation"] = serde_json::json!({"at": 200.5, "signal": "SubagentStop"});
+        let mut worker = receipt("www", "obligation-7", "worker");
+        worker["end_observation"] = serde_json::json!({"at": 100.0, "signal": "SubagentStop"});
+        write(&root, &[consult.clone(), worker.clone()]);
+        let items = read(&root, "depot", "thread").unwrap().items;
+        let item = items.iter().find(|i| i.role == "consult").expect("the consult is not shown");
+        assert_eq!((item.state.as_str(), item.repository.as_str()), ("answered", "no repository"));
+        let both = trail(&root, "depot", "thread", "obligation-7").unwrap();
+        assert_eq!((both.workers, both.consults, both.not_landed), (1, 1, 1));
+        assert!(both.last_ended_was_consult);
+        // The worker ending after the consult is the newest end.
+        worker["end_observation"]["at"] = serde_json::json!(300.0);
+        write(&root, &[worker]);
+        assert!(!trail(&root, "depot", "thread", "obligation-7").unwrap().last_ended_was_consult);
+        std::fs::remove_dir_all(&root).unwrap();
+        // A consult alone is no worker at all.
+        let alone = temp();
+        write(&alone, &[consult]);
+        let only = trail(&alone, "depot", "thread", "obligation-7").unwrap();
+        assert_eq!((only.workers, only.consults, only.last_ended_was_consult), (0, 1, true));
+        std::fs::remove_dir_all(alone).unwrap();
     }
 
     /// **The land, the branch and the verdict, all read off evidence** — and the verdict is

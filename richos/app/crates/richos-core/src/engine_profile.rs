@@ -144,11 +144,12 @@ fn git(runtime: &EngineRuntime, cwd: &Path, args: &[&str]) -> Result<(), Runtime
 /// (CEO §111), is always active like the four the plan names.
 pub const ALWAYS_ACTIVE: [&str; 5] = ["dean", "clark", "reed", "frank", "pierce"];
 
-/// **The two duties, never a teammate** (plan §3, slice 2): `worker` implements and `reviewer`
-/// reviews. Each is a duty text (`engine/mega-lander/duties/<duty>.md`) the dispatch adapter puts
-/// at the top of a named teammate's brief, not a definition, so neither is registered and
-/// neither name can be a teammate's.
-pub const DUTIES: [&str; 2] = ["worker", "reviewer"];
+/// **The three duties, never a teammate** (plan §3, slices 2 and 3): `worker` implements,
+/// `reviewer` reviews and `consult` answers on a job that changes no repository. Each is a duty
+/// text (`engine/mega-lander/duties/<duty>.md`) the dispatch adapter puts at the top of a named
+/// teammate's brief, not a definition, so none is registered and no duty name can be a
+/// teammate's.
+pub const DUTIES: [&str; 3] = ["worker", "reviewer", "consult"];
 
 /// **The user's own teammates: `<app data>/team/<name>.md`**, activated from the shelf or
 /// hired by Dean. Outside the engine, so an engine update never touches them. The shelf
@@ -158,8 +159,8 @@ pub const USER_TEAM: &str = "team";
 /// Every definition this lease registers, by name: the stock ones, then the user's. A user's
 /// file of the same name as a stock one is the user's refit of it and wins (plan §10 point 3:
 /// the user's copy is never overwritten). A file whose name could not be an agent type
-/// (`[a-z0-9-]`, not starting with `-`), a symbolic link, or one of the two duty names is
-/// not registered: those two are the engine's app mechanics, never a person.
+/// (`[a-z0-9-]`, not starting with `-`), a symbolic link, or one of the duty names is
+/// not registered: those are the engine's app mechanics, never a person.
 pub fn active_team(engine: &Path, data: &Path) -> Result<std::collections::BTreeMap<String, String>, RuntimeError> {
     let mut team = std::collections::BTreeMap::new();
     for name in ALWAYS_ACTIVE {
@@ -184,6 +185,25 @@ pub fn active_team(engine: &Path, data: &Path) -> Result<std::collections::BTree
         team.insert(name.to_string(), body);
     }
     Ok(team)
+}
+
+/// **The digest of the team a lease registers** (proto-teammate shelf plan §1 and §6, slice 5):
+/// every name and definition [`active_team`] returns, so it moves exactly when the next lease
+/// would register something different, and never for a file that would not be registered (the
+/// shelf, a duty name, a temporary file, a link). The design is `operator_snapshot.rs`'s, digest
+/// the definitions a session read at start and renew it when the digest moves; its file set is
+/// the operator's, so the code is not shared. Each part is length-prefixed, so no two teams
+/// share a digest by where one body ends and the next name starts.
+pub fn team_digest(engine: &Path, data: &Path) -> Result<String, RuntimeError> {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    for (name, body) in active_team(engine, data)? {
+        for part in [name.as_bytes(), body.as_bytes()] {
+            hasher.update((part.len() as u64).to_le_bytes());
+            hasher.update(part);
+        }
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 impl EngineProfile {
