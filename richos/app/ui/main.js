@@ -975,6 +975,21 @@ function renderScopeHeader() {
   scopeThreadEl.textContent = row ? row.display_title : "";
 }
 
+/// THE COMPANY HE IS IN, for a sheet that would otherwise ask (CEO feedback 2026-10-06, item
+/// 2b: "I'm already in GPT Exporter, so this should already be selected"). The scope header's
+/// own reading, in its order, then the company setting in force; `null` only when none of
+/// them names one. The connected-folders sheet pre-selects it.
+function companyOnScreen() {
+  if (mainView === "opening" && openingThread) {
+    const row = threadRow(openingThread.threadId);
+    if (row && row.entity_id) return row.entity_id;
+  }
+  if (mainView === "entity" && viewEntityId) return viewEntityId;
+  if (mainView !== "unbound" && activeContext && activeContext.entity_id) return activeContext.entity_id;
+  return (entityChoice && entityChoice.chosen) || null;
+}
+window.RichCompanyOnScreen = companyOnScreen;
+
 // ---- per-thread draft and scroll (§3.1) -------------------------------------------------
 
 /// Park whatever is in the composer against the thing it was being written TO, then the

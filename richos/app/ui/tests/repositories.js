@@ -10,7 +10,8 @@ async function main(){
   await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
   await page.click("#set-btn");await page.click("#set-repositories-open");
   await page.waitForSelector("#repository-company option:nth-child(2)",{state:"attached"});
-  assert(await page.isDisabled("#repository-connect"),"company must be explicitly selected");
+  // 2b: the company he is in (the mock opens on Harbor Analytics' "Running") is already chosen.
+  assertEqual(await page.inputValue("#repository-company"),"harbor","the company on screen is pre-selected");
   const company=await page.locator("#repository-company option").nth(1).getAttribute("value");
   await page.selectOption("#repository-company",company);
   await page.fill("#repository-folder","/fictional/first project");await page.click("#repository-connect");
@@ -63,6 +64,23 @@ async function main(){
   await page.click("#set-btn");await page.waitForSelector("#set-repositories-open");
   assertEqual((await page.textContent("#set-repositories-open")).trim(),"Connected folders (repositories)","the settings menu row");
   await page.close();return "the row reads Connected folders (repositories)";
+ });
+ await run.check("2b  the company he is in is already selected, and the folder field has focus",async()=>{
+  // CEO feedback 2026-10-06_01, item 2b and repositories1.mov: he was in a company's thread
+  // and had to choose that company again. Here he is in Lumen Labs' thread, which is NOT the
+  // company setting (Harbor Analytics), so the thread on screen is what decides.
+  const page=await browser.newPage({viewport:{width:1280,height:900}});
+  await page.goto("file://"+path.join(UI_DIR,"index.html"));await leaveHome(page);
+  await page.click('[data-thread-id="partner"]');
+  await page.waitForFunction(()=>document.getElementById("scope-entity").textContent==="Lumen Labs");
+  await page.click("#set-btn");await page.click("#set-repositories-open");
+  await page.waitForSelector("#repository-company option:nth-child(2)",{state:"attached"});
+  await page.waitForFunction(()=>document.activeElement&&document.activeElement.id==="repository-folder");
+  assertEqual(await page.inputValue("#repository-company"),"lumen","the company on screen is pre-selected");
+  assert(!await page.isDisabled("#repository-connect"),"Connect folder is ready without choosing a company");
+  await page.selectOption("#repository-company","northwind");
+  assertEqual(await page.inputValue("#repository-company"),"northwind","choosing another company still works");
+  await page.close();return "Lumen Labs pre-selected from the thread on screen; folder field focused; still changeable";
  });
  await browser.close();process.exit(run.report()?1:0);
 }

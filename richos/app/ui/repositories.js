@@ -48,9 +48,17 @@
   async function open() {
     returnFocus = document.activeElement; sheet.hidden = false;
     field("repository-message").textContent = "Loading connections…";
-    try { await refresh(); field("repository-message").textContent = companies.length ? "" : "Add a company before connecting a folder."; }
+    // PRE-SELECTED WHEREVER POSSIBLE (CEO feedback 2026-10-06, item 2b): the company he is
+    // in, else the only company there is. He can still choose another one.
+    const onScreen = window.RichCompanyOnScreen ? window.RichCompanyOnScreen() : null;
+    try {
+      await refresh(onScreen);
+      if (!field("repository-company").value && companies.length === 1) { field("repository-company").value = companies[0].id; renderList(); }
+      field("repository-message").textContent = companies.length ? "" : "Add a company before connecting a folder.";
+    }
     catch (error) { companies = []; renderList(); field("repository-message").textContent = String(error); }
-    field("repository-company").focus();
+    // With the company already chosen, the next thing to do is the folder.
+    field(field("repository-company").value ? "repository-folder" : "repository-company").focus();
   }
   function close() { if (busy) return; sheet.hidden = true; returnFocus?.focus(); }
   field("repository-company").addEventListener("change", renderList);
