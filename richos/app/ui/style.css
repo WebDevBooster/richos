@@ -544,7 +544,7 @@ button {
   border-radius: 50%;
   background: var(--gold);
   color: var(--on-gold);
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   line-height: 1;
@@ -2048,7 +2048,7 @@ body.bp-narrow .first-run {
   border: none;
   padding: 3px 6px;
   border-radius: 5px;
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2460,7 +2460,7 @@ body.bp-narrow .first-run {
 }
 
 .entity-block-title {
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2827,7 +2827,7 @@ body.bp-narrow .first-run {
 }
 
 .result-group {
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4265,7 +4265,7 @@ body.bp-narrow .tl-user-bubble {
 
 .insp-label {
   margin: 0;
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-faint);
@@ -7319,11 +7319,17 @@ body.bp-narrow #rail,
    file view and a wide table scroll on a dark track in dark and a light one in light. The PDF
    frame keeps `normal`, as before: its page is the file's own white in both themes (§6.9), and
    a dark scheme on the frame would ask WebKit to draw the document behind it dark. */
-#outpanel {
+/* THE SAME FOR EVERY SCROLLING SURFACE (walk 39, D11). The conversation's scroll bar and Under
+   the hood's were still the light scheme in dark (#FAFAFA track, #C2C2C2 thumb), because the
+   declaration above reached only the Output panel. The scheme is declared once on the root with
+   the theme and inherits to every scroller in the app, so a surface added later is dark in dark
+   without anyone remembering to say so. `.settings[data-force-dark]` keeps its own `dark`, and
+   the PDF frame below keeps `normal`. `appearance.js` check 18 walks every scroller on the page. */
+:root {
   color-scheme: dark;
 }
 
-:root[data-theme="light"] #outpanel {
+:root[data-theme="light"] {
   color-scheme: light;
 }
 
