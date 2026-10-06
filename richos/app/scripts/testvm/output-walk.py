@@ -129,6 +129,11 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   menus        the row's ⋯ menu and the file view's ⋯ menu, each open in both themes (contrast).
   overlap      after backend-worker: with the panel open, the work summary is opened from its
                chip; FAIL when the Output panel stays open beside it (§6.1, both ways).
+  job-question after panel and backend-worker (panel-check.md loose in Acme is what made the job
+               ask in the candidate-38 walk, run E): with the app never relaunched, the job's
+               question card is on the conversation and NO "last time RichOS was open" card or
+               "Status unavailable" row is (walk 38, D8). FAIL as not reproduced when no job is
+               blocked and no question card is shown: there is then nothing to check.
   wrote        every "Wrote N files" in the conversation pressed in turn: the panel opens on it
                and the app's frame does not move (the header toggle and the composer hold).
   theme-flash  with the panel open, the guest's appearance is flipped while timeline.py captures
@@ -162,9 +167,13 @@ command = command_walk.command
 
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
          'md-view', 'previews', 'save-copy', 'attach', 'pull',
-         'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'wrote', 'theme-flash', 'sidebar']
+         'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'wrote', 'theme-flash', 'sidebar']
 # The candidate walk's steps: never in the default list, which runs the witness checks.
-CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'wrote', 'theme-flash', 'sidebar')
+CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'wrote',
+                   'theme-flash', 'sidebar')
+# VERBATIM from timeline.js renderUnknownCard and durationRow: what a turn a quit left running shows.
+QUIT_CARD = 'last time RichOS was open'
+STATUS_UNAVAILABLE = 'Status unavailable'
 # The csv step's file, and a table every word of which is given.
 CSV_NAME = 'walk-table.csv'
 CSV_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
@@ -1596,6 +1605,36 @@ class OutputWalk(command_walk.CommandWalk):
             time.sleep(1)
         if output_open:
             raise StepFailed('the Output panel stayed open under the work summary: two right-hand panes at once')
+        return evidence
+
+    def job_question(self):
+        """Walk 38, D8: a background job that stopped at a question is not drawn as a turn a quit
+        cut off. The app is never relaunched in this run, so the quit card has no true place on the
+        conversation at all; the job's question card must be there (the positive control), and
+        neither the quit card nor a "Status unavailable" row may be."""
+        evidence, note = self.observed('job-question')
+        self.close_panel()
+        if self.present('back to Rich'):
+            self.press('back to Rich')
+            time.sleep(1)
+        blocked = [{k: a.get(k) for k in ('id', 'kind', 'state', 'detail')} for a in self.records()
+                   if a.get('thread_id') == self.facts['thread'] and a.get('state') == 'blocked']
+        note(app_pid=self.app_pid(), blocked_jobs=blocked)
+        card = self.find_all('Other answer', role='AXButton')
+        quit_card = [h.get('value') for h in self.texts(QUIT_CARD)]
+        unavailable = [h.get('value') for h in self.texts(STATUS_UNAVAILABLE)]
+        # The accessibility tree holds the whole conversation, scrolled or not (the wrote step reads
+        # rows at negative y), so these reads are the verdict and the photograph is its illustration.
+        note(question_cards=len(card), quit_card=quit_card, status_unavailable=unavailable)
+        self.shot('job-question.png')
+        note(shots=['job-question.png'])
+        if not blocked and not card:
+            raise StepFailed('not reproduced: no job on this thread is blocked and no question card is shown')
+        if quit_card or unavailable:
+            raise StepFailed('a turn is drawn as cut off by a quit while the app never closed: %s'
+                             % json.dumps(quit_card + unavailable))
+        if not card:
+            raise StepFailed('a job is blocked (%s) but no question card is on the conversation' % json.dumps(blocked))
         return evidence
 
     def wrote(self):
