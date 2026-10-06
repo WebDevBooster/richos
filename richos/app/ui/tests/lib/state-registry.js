@@ -2700,6 +2700,46 @@ module.exports = [
       "stopped keeping, because there is no restart to need.",
   },
 
+  // ---- the relaunch into a downloaded update (CEO feedback 2026-10-06, item 1) ---------
+  {
+    s: "Restarting into RichOS",
+    c: "FRAGMENT",
+    why:
+      "The `restarting` headline: `'Restarting into RichOS ' + v.availableVersion + '…'`, also " +
+      "the pill's label in that state. The short notice before `updates.rs` relaunches into an " +
+      "update this app downloaded once nothing is running. tests/updates.js check 22.",
+  },
+  {
+    s: "Nothing is running, so RichOS is restarting to finish the update. Your window and conversation will be right where you left them.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why:
+      "The `restarting` sub line and the pill's accessible name: RichOS is about to quit and " +
+      "come back on the new version, by itself, within seconds. Nothing is asked of anyone and " +
+      "there is no control to offer: the relaunch is the product acting on the CEO's own words " +
+      "('the app should automatically re-launch immediately after downloading the new " +
+      "version'). tests/updates.js check 22 renders it.",
+  },
+  {
+    s: "Nothing is running, so RichOS will restart into it in a moment.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why:
+      "The `ready` sub line for an update this app downloaded while nothing runs, for the " +
+      "instant before `restarting` arrives. A statement of what RichOS does next; no request.",
+  },
+  {
+    s: "RichOS will restart into this update as soon as that work is done. Nothing will be interrupted.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why:
+      "The work gate's clause for a `ready` update this app downloaded while a turn or worker " +
+      "runs, in the row and in the waiting cue: the relaunch waits for the work and then " +
+      "happens by itself (`updates.rs` watcher). INFORMATIONAL for the reason the other " +
+      "waiting sentences are: the control is removed by design and nothing is asked of anyone. " +
+      "tests/updates.js check 22.",
+  },
+
   // ---- update_startup.rs — the activation that runs BEFORE there is a webview -----------
   //
   // NINE STRINGS, ONE CLASSIFICATION, AND THE REASON IS ONE CALL SITE. `update_startup::

@@ -261,6 +261,14 @@ if grep -q 'unpacked: 1.2.0-nightly.20260921.25' <<<"$OUT" && grep -q 'updated i
   ok "L4 status shows what folder a holds, what it updated itself to, and that it is not running"
 else bad "L4 status shows what folder a holds" "$OUT"; fi
 
+# L4b — no self-updated copy in the folder: no warning, and no PlistBuddy error text as a version
+rm -rf "$F/home.noindex/Applications"
+run "$H" a "$ZIPS/v2.zip" --replace
+if [ "$RC" -eq 0 ] && ! grep -q 'updated itself' <<<"$OUT" && ! grep -q "Doesn't Exist" <<<"$OUT"; then
+  ok "L4b --replace prints no updated-itself warning when the folder has no self-updated copy"
+else bad "L4b no false updated-itself warning" "exit $RC: $OUT"; fi
+quit_app "$H"
+
 # ---------------------------------------------------------------------------------------
 # L5/L6 — ZIPs that are not a nightly
 # ---------------------------------------------------------------------------------------
