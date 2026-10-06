@@ -343,11 +343,12 @@ fn a_declaration_that_cannot_be_read_is_an_error_and_never_an_empty_allowlist() 
 
 /// **Slice 1 of the proto-teammate shelf plan** (richos-hq
 /// `docs/plans/2026-10-06-proto-teammate-shelf.md` §2, §9 step 2): every lease registers the
-/// four always-active teammates and every file in `<app data>/team/`, in the plugin's `agents`
-/// list and in the private roster the isolation guard reads; a teammate no longer active
-/// leaves the roster; the two generic files stay until slice 2; the shelf is never registered.
+/// five always-active teammates (Dean, Clark, Reed, Frank and Pierce) and every file in
+/// `<app data>/team/`, in the plugin's `agents` list and in the private roster the isolation
+/// guard reads; a teammate no longer active leaves the roster; the two generic files stay until
+/// slice 2; the shelf is never registered.
 #[test]
-fn a_lease_registers_the_four_and_the_users_team_and_drops_what_is_no_longer_active() {
+fn a_lease_registers_the_always_active_and_the_users_team_and_drops_what_is_no_longer_active() {
     let f = Scratch::new();
     let roster = f.0.join("coordination/.claude/agents");
     let team = f.0.join("team");
@@ -376,10 +377,10 @@ fn a_lease_registers_the_four_and_the_users_team_and_drops_what_is_no_longer_act
     };
 
     let first = EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
-    let expected = ["clark", "dean", "frank", "mark", "reed", "reviewer", "worker"];
+    let expected = ["clark", "dean", "frank", "mark", "pierce", "reed", "reviewer", "worker"];
     assert_eq!(registered(&first), expected);
     assert_eq!(on_roster(), expected);
-    for stock in ["clark", "reed", "frank", "worker", "reviewer"] {
+    for stock in ["clark", "reed", "frank", "pierce", "worker", "reviewer"] {
         let shipped = std::fs::read(engine().join(format!("agents/{stock}.md"))).unwrap();
         assert_eq!(std::fs::read(first.plugin.join(format!("agents/{stock}.md"))).unwrap(), shipped);
         assert_eq!(std::fs::read(roster.join(format!("{stock}.md"))).unwrap(), shipped);
@@ -403,12 +404,12 @@ fn a_lease_registers_the_four_and_the_users_team_and_drops_what_is_no_longer_act
     std::fs::remove_file(team.join("dean.md")).unwrap();
     std::fs::write(roster.join("retired.md"), "---\nname: retired\n---\n").unwrap();
     let next = EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
-    let stock = ["clark", "dean", "frank", "reed", "reviewer", "worker"];
+    let stock = ["clark", "dean", "frank", "pierce", "reed", "reviewer", "worker"];
     assert_eq!(registered(&next), stock);
     assert_eq!(on_roster(), stock);
     assert_eq!(std::fs::read(roster.join("dean.md")).unwrap(), std::fs::read(engine().join("agents/dean.md")).unwrap());
 
-    // A fresh install has no team folder at all and gets the stock six.
+    // A fresh install has no team folder at all and gets the stock seven.
     let fresh = Scratch::new();
     let profile = EngineProfile::prepare(&engine(), &fresh.0, fresh.runtime()).unwrap();
     assert_eq!(registered(&profile), stock);

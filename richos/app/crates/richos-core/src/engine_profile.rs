@@ -140,8 +140,9 @@ fn git(runtime: &EngineRuntime, cwd: &Path, args: &[&str]) -> Result<(), Runtime
 
 /// **The named teammates every install has from its first lease** (proto-teammate shelf plan,
 /// richos-hq `docs/plans/2026-10-06-proto-teammate-shelf.md` §2): stock definitions shipped in
-/// `engine/agents/`, replaced with the engine on update.
-pub const ALWAYS_ACTIVE: [&str; 4] = ["dean", "clark", "reed", "frank"];
+/// `engine/agents/`, replaced with the engine on update. Pierce, who reads the back end's briefs
+/// (CEO §111), is always active like the four the plan names.
+pub const ALWAYS_ACTIVE: [&str; 5] = ["dean", "clark", "reed", "frank", "pierce"];
 
 /// The two unnamed definitions the dispatch adapter still keys on. Registered until slice 2 of
 /// the same plan turns them into duty texts; then this list goes.
