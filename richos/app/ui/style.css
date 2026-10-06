@@ -7129,6 +7129,9 @@ body.home-open {
 .quota-fast { color: var(--gold-text); font-weight: 600; }
 /* The lanes, in handover order. The gold mark is the one the rail puts on the active thread;
    the next account's mark is dashed gold, a used-up one dashed ink. */
+.quota-order { margin-top: 10px; font-size: 1rem; color: var(--ink-soft); }
+.quota-order b { color: var(--ink); font-weight: 600; }
+.quota-order + .quota-lanes { margin-top: 6px; }
 .quota-lanes { margin-top: 10px; border-top: 1px solid var(--line-soft); }
 .quota-lane { position: relative; display: grid; grid-template-columns: 3px minmax(0, 1fr) auto; gap: 0 14px; align-items: center; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line-soft); border-radius: 0 8px 8px 0; }
 .quota-lane[tabindex="0"] { cursor: pointer; }
@@ -9058,3 +9061,165 @@ body.panel-full .op-body {
     animation: none;
   }
 }
+
+/* =====================================================================================
+   CLAUDE ACCOUNTS, FOR SOMEONE WHO IS NOT TECHNICAL: round 18 (richos-hq
+   design/mockups/rounds/round-18/multi-account.html), the CEO 2026-10-06, feedback item 9.
+   `ui/accounts.js`. The mockup's own rules, renamed `acc-` and moved onto this file's tokens:
+   the mockup's --surface is --surface-raised here, its --card is --card, its --line is
+   --line-strong; no new token and no new hue (round 18 NOTES.md: "every color is round 16's").
+
+   TYPE (CEO §15): everything meant to be read is 16px or larger; Rich's lines are 18px; card
+   names 26px; the title 32px. ONE DECLARED 14px NODE, a claim that it is skippable: the
+   "Settings" breadcrumb (`.acc-eyebrow`) above the 32px title, which says where you are.
+   Contrast is computed in WebKit, both themes, by `ui/tests/accounts.js`.
+   ===================================================================================== */
+#accounts-sheet { padding: 16px; align-items: center; justify-content: center; }
+#accounts-sheet [hidden] { display: none !important; }
+.acc-panel { width: min(1200px, 94vw); max-width: none; max-height: calc(100vh - 32px); padding: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--surface-raised); border-radius: 16px; }
+.acc-panel p, .acc-panel h2, .acc-panel h3 { margin: 0; }
+.acc-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 24px 32px 0; }
+.acc-eyebrow { font-size: .875rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--trim-text); margin-bottom: 4px; } /* 14px caps, declared skippable: the breadcrumb word; the title under it says where you are */
+#acc-title { font: 400 2rem/1.1 var(--font-serif); letter-spacing: -.01em; color: var(--ink); }
+.acc-lede { margin-top: 8px; font-size: 1.0625rem; color: var(--ink-soft); max-width: 70ch; }
+#acc-close { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: var(--ink-soft); border: 1px solid var(--line-control); background: transparent; margin-top: 2px; cursor: pointer; }
+#acc-close svg { width: 14px; height: 14px; }
+#acc-close:hover { border-color: var(--gold); color: var(--ink); background: var(--gold-soft); }
+.acc-panel :is(button, input):focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.acc-body { display: grid; grid-template-columns: minmax(0, 1fr) 432px; padding: 16px 32px 22px; overflow-y: auto; min-height: 0; }
+.acc-col { padding-right: 32px; border-right: 1px solid var(--line-soft); min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.acc-how { padding-left: 32px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 1100px) {
+  .acc-body { grid-template-columns: minmax(0, 1fr) 340px; padding: 16px 24px 22px; }
+  .acc-col { padding-right: 22px; } .acc-how { padding-left: 22px; }
+  .acc-heading { padding: 24px 24px 0; }
+}
+
+.acc-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-control); border-radius: 9px; padding: 7px 14px; font: inherit; font-size: 1rem; color: var(--ink-soft); background: transparent; white-space: nowrap; cursor: pointer; } /* no color transition: the frame right after a theme switch must already meet AA (contrast.js 19) */
+.acc-btn:hover { border-color: var(--gold); color: var(--ink); }
+.acc-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+.acc-btn-primary { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 600; }
+.acc-btn-primary:hover { color: var(--on-gold); filter: brightness(1.06); }
+.acc-btn-quiet { border-color: transparent; padding-left: 8px; padding-right: 8px; color: var(--gold-text); font-weight: 600; }
+.acc-btn-quiet:hover { border-color: transparent; background: var(--gold-soft); color: var(--gold-text); }
+
+/* the cards, in the order Rich uses them; the one in use carries the rail's gold spine */
+.acc-cards { display: flex; flex-direction: column; gap: 12px; }
+.acc-handover { display: flex; align-items: center; gap: 10px; margin: -4px 0 -4px 24px; font-size: 1rem; color: var(--ink-soft); }
+.acc-handover span { display: inline-flex; align-items: center; gap: 8px; }
+.acc-handover svg { width: 16px; height: 16px; color: var(--gold-text); }
+.acc-card { position: relative; background: var(--card); border: 1px solid var(--line-soft); border-radius: 14px; padding: 13px 20px 14px 24px; box-shadow: 0 18px 40px -26px var(--shadow-soft); }
+.acc-spine { position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; }
+.acc-card.is-inuse { border-color: var(--gold); }
+.acc-card.is-inuse .acc-spine { background: var(--gold); }
+.acc-card.is-next .acc-spine { background: repeating-linear-gradient(180deg, var(--gold-text) 0 4px, transparent 4px 8px); }
+.acc-card.is-resting .acc-spine, .acc-card.is-unread .acc-spine { background: repeating-linear-gradient(180deg, var(--ink-faint) 0 3px, transparent 3px 6px); }
+.acc-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.acc-name { font: 400 1.625rem/1.15 var(--font-serif); letter-spacing: -.005em; color: var(--ink); }
+.acc-pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-control); border-radius: 999px; padding: 2px 12px; font-size: 1rem; font-weight: 600; line-height: 1.5; color: var(--ink); }
+.acc-pill i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; border: 2px solid var(--ink-soft); }
+.acc-pill.is-inuse { border-color: var(--gold); color: var(--gold-text); }
+.acc-pill.is-inuse i { border: 0; background: var(--gold); }
+.acc-pill.is-next i { border-color: var(--gold-text); border-style: dashed; }
+.acc-pill.is-resting { color: var(--ink-soft); font-weight: 500; }
+.acc-acts { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.acc-note { margin-top: 2px; font-size: 1rem; color: var(--ink-soft); }
+.acc-note b { color: var(--ink); font-weight: 600; }
+.acc-meters { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.acc-meter { display: grid; grid-template-columns: 120px minmax(0, 1fr) 112px; align-items: center; gap: 0 16px; }
+.acc-meter-label { font-size: 1rem; color: var(--ink); font-weight: 500; }
+.acc-meter-bar { position: relative; height: 10px; border-radius: 5px; background: var(--line-strong); overflow: hidden; }
+.acc-meter-bar b { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--gold); }
+.acc-meter-num { font: 400 1.625rem/1 var(--font-serif); color: var(--ink); text-align: right; font-variant-numeric: lining-nums tabular-nums; }
+.acc-meter-num small { font-size: 1.125rem; margin-left: 1px; }
+.acc-meter-num em { font-family: var(--font); font-style: normal; font-size: 1rem; color: var(--ink-soft); margin-left: 6px; }
+.acc-meter-when { grid-column: 2 / 4; font-size: 1rem; color: var(--ink-soft); }
+.acc-meter-when b { color: var(--ink); font-weight: 600; }
+.acc-meter-when.is-near { color: var(--gold-text); font-weight: 600; }
+.acc-confirm { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 1rem; color: var(--ink); }
+.acc-confirm span { flex: 1 1 100%; }
+
+/* the invitation in the place a second card would be */
+.acc-slot { display: flex; align-items: center; gap: 18px; width: 100%; text-align: left; border: 1.5px dashed var(--line-control); border-radius: 14px; padding: 18px 22px; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.acc-slot:hover { border-color: var(--gold); background: var(--gold-soft); }
+.acc-slot-plus { width: 44px; height: 44px; border-radius: 50%; border: 1.5px solid var(--gold); color: var(--gold-text); display: grid; place-items: center; flex-shrink: 0; }
+.acc-slot-plus svg { width: 18px; height: 18px; }
+.acc-slot-title { display: block; font-size: 1.125rem; font-weight: 600; color: var(--ink); }
+.acc-slot-body { display: block; font-size: 1rem; color: var(--ink-soft); margin-top: 2px; }
+.acc-more { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.acc-feedback { font-size: 1rem; color: var(--ink); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.acc-feedback svg { width: 18px; height: 18px; color: var(--gold-text); flex-shrink: 0; }
+
+/* the banner: what just happened and why */
+.acc-banner { display: flex; gap: 14px; align-items: flex-start; border: 1px solid var(--gold); border-radius: 14px; padding: 12px 18px; background: var(--gold-soft); }
+.acc-banner-icon { width: 34px; height: 34px; border-radius: 50%; background: var(--gold); color: var(--on-gold); display: grid; place-items: center; flex-shrink: 0; margin-top: 1px; }
+.acc-banner-icon svg { width: 17px; height: 17px; }
+.acc-banner-main { flex: 1; min-width: 0; }
+.acc-banner-head { font-size: 1.125rem; font-weight: 600; color: var(--ink); line-height: 1.4; }
+.acc-banner-body { font-size: 1rem; color: var(--ink); margin-top: 4px; }
+.acc-banner-acts { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+
+/* adding, in the place of the invitation */
+.acc-add { border: 1px solid var(--gold); border-radius: 14px; padding: 18px 22px 20px; background: var(--card); }
+.acc-add-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.acc-add-title { font: 400 1.625rem/1.15 var(--font-serif); color: var(--ink); }
+.acc-add-step { font-size: 1rem; color: var(--ink-soft); white-space: nowrap; }
+.acc-steps { display: flex; gap: 6px; margin-top: 10px; }
+.acc-steps i { height: 4px; flex: 1; border-radius: 2px; background: var(--line-strong); }
+.acc-steps i.is-done { background: var(--gold); }
+.acc-add-body { font-size: 1rem; color: var(--ink); margin-top: 12px; max-width: 62ch; }
+.acc-add-body + .acc-add-body { margin-top: 8px; }
+.acc-add-body.is-soft { color: var(--ink-soft); }
+.acc-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.acc-fields.is-one { grid-template-columns: 1fr; }
+.acc-field { display: flex; flex-direction: column; gap: 6px; font-size: 1rem; color: var(--ink); font-weight: 500; }
+.acc-field input { background: var(--surface-raised); border: 1px solid var(--line-control); border-radius: 9px; padding: 9px 12px; font: inherit; font-size: 1.0625rem; color: var(--ink); font-weight: 400; }
+.acc-field input::placeholder { color: var(--ink-soft); }
+.acc-field input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.acc-field.is-invalid input { border-color: var(--gold-text); }
+.acc-err { font-size: 1rem; color: var(--gold-text); font-weight: 600; margin-top: 10px; }
+.acc-add-acts { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+.acc-waiting { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding: 14px 16px; border-radius: 10px; background: var(--surface-raised); border: 1px solid var(--line-soft); }
+.acc-ring { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid var(--line-strong); border-top-color: var(--gold); animation: acc-spin 1s linear infinite; flex-shrink: 0; }
+@keyframes acc-spin { to { transform: rotate(360deg); } }
+.acc-waiting p { font-size: 1rem; color: var(--ink); }
+
+/* the right column: how Rich uses them */
+.acc-how-title { font-size: 1.25rem; font-weight: 600; color: var(--ink); line-height: 1.35; }
+.acc-how-p { font-size: 1rem; color: var(--ink); line-height: 1.55; }
+.acc-how-p.is-soft { color: var(--ink-soft); }
+.acc-how-sec { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 8px; }
+.acc-how-h { font-size: 1.0625rem; font-weight: 600; color: var(--ink); }
+.acc-choice { display: flex; flex-direction: column; gap: 8px; }
+.acc-opt { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px 14px; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.acc-opt:hover { border-color: var(--line-control); }
+.acc-opt[aria-checked="true"] { border-color: var(--line-control); background: var(--card); }
+.acc-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--ink-soft); flex-shrink: 0; margin-top: 3px; display: grid; place-items: center; }
+.acc-opt[aria-checked="true"] .acc-radio { border-color: var(--gold); }
+.acc-opt[aria-checked="true"] .acc-radio::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+.acc-opt-t { display: block; font-size: 1rem; font-weight: 600; color: var(--ink); }
+.acc-opt-s { display: block; font-size: 1rem; color: var(--ink-soft); }
+.acc-saved { font-size: 1rem; color: var(--ink-soft); }
+.acc-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.acc-log li { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 1rem; color: var(--ink); }
+.acc-log li:last-child { border-bottom: 0; }
+.acc-log time { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.acc-promo { border: 1px solid var(--line-soft); background: var(--card); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+
+/* the Settings row: one plain line and the week's mini bar (round 18's `.set-sub`, `.mini`) */
+#set-accounts-state.is-attention { color: var(--gold-text); font-weight: 600; }
+.bugbtn:hover #set-accounts-state.is-attention { color: inherit; }
+/* The bar beside the row's name (accounts.js paintRow), so the line under it has the row's whole
+   width in the 267 px panel and never wraps to a third line. Both lines are 16px. */
+#set-accounts-open .set-row-text { gap: 0; }
+#set-accounts-open .set-name { display: flex; align-items: center; gap: 10px; }
+.acc-mini { position: relative; width: 44px; height: 6px; flex: none; border-radius: 3px; background: var(--line-control); overflow: hidden; }
+.acc-mini i { position: absolute; inset: 0 auto 0 0; background: var(--gold); border-radius: 3px; }
+.acc-nowrap { white-space: nowrap; }
+.acc-mini[hidden] { display: none !important; }
+
+/* Rich's lines about accounts: the buttons round 18 puts under them */
+.acc-note-slot:empty { display: none; }
+.acc-note-acts { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.acc-after { font-size: 1rem; color: var(--ink-soft); margin: 12px 0 0; }
+@media (prefers-reduced-motion: reduce) { #accounts-sheet, #accounts-sheet * { animation: none !important; transition: none !important; } }

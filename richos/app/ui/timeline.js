@@ -2199,6 +2199,16 @@
     if (!item.closed && item.text) body.classList.add("is-streaming");
     art.appendChild(body);
 
+    // ROUND 18's BUTTONS UNDER RICH'S LINES ABOUT CLAUDE ACCOUNTS (the CEO 2026-10-06, feedback
+    // item 9): "See your accounts" under the switch line, "Add a second account" and "Not now"
+    // under his one-time suggestion. The back end records which proactive turns those are
+    // (claude_accounts.rs `noted`); `accounts.js` fills the slot, and leaves it empty (and
+    // undrawn) for every other line. Only Rich's proactive lines carry one.
+    if (item.phase === "proactive" && window.RichAccounts && window.RichAccounts.noteSlot) {
+      const slot = window.RichAccounts.noteSlot(item.turnId);
+      if (slot) art.appendChild(slot);
+    }
+
     const actions = elem("div", "tl-rich-actions");
     const copy = elem("button", "tl-mini-btn", "Copy");
     copy.type = "button";

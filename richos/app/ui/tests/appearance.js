@@ -1063,7 +1063,7 @@ async function main() {
       // defect A. One setting carried two names: this row said "Techy Mode" while the gear
       // panel said "Technical view" and THIS toggle's own modal is headed "Turn off the
       // technical view". The ORDER is untouched; only the third row's words changed.
-      ["Theme", "Text size", "Technical view", "Claude Code quota", "Company", "Home screen", "Connected folders (repositories)", "Account connection", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
+      ["Theme", "Text size", "Technical view", "Claude Code quota", "Company", "Home screen", "Claude accounts", "Connected folders (repositories)", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
         "that, a Techy Mode toggle'. The technical-only Claude Code quota row follows that toggle. The splash screen's off switch is not in this menu " +
         "since the CEO's 2026-10-06 feedback item 7 (it is in the gear's general settings), and Bust a bug is always the floor. " +
@@ -1075,7 +1075,10 @@ async function main() {
         "buttons say, and which of them show) went in directly under Company, because it is " +
         "about the same six things Company is about, and above Updates for the same reason " +
         "Company is: a preference outranks a status panel. The floor is still the floor. " +
-        "Memory folder (2026-09-18, audit-7 row 13) went in directly under Account connection " +
+        "Claude accounts (2026-10-06, round 18, the CEO's feedback item 9) took the place of the " +
+        "old Account connection row and sits above the folders row, as round 18 draws it, for " +
+        "everyone whatever Technical view is set to; the first account's sign-in lives in its card. " +
+        "Memory folder (2026-09-18, audit-7 row 13) went in directly under the account row " +
         "and above Updates, on the same reasoning as every row before it: the ruling does not " +
         "name it, it is a preference rather than a status panel, and the floor stays the floor. " +
         "It sits with the other two rows that open a sheet about where something of his lives, " +

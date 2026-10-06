@@ -187,10 +187,13 @@ impl InterruptionCause {
             // is already terminal. He sends it again, and his message is saved so he can.
             // A sentence that says otherwise is a promise the app cannot keep, which is the
             // whole of what D6 was about.
+            // THE ROW IS "Claude accounts" since round 18 (the CEO 2026-10-06, feedback item 9),
+            // which took the place of the old account row in Settings and holds the first
+            // account's sign-in. The sentence names the row that exists.
             InterruptionCause::NotSignedIn => {
-                "I couldn't start that, because I'm not connected to your Anthropic account \
-                 right now: either nobody has signed in on this Mac yet, or the sign-in ran \
-                 out. You can connect it in Settings, under Account connection, and then \
+                "I couldn't start that, because I'm not connected to your Claude account \
+                 right now. Either nobody has signed in on this Mac yet, or the sign-in ran \
+                 out. You can connect it in Settings, under Claude accounts, and then \
                  send this to me again."
             }
             InterruptionCause::CredentialRejected => {

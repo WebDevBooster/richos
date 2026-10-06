@@ -129,17 +129,17 @@ fn a_reason_nobody_anticipated_is_named_unknown_rather_than_guessed() {
 ///
 /// **UNTRUTH 3: a retry that cannot succeed.** No retry control on this class, ever.
 ///
-/// And the route it offers is the one that exists — Settings, under Account connection —
+/// And the route it offers is the one that exists, Settings, under Claude accounts (round 18),
 /// which the audit's third finding said the app never mentioned despite having it.
 #[test]
 fn the_sign_in_case_names_the_account_offers_the_route_that_exists_and_no_retry() {
     let cause = InterruptionCause::NotSignedIn;
     let message = cause.ceo_message();
 
-    assert!(message.contains("Anthropic account"), "{message}");
+    assert!(message.contains("Claude account"), "{message}");
     assert!(!cause.offers_retry(), "a retry here cannot succeed however often it is pressed");
     assert!(
-        message.contains("Settings") && message.contains("Account connection"),
+        message.contains("Settings") && message.contains("Claude accounts"),
         "the route the app actually has is not offered: {message}"
     );
 

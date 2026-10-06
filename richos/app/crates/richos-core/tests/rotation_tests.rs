@@ -1198,7 +1198,7 @@ fn a_turn_that_starts_at_93_percent_runs_under_the_next_account() {
     let his: Vec<_> = prompts.lock().unwrap().iter().filter(|(_, text)| text == "What is on my plate?").cloned().collect();
     assert_eq!(his, vec![("2".to_string(), "What is on my plate?".to_string())], "his turn ran ONLY under Work");
     let msgs = spine.messages(&thread).unwrap();
-    assert!(msgs.iter().any(|m| m.text == "Switched to Work: Account 1 reached 93% of its five-hour window. Nothing stopped."), "{msgs:?}");
+    assert!(msgs.iter().any(|m| m.text.starts_with("I switched the team to your **Work** account. Account 1 had used 93% of its 5-hour limit")), "{msgs:?}");
     assert!(msgs.iter().any(|m| m.text == "answered on account 2"));
     drop(std::fs::remove_file(&path));
     drop(std::fs::remove_dir_all(dir));
@@ -1274,8 +1274,9 @@ fn an_account_switch_waits_for_a_command_the_conversation_started() {
 #[test]
 fn the_switch_notice_waits_until_a_turn_really_runs_under_the_new_account() {
     use richos_core::lease_commands::CommandReading;
-    // Round 16's words for the switch ("The switch"), held until a turn runs under Work.
-    const NOTICE: &str = "Switched to Work: Account 1 reached 93% of its five-hour window. Nothing stopped.";
+    // Round 18's words for the switch, held until a turn runs under Work. The rest of the line
+    // says when Account 1 is fresh again, which moves with the clock.
+    const NOTICE: &str = "I switched the team to your **Work** account. Account 1 had used 93% of its 5-hour limit";
     let (dir, quota) = two_accounts("notice-waits", 60.);
     // The five-hour switch acts only while the automatic switch is on (e1ac24d27).
     quota.set_policy(richos_core::quota::Policy { enabled: true, pause_percent: 93 }).unwrap();
@@ -1294,7 +1295,7 @@ fn the_switch_notice_waits_until_a_turn_really_runs_under_the_new_account() {
     spine.set_lease_factory(Box::new(AccountFactory { quota: quota.clone(), spawned: Arc::new(Mutex::new(Vec::new())),
         streamed: Arc::new(Mutex::new(None)), prompts: prompts.clone() }));
     let notices = |spine: &richos_core::spine::Spine| spine.messages(&thread).unwrap().iter()
-        .filter(|m| m.text.starts_with("Switched to")).map(|m| m.text.clone()).collect::<Vec<_>>();
+        .filter(|m| m.text.starts_with("I switched the team to")).map(|m| m.text.clone()).collect::<Vec<_>>();
 
     // ---- the switch is decided, and waits: the turn runs on Account 1 -------------------
     spine.submit_prompt("Is the build done?", Source::Text).unwrap();
@@ -1311,7 +1312,7 @@ fn the_switch_notice_waits_until_a_turn_really_runs_under_the_new_account() {
     spine.submit_prompt("It finished", Source::Text).unwrap();
     assert_eq!(spine.rotation_count(), 1);
     assert!(prompts.lock().unwrap().contains(&("2".to_string(), "It finished".to_string())));
-    assert_eq!(notices(&spine), vec![NOTICE.to_string()], "said once, once the turn ran under Work");
+    assert_eq!(notices(&spine).iter().map(|t| t.starts_with(NOTICE)).collect::<Vec<_>>(), vec![true], "said once, once the turn ran under Work");
     drop(std::fs::remove_file(&path));
     drop(std::fs::remove_dir_all(dir));
 }
@@ -1347,7 +1348,7 @@ fn the_switch_notice_is_drawn_while_the_turn_on_the_new_account_runs() {
     assert!(prompts.lock().unwrap().contains(&("2".to_string(), "What is on my plate?".to_string())), "his turn ran under Work");
     let turns = spine.ledger().turns();
     let his = turns.iter().find(|t| t.user_text == "What is on my plate?").expect("his turn").id.clone();
-    let notice = turns.iter().find(|t| t.assistant_text.starts_with("Switched to Work")).expect("the switch notice").id.clone();
+    let notice = turns.iter().find(|t| t.assistant_text.starts_with("I switched the team to your **Work** account")).expect("the switch notice").id.clone();
     let events = observer.events();
     let at = |wanted: &dyn Fn(&StreamEvent) -> bool| events.iter().position(wanted);
     let started = at(&|e| matches!(e, StreamEvent::TurnStarted { turn_id, .. } if *turn_id == his)).expect("his turn started");
@@ -1384,9 +1385,9 @@ fn a_turn_cut_by_a_usage_limit_is_re_served_under_the_next_account() {
     assert_eq!(*spawned.lock().unwrap(), vec!["2".to_string()]);
     assert_eq!(spine.last_rotation_reason(), Some(richos_core::spine::ACCOUNT_EXHAUSTED));
     let msgs = spine.messages(&thread).unwrap();
-    let exchange: Vec<_> = msgs.iter().filter(|m| !m.text.starts_with("Switched to")).map(|m| m.text.as_str()).collect();
+    let exchange: Vec<_> = msgs.iter().filter(|m| !m.text.starts_with("I switched the team to")).map(|m| m.text.as_str()).collect();
     assert_eq!(exchange, vec!["Draft the board update", "answered on account 2"], "one clean exchange");
-    assert!(msgs.iter().any(|m| m.text == "Switched to Work: Account 1 reached a usage limit; the step it turned away runs again on Work."));
+    assert!(msgs.iter().any(|m| m.text == "I switched the team to your **Work** account. Account 1 reached a Claude usage limit, so the step it turned away runs again on Work."));
     let failed = spine.ledger().turns().iter().find(|t| t.state == TurnState::Interrupted).cloned().expect("kept on disk");
     assert!(failed.superseded_by.is_some());
     drop(std::fs::remove_file(&path));

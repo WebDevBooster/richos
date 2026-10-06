@@ -349,7 +349,7 @@ async function main() {
         // wraps inside its own column (quota.html .reading, no wrap) instead of pushing them down.
         assert(await page.evaluate(() => document.querySelector(".quota-toolbar-actions").getBoundingClientRect().top
           < document.getElementById("quota-freshness").getBoundingClientRect().bottom), "Add account and Refresh stay on the reading's row");
-        assertEqual(await page.locator('.quota-lane[data-id="1"] button').allTextContents(), [], "Account 1 has no Remove");
+        assertEqual(await page.locator('.quota-lane[data-id="1"] button').allTextContents(), ["Use this one now"], "Account 1 has no Remove; with room it can be put in use now");
         assertEqual(await page.locator('.quota-lane[data-id="3"] button').allTextContents(), ["Sign in", "Remove"]);
       }
       // Several accounts add a row each, so that state may scroll vertically (never sideways),
@@ -559,6 +559,93 @@ async function main() {
     assertEqual(await page.locator("#quota-hold-status").innerText(), "Every account is used up.");
     assert((await page.locator("#quota-hold-detail").innerText()).includes("when Home’s window resets, the soonest."));
     assertEqual(await page.locator(".quota-lane-tag.is-gone").count(), 1, "the account not in use reads used up");
+    await page.close();
+  });
+  // ---- Feedback item 8 (the CEO 2026-10-06): he picks which account drains first ---------
+  await run.check("item 8: in use now and next are said plainly, and Use this one now puts another account in use", async () => {
+    // His case: Home in use at 32% of its week, Work at 97% with room, Spare not signed in.
+    const fixture = twoAccounts();
+    fixture.accounts[1].windows[1] = { ...fixture.accounts[1].windows[1], usedPercent: 97 };
+    fixture.accounts.push({ id: "3", label: "Spare", inUse: false, windows: [], checkedAt: null, exhaustedUntil: null, message: null });
+    for (const theme of ["light", "dark"]) {
+      const page = await open(theme, fixture, 100, null, true);
+      await enableTechnical(page); await page.click("#set-quota-open");
+      await page.waitForSelector(".quota-lane");
+      assertEqual(await page.locator("#quota-order").innerText(), "In use now: Home. Next: Work, whose week is fresh again soonest.");
+      assertEqual(await page.locator('.quota-lane[data-id="1"] .quota-lane-first').count(), 0, "the account in use has no Use this one now");
+      assertEqual(await page.locator('.quota-lane[data-id="3"] .quota-lane-first').count(), 0, "an account with no reading has no Use this one now");
+      assertEqual(await page.locator('.quota-lane[data-id="2"] .quota-lane-first').innerText(), "Use this one now");
+      assertEqual(await page.locator('.quota-lane[data-id="2"] .quota-lane-first').getAttribute("aria-label"), "Use Work now");
+      await page.click('.quota-lane[data-id="2"] .quota-lane-first');
+      await page.waitForFunction(() => document.querySelector(".quota-lane.is-inuse .quota-lane-label")?.textContent === "Work");
+      assertEqual(await page.locator(".quota-lane-label").allTextContents(), ["Work", "Home", "Spare"], "Work leads the lanes now");
+      assertEqual(await page.locator("#quota-order").innerText(), "In use now: Work. Next: Home, whose week is fresh again soonest.");
+      assertEqual(await page.locator("#quota-account-feedback").innerText(), "Rich now uses Work. Work has already used 97% of its week, so Rich will switch again when it reaches 99%.");
+      assertEqual(await page.locator('.quota-lane[data-id="1"] .quota-lane-first').count(), 1, "Home can be picked back");
+      for (const text of [await page.locator("#quota-order").innerText(), await page.locator("#quota-account-feedback").innerText()]) {
+        assert(!/[\u2013\u2014]/.test(text), "no m-dash or n-dash: " + text);
+      }
+      // Contrast, computed, for the new line and the new button, in this theme.
+      await page.addScriptTag({content: contrast.pageScript()});
+      const ratios = await page.evaluate(() => {
+        const C = window.__contrastMath, root = document.querySelector(".quota-panel"), out = [];
+        for (const e of [document.getElementById("quota-order"), document.querySelector("#quota-order b"), document.querySelector(".quota-lane-first"), document.getElementById("quota-account-feedback")]) {
+          let bg = C.parseCssColor(getComputedStyle(root).backgroundColor);
+          const chain = []; for (let p = e; p !== root; p = p.parentElement) chain.unshift(p);
+          for (const p of chain) bg = C.compositeOver(C.parseCssColor(getComputedStyle(p).backgroundColor), bg);
+          const style = getComputedStyle(e);
+          out.push({ text: e.textContent.slice(0, 30), size: parseFloat(style.fontSize), ratio: C.round2(C.contrastRatio(C.compositeOver(C.parseCssColor(style.color), bg), bg)) });
+        }
+        return out;
+      });
+      for (const r of ratios) assert(r.ratio >= 4.5 && r.size >= 16, `${theme}: ${JSON.stringify(r)}`);
+      console.log(`${theme} contrast: ${JSON.stringify(ratios)}`);
+      await page.close();
+    }
+    // An account with no room has no Use first: it would be left again at once.
+    const gone = twoAccounts();
+    gone.accounts[1] = { ...gone.accounts[1], exhaustedUntil: now + 3600000 };
+    const page = await open("dark", gone, 100, null, true);
+    await enableTechnical(page); await page.click("#set-quota-open");
+    await page.waitForSelector(".quota-lane");
+    assertEqual(await page.locator(".quota-lane-first").count(), 0);
+    assertEqual(await page.locator("#quota-order").innerText(), "In use now: Home. No other account has room right now.");
+    await page.close();
+    // Picking an account with plenty of room names the next one instead.
+    const roomy = twoAccounts();
+    const pg = await open("light", roomy, 100, null, true);
+    await enableTechnical(pg); await pg.click("#set-quota-open");
+    await pg.waitForSelector(".quota-lane");
+    await pg.click('.quota-lane[data-id="2"] .quota-lane-first');
+    await pg.waitForFunction(() => document.getElementById("quota-account-feedback").textContent.startsWith("Rich now uses"));
+    assertEqual(await pg.locator("#quota-account-feedback").innerText(), "Rich now uses Work. Home is next.");
+    await pg.close();
+    // One account: no order line.
+    const one = await open("dark", quota);
+    await enableTechnical(one); await one.click("#set-quota-open");
+    await one.waitForSelector(".quota-window");
+    assert(await one.locator("#quota-order").isHidden(), "one account: no order line");
+    await one.close();
+  });
+  await run.check("quick settings show the WEEKLY window, labeled (the CEO 2026-10-06: the switch is at 99% weekly)", async () => {
+    // One account: the five-hour window is at 94%, the week at 32%.
+    let page = await open("dark", quota);
+    await enableTechnical(page);
+    await page.waitForFunction(() => /weekly/.test(document.getElementById("set-quota-state").textContent));
+    assertEqual(await page.locator("#set-quota-state").innerText(), "32% weekly used");
+    assertEqual(await page.evaluate(() => document.querySelector("#set-quota-open .quota-mini i").style.width), "32%", "the mini bar is the week");
+    await page.close();
+    // Two accounts: Home in use (week 32%), Work next.
+    page = await open("dark", twoAccounts());
+    await enableTechnical(page);
+    await page.waitForFunction(() => /weekly/.test(document.getElementById("set-quota-state").textContent));
+    assertEqual(await page.locator("#set-quota-state").innerText(), "Home 32% weekly · next Work");
+    await page.close();
+    // A stale reading keeps its mark.
+    page = await open("dark", { ...quota, state: "stale", checkedAt: now - 3600000 });
+    await enableTechnical(page);
+    await page.waitForFunction(() => /weekly/.test(document.getElementById("set-quota-state").textContent));
+    assertEqual(await page.locator("#set-quota-state").innerText(), "32% weekly used · stale");
     await page.close();
   });
   // ---- Round 16, the eleven differences echo-opus-panel16b closed ------------------------
