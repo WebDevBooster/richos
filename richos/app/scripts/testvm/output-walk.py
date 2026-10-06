@@ -148,6 +148,14 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
                then a relaunch with it hidden: it comes back hidden; shown again by its button.
   pull         (above) also records the composer at the stop and fails when it has grown taller
                than the one line it is with the panel closed.
+  scratch      after backend-worker: cloned record rows for a /private/tmp copy and a project's
+               .claude/worktrees/ copy of notes.zip (hidden) and its own .claude/agents/ file
+               (listed); the Output button's count and the panel's rows, and no file link anywhere
+               for a temporary file the job itself left (CEO 2026-10-06, PRD §13 Q3).
+  labels       (candidate 40) the 14 px labels on screen in both themes: a name set so the rail
+               draws initials, the company label, its overview's section title, a search result
+               group, a front-desk worker's inspector (after front-desk-worker) and the Settings
+               version line; every node's box recorded for qa/frame.py.
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -175,10 +183,10 @@ command = command_walk.command
 STEPS = ['identity', 'first-run', 'connect', 'tools', 'pdf', 'backend-worker', 'front-desk-worker', 'open-reveal', 'panel',
          'md-view', 'previews', 'save-copy', 'attach', 'pull',
          'empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll', 'wrote',
-         'theme-flash', 'sidebar', 'scratch']
+         'theme-flash', 'sidebar', 'scratch', 'labels']
 # The candidate walk's steps: never in the default list, which runs the witness checks.
 CANDIDATE_STEPS = ('empty', 'csv', 'buttons', 'link', 'actions', 'missing', 'menus', 'overlap', 'job-question', 'scroll',
-                   'wrote', 'theme-flash', 'sidebar', 'scratch')
+                   'wrote', 'theme-flash', 'sidebar', 'scratch', 'labels')
 # The scroll step's files: enough rows that the Output list overflows the window at the split.
 SCROLL_COUNT = 30
 SCROLL_NAME = re.compile(r'^scroll-\d\d\.txt$')
@@ -242,6 +250,10 @@ WORKER_TASK = ('Please add a file named notes.md whose whole content is the line
                'and land both files.')
 WORKTREES = '/engine-state/target-worktrees/'
 MADE = 'notes.zip'
+# Candidate 40: the scratch step's file under a project's own .claude/agents/ (listed), and the name
+# the labels step sets, so the rail draws initials ("WT").
+AGENTS_FILE = 'walk-agent.md'
+LABELS_NAME = 'Walk Tester'
 FRONT_DESK_TASK = ('This is a test of your own Agent tool. Do not register an assignment for it. In this turn, '
                    'use your Agent tool yourself to start one worker that writes a file named direct.md '
                    'containing the word direct in my Acme folder.')
@@ -1848,25 +1860,42 @@ class OutputWalk(command_walk.CommandWalk):
         appended to the record the way the reviewer's was (a clone of the worker's own notes.zip
         command row, so the row's shape is the app's). PASS when the record still holds that row, the
         Output button counts the files the record holds LESS that one, and the opened panel shows
-        notes.zip once and nothing from rv-zip-a1."""
+        notes.zip once and nothing from rv-zip-a1.
+        (Candidate 40) Two more cloned rows, the two sides of the `.claude` rule: a copy of notes.zip
+        under the project's `.claude/worktrees/agent-walk/` (an agent's worktree: hidden) and
+        AGENTS_FILE under the project's own `.claude/agents/` (listed, and counted). Any row the job
+        itself left in a temporary folder (walk 39: a reviewer's /private/tmp/rev-notes-fresh.zip) is
+        recorded, and FAILS when a file link for it is anywhere in the window (the "Produced N files"
+        strip, a "Wrote N files" group or the panel)."""
         evidence, note = self.observed('scratch')
         rows = self.record()
         base = [r for r in rows if r.get('source') == 'command' and r.get('path', '').endswith('/' + MADE)]
         if not base:
             raise StepFailed('no notes.zip command row to clone: run backend-worker first')
+        hidden = lambda k: k.startswith(('/private/tmp/', '/tmp/')) or '/.claude/worktrees/' in k  # noqa: E731
+        by_job = sorted({r['path'] for r in rows if hidden(r.get('path', ''))})
+        note(left_by_the_job=by_job)
         scratch = '/private/tmp/rv-zip-a1/' + MADE
-        guest(self.vm, 'mkdir -p /private/tmp/rv-zip-a1 && cp %s %s' % (shlex.quote(self.company + '/' + MADE),
-                                                                         shlex.quote(scratch)), 60)
-        row = dict(base[-1], path=scratch, canonical=scratch, key='mach:scratch-walk-1')
-        row.pop('landedFrom', None)
+        worktree = self.company + '/.claude/worktrees/agent-walk/' + MADE
+        agents = self.company + '/.claude/agents/' + AGENTS_FILE
+        guest(self.vm, 'mkdir -p /private/tmp/rv-zip-a1 %s %s && cp %s %s && cp %s %s && printf "walk agent\\n" > %s' % (
+            shlex.quote(str(Path(worktree).parent)), shlex.quote(str(Path(agents).parent)),
+            shlex.quote(self.company + '/' + MADE), shlex.quote(scratch),
+            shlex.quote(self.company + '/' + MADE), shlex.quote(worktree), shlex.quote(agents)), 60)
         rec = self.data + '/output/' + self.facts['thread'] + '.jsonl'
-        guest(self.vm, 'printf "%s\\n" ' + shlex.quote(json.dumps(row, sort_keys=True)) + ' >> ' + shlex.quote(rec), 60)
+        added = []
+        for n, path in enumerate((scratch, worktree, agents), 1):
+            row = dict(base[-1], path=path, canonical=path, key='mach:scratch-walk-%d' % n)
+            row.pop('landedFrom', None)
+            added.append(row)
+            guest(self.vm, 'printf "%s\\n" ' + shlex.quote(json.dumps(row, sort_keys=True)) + ' >> ' + shlex.quote(rec), 60)
+        row = added[0]
         after = self.save_record('record-scratch.jsonl')
-        kept = [r for r in after if r.get('path') == scratch]
-        listed = [k for k in project(after) if not k.startswith('/private/tmp/')]
-        note(row=row, kept_in_record=len(kept), expected_count=len(listed), listed=sorted(listed))
-        if not kept:
-            raise StepFailed('the scratch row did not reach the record: it must stay whole')
+        kept = [r for r in after if r.get('path') in (scratch, worktree, agents)]
+        listed = [k for k in project(after) if not hidden(k)]
+        note(row=row, added=added, kept_in_record=len(kept), expected_count=len(listed), listed=sorted(listed))
+        if len(kept) != 3:
+            raise StepFailed('%d of the 3 cloned rows reached the record: it must stay whole' % len(kept))
         self.close_panel()
         self.wait_for('from this thread', role='AXCheckBox', seconds=60)
         buttons = self.find_all('from this thread', role='AXCheckBox')
@@ -1879,13 +1908,107 @@ class OutputWalk(command_walk.CommandWalk):
         time.sleep(1.5)
         self.shot('scratch-panel.png')
         zips = self.in_panel(self.find_all(MADE))
-        seen = self.in_panel(self.find_all('rv-zip-a1'))
+        seen = self.in_panel(self.find_all('rv-zip-a1')) + self.in_panel(self.find_all('agent-walk'))
+        agent_rows = self.in_panel(self.find_all(AGENTS_FILE))
         # One row is several nodes (its name, its group, its actions): the nodes are one row when
         # they sit within one row's height of each other (a row is ~76 px; two rows are not).
         ys = [n['y'] for n in zips]
-        note(zip_nodes=len(zips), zip_node_y=ys, scratch_nodes=len(seen))
+        links = [{k: n.get(k) for k in ('role', 'title', 'desc', 'x', 'y')}
+                 for name in sorted({Path(p).name for p in by_job}) for n in self.find_all(name, role='AXButton')]
+        note(zip_nodes=len(zips), zip_node_y=ys, scratch_nodes=len(seen), agents_nodes=len(agent_rows),
+             agents_node_y=[n['y'] for n in agent_rows], links_to_the_jobs_scratch=links)
+        failures = []
         if not zips or max(ys) - min(ys) > 60 or seen:
-            raise StepFailed('the panel lists notes.zip in %d places (y %s) and %d scratch nodes' % (len(zips), ys, len(seen)))
+            failures.append('the panel lists notes.zip in %d places (y %s) and %d scratch nodes' % (len(zips), ys, len(seen)))
+        if not agent_rows:
+            failures.append("the project's own .claude/agents/%s is not listed" % AGENTS_FILE)
+        if links:
+            failures.append("a file link names the job's own temporary file: %s" % json.dumps(links))
+        if failures:
+            raise StepFailed('; '.join(failures))
+        return evidence
+
+    def labels(self):
+        """Candidate 40 (echo-sonnet-polish1): the five readable labels raised from 11 px to 14 px, each
+        put on the screen the way a person reaches it, and photographed in both themes, with the
+        accessibility box of every one recorded so qa/frame.py can measure the ink on the frame:
+          rail     a name set in the preferences popover ("Set your name"), so the rail's initials
+                   are drawn; the company label over its conversations;
+          entity   the company's overview (its label pressed): the "Threads" section title;
+          search   the Search overlay with a query that finds the company: its result group;
+          worker   a front-desk worker's chip (front-desk-worker before this step) opened: the
+                   inspector's "Latest update" label, when the worker left one;
+          version  the Settings menu's version line, read and photographed (identity).
+        Each part records what it found; the step FAILS on a part that could not be reached."""
+        evidence, note = self.observed('labels')
+        os.environ['TESTVM_AX_TIMEOUT'] = '60'
+        self.close_panel()
+        failures = []
+        # rail: the name, and with it the initials
+        if self.present('No name is set'):
+            self.press('No name is set')
+            time.sleep(1)
+            self.type_into(LABELS_NAME, '--role', 'AXTextField', '--title', 'Your name')
+            self.script('tell application "System Events" to key code 36')
+            time.sleep(1)
+            self.script('tell application "System Events" to key code 53')
+            time.sleep(1)
+        named = self.find_all(LABELS_NAME)
+        group = self.find_all('Acme overview')
+        note(name_nodes=named[:3], company_label=group[:1])
+        if not named:
+            failures.append('the name never reached the rail')
+        note(rail_shots=self.flip_theme('labels-rail'))
+        # entity: the company's overview
+        if group:
+            self.press('Acme overview')
+            time.sleep(2)
+            titles = self.find_all('Threads', role='AXHeading', contains=False)
+            note(entity_titles=titles[:2])
+            note(entity_shots=self.flip_theme('labels-entity'))
+            if not titles:
+                failures.append('the overview has no "Threads" title')
+        else:
+            failures.append('no "Acme overview" label in the rail')
+        # search: a query that finds the company
+        self.press('Search')
+        time.sleep(1)
+        # openSearch() puts the focus in its field: typed there as a person types.
+        self.script('tell application "System Events" to keystroke "Acme"')
+        time.sleep(3)
+        heads = [n for n in self.find_all('Acme', role='AXStaticText', by='--value', contains=False)]
+        note(search_group_nodes=heads[:4])
+        note(search_shots=self.flip_theme('labels-search'))
+        self.script('tell application "System Events" to key code 53')
+        time.sleep(1)
+        if not heads:
+            failures.append('the search shows no result group')
+        # worker: the inspector of a front-desk worker's chip
+        chips = self.find_all('open worker details')
+        note(worker_chips=[{k: c.get(k) for k in ('title', 'desc', 'x', 'y')} for c in chips[:3]])
+        if chips:
+            self.press('open worker details')
+            time.sleep(2)
+            label = self.find_all('Latest update', role='AXStaticText', by='--value')
+            note(inspector_label=label[:2])
+            note(worker_shots=self.flip_theme('labels-worker'))
+            if not label:
+                failures.append('the worker inspector shows no "Latest update" label (the worker left none)')
+        else:
+            failures.append('no worker chip on the conversation: run front-desk-worker first')
+        self.script('tell application "System Events" to key code 53')
+        time.sleep(1)
+        # version: the Settings menu's line
+        self.press('Settings', role='AXPopUpButton')
+        time.sleep(2)
+        version = self.find_all('1.2.0-nightly', by='--value')
+        note(version=[n.get('value') for n in version[:2]])
+        note(version_shots=self.flip_theme('labels-settings'))
+        self.script('tell application "System Events" to key code 53')
+        if not version:
+            failures.append('the Settings menu shows no version line')
+        if failures:
+            raise StepFailed('; '.join(failures))
         return evidence
 
     def theme_flash(self):
