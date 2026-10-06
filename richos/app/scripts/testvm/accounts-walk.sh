@@ -93,10 +93,13 @@ theme() {  # theme Light|Dark; the press is retried only while the menu is still
   menu closed
 }
 sheet_open() { ax find --title 'Close Claude accounts' --first >/dev/null 2>&1; }
-open_sheet() {  # the Settings row, by its name
+# The Settings row is an AXMenuItem whose title runs on into its line ("Claude accounts Using Work,
+# switched 2:35 PM"). Pressed by role: the first node titled Claude accounts is an empty AXGroup
+# named after the closed sheet, and pressing it did nothing (the 2026-10-06 14:38Z find).
+open_sheet() {
   for try in 1 2; do
     menu open
-    ax click --title 'Claude accounts' --contains --first >/dev/null 2>&1 || note "no Claude accounts row"
+    ax click --title 'Claude accounts' --role AXMenuItem --contains --first >/dev/null 2>&1 || note "no Claude accounts row"
     sleep 3
     sheet_open && return 0
     note "accounts sheet not open after try $try"
