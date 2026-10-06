@@ -351,8 +351,8 @@ N="$(git -C "$TARGET" worktree list --porcelain | grep -c "^worktree $WT2\$")"
 [ "$N" = "1" ] && ok "the workspace exists EXACTLY once" || bad "the workspace exists exactly once" "found $N"
 if printf '%s' "$OUT" | grep -q '"isolation": "worktree"' \
    && printf '%s' "$OUT" | grep -q "cross-repo-worktree: $WT2" \
-   && printf '%s' "$OUT" | grep -q "inflight-ack.sh"; then
-    ok "the printed payload carries isolation, the registered workspace and the ack contract"
+   && printf '%s' "$OUT" | grep -q "git merge main"; then
+    ok "the printed payload carries isolation, the registered workspace and the merge-main handover line"
 else
     bad "the printed payload is complete" "$OUT"
 fi
