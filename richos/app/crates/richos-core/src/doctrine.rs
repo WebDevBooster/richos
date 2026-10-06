@@ -35,7 +35,8 @@
 //!
 //! | varies by | example | where it lives instead |
 //! |---|---|---|
-//! | nothing | who Rich is; how he speaks; what he never says | **this file** |
+//! | nothing | what is true of both twins: continuity, dialect, the record, what is never claimed | **this file** |
+//! | lease role | who you are (Rich or Stu, §110) and how Rich talks to him | `front-desk.md`, `back-end.md` |
 //! | entity | which company a thread belongs to | `reprime.rs::identity_assertion_scoped` |
 //! | conversation | the tail, pending decisions, current intent | the priming turn, Tiers A/B |
 //! | retired runtime state | managed worker team | removed with the orchestration rollback on 2026-09-09 |
@@ -107,6 +108,18 @@ pub const DOCTRINE_TEMPLATE: &str = include_str!("../doctrine/inner-doctrine.md"
 /// 2026-09-17 both leases got `DESKTOP.md`, which is why the front desk was instructed to
 /// prepare workers, review commits and integrate branches — the tools it no longer has.
 pub const FRONT_DESK_DOCTRINE: &str = include_str!("../doctrine/front-desk.md");
+
+/// **THE BACK END'S OWN NAME, STU** — the CEO's §110, 2026-10-06: *"the "front-desk Rich" will
+/// remain tied to the name Rich. But the "back-end Rich" should from now on be called Stu."*
+///
+/// The template above is the part that is true for BOTH leases, so since §110 it says nobody's
+/// name: who you are is said by the role's own file. The front desk's is [`FRONT_DESK_DOCTRINE`],
+/// which opens "You are Rich" and carries how he talks to the CEO; the back end's is this one,
+/// placed ahead of the engine's `mega-lander/DESKTOP.md` by
+/// `engine_profile::standing_doctrine`. Stu never talks to the CEO, so nothing here tells him
+/// how to; and the user only ever meets Rich (§110 addendum), so Stu is told never to name
+/// himself in what reaches him.
+pub const BACK_END_DOCTRINE: &str = include_str!("../doctrine/back-end.md");
 
 /// The rendered file's name, inside this install's own configuration directory — beside
 /// `config.json` and `entities.json`, same directory, same durability posture.
@@ -469,6 +482,21 @@ mod tests {
         );
     }
 
+    /// **The shared template names nobody, and says nothing about talking to him** (§110,
+    /// 2026-10-06). It reaches the back end too, and the back end is Stu, who never talks to
+    /// the CEO; "You are Rich" and "How you talk to him" live in the front desk's own file.
+    #[test]
+    fn the_shared_template_names_neither_twin_and_the_role_files_name_each_one() {
+        let shared = render(&DoctrineIdentity::new(Some("Nadia Kessler")));
+        for word in ["You are Rich", "Stu", "How you talk to him"] {
+            assert!(!shared.contains(word), "the shared template must not carry {word:?}:\n{shared}");
+        }
+        assert!(FRONT_DESK_DOCTRINE.contains("You are Rich."), "{FRONT_DESK_DOCTRINE}");
+        assert!(FRONT_DESK_DOCTRINE.contains("## How you talk to him"), "{FRONT_DESK_DOCTRINE}");
+        assert!(BACK_END_DOCTRINE.contains("You are Stu, Rich's twin."), "{BACK_END_DOCTRINE}");
+        assert!(!BACK_END_DOCTRINE.contains("How you talk"), "{BACK_END_DOCTRINE}");
+    }
+
     /// It is re-sent on every request of every turn, so its length is a permanent tax. §4.3
     /// sets the budget at 4 KB and says why: the discipline of a budget is what keeps six
     /// rules from acquiring paragraphs.
@@ -494,7 +522,7 @@ mod tests {
         assert!(!anonymous.contains(CEO_NAME_PLACEHOLDER), "the placeholder must never survive");
         // And the paragraph break is not left as a hole: the heading follows the opening
         // paragraph with exactly one blank line between them.
-        assert!(anonymous.contains("brings things to.\n\n## You are continuous"), "{anonymous}");
+        assert!(anonymous.contains("what your job is.\n\n## You are continuous"), "{anonymous}");
     }
 
     #[test]
