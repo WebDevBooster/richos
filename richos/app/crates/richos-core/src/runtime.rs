@@ -211,7 +211,7 @@ pub fn verify_engine(engine: &Path) -> Result<EngineRuntime, RuntimeError> {
         // missing component entry point is named.
         crate::engine_profile::GUARD_AUDIENCE_DECLARATION, "scripts/lib/spawn-guard-audience.py",
         "scripts/hooks/guard-worktree-isolation.sh", "scripts/hooks/guard-brief-scope.sh",
-        "scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "agents/worker.md", "agents/reviewer.md"] {
+        "scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "mega-lander/duties/worker.md", "mega-lander/duties/reviewer.md"] {
         if !engine.join(name).is_file() { return Err(RuntimeError(format!("missing component entry point: {name}"))); }
     }
     EngineRuntime::load(engine, None)

@@ -19,6 +19,12 @@ def load():
     spec=importlib.util.spec_from_file_location("test_desktop_work",ENGINE/"mega-lander/app.py")
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
+# A fictional teammate of the user's own (<app data>/team/mark.md), registered by the lease.
+MARK="---\nname: mark\ndescription: Fictional fixture engineer.\nmodel: sonnet\ntools: Read, Glob, Grep, Bash, Write, Edit\n---\n\nYou are Mark, a fictional fixture engineer.\n"
+
+# The first line of each duty text (engine/mega-lander/duties/), which prepare puts at the top.
+DUTY_TOP={"worker":"# Your duty in this assignment: implement","reviewer":"# Your duty in this assignment: review"}
+
 class DesktopWork(unittest.TestCase):
     def setUp(self):
         self.scratch=tempfile.TemporaryDirectory(prefix="app work fixture ");self.addCleanup(self.scratch.cleanup)
@@ -28,7 +34,10 @@ class DesktopWork(unittest.TestCase):
             repo.mkdir();subprocess.run(["git","init","--template=","-q","-b","main",str(repo)],check=True)
             subprocess.run(["git","-C",str(repo),"-c","core.hooksPath=/dev/null","-c","commit.gpgSign=false","-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","--allow-empty","-qm","Fixture"],check=True)
         (self.coord/".claude/agents").mkdir(parents=True)
-        for role in ("worker","reviewer"):(self.coord/f".claude/agents/{role}.md").write_text((ENGINE/f"agents/{role}.md").read_text())
+        # The roster a lease registers (slice 1 of the proto-teammate shelf plan): the always-active
+        # five as shipped, and a fictional teammate of the user's own who does the code jobs.
+        for name in ("dean","clark","reed","frank","pierce"):(self.coord/f".claude/agents/{name}.md").write_text((ENGINE/f"agents/{name}.md").read_text())
+        (self.coord/".claude/agents/mark.md").write_text(MARK)
         (self.coord/"orchestration.config").write_text('ALLOWED_MODELS="opus sonnet haiku"\nMODEL_TIERS="opus > sonnet > haiku"\n')
         (self.coord/".gitignore").write_text('.claude/\norchestration.config\n')
         hook=self.root/"spawn-hooks.json";hook.write_text(json.dumps({"hooks":{"PreToolUse":[{"matcher":"Agent","hooks":[{"type":"command","command":f"/bin/bash '{ENGINE}/scripts/hooks/guard-worktree-isolation.sh'"}]}]}}))
@@ -58,7 +67,7 @@ class DesktopWork(unittest.TestCase):
         self.scope_path.write_text(json.dumps(self.scope))
         self.app.ECS.execute(ecs,{"protocol":1,"command":"checkpoint","binding":binding,"request_id":"accept-fixture","checkpoint":{"statements":[{"verb":"commitment","fields":{"id":"fixture-task","title":"Create the fictional result"}}]}})
         self.app.W.record_session_start(self.session,str(self.coord))
-        self.args={"request_id":"prepare-one","obligation_id":"fixture-task","repo":str(self.repo),"title":"Create fictional result","brief":"Create result.txt with FICTIONAL in the assigned target worktree. Commit only that file. Do not publish.","role":"worker","integration":"main"}
+        self.args={"request_id":"prepare-one","obligation_id":"fixture-task","repo":str(self.repo),"title":"Create fictional result","brief":"Create result.txt with FICTIONAL in the assigned target worktree. Commit only that file. Do not publish.","role":"worker","teammate":"mark","integration":"main"}
 
     def call(self,name,args=None):return self.app.call(self.scope_path,name,args or {})
     def test_pause_message_is_fixed_and_does_not_claim_delivery(self):
@@ -80,6 +89,42 @@ class DesktopWork(unittest.TestCase):
         self.assertFalse((self.repo/"result.txt").exists())
         self.assertEqual(len(self.call("inspect")["records"]),1)
         with self.assertRaisesRegex(ValueError,"different work"):self.call("prepare",{**self.args,"brief":"Different task"})
+    def test_prepare_starts_the_named_teammate_on_its_own_model_with_its_duty_on_top(self):
+        """Slice 2 of the proto-teammate shelf plan (richos-hq
+        docs/plans/2026-10-06-proto-teammate-shelf.md §3, §5): `teammate` names an ACTIVE
+        teammate and anything else is refused with the names that are; `role` stays the duty;
+        the agent is `<teammate>-<model>-<id12>` of type richos-app-engine:<teammate> on the
+        model its own definition names; the duty's text is the top of the brief."""
+        without=dict(self.args);del without["teammate"]
+        with self.assertRaisesRegex(ValueError,"teammate must be a nonempty"):self.call("prepare",without)
+        # The duties, a shelf teammate never activated, and a name that cannot be one.
+        for name in ("worker","reviewer","sage","Mark"):
+            with self.assertRaisesRegex(ValueError,"Active teammates: clark, dean, frank, mark, pierce, reed$"
+                                        if name!="Mark" else "lowercase"):
+                self.call("prepare",{**self.args,"request_id":"not-"+name,"teammate":name})
+        (self.coord/".claude/agents/nora.md").write_text("---\nname: nora\n---\nNo model line.\n")
+        with self.assertRaisesRegex(ValueError,"nora's definition names no model"):
+            self.call("prepare",{**self.args,"request_id":"no-model","teammate":"nora"})
+        (self.coord/".claude/agents/olga.md").write_text("---\nname: olga-dev\nmodel: sonnet\n---\n")
+        with self.assertRaisesRegex(ValueError,"names itself 'olga-dev'"):
+            self.call("prepare",{**self.args,"request_id":"wrong-name","teammate":"olga"})
+        self.assertEqual(self.call("inspect")["records"],[],"a refused teammate left a receipt")
+
+        ready=self.call("prepare",{**self.args,"teammate":"frank"})
+        self.assertRegex(ready["name"],r"^frank-opus-[0-9a-f]{12}$")
+        payload=ready["agent_payload"]
+        self.assertEqual((payload["name"],payload["subagent_type"],payload["model"]),
+                         (ready["name"],"richos-app-engine:frank","opus"))
+        self.assertEqual((ready["request"]["role"],ready["request"]["teammate"]),("worker","frank"))
+        duty=(ENGINE/"mega-lander/duties/worker.md").read_text().strip()
+        self.assertTrue(duty.startswith(DUTY_TOP["worker"]))
+        workspace_line,rest=payload["prompt"].split("\n\n",1)
+        self.assertTrue(workspace_line.startswith("cross-repo-worktree: "))
+        self.assertTrue(rest.startswith(duty+"\n\n"+self.args["brief"]),rest[:300])
+        self.assertNotIn(DUTY_TOP["reviewer"],payload["prompt"])
+        # The same request for another teammate is different work.
+        with self.assertRaisesRegex(ValueError,"different work"):self.call("prepare",{**self.args,"teammate":"mark"})
+
     def test_preflight_refusal_allows_a_corrected_request_without_claiming_a_start(self):
         subprocess.run(["git", "-C", str(self.repo), "branch", "-m", "integration"], check=True)
         missing = {k:v for k,v in self.args.items() if k != "integration"}
@@ -232,22 +277,24 @@ class DesktopWork(unittest.TestCase):
         # `--audience app` joined it on 2026-09-18: everything reached from
         # here is the APP's dispatch, so it is judged by the user-work guards
         # and never by the development session's (Rich's ruling, CEO §57).
-        name,brief_path,title="worker-sonnet-abc123456789",Path("/x/y.brief"),"Some title"
-        got=self.app.build_spawn_command([("/some/repo","/dest/path")],name,"worker",brief_path,title,
+        # Slice 2 of the proto-teammate shelf plan: the type is the named teammate and the model
+        # its own, where both were the fixed generic worker on sonnet.
+        name,brief_path,title="mark-sonnet-abc123456789",Path("/x/y.brief"),"Some title"
+        got=self.app.build_spawn_command([("/some/repo","/dest/path")],name,"mark","sonnet",brief_path,title,
             integration="main",base=None)
         want=[sys.executable,str(self.app.ENGINE/"scripts/lib/spawn.py"),name,"--repo","/some/repo",
-            "--type","richos-app-engine:worker","--model","sonnet","--brief",str(brief_path),
+            "--type","richos-app-engine:mark","--model","sonnet","--brief",str(brief_path),
             "--description",title,"--audience","app","--dir","/dest/path","--json","--integration","main"]
         self.assertEqual(got,want)
 
     def test_build_spawn_command_two_repositories_emits_two_repo_and_scoped_values(self):
-        name,brief_path,title="worker-sonnet-def456789012","/x/y.brief","Some title"
+        name,brief_path,title="frank-opus-def456789012","/x/y.brief","Some title"
         got=self.app.build_spawn_command(
-            [("/repoA","/destA"),("/repoB","/destB")],name,"worker",brief_path,title,
+            [("/repoA","/destA"),("/repoB","/destB")],name,"frank","opus",brief_path,title,
             integration="main",base="deadbeef")
         want=[sys.executable,str(self.app.ENGINE/"scripts/lib/spawn.py"),name,
             "--repo","/repoA","--repo","/repoB",
-            "--type","richos-app-engine:worker","--model","sonnet","--brief",str(brief_path),
+            "--type","richos-app-engine:frank","--model","opus","--brief",str(brief_path),
             "--description",title,"--audience","app","--dir","/repoA=/destA","--dir","/repoB=/destB","--json",
             "--integration","/repoA=main","--base","/repoA=deadbeef"]
         self.assertEqual(got,want)
@@ -255,8 +302,8 @@ class DesktopWork(unittest.TestCase):
     def test_build_spawn_command_scopes_a_per_repository_base_to_every_repository(self):
         # Part 4, finding 2: a reviewer or continuation of a job in several
         # repositories starts each workspace at that repository's own commit.
-        got=self.app.build_spawn_command([("/repoA","/destA"),("/repoB","/destB")],"reviewer-sonnet-abc",
-            "reviewer","/x/y.brief","Review",integration=None,base={"/repoB":"b"*40,"/repoA":"a"*40})
+        got=self.app.build_spawn_command([("/repoA","/destA"),("/repoB","/destB")],"frank-opus-abc",
+            "frank","opus","/x/y.brief","Review",integration=None,base={"/repoB":"b"*40,"/repoA":"a"*40})
         self.assertEqual(got[got.index("--json")+1:],["--base","/repoA="+"a"*40,"--base","/repoB="+"b"*40])
 
     def test_prepare_with_repos_creates_a_workspace_in_each_and_scopes_the_form(self):
@@ -422,7 +469,7 @@ class DesktopWork(unittest.TestCase):
         self.app.W.register_spawn(payload,str(self.coord))
         native=self.coord/".claude/worktrees"/("agent-"+aid)
         self.app.git(self.coord,"worktree","add","-b","worktree-agent-"+aid,str(native),"HEAD")
-        self.app.W.record_start(self.session,aid,str(native),"richos-app-engine:"+ready["request"]["role"])
+        self.app.W.record_start(self.session,aid,str(native),"richos-app-engine:"+ready["request"]["teammate"])
         self.app.W.bind_agent(self.session,payload["tool_use_id"],aid,str(self.coord))
         return self.root/"engine-state/target-worktrees"/self.app.folder(self.scope).name/ready["name"]
 
@@ -592,7 +639,11 @@ class DesktopWork(unittest.TestCase):
         self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional result")
         commit=self.app.git(target,"rev-parse","HEAD")
         self.finish_fixture_worker("fixture-worker")
-        reviewer=self.call("prepare",{**self.args,"request_id":"review-one","role":"reviewer","review_of":worker["id"],"title":"Review fictional result","brief":"Review the exact result.txt change; do not modify any files."})
+        reviewer=self.call("prepare",{**self.args,"request_id":"review-one","role":"reviewer","teammate":"frank","review_of":worker["id"],"title":"Review fictional result","brief":"Review the exact result.txt change; do not modify any files."})
+        # Slice 2: Frank reviews as himself, on his own model, carrying the reviewer duty.
+        self.assertTrue(reviewer["name"].startswith("frank-opus-"))
+        self.assertEqual(reviewer["agent_payload"]["subagent_type"],"richos-app-engine:frank")
+        self.assertIn(DUTY_TOP["reviewer"],reviewer["agent_payload"]["prompt"])
         review_target=self.start_fixture_worker(reviewer,"fixture-reviewer")
         self.assertEqual(self.app.git(review_target,"rev-parse","HEAD"),commit)
         self.finish_fixture_worker("fixture-reviewer","RICHOS_REVIEW "+json.dumps({"commit":commit,"verdict":"passed","checks":["synthetic reviewer observation"]}))

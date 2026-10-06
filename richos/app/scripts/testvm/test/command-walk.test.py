@@ -207,5 +207,44 @@ class LateApproval(unittest.TestCase):
         self.assertTrue(any('ended failed' in f for f in walk.late_verdict(self.evidence(1105, 'failed'), 30)))
 
 
+class AgentsListing(unittest.TestCase):
+    FIVE = ['./agents/clark.md', './agents/dean.md', './agents/frank.md', './agents/pierce.md', './agents/reed.md']
+    ROSTER = ['clark.md', 'dean.md', 'frank.md', 'pierce.md', 'reed.md', 'reviewer.md', 'walkmate.md', 'worker.md']
+    NAMED = 'dean clark reed frank pierce walkmate'
+
+    def answered(self, text):
+        return {'state': 'settled', 'notices': [{'text': text}]}
+
+    def test_the_five_and_the_users_own_on_the_back_ends_lease_pass(self):
+        leases = [{'pid': 1, 'agents': self.FIVE},
+                  {'pid': 2, 'agents': self.FIVE + ['./agents/walkmate.md'], 'work_tools': True}]
+        said = 'richos-app-engine:Dean\nrichos-app-engine:clark\nreed\nfrank\npierce\nwalkmate\ngeneral-purpose'
+        self.assertEqual(walk.agents_verdict(self.answered(said), self.ROSTER, leases, ['sage']), [])
+
+    def test_the_generic_pair_alone_fails_as_main_would(self):
+        leases = [{'pid': 1, 'agents': ['./agents/worker.md', './agents/reviewer.md'], 'work_tools': True}]
+        failures = walk.agents_verdict(self.answered('worker\nreviewer\nagreed'), ['worker.md', 'reviewer.md'],
+                                       leases, ['sage'])
+        self.assertTrue(any('did not name' in f and "'reed'" in f for f in failures), failures)
+        self.assertTrue(any('does not register' in f for f in failures), failures)
+        self.assertTrue(any('roster lacks' in f for f in failures), failures)
+
+    def test_only_front_desk_leases_fail(self):
+        leases = [{'pid': 1, 'agents': self.FIVE + ['./agents/walkmate.md'], 'work_tools': False}]
+        failures = walk.agents_verdict(self.answered(self.NAMED), self.ROSTER, leases, [])
+        self.assertEqual(failures, ["no running lease carries richos_work, so the back end's lease was not open"])
+
+    def test_a_shelf_name_registered_fails(self):
+        leases = [{'pid': 1, 'agents': self.FIVE + ['./agents/walkmate.md', './agents/sage.md'], 'work_tools': True}]
+        failures = walk.agents_verdict(self.answered(self.NAMED), self.ROSTER, leases, ['sage'])
+        self.assertEqual(failures, ["shelf teammates are registered: ['sage']"])
+
+    def test_the_four_without_pierce_fail(self):
+        four = [a for a in self.FIVE if 'pierce' not in a]
+        leases = [{'pid': 1, 'agents': four + ['./agents/walkmate.md'], 'work_tools': True}]
+        failures = walk.agents_verdict(self.answered('dean clark reed frank walkmate'), self.ROSTER, leases, [])
+        self.assertTrue(any("'pierce'" in f for f in failures), failures)
+
+
 if __name__ == '__main__':
     unittest.main()
