@@ -371,9 +371,9 @@ struct StoredConfig {
     #[serde(default)]
     user_name: Option<String>,
     /// §7.2: how long the raw output survives. **The absent key is what carries the
-    /// shipping default** — `RawRetention::default()` is `RAW_RETENTION_DAYS` /
-    /// `RAW_MAX_TOTAL_BYTES`, so every config file already on disk keeps behaving exactly
-    /// as it did. A key that is PRESENT and unreadable is a different case and keeps
+    /// shipping default**: `RawRetention::default()`, which is FOREVER since the CEO's
+    /// 2026-10-06 feedback (item 6), so an install that never chose keeps everything and one
+    /// that chose keeps its choice. A key that is PRESENT and unreadable is a different case and keeps
     /// everything instead (`RawRetention::from_json`).
     #[serde(default)]
     raw_retention: RawRetention,
@@ -565,14 +565,14 @@ pub struct TechyMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RetentionChoice {
-    /// 14 days or 2 GB, whichever binds first. **The shipping default** — today's
-    /// behaviour, and the one an install with no `raw_retention` key already has.
+    /// 14 days or 2 GB, whichever binds first.
     TwoWeeks,
     /// 90 days, same 2 GB ceiling. The ceiling is deliberately NOT raised with the window:
     /// it is the only thing between §2.4 and a full disk, and the surface says plainly
     /// which of the two will bind.
     ThreeMonths,
-    /// Nothing is ever evicted, on either axis.
+    /// Nothing is ever evicted, on either axis. **The shipping default** (CEO 2026-10-06,
+    /// feedback item 6): the one an install with no `raw_retention` key has.
     Forever,
     /// A window that is in the file and on no menu. Reported, never written by a click.
     Custom,
@@ -1807,20 +1807,20 @@ mod tests {
 
     #[test]
     fn an_install_that_has_never_set_the_window_gets_yesterdays_behaviour() {
-        // The claim the whole change stands on, at the store level: a fresh store AND a
-        // config file written before this setting existed both read as the shipping
-        // window — the same two constants `evict_raw` was called with before it was a
-        // setting. Neither of them is "forever", and neither of them is a new number.
+        // CEO 2026-10-06, feedback item 6: "'Keep the stored output' default must be forever".
+        // A fresh store AND a config file written before this setting existed both read as
+        // Forever on both axes, and the menu shows Forever selected. (The test's name is kept
+        // so the history of this claim stays findable; its answer is the CEO's now.)
         let path = tmp_path("retention-default");
         let fresh = ConfigStore::open(&path).unwrap();
-        assert_eq!(fresh.raw_retention(), RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES));
-        assert_eq!(fresh.retention_choice(), RetentionChoice::TwoWeeks);
+        assert_eq!(fresh.raw_retention(), RawRetention::FOREVER);
+        assert_eq!(fresh.retention_choice(), RetentionChoice::Forever);
 
         let older = tmp_path("retention-legacy");
         std::fs::write(&older, r#"{"company_name":"Acme","assertiveness":"balanced","techy_default":true}"#).unwrap();
         let store = ConfigStore::open(&older).unwrap();
         assert_eq!(store.raw_retention(), RawRetention::default(), "an absent key is the shipping default");
-        assert_eq!(store.retention_choice(), RetentionChoice::TwoWeeks);
+        assert_eq!(store.retention_choice(), RetentionChoice::Forever);
         assert!(store.techy_default(), "and the rest of the file still reads");
         let _ = std::fs::remove_file(&older);
     }

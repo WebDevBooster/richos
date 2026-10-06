@@ -2098,12 +2098,11 @@
     "three-months": { ageDays: 90, totalBytes: 2147483648 },
     forever: { ageDays: "forever", totalBytes: "forever" },
   };
-  // STARTS AT `forever` DELIBERATELY, and this is the one place the mock is not a fresh
-  // install. A fresh install is `two-weeks` (`config.rs`, proven there), and under a
-  // two-week window a 120-day-old raw shard cannot exist — boot eviction removed it. So a
-  // `two-weeks` mock holding an aged store would be a state the product cannot produce, and
-  // the interesting state for a control that DELETES is the one where there is something to
-  // delete: a CEO who opened the window up and later tightens it.
+  // STARTS AT `forever`, which is also what a fresh install is now (CEO 2026-10-06, feedback
+  // item 6; `config.rs`, proven there). Under a two-week window a 120-day-old raw shard cannot
+  // exist, because boot eviction removed it. So the interesting state for a control that
+  // DELETES is this one, where there is something to delete: a CEO who keeps everything and
+  // later tightens it.
   let retentionChoice = "forever";
   let rawShards = [
     { ageDays: 120, bytes: 41_000_000 },

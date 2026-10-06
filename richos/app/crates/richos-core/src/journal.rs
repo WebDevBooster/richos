@@ -263,9 +263,11 @@ impl RawRetention {
 impl Default for RawRetention {
     /// **The shipping default, and today's behaviour exactly**: [`RAW_RETENTION_DAYS`] and
     /// [`RAW_MAX_TOTAL_BYTES`], the same two constants `evict_raw` was called with before
-    /// this type existed.
+    /// this type existed. THAT WAS THE DEFAULT UNTIL 2026-10-06 AND IS NOT ANY MORE: the CEO's
+    /// feedback item 6 reads "'Keep the stored output' default must be forever". An install
+    /// that never chose keeps everything; one that chose a window keeps its stored choice.
     fn default() -> Self {
-        RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES)
+        RawRetention::FOREVER
     }
 }
 
@@ -1106,19 +1108,18 @@ mod tests {
     }
 
     #[test]
-    fn the_shipping_default_is_exactly_the_two_constants_it_replaced() {
-        // The claim the whole change stands on: an install with no `raw_retention` key
-        // behaves as it did yesterday. Proven by running BOTH forms over two identical
-        // journals and comparing what survived, not by asserting that the code looks the
-        // same. (The rest of this file's eviction tests still call the two-`u64` form with
-        // the constants, so they now exercise the new path to the old answer.)
-        assert_eq!(RawRetention::default(), RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES));
+    fn the_two_week_window_is_exactly_the_two_constants_it_replaced() {
+        // The menu's two-week entry evicts exactly what the old hard-coded call did. Proven by
+        // running BOTH forms over two identical journals and comparing what survived, not by
+        // asserting that the code looks the same. (It was the shipping default until the CEO
+        // made that Forever on 2026-10-06.)
+        let two_weeks = RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES);
 
         let ages = [40, 20, 15, 13, 1, 0];
         let (root_a, ja, now) = aged_journal(&ages);
         let (root_b, jb, _) = aged_journal(&ages);
         let old_way = ja.evict_raw(now, RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES);
-        let new_way = jb.evict_raw_within(now, RawRetention::default());
+        let new_way = jb.evict_raw_within(now, two_weeks);
         assert_eq!(old_way, new_way, "the same number of shards removed");
         assert_eq!(survivors(&root_a, &ja), survivors(&root_b, &jb), "and the same ones left");
         assert_eq!(old_way, 3, "40, 20 and 15 days old are past a 14-day window; 13, 1 and 0 are not");
@@ -1138,7 +1139,8 @@ mod tests {
         for (label, retention, expect_raw) in [
             ("forever", RawRetention::FOREVER, 6usize),
             ("90 days", RawRetention::of(90, RAW_MAX_TOTAL_BYTES), 6),
-            ("14 days (the shipping default)", RawRetention::default(), 3),
+            ("the shipping default", RawRetention::default(), 6),
+            ("14 days", RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES), 3),
             ("0 days", RawRetention::of(0, RAW_MAX_TOTAL_BYTES), 1),
         ] {
             let (root, j, now) = aged_journal(&ages);
@@ -1253,10 +1255,12 @@ mod tests {
         assert_eq!(text, r#"{"age_days":"forever","total_bytes":"forever"}"#);
         assert_eq!(serde_json::from_str::<RawRetention>(&text).unwrap(), RawRetention::FOREVER);
 
-        let text = serde_json::to_string(&RawRetention::default()).unwrap();
+        let two_weeks = RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES);
+        let text = serde_json::to_string(&two_weeks).unwrap();
         assert_eq!(text, r#"{"age_days":14,"total_bytes":2147483648}"#);
-        assert_eq!(serde_json::from_str::<RawRetention>(&text).unwrap(), RawRetention::default());
-        assert!(!RawRetention::default().is_forever());
+        assert_eq!(serde_json::from_str::<RawRetention>(&text).unwrap(), two_weeks);
+        assert!(!two_weeks.is_forever());
+        assert!(RawRetention::default().is_forever(), "the shipping default keeps everything (CEO 2026-10-06)");
         assert!(RawRetention::FOREVER.is_forever());
         assert!(!RawRetention { age_days: RetentionLimit::Forever, total_bytes: RetentionLimit::Of(1) }.is_forever(),
             "a ceiling that can still evict is not forever");
