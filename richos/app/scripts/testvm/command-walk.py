@@ -69,7 +69,7 @@ FIVE MORE STEPS, run with --steps (esc-20260927T093052Z-85f3303f's leftovers):
 TWO STEPS FOR THE PROTO-TEAMMATE SHELF, slice 1 (richos-hq docs/plans/2026-10-06-proto-teammate-shelf.md
 §2), run as --steps identity,first-run,connect,team,task,agents. The front desk's leases open at
 launch, before any step, and a lease reads its team once (plan §1), so the user's own teammate is
-seeded into the FIXTURE HOME before run-walk.py boots: `command-walk.py --seed-team FIXTURE_HOME`
+seeded into the FIXTURE HOME before run-walk.py boots: `command-walk.py --seed-team FIXTURE_HOME [DEFINITION ...]`
 writes FIXTURE_HOME/Library/Application Support/com.richos.app/team/walkmate.md and exits. `task`
 registers the proven task, which opens the back end's lease.
   team           the seeded <app data>/team/walkmate.md is in the guest (refused otherwise).
@@ -750,18 +750,24 @@ def verdict(record, short, subject, commands):
     return failures
 
 
-def seed_team(home):
-    """Write the walk's own teammate into a fixture home, where the app's data folder will be."""
+def seed_team(home, definitions=()):
+    """Write the walk's own teammate into a fixture home, where the app's data folder will be, and
+    copy each given definition (a shelf file, e.g. engine/team/shelf/mark.md) beside it as an
+    activated teammate of the user's own: output-walk.py's named step needs one who writes code."""
     folder = Path(home) / 'Library/Application Support/com.richos.app/team'
     folder.mkdir(parents=True, exist_ok=True)
     (folder / (WALK_TEAMMATE + '.md')).write_text(WALK_TEAMMATE_BODY)
     print(folder / (WALK_TEAMMATE + '.md'))
+    for definition in definitions:
+        target = folder / Path(definition).name
+        target.write_bytes(Path(definition).read_bytes())
+        print(target)
     return 0
 
 
 def main():
     if sys.argv[1:2] == ['--seed-team']:
-        return seed_team(sys.argv[2])
+        return seed_team(sys.argv[2], sys.argv[3:])
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('vm')
     p.add_argument('--out', type=Path, required=True)
