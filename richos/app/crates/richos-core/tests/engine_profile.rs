@@ -189,6 +189,44 @@ fn the_front_desk_is_told_its_own_job_and_never_the_back_ends_execution_contract
     assert!(back.starts_with("Fictional app identity\n\n"));
 }
 
+/// **THE BACK END IS STU, AND THE FRONT DESK IS RICH** — the CEO's §110, 2026-10-06: *"the
+/// "front-desk Rich" will remain tied to the name Rich. But the "back-end Rich" should from
+/// now on be called Stu."* And the addendum: *"This is RichOS. So, it's all about Rich."* —
+/// the user only ever meets Rich.
+///
+/// Asserted on the instruction each lease is ACTUALLY assembled with, from the shipping
+/// rendered template rather than a fixture string, because the defect this closes lived in
+/// the shared template: until this change the back end opened with "You are Rich" and a
+/// "How you talk to him" section, though it never talks to him.
+#[test]
+fn the_back_end_is_told_it_is_stu_and_the_front_desk_that_it_is_rich() {
+    let f=Scratch::new(); let profile=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    let app=richos_core::doctrine::ensure_rendered(&f.0.join("config"),
+        &richos_core::doctrine::DoctrineIdentity::new(Some("Nadia Kessler"))).unwrap();
+
+    let back=std::fs::read_to_string(profile.standing_doctrine(&app, LeaseRole::Work).unwrap()).unwrap();
+    let desk=std::fs::read_to_string(profile.standing_doctrine(&app, LeaseRole::Conversation).unwrap()).unwrap();
+
+    // The back end: Stu, Rich's twin, who runs the work and talks only to Rich and to its
+    // teammates — and nothing that tells it how to talk to the user, or that it is Rich.
+    assert!(back.contains("You are Stu"),"the back end is not told it is Stu:\n{back}");
+    assert!(!back.contains("How you talk to him"),"the back end is still told how to talk to the user:\n{back}");
+    assert!(!back.contains("You are Rich"),"the back end is still told it is Rich:\n{back}");
+    assert!(back.contains("talk only to Rich and to your teammates"),"the back end is not told whom it talks to:\n{back}");
+    assert!(back.contains("His name is Nadia Kessler."),"the back end lost the shared identity of the person it works for");
+
+    // The front desk: Rich, still told how to talk to him, and the back end it hands work to
+    // is named Stu — and Stu is never named to the user.
+    assert!(desk.contains("You are Rich"),"the front desk is not told it is Rich:\n{desk}");
+    assert!(desk.contains("How you talk to him"),"the front desk lost how it talks to him");
+    assert!(desk.contains("Stu"),"the front desk does not name the back end Stu");
+    assert!(!desk.contains("the other one") && !desk.contains("the other connection"),
+        "the front desk still calls the back end something other than Stu:\n{desk}");
+    assert!(desk.contains("Never mention Stu to him"),"the front desk is not told to keep Stu from the user:\n{desk}");
+    assert!(!desk.contains("You are Stu"),"the front desk is told it is Stu");
+    assert!(desk.contains("His name is Nadia Kessler."));
+}
+
 #[test]
 fn generic_git_identity_is_a_default_and_explicit_assignment_identity_can_override_it() {
     let f=Scratch::new(); let profile=EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();

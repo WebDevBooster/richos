@@ -323,6 +323,10 @@ impl EngineProfile {
     ///
     /// So: the back end keeps the execution contract, and the front desk gets
     /// `doctrine/front-desk.md`, which says what its job is and what it never does.
+    ///
+    /// **And since the CEO's §110 (2026-10-06) the back end has its own name, Stu.** The shared
+    /// `app_doctrine` names neither twin; the back end's assembly opens its own part with
+    /// `doctrine/back-end.md` ("You are Stu"), and the front desk's with "You are Rich".
     /// **`DESKTOP.md` is read and never written here** — the engine owns that file.
     pub fn standing_doctrine(&self, app_doctrine: &Path, role: crate::native::LeaseRole) -> Result<PathBuf, RuntimeError> {
         let read = |path: &Path| -> Result<String, RuntimeError> {
@@ -334,7 +338,8 @@ impl EngineProfile {
             Ok(text)
         };
         let job = match role {
-            crate::native::LeaseRole::Work => format!("{}{}", crate::quota::reset_tools::INSTRUCTION, read(&self.engine.join("mega-lander/DESKTOP.md"))?),
+            crate::native::LeaseRole::Work => format!("{}{}{}", crate::doctrine::BACK_END_DOCTRINE,
+                crate::quota::reset_tools::INSTRUCTION, read(&self.engine.join("mega-lander/DESKTOP.md"))?),
             crate::native::LeaseRole::Conversation => crate::doctrine::FRONT_DESK_DOCTRINE.to_string(),
         };
         let body = read(app_doctrine)? + "\n\n" + &job;
