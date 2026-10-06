@@ -7312,6 +7312,25 @@ body.bp-narrow #rail,
   --ctl-line: #4c6087;
 }
 
+/* THE PANEL'S SCROLL BARS FOLLOW THE THEME (walk 38, D10). With no `color-scheme`, WebKit draws a
+   native scroll bar in the light scheme whatever the page looks like: in dark, the list's track
+   was #FAFAFA with a #C2C2C2 thumb, wherever the Mac shows scroll bars always (a mouse, or
+   "Show scroll bars: Always"). The panel declares its scheme with its theme, so the list, the
+   file view and a wide table scroll on a dark track in dark and a light one in light. The PDF
+   frame keeps `normal`, as before: its page is the file's own white in both themes (§6.9), and
+   a dark scheme on the frame would ask WebKit to draw the document behind it dark. */
+#outpanel {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] #outpanel {
+  color-scheme: light;
+}
+
+#outpanel .of-pdf {
+  color-scheme: normal;
+}
+
 /* ---- the button: the same control at the top and at the bottom (§6.2) ---- */
 .out-btn {
   display: inline-flex;
@@ -7915,14 +7934,35 @@ body.bp-narrow #out-bottom .out-word {
   padding: 4px 18px 36px;
 }
 
+/* THE FACTS LINE: its first part, then each further part WITH its dot (walk 38, D9). The dot is
+   centered in a 1.75em box at the start of its part, so between two parts on one line it sits
+   with about 12px of air on each side, as the old 12px gap around a separate dot did. The row is
+   pulled 1.75em to the left and the line's own box clips it: a part that wraps to the start of a
+   line has its dot in that clipped margin, so no line starts or ends with a lone "·". The first
+   part has no dot and steps back in by the same 1.75em. */
 .of-meta {
+  margin: 0;
+  overflow: hidden;
+  font-size: 1rem;
+  color: var(--ink-faint);
+}
+
+.of-facts {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  margin: 0;
-  font-size: 1rem;
-  color: var(--ink-faint);
+  row-gap: 12px;
+  margin-left: -1.75em;
+}
+
+.of-facts > b {
+  margin-left: 1.75em;
+}
+
+.of-dot {
+  display: inline-block;
+  width: 1.75em;
+  text-align: center;
 }
 
 .of-meta b {

@@ -1534,7 +1534,7 @@ async function main() {
           ["quotation", "#op-viewer .of-md blockquote", "text"],
           ["quotation bar", "#op-viewer .of-md blockquote", "indicator", "borderLeftColor"],
           ["facts, first part", "#op-viewer .of-meta b", "text"],
-          ["facts, the rest", "#op-viewer .of-meta span:last-child", "text"],
+          ["facts, the rest", "#op-viewer .of-meta .of-fact:last-child", "text"],
           ["Preview, pressed", '.of-seg [aria-pressed="true"]', "text"],
           ["Source, not pressed", '.of-seg [aria-pressed="false"]', "text"],
           ["Preview | Source boundary", ".of-seg", "indicator", "borderTopColor"],
@@ -1548,7 +1548,7 @@ async function main() {
         ...(await measure([
           ["sheet header", "#op-viewer .of-tbl th", "text"],
           ["sheet cell", "#op-viewer .of-tbl td", "text"],
-          ["sheet facts", "#op-viewer .of-meta span:last-child", "text"],
+          ["sheet facts", "#op-viewer .of-meta .of-fact:last-child", "text"],
         ]))
       );
       await p.evaluate(() => window.__RICHOS_MOCK__.outputPreviewAs("q3-revenue-chart.png", { view: "none", why: "tooLarge", reason: "Too large to preview here (1.4 GB). Open in Preview has the whole thing." }));

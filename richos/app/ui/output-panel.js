@@ -227,13 +227,23 @@
     window.clearTimeout(looking);
     if (ticket !== state.ticket || thread !== state.thread) return;
     state.loading = false;
+    // What the shell says about each file (`output_file`) was asked before this read: it goes,
+    // so every menu and Open asks again (`detailOf`), whatever the list says below.
+    act.details.clear();
+    const fresh = error ? null : normalize(list);
+    // `fresh`: the re-read on opening (D6). When the disk matches what is drawn, nothing is
+    // redrawn — not the list, not the conversation's links — so his focus and place are kept.
+    if (opts.fresh && !error && !state.error && state.list && JSON.stringify(fresh) === JSON.stringify(state.list)) {
+      act.detailsRev = state.rev;
+      return;
+    }
     const previousCount = state.list && !state.error ? state.list.count : null;
     if (error) {
       state.error = error;
       state.list = null;
     } else {
       state.error = null;
-      state.list = normalize(list);
+      state.list = fresh;
     }
     state.rev += 1;
     paintButtons();
@@ -243,15 +253,76 @@
     }
     if (ctx.onLinksChanged) ctx.onLinksChanged();
     if (!state.open) return;
+    // Redrawn under him: focus stays on the same control of the same file (D6's re-read can land
+    // a few milliseconds after the panel put focus on its first row).
+    const anchor = focusAnchor();
     if (state.view === "file") {
       if (entry(state.file)) renderFile(state.file, { keepFocus: true });
       else showList({ keepFocus: true });
+      restoreFocus(anchor);
+      reattachMenu();
       return;
     }
     const body = el("op-body");
     const top = body.scrollTop;
     render({ arrived: opts.arrival ? { files: before, groups: beforeGroups } : null });
-    if (opts.arrival) body.scrollTop = top;
+    if (opts.arrival || opts.fresh) body.scrollTop = top;
+    restoreFocus(anchor);
+    reattachMenu();
+  }
+
+  /// A menu open over a redrawn list keeps working: its row and the `⋯` that opened it are the
+  /// new nodes of the same file, so Escape still returns focus to the control he used.
+  function reattachMenu() {
+    const m = act.menu;
+    if (!m) return;
+    const body = el("op-body");
+    const output = m.row && m.row.dataset ? m.row.dataset.output : null;
+    if (m.row && !m.row.isConnected && output) {
+      m.row = body.querySelector('.orow[data-output="' + cssEscape(output) + '"]');
+      if (m.row) m.row.classList.add("menu-open");
+    }
+    if (m.opener && !m.opener.isConnected) {
+      const act_ = m.opener.dataset.act;
+      const scope = m.row ? m.row.closest(".orow-wrap") || body : body;
+      m.opener = act_ ? scope.querySelector('[data-act="' + act_ + '"]') : null;
+      if (m.opener) m.opener.setAttribute("aria-expanded", "true");
+    }
+  }
+
+  /// Which control of the panel's body has focus, by what it is rather than which node it is:
+  /// a redraw replaces every node. Null when focus is anywhere else.
+  function focusAnchor() {
+    const a = document.activeElement;
+    const body = el("op-body");
+    if (!a || !body || a === body || !body.contains(a)) return null;
+    const row = a.closest(".orow-wrap") || a.closest(".orow");
+    const rowEl = row ? (row.classList.contains("orow") ? row : row.querySelector(".orow")) : null;
+    return {
+      id: a.id || null,
+      output: rowEl ? rowEl.dataset.output : null,
+      act: a.dataset.act || null,
+      seg: a.dataset.seg || null,
+      label: a.getAttribute("aria-label"),
+      view: body.dataset.view,
+    };
+  }
+
+  function restoreFocus(k) {
+    if (!k) return;
+    const body = el("op-body");
+    let target = null;
+    if (k.id) target = document.getElementById(k.id);
+    else if (k.output) {
+      const row = body.querySelector('.orow[data-output="' + cssEscape(k.output) + '"]');
+      const wrap = row ? row.closest(".orow-wrap") || row : null;
+      target = !row ? null : k.act ? wrap.querySelector('[data-act="' + k.act + '"]') : row;
+    } else if (k.act) target = body.querySelector('[data-act="' + k.act + '"]');
+    else if (k.seg) target = body.querySelector('[data-seg="' + k.seg + '"]');
+    else if (k.label) target = [...body.querySelectorAll("[aria-label]")].find((n) => n.getAttribute("aria-label") === k.label) || null;
+    if (target && body.contains(target)) target.focus({ preventScroll: true });
+    else if (body.dataset.view === "file" && el("of-back")) el("of-back").focus({ preventScroll: true });
+    else focusFirst();
   }
 
   function normalize(list) {
@@ -454,6 +525,9 @@
 
   function showFile(id, opts) {
     if (!entry(id)) return showList(opts);
+    // Showing a file asks the shell about it NOW (D6): its tools must never be lit from an
+    // answer given before the file went. `detailOf`'s answer reconciles the list if it differs.
+    act.details.delete(id);
     state.view = "file";
     state.file = id;
     state.selected = id;
@@ -601,16 +675,25 @@
   }
 
   /// The facts line under a viewer (§6.4): its first part bold, the rest after a middle dot.
+  ///
+  /// EACH DOT TRAVELS WITH THE PART AFTER IT, never alone. When the separators were flex items
+  /// of their own, a part that wrapped left its dot at the end of the line above: "2 rows ·
+  /// Comma-separated ·" over "The whole sheet opens in TextEdit" (walk 38, D9). Now a part that
+  /// starts a line carries its dot into the line's left margin, which the line's own box clips
+  /// (`.of-meta` in style.css), so no line starts or ends with a lone "·".
   function factsLine(parts) {
     const p = node("p", "of-meta");
+    const row = node("span", "of-facts");
     parts.filter(Boolean).forEach((text, n) => {
-      if (n) {
-        const dot = node("span", null, "·");
-        dot.setAttribute("aria-hidden", "true");
-        p.appendChild(dot);
-      }
-      p.appendChild(node(n ? "span" : "b", null, text));
+      if (!n) return row.appendChild(node("b", null, text));
+      const part = node("span", "of-fact");
+      const dot = node("span", "of-dot", "·");
+      dot.setAttribute("aria-hidden", "true");
+      part.appendChild(dot);
+      part.appendChild(document.createTextNode(text));
+      row.appendChild(part);
     });
+    p.appendChild(row);
     return p;
   }
 
@@ -644,6 +727,8 @@
         window.clearTimeout(reading);
         const a = answer && typeof answer === "object" ? answer : { view: "none", why: "readFailed", reason: "" };
         if (box.isConnected) drawPreview(f, a, box);
+        // The viewer found the file gone: the list, and this view's head and tools, say so (D6).
+        if (a.why === "missing") reconcile(f.id, false);
       },
       (e) => {
         // The shell refused the id itself (not in this thread's record): its own sentence.
@@ -888,8 +973,16 @@
       panel.classList.add("is-opening");
     }
     paintButtons();
-    if (opts.file) return showFile(opts.file, opts);
-    showList(opts);
+    if (opts.file) showFile(opts.file, opts);
+    else showList(opts);
+    // OPENING READS THE DISK AGAIN (§4.6: "every read re-stats … never cached across calls").
+    // The list it holds is only as fresh as the last `rich://output`: a file deleted, moved or
+    // swapped while the panel was closed announces nothing, so it was drawn present — its
+    // actions lit and its view reading "Written … · 30 bytes" over "This file is no longer where
+    // it was written" (walk 38, D6). What it holds is drawn at once and the re-read corrects it
+    // in place, changing nothing on screen when nothing changed on disk. A read already in
+    // flight (the thread was just chosen) is fresh, and answers for itself.
+    if (!already && !state.loading && (state.list || state.error)) load({ fresh: true });
   }
 
   function close(opts) {
@@ -1522,6 +1615,9 @@
     detailsRev: -1,
     /// The open menu: { el, items, opts, opener, row, parent }, or null.
     menu: null,
+    /// `id:exists`, the last difference between the list and the shell's answer that was read
+    /// again (`reconcile`), until the two agree.
+    reconciled: null,
     /// A save sheet is open: a second *Save a copy…* waits for it rather than stacking sheets.
     saving: false,
     noticeTimer: 0,
@@ -1542,12 +1638,35 @@
     let p = act.details.get(id);
     if (!p) {
       p = bridge.invoke("output_file", { outputId: id }).then(
-        (d) => d || {},
+        (d) => {
+          d = d || {};
+          // The shell re-stated the file just now (§5.4). Gone, or back, against what the list
+          // holds: the list is read again, so its row and its view say what is true (D6).
+          if (typeof d.exists === "boolean") reconcile(id, d.exists);
+          return d;
+        },
         (e) => ({ error: said(e) })
       );
       act.details.set(id, p);
     }
     return p;
+  }
+
+  /// One file's presence as the shell just found it, against the list on screen. A difference
+  /// reads the list again — once per difference: should `list_output` and `output_file` keep
+  /// disagreeing, the panel does not loop through reads; once they agree, the next difference
+  /// is read again.
+  function reconcile(id, exists) {
+    const f = entry(id);
+    if (!f) return;
+    const claim = id + ":" + exists;
+    if (!!f.exists === exists) {
+      if (act.reconciled === claim) act.reconciled = null;
+      return;
+    }
+    if (act.reconciled === claim) return;
+    act.reconciled = claim;
+    load();
   }
 
   /// For each action, null when it is lit, else the reason shown as its tooltip (§6.7).
