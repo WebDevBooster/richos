@@ -250,10 +250,14 @@ WORKER_TASK = ('Please add a file named notes.md whose whole content is the line
                'and land both files.')
 WORKTREES = '/engine-state/target-worktrees/'
 MADE = 'notes.zip'
-# Candidate 40: the scratch step's file under a project's own .claude/agents/ (listed), and the name
-# the labels step sets, so the rail draws initials ("WT").
+# Candidate 40: the scratch step's file under a project's own .claude/agents/ (listed, written for
+# real by a typed shell command), and the name the labels step sets, so the rail draws initials
+# ("WT"); OUTPUT_WALK_NAME gives another, such as "Mona Wells" for two of the widest capitals.
 AGENTS_FILE = 'walk-agent.md'
-LABELS_NAME = 'Walk Tester'
+AGENTS_TASK = ('Please run this harmless test command for me yourself with your shell tool, in my Acme folder, '
+               "and tell me when it has finished: mkdir -p .claude/agents && printf 'walk agent\\n' > .claude/agents/"
+               + AGENTS_FILE)
+LABELS_NAME = os.environ.get('OUTPUT_WALK_NAME', 'Walk Tester')
 FRONT_DESK_TASK = ('This is a test of your own Agent tool. Do not register an assignment for it. In this turn, '
                    'use your Agent tool yourself to start one worker that writes a file named direct.md '
                    'containing the word direct in my Acme folder.')
@@ -1878,24 +1882,49 @@ class OutputWalk(command_walk.CommandWalk):
         scratch = '/private/tmp/rv-zip-a1/' + MADE
         worktree = self.company + '/.claude/worktrees/agent-walk/' + MADE
         agents = self.company + '/.claude/agents/' + AGENTS_FILE
-        guest(self.vm, 'mkdir -p /private/tmp/rv-zip-a1 %s %s && cp %s %s && cp %s %s && printf "walk agent\\n" > %s' % (
-            shlex.quote(str(Path(worktree).parent)), shlex.quote(str(Path(agents).parent)),
-            shlex.quote(self.company + '/' + MADE), shlex.quote(scratch),
-            shlex.quote(self.company + '/' + MADE), shlex.quote(worktree), shlex.quote(agents)), 60)
+        # The copy is made from the worker's own notes.zip, wherever the record says it is: a job
+        # that stopped at a question before landing (walk-588e50ca56b6, walk-70878a11adec) left none
+        # in the Acme folder, and the step is about the list, not about the land.
+        made = [r['path'] for r in rows if r.get('path', '').endswith('/' + MADE)]
+        source = next((p for p in reversed(made) if self.exists_in_guest(p)), None)
+        if source is None:
+            raise StepFailed('no notes.zip on disk at any recorded path to copy')
+        guest(self.vm, 'mkdir -p /private/tmp/rv-zip-a1 %s && cp %s %s && cp %s %s' % (
+            shlex.quote(str(Path(worktree).parent)),
+            shlex.quote(source), shlex.quote(scratch),
+            shlex.quote(source), shlex.quote(worktree)), 60)
         rec = self.data + '/output/' + self.facts['thread'] + '.jsonl'
         added = []
-        for n, path in enumerate((scratch, worktree, agents), 1):
+        for n, path in enumerate((scratch, worktree), 1):
             row = dict(base[-1], path=path, canonical=path, key='mach:scratch-walk-%d' % n)
             row.pop('landedFrom', None)
             added.append(row)
             guest(self.vm, 'printf "%s\\n" ' + shlex.quote(json.dumps(row, sort_keys=True)) + ' >> ' + shlex.quote(rec), 60)
         row = added[0]
+        # The listed side is a REAL write, typed to Rich like the scroll step's: a row appended
+        # behind the app's back is in the record but announces nothing, so the Output button keeps
+        # its old count until the app recounts (walk-f20b6f118bcd read 3 with 4 listable rows). The
+        # real write's announcement recounts the whole record, the two hidden rows above included.
+        turn, sent = self.send(AGENTS_TASK)
+        end = time.monotonic() + self.a.within
+        while time.monotonic() < end and not any(r.get('path') == agents for r in self.record()):
+            try:
+                self.approve_pending(sent)
+            except (StepFailed, subprocess.TimeoutExpired):
+                pass
+            time.sleep(5)
+        self.turn_end(turn, 300)
+        time.sleep(3)
         after = self.save_record('record-scratch.jsonl')
-        kept = [r for r in after if r.get('path') in (scratch, worktree, agents)]
+        kept = [r for r in after if r.get('path') in (scratch, worktree)]
         listed = [k for k in project(after) if not hidden(k)]
-        note(row=row, added=added, kept_in_record=len(kept), expected_count=len(listed), listed=sorted(listed))
-        if len(kept) != 3:
-            raise StepFailed('%d of the 3 cloned rows reached the record: it must stay whole' % len(kept))
+        note(row=row, added=added, kept_in_record=len(kept), expected_count=len(listed), listed=sorted(listed),
+             agents_turn=turn, agents_turn_story=self.turn_story(turn),
+             agents_rows=[{k: r.get(k) for k in ('source', 'actor', 'path')} for r in after if r.get('path') == agents])
+        if len(kept) != 2:
+            raise StepFailed('%d of the 2 cloned rows reached the record: it must stay whole' % len(kept))
+        if not any(r.get('path') == agents for r in after):
+            raise StepFailed('the .claude/agents file never reached the record within %d s' % self.a.within)
         self.close_panel()
         self.wait_for('from this thread', role='AXCheckBox', seconds=60)
         buttons = self.find_all('from this thread', role='AXCheckBox')
@@ -1928,6 +1957,23 @@ class OutputWalk(command_walk.CommandWalk):
             raise StepFailed('; '.join(failures))
         return evidence
 
+    def set_name(self, footer, name, note, opener='No name is set'):
+        """The rail footer (an AXPopUpButton: aria-haspopup) pressed by its name, the preferences
+        popover photographed, `name` typed into its "Your name" field and committed with Return."""
+        self.press(opener, role=footer['role'])
+        time.sleep(1.5)
+        self.shot('labels-name-popover.png')
+        fields = self.find_all('Your name')
+        note(name_fields=[{k: n.get(k) for k in ('role', 'title', 'desc', 'x', 'y')} for n in fields[:4]])
+        field = next((n for n in fields if n.get('role') in ('AXTextField', 'AXTextArea', 'AXComboBox')), None)
+        if field is None:
+            raise StepFailed('the popover shows no "Your name" field')
+        self.type_into(name, '--role', field['role'], '--title', 'Your name')
+        self.script('tell application "System Events" to key code 36')
+        time.sleep(1)
+        self.script('tell application "System Events" to key code 53')
+        time.sleep(1)
+
     def labels(self):
         """Candidate 40 (echo-sonnet-polish1): the five readable labels raised from 11 px to 14 px, each
         put on the screen the way a person reaches it, and photographed in both themes, with the
@@ -1945,25 +1991,32 @@ class OutputWalk(command_walk.CommandWalk):
         self.close_panel()
         failures = []
         # rail: the name, and with it the initials
-        if self.present('No name is set'):
-            self.press('No name is set')
-            time.sleep(1)
-            self.type_into(LABELS_NAME, '--role', 'AXTextField', '--title', 'Your name')
-            self.script('tell application "System Events" to key code 36')
-            time.sleep(1)
-            self.script('tell application "System Events" to key code 53')
-            time.sleep(1)
+        # The rail's footer, found by its words (its first run, walk-84f043ae847b, found no AXButton
+        # named "No name is set"): every node that carries them is recorded, and the first is
+        # pressed at its center, as a person clicks it.
+        offers = self.find_all('No name is set') + self.find_all('Set your name') + self.texts('Set your name')
+        note(name_offers=[{k: n.get(k) for k in ('role', 'title', 'desc', 'value', 'x', 'y', 'w', 'h')} for n in offers[:6]])
+        # The footer is an AXPopUpButton (aria-haspopup); a click --at its center opened no field in
+        # walk-d21ba7898a56, so it is pressed by its name, and the popover photographed.
+        if offers:
+            try:
+                self.set_name(offers[0], LABELS_NAME, note)
+            except StepFailed as exc:
+                note(name_error=str(exc)[:400])
+                self.script('tell application "System Events" to key code 53')
         named = self.find_all(LABELS_NAME)
         group = self.find_all('Acme overview')
         note(name_nodes=named[:3], company_label=group[:1])
         if not named:
             failures.append('the name never reached the rail')
+        chips = self.find_all('open worker details')
+        note(worker_chips=[{k: c.get(k) for k in ('title', 'desc', 'x', 'y')} for c in chips[:3]])
         note(rail_shots=self.flip_theme('labels-rail'))
         # entity: the company's overview
         if group:
             self.press('Acme overview')
             time.sleep(2)
-            titles = self.find_all('Threads', role='AXHeading', contains=False)
+            titles = self.find_all('Threads', by='--value', contains=False)
             note(entity_titles=titles[:2])
             note(entity_shots=self.flip_theme('labels-entity'))
             if not titles:
@@ -1983,10 +2036,13 @@ class OutputWalk(command_walk.CommandWalk):
         time.sleep(1)
         if not heads:
             failures.append('the search shows no result group')
-        # worker: the inspector of a front-desk worker's chip
-        chips = self.find_all('open worker details')
-        note(worker_chips=[{k: c.get(k) for k in ('title', 'desc', 'x', 'y')} for c in chips[:3]])
+        # worker: the inspector of a worker's chip on the conversation (read before the overview
+        # replaced the conversation in the main pane, so the conversation is opened again). Only a
+        # front-desk Agent-tool worker draws a chip; when the front desk declines to start one there
+        # is nothing to open, and the evidence says so rather than the step failing on the app.
         if chips:
+            self.press('Running', role='AXButton')
+            time.sleep(2)
             self.press('open worker details')
             time.sleep(2)
             label = self.find_all('Latest update', role='AXStaticText', by='--value')
@@ -1995,7 +2051,7 @@ class OutputWalk(command_walk.CommandWalk):
             if not label:
                 failures.append('the worker inspector shows no "Latest update" label (the worker left none)')
         else:
-            failures.append('no worker chip on the conversation: run front-desk-worker first')
+            note(worker_part='not reached: no worker chip on the conversation')
         self.script('tell application "System Events" to key code 53')
         time.sleep(1)
         # version: the Settings menu's line
