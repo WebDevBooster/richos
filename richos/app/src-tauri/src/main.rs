@@ -3577,6 +3577,8 @@ fn main() {
             claude_account_sign_in_poll,
             claude_account_remove,
             claude_account_use_first,
+            claude_account_discard,
+            claude_account_nudge_answer,
             set_claude_at_threshold,
             approve_claude_reset,
             revoke_claude_reset,
@@ -5390,18 +5392,67 @@ fn claude_account_sign_in(state: State<AppState>, id: String) -> Result<richos_c
 
 /// The added account's sign-in, while it runs. `None` when none is running. When it ends, the
 /// accounts are read again at once.
+///
+/// **Round 18's likeliest mistake: the same Claude account signed in again.** When the sign-in
+/// comes back connected, the folder is compared with every other account's
+/// (`provider_auth::same_account`: what Claude Code says each is signed in as, compared in
+/// memory and dropped). The same one is signed out of the new folder at once, so it never runs
+/// work twice on one account, and the answer is `sameAccount` with the name of the account it
+/// already is (round 18: "You signed in as Home again."). A different one is "added" in Recent
+/// changes. The third element is that name.
 #[tauri::command(async)]
-fn claude_account_sign_in_poll(state: State<AppState>) -> Option<(String, richos_core::provider_auth::AuthView)> {
+fn claude_account_sign_in_poll(state: State<AppState>) -> Option<(String, richos_core::provider_auth::AuthView, Option<String>)> {
+    use richos_core::provider_auth::{AuthState, AuthView};
     let bin = resolve_claude_bin();
-    let mut slot = state.account_auth.lock().unwrap();
-    let (id, auth) = slot.as_mut()?;
-    let view = auth.poll(&bin);
-    let answer = (id.clone(), view.clone());
-    if view.state != richos_core::provider_auth::AuthState::Connecting {
-        *slot = None;
-        state.quota.request_refresh();
+    let (id, view) = {
+        let mut slot = state.account_auth.lock().unwrap();
+        let (id, auth) = slot.as_mut()?;
+        let view = auth.poll(&bin);
+        let id = id.clone();
+        if view.state != AuthState::Connecting { *slot = None; }
+        (id, view)
+    };
+    if view.state == AuthState::Connecting { return Some((id, view, None)); }
+    let mut same_as = None;
+    if view.state == AuthState::Connected {
+        if let Some(folder) = state.quota.accounts.folder(&id) {
+            same_as = state.quota.accounts.list().into_iter().filter(|a| a.id != id)
+                .find(|a| richos_core::provider_auth::same_account(&bin, Some(&folder), a.folder.as_deref()) == Some(true))
+                .map(|a| a.label);
+            if same_as.is_some() {
+                richos_core::provider_auth::logout_in(&bin, &folder);
+            } else if let Err(error) = state.quota.accounts.signed_in(&id, richos_core::util::now_millis()) {
+                eprintln!("[richos] claude accounts: the adding could not be recorded ({error})");
+            }
+        }
     }
-    Some(answer)
+    state.quota.request_refresh();
+    let view = if same_as.is_some() { AuthView::same_account() } else { view };
+    Some((id, view, same_as))
+}
+
+/// **Cancel** in round 18's add flow, or after "That is the account you already use": the
+/// sign-in that is running for `id` is stopped, the folder signed out and the account removed.
+/// An adding that never finished leaves no row in Recent changes (`Accounts::remove`).
+#[tauri::command(async)]
+fn claude_account_discard(state: State<AppState>, id: String) -> Result<richos_core::quota::View, String> {
+    {
+        let mut slot = state.account_auth.lock().unwrap();
+        if slot.as_ref().is_some_and(|(running, _)| *running == id) {
+            if let Some((_, mut auth)) = slot.take() { auth.cancel(); }
+        }
+    }
+    if let Some(folder) = state.quota.accounts.folder(&id) {
+        richos_core::provider_auth::logout_in(&resolve_claude_bin(), &folder);
+    }
+    state.quota.remove_account(&id).map_err(|e| e.to_string())
+}
+
+/// **Not now** on Rich's one-time suggestion of a second account (round 18, `one-nudge`).
+#[tauri::command(async)]
+fn claude_account_nudge_answer(state: State<AppState>, answer: String) -> Result<richos_core::quota::View, String> {
+    state.quota.accounts.answer_nudge(&answer).map_err(|e| e.to_string())?;
+    Ok(state.quota.view())
 }
 
 /// **Remove** an added account: its folder signed out with the stock `claude auth logout`,
