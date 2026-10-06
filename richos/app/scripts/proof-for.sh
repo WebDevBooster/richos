@@ -517,6 +517,10 @@ while IFS= read -r p; do
   # declare `richos/app/scripts` wholesale — coverage by coincidence, which is the shape of
   # answer this whole script exists to stop giving.
   case "$p" in
+    "$APP_REL"/scripts/testvm/output-walk.py)
+      # This standalone walk has its own offline boundary checks below. The nested
+      # harness never exercises it; shared testvm files keep the full harness rule.
+      note "output walk: its declared owning suite, not the unrelated nested harness" ;;
     "$APP_REL"/scripts/*/*)
       sub="${p#"$APP_REL"/scripts/}"; sub="${sub%%/*}"
       if [ -x "$DIR/$sub/test/run-tests.sh" ]; then
