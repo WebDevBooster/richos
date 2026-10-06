@@ -114,7 +114,10 @@ async function fieldLive(page) {
   await page.waitForFunction(
     () => {
       const n = document.getElementById("home-loading");
-      return !n || getComputedStyle(n).opacity === "0";
+      // `visibility: hidden` flips at the END of the 0.8s fade (home.css `#home-loading.gone`,
+      // `visibility 0s linear 0.8s`), a separate step from opacity reaching 0; under load a
+      // snapshot taken between the two still sees the layer (nightly 40 gate, A1).
+      return !n || (getComputedStyle(n).opacity === "0" && getComputedStyle(n).visibility === "hidden");
     }, null,
     { timeout: 5000 }
   );
