@@ -70,6 +70,12 @@
     </form></div></section>`;
   document.body.appendChild(sheet);
   const field = id => sheet.querySelector("#" + id);
+  // Feedback item 8 (the CEO 2026-10-06): which account is in use now and which is next, said
+  // in one line above the lanes, in round 18's words (richos-hq design/mockups/rounds/round-18/).
+  // "Use this one now" changes the first; the automatic rule (plan §15.1) picks what is next.
+  const order = document.createElement("p");
+  order.id = "quota-order"; order.className = "quota-order"; order.hidden = true;
+  field("quota-lanes").before(order);
   // Open Claude Usage is the app's own control (round 16 has none). It is drawn only inside the
   // weekly-reset section, and that section only when there is a reset offer, an approval or a
   // reset attempt to show (`renderResets`), none of which round 16 draws: an uncertain reset
@@ -306,9 +312,14 @@
   function renderLanes() {
     const box = field("quota-lanes"), focus = document.activeElement;
     const keep = box.contains(focus) ? (focus.dataset.focus || "") : null;
-    box.replaceChildren(); box.hidden = !multi();
+    box.replaceChildren(); box.hidden = !multi(); order.hidden = !multi();
     if (!multi()) return;
-    const nx = nextAcct(), many = accounts().length > 2, old = stale(), sel = selectedAcct();
+    const nx = nextAcct(), many = accounts().length > 2, old = stale(), sel = selectedAcct(), cur = inUseAcct();
+    // The order, plainly: the account in use now (his pick, or where the last switch went),
+    // then the one Rich switches to when it must be left.
+    order.innerHTML = !cur ? "" : `In use now: <b>${esc(cur.label)}</b>. `
+      + (nx ? `Next: <b>${esc(nx.label)}</b>, whose week is fresh again soonest.` : "No other account has room right now.");
+    order.hidden = !cur;
     for (const a of lanesOrder()) {
       const isNext = nx && nx.id === a.id, gone = isUsedUp(a), read = a.windows.length > 0, signing = signingId === a.id;
       const lane = node("div", "quota-lane" + (a.inUse ? " is-inuse" : "") + (isNext ? " is-next" : "") + (gone ? " is-gone" : "") + (removeId === a.id ? " is-confirm" : ""));
@@ -336,6 +347,14 @@
       const side = lane.querySelector(".quota-lane-side");
       // Account 1 is the user's own Claude Code sign-in and is never removed here
       // (claude_accounts.rs remove); every added account carries Sign in and Remove.
+      // Use this one now (feedback item 8, round 18's words): any other account with a reading
+      // and room can be the one in use. One with no room would be left again at once.
+      if (!a.inUse && read && !signing && !isGone(a)) {
+        const first = node("button", "quota-btn quota-btn-quiet quota-lane-first", "Use this one now"); first.type = "button"; first.disabled = accountBusy;
+        first.setAttribute("aria-label", `Use ${a.label} now`); first.dataset.focus = "first-" + a.id;
+        first.addEventListener("click", () => accountUseFirst(a.id));
+        side.appendChild(first);
+      }
       if (a.id !== "1") {
         if (!read && !signing) {
           const signIn = node("button", "quota-btn quota-btn-quiet", "Sign in"); signIn.type = "button"; signIn.disabled = accountBusy;
@@ -696,6 +715,19 @@
       signingId = id;
       feedback("Finish the sign-in in your browser.", true);
       watchSignIn();
+    });
+  }
+  function accountUseFirst(id) {
+    const pick = accounts().find(a => a.id === id);
+    accountCall("claude_account_use_first", { id }, () => {
+      if (selectedId === id) selectedId = null;
+      // Round 18's confirmation: the account near its limit says when Rich switches again
+      // (the CEO's own test, the 97% account); otherwise which account is next.
+      const week = winOf(inUseAcct(), "seven_day")?.usedPercent, nx = nextAcct();
+      const then = week >= 90 ? ` ${pick.label} has already used ${Math.floor(week)}% of its week, so Rich will switch again when it reaches 99%.`
+        : nx ? ` ${nx.label} is next.` : "";
+      feedback(pick ? `Rich now uses ${pick.label}.${then}` : "", true);
+      field("quota-lanes").querySelector(".quota-lane-first")?.focus();
     });
   }
   function accountRemove(id) {

@@ -2463,6 +2463,14 @@
           if (!mockAccounts.some(a => a.inUse) && mockAccounts.length) mockAccounts[0].inUse = true;
           return quotaView();
         }
+        case "claude_account_use_first": {
+          // Feedback item 8: he picks the account that drains first (quota.rs use_account_first).
+          const pick = mockAccounts.find(a => a.id === args.id);
+          if (!pick) throw "That account is no longer on this Mac.";
+          if (!pick.windows.length) throw `${pick.label} has no reading yet. Sign it in, then refresh.`;
+          for (const a of mockAccounts) a.inUse = a.id === args.id;
+          return quotaView();
+        }
         case "claude_account_sign_in": return { state: "connecting", message: "Complete sign-in in your browser, then return here." };
         case "claude_account_sign_in_poll": return null;
         case "set_claude_at_threshold": { mockAtThreshold = args.value; return quotaView(); }

@@ -7116,6 +7116,9 @@ body.home-open {
 .quota-fast { color: var(--gold-text); font-weight: 600; }
 /* The lanes, in handover order. The gold mark is the one the rail puts on the active thread;
    the next account's mark is dashed gold, a used-up one dashed ink. */
+.quota-order { margin-top: 10px; font-size: 1rem; color: var(--ink-soft); }
+.quota-order b { color: var(--ink); font-weight: 600; }
+.quota-order + .quota-lanes { margin-top: 6px; }
 .quota-lanes { margin-top: 10px; border-top: 1px solid var(--line-soft); }
 .quota-lane { position: relative; display: grid; grid-template-columns: 3px minmax(0, 1fr) auto; gap: 0 14px; align-items: center; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line-soft); border-radius: 0 8px 8px 0; }
 .quota-lane[tabindex="0"] { cursor: pointer; }
