@@ -320,6 +320,23 @@ mod tests {
                 "Rich's own transcription comes before auto-generated captions");
     }
 
+    /// **A link checks its uploaded captions even after the video is downloaded** (D16, nightly
+    /// 44 walk): the transcription step's heading said "(or a file on his Mac)", and once Rich
+    /// had downloaded a linked video to `~/Downloads` it WAS a file on his Mac, so three runs of
+    /// four skipped the captions a person uploaded and transcribed the audio instead. Only a file
+    /// the CEO gave from his Mac, with no link, goes straight to transcription.
+    #[test]
+    fn a_link_checks_uploaded_captions_even_after_the_video_is_downloaded() {
+        let body = SKILLS.iter().find(|(name, _)| *name == "video").unwrap().1;
+        let words = &body[body.find("## 4.").expect("the words section")..body.find("## 5.").expect("the next section")];
+        let before_a = &words[..words.find("**a.").expect("source a")];
+        assert!(before_a.contains("For a link, always start with a") && before_a.contains("already downloaded"),
+                "before source a, the skill must say a link starts at a even once the video is downloaded: {before_a:?}");
+        let b = words.lines().find(|l| l.starts_with("**b.")).expect("source b");
+        assert!(!b.contains("(or a file on his Mac)"), "a downloaded link is a file on his Mac too, so b must not take any such file: {b}");
+        assert!(b.contains("a file the CEO gave you from his Mac"), "b takes only a file the CEO gave from his Mac: {b}");
+    }
+
     /// **The video skill transcribes with RichOS's pinned decode flags** (`richos_voice::stt::
     /// decode_args` with no prompt), never whisper.cpp's own `-mc -1`: on the CEO's 66-minute
     /// test video (D8PikZ1KhUo, 2026-10-07) that default looped "All right." 539 times and kept

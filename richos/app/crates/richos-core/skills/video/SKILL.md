@@ -61,6 +61,10 @@ more closely (a second, narrower `ffmpeg -ss <start> -t <length>` pass) only whe
 
 Three sources, in this order.
 
+For a link, always start with a, even when you have already downloaded the video in step 2 or
+step 3: the file came from the link, so the captions a person uploaded to it still come first.
+Only a file the CEO gave you from his Mac, with no link, starts at b.
+
 **a. Captions a person uploaded, through yt-dlp.** Fast, and nothing is downloaded but text:
 
 ```bash
@@ -75,7 +79,7 @@ your own transcription comes before them. If the CEO speaks another language, pu
 place of `en` (for example `"de"`). Keep the list this narrow: a wide pattern such as `"en.*"`
 fetches several tracks and YouTube answers with HTTP 429.
 
-**b. No uploaded captions (or a file on his Mac): transcribe it.**
+**b. No uploaded captions, or a file the CEO gave you from his Mac: transcribe it.**
 
 ```bash
 ffmpeg -nostdin -hide_banner -loglevel error -i "<video>" -vn -ar 16000 -ac 1 -c:a pcm_s16le "$work/audio.wav"
