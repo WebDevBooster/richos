@@ -464,8 +464,14 @@ needed "gate ON: bare BUILD_SHA render task still blocks" && run_case "gate ON: 
 # reason that has nothing to do with the mutation. The name is dot-prefixed and
 # PID-stamped so no `*.sh` inventory (census, registration completeness) can see
 # it, and the EXIT trap removes it even on a failed case.
-MUTANT_HOOK="$SCRIPT_DIR/.mutant-verify-agent-prompt.$$.sh"
-trap 'rm -rf "$SANDBOX" "$MUTANT_HOOK"' EXIT
+# The copy lives in the sandbox (never in the source tree): scripts/lib is
+# symlinked beside it so the hook's SCRIPT_DIR/../lib lookup resolves, and
+# RICHOS_ENGINE_ROOT pins the engine root the copy would otherwise derive.
+mkdir -p "$SANDBOX/mutant/hooks"
+ln -s "$SCRIPT_DIR/../lib" "$SANDBOX/mutant/lib"
+MUTANT_HOOK="$SANDBOX/mutant/hooks/verify-agent-prompt.sh"
+MUTANT_ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+trap 'rm -rf "$SANDBOX"' EXIT
 
 # run_mutant <name> <sed-expr> <expected-exit> <json>
 run_mutant() {
@@ -481,6 +487,7 @@ run_mutant() {
       | V8_TEAMS_DIR_OVERRIDE="$SANDBOX/teams" \
         VERIFY_REPO_ROOT_OVERRIDE="$REPO" \
         VERIFY_QA_GATE_OVERRIDE=1 \
+        RICHOS_ENGINE_ROOT="$MUTANT_ENGINE_ROOT" \
         "$BASH_BIN" "$MUTANT_HOOK" >/dev/null 2>&1
     actual=$?
     if [ "$actual" -eq "$expected" ]; then

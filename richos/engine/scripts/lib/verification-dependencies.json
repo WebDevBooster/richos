@@ -7718,7 +7718,7 @@
     },
     "scripts/hooks/verify-agent-prompt.test.sh": {
       "source": "scripts/hooks/verify-agent-prompt.test.sh",
-      "sha256": "0f648bfb40b4a4b2a29320f87d8e809986381d13b2062111cea9b33e9fc8ce28",
+      "sha256": "4929bcb151775ca14334344e69e1169f2bfeb4bcb2afbae212b557df2973b14e",
       "evidence": "Full suite and inline mutants route hook calls through VERIFY_REPO_ROOT_OVERRIDE to private adopted Git fixtures with literal config and private teams. Inner-only named scopes return 3 on success, require exactly one assertion and retain ack setup dependencies. Prompt commands remain inert data.",
       "keys": [],
       "edges": [
