@@ -515,6 +515,13 @@ richos/app/
                               run since that job landed. Off macOS it is now
                               `ignored, NOT CHECKABLE ON THIS TARGET: …`, because the pin is
                               read by `/usr/bin/codesign`. The negative half needs nothing
+    tests/media_tools.rs     13 tests for YT-DLP KEPT AT THE NEWEST NIGHTLY (`src/media_tools.rs`,
+                              media-tools plan slice 2): a newer nightly replaces the copy, a
+                              download that does not match its checksum is deleted, offline
+                              keeps the old copy, the old version file survives the swap and
+                              goes one check later (review m1), the tools folder sits on PATH
+                              after `/sbin` (m2), one tag per check and a 5-minute retry while
+                              no copy exists (m3). Fakes only, no network.
     tests/interruption_tests.rs 14 tests for WHY A TURN ENDED WITHOUT FINISHING
                               (`src/interruption.rs`, the 2026-09-17 nightly's D2). The
                               published nightly held
@@ -1119,7 +1126,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1850 tests + 5 doc-tests (1846 direct, 4 ignored)
+cargo test -p richos-core                       # 1863 tests + 5 doc-tests (1859 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
