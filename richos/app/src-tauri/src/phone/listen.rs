@@ -192,7 +192,7 @@ impl Listener {
         let mut bound: Vec<SocketAddr> = Vec::new();
         for address in addresses {
             let socket = SocketAddr::new(*address, https_port);
-            let listener = StdTcpListener::bind(socket)
+            let listener = bind_listener(socket)
                 .map_err(|e| PhoneError::Io(format!("could not listen on {socket}: {e}")))?;
             listener.set_nonblocking(true)?;
             bound.push(listener.local_addr()?);
@@ -224,7 +224,7 @@ impl Listener {
 
     /// The managed tunnel's final hop. No LAN address or alternate origin is accepted.
     pub fn start_connect(channel: Arc<Channel>, port: u16) -> Result<Self, PhoneError> {
-        let listener = StdTcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))?;
+        let listener = bind_listener(SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)))?;
         listener.set_nonblocking(true)?;
         let bound = vec![listener.local_addr()?];
         let (shutdown, rx) = watch::channel(false);
@@ -290,6 +290,32 @@ impl Listener {
 impl Drop for Listener {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Rebind after a stopped listener's accepted connections enter TIME_WAIT.
+/// Unix requires SO_REUSEADDR on both the old and new sockets. It still
+/// rejects a second listener while the first is alive; SO_REUSEPORT is absent.
+/// Windows keeps its existing exclusive binding behavior.
+fn bind_listener(address: SocketAddr) -> std::io::Result<StdTcpListener> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
+        let socket = if address.is_ipv4() {
+            tokio::net::TcpSocket::new_v4()?
+        } else {
+            tokio::net::TcpSocket::new_v6()?
+        };
+        socket.set_reuseaddr(true)?;
+        socket.bind(address)?;
+        if unsafe { libc::listen(socket.as_raw_fd(), 128) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(unsafe { StdTcpListener::from_raw_fd(socket.into_raw_fd()) })
+    }
+    #[cfg(not(unix))]
+    {
+        StdTcpListener::bind(address)
     }
 }
 
@@ -1093,6 +1119,8 @@ mod tests {
         });
         let mut listener = Listener::start_connect(Arc::clone(&channel), 0).expect("the Connect listener did not start");
         let port = listener.bound[0].port();
+        assert!(bind_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).is_err(),
+                "reuse of a retired socket must not permit two live listeners");
         let body = br#"{"client_id":"held-1","text":"hello from the phone"}"#.to_vec();
         let sig = super::super::b64url(&phone.sign(&signing_string(&challenge, "POST", "/api/messages", &body)));
         let authorization = format!("RichOS-Device {}.{challenge}.{sig}", device.id);
@@ -1124,7 +1152,9 @@ mod tests {
         });
         let returned = stopped.recv_timeout(std::time::Duration::from_secs(8)).is_ok();
         let took = began.elapsed();
-        let port_free = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok();
+        // Use the same socket options as the next real pairing. A default
+        // socket also rejects retired accepted connections in TIME_WAIT.
+        let port_free = bind_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).is_ok();
         {
             let (open, changed) = &*gate;
             *open.lock().unwrap() = true;

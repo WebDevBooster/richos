@@ -64,6 +64,18 @@ path and is unchanged by this: it is `build` immediately followed by
 python3 richos/app/scripts/nightly-local.py build --gates-at-once all --simulated-phones 2
 ```
 
+A `build` retry automatically reconciles completed gates from earlier attempts.
+Each actual gate keeps its own immutable log, input identity and status under
+`~/.richos-nightly/gate-evidence/<run-id>`. Matching source bytes, dependencies,
+external fixtures and execution settings let a completed pass stand while failed,
+stopped and unrun gates receive the first available slots. Changed or unreadable
+inputs and damaged evidence require execution. Earlier failures remain failures.
+The candidate records the original passing runs in `gate_evidence`; `REUSED` does
+not claim a new passing invocation. UI reuse runs the existing coverage verifier
+on a frozen copy of every receipt. The release smoke runs on every attempt, and
+`release` and `stable` retain fresh gates. Older runs without these input records
+cannot be retroactively qualified from their logs.
+
 Builds the signed, notarized app against a verified engine pin, then stops for QA.
 The candidate has a continuous number and a remote `refs/candidates/<number>`
 reservation. It creates no public version tag or release-list entry. The engine

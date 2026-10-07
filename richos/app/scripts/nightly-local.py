@@ -177,6 +177,14 @@ class OwnedGroups:
             pass
 
 
+class GateTimedOut(RuntimeError):
+    pass
+
+
+class GateNotAdmitted(RuntimeError):
+    pass
+
+
 # Written by the command's first instruction AFTER worker_tokens.py admitted it, and before
 # it execs the real command (same pid, so the owned group is unchanged).
 ADMITTED_SHIM = ': > "$0" && exec "$@"'
@@ -1187,6 +1195,8 @@ class Runner:
         self.gui_host = gui_host
         self.vm_settings = dict(vm_settings or {})
         self.groups = OwnedGroups()
+        self.gate_evidence = None
+        self.reused_gates = set()
 
     @property
     def log(self):
@@ -1344,14 +1354,14 @@ class Runner:
             self._count_clock(queued, getattr(expired, "execution_seconds", None))
             after = (f" of execution, admitted after {queued:.1f}s in the worker queue"
                      if queued is not None else "")
-            raise RuntimeError(f"{label} timed out after {timeout}s{after}; owned group stopped; "
+            raise GateTimedOut(f"{label} timed out after {timeout}s{after}; owned group stopped; "
                                "see the run log") from None
         self._count_clock(getattr(result, "admission_seconds", None),
                           getattr(result, "execution_seconds", None))
         if result.returncode == 75 and getattr(result, "admitted", None) is False:
             # worker_tokens.py gave up waiting for a machine token: nothing ran.
             label = self.active_phase or Path(str(args[0])).name
-            raise RuntimeError(f"{label} was never admitted: waited {result.admission_seconds:.0f}s "
+            raise GateNotAdmitted(f"{label} was never admitted: waited {result.admission_seconds:.0f}s "
                                "for a machine worker token and nothing ran; see the run log")
         if result.returncode:
             # Do not echo argv: signing commands can carry a password.
@@ -1975,6 +1985,11 @@ class Runner:
         # and not there would be waved through by every resume.
         if tuple(name for name, _ in gates) != GATE_NAMES:
             raise ValueError("gates() and GATE_NAMES disagree; update GATE_NAMES")
+        # Candidates can reconcile actual passes across failed attempts. Commands
+        # that publish still run every gate fresh. Smoke always runs. Reused UI
+        # evidence is reconciled again by run.js's own coverage verifier.
+        if skip_unchanged:
+            gates = self.reconcile_gates(gates, checks_done_at_land, no_host_screen)
         self.run_gates(gates)
         try:
             return json.loads(results.read_text())
@@ -1984,6 +1999,163 @@ class Runner:
             # does: a candidate with no recorded gui-boot result is treated exactly like
             # one that recorded NOT RUN.
             return None
+
+    def gate_input_identity(self, checks_done_at_land, no_host_screen):
+        """Conservative contract: the whole checkout, tools, installs and external inputs.
+
+        This intentionally does not guess which source changes a broad gate can
+        ignore. Dirty and untracked source, the privacy roster, runtime content,
+        Git configuration and execution settings are bound alongside the commit.
+        Only the generated run id is normalized. Unreadable inputs disable reuse.
+        """
+        library = str(Path(__file__).resolve().parent / "lib")
+        if library not in sys.path:
+            sys.path.insert(0, library)
+        import proof_evidence
+        env = {**self.env, "RICHOS_NIGHTLY_RUN_ID": CONDITIONS_RUN_ID}
+        inputs = proof_evidence.checkout_identity(self.source, [sys.executable], env)
+        inputs["readers"] = {str(path): proof_evidence.file_digest(path) for path in (
+            Path(__file__).resolve(), Path(proof_evidence.__file__).resolve(),
+            Path(library) / "nightly_gate_evidence.py")}
+        home = Path(env.get("HOME", str(Path.home())))
+        paths = {"privacy": Path(env.get("RICHOS_NAMED_PERSONS_FILE") or
+                                 home / ".richos-privacy/named-persons"),
+                 "global-git": home / ".gitconfig"}
+        if env.get("RICHOS_RUNTIME_DIR"):
+            paths["runtime"] = Path(env["RICHOS_RUNTIME_DIR"])
+        for i, model in enumerate(env.get("RICHOS_GUI_SPEECH_MODELS", "").split(os.pathsep)):
+            if model:
+                paths[f"speech-model-{i}"] = Path(model)
+        inputs["external"] = {key: proof_evidence.path_identity(path) for key, path in paths.items()}
+        inputs["python"] = proof_evidence.path_identity(sys.executable)
+        inputs["other_tools"] = {}
+        for tool in ("cargo", "cc", "xcrun", "codesign"):
+            resolved = shutil.which(tool, path=env.get("PATH"))
+            inputs["other_tools"][tool] = proof_evidence.path_identity(resolved) if resolved else {"absent": True}
+        tracked = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+                                 cwd=self.source, env=env, capture_output=True, timeout=15, check=True).stdout
+        inputs["linked_inputs"] = {os.fsdecode(p): proof_evidence.path_identity(self.source / os.fsdecode(p))
+                                   for p in tracked.split(b"\0") if p and (self.source / os.fsdecode(p)).is_symlink()}
+        ui_tree = self.state / self.UI_CHECKOUT
+        inputs["ui_modules"] = proof_evidence.checkout_installs(ui_tree) if ui_tree.exists() else {}
+        # ui_checkout replaces tracked files with source's commit, but retains
+        # untracked fixtures and local installs. Those are additional inputs.
+        inputs["ui_untracked"] = {}
+        if ui_tree.exists():
+            names = subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "-z"],
+                                   cwd=ui_tree, env=env, capture_output=True, timeout=15, check=True).stdout
+            inputs["ui_untracked"] = {os.fsdecode(p): proof_evidence.path_identity(ui_tree / os.fsdecode(p))
+                                      for p in names.split(b"\0") if p}
+        inputs["environment"] = {k: proof_evidence.digest(v) for k, v in env.items()}
+        inputs["settings"] = [checks_done_at_land, bool(no_host_screen), self.gates_at_once,
+                              self.simulated_phones, GATE_BUDGETS, GATE_AFTER]
+        inputs["git_config"] = proof_evidence.digest(subprocess.run(
+            ["git", "config", "--null", "--list", "--show-origin"], cwd=self.source,
+            env=env, capture_output=True, timeout=15, check=True).stdout.hex())
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.source, env=env,
+                             capture_output=True, text=True, timeout=15, check=True).stdout.strip()
+        return {"source_commit": sha, "inputs_sha256": proof_evidence.digest(inputs)}
+
+    def reconcile_gates(self, gates, checks_done_at_land, no_host_screen):
+        library = str(Path(__file__).resolve().parent / "lib")
+        if library not in sys.path:
+            sys.path.insert(0, library)
+        from nightly_gate_evidence import GateEvidence
+        run_id = self.env.get("RICHOS_NIGHTLY_RUN_ID", "")
+        if not re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{8}", run_id):
+            return gates
+        identity_reader = lambda: self.gate_input_identity(checks_done_at_land, no_host_screen)
+        try:
+            identity = identity_reader()
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            self.announce(f"Gate reuse unavailable: execution inputs cannot be read ({type(error).__name__})")
+            return gates
+        store = GateEvidence(self.state / "gate-evidence", run_id, identity_reader, self.announce)
+        self.gate_evidence = store
+        fresh = {"gates/release-smoke"}
+        pending = []
+
+        def read_log(name):
+            log = self.log
+            if isinstance(log, TimestampedLog):
+                log.sync()
+                with log._file_lock:
+                    log.file.flush()
+                text = log.path.read_text()
+            else:
+                text = log.getvalue() if hasattr(log, "getvalue") else log.read()
+            start = text.rfind(f"=== phase {name} begins ===")
+            return text[text.rfind("\n", 0, start) + 1:] if start >= 0 else text
+
+        def artifacts(name):
+            if name in self.skipped:
+                return {"skipped": True}
+            if name == "gates/script-suites":
+                try:
+                    report = json.loads((self.state / SUITE_RESULTS).read_text())
+                    if report.get("commit") == identity["source_commit"] and report.get("run_id") == run_id:
+                        return {"script_suites": report}
+                except (OSError, ValueError, AttributeError):
+                    pass
+                return {"missing": True}
+            if name == UI_SUITE_GATE:
+                try:
+                    receipts = {p.name: json.loads(p.read_text()) for p in
+                                (self.state / "ui-receipts").glob("*.receipt.json")}
+                    if receipts and all(r.get("commit") == identity["source_commit"] for r in receipts.values()):
+                        return {"ui_receipts": receipts}
+                except (OSError, ValueError, AttributeError):
+                    pass
+                return {"missing": True}
+            return None
+
+        for name, body in gates:
+            if name in fresh:
+                pending.append((name, body))
+                continue
+            saved = store.reusable(name, identity)
+            if saved:
+                record = saved[1]
+                payload = record.get("artifacts") or {}
+                valid = name != "gates/script-suites" or isinstance(payload.get("script_suites"), dict)
+                if name == UI_SUITE_GATE:
+                    valid = self.revalidate_ui_receipts(payload.get("ui_receipts"), run_id)
+                if valid:
+                    result = store.reuse(name, identity)
+                    if name == "gates/script-suites":
+                        # Preserve its original run id and commit. The candidate
+                        # names this actual run, never a fabricated current pass.
+                        (self.state / SUITE_RESULTS).write_text(json.dumps(result["script_suites"]) + "\n")
+                    self.reused_gates.add(name)
+                    self.skipped[name] = f"reconciled actual pass from {record['run_id']}"
+                    self.timings.append((name, None, None))
+                    continue
+            pending.append((name, store.wrap(name, body, identity, lambda name=name: read_log(name),
+                                             lambda name=name: artifacts(name),
+                                             stopping=lambda: self.groups.stopping)))
+        # Failures, cancellations and missing evidence get the first free slots.
+        # Their prerequisite gates retain the same dependency graph and limits.
+        pending.sort(key=lambda g: 0 if store.unresolved(g[0], identity) else 1)
+        return pending
+
+    def revalidate_ui_receipts(self, receipts, run_id):
+        """Reconcile the frozen UI receipt set without starting any UI suite."""
+        if not isinstance(receipts, dict) or not receipts:
+            return False
+        if any(not re.fullmatch(r"[a-z0-9-]+\.receipt\.json", name) for name in receipts):
+            return False
+        folder = self.state / "gate-evidence" / run_id / "ui-coverage"
+        folder.mkdir(parents=True, exist_ok=False)
+        for name, receipt in receipts.items():
+            (folder / name).write_text(json.dumps(receipt) + "\n")
+        args = ["node", "run.js", f"--coverage={folder}"]
+        args += [f"--quarantine={suite}" for suite in UI_QUARANTINE]
+        try:
+            self.command(*args, cwd=self.source / UI_TESTS, timeout=GATE_BUDGETS[UI_SUITE_GATE])
+        except RuntimeError:
+            self.announce("Saved UI receipts did not verify; the UI gate runs again")
+            return False
+        return True
 
     def run_gates(self, gates):
         """Run `gates` -- (name, body) pairs in GATE ORDER -- `gates_at_once` at a time.
@@ -2001,15 +2173,25 @@ class Runner:
         recorded as the `gates-wall-clock` timing either way.
         """
         names = [name for name, _ in gates]
-        unknown = {d for name in names for d in GATE_AFTER.get(name, ()) if d not in names}
+        unknown = {d for name in names for d in GATE_AFTER.get(name, ())
+                   if d not in names and d not in self.reused_gates}
         if unknown:
             raise ValueError(f"GATE_AFTER names gates this build does not run: {sorted(unknown)}")
         limit = len(gates) if self.gates_at_once == "all" else int(self.gates_at_once)
         started = time.time()
         try:
             if limit <= 1:
-                for _, body in gates:
+                pending = list(gates)
+                passed = set(self.reused_gates)
+                while pending:
+                    eligible = next((g for g in pending if all(
+                        d in passed for d in GATE_AFTER.get(g[0], ()))), None)
+                    if eligible is None:
+                        raise RuntimeError("gate prerequisites could not be satisfied")
+                    name, body = eligible
+                    pending.remove(eligible)
                     body()
+                    passed.add(name)
                 return
             self._run_gates_side_by_side(gates, limit)
         finally:
@@ -2045,7 +2227,7 @@ class Runner:
         finished = queue.Queue()
         pending = list(gates)
         running = {}
-        passed = set()
+        passed = set(self.reused_gates)
         first = None      # (name, exception) of the gate that refused the build
 
         def work(name, body, log):
@@ -2643,6 +2825,10 @@ class Runner:
             info = {**info, "no_host_screen": bool(no_host_screen)}
             if isinstance(suites, dict):
                 info["script_suites"] = suites
+            plan_path.write_text(json.dumps(info, indent=2) + "\n")
+        if self.gate_evidence:
+            info = {**info, "gate_evidence": self.gate_evidence.selected,
+                    "checks_skipped": sorted(self.skipped)}
             plan_path.write_text(json.dumps(info, indent=2) + "\n")
         if checks_done_at_land:
             # Into the plan, because nightly.py copies the plan verbatim into the
