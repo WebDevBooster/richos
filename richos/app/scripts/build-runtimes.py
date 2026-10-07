@@ -25,6 +25,17 @@ CLOSURE_CHECK = ("import sqlite3, fcntl, ssl, ctypes; ctypes.CDLL('/usr/lib/libp
                  "print('Python dependency closure OK')")
 
 
+# Every download names itself. ffmpeg.martin-riedl.de answers Python's default User-Agent
+# ("Python-urllib/3.x") with HTTP 403 and any other with the file (measured 2026-10-07: the
+# first runtime build with ffmpeg in the recipe stopped there). The pinned sha256 is what is
+# trusted, never the header.
+USER_AGENT = "richos-build-runtimes"
+
+
+def fetch(url):
+    return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=60)
+
+
 def sha(path):
     with path.open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
@@ -85,7 +96,7 @@ def install_zipped_executable(archive, name, target):
 
 
 def fetch_pinned(url, wanted, label):
-    with urllib.request.urlopen(url, timeout=60) as incoming:
+    with fetch(url) as incoming:
         data = incoming.read()
     if hashlib.sha256(data).hexdigest() != wanted:
         raise RuntimeError(f"{label} digest mismatch")
@@ -136,14 +147,14 @@ def build(destination):
         for name, source in manifest["sources"].items():
             archive = scratch / f"{name}.download"
             print(f"Fetching verified {name} {source['version']}", flush=True)
-            with urllib.request.urlopen(source["url"], timeout=60) as incoming, archive.open("wb") as out:
+            with fetch(source["url"]) as incoming, archive.open("wb") as out:
                 shutil.copyfileobj(incoming, out)
             if sha(archive) != source["sha256"]:
                 raise RuntimeError(f"{name}: upstream digest mismatch")
             if name == "jq":
                 shutil.copyfile(archive, runtime / "bin/jq")
                 (runtime / "bin/jq").chmod(0o755)
-                with urllib.request.urlopen(source["license_url"], timeout=60) as incoming:
+                with fetch(source["license_url"]) as incoming:
                     license_text = incoming.read()
                 if hashlib.sha256(license_text).hexdigest() != source["license_sha256"]:
                     raise RuntimeError("jq license digest mismatch")
