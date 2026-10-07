@@ -234,13 +234,18 @@ gui_machine() {
   # proof-run.py hand lib/runtime_cache.py's; run-suite.sh pushes it into a guest). Cloned
   # (`cp -c`, no bytes copied on APFS), with a plain copy where the two are on different
   # volumes. Put where the app installs one: `~/.config/richos/models` (stt.rs).
-  [ -n "${RICHOS_GUI_SPEECH_MODEL:-}" ] && [ -f "$RICHOS_GUI_SPEECH_MODEL" ] \
-    || { echo "gui_machine: a pinned speech model is required (RICHOS_GUI_SPEECH_MODEL)" >&2; return 1; }
+  # BOTH models (the CEO, 2026-10-07: "Both"): RICHOS_GUI_SPEECH_MODELS is their paths joined
+  # by ":", the one voice resolves and the transcription model.
+  [ -n "${RICHOS_GUI_SPEECH_MODELS:-}" ] \
+    || { echo "gui_machine: the pinned speech models are required (RICHOS_GUI_SPEECH_MODELS)" >&2; return 1; }
   mkdir -p "$home/.config/richos/models" || return 1
-  local model_dest
-  model_dest="$home/.config/richos/models/$(basename "$RICHOS_GUI_SPEECH_MODEL")"
-  cp -c "$RICHOS_GUI_SPEECH_MODEL" "$model_dest" 2>/dev/null \
-    || cp "$RICHOS_GUI_SPEECH_MODEL" "$model_dest" || return 1
+  local model model_dest models
+  IFS=':' read -r -a models <<<"$RICHOS_GUI_SPEECH_MODELS"
+  for model in "${models[@]}"; do
+    [ -f "$model" ] || { echo "gui_machine: speech model $model is not a file" >&2; return 1; }
+    model_dest="$home/.config/richos/models/$(basename "$model")"
+    cp -c "$model" "$model_dest" 2>/dev/null || cp "$model" "$model_dest" || return 1
+  done
   src="$home/FixtureDelivery/engine/loro"
   # The same program either way; prebuilt mode runs the copy this Mac built (see the top).
   if gui_prebuilt_mode; then

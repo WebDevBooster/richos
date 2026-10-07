@@ -23,8 +23,9 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
               model is on the guest; the sheet is up with one item, "my video tools"
   install     "Set it up" is pressed; the run's own lines are read until it finishes or fails
   installed   tools/yt-dlp verifies (launcher record = file hash) and answers --version on the
-              runtime's Python; the model on disk has its pinned sha256; the sheet says
-              "Setup is done."
+              runtime's Python; BOTH models are on disk with their pinned sha256 (the one voice
+              resolves, and large-v3-turbo-q5_0 for transcription: the CEO, 2026-10-07, "Both,
+              in this nightly, yes."); the sheet says "Setup is done."
   relaunch    the app is relaunched; the boot line says "nothing missing." and no sheet comes up
 
 CEO §53: no sound is played. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
@@ -51,6 +52,8 @@ StepFailed = adopt_walk.StepFailed
 
 STEPS = ['identity', 'incomplete', 'install', 'installed', 'relaunch']
 PINS = HERE.parents[2] / 'engine' / 'voice' / 'models' / 'model-pins.json'
+# The transcription model setup installs beside voice's (stt.rs TRANSCRIPTION_MODEL_ID).
+TRANSCRIPTION = 'ggml-large-v3-turbo-q5_0.bin'
 
 
 def boot_setup(text):
@@ -81,6 +84,15 @@ class SetupWalk(adopt_walk.Walk):
         self.tools = self.home + '/Library/Application Support/RichOS/tools'
         self.models = self.home + '/.config/richos/models'
 
+    def shows_text(self, text):
+        """Static text on the guest's screen: WebKit puts a text run's words in AXValue."""
+        try:
+            return bool(self.ax('find', '--value', text, '--contains', '--first'))
+        except StepFailed as exc:
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+                return False
+            raise
+
     def read_log(self, path=None):
         return guest(self.vm, 'cat ' + shlex.quote(path or self.log) + ' 2>/dev/null || true', 60)
 
@@ -102,8 +114,8 @@ class SetupWalk(adopt_walk.Walk):
         if models:
             raise StepFailed(f'the guest already has a speech model, so this walk proves nothing: {models}')
         self.wait_for('Set it up', seconds=60)
-        one = self.present("There's one thing I need on this Mac.", role='AXStaticText')
-        item = self.present('my video tools', role='AXStaticText')
+        one = self.shows_text("There's one thing I need on this Mac.")
+        item = self.shows_text('my video tools')
         self.shot('sheet-before.png')
         if not (one and item):
             raise StepFailed(f'the sheet should list the video tools as its one item (one={one}, item={item})')
@@ -149,16 +161,19 @@ class SetupWalk(adopt_walk.Walk):
         pins = {m['file']: m for m in json.loads(PINS.read_text())['models']}
         models = guest(self.vm, 'ls ' + shlex.quote(self.models)).split()
         found = [name for name in models if name in pins]
-        if len(found) != 1:
-            raise StepFailed(f'expected one pinned model in {self.models}, found {models}')
-        model_sha = guest(self.vm, 'shasum -a 256 ' + shlex.quote(f'{self.models}/{found[0]}'), 300).split()[0]
-        if model_sha != pins[found[0]]['sha256']:
-            raise StepFailed(f'{found[0]} hashes to {model_sha}, the pin says {pins[found[0]]["sha256"]}')
-        done = self.present('Setup is done.', role='AXStaticText')
+        if TRANSCRIPTION not in found or len(found) != 2:
+            raise StepFailed(f'expected the voice model and {TRANSCRIPTION} in {self.models}, found {models}')
+        verified = {}
+        for name in found:
+            model_sha = guest(self.vm, 'shasum -a 256 ' + shlex.quote(f'{self.models}/{name}'), 300).split()[0]
+            if model_sha != pins[name]['sha256']:
+                raise StepFailed(f'{name} hashes to {model_sha}, the pin says {pins[name]["sha256"]}')
+            verified[name] = {'sha256': model_sha, 'bytes': pins[name]['bytes']}
+        done = self.shows_text('Setup is done.')
         if not done:
             raise StepFailed('the sheet does not say "Setup is done."')
         return {'yt_dlp': {'tag': tag, 'sha256': sha, 'version': version},
-                'model': {'file': found[0], 'sha256': model_sha, 'bytes': pins[found[0]]['bytes']},
+                'models': verified,
                 'sheet': 'Setup is done.'}
 
     def relaunch(self):
@@ -170,7 +185,7 @@ class SetupWalk(adopt_walk.Walk):
             raise StepFailed(f'after setup the next launch still finds something missing: {verdict}')
         # The window settles before it would ask; then the sheet must not be there.
         time.sleep(15)
-        asked = self.present('Set it up') or self.present('my video tools', role='AXStaticText')
+        asked = self.present('Set it up') or self.shows_text('my video tools')
         self.shot('relaunch.png')
         if asked:
             raise StepFailed('the relaunched app put the setup sheet up again')
@@ -182,7 +197,7 @@ def main():
     p.add_argument('vm')
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
-    p.add_argument('--within', type=float, default=1500, help='seconds for "Set it up" to finish')
+    p.add_argument('--within', type=float, default=2700, help='seconds for "Set it up" to finish (two models, about 1 GB)')
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')

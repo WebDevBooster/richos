@@ -22,17 +22,24 @@ def cache_path(state, recipe):
     return Path(state) / f"runtime-{digest}"
 
 
-# THE SPEECH MODEL gui-boot.test.sh's healthy machine carries (RICHOS_GUI_SPEECH_MODEL). Since
-# 2026-10-07 the video tools are a setup essential (media-tools plan, slice 3), and they are
-# present only when a pinned speech model verifies, so a fixture without one boots to "my video
-# tools is NOT installed" instead of "nothing missing". This is the pinned small.en already on
-# the Mac the nightlies run on (487,614,201 B, engine/voice/models/model-pins.json); nothing is
-# downloaded for it. Read by `nightly-local.py` (`Runner.runtime`) and `proof-run.py`
-# (`supply_runtime`), so the build and the checks before it hand gui-boot the same file.
-GUI_SPEECH_MODEL = Path.home() / "Models" / "Whisper" / "ggml-small.en.bin"
+# THE SPEECH MODELS gui-boot.test.sh's healthy machine carries (RICHOS_GUI_SPEECH_MODELS, the
+# paths joined by ":"). Since 2026-10-07 the video tools are a setup essential (media-tools plan,
+# slice 3), present only when BOTH pinned speech models verify (the one voice resolves, and the
+# transcription model; the CEO: "Both, in this nightly, yes."), so a fixture without them boots to
+# "my video tools is NOT installed" instead of "nothing missing". These are the pinned small.en
+# (487,614,201 B) and large-v3-turbo-q5_0 (574,041,195 B) already on the Mac the nightlies run on
+# (engine/voice/models/model-pins.json); nothing is downloaded for them. Read by
+# `nightly-local.py` (`Runner.runtime`) and `proof-run.py` (`supply_speech_models`), so the
+# build and the checks before it hand gui-boot the same files.
+GUI_SPEECH_MODELS = (
+    Path.home() / "Models" / "Whisper" / "ggml-small.en.bin",
+    Path.home() / "Models" / "Whisper" / "ggml-large-v3-turbo-q5_0.bin",
+)
 
 
-def gui_speech_model():
-    """GUI_SPEECH_MODEL when it is a file on this Mac, else None (gui-boot then refuses and
-    names the input it needs)."""
-    return GUI_SPEECH_MODEL if GUI_SPEECH_MODEL.is_file() else None
+def gui_speech_models():
+    """GUI_SPEECH_MODELS joined by ":" when every one is a file on this Mac, else None (gui-boot
+    then refuses and names the input it needs)."""
+    if all(model.is_file() for model in GUI_SPEECH_MODELS):
+        return ":".join(str(model) for model in GUI_SPEECH_MODELS)
+    return None

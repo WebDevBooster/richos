@@ -904,9 +904,9 @@ GATE_SET_BY_BUILD = (
     "RICHOS_NAMED_PERSONS_FILE",
     # Set by Runner.runtime() once the pinned runtimes are verified.
     "RICHOS_RUNTIME_DIR",
-    # Set by Runner.runtime() beside it: the pinned speech model gui-boot's healthy machine
+    # Set by Runner.runtime() beside it: the pinned speech models gui-boot's healthy machine
     # needs now that the video tools are a setup essential (lib/runtime_cache.py).
-    "RICHOS_GUI_SPEECH_MODEL",
+    "RICHOS_GUI_SPEECH_MODELS",
 )
 
 # WHAT THIS SCRIPT SETS FOR ONE STEP ONLY, at that step's own call site, through
@@ -1073,9 +1073,9 @@ CONDITIONS_NOT_REPRODUCED = {
     "RICHOS_RUNTIME_DIR": "set by Runner.runtime() to <state>/runtime-<recipe sha256[:12]> once verify-runtime.py "
                           "accepts it; proof-run.py's supply_runtime() hands a check that same "
                           "verified folder itself, or says why it could not",
-    "RICHOS_GUI_SPEECH_MODEL": "set by Runner.runtime() to lib/runtime_cache.py's "
-                               "gui_speech_model(); proof-run.py's supply_runtime() hands a check "
-                               "that same file, or says why it could not",
+    "RICHOS_GUI_SPEECH_MODELS": "set by Runner.runtime() to lib/runtime_cache.py's "
+                                "gui_speech_models(); proof-run.py's supply_speech_models() hands "
+                                "a check those same files, or says why it could not",
     "RUN_TESTS_SKIP_UNCHANGED": "the operator's choice to skip a suite whose inputs passed "
                                 "before; it decides which suites run, not what they run under, "
                                 "and a check that honored it could skip the very suite it was "
@@ -1585,15 +1585,15 @@ class Runner:
         self.command(sys.executable, self.source / SCRIPTS / "verify-runtime.py", path,
                      self.source / SCRIPTS / "runtime-sources.json")
         self.env["RICHOS_RUNTIME_DIR"] = str(path)
-        # gui-boot's healthy machine needs a pinned speech model (the video tools are a setup
+        # gui-boot's healthy machine needs the pinned speech models (the video tools are a setup
         # essential). Absent, nothing is set and gui-boot refuses naming this input.
         library = str(Path(__file__).resolve().parent / "lib")
         if library not in sys.path:
             sys.path.insert(0, library)
         import runtime_cache
-        model = runtime_cache.gui_speech_model()
-        if model:
-            self.env["RICHOS_GUI_SPEECH_MODEL"] = str(model)
+        models = runtime_cache.gui_speech_models()
+        if models:
+            self.env["RICHOS_GUI_SPEECH_MODELS"] = models
 
     def ui_proof_path(self, sha):
         return self.state / "ui-coverage" / f"{sha}.json"

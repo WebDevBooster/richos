@@ -1172,10 +1172,10 @@ if [ ! -f "$GUI_ENGINE_DIR/runtime/delivery.json" ] && [ -z "${RICHOS_RUNTIME_DI
   echo "gui-boot.test.sh: provide an extracted engine with runtimes via RICHOS_GUI_ENGINE_SOURCE, or a verified RICHOS_RUNTIME_DIR." >&2
   host_gap_exit
 fi
-# The video tools are a setup essential (2026-10-07), present only with a pinned speech model,
-# so the healthy machine needs a real one (gui-launch.sh `gui_machine`).
-if [ -z "${RICHOS_GUI_SPEECH_MODEL:-}" ] || [ ! -f "$RICHOS_GUI_SPEECH_MODEL" ]; then
-  echo "gui-boot.test.sh: provide a pinned speech model via RICHOS_GUI_SPEECH_MODEL (the nightly hands it ~/Models/Whisper/ggml-small.en.bin, lib/runtime_cache.py)." >&2
+# The video tools are a setup essential (2026-10-07), present only with both pinned speech
+# models, so the healthy machine needs real ones (gui-launch.sh `gui_machine`).
+if [ -z "${RICHOS_GUI_SPEECH_MODELS:-}" ]; then
+  echo "gui-boot.test.sh: provide both pinned speech models via RICHOS_GUI_SPEECH_MODELS, joined by ':' (the nightly hands it ~/Models/Whisper/ggml-small.en.bin and ggml-large-v3-turbo-q5_0.bin, lib/runtime_cache.py)." >&2
   host_gap_exit
 fi
 
