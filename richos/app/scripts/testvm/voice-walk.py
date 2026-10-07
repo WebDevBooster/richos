@@ -145,8 +145,28 @@ class VoiceWalk(adopt_walk.Walk):
         self.facts['relaunch'] = launched
         self.facts['relaunched_at_ms'] = self.clock()
         self.save()
-        self.wait_for('Talk to Rich', seconds=60)  # the home door or the talk control: the window is up
+        self.window_up(seconds=60)
         return launched
+
+    def window_up(self, seconds):
+        """The relaunched window shows "Talk to Rich" (the home door or the talk control). A find
+        is only a read, so a read that hit ax.sh's guest deadline is asked again inside the same
+        budget: walk-3fa7da94531b failed here on one 19 s AX read (exit 124, guest_deadline) of
+        a window that walk-e5e9903a36b4, the same bundle, had read at once."""
+        end = time.monotonic() + seconds
+        last = None
+        while time.monotonic() < end:
+            try:
+                if self.present('Talk to Rich'):
+                    return True
+            except StepFailed as exc:
+                if 'guest_deadline' not in str(exc):
+                    raise
+                last = exc
+            time.sleep(1)
+        self.shot('relaunch-missing.png')
+        raise StepFailed(f'"Talk to Rich" never appeared within {seconds} s of the relaunch' +
+                         (f'; last AX read: {last}' if last else ''))
 
     def ready(self):
         end = time.monotonic() + 60
@@ -169,7 +189,8 @@ class VoiceWalk(adopt_walk.Walk):
         try:
             nodes = self.ax('find', '--id', dom_id, '--first')
         except StepFailed as exc:
-            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+            # A read that hit ax.sh's guest deadline is a read with no answer: the callers loop.
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc) or 'guest_deadline' in str(exc):
                 return None
             raise
         nodes = [n for n in nodes if not n.get('meta')]
@@ -184,15 +205,17 @@ class VoiceWalk(adopt_walk.Walk):
         started. The talk control is #talk-toggle (index.html); its label turns into "Stop talking"
         only after start_voice_capture resolves (main.js enterVoiceMode), so that label is the
         proof the press opened capture."""
-        door = self.by_id('home-enter')
-        if door:
-            self.ax('click', '--id', 'home-enter')
         end = time.monotonic() + 30
         toggle = None
-        while time.monotonic() < end and not toggle:
+        door = False
+        while time.monotonic() < end:
             toggle = self.by_id('talk-toggle')
-            if not toggle:
-                time.sleep(1)
+            if toggle:
+                break
+            if self.by_id('home-enter'):
+                self.ax('click', '--id', 'home-enter')
+                door = True
+            time.sleep(1)
         if not toggle:
             self.shot('talk-missing.png')
             raise StepFailed('the talk control (#talk-toggle) is not on screen within 30 s of the home door')

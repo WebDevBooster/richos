@@ -76,5 +76,30 @@ class TalkPressesTheTalkControl(unittest.TestCase):
         self.assertEqual(w.clicks, ['talk-toggle'])
 
 
+class WindowUpAsksASlowReadAgain(unittest.TestCase):
+    """walk-3fa7da94531b failed its relaunch on one AX read that hit the guest deadline."""
+
+    def test_a_guest_deadline_is_read_again_and_a_real_error_is_not(self):
+        w = object.__new__(walk.VoiceWalk)
+        answers = [walk.StepFailed('command failed (124): ax.sh find\n{"error": "guest_deadline"}'), True]
+
+        def present(title, role='AXButton', app=None):
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        w.present = present
+        w.shot = lambda name: None
+        self.assertTrue(w.window_up(seconds=10))
+
+        def broken(title, role='AXButton', app=None):
+            raise walk.StepFailed('command failed (2): no app pid')
+
+        w.present = broken
+        with self.assertRaises(walk.StepFailed):
+            w.window_up(seconds=10)
+
+
 if __name__ == '__main__':
     unittest.main()
