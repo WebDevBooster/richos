@@ -62,6 +62,82 @@ class Pierce(unittest.TestCase):
         self.assertEqual(captured[0]["outgoing_assignment"], self.payload["tool_input"]["prompt"])
         self.assertIn("Fixture worker instructions.", captured[0]["standing_instructions"])
 
+    def test_later_question_preserves_earlier_authorization_and_human_correction(self):
+        self.rows.extend([
+            {"type": "user", "message": {"content": "What is the status of the other task?"}},
+            {"type": "attachment", "attachment": {"type": "queued_command",
+             "origin": {"kind": "human"}, "prompt": "Keep the API, but stop the UI change."}}])
+        self.transcript.write_text("\n".join(map(json.dumps, self.rows)))
+        with patch.object(P, "invoke", return_value={"verdict": "PASS", "report": "PASS"}) as reviewer:
+            P.inspect(self.payload)
+        context = reviewer.call_args.args[0]["user_requests_in_order"]
+        self.assertEqual(context, "Implement the requested feature.\n\nKeep the existing API.\n\n"
+                         "What is the status of the other task?\n\nKeep the API, but stop the UI change.")
+
+    def test_cited_private_repository_and_evidence_logs_have_canonical_read_roots(self):
+        private = self.root / "richos-hq"
+        (private / ".git").mkdir(parents=True)
+        plan = private / "docs/plan.md"
+        plan.parent.mkdir()
+        plan.write_text("Requested behavior.")
+        logs = self.root / "evidence logs"
+        logs.mkdir()
+        log = logs / "check.log"
+        log.write_text("Expected error.")
+        alias = self.root / "evidence alias"
+        alias.symlink_to(logs.resolve(), target_is_directory=True)
+        workspace = self.root / "assigned workspace"
+        workspace.mkdir()
+        unrelated = self.root / "uncited-private"
+        unrelated.mkdir()
+        prompt = (f"cross-repo-worktree: {workspace}\n"
+                  f"Read `{plan}:12-15` and `{alias / 'check.log'}`. Keep the API.")
+        with patch.object(P, "invoke", return_value={"verdict": "PASS", "report": "PASS"}) as reviewer:
+            P.inspect({**self.payload, "tool_input": {**self.payload["tool_input"], "prompt": prompt}})
+        roots = reviewer.call_args.args[0]["read_roots"]
+        self.assertIn(str(private.resolve()), roots)
+        self.assertIn(str(logs.resolve()), roots)
+        self.assertIn(str(workspace.resolve()), roots)
+        self.assertNotIn(str(unrelated), roots)
+        self.assertNotIn(str(alias), roots)
+        self.assertNotIn(str(self.root), roots)
+
+    def test_missing_cited_paths_do_not_grant_an_ancestor_or_whole_home(self):
+        roots = P.read_roots(self.project, f"Read `/etc/missing-pierce-file` and `{Path.home()}`.")
+        self.assertEqual(roots, [str(self.project.resolve()), str(P.ENGINE.resolve())])
+
+    def test_desktop_reads_connected_folders_and_current_evidence_not_brief_grants(self):
+        state = self.root / "app-state"
+        evidence = state / "evidence" / self.payload["session_id"]
+        evidence.mkdir(parents=True)
+        other_evidence = state / "evidence/other-session"
+        other_evidence.mkdir()
+        connected = self.root / "company files"
+        connected.mkdir()  # Connected folders need not be Git repositories.
+        other_company = self.root / "other-company"
+        other_company.mkdir()
+        redirect = connected / "redirect"
+        redirect.symlink_to(other_company, target_is_directory=True)
+        self.rows[0]["evidenceSource"] = "richos-ledger-attested-hook-v1"
+        self.transcript.write_text("\n".join(map(json.dumps, self.rows)))
+        prompt = f"Read `{other_company}`, `{other_evidence}` and `{redirect}`. Keep the API."
+        with patch.dict(os.environ, {"RICHOS_APP_STATE": str(state),
+                "RICHOS_APP_READ_ROOTS": json.dumps([str(connected)])}), \
+             patch.object(P, "invoke", return_value={"verdict": "PASS", "report": "PASS"}) as reviewer:
+            P.inspect({**self.payload, "tool_input": {**self.payload["tool_input"], "prompt": prompt}})
+        roots = reviewer.call_args.args[0]["read_roots"]
+        self.assertIn(str(connected.resolve()), roots)
+        self.assertIn(str(evidence.resolve()), roots)
+        self.assertNotIn(str(other_company.resolve()), roots)
+        self.assertNotIn(str(other_evidence.resolve()), roots)
+        self.assertNotIn(str(state.resolve()), roots)
+
+    def test_desktop_cannot_fall_back_to_terminal_path_discovery(self):
+        with patch.dict(os.environ, {"RICHOS_APP_STATE": str(self.root / "app-state")}):
+            os.environ.pop("RICHOS_APP_READ_ROOTS", None)
+            with self.assertRaisesRegex(ValueError, "company read roots"):
+                P.read_roots(self.project, f"Read `{self.root}`.", self.payload)
+
     def test_no_recursion_no_dry_run_and_no_resume_inspection(self):
         with patch.object(P, "invoke") as reviewer:
             for kind in ("pierce", "richos-engine:pierce"):
@@ -237,7 +313,7 @@ class Pierce(unittest.TestCase):
             "from pathlib import Path\n"
             "Path(os.environ['CAPTURE']).write_text(json.dumps({'argv':sys.argv,'request':json.load(sys.stdin),"
             "'nested':os.environ.get('CLAUDECODE')}))\n"
-            "print(" + repr(json.dumps({"structured_output": verdict})) + ")\n")
+            "print(" + repr(json.dumps({"structured_output": {"notes": [], **verdict}})) + ")\n")
         fake.chmod(0o700)
         env = {**self.env, "PATH": str(bin_dir) + os.pathsep + self.env["PATH"],
                "CAPTURE": str(self.root / "captured.json"), "CLAUDECODE": "parent-session"}
@@ -258,11 +334,51 @@ class Pierce(unittest.TestCase):
         self.assertEqual(argv[argv.index("--model") + 1], "opus")
         self.assertEqual(argv[argv.index("--tools") + 1], "Read,Glob,Grep")
         self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
+        self.assertEqual(argv.count("--add-dir"), 1)
         self.assertIn("Judge only changed lines", argv[argv.index("--system-prompt") + 1])
+
+    def test_real_hook_admits_notes_only_and_records_notes_without_dismissal(self):
+        note = "The background list omits a name already covered by the edit list."
+        env = self.fake_provider({"verdict": "PASS", "report": "PASS. The edit list covers every definition.",
+                                  "notes": [note]})
+        result = subprocess.run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-pierce.sh")],
+            input=json.dumps(self.payload), env=env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Notes (nonblocking; no revision required)", context)
+        self.assertIn(note, context)
+        saved = next((self.root / "config/state/pierce").glob('[0-9a-f]' * 64 + '.json'))
+        record = json.loads(saved.read_text())
+        self.assertEqual(record["verdict"], "PASS")
+        self.assertEqual(record["notes"], [note])
+        self.assertNotIn("dismissal", record)
+        self.assertIsNone(P.refusal(record))
+
+    def test_notes_do_not_hide_a_material_refusal_or_enter_revision_findings(self):
+        reports = [{"verdict": "FINDINGS", "report": "Remove the API violates the human request.",
+                    "notes": ["A background name is omitted."]},
+                   {"verdict": "PASS", "report": "The API is retained.", "notes": []}]
+        with patch.object(P, "invoke", side_effect=reports) as reviewer:
+            original = P.inspect(self.payload)
+            self.assertIn("worker has not started", P.refusal(original))
+            self.assertIn("nonblocking", P.refusal(original))
+            result = P.inspect(self.revised())
+        self.assertIsNone(P.refusal(result))
+        prior = reviewer.call_args.args[0]["review"]["previous_report"]
+        self.assertEqual(prior, reports[0]["report"])
+        self.assertNotIn("background name", prior)
+
+    def test_invalid_notes_are_unavailable_not_a_pass(self):
+        env = self.fake_provider({"verdict": "PASS", "report": "PASS", "notes": "not an array"})
+        with patch.dict(os.environ, env, clear=True):
+            result = P.inspect(self.payload)
+        self.assertEqual(result["verdict"], "UNAVAILABLE")
+        self.assertIsNotNone(P.refusal(result))
 
     def test_desktop_uses_host_selected_provider_outside_restricted_path(self):
         env = self.fake_provider({"verdict": "PASS", "report": "PASS. Read fixture evidence."})
         env.update(RICHOS_APP_STATE=str(self.root / "app-state"),
+                   RICHOS_APP_READ_ROOTS=json.dumps([str(self.project)]),
                    RICHOS_CLAUDE_BIN=str(self.root / "bin/claude"), PATH="/usr/bin:/bin")
         self.rows[0]["evidenceSource"] = "richos-ledger-attested-hook-v1"
         self.transcript.write_text("\n".join(map(json.dumps, self.rows)))
@@ -314,7 +430,7 @@ class Pierce(unittest.TestCase):
         fake.write_text("#!" + sys.executable + "\nimport json,os,sys,time\n"
             "with open(os.environ['CAPTURE'],'a') as out:out.write('invoked\\n')\n"
             "json.load(sys.stdin)\ntime.sleep(0.6)\n"
-            "print('{\"structured_output\":{\"verdict\":\"PASS\",\"report\":\"PASS\"}}')\n")
+            "print('{\"structured_output\":{\"verdict\":\"PASS\",\"report\":\"PASS\",\"notes\":[]}}')\n")
         command = ["/bin/bash", str(ENGINE / "scripts/hooks/guard-pierce.sh")]
         first = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True, env=env)
