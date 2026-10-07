@@ -24,6 +24,10 @@ S="${2:?usage: fbcopy-walk.sh <vm> <out-dir>}"
 T="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$S"
 : > "$S/verdict.txt"
+# 60 s per accessibility call instead of ax.sh's 20: a whole-window tree read took 16 to 20 s in
+# the guest on the nightly 41 walk (walk-54299f44c8c8) and two of them hit the 20 s deadline,
+# which is the harness, not the app.
+export TESTVM_AX_TIMEOUT="${TESTVM_AX_TIMEOUT:-60}"
 note() { echo "[walk] $(date -u +%H:%M:%SZ) $*" | tee -a "$S/walk.log"; }
 verdict() { echo "$1  $2" | tee -a "$S/verdict.txt"; }
 ax() { "$T/ax.sh" "$VM" "$@"; }
@@ -89,7 +93,9 @@ elif has 1-quick-settings 'Text size'; then
 else verdict FAIL "item 7: the quick settings menu did not open (no Text size row in the tree)"; fi
 
 note "3 Use Rich from your phone"
-ax click --title 'Use Rich from your phone' --contains --first || note "no phone row"
+# The row is an AXMenuItem; the first node merely containing these words has no AXPress
+# (walk-54299f44c8c8: "noaction: element has no AXPress; actions=AXShowMenu").
+ax click --title 'Use Rich from your phone' --role AXMenuItem --contains --first || note "no phone row"
 sleep 4
 tree 3-phone
 shot 3-phone
@@ -105,7 +111,9 @@ ax click --title 'Close' --first || ax --key 53 || true
 sleep 2
 
 note "2 general settings (the rail gear)"
-ax click --title 'Settings' --role AXButton --first || note "no rail gear button"
+# The rail gear is the AXPopUpButton titled with the gear glyph at the rail's foot; no AXButton
+# is titled Settings (walk-54299f44c8c8 found none, and its frame shows the top bar's tooltip).
+ax click --title '⚙' --role AXPopUpButton --first || note "no rail gear button"
 sleep 3
 tree 2-general-settings
 shot 2-general-settings
