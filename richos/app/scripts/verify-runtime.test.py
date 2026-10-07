@@ -21,7 +21,7 @@ class RuntimeInventoryTests(unittest.TestCase):
         self.sources = Path(self.temp.name) / "sources.json"
         self.sources.write_text('{"synthetic":true}')
         (self.root / "runtime-sources.json").write_bytes(self.sources.read_bytes())
-        for name in ("python3", "node", "git", "jq", "whisper-cli"):
+        for name in ("python3", "node", "git", "jq", "whisper-cli", "ffmpeg", "ffprobe"):
             path = self.root / "bin" / name
             path.write_text("#!/bin/sh\nexit 0\n")
             path.chmod(0o755)
@@ -69,6 +69,15 @@ class RuntimeInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not executable: whisper-cli"):
             module.verify(self.root, self.sources)
 
+    def test_runtime_without_the_video_tools_refuses(self):
+        # Rich's PATH holds the runtime and system folders only; a runtime without ffmpeg or
+        # ffprobe would leave him unable to watch a video, so it never ships.
+        for name in ("ffmpeg", "ffprobe"):
+            (self.root / "bin" / name).chmod(0o644)
+            with self.assertRaisesRegex(ValueError, f"not executable: {name}"):
+                module.verify(self.root, self.sources)
+            (self.root / "bin" / name).chmod(0o755)
+
     def test_invalid_member_name_refuses(self):
         self.manifest["files"]["../outside"] = "0" * 64
         self.save()
@@ -85,6 +94,20 @@ class TrackedRecipeTests(unittest.TestCase):
         for name, source in self.recipe["sources"].items():
             self.assertTrue(source["url"].startswith("https://"), name)
             self.assertRegex(source["sha256"], r"^[0-9a-f]{64}$", name)
+
+    def test_ffmpeg_corresponding_source_is_pinned(self):
+        # GPLv3: the runtime carries directions to the exact source of the static ffmpeg build,
+        # so every archive in them is an https URL with a sha256 pin, ffmpeg's own at the same version.
+        ffmpeg = self.recipe["sources"]["ffmpeg"]
+        self.assertEqual(ffmpeg["version"], self.recipe["sources"]["ffprobe"]["version"])
+        self.assertTrue(ffmpeg["license_url"].startswith("https://"))
+        self.assertRegex(ffmpeg["license_sha256"], r"^[0-9a-f]{64}$")
+        rows = ffmpeg["corresponding_source"]
+        self.assertEqual(len({row["name"] for row in rows}), len(rows))
+        self.assertIn(("ffmpeg", ffmpeg["version"]), [(row["name"], row["version"]) for row in rows])
+        for row in rows:
+            self.assertTrue(row["url"].startswith("https://"), row["name"])
+            self.assertRegex(row["sha256"], r"^[0-9a-f]{64}$", row["name"])
 
     def test_whisper_cpp_is_the_reference_build_version(self):
         pins = Path(__file__).resolve().parents[2] / "engine/voice/models/model-pins.json"

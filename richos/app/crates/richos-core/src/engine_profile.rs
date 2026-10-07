@@ -114,6 +114,22 @@ pub struct EngineProfile {
     /// **Where this lease's token use goes** (`quota::Service::token_sink`), counted under
     /// `claude_account`. Set by the shell beside it; `None` everywhere else.
     pub token_sink: Option<std::sync::Arc<crate::quota::tokens::Sink>>,
+    /// **The speech model the video skill transcribes with** (media-tools plan section 3). Set
+    /// by the shell through [`speech_model_for_video`]: the pinned large-v3-turbo-q5_0 that setup
+    /// installs for transcription when it is installed and verified (the CEO, 2026-10-07: "Both,
+    /// in this nightly, yes."), otherwise the model voice mode resolves. It reaches the provider
+    /// as `RICHOS_SPEECH_MODEL` in [`Self::configure`]. `None` when neither is ready, and then
+    /// nothing is set: the skill tells the CEO it watched the pictures only. Resolved by the shell
+    /// because this crate does not depend on `richos-voice` (no native audio here).
+    pub speech_model: Option<PathBuf>,
+}
+
+/// **Which speech model the video skill transcribes with**, the value of
+/// [`EngineProfile::speech_model`]. `transcription` is the pinned transcription model's own check
+/// (`richos_voice::stt::model_verified(TRANSCRIPTION_MODEL_ID)` in the shell); `voice` is the
+/// model voice mode resolves, asked only when the transcription model is not usable.
+pub fn speech_model_for_video(transcription: Result<PathBuf, String>, voice: impl FnOnce() -> Option<PathBuf>) -> Option<PathBuf> {
+    transcription.ok().or_else(voice)
 }
 
 fn quote(path: &Path) -> String { format!("'{}'", path.to_string_lossy().replace('\'', "'\\''")) }
@@ -324,7 +340,7 @@ impl EngineProfile {
         write(&plugin.join("spawn-preflight.json"),
               &json!({"hooks":{"PreToolUse":[{"matcher":"Agent","hooks":preflight}]}}).to_string())?;
         Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default(),
-                  operator_desk: None, claude_account: None, token_sink: None })
+                  operator_desk: None, claude_account: None, token_sink: None, speech_model: None })
     }
     /// Install the desktop executable's quota wrapper. Source-test clients which
     /// do not implement that CLI entrypoint keep their canonical hooks unchanged.
@@ -476,6 +492,11 @@ impl EngineProfile {
         }
         if let Some((entity, thread)) = &self.work_scope {
             command.env("RICHOS_APP_ENTITY", entity).env("RICHOS_APP_THREAD", thread);
+        }
+        // The video skill's transcription step reads this (`skills/video/SKILL.md`). An
+        // inherited value was removed with every other `RICHOS_` name above.
+        if let Some(model) = &self.speech_model {
+            command.env("RICHOS_SPEECH_MODEL", model);
         }
         let registry = crate::entity::EntityRegistry::load(&self.state.parent().unwrap().join("entities.json")).registry;
         let repos: Vec<_> = registry.entities().iter()

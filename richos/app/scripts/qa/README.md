@@ -28,6 +28,7 @@ and never prints a number it did not measure.
 | Tool | The job |
 |---|---|
 | `episode-counter.py` | Read-only Claude/Codex episode accounting: request usage, tool-time unions, non-tool gaps and unresolved verification candidates. Emits numeric aggregates and source locators only. |
+| `caption-wer.py` | A transcript against a video's captions (yt-dlp's WebVTT, rolling YouTube cues read once): word error rate on normalized words, and the capitalization and spelling differences counted by pair, plus the most repeated phrase on each side (a decoder loop shows there first). Added with the video-skill walk of 2026-10-07. |
 | `contrast.py` | WCAG ratio of two colors, or of a region of a frame. One estimator, stated in the file, printed with every answer. |
 | `frame.py` | Read the frame: `px`, `crop`, `extent`, `inset`, `box`, `edges`, `motion`. `inset` is the four-sided gap measurement behind the 18/18 settings-button check. |
 | `ocr-gate.sh` | The privacy gate: no frame enters the record carrying an address, a home path or a listed person's name. Refuses to report clean until a positive control proves the reader works. |
