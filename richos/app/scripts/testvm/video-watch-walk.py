@@ -24,8 +24,12 @@ auto-generated captions on the host (scripts/qa/caption-wer.py).
 
 WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   identity     the running app says it was built from --expect-sha
-  setup        "Set it up" on the setup sheet installs the video tools (yt-dlp and BOTH speech
-               models, each checked against its pin), then "Close"
+  setup        the video tools (yt-dlp and BOTH speech models, each checked against its pin) are
+               installed: on a build that downloads them in the background from launch
+               (a4facb643, boot line "video tools: downloading in the background") nothing is
+               pressed and the step waits for the app's own "My video tools are installed.";
+               on an earlier build "Set it up" on the setup sheet that lists them is pressed,
+               then "Close"
   first-run    adopt-walk.py's: memory setup declined, company "Acme" registered, questions declined
   connect      command-walk.py's: the Acme folder connected
   speech-env   every running provider lease has RICHOS_SPEECH_MODEL naming
@@ -90,6 +94,11 @@ def plain_prefix(label):
     space or apostrophe (a URL's "?" and "=", the panel's ellipsis): enough to find it with
     --contains, and nothing that has to survive the trip into the guest."""
     return re.match(r"[A-Za-z0-9 ']*", label).group(0).rstrip()
+
+
+def background_download(text):
+    """The boot began the video tools in the background (setup_view.rs, a4facb643)."""
+    return bool(re.search(r'^\[richos\] video tools: downloading in the background$', text, re.M))
 
 
 def ran(commands, *needles):
@@ -211,27 +220,50 @@ class VideoWatchWalk(command_walk.CommandWalk):
         return all(k.lower() in text for k in keywords)
 
     # --- steps -----------------------------------------------------------------------------
+    def sheet_lists_tools(self):
+        """The setup sheet is up and lists "my video tools" (a build before a4facb643). The memory
+        question has a "Set it up" too, so the button alone says nothing."""
+        if not self.present('Set it up'):
+            return False
+        try:
+            return bool(self.ax('find', '--value', 'my video tools', '--contains', '--first'))
+        except StepFailed:
+            return False
+
     def setup(self):
-        self.wait_for('Set it up', seconds=90)
+        end = time.monotonic() + 90
+        mode = None
+        while time.monotonic() < end and not mode:
+            if background_download(self.read_log()):
+                mode = 'background'
+            elif self.sheet_lists_tools():
+                mode = 'pressed'
+            else:
+                time.sleep(2)
+        if not mode:
+            raise StepFailed('within 90 s the app neither began the video tools in the background nor '
+                             'listed them on the setup sheet')
         self.shot('setup-before.png')
         before = self.clock()
-        self.press('Set it up')
+        if mode == 'pressed':
+            self.press('Set it up')
         end = time.monotonic() + self.a.setup_within
         outcome = None
         while time.monotonic() < end:
-            outcome = setup_walk.run_outcome(self.read_log())
+            outcome = setup_walk.tools_outcome(self.read_log())
             if outcome:
                 break
             time.sleep(5)
         lines = [line for line in self.read_log().splitlines()
-                 if line.startswith('[richos] setup') and '%' not in line]
+                 if (line.startswith('[richos] setup') or line.startswith('[richos] video tools'))
+                 and '%' not in line]
         models = guest(self.vm, 'ls ' + shlex.quote(self.models) + ' 2>/dev/null || true').split()
-        evidence = {'outcome': outcome, 'seconds': round((self.clock() - before) / 1000, 1),
+        evidence = {'mode': mode, 'outcome': outcome, 'seconds': round((self.clock() - before) / 1000, 1),
                     'lines': lines[-20:], 'models': models}
-        if outcome != 'finished' or LARGE not in models:
-            raise StepFailed('setup did not install the video tools: ' + json.dumps(evidence)[:2000])
+        if outcome != 'done' or LARGE not in models:
+            raise StepFailed('the video tools were not installed: ' + json.dumps(evidence)[:2000])
         self.shot('setup-after.png')
-        if self.present('Close'):
+        if mode == 'pressed' and self.present('Close'):
             self.press('Close')
         return evidence
 
