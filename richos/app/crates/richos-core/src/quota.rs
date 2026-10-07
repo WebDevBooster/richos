@@ -92,7 +92,9 @@ impl Reading {
     /// the normal threshold again (answer 11).
     pub fn act_point(&self, window: &Window, threshold: f64) -> f64 {
         let reach = self.speeds.get(&window.id).copied().unwrap_or(0.) * self.interval() as f64;
-        threshold.min(100. - reach)
+        // Never below 0%: a jump faster than the whole window (20% -> 95% in 30 s) would
+        // otherwise print "-36%". At 0 the window is already at the point, so it still acts at once.
+        threshold.min(100. - reach).clamp(0., 100.)
     }
     /// **Act now?** At the check point (§108: never at 100%).
     pub fn reaches(&self, window: &Window, threshold: f64) -> bool {
@@ -1633,6 +1635,18 @@ pub(crate) mod tests {
         atomic_write(&state.join("claude-quota.json"), &view).unwrap();
         atomic_write(&dir.path().join("claude-quota-policy.json"), &policy()).unwrap();
         assert!(matches!(gate::admission(&state, NOW + 60_000), Admission::Held { .. }));
+    }
+
+    /// D14: a jump from 20% to 95% between two quick readings must not print a negative line.
+    #[test]
+    fn a_huge_jump_between_two_readings_never_puts_the_line_below_zero() {
+        let mut s = Snapshot::default();
+        s.accept(five_hour_at(20.), NOW);
+        s.accept(five_hour_at(95.), NOW + 30_000);
+        let view = s.view(policy(), NOW + 30_000);
+        let at = view.act_at["five_hour"];
+        assert!((0. ..=100.).contains(&at), "line was {at}");
+        assert!(matches!(view.admission, Admission::Held { .. }), "it still holds at once");
     }
 
     /// **One window read two ways is still one window.** The probe's reset time is an ISO
