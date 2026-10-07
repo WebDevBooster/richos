@@ -391,7 +391,9 @@ class SetupWalk(adopt_walk.Walk):
         self.ax('click', '--id', 'talk-toggle')
         self.mark('talk control pressed', pressed=True)
         listening, offer = False, None
-        end = time.monotonic() + 30
+        # 90 s: the control turns only after start_voice_capture resolves, and the walk of candidate
+        # 44 saw nothing within 30 s with both guest slots busy on a host at 98% CPU.
+        end = time.monotonic() + 90
         while time.monotonic() < end:
             after = self.by_id('talk-toggle') or {}
             if after.get('desc') == 'Stop talking':
@@ -410,11 +412,13 @@ class SetupWalk(adopt_walk.Walk):
             except StepFailed:
                 pass
         self.mark('listening ("Stop talking")' if listening else
-                  ('the download offer is up' if offer else 'neither listening nor the offer within 30 s'))
+                  ('the download offer is up' if offer else 'neither listening nor the offer within 90 s'))
+        capture_log = [line for line in self.read_log().splitlines()
+                       if re.search(r'voice|capture|wav|microphone|whisper', line, re.I)][-25:]
         # Back to the composer: the same control again.
         self.ax('click', '--id', 'talk-toggle')
         evidence = {'voice_lines': lines, 'ready_lines': ready, 'talk_before': toggle, 'listening': listening,
-                    'offer': offer, 'offer_text': offer_text}
+                    'offer': offer, 'offer_text': offer_text, 'capture_log': capture_log}
         self.facts['voice'] = evidence
         self.save()
         failures = []
