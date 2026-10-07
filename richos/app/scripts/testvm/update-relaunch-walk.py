@@ -193,7 +193,11 @@ class Walk(adopt.Walk):
         relaunch_line = next((x for x in self.log().splitlines() if 'relaunching into' in x), '')
         if not relaunch_line:
             raise StepFailed(f'no relaunch within {self.a.within} s of the press')
-        hits = subprocess.run([str(HERE.parent / 'qa' / 'ocr-find.sh'), 'restarting', str(frames),
+        # The notice's own words, as the app writes them: the pill's "Restarting into RichOS <v>…"
+        # and the row's "Nothing is running, so RichOS will restart into it in a moment." The OCR
+        # match is case-sensitive, and the old lowercase "restarting" matched neither (the nightly
+        # 41 walk, walk-99fb46933c29: frames 5 and 6 show the row's sentence, 0 of 7 hits).
+        hits = subprocess.run([str(HERE.parent / 'qa' / 'ocr-find.sh'), '[Rr]estart(ing)? into', str(frames),
                                '--quiet'], capture_output=True, text=True, timeout=300)
         notice = [Path(x.split()[1]).name for x in hits.stdout.splitlines() if x.startswith('HIT')]
         if notice:
