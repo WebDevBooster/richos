@@ -37,9 +37,10 @@
 # continuation lives in the work host (work_host.rs continuation_after_a_helper_ended), which
 # runs only for a job the front desk wrote down; helpers on the front desk's own lease never
 # reach it. Two files make a job with a helper on the back end, with no model:
-#   register      while it exists, the front desk's next user turn (a lease whose --mcp-config
-#                 has richos_assignments) calls that server's `record` tool with the file's text
-#                 as the assignment, as Claude Code would, and says the receipt's words. The
+#   register      while it exists, the front desk's user turn whose text carries the file's
+#                 text (a lease whose --mcp-config has richos_assignments; never the app's own
+#                 priming turn) calls that server's `record` tool with the file's text as the
+#                 assignment, as Claude Code would, and says the receipt's words. The
 #                 file is taken (renamed) first, so the job is written down once. calls.log:
 #                 "register ok <text>" or "register error <text>".
 #   work-agents   one helper per line, launched on the FIRST back-end lease's first user turn (a
@@ -166,12 +167,17 @@ my $servers = eval { $json->decode(arg_after('--mcp-config') // '{}')->{mcpServe
 my $backend = exists $servers->{richos_work};
 sub calls_line { if (open(my $l, '>>', "$dir/calls.log")) { print $l join(' ', time(), ($folder || 'account-1'), @_), "\n"; close $l; } }
 sub register_job {  # the front desk writes the job down through the app's own register; its words, or undef
+  my ($sent) = @_;
   my $server = $servers->{richos_assignments} or return undef;
+  # Only on the turn that carries his words: the app primes the front desk with a turn of its
+  # own (<executive-continuity>), and the register refuses that one ("This conversation is not
+  # open for new assignments right now"; walk walk-4ec19e8a365e).
+  open(my $fh, '<', "$dir/register") or return undef;
+  my $text = do { local $/; <$fh> } // ''; close $fh;
+  $text =~ s/\s+/ /g; $text =~ s/\A //; $text =~ s/ \z//;
+  return undef unless length $text && index($sent, $text) >= 0;
   my $taken = "$dir/register.taken.$$";
   rename("$dir/register", $taken) or return undef;
-  open(my $fh, '<', $taken) or return undef;
-  my $text = do { local $/; <$fh> } // ''; close $fh;
-  $text =~ s/\s+\z//;
   my ($from, $to);
   my $pid = eval { open2($from, $to, $server->{command}, @{ $server->{args} || [] }) };
   unless ($pid) { calls_line('register', 'error', 'the register could not be started'); return undef; }
@@ -247,10 +253,11 @@ while (my $line = <STDIN>) {
     my $internal =index($json->encode($msg->{message} // {}), '[INTERNAL') >= 0;
     # While /Users/admin/fill-first/log-turns exists, each user turn's text (first 400 chars, one
     # line) goes to calls.log as "turn <text>", so a walk can read what the app sent to the back end.
+    my $c = $msg->{message}{content};
+    my $sent = ref $c eq 'ARRAY' ? join(' ', map { ref $_ eq 'HASH' ? ($_->{text} // '') : '' } @$c) : ($c // '');
+    $sent =~ s/\s+/ /g;
     if (!$internal && -e "$dir/log-turns" && open(my $tl, '>>', "$dir/calls.log")) {
-      my $c = $msg->{message}{content};
-      my $sent = ref $c eq 'ARRAY' ? join(' ', map { ref $_ eq 'HASH' ? ($_->{text} // '') : '' } @$c) : ($c // '');
-      $sent =~ s/\s+/ /g; print $tl join(' ', time(), ($folder || 'account-1'), 'turn', substr($sent, 0, 400)), "\n"; close $tl;
+      print $tl join(' ', time(), ($folder || 'account-1'), 'turn', substr($sent, 0, 400)), "\n"; close $tl;
     }
     if (!$internal && $evidence && open(my $names, '<', "$dir/agents")) {
       my @who = grep { length } map { s/\s+\z//r } <$names>; close $names;
@@ -272,7 +279,7 @@ while (my $line = <STDIN>) {
           { hook_event_name => 'PostToolUse', tool_name => 'Agent', tool_response => { status => 'async_launched', agentId => "work-agent-$n" } }) } @who);
       }
     }
-    my $receipt = $internal ? undef : register_job();
+    my $receipt = $internal ? undef : register_job($sent);
     unless ($internal) {
       helper_steps();
       for (1 .. 600) { last unless -e "$dir/slow"; sleep 1; helper_steps(); }

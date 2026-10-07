@@ -193,7 +193,7 @@ with tempfile.TemporaryDirectory() as root:
     back_config = json.dumps({'mcpServers': {'richos_work': {'type': 'stdio', 'command': 'true', 'args': []}}})
     for name in ('agents', 'reply.txt', 'calls.log'):
         (walk / name).unlink(missing_ok=True)
-    (walk / 'register').write_text('Start the Northwind job.\n')
+    (walk / 'register').write_text('Start the Northwind job and keep Mark on it.\n')
     (walk / 'work-agents').write_text('Mark\n')
     flag = root / 'leaving'
     gate = root / 'gate-work.sh'
@@ -215,10 +215,15 @@ with tempfile.TemporaryDirectory() as root:
                 if r['callback'].get('hook_event_name') == event]
 
     desk, desk_journal = lease('front-desk', front_config)
+    desk.stdin.write(user('<executive-continuity> scoped operational state </executive-continuity>'))
+    desk.stdin.flush()
+    answers(desk)
+    check((walk / 'register').exists() and ' register ' not in (walk / 'calls.log').read_text(),
+          'the app\'s own priming turn does not take the register (it is not his turn)')
     desk.stdin.write(user('Start the Northwind job and keep Mark on it.'))
     desk.stdin.flush()
     said = answers(desk)
-    check(said == 'On it! Start the Northwind job.', 'the front desk says the register\'s words', said)
+    check(said == 'On it! Start the Northwind job and keep Mark on it.', 'the front desk says the register\'s words', said)
     log = (walk / 'calls.log').read_text()
     check('register ok' in log and not (walk / 'register').exists(), 'the job was written down once through the register', log)
     check(events(desk_journal, 'SubagentStart') == [], 'the front desk launches no work-agent')
