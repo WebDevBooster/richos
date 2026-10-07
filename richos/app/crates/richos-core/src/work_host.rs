@@ -796,6 +796,29 @@ fn keep_words(answer: &mut String, said: &str) {
     answer.push_str(said);
 }
 
+/// Add one streamed piece of a turn's prose to what the turn said.
+///
+/// **Different notices are their own paragraphs** (video-finish walks on `ec12621f8`: his
+/// report read "…because the video runs for an hour.The transcription is running now."). One
+/// turn says one thing, starts a tool, then says the next; the deltas of one notice arrive
+/// back to back and are joined as they came, and the first words after anything else the turn
+/// did start a new paragraph. A piece that is only whitespace waits for the words after it.
+fn add_streamed_words(said: &mut String, text: &str, between_notices: &mut bool) {
+    if text.trim().is_empty() {
+        if !*between_notices {
+            said.push_str(text);
+        }
+        return;
+    }
+    if std::mem::take(between_notices) && !said.trim().is_empty() {
+        said.truncate(said.trim_end().len());
+        said.push_str("\n\n");
+        said.push_str(text.trim_start());
+    } else {
+        said.push_str(text);
+    }
+}
+
 impl WorkHost {
     pub fn new(
         state: &Path,
@@ -1706,6 +1729,9 @@ impl WorkHost {
             // turn's own failure goes on to the arms below exactly as before.
             loop {
                 let (items_before, said_before) = (*items, said.len());
+                // Set by anything the turn did between two pieces of its prose (a tool call
+                // above all): the words after it are a new notice ([`add_streamed_words`]).
+                let mut between_notices = false;
                 let sent = lease.prompt(text, &mut |item: TurnItem| {
                     *items += 1;
                     // The back end has his answers: its first item of the turn that carried them.
@@ -1724,10 +1750,16 @@ impl WorkHost {
                         // anything trimmed it. 64 KiB is eight times the answer cap, so no
                         // real answer can reach this line and be cut by it.
                         if keeping_an_answer && said.len() < 64 * 1024 {
-                            said.push_str(text);
+                            add_streamed_words(said, text, &mut between_notices);
                         }
                     }
                     TurnItem::Machinery(record) => {
+                        // A usage reading or a keep-alive (`Unknown`) can land between two
+                        // deltas of one sentence and ends nothing; every other kind ends the
+                        // run of prose in front of it, as the ledger's `text_runs` fold does.
+                        if record.kind != crate::machinery::MachineryKind::Unknown {
+                            between_notices = true;
+                        }
                         // **The one machinery record that is READ rather than retained**,
                         // same as `spine.rs:2034`. The back end's own machinery is not
                         // otherwise journalled: its turns are never rendered.
@@ -4759,6 +4791,60 @@ mod tests {
         command_reads: usize,
     }
 
+    /// In a scripted reply: a keep-alive `ping` frame between two deltas.
+    const PING: char = '\u{1}';
+    /// In a scripted reply: a tool call opening between two pieces of prose.
+    const TOOL_CALL: char = '\u{2}';
+
+    /// A scripted reply streamed the way `native.rs` streams one: its prose as text items, and
+    /// each [`PING`] or [`TOOL_CALL`] as the machinery that real frame becomes in between.
+    fn stream_reply(reply: &str, session: &str, on: &mut dyn FnMut(TurnItem)) {
+        let mut piece = String::new();
+        for c in reply.chars() {
+            let frame = match c {
+                PING => serde_json::json!({"type": "stream_event", "event": {"type": "ping"}}),
+                TOOL_CALL => serde_json::json!({"type": "stream_event", "event": {"type": "content_block_start",
+                    "content_block": {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {}}}}),
+                _ => {
+                    piece.push(c);
+                    continue;
+                }
+            };
+            if !piece.is_empty() {
+                on(TurnItem::Text { seq: 0, text: &piece });
+                piece.clear();
+            }
+            for record in crate::machinery::MachineryRecord::from_native_event(&frame, session, 0) {
+                on(TurnItem::Machinery(record));
+            }
+        }
+        if !piece.is_empty() {
+            on(TurnItem::Text { seq: 0, text: &piece });
+        }
+    }
+
+    /// **Rich's progress notices are their own sentences** (video-finish walks on `ec12621f8`:
+    /// "…because the video runs for an hour.The transcription is running now."). One turn says
+    /// one notice, starts a tool, and says the next; a keep-alive between two deltas of one
+    /// notice breaks nothing.
+    #[test]
+    fn two_notices_of_one_turn_are_two_paragraphs_and_one_notice_stays_one_sentence() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        h.replies.lock().unwrap().push_back(format!(
+            "I will transcribe it in the background{PING} because the video runs for an hour.{TOOL_CALL}\
+             The transcription is running now."));
+        h.host.start();
+        h.host.register(&h.binding, &registration(&h)).unwrap();
+        let notices = until_notices(&h, 1);
+        assert_eq!(notices[0].text,
+            "I will transcribe it in the background because the video runs for an hour.\n\n\
+             The transcription is running now.");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
     impl Drop for WorkLease {
         fn drop(&mut self) {
             if let Some(host) = self.drop_probe.lock().unwrap().as_ref().and_then(std::sync::Weak::upgrade) {
@@ -4830,7 +4916,7 @@ mod tests {
                 return Ok(crate::native::STOP_REASON_CANCELLED.to_string());
             }
             if !reply.is_empty() {
-                _on(TurnItem::Text { seq: 0, text: &reply });
+                stream_reply(&reply, &self.session, _on);
             } else if !self.silent.load(Ordering::SeqCst) {
                 // The neutral item every real turn streams (C11): no words, nothing counted.
                 _on(TurnItem::Text { seq: 0, text: "" });
