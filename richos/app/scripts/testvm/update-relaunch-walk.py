@@ -58,6 +58,10 @@ command = adopt.command
 
 STEPS = ['install', 'identity', 'first-run', 'ready', 'draft', 'download', 'after']
 DRAFT = 'Half a sentence I have not sent yet'
+# The update cue is a <button aria-haspopup="true"> (ui/updates.js), which the accessibility tree
+# exposes as an AXPopUpButton, not an AXButton: the nightly 41 walk's run (walk-fe53d4385fc2) photographed
+# the cue on screen while a 300 s wait for an AXButton named "is available" found nothing.
+CUE_ROLE = 'AXPopUpButton'
 
 
 class Walk(adopt.Walk):
@@ -141,7 +145,7 @@ class Walk(adopt.Walk):
         # The control appears only once the work gate is clear: the app's own first turn has
         # ended and the launch check has found the release.
         try:
-            self.wait_for('is available', seconds=self.a.within)
+            self.wait_for('is available', role=CUE_ROLE, seconds=self.a.within)
         except StepFailed as exc:
             # Keep what the screen and the app said: the nightly 41 walk's first run ended here with
             # no frame and no log, so nobody could tell a cue that never came from one not found.
@@ -165,7 +169,7 @@ class Walk(adopt.Walk):
 
     def download(self):
         old = str(self.facts['pid_before'])
-        self.press('is available')
+        self.press('is available', role=CUE_ROLE)
         self.wait_for('Download update', seconds=20)
         pressed = time.monotonic()
         self.press('Download update')
