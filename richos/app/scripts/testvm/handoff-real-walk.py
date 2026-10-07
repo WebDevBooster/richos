@@ -92,6 +92,35 @@ JOB = ('Please have scribe do this job in the Acme repository, and have checker 
 
 
 class HandoffWalk(command_walk.CommandWalk):
+    # An accessibility read that misses its deadline (ax.sh exit 124) on a busy host is "not
+    # read", not "not there" and not a failed walk (runs 1 and 7: a find for the composer and for
+    # "Start the questions" ended the walk). A find is asked again up to three times; a press,
+    # whose effect is unknown after a deadline, once, only after a find says it is still there.
+    @staticmethod
+    def _deadline(exc):
+        return '(124)' in str(exc) or 'deadline' in str(exc)
+
+    def present(self, title, role='AXButton', app=None):
+        for _ in range(3):
+            try:
+                return super().present(title, role, app)
+            except StepFailed as exc:
+                if not self._deadline(exc):
+                    raise
+                time.sleep(2)
+        return False
+
+    def press(self, title, role='AXButton', app=None, contains=True):
+        try:
+            return super().press(title, role, app, contains)
+        except StepFailed as exc:
+            if not self._deadline(exc):
+                raise
+            time.sleep(3)
+            if not self.present(title, role, app):
+                return []
+            return super().press(title, role, app, contains)
+
     def team(self):
         found = {}
         for name, body in TEAM.items():
