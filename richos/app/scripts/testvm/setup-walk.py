@@ -34,6 +34,17 @@ moments to ONE timeline on the guest's clock, each with how much of the two mode
   arrived     the download finishes by itself: the app's own line says the video tools are
               installed; tools/yt-dlp verifies (launcher record = file hash) and answers --version
               on the runtime's Python; BOTH models are on disk with their pinned sha256
+  voice       voice is ready with NO relaunch (a4facb643: "the window asks voice again when a model
+              arrives ... so voice switches on without a relaunch"): within 60 s the app's own
+              "[richos] voice: ready on this machine" line is printed (main.rs voice_readiness
+              prints a line on EVERY ask), and the talk control (#talk-toggle), pressed once as a
+              person does, turns into "Stop talking" rather than putting up the offer to download
+              a model that is already installed (#voice-model-get). Then pressed again to stop.
+              The press opens capture, so the app must be launched with a stand-in for the
+              microphone: TESTVM_APP_ENV=RICHOS_VOICE_INPUT_WAV=/Users/admin/voice-silence.wav in
+              run-walk.py's environment; the step writes two seconds of silence there first, and
+              the microphone grant a person gives with Allow is written as voice-walk.py writes it
+              (grant_microphone), so no privacy prompt comes up.
   relaunch    the app is relaunched; the boot line says "nothing missing." and no sheet comes up
 
 CEO §53: no sound is played. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
@@ -58,7 +69,15 @@ adopt_walk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(adopt_walk)
 StepFailed = adopt_walk.StepFailed
 
-STEPS = ['identity', 'meanwhile', 'arrived', 'relaunch']
+STEPS = ['identity', 'meanwhile', 'arrived', 'voice', 'relaunch']
+# The microphone's stand-in for the voice step (capture.rs RICHOS_VOICE_INPUT_WAV), in the guest.
+SILENCE_WAV = '/Users/admin/voice-silence.wav'
+# Two seconds of 16 kHz mono silence, written in the guest: nothing is played and nothing is said.
+SILENCE = ("import sys,wave\n"
+           "w=wave.open(sys.argv[1],'wb')\n"
+           "w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)\n"
+           "w.writeframes(b'\\x00\\x00'*32000)\n"
+           "w.close()\n")
 PINS = HERE.parents[2] / 'engine' / 'voice' / 'models' / 'model-pins.json'
 # The model voice fetches on a Mac with none (the cost table's safe rung) and the transcription
 # model (stt.rs TRANSCRIPTION_MODEL_ID).
@@ -122,6 +141,16 @@ def boot_setup(text):
     return {'nothing_missing': nothing, 'missing': missing}
 
 
+def voice_lines(text):
+    """The app's voice readiness lines, in order (main.rs voice_readiness prints one per ask)."""
+    return re.findall(r'^\[richos\] voice: .*$', text, re.M)
+
+
+def voice_ready(lines):
+    """The ready lines among them."""
+    return [line for line in lines if line.startswith('[richos] voice: ready on this machine')]
+
+
 def tools_outcome(text):
     """How the video tools' download ended, from the app's own lines (setup_view.rs): 'done',
     'failed' or None while it runs. Either source: the background download, or a setup press."""
@@ -141,6 +170,28 @@ class SetupWalk(adopt_walk.Walk):
         self.models = self.home + '/.config/richos/models'
         self.want = pinned_bytes()
         self.timeline = self.facts.get('timeline', [])
+
+    def ax(self, mode, *args, app=None, timeout=40):
+        """A find that hit ax.sh's guest deadline is asked again, at most twice (voice-walk.py's
+        rule). The walk of candidate 44 lost its relaunch step to one such read on a host at
+        97% CPU, after every product check had passed."""
+        for attempt in range(3):
+            try:
+                return super().ax(mode, *args, app=app, timeout=timeout)
+            except StepFailed as exc:
+                if mode != 'find' or 'guest_deadline' not in str(exc) or attempt == 2:
+                    raise
+
+    def by_id(self, dom_id):
+        """The node whose DOM id is dom_id, or None when it is not in the accessibility tree."""
+        try:
+            nodes = self.ax('find', '--id', dom_id, '--first')
+        except StepFailed as exc:
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc) or 'guest_deadline' in str(exc):
+                return None
+            raise
+        nodes = [n for n in nodes if not n.get('meta')]
+        return nodes[0] if nodes else None
 
     def shows_text(self, text):
         """Static text on the guest's screen: WebKit puts a text run's words in AXValue."""
@@ -309,6 +360,78 @@ class SetupWalk(adopt_walk.Walk):
         voice = [line for line in self.read_log().splitlines() if line.startswith('[richos] voice: ')]
         return {'yt_dlp': {'tag': tag, 'sha256': sha, 'version': version}, 'models': verified,
                 'voice_lines': voice[-3:], 'timeline': self.timeline}
+
+    def voice(self):
+        ps = guest(self.vm, 'ps -axwwE -o command= 2>/dev/null || true', 60)
+        app = [line for line in ps.splitlines() if '/Contents/MacOS/richos-tauri' in line]
+        if not any('RICHOS_VOICE_INPUT_WAV=' + SILENCE_WAV in line for line in app):
+            raise StepFailed('the app was not launched with the microphone stand-in, so pressing the talk '
+                             'control would open a real device: run with TESTVM_APP_ENV='
+                             f'RICHOS_VOICE_INPUT_WAV={SILENCE_WAV}')
+        guest(self.vm, 'python3 -c ' + shlex.quote(SILENCE) + ' ' + shlex.quote(SILENCE_WAV))
+        _vspec = importlib.util.spec_from_file_location('voice_walk', HERE / 'voice-walk.py')
+        voice_walk = importlib.util.module_from_spec(_vspec)
+        _vspec.loader.exec_module(voice_walk)
+        voice_walk.VoiceWalk.grant_microphone(self)
+        # 1. THE WINDOW ASKED VOICE AGAIN when the model arrived: every ask prints a line.
+        end = time.monotonic() + 60
+        lines = []
+        while time.monotonic() < end:
+            lines = voice_lines(self.read_log())
+            if voice_ready(lines):
+                break
+            time.sleep(3)
+        ready = voice_ready(lines)
+        self.mark('voice ready line printed' if ready else 'no voice ready line 60 s after the step began')
+        # 2. WHAT A PERSON SEES: the talk control, pressed once.
+        toggle = self.by_id('talk-toggle')
+        if not toggle:
+            self.shot('voice-no-talk-control.png')
+            raise StepFailed('the talk control (#talk-toggle) is not on screen; voice lines: ' + json.dumps(lines))
+        self.ax('click', '--id', 'talk-toggle')
+        self.mark('talk control pressed', pressed=True)
+        listening, offer = False, None
+        # 90 s: the control turns only after start_voice_capture resolves, and the walk of candidate
+        # 44 saw nothing within 30 s with both guest slots busy on a host at 98% CPU.
+        end = time.monotonic() + 90
+        while time.monotonic() < end:
+            after = self.by_id('talk-toggle') or {}
+            if after.get('desc') == 'Stop talking':
+                listening = True
+                break
+            offer = self.by_id('voice-model-get')
+            if offer:
+                break
+            time.sleep(1)
+        self.shot('voice-pressed.png')
+        offer_text = None
+        if offer:
+            try:
+                found = self.ax('find', '--id', 'voice-model-offer-label', '--first')
+                offer_text = next((n.get('value') or n.get('title') for n in found if not n.get('meta')), None)
+            except StepFailed:
+                pass
+        self.mark('listening ("Stop talking")' if listening else
+                  ('the download offer is up' if offer else 'neither listening nor the offer within 90 s'))
+        capture_log = [line for line in self.read_log().splitlines()
+                       if re.search(r'voice|capture|wav|microphone|whisper', line, re.I)][-25:]
+        # Back to the composer: the same control again.
+        self.ax('click', '--id', 'talk-toggle')
+        evidence = {'voice_lines': lines, 'ready_lines': ready, 'talk_before': toggle, 'listening': listening,
+                    'offer': offer, 'offer_text': offer_text, 'capture_log': capture_log}
+        self.facts['voice'] = evidence
+        self.save()
+        failures = []
+        if not ready:
+            failures.append('the app never printed "voice: ready" after the models arrived, so the window '
+                            'did not ask voice again')
+        if not listening:
+            failures.append('pressing the talk control put up the offer to download the speech model '
+                            f'({offer_text!r}) although it is installed and verified' if offer
+                            else 'pressing the talk control neither started listening nor offered anything')
+        if failures:
+            raise StepFailed('; '.join(failures) + ' — ' + json.dumps(evidence)[:1500])
+        return evidence
 
     def relaunch(self):
         launched = relaunch(self.vm)
