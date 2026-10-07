@@ -3806,6 +3806,73 @@ class AutoLand_MergedAndEndedLandsOnItsOwn(Base):
         self.assertFalse(os.path.exists(kept))
 
 
+class MergeGateRefusal_LeavesTheMainCheckoutAsItWas(Base):
+    """2026-10-07: three of Rich's lands (merge-echo-cc292b, merge-retry1,
+    merge-avskills1) ended in `=== MERGE INTO MAIN REFUSED ===` and git's "Not
+    committing merge", and `workspaces.sh merge` exited leaving MERGE_HEAD set
+    and the branch's files staged in the main checkout. His hand-typed
+    `git merge --abort` then met the operator fence without the lease, which
+    refused it after git had already rewritten the index. A refused land now
+    aborts the merge it started, inside the same process tree that holds the
+    lease, so the fence accepts the abort."""
+
+    def test_a_gate_refusal_under_the_fence_leaves_no_merge_and_exits_refused(self):
+        name = "zach-opus-ma"
+        cc = self.make_cc(name)
+        aid, _npath = self.spawn(name, cc=cc)
+        self.commit(cc)
+        self.finish(aid)
+        engine = os.path.realpath(os.path.join(HERE, "..", ".."))
+        # The fence, switched ON for this repository, as it is on the operator's Mac.
+        decl = os.path.join(self.env.root, "fence-entity")
+        os.makedirs(decl)
+        with open(os.path.join(decl, "orchestration.config"), "w") as f:
+            f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n')
+        fences = os.path.join(engine, "scripts", "operator-fences.sh")
+        run("bash", fences, "install", "--repo", self.other, "--entity", decl)
+        run("bash", fences, "on", "--repo", self.other, "--entity", decl)
+        launcher = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        with open(launcher) as f:
+            self.assertIn('OPERATOR_FENCES_STATE="on"', f.read())
+        # This test process is the Claude session that takes the land lease, as
+        # Rich's session does before `workspaces.sh merge`.
+        start = subprocess.run(["ps", "-o", "lstart=", "-p", str(os.getpid())], capture_output=True,
+                               text=True, env=dict(os.environ, TZ="UTC0", LC_ALL="C")).stdout
+        sessions = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "sessions")
+        os.makedirs(sessions, exist_ok=True)
+        with open(os.path.join(sessions, "%d.json" % os.getpid()), "w") as f:
+            json.dump({"pid": os.getpid(), "sessionId": self.sid, "cwd": self.entity,
+                       "procStart": " ".join(start.split()), "kind": "interactive"}, f)
+        # The running session's own CLAUDE_PID would name another process.
+        env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_PID", "CLAUDE_CODE_ENTRYPOINT")}
+        r = subprocess.run(["bash", os.path.join(engine, "scripts", "land-lease.sh"), "acquire", "--repo",
+                            self.other], capture_output=True, text=True, env=env)
+        self.assertIn("ACQUIRED", r.stdout, r.stdout + r.stderr)
+        # The merge gate: git's own pre-merge-commit check refuses, as proof-run did.
+        hook = os.path.join(self.other, ".git", "hooks", "pre-merge-commit")
+        with open(hook, "w") as f:
+            f.write("#!/bin/sh\necho '=== MERGE INTO MAIN REFUSED: a check it owns failed ==='\nexit 1\n")
+        os.chmod(hook, 0o755)
+        head = run("git", "-C", self.other, "rev-parse", "HEAD").stdout.strip()
+
+        r = subprocess.run([sys.executable, LIB, "--session", self.sid, "merge", name],
+                           capture_output=True, text=True, env=env)
+
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("REFUSED", r.stderr)
+        self.assertIn("MERGE INTO MAIN REFUSED", r.stderr)
+        merge_head = run("git", "-C", self.other, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False)
+        self.assertNotEqual(merge_head.returncode, 0, "a merge is still in progress: MERGE_HEAD is set")
+        self.assertEqual(run("git", "-C", self.other, "status", "--porcelain").stdout, "")
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "HEAD").stdout.strip(), head)
+        # The fence saw both writes (the merge's and the abort's) and refused neither.
+        home = os.path.dirname(ws.land_lock_path(self.other))
+        self.assertFalse(os.path.exists(os.path.join(home, "fence-refusals.jsonl")))
+        # Nothing was landed: the work and its branch are still there.
+        self.assertTrue(os.path.isdir(cc))
+        self.assertIn("cc/" + name, branches(self.other))
+
+
 class HuntV3_01_ARecordWithoutItsWorkspacesIsDamaged(Base):
     """Hunt part 4 v3, V3-01: a keyed record that had lost its `workspaces`
     list passed the V2-04 check, the sweep read it as owning nothing, made its
