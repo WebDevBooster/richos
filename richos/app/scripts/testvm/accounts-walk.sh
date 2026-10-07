@@ -28,7 +28,7 @@
 #                       95%: "Ready to pause", and no switch. ACCOUNTS_WALK_UNTIL=d13 ends here.
 #   5c-age-{fresh-dark,dark,light}  The quota sheet's account lanes: no age while both readings
 #                       are current, then "read N min ago" on both after 5.5 min of null answers
-#                       (with .ocr.txt and .tree). ACCOUNTS_WALK_UNTIL=age runs 5c and ends there.
+#                       (with .read.json, the matching nodes, and .tree). ACCOUNTS_WALK_UNTIL=age runs 5c and ends there.
 #   6-switched-chat     Home's week at 99%: Rich's line, with See your accounts
 #   7-switched-{dark,light}  The sheet: the banner (when and why) and Recent changes
 #   8-menu-two          Settings: "Using Work, switched <time>"
@@ -230,7 +230,10 @@ grep -q 'claude-accounts/2 auth logout' "$S/4-calls.log" || fail "4 the same acc
 note "5 the right account: Work is ready"
 login_as 'work@fixture.invalid' || fail "5 the login-as fixture"
 # shellcheck disable=SC2016  # the $(...) is meant to expand in the guest's shell, not here
-DATA=$("$T/guest.sh" "$VM" 'dirname "$(find /Users/admin/testvm -type d -name claude-accounts 2>/dev/null | head -1)"')
+# The app's own data folder: the claude-accounts under com.richos.app. The bare name matched a
+# folder directly in the guest home on candidate 43, so every record read missed (walk
+# walk-cb80366dad73: "app data: <guest-home>").
+DATA=$("$T/guest.sh" "$VM" 'dirname "$(find /Users/admin/testvm -type d -path "*/com.richos.app/claude-accounts" 2>/dev/null | head -1)"')
 note "app data: $DATA"
 usage "$DATA/claude-accounts/2/usage.json" 0 12 || fail "Work's usage fixture"
 press 'Try again' "5 Try again"
@@ -328,7 +331,7 @@ sleep 2
 # (5 min) says "read <age> ago" beside its figures (quota.js renderLanes, abba6a411). With both
 # accounts answering null (the fake's {"null": true}, as Claude Code 2.1.289 does some of the
 # time), the readings stay the last good ones and age. The lanes are read before (no age: both
-# current) and after 5.5 min, in dark and light, from the frame's own words (OCR in the guest).
+# current) and after 5.5 min, in dark and light, from the window's accessibility tree.
 # ACCOUNTS_WALK_UNTIL=age runs 5c after 5b and ends there.
 quota_sheet() {  # open the Technical view's Claude Code quota sheet from the Settings menu
   for try in 1 2 3; do
@@ -341,9 +344,13 @@ quota_sheet() {  # open the Technical view's Claude Code quota sheet from the Se
   return 1
 }
 quota_close() { ax click --title 'Close Claude Code quota' >/dev/null 2>&1 || ax --key 53 >/dev/null 2>&1 || true; sleep 2; }
-ages() {  # ages <shot>: the frame's OCR, saved, and how many "read N min ago" it shows
-  "$T/shot.sh" "$VM" "$S/$1.png" --ocr > "$S/$1.ocr.txt" 2>&1 || fail "capture $1"
-  grep -Eoi 'read [0-9]+ min ago' "$S/$1.ocr.txt" | wc -l | tr -d ' '
+ages() {  # ages <shot>: the frame, and how many lanes say "read <age> ago"
+  # Counted in the accessibility tree, exhaustively: a lane's age is the static text "read", its
+  # age in bold, then "ago" (quota.js renderLanes), and nothing else on the sheet is the word
+  # "read" alone. OCR read "read 9min ago" and missed a dark lane (run walk-cb80366dad73).
+  "$T/shot.sh" "$VM" "$S/$1.png" >/dev/null 2>&1 || fail "capture $1"
+  ax find --value 'read' --role AXStaticText --json > "$S/$1.read.json" 2>/dev/null || true
+  grep -c '"role"' "$S/$1.read.json" || true
 }
 if [ "${ACCOUNTS_WALK_UNTIL:-}" = age ]; then
   note "5c the lanes' age: both current first"
