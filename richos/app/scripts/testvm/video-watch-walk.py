@@ -35,8 +35,10 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   speech-env   every running provider lease has RICHOS_SPEECH_MODEL naming
                ggml-large-v3-turbo-q5_0.bin (the transcription model, not voice's)
   captions     "download this video and tell me what is in it" (--captions-url): PASS needs a Bash
-               run of yt-dlp --write-subs, none with --write-auto-subs, the video saved in
-               ~/Downloads, and an answer naming --captions-keyword
+               run of yt-dlp --write-subs, none with --write-auto-subs and none of whisper-cli
+               (the uploaded captions ONLY), the video saved in ~/Downloads, and an answer naming
+               --captions-keyword that says its words came from the captions
+               Both halves also fail an answer that runs two sentences together ("an hour.The").
   transcribe   the same for --url, plus "save the full text of what is said in Downloads": PASS
                needs a Bash run of whisper-cli with the speech model (by $RICHOS_SPEECH_MODEL or
                the large model's file), none with --write-auto-subs, the transcript file with at
@@ -99,6 +101,14 @@ def plain_prefix(label):
 def background_download(text):
     """The boot began the video tools in the background (setup_view.rs, a4facb643)."""
     return bool(re.search(r'^\[richos\] video tools: downloading in the background$', text, re.M))
+
+
+def glued(texts):
+    """Sentences run together with no space or paragraph between them, as the video-finish walks
+    saw before 51dd4f7cb ("...because the video runs for an hour.The transcription is running
+    now."): a lowercase letter, digit or closing parenthesis, the sentence's end, then a capital
+    starting a word. A path or a URL has no capital after its dots, so it is not one."""
+    return [m.group(0) for t in texts for m in re.finditer(r'[a-z0-9)][.!?][A-Z][a-z]', t or '')]
 
 
 def ran(commands, *needles):
@@ -288,8 +298,11 @@ class VideoWatchWalk(command_walk.CommandWalk):
     def captions(self):
         keys = self.a.captions_keyword
 
+        # Done when he has his answer and nothing is open: what was run is judged after. Waiting
+        # for --write-subs as well kept a run that never fetched them waiting the whole --within
+        # (30 min) after the answer had settled (candidate 44, walk-b601aeeab1ca).
         def done(said, runs):
-            return self.answered(said, keys) and ran(runs, 'yt-dlp', '--write-subs')
+            return self.answered(said, keys)
         got = self.converse(CAPTIONS_TASK.format(url=self.a.captions_url), done, self.a.within)
         saved = guest(self.vm, 'ls -la ' + shlex.quote(self.downloads) + ' 2>/dev/null || true')
         got['downloads'] = saved
@@ -304,6 +317,15 @@ class VideoWatchWalk(command_walk.CommandWalk):
             failures.append('no video file in ~/Downloads: ' + saved)
         if not self.answered(got['said'], keys):
             failures.append(f'the answer does not name {keys}')
+        # Captions a person uploaded are the words: ONLY those, and he is told so (the brief of
+        # candidate 44's walk). Three of its four runs skipped them and transcribed instead.
+        if ran(got['bash'], 'whisper-cli'):
+            failures.append('the video was transcribed although it has uploaded captions')
+        if not self.answered(got['said'], ['caption']):
+            failures.append('the answer does not say the words came from the captions')
+        joined = glued(got['said']['notices'] + [got['said']['words']])
+        if joined:
+            failures.append(f'the answer runs sentences together: {joined}')
         if failures:
             raise StepFailed('; '.join(failures))
         return {'yt_dlp': [c['command'] for c in ran(got['bash'], 'yt-dlp')],
@@ -337,6 +359,9 @@ class VideoWatchWalk(command_walk.CommandWalk):
             failures.append('auto-generated captions were fetched although a speech model is installed')
         if not self.answered(got['said'], keys):
             failures.append(f'the answer does not name {keys}')
+        joined = glued(got['said']['notices'] + [got['said']['words']])
+        if joined:
+            failures.append(f'the answer runs sentences together: {joined}')
         if failures:
             raise StepFailed('; '.join(failures))
         return {'whisper_cli': [c['command'] for c in with_model], 'transcript_words': words,

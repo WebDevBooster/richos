@@ -1786,7 +1786,7 @@ t "setup-walk: the boot verdict, the video tools outcome and the download timeli
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/setup-walk.test.py" >"$TMP/setup-walk.log" 2>&1; ok $? "$(cat "$TMP/setup-walk.log")"
 t_done
 
-t "video-watch-walk: a background download is read from the boot line, and every setup-walk name it calls exists"
+t "video-watch-walk: a background download is read from the boot line, every setup-walk name it calls exists, and glued sentences are told from paths"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/video-watch-walk.test.py" >"$TMP/video-watch-walk.log" 2>&1; ok $? "$(cat "$TMP/video-watch-walk.log")"
 t_done
 

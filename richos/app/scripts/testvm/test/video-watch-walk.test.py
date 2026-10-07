@@ -38,5 +38,22 @@ class SetupWalkNames(unittest.TestCase):
         self.assertEqual(walk.setup_walk.tools_outcome(done), 'done')
 
 
+class Glued(unittest.TestCase):
+    def test_the_sentence_of_the_video_finish_walks_is_glued(self):
+        text = '...because the video runs for an hour.The transcription is running now.'
+        self.assertEqual(walk.glued([text]), ['r.Th'])
+
+    def test_two_notices_as_paragraphs_are_not(self):
+        # Candidate 44's transcribe answer, its first two paragraphs.
+        text = ("The transcript is done; now I'm saving it to your Downloads folder and cleaning up.\n\n"
+                'I downloaded the video and saved its full transcript to your Downloads folder.')
+        self.assertEqual(walk.glued([text]), [])
+
+    def test_paths_urls_and_file_names_are_not(self):
+        text = ('Saved at `~/Downloads/Me at the zoo [jNQXAC9IVRw].webm` from '
+                'https://www.youtube.com/watch?v=jNQXAC9IVRw and ~/Downloads/video-transcript.txt.')
+        self.assertEqual(walk.glued([text, None]), [])
+
+
 if __name__ == '__main__':
     unittest.main()
