@@ -67,6 +67,38 @@ pub struct Reading {
     /// Window id -> the rise each speed above was measured over (round 16's "from 40% to 71%
     /// in 12 minutes", said with the app's own two readings).
     pub rises: BTreeMap<String, Rise>,
+    /// **The test cut-off** for this account (`RICHOS_TEST_WEEKLY_CUTOFF`, weekly-switch plan
+    /// §4): it replaces 99 as the weekly point at normal speed. `None` everywhere but the one
+    /// account the variable names.
+    pub weekly_cutoff: Option<f64>,
+}
+
+/// **H: the time a teammate needs to commit and write its handoff** (weekly-switch plan §1).
+/// 10 minutes is the plan's starting figure and is unverified; the plan's §4 rounds measure
+/// real handoffs and set it from them.
+pub const HANDOFF_MS: u64 = 10 * 60_000;
+
+/// `RICHOS_TEST_WEEKLY_CUTOFF=<account id>:<percent>` (weekly-switch plan §4): the weekly
+/// point of that one account is `<percent>` instead of 99. No UI; read once at launch. Only
+/// one account, because a cut-off on every account would leave nowhere to switch to.
+///
+/// It acts only inside the app's own quota service (its published `leaving` and its switch).
+/// It never reaches the separate-process gate's own recomputation: `configure` removes every
+/// inherited `RICHOS_*` from the provider and so from its hooks (`engine_profile.rs`), and the
+/// gate reads the published `leaving` instead (Frank's review of the plan, minor 4).
+pub const TEST_WEEKLY_CUTOFF_ENV: &str = "RICHOS_TEST_WEEKLY_CUTOFF";
+
+/// `<account id>:<percent>`, the percent from 0 to 100. Anything else is no cut-off.
+pub fn parse_weekly_cutoff(text: &str) -> Option<(String, f64)> {
+    let (id, percent) = text.trim().rsplit_once(':')?;
+    let (id, percent) = (id.trim(), percent.trim().parse::<f64>().ok()?);
+    (!id.is_empty() && percent.is_finite() && (0. ..=100.).contains(&percent)).then(|| (id.to_string(), percent))
+}
+
+/// The test cut-off this process was launched with, read once.
+pub fn test_weekly_cutoff() -> Option<(String, f64)> {
+    static CUTOFF: std::sync::OnceLock<Option<(String, f64)>> = std::sync::OnceLock::new();
+    CUTOFF.get_or_init(|| std::env::var(TEST_WEEKLY_CUTOFF_ENV).ok().and_then(|t| parse_weekly_cutoff(&t))).clone()
 }
 /// The two readings a window's speed was measured from: used percent then and now, and the
 /// time between them.
@@ -99,6 +131,39 @@ impl Reading {
     /// **Act now?** At the check point (§108: never at 100%).
     pub fn reaches(&self, window: &Window, threshold: f64) -> bool {
         window.used_percent >= self.act_point(window, threshold)
+    }
+    /// **The weekly handoff point** (weekly-switch plan §1; his words, 2026-10-07: at 99%,
+    /// *"Unless the current token consumption velocity is very high. In that case the handoff
+    /// command must come 1 or 2 percentage points earlier than 99%"*):
+    ///
+    /// `point = 99 - min(2, max(0, ceil(s x (I + H)) - 1))`
+    ///
+    /// with `s` the window's measured speed, `I` the time to the next check (`interval`) and
+    /// `H` the time a teammate needs to hand off (`HANDOFF_MS`). If the wait for the next check
+    /// and the handoff would use 1 point or less, it is 99; up to 2 points, 98; more, 97. Every
+    /// weekly decision uses it, so the account switch and the order to every teammate on the
+    /// account fire at the same moment. 99 is the test cut-off instead, on the one account it
+    /// names (`weekly_cutoff`).
+    ///
+    /// Unlike `act_point`, it never goes below 97 (two points under the base): at an extreme
+    /// speed the switch comes later than `100 - s x I` would put it (Frank's review, minor 11).
+    pub fn weekly_point(&self, window: &Window) -> f64 {
+        let base = self.weekly_cutoff.unwrap_or(resets::WEEKLY_THRESHOLD);
+        let speed = self.speeds.get(&window.id).copied().unwrap_or(0.);
+        let points = speed * (self.interval() + HANDOFF_MS) as f64;
+        let earlier = (points.ceil() - 1.).clamp(0., 2.);
+        (base - earlier).clamp(0., 100.)
+    }
+    /// Has this weekly window reached its handoff point?
+    pub fn reaches_weekly(&self, window: &Window) -> bool {
+        window.used_percent >= self.weekly_point(window)
+    }
+    /// **Is this account being left for its week?** (`View::leaving`.) Its weekly window has
+    /// reached its point, and that window has not reset since: a reset that has passed is a
+    /// fresh week, exactly as `claude_accounts::gone` reads it.
+    pub fn leaving(&self, now: u64) -> bool {
+        self.windows.iter().any(|w| w.id == "seven_day" && self.reaches_weekly(w)
+            && w.resets_at.is_none_or(|t| t > now))
     }
 }
 pub const RESET_EXEMPTION_MS: u64 = 20 * 60_000;
@@ -291,6 +356,12 @@ pub struct View {
     /// "Your Claude account" until it is). `None` with two or more: `accounts` names them.
     #[serde(default)]
     pub first_label: Option<String>,
+    /// **Every account being left for its week** (weekly-switch plan §1): its weekly window
+    /// has reached its handoff point (`Reading::weekly_point`). Published with one account
+    /// too. The gate orders every teammate running on one of these accounts to commit, hand
+    /// off and end (`gate.rs`).
+    #[serde(default)]
+    pub leaving: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -469,12 +540,16 @@ impl Snapshot {
             }
         }
     }
+    /// The reading with no test cut-off, for the tests; the service reads each account with
+    /// its own (`Service::readings`).
+    #[cfg(test)]
     fn reading(&self) -> Reading {
-        self.reading_at(crate::util::now_millis())
+        self.reading_with(None, crate::util::now_millis())
     }
-    fn reading_at(&self, now: u64) -> Reading {
+    /// This account's reading, with its test cut-off (`Reading::weekly_cutoff`).
+    fn reading_with(&self, weekly_cutoff: Option<f64>, now: u64) -> Reading {
         Reading { windows: self.windows.clone(), speeds: self.speeds.clone(),
-            expected: self.rise_until.is_some_and(|t| t > now), rises: self.rises.clone() }
+            expected: self.rise_until.is_some_and(|t| t > now), rises: self.rises.clone(), weekly_cutoff }
     }
     fn accept(&mut self, mut windows: Vec<Window>, observed: u64) {
         self.measure(&windows, observed);
@@ -524,13 +599,18 @@ impl Snapshot {
         self.checked_at = Some(observed);
     }
     fn view(&self, policy: Policy, now: u64) -> View {
-        let reading = self.reading_at(now);
+        self.view_with(policy, None, now)
+    }
+    /// The view of this account, with its test cut-off (`Reading::weekly_cutoff`).
+    fn view_with(&self, policy: Policy, weekly_cutoff: Option<f64>, now: u64) -> View {
+        let reading = self.reading_with(weekly_cutoff, now);
         let interval = reading.interval();
         // The two check points, recalculated from the measured speed (answer 10), shown in
         // the panel; the normal 93% and 99% again once the speed is back down (answer 11).
+        // The weekly one is the handoff point (weekly-switch plan §1).
         let act_at: BTreeMap<String, f64> = self.windows.iter().filter_map(|w| match w.id.as_str() {
             "five_hour" => Some((w.id.clone(), reading.act_point(w, f64::from(policy.pause_percent)))),
-            "seven_day" => Some((w.id.clone(), reading.act_point(w, resets::WEEKLY_THRESHOLD))),
+            "seven_day" => Some((w.id.clone(), reading.weekly_point(w))),
             _ => None,
         }).collect();
         let expired = self
@@ -566,13 +646,13 @@ impl Snapshot {
         } else if self.checked_at.is_none() {
             if answered_empty { Admission::NoReading } else { Admission::Unknown }
         } else if let Some(until) = self.windows.iter()
-            .filter(|w| w.id == "seven_day" && reading.reaches(w, resets::WEEKLY_THRESHOLD))
+            .filter(|w| w.id == "seven_day" && reading.reaches_weekly(w))
             .filter_map(|w| w.resets_at.filter(|t| *t > now)).max() {
             // Weekly exhaustion never inherits the five-hour 20-minute exception.
             // An approval is not allowance: hold until a fresh post-reset reading.
             Admission::Held { resets_at: until }
         } else if self.windows.iter().any(|w| w.id == "seven_day"
-            && reading.reaches(w, resets::WEEKLY_THRESHOLD)) {
+            && reading.reaches_weekly(w)) {
             Admission::Unknown // Expired or unreadable weekly reset needs a new reading.
         } else {
             // §108: at normal speed the 93% rule exactly as before; at a measured fast speed
@@ -637,6 +717,7 @@ impl Snapshot {
             nudge: None,
             notes: Vec::new(),
             first_label: None,
+            leaving: Vec::new(),
         }
     }
 }
@@ -682,6 +763,9 @@ pub struct Service {
     /// time ("until 2:17 AM", round 16). The webview is the only layer that knows what local
     /// means; until it has said, a line says the span instead.
     utc_offset_minutes: Mutex<Option<i32>>,
+    /// The test cut-off this app was launched with (`test_weekly_cutoff`, weekly-switch plan
+    /// §4): one account and its weekly point. `None` in every ordinary launch.
+    weekly_cutoff: Option<(String, f64)>,
 }
 
 /// The gate appends one line per agent dispatch here (`gate.rs`); the service counts them.
@@ -762,6 +846,7 @@ impl Service {
             starts: Mutex::new(std::collections::VecDeque::new()),
             agents_working: std::sync::atomic::AtomicUsize::new(0),
             utc_offset_minutes: Mutex::new(None),
+            weekly_cutoff: test_weekly_cutoff(),
         };
         service.publish()?;
         Ok(service)
@@ -790,23 +875,32 @@ impl Service {
         ).unwrap();
         std::mem::take(&mut *requested)
     }
+    /// The test cut-off of `account`, if the app was launched with one for it.
+    fn cutoff(&self, account: &str) -> Option<f64> {
+        self.weekly_cutoff.as_ref().filter(|(id, _)| id == account).map(|(_, percent)| *percent)
+    }
     fn view_at(&self, now: u64) -> View {
         let policy = self.policy.lock().unwrap().clone();
         let in_use = self.accounts.in_use();
+        let cutoff = self.cutoff(&in_use.id);
         // The top-level reading is the account IN USE, so the pause gate and every existing
         // reader keep describing the subscription the work is actually running on.
         let mut view = if in_use.id == crate::claude_accounts::ACCOUNT_ONE {
-            self.snapshot.lock().unwrap().view(policy.clone(), now)
+            self.snapshot.lock().unwrap().view_with(policy.clone(), cutoff, now)
         } else {
             match self.extra.lock().unwrap().get(&in_use.id) {
-                Some((_, snapshot)) => snapshot.view(policy.clone(), now),
+                Some((_, snapshot)) => snapshot.view_with(policy.clone(), cutoff, now),
                 None => Snapshot::default().view(policy.clone(), now),
             }
         };
+        let readings = self.readings();
+        // Every account being left for its week (plan §1), with one account too.
+        view.leaving = self.accounts.list().into_iter()
+            .filter(|account| readings.get(&account.id).is_some_and(|r| r.leaving(now)))
+            .map(|account| account.id).collect();
         view.resets = self.resets.view();
         view.at_threshold = self.accounts.at_threshold();
         if self.accounts.count() > 1 {
-            let readings = self.readings();
             view.accounts = self.accounts.list().into_iter().map(|account| {
                 let account_view = if account.id == crate::claude_accounts::ACCOUNT_ONE {
                     self.snapshot.lock().unwrap().view(policy.clone(), now)
@@ -850,12 +944,13 @@ impl Service {
         {
             let one = self.snapshot.lock().unwrap();
             if one.checked_at.is_some() {
-                readings.insert(crate::claude_accounts::ACCOUNT_ONE.to_string(), one.reading());
+                readings.insert(crate::claude_accounts::ACCOUNT_ONE.to_string(),
+                    one.reading_with(self.cutoff(crate::claude_accounts::ACCOUNT_ONE), crate::util::now_millis()));
             }
         }
         for (id, (_, snapshot)) in self.extra.lock().unwrap().iter() {
             if snapshot.checked_at.is_some() {
-                readings.insert(id.clone(), snapshot.reading());
+                readings.insert(id.clone(), snapshot.reading_with(self.cutoff(id), crate::util::now_millis()));
             }
         }
         readings
@@ -927,7 +1022,7 @@ impl Service {
         let name = if window.id == "five_hour" { "five-hour" } else if weekly { "weekly" } else { window.label.as_str() };
         let whose = if many { format!("{}'s {name} window", in_use.label) } else { format!("the {name} window") };
         let threshold = if weekly { resets::WEEKLY_THRESHOLD } else { f64::from(policy.pause_percent) };
-        let act = reading.act_point(window, threshold).floor();
+        let act = if weekly { reading.weekly_point(window) } else { reading.act_point(window, threshold) }.floor();
         let next = self.accounts.next(&readings, policy.line(), crate::util::now_millis()).map(|a| a.label);
         // What acts on this window: the weekly switch whenever there is a second account; at
         // the five-hour line the chosen verb, only while the automatic switch is on.
@@ -1670,7 +1765,9 @@ pub(crate) mod tests {
 
     /// **Plan §15 answer 10, point 3: a measured jump moves BOTH check points at once**, and the
     /// published view (the panel's) carries them. Five-hour gaining 8 a minute: 100 - 8 = 92
-    /// (from 93). Weekly gaining 2 a minute: 100 - 2 = 98 (from 99).
+    /// (from 93). Weekly gaining 2 a minute, checked every minute: the next check and a
+    /// 10-minute handoff use 2 x (1 + 10) = 22 points, so the weekly handoff point is
+    /// 99 - 2 = 97 (weekly-switch plan §1; it was 100 - 2 = 98 before the handoff existed).
     #[test]
     fn a_measured_jump_moves_both_check_points_and_the_view_shows_them() {
         let mut s = Snapshot::default();
@@ -1678,7 +1775,94 @@ pub(crate) mod tests {
         assert_eq!(s.view(policy(), NOW).act_at, [("five_hour".to_string(), 93.), ("seven_day".to_string(), 99.)].into());
         s.accept(both_at(48., 62.), NOW + 60_000);
         let act = s.view(policy(), NOW + 60_000).act_at;
-        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 98.).abs() < 1e-9, "{act:?}");
+        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 97.).abs() < 1e-9, "{act:?}");
+    }
+
+    // ---- the weekly switch handoff (richos-hq docs/plans/2026-10-07-weekly-switch-handoff.md) --
+
+    /// **Plan §1, the weekly handoff point at three measured speeds**, checked every 5 minutes
+    /// (none of them is fast: the five-hour window does not move) with a 10-minute handoff, so
+    /// `s x (I + H)` is the speed times 15 minutes:
+    /// - 0.05 a minute: 0.75 points, 1 or less, so 99;
+    /// - 0.1 a minute: 1.5 points, up to 2, so 98, one point earlier;
+    /// - 0.3 a minute: 4.5 points, more than 2, so 97, two points earlier (never lower).
+    ///
+    /// The published point and the weekly hold agree: at the point the view holds, a tenth
+    /// under it the view admits.
+    #[test]
+    fn the_weekly_handoff_point_is_99_98_or_97_at_three_measured_speeds() {
+        for (gain, point) in [(0.05, 99.), (0.1, 98.), (0.3, 97.)] {
+            let mut s = Snapshot::default();
+            s.accept(both_at(40., 60.), NOW);
+            s.accept(both_at(40., 60. + gain), NOW + 60_000);
+            let view = s.view(policy(), NOW + 60_000);
+            assert_eq!(view.refresh_interval_ms, REFRESH_INTERVAL_MS, "{gain} a minute is not fast");
+            assert!((view.act_at["seven_day"] - point).abs() < 1e-9, "{gain} a minute: {:?}", view.act_at);
+            assert_eq!(view.act_at["five_hour"], 93., "the five-hour point is untouched");
+            for (used, held) in [(point - 0.1, false), (point, true)] {
+                s.windows[1].used_percent = used;
+                let admission = s.view(policy(), NOW + 60_000).admission;
+                assert_eq!(matches!(admission, Admission::Held { .. }), held, "{gain} a minute at {used}%: {admission:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_test_cut_off_is_one_account_and_one_percent() {
+        assert_eq!(parse_weekly_cutoff("2:51"), Some(("2".to_string(), 51.)));
+        assert_eq!(parse_weekly_cutoff(" 1 : 37.5 "), Some(("1".to_string(), 37.5)));
+        for wrong in ["", "51", ":51", "2:", "2:abc", "2:101", "2:-1", "2:NaN"] {
+            assert_eq!(parse_weekly_cutoff(wrong), None, "{wrong:?}");
+        }
+    }
+
+    /// A weekly-and-five-hour reading taken now, its windows resetting in the future.
+    fn live(weekly: f64) -> Snapshot {
+        let now = crate::util::now_millis();
+        Snapshot {
+            windows: vec![
+                Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: 10.,
+                    resets_at: Some(now + 3_600_000), duration_ms: 18_000_000 },
+                Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: weekly,
+                    resets_at: Some(now + 48 * 3_600_000), duration_ms: 168 * 3_600_000 },
+            ],
+            checked_at: Some(now),
+            ..Default::default()
+        }
+    }
+
+    /// **Plan §1 and §4: `leaving` lists only the account past its point, and the test cut-off
+    /// applies to one account only.** Two accounts, both at 51% of the week; the app launched
+    /// with `RICHOS_TEST_WEEKLY_CUTOFF=2:51`. Only Work (2) is leaving: Account 1 at the same
+    /// 51% is not. With Work in use, the switch leaves it for Account 1 at once. Account 1
+    /// then at 99% is leaving too, at the ordinary point. One account is published as well:
+    /// leaving at 99%, not at 98.9%.
+    #[test]
+    fn leaving_lists_only_the_account_past_its_point_and_the_cut_off_is_one_account() {
+        let dir = Scratch::new();
+        let mut service = Service::open(dir.path()).unwrap();
+        service.weekly_cutoff = parse_weekly_cutoff("2:51");
+        let work = service.accounts.add("Work").unwrap();
+        *service.snapshot.lock().unwrap() = live(51.);
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        service.extra.lock().unwrap().insert(work.id.clone(), (
+            std::sync::Arc::new(Mutex::new(Box::new(FakeSource { calls, result: Err(ReadError::Failed) }) as Box<dyn Source>)),
+            live(51.)));
+        assert_eq!(service.view().leaving, vec![work.id.clone()], "only the cut-off account is past its point");
+        assert_eq!(service.view().act_at["seven_day"], 99., "Account 1, in use, keeps 99");
+        service.accounts.use_first(&work.id).unwrap();
+        assert_eq!(service.view().act_at["seven_day"], 51., "Work, in use, has the cut-off as its point");
+        service.decide();
+        assert_eq!(service.accounts.in_use().id, crate::claude_accounts::ACCOUNT_ONE, "the switch fires at the same point");
+        *service.snapshot.lock().unwrap() = live(99.);
+        assert_eq!(service.view().leaving, vec!["1".to_string(), work.id.clone()]);
+
+        let dir = Scratch::new();
+        let service = Service::open(dir.path()).unwrap();
+        *service.snapshot.lock().unwrap() = live(98.9);
+        assert!(service.view().leaving.is_empty());
+        *service.snapshot.lock().unwrap() = live(99.);
+        assert_eq!(service.view().leaving, vec!["1".to_string()], "published with one account too");
     }
 
     /// **Plan §15 answer 11: when the speed comes back down, everything resets.** After the

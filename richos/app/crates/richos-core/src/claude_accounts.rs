@@ -18,9 +18,12 @@
 //!   - at normal speed, at **99% of its weekly window** (`resets::WEEKLY_THRESHOLD`), and at
 //!     the pause threshold (**93%**) of its five-hour window when the setting is Switch (his
 //!     answer 2; with Pause the five-hour window holds the workers exactly as before);
-//!   - when usage speeds up a lot, EARLIER: whenever the measured speed would carry a window
-//!     to 100% before the next check, which is then one minute away instead of 5
-//!     (`quota::Reading`, plan answers 10 and 11; back to 99% and 93% once the speed is down).
+//!   - when usage speeds up a lot, EARLIER: the five-hour window whenever the measured speed
+//!     would carry it to 100% before the next check, which is then one minute away instead
+//!     of 5 (`quota::Reading`, plan answers 10 and 11; back to 93% once the speed is down);
+//!     the weekly window 1 or 2 points earlier, at 98% or 97%, when the wait for the next
+//!     check and a teammate's handoff would use more than 1 point (`Reading::weekly_point`,
+//!     weekly-switch plan §1).
 //! - **Choosing the next** (his answer 1): the one whose weekly window resets soonest, among
 //!   accounts with room. No list-order option and no setting for it.
 //! - **Choosing the first is his** (the CEO 2026-10-06, feedback item 8: *"I should be able to
@@ -220,8 +223,9 @@ pub enum Gone {
 }
 
 /// **Must this account be left (or, with no account left, held), and until when?**
-/// - weekly at 99% at normal speed (§108), or EARLIER when its measured speed would carry it
-///   to 100% before the next check (`Reading::reaches`);
+/// - weekly at its handoff point (`Reading::weekly_point`, weekly-switch plan §1): 99% at
+///   normal speed, 98% or 97% when the wait for the next check and a teammate's handoff
+///   would use more than 1 or 2 points at the measured speed;
 /// - with the setting on Switch AND the automatic switch on (`pause` is `Some(threshold)`),
 ///   the five-hour window at the pause threshold (93%), or earlier by the same projection;
 /// - a usage-limit refusal that has not reset (the backstop).
@@ -235,7 +239,7 @@ pub fn gone(reading: &Reading, at_threshold: AtThreshold, pause: Option<u8>, lim
         return Some((Gone::Limit, until));
     }
     if let Some(weekly) = reading.windows.iter().find(|w| w.id == "seven_day"
-        && reading.reaches(w, crate::quota::resets::WEEKLY_THRESHOLD)) {
+        && reading.reaches_weekly(w)) {
         match weekly.resets_at {
             Some(t) if t > now => return Some((Gone::Weekly(weekly.used_percent), t)),
             Some(_) => {}
@@ -727,7 +731,7 @@ pub(crate) mod tests {
         Reading { windows: vec![
             Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: five, resets_at: Some(NOW + five_reset), duration_ms: 5 * HOUR },
             Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: weekly, resets_at: Some(NOW + weekly_reset), duration_ms: 168 * HOUR },
-        ], speeds: BTreeMap::new(), expected: false, rises: BTreeMap::new() }
+        ], speeds: BTreeMap::new(), expected: false, rises: BTreeMap::new(), weekly_cutoff: None }
     }
     fn two_accounts() -> (Scratch, Accounts) {
         let dir = Scratch::new();
@@ -846,24 +850,25 @@ pub(crate) mod tests {
     /// 2026-09-29 run measured on its five-hour window (4 points a minute; richos-hq
     /// `docs/research/2026-10-04-fifteen-fable-workers-quota-burn.md`), used here as the worst
     /// case: no weekly figure was measured for that run. That is fast (20 points per
-    /// five-minute check), so the next check is one minute away and the weekly check point
-    /// moves from 99% to 100 - 4 = 96%. At 95.5% the next check would read 99.5%: under 100,
-    /// so it stays. At 96% it switches NOW, before 99% and before the wall. The projected use
-    /// at the next check after every decision to stay is under 100%.
+    /// five-minute check), so the next check is one minute away. **The weekly point is the
+    /// handoff point** (weekly-switch plan §1, his words 2026-10-07: "1 or 2 percentage points
+    /// earlier than 99%"): the next check and a 10-minute handoff would use 4 x 11 = 44 points,
+    /// more than 2, so it is 99 - 2 = 97, and never lower. At 96.9% it stays; at 97% it
+    /// switches, before 99%. It no longer moves to `100 - 4 = 96` as `act_point` does (Frank's
+    /// review of the plan, minor 11: at an extreme speed the switch comes later than before).
     #[test]
-    fn a_fast_weekly_burn_switches_before_99_percent_so_the_next_check_stays_under_100() {
+    fn a_fast_weekly_burn_switches_two_points_before_99_percent() {
         let (_dir, accounts) = two_accounts();
         let per_ms = 4.0 / 60_000.;
-        let mut fast = reading(10., HOUR, 95.5, 24 * HOUR);
+        let mut fast = reading(10., HOUR, 96.9, 24 * HOUR);
         fast.speeds.insert("seven_day".into(), per_ms);
         assert!(fast.fast());
         assert_eq!(fast.interval(), crate::quota::FAST_REFRESH_INTERVAL_MS);
-        assert!((fast.act_point(&fast.windows[1], 99.) - 96.).abs() < 1e-9);
+        assert!((fast.weekly_point(&fast.windows[1]) - 97.).abs() < 1e-9);
         assert!(!accounts.evaluate(&readings(fast.clone(), reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
-        assert!(fast.projected(&fast.windows[1]) < 100., "staying is safe only if the next check is under 100%");
-        fast.windows[1].used_percent = 96.;
+        fast.windows[1].used_percent = 97.;
         assert!(accounts.evaluate(&readings(fast, reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
-        assert_eq!(accounts.in_use().id, "2", "switched at 96%, before 99%");
+        assert_eq!(accounts.in_use().id, "2", "switched at 97%, two points before 99%");
     }
 
     /// **Round 18, why it switched: the line in the conversation**, in the mockup's words (the
