@@ -211,6 +211,13 @@ class Pierce(unittest.TestCase):
             self.assertEqual(P.inspect(self.payload)["verdict"], "UNAVAILABLE")
             reviewer.assert_not_called()
 
+    def test_mid_turn_queued_message_is_read_in_order(self):
+        self.rows = self.rows[:2] + [{"type": "attachment", "isSidechain": False, "attachment": {
+            "type": "queued_command", "prompt": "Retry after 1 minute.", "origin": {"kind": "human"}}}]
+        self.transcript.write_text("\n".join(map(json.dumps, self.rows)))
+        self.assertEqual(P.human_context(self.payload),
+                         "Implement the requested feature.\n\nKeep the existing API.\n\nRetry after 1 minute.")
+
     def test_desktop_uses_only_host_attested_user_requests(self):
         self.rows[0]["evidenceSource"] = "richos-ledger-attested-hook-v1"
         self.transcript.write_text("\n".join(map(json.dumps, self.rows)))
