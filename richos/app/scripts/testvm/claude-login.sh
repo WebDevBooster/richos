@@ -9,11 +9,11 @@
 #                                                     the guest each access token
 #                                                     this Mac renews (run.sh starts it)
 #
-#   push|check|keep --account <host keychain item> [--host-folder <dir>] <vm> <guest-folder>
+#   push|check|keep --account <host keychain item> [--host-folder <dir>] --guest-home <home> <vm> <guest-folder>
 #       the same for a SECOND sign-in (Work): <host keychain item> is the host
 #       item (`Claude Code-credentials-<sha8 of the host folder>`), <host-folder>
 #       is that account's CLAUDE_CONFIG_DIR on this Mac (used only to renew it),
-#       <guest-folder> is the guest app's folder for the account. Access token only,
+#       <home> is the guest fixture home (its keychain), <guest-folder> is the guest app's folder for the account. Access token only,
 #       read through /usr/bin/security; the guest item is named for the GUEST folder.
 #       Home's bare item and files are never touched in this mode.
 #
@@ -107,11 +107,12 @@ TESTVM_SECURITY_STDIN_MAX="${TESTVM_SECURITY_STDIN_MAX:-4032}"
 VM=""; GUEST_HOME=""
 CMD="${1:-}"; shift 2>/dev/null
 # A second sign-in: host item, host folder (renewal only). Empty = Home.
-ACCOUNT_ITEM=""; HOST_FOLDER=""
+ACCOUNT_ITEM=""; HOST_FOLDER=""; KC_HOME=""
 while :; do
   case "${1:-}" in
     --account)     ACCOUNT_ITEM="${2:-}"; shift 2 2>/dev/null || die "--account needs a value" ;;
     --host-folder) HOST_FOLDER="${2:-}"; shift 2 2>/dev/null || die "--host-folder needs a value" ;;
+    --guest-home)  KC_HOME="${2:-}"; shift 2 2>/dev/null || die "--guest-home needs a value" ;;
     *) break ;;
   esac
 done
@@ -302,9 +303,9 @@ except (KeyError, TypeError, ValueError, OverflowError):
 
 guest_logged_in() {  # <service>
   local out
-  out="$(cg "env HOME='$GUEST_HOME' perl -e 'alarm shift; exec @ARGV' $TESTVM_CLAUDE_LOGIN_SECONDS \
+  out="$(cg "env HOME='$KC_HOME' perl -e 'alarm shift; exec @ARGV' $TESTVM_CLAUDE_LOGIN_SECONDS \
              security find-generic-password -a '$TESTVM_GUEST_USER' -s '$1' \
-               '$GUEST_HOME/Library/Keychains/login.keychain-db' 2>&1")"
+               '$KC_HOME/Library/Keychains/login.keychain-db' 2>&1")"
   case "$out" in
     *"\"svce\""*) return 0 ;;
     *) return 1 ;;
@@ -337,6 +338,11 @@ esac
 # Home: the app's config dir is <home>/.claude. A second sign-in: the guest
 # folder IS the config dir.
 CRED_DIR="$GUEST_HOME/.claude"; [ -n "$ACCOUNT_ITEM" ] && CRED_DIR="$GUEST_HOME"
+# The guest's keychain lives in the fixture HOME, which for a second sign-in is not
+# the account folder: --guest-home names it (a Home push needs none).
+[ -n "$ACCOUNT_ITEM" ] && [ -z "$KC_HOME" ] && die "--account needs --guest-home <the guest's fixture home, where its keychain is>"
+KC_HOME="${KC_HOME:-$GUEST_HOME}"
+case "$KC_HOME" in "/Users/$TESTVM_GUEST_USER/"*) ;; *) die "refusing: '$KC_HOME' is not under the guest user's home" ;; esac
 SVC_SCOPED="$(guest_service_scoped "$CRED_DIR")"
 [ -n "$SVC_SCOPED" ] || die "could not derive the scoped keychain service name"
 
@@ -390,7 +396,7 @@ if [ "$CMD" = "keep" ]; then
     W="$(host_written_at)"
     if [ -n "$W" ] && [ "$W" != "$LAST_WRITTEN" ]; then
       log "this Mac's login was renewed: handing $VM the new access token"
-      if "$0" push ${ACCOUNT_ITEM:+--account "$ACCOUNT_ITEM"} ${HOST_FOLDER:+--host-folder "$HOST_FOLDER"} "$VM" "$GUEST_HOME" >/dev/null; then
+      if "$0" push ${ACCOUNT_ITEM:+--account "$ACCOUNT_ITEM"} ${HOST_FOLDER:+--host-folder "$HOST_FOLDER"} ${ACCOUNT_ITEM:+--guest-home "$KC_HOME"} "$VM" "$GUEST_HOME" >/dev/null; then
         LAST_WRITTEN="$W"
       fi
       continue
@@ -467,12 +473,12 @@ FILE_BYTES="$(printf '%s' "$SECRET" | cg_stdin "umask 077; \
   wc -c < '$CRED_DIR/.credentials.json'" 2>/dev/null | tr -d '[:space:]')"
 
 PAYLOAD="$(printf 'add-generic-password -U -a "%s" -s "%s" -X "%s" "%s"\n' \
-  "$TESTVM_GUEST_USER" "$SVC_SCOPED" "$HEX" "$GUEST_HOME/Library/Keychains/login.keychain-db")"
+  "$TESTVM_GUEST_USER" "$SVC_SCOPED" "$HEX" "$KC_HOME/Library/Keychains/login.keychain-db")"
 # The bare name is Home's: a second sign-in never writes it.
 if [ -z "$ACCOUNT_ITEM" ]; then
   PAYLOAD="$PAYLOAD
 $(printf 'add-generic-password -U -a "%s" -s "%s" -X "%s" "%s"\n' \
-  "$TESTVM_GUEST_USER" "$TESTVM_CLAUDE_KC_SERVICE" "$HEX" "$GUEST_HOME/Library/Keychains/login.keychain-db")"
+  "$TESTVM_GUEST_USER" "$TESTVM_CLAUDE_KC_SERVICE" "$HEX" "$KC_HOME/Library/Keychains/login.keychain-db")"
 fi
 
 # Each line is one `security -i` command; the limit is per line, as the code
@@ -499,9 +505,9 @@ log "copying a Claude access snapshot into $VM (no refresh token; stdin only)"
 # already-unlocked keychain makes this a no-op that costs nothing. The
 # alternative is a write that fails for a reason the read-back below can only
 # call "not logged in".
-printf '%s\n' "$PAYLOAD" | cg_stdin "env HOME='$GUEST_HOME' perl -e 'alarm shift; exec @ARGV' \
+printf '%s\n' "$PAYLOAD" | cg_stdin "env HOME='$KC_HOME' perl -e 'alarm shift; exec @ARGV' \
   $TESTVM_CLAUDE_LOGIN_SECONDS sh -c \"security unlock-keychain -p '$TESTVM_KEYCHAIN_PHRASE' \
-  '$GUEST_HOME/Library/Keychains/login.keychain-db' >/dev/null 2>&1; security -i\"" >/dev/null 2>&1
+  '$KC_HOME/Library/Keychains/login.keychain-db' >/dev/null 2>&1; security -i\"" >/dev/null 2>&1
 PUSH_RC=$?
 # Gone from this process the moment it is no longer needed.
 HEX=""; PAYLOAD=""; SECRET=""

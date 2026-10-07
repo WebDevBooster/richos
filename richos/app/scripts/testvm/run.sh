@@ -332,7 +332,7 @@ WORK_HOST_ITEM="Claude Code-credentials-$(printf '%s' "$WORK_HOST_FOLDER" | shas
 WORK_GUEST_FOLDER="$GUEST_HOME/claude-accounts/2"
 if /usr/bin/security find-generic-password -s "$WORK_HOST_ITEM" -a "${USER:-alex}" >/dev/null 2>&1; then
   "$HERE/claude-login.sh" push --account "$WORK_HOST_ITEM" --host-folder "$WORK_HOST_FOLDER" \
-    "$VM" "$WORK_GUEST_FOLDER" >&2 || true
+    --guest-home "$GUEST_HOME" "$VM" "$WORK_GUEST_FOLDER" >&2 || true
 fi
 # The keeper: for the run's lifetime, each access token THIS Mac renews is
 # handed to the guest, so a run longer than one token's remaining life keeps

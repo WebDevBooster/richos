@@ -36,7 +36,7 @@ MUTANTS = [
      'if true; then',
      "without asking this Mac to renew"),
     ("keep-never-pushes", "claude-login.sh",
-     '      if "$0" push ${ACCOUNT_ITEM:+--account "$ACCOUNT_ITEM"} ${HOST_FOLDER:+--host-folder "$HOST_FOLDER"} "$VM" "$GUEST_HOME" >/dev/null; then',
+     '      if "$0" push ${ACCOUNT_ITEM:+--account "$ACCOUNT_ITEM"} ${HOST_FOLDER:+--host-folder "$HOST_FOLDER"} ${ACCOUNT_ITEM:+--guest-home "$KC_HOME"} "$VM" "$GUEST_HOME" >/dev/null; then',
      '      if true; then',
      "keep hands the guest each token"),
     ("keep-asks-every-tick", "claude-login.sh",
