@@ -3249,6 +3249,16 @@ fn main() {
                         ),
                         _ => {}
                     }
+                    // THE VIDEO TOOLS START DOWNLOADING NOW, in the background, before the window
+                    // asks anything (the CEO, 2026-10-07: "The speech models and video tools begin
+                    // downloading in the background at first launch, while the user does the rest
+                    // of setup."). Nothing in first setup waits for them (`setup_view`, the video
+                    // tools block). Not under the updater selftest, which runs headless.
+                    if s.needs().contains(&richos_core::setup::Component::MediaTools)
+                        && updates::selftest_mode().is_none()
+                    {
+                        setup_view::start_video_tools_download(app.handle());
+                    }
                 }
             }
 

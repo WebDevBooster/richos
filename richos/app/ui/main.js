@@ -5411,6 +5411,14 @@ async function refreshEntityChoice() {
 // ---------------------------------------------------------------------------------------
 
 let setupState = null;
+/// True while a press of "Set it up" runs. The video tools' background download (started at
+/// launch, `setup_view::start_video_tools_download`) reports on the same channel, and while a
+/// press runs its lines keep the progress line, so "Getting Claude Code…" is not overwritten by a
+/// percentage of a download nobody is waiting for.
+let setupRunning = false;
+/// The background download's latest line while it runs, else null. A sheet that opens or finishes
+/// meanwhile shows it at once rather than gaining a line a moment later under his cursor.
+let videoToolsLine = null;
 let providerAuth = null;
 let providerPoll = null;
 const providerConnectEl = el("provider-connect");
@@ -5528,8 +5536,8 @@ function openSetupSheet(ask, opts) {
   // backend's own sentence, verbatim — it names the party who can fix it, which he cannot.
   setupErrorEl.textContent = opts.canInstall ? "" : ask.cannot_install_reason || "";
   setupErrorEl.hidden = !setupErrorEl.textContent;
-  setupProgressEl.hidden = true;
-  setupProgressEl.textContent = "";
+  setupProgressEl.hidden = !videoToolsLine;
+  setupProgressEl.textContent = videoToolsLine || "";
 
   setupGoEl.hidden = !opts.canInstall;
   setupGoEl.disabled = false;
@@ -5568,9 +5576,11 @@ async function runSetup() {
   setupProgressEl.hidden = false;
   setupProgressEl.textContent = "Starting.";
   let next;
+  setupRunning = true;
   try {
     next = await Bridge.invoke("run_setup");
   } catch (e) {
+    setupRunning = false;
     // THE BACKEND'S SENTENCE, AS IT STANDS. Each `SetupError`'s Display says what happened
     // and whether his Mac was changed; rewriting it here would lose the instruction.
     setupProgressEl.hidden = true;
@@ -5581,7 +5591,11 @@ async function runSetup() {
     setupLaterEl.hidden = false;
     return;
   }
+  setupRunning = false;
   setupState = next;
+  // THE ENGINE BRINGS THE DECODER (`whisper-cli` is in its runtime), so voice is asked again now:
+  // with the models already downloaded in the background, voice switches on without a relaunch.
+  refreshVoiceReadiness();
   // -------------------------------------------------------------------------------------
   // THE ACCOUNT ANSWER IS IN HAND BEFORE ANYTHING MOVES — audit-9 row 4.
   //
@@ -5607,7 +5621,9 @@ async function runSetup() {
   // it read as a second dialog was this re-render.
   // -------------------------------------------------------------------------------------
   const providerView = next && next.complete ? await invokeQuiet("provider_auth_status") : null;
-  setupProgressEl.hidden = true;
+  // The video tools still arriving keep their line, so it does not appear later under his cursor.
+  setupProgressEl.hidden = !videoToolsLine;
+  setupProgressEl.textContent = videoToolsLine || "";
   setupGoEl.hidden = true;
   setupLaterEl.hidden = true;
   setupCloseEl.hidden = false;
@@ -5681,6 +5697,15 @@ setupCloseEl.addEventListener("click", closeSetupSheet);
 Bridge.listen("richos://setup", (payload) => {
   const p = payload && payload.payload ? payload.payload : payload;
   if (!p) return;
+  // THE VIDEO TOOLS' BACKGROUND DOWNLOAD (CEO, 2026-10-07: they "begin downloading in the
+  // background at first launch, while the user does the rest of setup"). Its lines are this
+  // step's own; while a press runs, that press keeps the line. When they are in, voice is asked
+  // again so it switches on without a relaunch.
+  if (p.component === "media-tools") {
+    videoToolsLine = p.state === "started" ? p.what : null;
+    if (p.state === "done") refreshVoiceReadiness();
+    if (setupRunning && p.state !== "failed") return;
+  }
   if (p.state === "failed") {
     setupProgressEl.hidden = true;
     setupErrorEl.textContent = p.detail || p.what;
