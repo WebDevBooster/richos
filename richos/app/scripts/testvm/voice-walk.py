@@ -22,7 +22,9 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
               that sha256, and says its version
   first-run   adopt-walk.py's: memory setup declined, company "Acme" registered, questions declined
   stage       the spoken sample and the speech model are copied into the guest home. The model
-              is copied, not downloaded: fetching weights is provision.rs's own, separate proof
+              is copied, not downloaded: fetching weights is provision.rs's own, separate proof.
+              The guest's microphone permission for com.richos.app is granted in its TCC.db,
+              the "Allow" a person gives once (see grant_microphone)
   relaunch    the app is relaunched with RICHOS_VOICE_INPUT_WAV (capture.rs: the WAV stands in
               for the microphone through the identical capture path; no audio device is opened
               and nothing is played) and RICHOS_VOICE_WHISPER_MODEL_ID
@@ -104,13 +106,36 @@ class VoiceWalk(adopt_walk.Walk):
         self.save()
         return {'path': path, 'sha256': sha, 'version': version, 'delivery_version': listed['versions'].get('whisper-cli')}
 
+    def grant_microphone(self):
+        """The "Allow" a person gives the first time voice opens. walk-e5e9903a36b4 (2026-10-07)
+        pressed the talk control and macOS put up '"RichOS" would like to access the microphone.'
+        over the window (talk-refused.png); start_voice_capture waited on it and the control never
+        turned into "Stop talking". No walk in this harness answers a system privacy prompt by
+        script; every grant the guest needs is written instead, as provision-guest.sh writes the
+        screen-capture and accessibility grants. This one follows it: a row in the guest user's TCC.db
+        (the guest image ships with SIP off; never on a host). The row is the same one tccd writes
+        when a person presses Allow: service kTCCServiceMicrophone, client com.richos.app (the
+        bundle identifier, tauri.conf.json), client_type 0, auth_value 2 (allowed)."""
+        db = '"$HOME/Library/Application Support/com.apple.TCC/TCC.db"'
+        sql = ("INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, "
+               "auth_version, indirect_object_identifier_type, indirect_object_identifier, flags, last_modified) "
+               "VALUES ('kTCCServiceMicrophone', 'com.richos.app', 0, 2, 2, 1, 0, 'UNUSED', 0, strftime('%s','now'));")
+        guest(self.vm, f'sqlite3 {db} {shlex.quote(sql)}')
+        row = guest(self.vm, f'sqlite3 {db} ' + shlex.quote(
+            "SELECT service, client, auth_value FROM access WHERE service='kTCCServiceMicrophone' "
+            "AND client='com.richos.app';"))
+        if row != 'kTCCServiceMicrophone|com.richos.app|2':
+            raise StepFailed(f'the guest microphone grant for com.richos.app did not take: {row!r}')
+        return row
+
     def stage(self):
+        microphone = self.grant_microphone()
         command([HERE / 'guest.sh', self.vm, '--push', self.a.wav, self.wav], 120)
         models = self.home + '/.config/richos/models'
         guest(self.vm, 'mkdir -p ' + shlex.quote(models))
         target = f'{models}/ggml-{self.a.model_id}.bin'
         command([HERE / 'guest.sh', self.vm, '--push', self.a.model, target], 900)
-        return {'wav': self.wav, 'model': target,
+        return {'wav': self.wav, 'model': target, 'microphone_grant': microphone,
                 'model_sha256': guest(self.vm, 'shasum -a 256 ' + shlex.quote(target), 120).split()[0]}
 
     def relaunch(self):
@@ -179,7 +204,8 @@ class VoiceWalk(adopt_walk.Walk):
                 return {'home_door_pressed': bool(door), 'talk_control': toggle}
             time.sleep(1)
         self.shot('talk-refused.png')
-        raise StepFailed(f'the talk control did not turn into "Stop talking" within 30 s: {toggle}')
+        log = guest(self.vm, 'tail -40 ' + shlex.quote(self.log) + ' || true')
+        raise StepFailed(f'the talk control did not turn into "Stop talking" within 30 s: {toggle}\nlog tail:\n{log}')
 
     def heard(self):
         talk = self.talk()
