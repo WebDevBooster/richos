@@ -46,11 +46,11 @@ def evidence(out, *, handoff_last=True, deleted=0, successor_on='work', stop_aft
     for label, agent in (('home', 'ag1'), (successor_on, 'ag2')):
         folder = Path(out) / 'transcripts' / label / 'projects' / 'p' / 's' / 'subagents'
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / ('agent-' + agent + '.jsonl')).write_text(json.dumps({'timestamp': '2026-10-07T12:00:00Z'}) + '\n')
+        (folder / ('agent-' + agent + '.meta.json')).write_text('{"model":"opus"}')
     at_handoff = ''.join('## lib/f%d.py\nText.\n' % i for i in range(20))
     final = at_handoff + ''.join('## lib/f%d.py\nText.\n' % i for i in range(20, 30))
     return {'rows': rows, 'facts': {'cutoff': 78, 'base': BASE, 'files': 30, 'approvals': list(presses)},
-            'summary': final, 'diffs': {HANDOFF: '20\t%d\tSUMMARY.md' % deleted, HANDOFF + ':summary': at_handoff},
+            'summary': final, 'diffs': {HANDOFF: '20\t%d\tMODULES.md' % deleted, HANDOFF + ':summary': at_handoff},
             'record': {'state': 'settled', 'detail': 'Landed.'}, 'obligation': {'status': 'completed'}, 'out': str(out)}
 
 

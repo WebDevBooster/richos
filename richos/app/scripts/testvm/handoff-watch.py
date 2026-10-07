@@ -153,5 +153,37 @@ def main(argv):
     return 0
 
 
+def summary(path, last=30):
+    """`--summary <jsonl> [N]`: the last N changes, one line each, to read a run while it goes."""
+    rows = [json.loads(line) for line in open(path, encoding='utf-8') if line.startswith('{')]
+    out = []
+    for r in rows:
+        k, v = r['kind'], r.get('value') or {}
+        if k == 'quota':
+            line = ' '.join('%s=%s%s' % (a['label'], a['weekly'], '*' if a['inUse'] else '') for a in v['accounts'])
+            out.append('quota %s leaving=%s point=%s' % (line, v.get('leaving'), (v.get('actAt') or {}).get('seven_day')))
+        elif k == 'assignment':
+            out.append('job %s | %s' % (v.get('state'), str(v.get('detail'))[:150]))
+        elif k == 'receipt':
+            req = v.get('request') or {}
+            out.append('receipt %s %s role=%s continue_of=%s agent=%s' % (v.get('name'), v.get('status'), req.get('role'),
+                                                                        str(req.get('continue_of'))[:12], v.get('agent_id')))
+        elif k == 'marker':
+            out.append('ORDER marker %s' % json.dumps(v))
+        elif k == 'hook':
+            out.append('%s %s %s' % (r.get('event'), r.get('agent_id'), r.get('agent_type')))
+        elif k == 'git':
+            out.append('git %s %s dirty=%s' % (r['path'].rsplit('/', 1)[-1], ' / '.join(s for _, _, s in v['log'][:3]), v['dirty']))
+        elif k == 'brief':
+            out.append('brief %s handoff=%s' % (r['path'].rsplit('/', 1)[-1][:16], 'Handoff from the previous teammate' in r['text']))
+        else:
+            continue
+        out[-1] = '%d %s' % (r['t_ms'], out[-1])
+    print('\n'.join(out[-last:]))
+    return 0
+
+
 if __name__ == '__main__':
+    if sys.argv[1:2] == ['--summary']:
+        sys.exit(summary(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 30))
     sys.exit(main(sys.argv))

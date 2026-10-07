@@ -25,7 +25,7 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
              point for Home must say so
   watch      handoff-watch.py started in the guest (every record the handoff writes, timed)
   job        JOB, typed into the composer: one teammate reads every file and summarizes it into
-             SUMMARY.md, committing after every five files (Home moved 2 points in 24 min on 2026-10-07 09:21-09:45Z, so the order can come early); another reviews; then it is landed
+             MODULES.md, committing after every five files (Home moved 2 points in 24 min on 2026-10-07 09:21-09:45Z, so the order can come early); another reviews; then it is landed
   observe    nothing is pressed (an Approve the app asks for is pressed and COUNTED: the pass
              line "with no step by anyone" then fails). Watched until the job closes or --within.
              Then the verdict below, from what was saved.
@@ -41,7 +41,7 @@ THE PASS LIST (plan §4, verbatim), each read from the saved records:
     minutes is a finding.
 
 In --out: report.json (steps), verdict.json (the pass list with evidence), handoff-watch.jsonl,
-acme-log.txt, SUMMARY.md, transcripts/{home,work}/ (both accounts' Claude transcripts, for the
+acme-log.txt, MODULES.md, transcripts/{home,work}/ (both accounts' Claude transcripts, for the
 token count), screenshots, the app's logs. PRIVATE: it holds his accounts' transcripts; keep it
 outside every repository. Exit 0 only when every step and every pass line passed.
 """
@@ -84,9 +84,13 @@ TEAM = {
                 'summarizes.\nmodel: opus\ntools: Read, Glob, Grep, Bash\n---\n\nYou are Checker. You review '
                 'what you are asked to review against the files themselves and report plainly.\n'),
 }
+# The plan's example writes SUMMARY.md; Claude Code's Write refuses a SUBAGENT any file named
+# /^(REPORT|SUMMARY|FINDINGS|ANALYSIS).*\.md$/i ("Subagents should return findings as text, not write
+# report files", errorCode 5, read out of 2.1.292), and every RichOS teammate is a subagent (run 8:
+# scribe stopped at file 5 and the job waited on his answer). So the file is MODULES.md.
 JOB = ('Please have scribe do this job in the Acme repository, and have checker review it before it is landed. '
        'Read every .py file in the lib folder, in alphabetical order, one file at a time and each one in full, '
-       'and write a one-paragraph summary of each into SUMMARY.md at the top of the repository: one section per '
+       'and write a one-paragraph summary of each into MODULES.md at the top of the repository: one section per '
        'file, headed "## lib/<file name>", followed by the paragraph. Commit after every five files. When every '
        'file is summarized, land it.')
 
@@ -361,11 +365,15 @@ class HandoffWalk(command_walk.CommandWalk):
             pass
 
     def cutoff(self):
-        home = self.facts.get('home_weekly_at_start')
+        # Home's reading as the app shows it NOW, right before the relaunch that sets the cut-off
+        # (Home moved a point in about 12 minutes on 2026-10-07; the one from `accounts` is minutes old).
+        home = self.weekly(self.quota(), '1')
+        if home is None:
+            home = self.facts.get('home_weekly_at_start')
         if home is None:
             raise StepFailed('accounts must have run (no Home reading on record)')
         cut = int(home) + 1
-        self.facts['cutoff'] = cut
+        self.facts.update(cutoff=cut, home_weekly_at_cutoff=home)
         self.save()
         self.relaunch_app({'RICHOS_TEST_WEEKLY_CUTOFF': '1:%d' % cut})
         end, quota = time.monotonic() + 240, {}
@@ -379,7 +387,27 @@ class HandoffWalk(command_walk.CommandWalk):
         (self.out / 'quota-after-cutoff.json').write_text(json.dumps(quota, indent=2) + '\n')
         if point is None or point > cut:
             raise StepFailed(f'the app\'s weekly point for Home is {point}, not the cut-off {cut}')
-        return {'cutoff': '1:%d' % cut, 'weekly_point_in_view': point, 'leaving': quota.get('leaving')}
+        # THE RELAUNCH FORGETS WORK'S READING (run 8: Work null in the relaunched app, so no switch
+        # could follow the order), and the app switches only to an account it has read
+        # (quota.rs readings). So this instance, the one that runs the job, reads Work before the
+        # job is sent, the same way `accounts` did; the presses are counted, and none is made
+        # once the job is sent.
+        opened = self.panel()
+        quota, home_now, work = self.read_both(600, opened)
+        try:
+            self.shot('2-quota-before-job.png')
+        except StepFailed:
+            pass
+        self.close_panel()
+        (self.out / 'quota-before-job.json').write_text(json.dumps(quota, indent=2) + '\n')
+        self.save()
+        if work is None:
+            self.diagnose(self.home + '/' + WORK_FOLDER, 'before-job')
+            raise StepFailed('the relaunched app never read Work, so it could not switch to it')
+        if '1' in (quota.get('leaving') or []):
+            raise StepFailed(f'Home reached the cut-off ({home_now} of {cut}) before the job could start; run again')
+        return {'cutoff': '1:%d' % cut, 'weekly_point_in_view': point, 'home_now': home_now, 'work': work,
+                'refresh_presses': self.facts.get('refresh_presses'), 'leaving': quota.get('leaving')}
 
     def watch(self):
         remote = self.payload + '/handoff-watch.py'
@@ -474,16 +502,16 @@ class HandoffWalk(command_walk.CommandWalk):
         c = shlex.quote(self.company)
         acme = guest(self.vm, 'git -C ' + c + ' log --all --format=%H%x09%P%x09%ct%x09%s', 60)
         (self.out / 'acme-log.txt').write_text(acme + '\n')
-        summary = guest(self.vm, 'git -C ' + c + ' show HEAD:SUMMARY.md 2>/dev/null || true', 60)
-        (self.out / 'SUMMARY.md').write_text(summary + '\n')
+        summary = guest(self.vm, 'git -C ' + c + ' show HEAD:MODULES.md 2>/dev/null || true', 60)
+        (self.out / 'MODULES.md').write_text(summary + '\n')
         head = guest(self.vm, 'git -C ' + c + ' rev-parse HEAD', 60).strip()
         handoffs = [x.split('\t') for x in acme.splitlines() if x.count('\t') >= 3 and x.split('\t')[3].startswith(HANDOFF_PREFIX)]
         diffs = {}
         for sha, *_ in handoffs:
             diffs[sha] = guest(self.vm, 'git -C ' + c + ' diff --numstat ' + shlex.quote(sha) + ' ' + shlex.quote(head)
-                               + ' -- SUMMARY.md 2>&1 || true', 60).strip()
+                               + ' -- MODULES.md 2>&1 || true', 60).strip()
             diffs[sha + ':summary'] = guest(self.vm, 'git -C ' + c + ' show ' + shlex.quote(sha)
-                                            + ':SUMMARY.md 2>/dev/null || true', 60)
+                                            + ':MODULES.md 2>/dev/null || true', 60)
         (self.out / 'handoff-diffs.json').write_text(json.dumps(diffs, indent=2) + '\n')
         transcripts = {}
         for label, folder in (('home', self.home + '/.claude'), ('work', self.home + '/' + WORK_FOLDER)):
@@ -500,7 +528,18 @@ class HandoffWalk(command_walk.CommandWalk):
             except (tarfile.TarError, OSError) as exc:
                 transcripts[label] = 'not copied: ' + str(exc)
                 continue
-            transcripts[label] = sorted(str(p.relative_to(target)) for p in target.rglob('*.jsonl'))
+            transcripts[label] = sorted(str(p.relative_to(target)) for p in target.rglob('*.json*'))
+        # The app's own per-turn records (machinery: each lease turn's usage from Claude Code's
+        # stream) and the hook evidence, for the token count: the leases keep no transcripts.
+        for name in ('machinery', 'engine-state/evidence', 'engine-state/provider-leases'):
+            archive = self.payload + '/' + name.replace('/', '-') + '.tgz'
+            guest(self.vm, 'tar -C ' + shlex.quote(self.data) + ' -czf ' + shlex.quote(archive) + ' '
+                  + shlex.quote(name) + ' 2>/dev/null || true', 300)
+            local = self.out / (name.replace('/', '-') + '.tgz')
+            try:
+                command([HERE / 'guest.sh', self.vm, '--pull', archive, local], 600)
+            except StepFailed as exc:
+                transcripts[name] = 'not copied: ' + str(exc)[:300]
         (self.out / 'records-final.json').write_text(json.dumps(self.records(), indent=2) + '\n')
         return {'rows': rows, 'acme_log': acme, 'acme_head': head, 'summary': summary, 'diffs': diffs,
                 'transcripts': transcripts, 'record': record, 'facts': self.facts,
@@ -513,11 +552,15 @@ def sections(text):
 
 
 def agent_transcript(out, agent_id):
-    """Which account folder the agent's own transcript is under ('home' or 'work'), and its last timestamp."""
+    """Which account folder the agent's own record is under ('home' or 'work'), and the last timestamp
+    of its transcript when there is one. The app's leases run with --no-session-persistence
+    (native.rs), so a helper leaves only `subagents/agent-<id>.meta.json` under the folder of the
+    account it ran on (run 8: under Home's .claude, "model":"opus"); that file is enough to say where."""
     if not agent_id:
         return None, None
     for label in ('home', 'work'):
-        for path in (Path(out) / 'transcripts' / label).rglob('agent-' + agent_id + '.jsonl'):
+        folder = Path(out) / 'transcripts' / label
+        for path in folder.rglob('agent-' + agent_id + '.jsonl'):
             last = None
             for line in path.read_text(errors='replace').splitlines():
                 try:
@@ -525,6 +568,8 @@ def agent_transcript(out, agent_id):
                 except ValueError:
                     pass
             return label, last
+        for _ in folder.rglob('agent-' + agent_id + '.meta.json'):
+            return label, None
     return None, None
 
 
@@ -657,7 +702,7 @@ def judge(e):
            and not presses and obligation.get('status') == 'completed')
     line('5 The job is reviewed, landed and closed with no step by anyone.', bool(ok5),
          f"job {record.get('state')} ({record.get('detail')}); reviewers {[r['name'] + ':' + str(r.get('status')) for r in reviewers]}; "
-         f"integrated {[r['name'] for r in integrated]}; landed SUMMARY.md sections {len(set(final))} of {files}; "
+         f"integrated {[r['name'] for r in integrated]}; landed MODULES.md sections {len(set(final))} of {files}; "
          f"Approve presses {len(presses)}; obligation {obligation.get('status')}",
          {'record': record, 'reviewers': reviewers, 'integrated': integrated, 'approvals': presses, 'obligation': obligation})
     # 6 how long the handoff took; and his 3-5 minutes.
