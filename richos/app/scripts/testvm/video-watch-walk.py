@@ -85,6 +85,13 @@ def env_value(line, name):
     return m.group(1) if m else None
 
 
+def plain_prefix(label):
+    """The leading words of a button label, up to its first character that is not a letter, digit,
+    space or apostrophe (a URL's "?" and "=", the panel's ellipsis): enough to find it with
+    --contains, and nothing that has to survive the trip into the guest."""
+    return re.match(r"[A-Za-z0-9 ']*", label).group(0).rstrip()
+
+
 def ran(commands, *needles):
     """The Bash runs whose command contains every needle."""
     return [c for c in commands if all(n in c['command'] for n in needles)]
@@ -128,6 +135,22 @@ class VideoWatchWalk(command_walk.CommandWalk):
                   'print(json.dumps(out))\n')
         return json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(script) + ' ' + shlex.quote(self.data), 60))
 
+    def approve_if_asked(self, title):
+        """command-walk.py's press, made to survive a long title: the panel cuts the button's label
+        with "…", and a title carrying it came back "notfound" with that same label as its own
+        near match (first run of this walk), so only the ASCII part before the cut is matched,
+        and a press that finds nothing is "not asked" rather than a failed step."""
+        label = plain_prefix('Approve ' + title)
+        try:
+            if not self.present(label):
+                self.press('Open the work summary')
+                if not self.present(label):
+                    return False
+            self.press(label)
+        except StepFailed:
+            return False
+        return True
+
     def approve_any(self):
         """One press of an Approve the window offers for a request (work-summary.js labels each
         "Approve <title>"), never the quota panel's reset approval."""
@@ -139,7 +162,10 @@ class VideoWatchWalk(command_walk.CommandWalk):
         title = next((t for t in titles if t.startswith('Approve ') and 'reset' not in t), None)
         if not title:
             return False
-        self.press(title, contains=False)
+        try:
+            self.press(plain_prefix(title))
+        except StepFailed:
+            return False
         return True
 
     def said_since(self, sent_ms):
