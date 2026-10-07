@@ -40,6 +40,48 @@ fn every_engine_is_usable(_: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// **THE SPEECH-MODEL SEAM**, held open the same way: the product asks
+/// `richos_voice::stt::readiness()`, which needs 574 MB of pinned weights on disk.
+fn a_speech_model() -> Result<String, String> {
+    Ok("large-v3-turbo-q5_0".to_string())
+}
+
+fn no_speech_model() -> Result<String, String> {
+    Err("whisper model not found: ggml-large-v3-turbo-q5_0.bin".to_string())
+}
+
+/// One published yt-dlp nightly, for installing the real way ([`richos_core::media_tools::refresh`]).
+struct OneNightly(&'static [u8]);
+
+const NIGHTLY_TAG: &str = "2026.10.07.000000";
+
+impl Fetcher for OneNightly {
+    fn fetch(&self, url: &str, dest: &Path) -> Result<u64, SetupError> {
+        let body = if url.ends_with("/SHA2-256SUMS") {
+            use sha2::{Digest, Sha256};
+            let hex: String = Sha256::digest(self.0).iter().map(|b| format!("{b:02x}")).collect();
+            format!("{hex}  yt-dlp\n").into_bytes()
+        } else {
+            self.0.to_vec()
+        };
+        std::fs::write(dest, &body).unwrap();
+        Ok(body.len() as u64)
+    }
+}
+
+impl richos_core::media_tools::LatestRelease for OneNightly {
+    fn latest_tag(&self) -> Result<String, SetupError> {
+        Ok(NIGHTLY_TAG.to_string())
+    }
+}
+
+/// yt-dlp installed into `home`'s tools folder by the same code the app runs.
+fn install_yt_dlp(home: &Path) {
+    let tools = richos_core::media_tools::tools_dir(home);
+    richos_core::media_tools::refresh(&OneNightly(b"a yt-dlp zipapp"), &OneNightly(b"a yt-dlp zipapp"), &tools)
+        .unwrap();
+}
+
 /// A predicate that rejects the named paths, with the reason the real one would give for a
 /// directory carrying no delivered runtime. This is the shape of the nightly's D1: a
 /// plugin-installed engine at `~/.claude/richos-engine` is engine-SHAPED and unusable.
@@ -182,8 +224,9 @@ fn body_and_digest(root: &Path, body: &[u8]) -> String {
 // ===========================================================================================
 
 /// **THE LAUNCH BLOCKER, AS A VALUE.** A customer's Mac: a real HOME, nothing installed, a GUI
-/// launch with an `.app` in `/Applications` and no environment. Both components missing, both
-/// naming every place they looked, and `needs()` putting Claude Code first.
+/// launch with an `.app` in `/Applications` and no environment. All three components missing,
+/// each naming every place it looked, and `needs()` putting Claude Code first and the video
+/// tools last (media-tools plan §2: they need the engine's Python and `whisper-cli`).
 #[test]
 fn a_customers_mac_is_missing_both_and_says_where_it_looked() {
     let root = scratch("customer-mac");
@@ -198,12 +241,16 @@ fn a_customers_mac_is_missing_both_and_says_where_it_looked() {
         path_var: Some("/usr/bin:/bin".into()),
         ..Default::default()
     };
-    let status = detect(&paths, &[], &every_engine_is_usable);
+    let status = detect(&paths, &[], &every_engine_is_usable, &no_speech_model);
 
     assert!(!status.claude.present, "{:?}", status.claude);
     assert!(!status.engine.present, "{:?}", status.engine);
-    assert_eq!(status.needs(), vec![Component::ClaudeCode, Component::Engine]);
+    assert!(!status.media_tools.present, "{:?}", status.media_tools);
+    assert_eq!(status.needs(), vec![Component::ClaudeCode, Component::Engine, Component::MediaTools]);
     assert!(!status.complete());
+    let media_places = status.media_tools.looked_in.join(" | ");
+    assert!(media_places.contains("Application Support/RichOS/tools/yt-dlp"), "{media_places}");
+    assert!(media_places.contains("the speech model — whisper model not found"), "{media_places}");
 
     // NAMED, not "not found".
     let claude_places = status.claude.looked_in.join(" ");
@@ -227,12 +274,78 @@ fn a_machine_that_already_has_both_is_asked_nothing() {
     make_engine(&home.join(".claude/richos-engine"), "1.0.0");
     std::fs::create_dir_all(home.join(".local/bin")).unwrap();
     std::fs::write(home.join(".local/bin/claude"), b"#!/bin/sh\n").unwrap();
+    install_yt_dlp(&home);
 
     let paths = SetupPaths { home: Some(home), ..Default::default() };
-    let status = detect(&paths, &[], &every_engine_is_usable);
+    let status = detect(&paths, &[], &every_engine_is_usable, &a_speech_model);
     assert!(status.complete(), "{status:?}");
     assert!(status.needs().is_empty());
     assert!(!status.blocked());
+    assert_eq!(
+        status.media_tools.detail.as_deref(),
+        Some(format!("yt-dlp nightly {NIGHTLY_TAG}, speech model large-v3-turbo-q5_0").as_str())
+    );
+}
+
+/// **AN INSTALL THAT FINISHED SETUP BEFORE 2026-10-07 IS ASKED ONCE MORE, FOR THE VIDEO TOOLS
+/// ONLY** (media-tools plan §2: "Installs that already finished setup ... see the sheet once
+/// on their next launch, listing only the video tools"). Claude Code and the engine are both
+/// there, so they are not asked for again.
+#[test]
+fn a_machine_set_up_before_the_video_tools_is_asked_for_them_alone() {
+    let root = scratch("set-up-before");
+    let home = root.join("home");
+    make_engine(&home.join(".claude/richos-engine"), "1.0.0");
+    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+    std::fs::write(home.join(".local/bin/claude"), b"#!/bin/sh\n").unwrap();
+    let paths = SetupPaths { home: Some(home.clone()), ..Default::default() };
+
+    let before = detect(&paths, &[], &every_engine_is_usable, &no_speech_model);
+    assert_eq!(before.needs(), vec![Component::MediaTools], "{before:?}");
+    assert!(!before.complete());
+    assert!(!before.blocked(), "the video tools are always installable; nothing is pinned at build time");
+
+    // yt-dlp alone is not enough: the speech model is the other half.
+    install_yt_dlp(&home);
+    let half = detect(&paths, &[], &every_engine_is_usable, &no_speech_model);
+    assert_eq!(half.needs(), vec![Component::MediaTools], "{half:?}");
+    let places = half.media_tools.looked_in.join(" | ");
+    assert!(places.contains(&format!("yt-dlp nightly {NIGHTLY_TAG} is installed")), "{places}");
+    assert!(places.contains("the speech model — whisper model not found"), "{places}");
+
+    // ...and the model alone is not enough either: a yt-dlp that does not match its record.
+    let tools = richos_core::media_tools::tools_dir(&home);
+    let version = std::fs::read_dir(&tools).unwrap().flatten()
+        .find(|e| e.file_name().to_string_lossy().starts_with("yt-dlp-")).unwrap().path();
+    std::fs::write(&version, b"tampered").unwrap();
+    let tampered = detect(&paths, &[], &every_engine_is_usable, &a_speech_model);
+    assert_eq!(tampered.needs(), vec![Component::MediaTools], "{tampered:?}");
+
+    // Both halves: complete.
+    install_yt_dlp(&home);
+    let after = detect(&paths, &[], &every_engine_is_usable, &a_speech_model);
+    assert!(after.complete(), "{after:?}");
+}
+
+/// **NO HOME, NO TOOLS FOLDER, AND IT SAYS SO** rather than reporting an empty list of places.
+#[test]
+fn the_video_tools_with_no_home_name_nowhere_rather_than_nothing() {
+    let status = find_media_tools(&SetupPaths::default(), &a_speech_model);
+    assert!(!status.present);
+    assert_eq!(status.looked_in.len(), 1, "{:?}", status.looked_in);
+    assert!(status.looked_in[0].contains("my video tools"), "{:?}", status.looked_in);
+}
+
+/// **THE CONSENT LINE IS THE PLAN'S, AND MEETS THE SHEET'S FLOOR**: no path, no digit, no
+/// terminal (the same rule `setup_view.rs` holds the other two components to).
+#[test]
+fn the_video_tools_consent_line_is_the_plans() {
+    assert_eq!(Component::MediaTools.display_name(), "my video tools");
+    assert_eq!(
+        Component::MediaTools.why(),
+        "the tools I use to watch, hear and download videos for you, which I keep up to date myself."
+    );
+    assert_eq!(Component::MediaTools.as_str(), "media-tools");
 }
 
 /// **A FETCHED ENGINE IS FOUND WHERE IT WAS PUT.** The install location and the resolver's
@@ -277,7 +390,7 @@ fn an_explicit_override_never_falls_through_to_something_nobody_named() {
         claude_bin_override: Some(root.join("also-nope")),
         ..Default::default()
     };
-    let status = detect(&paths, &[], &every_engine_is_usable);
+    let status = detect(&paths, &[], &every_engine_is_usable, &a_speech_model);
     assert!(!status.engine.present, "a bad override fell through: {:?}", status.engine);
     assert!(!status.claude.present, "a bad override fell through: {:?}", status.claude);
     assert!(status.engine.looked_in[0].contains("RICHOS_ENGINE_DIR"), "{:?}", status.engine.looked_in);
@@ -386,7 +499,7 @@ fn an_engine_that_is_present_but_unusable_is_reported_as_present_and_unusable() 
 #[test]
 fn a_component_reported_missing_always_names_at_least_one_place() {
     let paths = SetupPaths::default();
-    let status = detect(&paths, &[], &every_engine_is_usable);
+    let status = detect(&paths, &[], &every_engine_is_usable, &a_speech_model);
 
     for component in [&status.claude, &status.engine] {
         assert!(!component.present, "{component:?}");
@@ -520,7 +633,7 @@ fn a_build_with_no_pin_accepts_any_release_and_says_it_can_install_none() {
     assert_eq!(engine_accepted(&working_tree, None), Ok(()));
 
     let paths = SetupPaths { home: Some(home), ..Default::default() };
-    let status = detect_with_pin(&paths, &[working_tree.clone()], &every_engine_is_usable, None);
+    let status = detect_with_pin(&paths, &[working_tree.clone()], &every_engine_is_usable, None, &a_speech_model);
     assert!(status.engine.present, "an unpinned build refused an engine: {status:?}");
     assert_eq!(status.engine.at.as_deref(), Some(working_tree.display().to_string().as_str()));
     assert!(!status.engine_installable, "a build with no pin cannot install one");
@@ -531,7 +644,7 @@ fn a_build_with_no_pin_accepts_any_release_and_says_it_can_install_none() {
     // `engine-pin.env` from `make-engine-asset.sh` while the checkout has moved on.
     let pinned = pin_from_parts("1.2.0", "https://example.invalid/engine.tar.gz", A_DIGEST).unwrap();
     let pinned_status =
-        detect_with_pin(&paths, &[working_tree.clone()], &every_engine_is_usable, Some(&pinned));
+        detect_with_pin(&paths, &[working_tree.clone()], &every_engine_is_usable, Some(&pinned), &a_speech_model);
     assert!(!pinned_status.engine.present, "{pinned_status:?}");
     assert_eq!(pinned_status.engine_pin_version.as_deref(), Some("1.2.0"));
     let places = pinned_status.engine.looked_in.join(" | ");
@@ -826,7 +939,7 @@ fn detection_walks_past_a_stale_managed_engine_and_says_why() {
     let pin = a_nightly_pin(PINNED_DIGEST);
 
     let paths = SetupPaths { home: Some(home.clone()), ..Default::default() };
-    let status = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin));
+    let status = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin), &a_speech_model);
     assert!(!status.engine.present, "a stale-by-content engine was accepted: {status:?}");
     let places = status.engine.looked_in.join(" | ");
     assert!(places.contains(&managed.display().to_string()), "{places}");
@@ -839,7 +952,7 @@ fn detection_walks_past_a_stale_managed_engine_and_says_why() {
 
     // POSITIVE CONTROL: the same walk, the same fixture, the pinned contents — found.
     stamp_engine(&managed, "1.2.0", PINNED_DIGEST, "https://example.invalid/20260918.2.tar.gz");
-    let good = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin));
+    let good = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin), &a_speech_model);
     assert!(good.engine.present, "{good:?}");
     assert_eq!(good.engine.at.as_deref(), Some(managed.display().to_string().as_str()));
 }
@@ -870,7 +983,7 @@ fn a_pinned_build_refuses_the_unstamped_developer_pointer_and_names_it() {
         config_dir: Some(config),
         ..Default::default()
     };
-    let status = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin));
+    let status = detect_with_pin(&paths, &[], &every_engine_is_usable, Some(&pin), &a_speech_model);
     assert!(!status.engine.present, "a shipped build took the developer's engine: {status:?}");
     let places = status.engine.looked_in.join(" | ");
     assert!(places.contains(&pointer.display().to_string()), "{places}");
@@ -882,7 +995,7 @@ fn a_pinned_build_refuses_the_unstamped_developer_pointer_and_names_it() {
     // POSITIVE CONTROL — THE DOGFOOD GUARANTEE. The same pointer, the same walk, a build with no
     // pin: found. Every `cargo run` in this repository is this case, and if this assertion ever
     // fails the fix above has broken development rather than secured it.
-    let unpinned = detect_with_pin(&paths, &[], &every_engine_is_usable, None);
+    let unpinned = detect_with_pin(&paths, &[], &every_engine_is_usable, None, &a_speech_model);
     assert!(unpinned.engine.present, "an unpinned build refused a checkout: {unpinned:?}");
     assert_eq!(unpinned.engine.at.as_deref(), Some(pointer.display().to_string().as_str()));
 
@@ -892,7 +1005,7 @@ fn a_pinned_build_refuses_the_unstamped_developer_pointer_and_names_it() {
         engine_override: Some(pointer.clone()),
         ..Default::default()
     };
-    let honored = detect_with_pin(&named, &[], &every_engine_is_usable, Some(&pin));
+    let honored = detect_with_pin(&named, &[], &every_engine_is_usable, Some(&pin), &a_speech_model);
     assert!(honored.engine.present, "$RICHOS_ENGINE_DIR was overruled: {honored:?}");
 }
 
@@ -1066,7 +1179,7 @@ fn an_unpinned_build_reports_it_and_is_blocked_rather_than_guessing() {
     let root = scratch("unpinned");
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let status = detect(&SetupPaths { home: Some(home), ..Default::default() }, &[], &every_engine_is_usable);
+    let status = detect(&SetupPaths { home: Some(home), ..Default::default() }, &[], &every_engine_is_usable, &a_speech_model);
     // The test build carries no `RICHOS_ENGINE_*` at compile time.
     assert!(!status.engine_installable, "the test build must carry no pin");
     assert!(status.blocked(), "an engine that is missing and unpinnable is blocked");
@@ -1135,14 +1248,16 @@ fn setup_completes_and_the_next_launch_does_not_ask_again() {
     // The machine the audit ran on: an engine-shaped plugin pointer that cannot be used.
     let plugin = home.join(".claude/richos-engine");
     make_engine(&plugin, "1.2.0");
-    // ...and Claude Code present, so the engine is the only thing that could be missing.
+    // ...and Claude Code and the video tools present, so the engine is the only thing that
+    // could be missing.
     std::fs::create_dir_all(home.join(".local/bin")).unwrap();
     std::fs::write(home.join(".local/bin/claude"), b"#!/bin/sh\n").unwrap();
+    install_yt_dlp(&home);
 
     // ---- THE FIRST LAUNCH: setup is genuinely needed, and says so naming both places.
     let paths = SetupPaths { home: Some(home.clone()), ..Default::default() };
     let usable = usable_except(vec![plugin.clone()]);
-    let before = detect(&paths, &[], &usable);
+    let before = detect(&paths, &[], &usable, &a_speech_model);
     assert_eq!(before.needs(), vec![Component::Engine], "{before:?}");
     let places = before.engine.looked_in.join(" | ");
     assert!(places.contains(&plugin.display().to_string()), "{places}");
@@ -1153,7 +1268,7 @@ fn setup_completes_and_the_next_launch_does_not_ask_again() {
         .unwrap();
 
     // ---- THE NEXT LAUNCH: the same question, asked the same way, on a fresh read of disk.
-    let relaunch = detect(&SetupPaths { home: Some(home), ..Default::default() }, &[], &usable);
+    let relaunch = detect(&SetupPaths { home: Some(home), ..Default::default() }, &[], &usable, &a_speech_model);
     assert!(
         relaunch.engine.present,
         "the engine setup had just written was not found on the next launch: {:?}",

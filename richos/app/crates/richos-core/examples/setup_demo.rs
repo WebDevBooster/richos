@@ -73,7 +73,7 @@ fn main() {
 
     // ---- BEFORE ------------------------------------------------------------------------
     let paths = SetupPaths::from_process();
-    let before = setup::detect(&paths, &[], &setup::engine_is_usable);
+    let before = setup::detect(&paths, &[], &setup::engine_is_usable, &speech_not_asked);
     println!("\n=== before ===");
     report(&before);
 
@@ -165,18 +165,34 @@ fn main() {
 
     // ---- AFTER, RE-READ FROM DISK ------------------------------------------------------
     println!("\n=== after (re-read from disk, not inferred from the steps) ===");
-    let after = setup::detect(&SetupPaths::from_process(), &[], &setup::engine_is_usable);
+    let after = setup::detect(&SetupPaths::from_process(), &[], &setup::engine_is_usable, &speech_not_asked);
     report(&after);
     if after.complete() {
         println!("\n[demo] nothing is missing.");
+        std::process::exit(0);
+    }
+    if after.needs() == [Component::MediaTools] {
+        println!("\n[demo] Claude Code and the engine are installed. The video tools are not this \
+                  demonstration's: the app installs them (setup_view.rs), because the speech model \
+                  is fetched by richos-voice, which this crate does not depend on.");
         std::process::exit(0);
     }
     println!("\n[demo] SOMETHING IS STILL MISSING — and this is not reported as a success.");
     std::process::exit(6);
 }
 
+/// The speech-model half of the video tools is `richos_voice::stt::readiness()` in the app, and
+/// this crate cannot ask it, so the demonstration says that instead of guessing.
+fn speech_not_asked() -> Result<String, String> {
+    Err("not checked by this demonstration (the app asks richos-voice)".to_string())
+}
+
 fn report(s: &setup::SetupStatus) {
-    for (c, st) in [(Component::ClaudeCode, &s.claude), (Component::Engine, &s.engine)] {
+    for (c, st) in [
+        (Component::ClaudeCode, &s.claude),
+        (Component::Engine, &s.engine),
+        (Component::MediaTools, &s.media_tools),
+    ] {
         if st.present {
             println!(
                 "  {:<18} PRESENT at {}{}",

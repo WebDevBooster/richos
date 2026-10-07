@@ -25,7 +25,8 @@
 //! # What this file will not do
 //!
 //! - **No daemon, no scheduler, no background retry.** A download happens because the CEO asked
-//!   for it, in the foreground, and stops when it stops.
+//!   for it, at the voice toggle or on the setup sheet (the video tools are a setup essential
+//!   since 2026-10-07, media-tools plan §2), in the foreground, and stops when it stops.
 //! - **No automatic retry of a corrupted download.** `Finding::retryable` decides, and it says no
 //!   to a hash mismatch: retrying corruption in a loop is how a transient fault becomes a support
 //!   conversation.

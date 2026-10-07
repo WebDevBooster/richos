@@ -124,6 +124,11 @@ pub fn incomplete_message(status: &SetupStatus) -> Option<&'static str> {
     if status.blocked() {
         return Some(SETUP_UNPINNED_NOTE);
     }
+    // THE VIDEO TOOLS ARE NOT A CAUSE OF "NO LEASE", SO THEY GET NO SENTENCE HERE. This function
+    // answers why a send found no lease, and a lease needs Claude Code and the engine only
+    // (`EngineLeaseFactory`); the sheet itself lists the video tools whenever they are missing
+    // (`ask_for`). With only they missing, the no-lease cause is the other one — the account —
+    // and naming the video tools would send him to the wrong fix.
     match (
         needs.contains(&Component::ClaudeCode),
         needs.contains(&Component::Engine),
@@ -194,7 +199,19 @@ pub fn detect(boot_engine: Option<&std::path::Path>) -> SetupStatus {
         .map(|d| vec![d.to_path_buf()])
         .unwrap_or_default();
     let paths = SetupPaths::from_process();
-    setup::detect(&paths, &extra, &setup::engine_is_usable)
+    setup::detect(&paths, &extra, &setup::engine_is_usable, &speech_model)
+}
+
+/// **The speech-model half of the video tools** (media-tools plan §2): present exactly when
+/// `stt::readiness()` is `Ready` — the one resolution voice mode, `voice_readiness` and the model
+/// download all run, so setup cannot call a model present that the microphone path would not
+/// find, nor fetch one it would not look for. The `Err` is the readiness answer's own `Debug`,
+/// which is hand-written to carry no home-folder path (`stt.rs`), for the operator's boot line.
+fn speech_model() -> Result<String, String> {
+    match richos_voice::stt::readiness() {
+        richos_voice::stt::SpeechReadiness::Ready(r) => Ok(r.model_id().to_string()),
+        other => Err(format!("{other:?}")),
+    }
 }
 
 /// What the consent sheet says, assembled from the status. Returned to the window so the copy
@@ -336,6 +353,7 @@ pub fn run(
                     })
                 }
             },
+            Component::MediaTools => install_media_tools(app, paths.home.as_deref(), index, total),
         };
 
         match outcome {
@@ -419,6 +437,125 @@ fn started_line(c: Component) -> String {
                 .to_string()
         }
         Component::Engine => "Getting my instructions.".to_string(),
+        Component::MediaTools => format!("Getting {}.", c.display_name()),
+    }
+}
+
+/// **THE VIDEO TOOLS, INSTALLED** (media-tools plan §2, slice 3): yt-dlp through slice 2's
+/// verified install, then the speech model through the voice panel's own verified, resumable
+/// fetch (`voice_provision::fetch_model`), with this sheet as the one asking. Each half is
+/// skipped when it is already there, so the CEO's Mac — whose model already resolves — fetches
+/// only the 3 MB yt-dlp, and pressing "Set it up" again after a failed model download resumes
+/// it rather than starting over (`provision.rs` resume rules).
+///
+/// Ends by asking readiness again, never by trusting the fetch's `Ok`: `fetch_model` answers
+/// `Ok` for a download the voice panel already has running, and for one stopped on request.
+fn install_media_tools(
+    app: &AppHandle,
+    home: Option<&std::path::Path>,
+    index: usize,
+    total: usize,
+) -> Result<String, SetupError> {
+    use richos_core::media_tools;
+    use richos_voice::stt::SpeechReadiness;
+
+    let home = home.ok_or(SetupError::NoHome)?;
+    let tools = media_tools::tools_dir(home);
+    match media_tools::installed(&tools) {
+        Some(i) => eprintln!("[richos] setup: yt-dlp nightly {} already installed", i.tag),
+        None => match media_tools::refresh_with_curl(&tools)? {
+            media_tools::Refreshed::Installed { tag, sha256, .. } => {
+                eprintln!("[richos] setup: yt-dlp nightly {tag} installed — sha256 {sha256}")
+            }
+            media_tools::Refreshed::Unchanged { tag } => {
+                eprintln!("[richos] setup: yt-dlp nightly {tag} already the newest")
+            }
+        },
+    }
+
+    if let SpeechReadiness::Ready(r) = richos_voice::stt::readiness() {
+        eprintln!("[richos] setup: speech model {} already installed and verified", r.model_id());
+        return Ok(format!("{} are installed.", capitalized(Component::MediaTools.display_name())));
+    }
+    let observer = SetupModelObserver { app: app.clone(), index, total };
+    let state = crate::ensure_model_fetch_state(app);
+    // ITS OWN THREAD AND ITS OWN RUNTIME. `run_setup` is a sync command Tauri runs inside an
+    // async task, where `block_on` panics ("Cannot start a runtime from within a runtime"); a
+    // scoped thread owns a current-thread runtime for exactly this download and ends with it.
+    let fetched = std::thread::scope(|scope| {
+        scope
+            .spawn(|| -> Result<serde_json::Value, String> {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| format!("the download could not start: {e}"))?;
+                runtime.block_on(crate::voice_provision::fetch_model(&observer, state))
+            })
+            .join()
+    });
+    match fetched {
+        Ok(Ok(v)) => eprintln!("[richos] setup: speech model fetch answered {v}"),
+        // `fetch_model`'s own sentence for him, already written by `provision`.
+        Ok(Err(sentence)) => return Err(SetupError::SpeechModelFailed { sentence }),
+        // A panicked download thread: the readiness check below gives voice's own sentence.
+        Err(_) => eprintln!("[richos] setup: the speech model download stopped unexpectedly"),
+    }
+    match richos_voice::stt::readiness() {
+        SpeechReadiness::Ready(r) => {
+            eprintln!("[richos] setup: speech model {} installed and verified", r.model_id());
+            Ok(format!("{} are installed.", capitalized(Component::MediaTools.display_name())))
+        }
+        // Still not there (the voice panel's download is the one running, or it was stopped):
+        // the sentence voice mode itself gives for this state, so the two never disagree.
+        other => {
+            eprintln!("[richos] setup: speech model still not ready after the fetch: {other:?}");
+            Err(SetupError::SpeechModelFailed {
+                sentence: other.ceo_message().unwrap_or_default(),
+            })
+        }
+    }
+}
+
+fn capitalized(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
+/// **The model download's progress, on this sheet instead of the voice panel** (plan §2). Each
+/// `rich://voice-model` event becomes a `started` line for this step, with how far it has got,
+/// so a 574 MB download is a moving line rather than a sheet that looks hung. Failure is not
+/// relayed here: `install_media_tools` returns it, and `run` emits it once.
+struct SetupModelObserver {
+    app: AppHandle,
+    index: usize,
+    total: usize,
+}
+
+impl crate::voice_provision::ModelObserver for SetupModelObserver {
+    fn on_model_event(&self, _name: &str, payload: serde_json::Value) {
+        let phase = payload.get("phase").and_then(|p| p.as_str()).unwrap_or("");
+        let received = payload.get("received").and_then(|v| v.as_u64()).unwrap_or(0);
+        let whole = payload.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+        let what = match phase {
+            "started" | "progress" if whole > 0 => {
+                format!("{} {}%", started_line(Component::MediaTools), received.saturating_mul(100) / whole)
+            }
+            "verifying" => format!("{} 100%", started_line(Component::MediaTools)),
+            _ => return,
+        };
+        emit(
+            &self.app,
+            SetupProgress {
+                state: "started",
+                component: Some(Component::MediaTools.as_str()),
+                what,
+                index: self.index,
+                total: self.total,
+                detail: None,
+                kind: None,
+                machine_unchanged: None,
+            },
+        );
     }
 }
 
@@ -453,11 +590,48 @@ mod tests {
     /// A status shaped by hand, so each arm of [`incomplete_message`] can be asked for
     /// directly rather than depending on what this machine happens to have installed.
     fn status(claude: bool, engine: bool, installable: bool) -> SetupStatus {
-        let mut st = detect(None);
+        status_with_video_tools(claude, engine, installable, true)
+    }
+
+    /// Built from an empty `SetupPaths` and stub answers rather than `detect(None)`, which reads
+    /// this machine and asks `stt::readiness()` — and that can run whisper decodes on the host
+    /// to calibrate (`stt.rs` `choose_model`).
+    fn status_with_video_tools(claude: bool, engine: bool, installable: bool, video: bool) -> SetupStatus {
+        let mut st = setup::detect_with_pin(&SetupPaths::default(), &[], &|_| Ok(()), None, &|| {
+            Err("not asked in this test".to_string())
+        });
         st.claude.present = claude;
         st.engine.present = engine;
+        st.media_tools.present = video;
         st.engine_installable = installable;
         st
+    }
+
+    /// **A MACHINE SET UP BEFORE THE VIDEO TOOLS SEES THE SHEET WITH THEM ALONE** (media-tools
+    /// plan §2), and can install them: they need no pin.
+    #[test]
+    fn only_the_video_tools_missing_puts_them_alone_on_the_sheet() {
+        let st = status_with_video_tools(true, true, true, false);
+        let ask = ask_for(&st);
+        let items: Vec<&str> = ask.items.iter().map(|i| i.component).collect();
+        assert_eq!(items, vec!["media-tools"]);
+        assert_eq!(ask.items[0].name, "my video tools");
+        assert!(ask.can_install, "the video tools are always installable");
+        assert!(!view(&st)["complete"].as_bool().unwrap(), "setup is not complete without them");
+        // An unpinned build still offers them when the engine is already there.
+        assert!(ask_for(&status_with_video_tools(true, true, false, false)).can_install);
+    }
+
+    /// **THE NO-LEASE SENTENCE NEVER BLAMES THE VIDEO TOOLS.** A lease needs Claude Code and the
+    /// engine; with only the video tools missing, a send that found no lease has the other cause
+    /// (the account), and that sentence is `LEASE_UNAVAILABLE_MESSAGE`'s, not one of these.
+    #[test]
+    fn the_video_tools_alone_are_not_a_no_lease_cause() {
+        assert_eq!(incomplete_message(&status_with_video_tools(true, true, true, false)), None);
+        assert_eq!(
+            incomplete_message(&status_with_video_tools(true, false, true, false)),
+            Some(SETUP_INCOMPLETE_ENGINE)
+        );
     }
 
     /// **THE SENTENCE NEVER TELLS HIM TO QUIT AND REOPEN WHEN THAT CANNOT HELP.**
@@ -535,7 +709,7 @@ mod tests {
     /// A progress line never puts a path or a version in front of him.
     #[test]
     fn no_progress_line_carries_a_path_or_a_version() {
-        for c in [Component::ClaudeCode, Component::Engine] {
+        for c in [Component::ClaudeCode, Component::Engine, Component::MediaTools] {
             let line = started_line(c);
             assert!(!line.contains('/'), "{line}");
             assert!(!line.contains('~'), "{line}");

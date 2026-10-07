@@ -566,7 +566,7 @@ pub fn engine_install_dir(home: &Path) -> PathBuf {
 // DETECTION
 // ===========================================================================================
 
-/// One of the two executables a customer's Mac may be missing.
+/// One of the things a customer's Mac may be missing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Component {
@@ -574,6 +574,15 @@ pub enum Component {
     ClaudeCode,
     /// The engine directory RichOS hands `claude` as its working directory.
     Engine,
+    /// **The video tools, an essential since 2026-10-07** (media-tools plan, richos-hq
+    /// `docs/plans/2026-10-07-media-tools.md` §2 and §6 item 3). The CEO: *"These tools need to
+    /// be classed as necessary essentials."* Present means BOTH: the app's own yt-dlp
+    /// ([`crate::media_tools::installed`]) and a pinned speech model this machine resolves (the
+    /// [`SpeechModel`] answer). ffmpeg, ffprobe and whisper-cli need no check of their own: they
+    /// are runtime files, and an engine whose runtime does not verify is not an engine
+    /// ([`engine_is_usable`]). Installed AFTER the engine, because yt-dlp runs on the engine's
+    /// Python and the model fetch is offered only once the engine's `whisper-cli` resolves.
+    MediaTools,
 }
 
 impl Component {
@@ -582,6 +591,7 @@ impl Component {
         match self {
             Component::ClaudeCode => "Claude Code",
             Component::Engine => "the RichOS engine",
+            Component::MediaTools => "my video tools",
         }
     }
 
@@ -596,6 +606,12 @@ impl Component {
             Component::Engine => {
                 "the part of me that knows how I work: my instructions and my team."
             }
+            // The plan's consent line, verbatim (§2). It is the one ask for yt-dlp's silent
+            // refreshes afterwards (plan Q1, option A).
+            Component::MediaTools => {
+                "the tools I use to watch, hear and download videos for you, which I keep up to \
+                 date myself."
+            }
         }
     }
 
@@ -603,7 +619,48 @@ impl Component {
         match self {
             Component::ClaudeCode => "claude-code",
             Component::Engine => "engine",
+            Component::MediaTools => "media-tools",
         }
+    }
+}
+
+/// **Does this machine have a pinned speech model it can hear with?** `Ok` with the model's id,
+/// or `Err` with the reason it has not.
+///
+/// A seam rather than a call, for two reasons. `richos-core` does not depend on `richos-voice`
+/// (that crate depends on this one), and the answer the product uses is
+/// `richos_voice::stt::readiness()` being `Ready` — the SAME resolution voice mode and the model
+/// download use, so setup can never call present a model the microphone path would not find
+/// (`setup_view.rs` passes it). And a test can then say "the model is there" or "it is not"
+/// without 574 MB of weights on disk, as [`EngineUsable`] does for a 322 MB runtime.
+pub type SpeechModel<'a> = &'a dyn Fn() -> Result<String, String>;
+
+/// Find the video tools, or report every place that was looked: the yt-dlp RichOS installs, and
+/// the speech model. Both are named either way, so a boot line that says they are missing says
+/// WHICH half is missing.
+pub fn find_media_tools(paths: &SetupPaths, speech: SpeechModel<'_>) -> ComponentStatus {
+    let Some(home) = paths.home.as_deref() else {
+        // No home, no tools folder: `missing` turns the empty list into the "nowhere" line.
+        return ComponentStatus::missing(Component::MediaTools, Vec::new());
+    };
+    let tools = crate::media_tools::tools_dir(home);
+    let yt_dlp = crate::media_tools::installed(&tools);
+    let model = speech();
+    let mut looked = vec![match &yt_dlp {
+        Some(i) => format!("{} — yt-dlp nightly {} is installed and matches its recorded hash", tools.join("yt-dlp").display(), i.tag),
+        None => format!("{} — no yt-dlp that RichOS installed and can verify", tools.join("yt-dlp").display()),
+    }];
+    looked.push(match &model {
+        Ok(id) => format!("the speech model — {id} is installed and verified"),
+        Err(why) => format!("the speech model — {why}"),
+    });
+    match (yt_dlp, model) {
+        (Some(i), Ok(id)) => ComponentStatus::found(
+            Component::MediaTools,
+            tools,
+            Some(format!("yt-dlp nightly {}, speech model {id}", i.tag)),
+        ),
+        _ => ComponentStatus::missing(Component::MediaTools, looked),
     }
 }
 
@@ -654,6 +711,8 @@ impl ComponentStatus {
 pub struct SetupStatus {
     pub claude: ComponentStatus,
     pub engine: ComponentStatus,
+    /// The video tools ([`Component::MediaTools`]).
+    pub media_tools: ComponentStatus,
     /// `true` when this build carries an engine pin. `false` means the engine cannot be
     /// installed by this copy of RichOS and the surface must say so instead of offering a
     /// button that will fail — [`SetupError::EngineUnpinned`].
@@ -669,7 +728,9 @@ pub struct SetupStatus {
 impl SetupStatus {
     /// What is missing, in the order it must be installed. **Claude Code first**: the engine
     /// is the working directory a `claude` process is given, so an engine with no binary to
-    /// run in it is the less useful half-state of the two.
+    /// run in it is the less useful half-state of the two. **The video tools last**: yt-dlp
+    /// runs on the engine's Python and the speech model is fetched only once the engine's
+    /// `whisper-cli` resolves (plan §2).
     pub fn needs(&self) -> Vec<Component> {
         let mut out = Vec::new();
         if !self.claude.present {
@@ -677,6 +738,9 @@ impl SetupStatus {
         }
         if !self.engine.present {
             out.push(Component::Engine);
+        }
+        if !self.media_tools.present {
+            out.push(Component::MediaTools);
         }
         out
     }
@@ -944,12 +1008,15 @@ pub fn find_engine_demanded(
 /// decision and its reporting can be exercised without a delivered runtime, and so that
 /// there is exactly one place the answer comes from (the caller no longer re-checks it
 /// afterwards; see [`find_engine`]).
+///
+/// `speech` answers the speech-model half of [`Component::MediaTools`] ([`SpeechModel`]).
 pub fn detect(
     paths: &SetupPaths,
     extra_engine_candidates: &[PathBuf],
     usable: EngineUsable<'_>,
+    speech: SpeechModel<'_>,
 ) -> SetupStatus {
-    detect_with_pin(paths, extra_engine_candidates, usable, engine_pin().as_ref())
+    detect_with_pin(paths, extra_engine_candidates, usable, engine_pin().as_ref(), speech)
 }
 
 /// [`detect`] with the pin supplied rather than compiled in.
@@ -963,6 +1030,7 @@ pub fn detect_with_pin(
     extra_engine_candidates: &[PathBuf],
     usable: EngineUsable<'_>,
     pin: Option<&EnginePin>,
+    speech: SpeechModel<'_>,
 ) -> SetupStatus {
     SetupStatus {
         claude: find_claude(paths),
@@ -970,6 +1038,7 @@ pub fn detect_with_pin(
         // 2026-09-18 this passed `p.version` and dropped `p.sha256` on the floor — the pin has
         // carried the digest since it was written, and detection simply never looked at it.
         engine: find_engine_demanded(paths, extra_engine_candidates, usable, EngineDemand::pinned(pin)),
+        media_tools: find_media_tools(paths, speech),
         engine_installable: pin.is_some(),
         engine_pin_version: pin.map(|p| p.version.clone()),
         installed_now: false,
@@ -1118,6 +1187,12 @@ pub enum SetupError {
 
     #[error("I couldn't finish installing {what} ({detail}). What was there before is still there and unchanged.")]
     InstallFailed { what: String, detail: String },
+
+    /// **The speech model did not arrive.** The sentence is `richos_voice::provision`'s own,
+    /// already written for the CEO (it says what failed and whether asking again resumes), so it
+    /// is carried as it stands rather than wrapped in a second one that could disagree with it.
+    #[error("{sentence}")]
+    SpeechModelFailed { sentence: String },
 }
 
 impl SetupError {
@@ -1137,16 +1212,21 @@ impl SetupError {
             SetupError::ClaudeStillMissing { .. } => "claude-still-missing",
             SetupError::SignatureRejected { .. } => "signature-rejected",
             SetupError::InstallFailed { .. } => "install-failed",
+            SetupError::SpeechModelFailed { .. } => "speech-model-failed",
         }
     }
 
-    /// **Is the Mac unchanged?** Every variant above answers `true` except the two that can
-    /// only be reached after Anthropic's installer has already run — and both of those name
+    /// **Is the Mac unchanged?** Every variant above answers `true` except the ones reached
+    /// after something was already written — the two after Anthropic's installer has run, and
+    /// a speech model that stopped partway, whose partial download is KEPT so that pressing
+    /// "Set it up" again resumes it (`richos_voice::provision`'s resume rules). Each names
     /// what exists. Nothing in this module has a state where the answer is unknown.
     pub fn machine_unchanged(&self) -> bool {
         !matches!(
             self,
-            SetupError::ClaudeStillMissing { .. } | SetupError::SignatureRejected { .. }
+            SetupError::ClaudeStillMissing { .. }
+                | SetupError::SignatureRejected { .. }
+                | SetupError::SpeechModelFailed { .. }
         )
     }
 }
