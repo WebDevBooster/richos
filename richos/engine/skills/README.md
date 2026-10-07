@@ -82,6 +82,13 @@ third-party content (MIT-licensed) with a prepended scope pin, not
 as-is/scrubbed/template engine exports — see each `SKILL.md`'s pin block
 for the re-vendor procedure and each directory's `LICENSE`.
 
+## Installed-tooling skills (engine-authored) — 2026-10-07
+
+| Skill | Purpose |
+|---|---|
+| `audio-transcription` | Any audio or video file to a timestamped transcript with one command (`transcribe.sh`), through RichOS's own transcription pipeline (`richos/tools/richos-service`) and the whisper.cpp model already on this Mac. Exists so nobody downloads Whisper again. |
+| `watch-video` | A video or screen recording to a transcript plus still frames at every scene change and every 5 s, interleaved in one index (`watch.sh`). Reuses `audio-transcription` for the sound. |
+
 ## Not exported
 
 - A product-domain coaching-habit skill with no portable core once its product and named-persona dependencies are removed.
