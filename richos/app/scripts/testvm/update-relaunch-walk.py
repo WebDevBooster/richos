@@ -58,6 +58,10 @@ command = adopt.command
 
 STEPS = ['install', 'identity', 'first-run', 'ready', 'draft', 'download', 'after']
 DRAFT = 'Half a sentence I have not sent yet'
+# The update cue is a <button aria-haspopup="true"> (ui/updates.js), which the accessibility tree
+# exposes as an AXPopUpButton, not an AXButton: the nightly 41 walk's run (walk-fe53d4385fc2) photographed
+# the cue on screen while a 300 s wait for an AXButton named "is available" found nothing.
+CUE_ROLE = 'AXPopUpButton'
 
 
 class Walk(adopt.Walk):
@@ -101,7 +105,11 @@ class Walk(adopt.Walk):
         return guest(self.vm, 'cat ' + shlex.quote(self.log_path()) + ' 2>/dev/null || true', 60)
 
     def windows(self):
-        return command([HERE / 'ax.sh', self.vm, '--windows'], 150).strip()
+        # Only the window lines ("RichOS 1400x864 at (140,77)"): ax.sh also prints its own timing
+        # lines, which differ on every read, so a before/after comparison of the whole output can
+        # never be equal (walk-95e83a839f1b: the same window, compared unequal on ax_guest_seconds).
+        out = command([HERE / 'ax.sh', self.vm, '--windows'], 150)
+        return '\n'.join(l for l in out.splitlines() if l.strip() and not l.startswith('{')).strip()
 
     def composer(self):
         rows = self.ax('find', '--role', 'AXTextArea', '--title', 'Message to Rich', '--contains', '--first')
@@ -140,7 +148,15 @@ class Walk(adopt.Walk):
     def ready(self):
         # The control appears only once the work gate is clear: the app's own first turn has
         # ended and the launch check has found the release.
-        self.wait_for('is available', seconds=self.a.within)
+        try:
+            self.wait_for('is available', role=CUE_ROLE, seconds=self.a.within)
+        except StepFailed as exc:
+            # Keep what the screen and the app said: the nightly 41 walk's first run ended here with
+            # no frame and no log, so nobody could tell a cue that never came from one not found.
+            self.shot('1-not-offered.png')
+            lines = [x for x in self.log().splitlines() if 'updat' in x.lower()]
+            (self.out / '1-update-log.txt').write_text('\n'.join(lines[-60:]) + '\n')
+            raise StepFailed(f'{exc}; frame 1-not-offered.png, the app log\'s update lines in 1-update-log.txt')
         self.shot('1-available.png')
         return {'offered': True}
 
@@ -157,7 +173,7 @@ class Walk(adopt.Walk):
 
     def download(self):
         old = str(self.facts['pid_before'])
-        self.press('is available')
+        self.press('is available', role=CUE_ROLE)
         self.wait_for('Download update', seconds=20)
         pressed = time.monotonic()
         self.press('Download update')
@@ -181,7 +197,11 @@ class Walk(adopt.Walk):
         relaunch_line = next((x for x in self.log().splitlines() if 'relaunching into' in x), '')
         if not relaunch_line:
             raise StepFailed(f'no relaunch within {self.a.within} s of the press')
-        hits = subprocess.run([str(HERE.parent / 'qa' / 'ocr-find.sh'), 'restarting', str(frames),
+        # The notice's own words, as the app writes them: the pill's "Restarting into RichOS <v>…"
+        # and the row's "Nothing is running, so RichOS will restart into it in a moment." The OCR
+        # match is case-sensitive, and the old lowercase "restarting" matched neither (the nightly
+        # 41 walk, walk-99fb46933c29: frames 5 and 6 show the row's sentence, 0 of 7 hits).
+        hits = subprocess.run([str(HERE.parent / 'qa' / 'ocr-find.sh'), '[Rr]estart(ing)? into', str(frames),
                                '--quiet'], capture_output=True, text=True, timeout=300)
         notice = [Path(x.split()[1]).name for x in hits.stdout.splitlines() if x.startswith('HIT')]
         if notice:
@@ -224,20 +244,50 @@ class Walk(adopt.Walk):
     def after(self):
         end = time.monotonic() + self.a.within
         frame = ''
+        last_error = ''
         while time.monotonic() < end:
             try:
                 frame = self.windows()
-            except StepFailed:
-                frame = ''
-            if frame and self.present('Message to Rich', role='AXTextArea'):
-                break
+            except StepFailed as exc:
+                frame, last_error = '', str(exc)[-600:]
+            try:
+                # The guest's first-run engine sheet ("There's one thing I need on this Mac") comes
+                # back on every launch, the relaunch's too, and it is modal over the composer
+                # (walk-ec1c6a5c0a65's frame: same window, same conversation, the draft in the
+                # composer, under that sheet). first-run answers it with Not now; so does this.
+                if frame and self.present('Set it up'):
+                    self.press('Not now')
+                    time.sleep(1)
+                if frame and self.present('Message to Rich', role='AXTextArea'):
+                    break
+            except StepFailed as exc:
+                last_error = str(exc)[-600:]
             time.sleep(1)
         else:
-            raise StepFailed('the relaunched app has no window with a composer')
+            # Keep what the screen showed and what the reads said: the nightly 41 walk's run
+            # walk-c389e7d4353f ended here with neither, after a relaunch that had activated.
+            self.shot('3-after-failed.png')
+            ps = guest(self.vm, 'ps -axo pid=,ppid=,comm= | grep -i richos || true')
+            raise StepFailed('the relaunched app has no window with a composer; windows read '
+                             + repr(frame) + '; last read error ' + repr(last_error)
+                             + '; processes ' + repr(ps[-600:]) + '; frame 3-after-failed.png')
         time.sleep(2)
         value = self.composer()
         title = self.facts.get('thread_title') or ''
-        on_thread = self.present(title, role='AXStaticText') if title else None
+        # The open conversation is the rail's selected row (an AXButton) and the header's crumb;
+        # any node carrying its title counts, not only a static text (walk-95e83a839f1b's frame
+        # shows "Acme / Running" and the selected "Running" row while an AXStaticText find missed).
+        on_thread = None
+        if title:
+            on_thread = False
+            for by in ('--title', '--value'):
+                try:
+                    if self.ax('find', by, title, '--first'):
+                        on_thread = True
+                        break
+                except StepFailed as exc:
+                    if 'notfound' not in str(exc) and 'nothing matched' not in str(exc):
+                        raise
         self.shot('3-after-relaunch.png')
         problems = []
         if frame != self.facts['frame_before']:

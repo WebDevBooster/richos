@@ -25,6 +25,15 @@
 #   6-switched-chat     Home's week at 99%: Rich's line, with See your accounts
 #   7-switched-{dark,light}  The sheet: the banner (when and why) and Recent changes
 #   8-menu-two          Settings: "Using Work, switched <time>"
+#   9-chose-home        Item 8 (his test): Home at 97% of its week, chosen with "Use this one now";
+#                       9-home-in-use the record says Home and Recent changes "You chose Home";
+#                       then Home reaches 99% and 9-switched-again: Rich switched to Work by himself
+#   10-menu-technical   2026-10-06_02: Technical view on, the quick settings quota row reads the
+#                       in-use account's WEEKLY figure ("Work 12% weekly"; its five-hour is 0%)
+#   11-menu-1024-{light,dark}  The window at 1024x700: the "Using Work, switched <time>" row,
+#                       with its box in 11-row-{light,dark}.json, for qa/frame.py and contrast.py
+# Steps 9 to 11 were added by the nightly 41 walk (ray-opus-walk41): no walk pressed Use this one
+# now, read the quota row with Technical view on, or looked at the row in the smallest window.
 # EXIT STATUS: 1 when the setup fails or any capture or check below fails (named at the end);
 # 0 only when every capture was saved and every check read what it should.
 set -u
@@ -244,6 +253,85 @@ menu open
 has 'Using Work, switched' "8 the row's line after a switch"
 shot 8-menu-two
 menu closed
+
+note "9 item 8: he chooses the account at 97% of its week, and Rich switches again at 99%"
+usage /Users/admin/fill-first/usage-1.json 20 97 || fail "Home's 97% usage fixture"
+# Home was resting at 99%; a fresh reading at 97% gives it room again. A turn reads the quota, so
+# the sheet is opened after one, and again after up to two more, until Home's card offers the choice.
+chosen=0
+for try in 1 2 3; do
+  send_turn "Quick check $try on the weekly figures, please."
+  open_sheet || { note "no sheet on try $try"; continue; }
+  if ax find --title 'Use Home now' --first >/dev/null 2>&1; then chosen=1; break; fi
+  note "Home's card offers no Use this one now yet (try $try)"
+  close_sheet
+done
+if [ "$chosen" = 1 ]; then
+  shot 9-chose-home
+  press 'Use Home now' "9 Use this one now on Home"
+  sleep 4
+  "$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/9-accounts-chosen.txt" 2>&1 || fail "9 the accounts record"
+  grep -q '"inUse": *"1"' "$S/9-accounts-chosen.txt" || fail "9 the record does not say Home is in use after Use this one now"
+  grep -q '"kind": *"chose"' "$S/9-accounts-chosen.txt" || fail "9 Recent changes has no chose row"
+  # "You chose <b>Home</b>." is two text nodes, so the words are read up to the bold name
+  # (walk-434edf5caf3d: the frame showed the row and a find of the whole sentence missed it).
+  has 'You chose' "9 Recent changes says You chose Home"
+  shot 9-home-in-use
+  close_sheet
+  usage /Users/admin/fill-first/usage-1.json 20 99 || fail "Home's second 99% usage fixture"
+  switched=0
+  for try in 1 2 3; do
+    send_turn "Status update $try on the client report?"
+    "$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/9-accounts-after.txt" 2>&1 || true
+    if grep -q '"inUse": *"2"' "$S/9-accounts-after.txt"; then switched=1; break; fi
+  done
+  [ "$switched" = 1 ] || fail "9 Home reached 99% of its week and Rich did not switch to Work"
+  shot 9-switched-again
+else
+  fail "9 Home at 97% never offered Use this one now"
+fi
+theme Dark
+
+note "10 _02: with Technical view on, the quick settings quota row is the WEEKLY figure"
+menu open
+ax click --title 'Technical view' --first >/dev/null 2>&1 || note "no Technical view switch"
+sleep 3
+# Turning it on asks where ("Turn on the technical view": all conversations, this company, this
+# one); its own default and "Turn it on" (walk-434edf5caf3d: left open, it blocked every later read).
+if ax find --title 'Turn it on' --first >/dev/null 2>&1; then
+  press 'Turn it on' "10 Turn it on"
+  sleep 3
+fi
+menu open
+has 'Claude Code quota' "10 the quota row with Technical view on"
+has 'Work 12% weekly' "10 the row reads Work's weekly 12%, not its five-hour 0%"
+ax find --title 'Claude Code quota' --contains --json > "$S/10-row.json" 2>&1 || true
+shot 10-menu-technical
+menu open
+ax click --title 'Technical view' --first >/dev/null 2>&1 || note "Technical view not switched back off"
+sleep 3
+if ax find --title 'Turn it off' --first >/dev/null 2>&1; then
+  press 'Turn it off' "10 Turn it off"
+  sleep 3
+fi
+menu closed
+
+note "11 the smallest window, 1024x700: the row's lines fit and can be read"
+APP_PID=$(cat "${TESTVM_ROOT:-$HOME/.richos-testvm}/run/$VM/app.pid" 2>/dev/null || true)
+ax --windows > "$S/11-windows-before.txt" 2>&1 || true
+ax "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to set size of window 1 to {1024, 700}" >/dev/null 2>&1 || fail "11 resizing the window"
+sleep 2
+ax --windows > "$S/11-windows-1024.txt" 2>&1 || true
+grep -q '1024' "$S/11-windows-1024.txt" || fail "11 the window is not 1024 wide"
+for t in Light Dark; do
+  if [ "$t" = Light ]; then lower=light; else lower=dark; fi
+  theme "$t"
+  menu open
+  has 'Using Work, switched' "11 the row's line at 1024x700 ($lower)"
+  ax find --title 'Claude accounts' --role AXMenuItem --contains --json > "$S/11-row-$lower.json" 2>&1 || true
+  shot "11-menu-1024-$lower"
+  menu closed
+done
 
 if [ "${#FAILS[@]}" -gt 0 ]; then
   note "done, with ${#FAILS[@]} failed step(s): $(printf '%s; ' "${FAILS[@]}")"
