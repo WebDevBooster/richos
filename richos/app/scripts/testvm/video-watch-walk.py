@@ -149,7 +149,10 @@ class VideoWatchWalk(command_walk.CommandWalk):
                         if r.get('event') == 'AssistantDelta' and r.get('at', 0) >= sent_ms)
         records = [r for r in self.records() if r.get('registered_at_ms', 0) >= sent_ms]
         notices = [n.get('text') or '' for r in records for n in (r.get('notices') or [])]
-        turns = [r for r in rows if r.get('event') == 'PromptReceived' and r.get('at', 0) >= sent_ms]
+        # The app's own `[re-prime]` priming prompt never records a TurnCompleted (measured in
+        # the first run of this walk), so only his prompts count as open turns.
+        turns = [r for r in rows if r.get('event') == 'PromptReceived' and r.get('at', 0) >= sent_ms
+                 and not (r.get('text') or '').startswith('[re-prime]')]
         ended = {r.get('turn_id') for r in rows if r.get('event') in ('TurnCompleted', 'TurnInterrupted')}
         open_turn = any(t.get('turn_id') not in ended for t in turns)
         return {'words': words, 'notices': notices, 'records': records, 'open_turn': open_turn}
