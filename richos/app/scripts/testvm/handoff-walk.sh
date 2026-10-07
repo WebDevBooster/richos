@@ -116,7 +116,18 @@ print(relaunch(sys.argv[1], environment={'RICHOS_CLAUDE_BIN': '/Users/admin/fill
 PY
 
 wait_for 'Not now' || true
-"$T/ax.sh" "$VM" click --title 'Not now' --first || true
+# Since the setup essentials (e0a346d76) a guest without the video tools first gets the setup
+# sheet ("There's one thing I need on this Mac"), and then the memory question: each says Not
+# now (main.js, WHAT A FIRST RUN ASKS). One press answered only the first, and the memory
+# question blocked every later step (walk walk-7de64f57aafc, candidate 43).
+first_run_not_now() {
+  for _ in 1 2 3; do
+    "$T/ax.sh" "$VM" find --title 'Add this company' --first >/dev/null 2>&1 && return 0
+    "$T/ax.sh" "$VM" click --title 'Not now' --first >/dev/null 2>&1 || true
+    sleep 4
+  done
+}
+first_run_not_now
 wait_for 'Add this company' || true
 sleep 2
 for attempt in 1 2 3; do

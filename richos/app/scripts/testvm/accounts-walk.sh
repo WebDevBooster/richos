@@ -163,7 +163,14 @@ usage /Users/admin/fill-first/usage-1.json 20 86 || setup_failed "the one accoun
 relaunch_app || setup_failed "relaunching the app with the fake claude"
 
 wait_for 'Not now' || true
-ax click --title 'Not now' --first || true
+# Since the setup essentials (e0a346d76) a guest without the video tools first gets the setup
+# sheet, then the memory question; each says Not now (main.js, WHAT A FIRST RUN ASKS), so one
+# press is not enough (handoff-walk.sh, walk walk-7de64f57aafc, candidate 43).
+for _ in 1 2 3; do
+  ax find --title 'Add this company' --first >/dev/null 2>&1 && break
+  ax click --title 'Not now' --first >/dev/null 2>&1 || true
+  sleep 4
+done
 wait_for 'Add this company' || true
 sleep 2
 for attempt in 1 2 3; do
