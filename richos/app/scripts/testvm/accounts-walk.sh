@@ -22,6 +22,10 @@
 #   3-add-step2         Step 2 of 2: Open sign-in
 #   4-same-account      Signed in with the account already in use: its own screen, Try again
 #   5-two-{dark,light}  The right account: Work is ready, two cards, Recent changes
+#   5b-d13-sheet-{dark,light}  D13: two accounts, nothing pressed, "Pause the team until it is
+#                       fresh again" selected (AXValue in 5b-radios-*.json); 5b-d13-quota-on the
+#                       Technical view's Automatic pause on; 5b-d13-quota-held Home's five-hour at
+#                       95%: "Ready to pause", and no switch. ACCOUNTS_WALK_UNTIL=d13 ends here.
 #   6-switched-chat     Home's week at 99%: Rich's line, with See your accounts
 #   7-switched-{dark,light}  The sheet: the banner (when and why) and Recent changes
 #   8-menu-two          Settings: "Using Work, switched <time>"
@@ -177,6 +181,9 @@ menu open
 # row. The shot 0-menu-one shows the menu, and tests/accounts.js asserts the row hidden.
 has 'Claude accounts' "0 the Claude accounts row"
 has '86% of this week used' "0 the row's line"
+# The build under test names itself in the menu's version line (ACCOUNTS_WALK_VERSION, the
+# candidate's version, e.g. 1.2.0-nightly.20261007.42); unset, the line is not asked for.
+if [ -n "${ACCOUNTS_WALK_VERSION:-}" ]; then has "RichOS ${ACCOUNTS_WALK_VERSION}" "0 the version line"; fi
 shot 0-menu-one
 menu closed
 
@@ -227,6 +234,99 @@ grep -q '"label": *"Work"' "$S/5-accounts.txt" || fail "5 Work is not on the rec
 grep -q '"kind": *"added"' "$S/5-accounts.txt" || fail "5 Recent changes has no added row"
 close_sheet; theme Light; open_sheet || fail "5 the sheet in light"; shot 5-two-light
 close_sheet; theme Dark
+
+# D13 (walk of nightly 41): on a fresh install the sheet's "When a 5-hour limit is almost used up"
+# showed neither choice selected, while Pause says "The default." Nothing above presses either
+# choice, so this is still the fresh install's own setting. Selected is read from the radios'
+# AXValue (aria-checked); in effect is read off the Technical view's quota sheet, whose
+# Automatic pause switch and status card say what the app will do, and then shown by behavior:
+# Home's five-hour at 95% makes the card say it will pause, and Rich does not switch to Work.
+radio_value() {  # radio_value <words>: the AXValue of the one radio whose name holds the words
+  ax find --title "$1" --role AXRadioButton --contains --json 2>/dev/null | python3 -c '
+import json, sys
+hits = [o for o in (json.loads(l) for l in sys.stdin if l.strip().startswith("{")) if o.get("role") == "AXRadioButton"]
+print(hits[0].get("value", "") if len(hits) == 1 else "?%d" % len(hits))'
+}
+is_on() { case "$1" in 1|true) return 0;; *) return 1;; esac; }
+quota_refresh() {  # the quota sheet's own Refresh, an AXButton, retried as press is
+  for _ in 1 2 3; do
+    ax click --title 'Refresh' --role AXButton --first >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  fail "$1 (could not press: Refresh)"
+}
+note "5b D13: two accounts on a fresh install; Pause is the chosen 5-hour choice, and it is in effect"
+for t in Dark Light; do
+  if [ "$t" = Light ]; then lower=light; else lower=dark; fi
+  theme "$t"
+  open_sheet || fail "5b the sheet ($lower)"
+  has 'When a 5-hour limit is almost used up' "5b the 5-hour section ($lower)"
+  pause_v=$(radio_value 'Pause the team until it is fresh again')
+  switch_v=$(radio_value 'Switch to')
+  note "5b radios ($lower): Pause=$pause_v Switch=$switch_v"
+  ax find --role AXRadioButton --json > "$S/5b-radios-$lower.json" 2>&1 || true
+  is_on "$pause_v" || fail "5b Pause is not selected ($lower; AXValue $pause_v)"
+  { [ "$switch_v" = 0 ] || [ "$switch_v" = false ]; } || fail "5b Switch is not unselected ($lower; AXValue $switch_v)"
+  shot "5b-d13-sheet-$lower"
+  close_sheet
+done
+"$T/guest.sh" "$VM" "ls \"$DATA\"/claude-quota-policy.json 2>&1; cat \"$DATA/claude-accounts.json\"" > "$S/5b-record.txt" 2>&1 || true
+theme Dark
+menu open
+ax click --title 'Technical view' --first >/dev/null 2>&1 || note "no Technical view switch"
+sleep 3
+if ax find --title 'Turn it on' --first >/dev/null 2>&1; then press 'Turn it on' "5b Turn it on"; sleep 3; fi
+menu open
+# Pressed by role, as open_sheet does: a plain press of the words hit a node that is not the row
+# (walk-975166023ba2: "could not press", with the row on screen in 5b-d13-quota-on).
+quota_open=0
+for try in 1 2 3; do
+  menu open
+  ax click --title 'Claude Code quota' --role AXMenuItem --contains --first >/dev/null 2>&1 || note "no Claude Code quota row (try $try)"
+  sleep 4
+  if ax find --title 'Close Claude Code quota' --first >/dev/null 2>&1; then quota_open=1; break; fi
+done
+[ "$quota_open" = 1 ] || fail "5b the Claude Code quota sheet did not open"
+quota_refresh "5b Refresh, so the card reads a current figure"
+sleep 6
+# The switch is named "Automatically pause Rich's agents" with one account and "Automatic pause or
+# switch at the line" with several (quota.js), so it is found by the word both names share
+# (walk-7f24258100bf looked for the one-account name with two accounts and found nothing).
+auto_v=$(ax find --title 'Automatic' --contains --json 2>/dev/null | python3 -c '
+import json, sys
+hits = [o for o in (json.loads(l) for l in sys.stdin if l.strip().startswith("{")) if o.get("role") == "AXCheckBox" or o.get("sub") == "AXSwitch"]
+print(hits[0].get("value", "") if len(hits) == 1 else "?%d" % len(hits))')
+note "5b Automatic pause switch: $auto_v"
+ax find --title 'Automatic' --contains --json > "$S/5b-auto-switch.json" 2>&1 || true
+is_on "$auto_v" || fail "5b the quota sheet's Automatic pause is not on (AXValue $auto_v)"
+has 'On. Nothing is waiting.' "5b the status card says the pause is on"
+shot 5b-d13-quota-on
+usage /Users/admin/fill-first/usage-1.json 95 86 || fail "5b Home's five-hour 95% fixture"
+quota_refresh "5b Refresh"
+sleep 6
+has 'Ready to pause' "5b at 95% the card says the team will pause"
+has 'The five-hour allowance has reached 93%' "5b the card's reason"
+shot 5b-d13-quota-held
+"$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/5b-accounts-held.txt" 2>&1 || fail "5b the accounts record"
+grep -q '"inUse": *"1"' "$S/5b-accounts-held.txt" || fail "5b Rich switched to Work at the five-hour line, though Pause is chosen"
+usage /Users/admin/fill-first/usage-1.json 20 86 || fail "5b Home's usage put back"
+quota_refresh "5b Refresh after"
+sleep 4
+ax click --title 'Close Claude Code quota' >/dev/null 2>&1 || ax --key 53 >/dev/null 2>&1 || true
+sleep 2
+if [ "${ACCOUNTS_WALK_UNTIL:-}" = d13 ]; then
+  if [ "${#FAILS[@]}" -gt 0 ]; then
+    note "done at D13, with ${#FAILS[@]} failed step(s): $(printf '%s; ' "${FAILS[@]}")"
+    exit 1
+  fi
+  note "done at D13 (ACCOUNTS_WALK_UNTIL=d13)"
+  exit 0
+fi
+menu open
+ax click --title 'Technical view' --first >/dev/null 2>&1 || note "Technical view not switched back off"
+sleep 3
+if ax find --title 'Turn it off' --first >/dev/null 2>&1; then press 'Turn it off' "5b Turn it off"; sleep 3; fi
+menu closed
 
 note "6 Home's week reaches 99%: Rich switches, and says why"
 usage /Users/admin/fill-first/usage-1.json 20 99 || fail "Home's 99% usage fixture"
