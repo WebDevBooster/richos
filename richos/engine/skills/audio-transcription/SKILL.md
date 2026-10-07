@@ -1,6 +1,6 @@
 ---
 name: audio-transcription
-description: Transcribe audio to text with timestamps, using the speech-to-text tooling ALREADY INSTALLED on this Mac (whisper.cpp, its models, ffmpeg and RichOS's own transcription pipeline). Use whenever a task involves transcribing, listening to, or getting the words out of any audio or video file (a voice memo, a call, an mp3/m4a/wav/mov/mp4, a podcast, a recording the CEO sent). One command, no setup; never download Whisper or a model, never pip/brew install anything.
+description: Transcribe audio to text with timestamps, using the speech-to-text tooling ALREADY INSTALLED on this Mac (whisper.cpp, its models, ffmpeg and RichOS's own transcription pipeline). Use whenever a task involves transcribing, listening to, or getting the words out of any audio or video file (a voice memo, a call, an mp3/m4a/wav/mov/mp4, a podcast, a recording the CEO sent). One command, no setup.
 ---
 
 # Audio transcription — one command, everything already installed

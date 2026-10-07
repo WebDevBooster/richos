@@ -1,6 +1,6 @@
 ---
 name: watch-video
-description: Watch a video or screen recording - see what is on screen AND hear what is said - with tooling ALREADY INSTALLED on this Mac. Use whenever a task involves watching, reviewing, analyzing or understanding a video, screen recording, screencast, demo, bug recording or .mov/.mp4/.webm/.mkv file (for example one the CEO recorded). One command gives a timestamped transcript plus still frames at every scene change and every 5 seconds, interleaved in one index you read with the Read tool. Never download Whisper, a model or any video tool.
+description: Watch a video or screen recording - see what is on screen AND hear what is said - with tooling ALREADY INSTALLED on this Mac. Use whenever a task involves watching, reviewing, analyzing or understanding a video, screen recording, screencast, demo, bug recording or .mov/.mp4/.webm/.mkv file (for example one the CEO recorded). One command gives a timestamped transcript plus still frames at every scene change and every 5 seconds, interleaved in one index you read with the Read tool.
 ---
 
 # Watch a video or screen recording — one command, everything already installed
