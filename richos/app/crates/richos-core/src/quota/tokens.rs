@@ -245,6 +245,10 @@ impl Sink {
     pub fn frame(&self, account: &str, frame: &Value, at: u64) {
         if frame["type"] != "assistant" { return; }
         let Some(found) = message_use(&frame["message"], frame["uuid"].as_str(), at) else { return };
+        self.push(account, found);
+    }
+    /// One message's usage (or a [`Tally`] remainder) from a lease on `account`.
+    pub fn push(&self, account: &str, found: Use) {
         let mut pending = self.pending.lock().unwrap();
         if pending.len() >= SINK_KEEP { pending.remove(0); }
         pending.push((account.to_string(), found));
@@ -252,6 +256,59 @@ impl Sink {
     /// Everything put here since the last take, oldest first.
     pub fn take(&self) -> Vec<(String, Use)> {
         std::mem::take(&mut *self.pending.lock().unwrap())
+    }
+}
+
+/// **One lease's tokens, the ones no `assistant` frame shows included** (2.1.292, measured
+/// 2026-10-07 with the app's own flags). An `assistant` frame carries the usage of its
+/// message's START: the lead's Agent call streamed `output_tokens: 16` and finished at 152,
+/// and a background helper's one message streamed 4 and finished at 5 (its
+/// `task_notification`: 10,152 in all). What was written after the start is only in the
+/// `result` frame's `modelUsage`, the lease's running total per model, the helpers' tokens
+/// included. So the frames count at once (the live speed), and each `result` adds, per model,
+/// whatever its running total holds beyond what the frames and earlier results counted.
+#[derive(Debug, Default)]
+pub struct Tally {
+    /// Each message counted so far, by id: its model and its largest streamed total.
+    seen: HashMap<String, (String, u64)>,
+    /// Per model, everything this lease has counted: frames plus earlier remainders.
+    counted: BTreeMap<String, u64>,
+    results: u64,
+}
+
+impl Tally {
+    /// What to count for one frame from this lease, received at `at`.
+    pub fn frame(&mut self, frame: &Value, at: u64) -> Vec<Use> {
+        match frame["type"].as_str() {
+            Some("assistant") => {
+                let Some(found) = message_use(&frame["message"], frame["uuid"].as_str(), at) else { return vec![] };
+                let old = self.seen.get(&found.id).map_or(0, |(_, tokens)| *tokens);
+                if found.tokens > old {
+                    *self.counted.entry(found.model.clone()).or_insert(0) += found.tokens - old;
+                    self.seen.insert(found.id.clone(), (found.model.clone(), found.tokens));
+                }
+                vec![found]
+            }
+            Some("result") => {
+                let Some(models) = frame["modelUsage"].as_object() else { return vec![] };
+                self.results += 1;
+                let lease = frame["session_id"].as_str().unwrap_or("lease");
+                let mut remainders = Vec::new();
+                for (model, usage) in models {
+                    let count = |field: &str| usage.get(field).and_then(Value::as_u64).unwrap_or(0);
+                    let total = count("inputTokens") + count("outputTokens")
+                        + count("cacheCreationInputTokens") + count("cacheReadInputTokens");
+                    let counted = self.counted.entry(model.clone()).or_insert(0);
+                    if total > *counted {
+                        remainders.push(Use { id: format!("{lease}:result-{}:{model}", self.results), at,
+                            model: model.clone(), tokens: total - *counted, output: 0 });
+                        *counted = total;
+                    }
+                }
+                remainders
+            }
+            _ => vec![],
+        }
     }
 }
 
