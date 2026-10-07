@@ -15,6 +15,7 @@ import subprocess
 import tarfile
 import tempfile
 import urllib.request
+import zipfile
 
 
 # What the delivered Python must be able to import, run inside every fresh runtime build.
@@ -72,6 +73,52 @@ def build_whisper_cli(source, scratch, runtime):
     shutil.copyfile(source / "LICENSE", runtime / "sources/WHISPER-CPP-LICENSE")
 
 
+# ffmpeg and ffprobe: an upstream static build, pinned like jq rather than built here. Each zip
+# must hold exactly the one executable it is named for; anything else is refused, not unpacked.
+def install_zipped_executable(archive, name, target):
+    with zipfile.ZipFile(archive) as bundle:
+        members = bundle.infolist()
+        if [member.filename for member in members] != [name] or members[0].is_dir():
+            raise RuntimeError(f"{name}: the zip must hold exactly one file named {name}")
+        target.write_bytes(bundle.read(members[0]))
+    target.chmod(0o755)
+
+
+def fetch_pinned(url, wanted, label):
+    with urllib.request.urlopen(url, timeout=60) as incoming:
+        data = incoming.read()
+    if hashlib.sha256(data).hexdigest() != wanted:
+        raise RuntimeError(f"{label} digest mismatch")
+    return data
+
+
+# The ffmpeg build is configured --enable-gpl --enable-version3, so as a whole it is GPLv3 (or
+# later). Its corresponding source is about 304 MB of archives (measured 2026-10-07: 304,272,357
+# bytes for the 34 listed in the recipe), more than twice today's whole engine asset, so it is not
+# copied into every user's runtime the way git's one tarball is. The runtime carries the license
+# text and these directions instead: every archive, pinned by SHA-256, at the exact version the
+# build used (GPLv3 section 6(d), source on a different server with clear directions).
+def ffmpeg_source_directions(source):
+    lines = [
+        "bin/ffmpeg and bin/ffprobe are the unmodified static macOS arm64 build of FFmpeg "
+        f"{source['version']} published by Martin Riedl at {source['url'].rsplit('/', 1)[0]}/ "
+        "(signed with Developer ID team KU3N25YGLU). It is configured with --enable-gpl and "
+        "--enable-version3, so the programs are distributed under the GNU General Public License "
+        "version 3 or later; the full text is FFMPEG-COPYING.GPLv3 beside this file. `ffmpeg -version` "
+        "prints the complete configuration.",
+        "",
+        "Corresponding Source: FFmpeg and every library linked into these programs, at the exact "
+        "version the build used, and the build script at the revision that produced it. Each archive "
+        "is identified by its SHA-256. rav1e's Rust dependencies are fixed by the Cargo.lock inside "
+        "its archive. x264 was built from its master branch; the commit listed is master at the build "
+        "time (2026-09-20 19:18 UTC), unchanged since 2025-09-10.",
+        "",
+    ]
+    for row in source["corresponding_source"]:
+        lines += [f"{row['name']} {row['version']}", f"  {row['url']}", f"  sha256 {row['sha256']}"]
+    return "\n".join(lines) + "\n"
+
+
 def build(destination):
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise RuntimeError("this runtime recipe supports macOS arm64 only")
@@ -101,6 +148,13 @@ def build(destination):
                 if hashlib.sha256(license_text).hexdigest() != source["license_sha256"]:
                     raise RuntimeError("jq license digest mismatch")
                 (runtime / "sources/JQ-COPYING").write_bytes(license_text)
+                continue
+            if name in ("ffmpeg", "ffprobe"):
+                install_zipped_executable(archive, name, runtime / "bin" / name)
+                if "license_url" in source:
+                    (runtime / "sources/FFMPEG-COPYING.GPLv3").write_bytes(
+                        fetch_pinned(source["license_url"], source["license_sha256"], f"{name} license"))
+                    (runtime / "sources/FFMPEG-SOURCE.txt").write_text(ffmpeg_source_directions(source))
                 continue
             unpacked = scratch / f"{name}-unpacked"
             unpacked.mkdir()
@@ -156,13 +210,16 @@ def build(destination):
         (runtime / "bin/git").write_text('#!/bin/sh\nexec "$(dirname "$0")/../git/bin/git" "$@"\n')
         (runtime / "bin/git").chmod(0o755)
         # License files from binary upstream distributions are retained in full.
-        (runtime / "sources/README.txt").write_text("Pinned upstream distributions are listed in runtime-sources.json. Git's exact corresponding source and COPYING are included. Python and Node license notices remain in their distributions. jq is distributed under the MIT license; see https://github.com/jqlang/jq/blob/jq-1.8.2/COPYING. whisper-cli is built from the pinned whisper.cpp source and is distributed under the MIT license in WHISPER-CPP-LICENSE. macOS supplies bash and system libraries.\n")
+        (runtime / "sources/README.txt").write_text("Pinned upstream distributions are listed in runtime-sources.json. Git's exact corresponding source and COPYING are included. Python and Node license notices remain in their distributions. jq is distributed under the MIT license; see https://github.com/jqlang/jq/blob/jq-1.8.2/COPYING. whisper-cli is built from the pinned whisper.cpp source and is distributed under the MIT license in WHISPER-CPP-LICENSE. ffmpeg and ffprobe are an unmodified upstream static build distributed under GPLv3 or later in FFMPEG-COPYING.GPLv3; FFMPEG-SOURCE.txt says where their exact corresponding source is. macOS supplies bash and system libraries.\n")
         (runtime / "runtime-sources.json").write_text(json.dumps(manifest, indent=2) + "\n")
         env = {**os.environ, "PATH": str(runtime / "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin",
                "GIT_EXEC_PATH": str(runtime / "git/libexec/git-core"), "PYTHONDONTWRITEBYTECODE": "1"}
         versions = {}
         for name in ("python3", "node", "git", "jq", "whisper-cli"):
             versions[name] = subprocess.check_output([str(runtime / "bin" / name), "--version"], text=True, env=env).strip()
+        # ffmpeg and ffprobe answer -version, and print their whole configuration after the first line.
+        for name in ("ffmpeg", "ffprobe"):
+            versions[name] = subprocess.check_output([str(runtime / "bin" / name), "-version"], text=True, env=env).splitlines()[0]
         subprocess.run([str(runtime / "bin/python3"), "-c", CLOSURE_CHECK], env=env, check=True)
         # Reject any dynamic dependency on Homebrew or the developer's home.
         for path in runtime.rglob("*"):
