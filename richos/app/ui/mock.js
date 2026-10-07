@@ -2391,7 +2391,7 @@
     return Promise.resolve(view);
   }
 
-  let quotaPolicy = { enabled: false, pausePercent: 93 };
+  let quotaPolicy = { enabled: true, pausePercent: 93 }; // a fresh install pauses (D13)
   try { quotaPolicy = JSON.parse(localStorage.getItem("richos-mock-quota-policy")) || quotaPolicy; } catch (_) {}
   let resetOffers = structuredClone(preset.quota?.resets || { state: "unknown", offers: [], approval: null, lastAttempt: null, weeklyThreshold: 99, message: "Reset availability is unknown in this preview." });
   window.__richosResetCalls = [];

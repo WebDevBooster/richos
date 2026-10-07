@@ -731,7 +731,9 @@ impl Service {
                 p.validate().map_err(io::Error::other)?;
                 p
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Policy::default(),
+            // A fresh install: round 18 calls Pause "The default. Never longer than 5 hours.",
+            // so the pause is on until the person releases it (walk of nightly 41, D13).
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Policy { enabled: true, ..Policy::default() },
             Err(e) => return Err(e),
         };
         let control = std::sync::Arc::new(probe::Control::default());
@@ -1831,6 +1833,7 @@ for line in sys.stdin:
         let root = Scratch::new();
         let bin = fake_claude(root.path());
         let service = Service::open(root.path()).unwrap();
+        service.set_policy(Policy::default()).unwrap();
         let work = service.accounts.add("Work").unwrap();
         usage(&root.path().join("usage-1.json"), 20., 99.5, "2099-01-05T00:00:00Z");
         usage(&work.folder.clone().unwrap().join("usage.json"), 20., 100., "2099-01-03T00:00:00Z");
@@ -2061,6 +2064,7 @@ for line in sys.stdin:
         let mut windows = snapshot(20., 3_600_000).windows;
         windows[0].resets_at = Some(crate::util::now_millis() + 3_600_000);
         *service.source.lock().unwrap() = Box::new(FakeSource { calls: calls.clone(), result: Ok(windows) });
+        service.set_policy(Policy::default()).unwrap();
         assert!(!service.view().policy.enabled);
         assert!(service.wait_for_refresh(Duration::ZERO), "startup requests a read even with pause off");
         service.refresh(Path::new("unused"), true);
@@ -2208,6 +2212,13 @@ for line in sys.stdin:
         assert_eq!(failed.view(policy(), NOW + 5).empty_at, None);
         assert_eq!(failed.view(policy(), NOW + 5).admission, Admission::Ready);
     }
+    #[test]
+    fn fresh_install_pauses_at_the_five_hour_line() {
+        let dir = Scratch::new();
+        let policy = Service::open(dir.path()).unwrap().view().policy;
+        assert_eq!((policy.enabled, policy.line()), (true, Some(93)));
+    }
+
     #[test]
     fn cache_failure_backoff_policy_persistence_and_account_invalidation() {
         let dir = Scratch::new();
