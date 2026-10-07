@@ -32,8 +32,25 @@
 # now" on stderr), the fake writes that helper's SubagentStop row; an admitted step writes
 # nothing. Every step is a line in calls.log ("gate <agent> exit <n>"). Without helpers, or
 # without a hooks.json, no step runs and nothing here changes.
+#
+# THE BACK END'S JOB (round 1 of the weekly-switch handoff test, 2026-10-07). The handoff
+# continuation lives in the work host (work_host.rs continuation_after_a_helper_ended), which
+# runs only for a job the front desk wrote down; helpers on the front desk's own lease never
+# reach it. Two files make a job with a helper on the back end, with no model:
+#   register      while it exists, the front desk's next user turn (a lease whose --mcp-config
+#                 has richos_assignments) calls that server's `record` tool with the file's text
+#                 as the assignment, as Claude Code would, and says the receipt's words. The
+#                 file is taken (renamed) first, so the job is written down once. calls.log:
+#                 "register ok <text>" or "register error <text>".
+#   work-agents   one helper per line, launched on the FIRST back-end lease's first user turn (a
+#                 lease whose --mcp-config has richos_work), as work-agent-N; once per walk
+#                 (work-agents-started). A background helper keeps running after the back end's
+#                 turn ends, so after that turn a stepper child steps every open work-agent
+#                 every 2 s (the same gate step as above) until each has ended, for at most 10
+#                 minutes, and ends with this process.
 # Nothing here reaches a network.
-use strict; use warnings; use JSON::PP; use Fcntl qw(:flock); use File::Path qw(make_path);
+use strict; use warnings; use JSON::PP; use Fcntl qw(:flock O_CREAT O_EXCL O_WRONLY); use File::Path qw(make_path);
+use IPC::Open2 qw(open2); use POSIX qw(WNOHANG);
 $| = 1;
 # The walk's folder in the guest; RICHOS_FILL_FIRST_DIR moves it for a check off the guest.
 my $dir = $ENV{RICHOS_FILL_FIRST_DIR} // '/Users/admin/fill-first';
@@ -96,28 +113,101 @@ sub gate_command {  # the PreToolUse command of the lease's hooks.json, or undef
   my $m = eval { $json->decode($text) } or return undef;
   return $m->{hooks}{PreToolUse}[0]{hooks}[0]{command};
 }
+sub step_one {  # one gate step of one helper; true when the gate ordered it to stop and it ended
+  my ($command, $id, $type) = @_;
+  my $payload = $json->encode({ hook_event_name => 'PreToolUse', session_id => $session, agent_id => $id,
+    agent_type => $type, tool_name => 'Bash', tool_input => { command => 'true' } });
+  my $in = "$dir/gate-in-$$-$id.json"; my $err = "$dir/gate-err-$$-$id.txt";
+  open(my $w, '>', $in) or return 0; print $w $payload; close $w;
+  system("($command) < '$in' > /dev/null 2> '$err'");
+  my $code = $? >> 8;
+  my $said = ''; if (open(my $e, '<', $err)) { local $/; $said = <$e> // ''; close $e; }
+  unlink $in, $err;
+  if (open(my $l, '>>', "$dir/calls.log")) { print $l join(' ', time(), ($folder || 'account-1'), 'gate', $id, 'exit', $code), "\n"; close $l; }
+  return 0 unless $code == 2 && $said =~ /Stop the task now/;
+  journal({ hook_event_name => 'SubagentStop', agent_id => $id, agent_type => $type });
+  return 1;
+}
+sub open_work_helpers {  # [id, type] of every work-agent this lease launched that has not ended
+  return () unless $evidence && open(my $in, '<', "$evidence/callbacks.jsonl");
+  my (%type, %stopped, @order);
+  while (my $row = <$in>) {
+    my $c = (eval { $json->decode($row) } || {})->{callback} or next;
+    my $id = $c->{agent_id} // ''; next unless $id =~ /\Awork-agent-\d+\z/;
+    if (($c->{hook_event_name} // '') eq 'SubagentStart') { push @order, $id unless exists $type{$id}; $type{$id} = $c->{agent_type} // 'helper'; }
+    $stopped{$id} = 1 if ($c->{hook_event_name} // '') eq 'SubagentStop';
+  }
+  close $in;
+  return map { [$_, $type{$_}] } grep { !$stopped{$_} } @order;
+}
 sub helper_steps {  # one step of every listed helper that has not ended
-  return unless $evidence && open(my $names, '<', "$dir/agents");
-  my @who = grep { length } map { s/\s+\z//r } <$names>; close $names;
-  my $command = gate_command() or return;
-  my $n = 0;
-  for my $type (@who) {
-    $n++; my $id = "walk-agent-$n";
-    next if $ended{$id};
-    my $payload = $json->encode({ hook_event_name => 'PreToolUse', session_id => $session, agent_id => $id,
-      agent_type => $type, tool_name => 'Bash', tool_input => { command => 'true' } });
-    my $in = "$dir/gate-in-$n.json"; my $err = "$dir/gate-err-$n.txt";
-    open(my $w, '>', $in) or next; print $w $payload; close $w;
-    system("($command) < '$in' > /dev/null 2> '$err'");
-    my $code = $? >> 8;
-    my $said = ''; if (open(my $e, '<', $err)) { local $/; $said = <$e> // ''; close $e; }
-    unlink $in, $err;
-    if (open(my $l, '>>', "$dir/calls.log")) { print $l join(' ', time(), ($folder || 'account-1'), 'gate', $id, 'exit', $code), "\n"; close $l; }
-    if ($code == 2 && $said =~ /Stop the task now/) {
-      $ended{$id} = 1;
-      journal({ hook_event_name => 'SubagentStop', agent_id => $id, agent_type => $type });
+  my $command = $evidence ? gate_command() : undef;
+  return unless $command;
+  if (open(my $names, '<', "$dir/agents")) {
+    my @who = grep { length } map { s/\s+\z//r } <$names>; close $names;
+    my $n = 0;
+    for my $type (@who) {
+      $n++; my $id = "walk-agent-$n";
+      next if $ended{$id};
+      $ended{$id} = 1 if step_one($command, $id, $type);
     }
   }
+  step_one($command, @$_) for open_work_helpers();
+}
+# The lease's MCP servers, from --mcp-config as the app passes it: the front desk carries the
+# register (richos_assignments), the back end carries the work tools (richos_work).
+my $servers = eval { $json->decode(arg_after('--mcp-config') // '{}')->{mcpServers} } || {};
+my $backend = exists $servers->{richos_work};
+sub calls_line { if (open(my $l, '>>', "$dir/calls.log")) { print $l join(' ', time(), ($folder || 'account-1'), @_), "\n"; close $l; } }
+sub register_job {  # the front desk writes the job down through the app's own register; its words, or undef
+  my $server = $servers->{richos_assignments} or return undef;
+  my $taken = "$dir/register.taken.$$";
+  rename("$dir/register", $taken) or return undef;
+  open(my $fh, '<', $taken) or return undef;
+  my $text = do { local $/; <$fh> } // ''; close $fh;
+  $text =~ s/\s+\z//;
+  my ($from, $to);
+  my $pid = eval { open2($from, $to, $server->{command}, @{ $server->{args} || [] }) };
+  unless ($pid) { calls_line('register', 'error', 'the register could not be started'); return undef; }
+  my $assignment = length $text ? $text : 'Start the job.';
+  print $to $json->encode($_), "\n" for
+    { jsonrpc => '2.0', id => 1, method => 'initialize',
+      params => { protocolVersion => '2025-06-18', capabilities => {}, clientInfo => { name => 'fake-claude', version => '1' } } },
+    { jsonrpc => '2.0', method => 'notifications/initialized' },
+    { jsonrpc => '2.0', id => 2, method => 'tools/call', params => { name => 'record', arguments => { assignment => $assignment } } };
+  close $to;
+  my ($ok, $words) = (0, undef);
+  while (my $line = <$from>) {
+    my $reply = eval { $json->decode($line) } or next;
+    next unless ($reply->{id} // '') eq '2';
+    my $result = $reply->{result} || {};
+    my $said = $result->{content} && $result->{content}[0] ? $result->{content}[0]{text} // '' : ($reply->{error}{message} // '');
+    if ($result->{content} && !$result->{isError}) {
+      my $receipt = eval { $json->decode($said) } || {};
+      $ok = $receipt->{recorded} ? 1 : 0; $words = $receipt->{say};
+    }
+    calls_line('register', $ok ? 'ok' : 'error', ($said =~ s/\s+/ /gr));
+    last;
+  }
+  close $from; waitpid($pid, 0);
+  return $words;
+}
+my $stepper;  # the pid of this lease's background stepper, while it runs
+sub step_in_background {  # the work-agents keep running after the back end's turn ends
+  return unless $backend && open_work_helpers();
+  return if $stepper && waitpid($stepper, WNOHANG) == 0;
+  my $parent = $$;
+  my $pid = fork();
+  return unless defined $pid;
+  if ($pid) { $stepper = $pid; return; }
+  open(STDIN, '<', '/dev/null'); open(STDOUT, '>', '/dev/null');
+  for (1 .. 300) {
+    sleep 2;
+    POSIX::_exit(0) if getppid() != $parent;
+    helper_steps();
+    POSIX::_exit(0) unless open_work_helpers();
+  }
+  POSIX::_exit(0);
 }
 sub iso { my @t = gmtime(shift); sprintf('%04d-%02d-%02dT%02d:%02d:%02dZ', $t[5]+1900, $t[4]+1, $t[3], $t[2], $t[1], $t[0]) }
 while (my $line = <STDIN>) {
@@ -163,6 +253,17 @@ while (my $line = <STDIN>) {
           { hook_event_name => 'PostToolUse', tool_name => 'Agent', tool_response => { status => 'async_launched', agentId => "walk-agent-$n" } }) } @who);
       }
     }
+    # The back end launches the work-agents in the background, once per walk (THE BACK END'S JOB).
+    if (!$internal && $backend && $evidence && open(my $names, '<', "$dir/work-agents")) {
+      my @who = grep { length } map { s/\s+\z//r } <$names>; close $names;
+      if (@who && sysopen(my $once, "$dir/work-agents-started", O_CREAT | O_EXCL | O_WRONLY)) {
+        close $once;
+        my $n = 0;
+        journal(map { $n++; ({ hook_event_name => 'SubagentStart', agent_id => "work-agent-$n", agent_type => $_ },
+          { hook_event_name => 'PostToolUse', tool_name => 'Agent', tool_response => { status => 'async_launched', agentId => "work-agent-$n" } }) } @who);
+      }
+    }
+    my $receipt = $internal ? undef : register_job();
     unless ($internal) {
       helper_steps();
       for (1 .. 600) { last unless -e "$dir/slow"; sleep 1; helper_steps(); }
@@ -174,8 +275,10 @@ while (my $line = <STDIN>) {
     my $who = $folder =~ /claude-accounts\/(\d+)/ ? "account $1" : 'Account 1';
     my $text = "Answered on $who.";
     if (!$internal && open(my $r, '<', "$dir/reply.txt")) { local $/; my $t = <$r>; close $r; $text = $t =~ s/\s+\z//r if defined $t && length $t; }
+    $text = $receipt if defined $receipt && length $receipt;
     $text = 'ready' if $internal;
     print $json->encode({ type => 'assistant', message => { role => 'assistant', content => [ { type => 'text', text => $text } ] } }), "\n";
     print $json->encode({ type => 'result', subtype => 'success', stop_reason => 'end_turn', is_error => JSON::PP::false, result => $text }), "\n";
+    step_in_background() unless $internal;
   }
 }
