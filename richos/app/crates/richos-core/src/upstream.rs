@@ -595,6 +595,15 @@ impl RetryBudget {
         *self = RetryBudget::default();
     }
 
+    /// **A new message from him starts the overload schedule again at its first wait**
+    /// (CEO, 2026-10-07: "go with recommended"). Only the overload count and the attempts
+    /// the CEO is told about restart; the immediate-retry allowance for other faults is
+    /// untouched.
+    pub fn new_message(&mut self) {
+        self.overload_spent = 0;
+        self.attempts = 0;
+    }
+
     /// Attempts made since the last success, including the first.
     pub fn attempts(&self) -> u32 {
         self.attempts

@@ -571,6 +571,31 @@ fn each_retry_is_announced_with_its_wait_and_the_last_statement_says_it_stopped(
     let _ = std::fs::remove_file(&path);
 }
 
+/// INVARIANT (CEO, 2026-10-07, "go with recommended"): after all seven retries fail, a NEW
+/// message gets the full schedule again, starting at 1 minute.
+#[test]
+fn a_new_message_after_seven_failed_retries_waits_one_minute_first() {
+    let (path, ledger) = tmp_ledger("new-message-restarts");
+    let mut spine = spine(ledger);
+    let obs = RecordingObserver::default();
+    spine.set_observer(Box::new(obs.clone()));
+    let _thread = spine.create_thread("General", &femcboost()).unwrap();
+    spine.attach_lease(Box::new(ApiErrorAsErrCognition {
+        session_id: "sess-0".into(),
+        error_line: captured_529().to_string(),
+    }));
+
+    spine.submit_prompt("first", Source::Text).ok();
+    assert_eq!(obs.errors().len(), 8, "seven retries, all failed");
+    spine.submit_prompt("second", Source::Text).ok();
+
+    let errors = obs.errors();
+    assert_eq!(errors.len(), 16, "the new message gets the whole schedule: {errors:?}");
+    assert!(errors[8].contains("try again in 1 minute"), "{}", errors[8]);
+    assert!(errors[15].contains("tried 8 times"), "{}", errors[15]);
+    std::fs::remove_file(&path).ok();
+}
+
 // =========================================================================================
 // 5. `429` AND `529` ARE PRESENTED DIFFERENTLY, END TO END
 // =========================================================================================
