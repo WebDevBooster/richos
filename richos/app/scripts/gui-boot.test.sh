@@ -667,6 +667,12 @@ declare_rules() {
     '[richos] first-run setup: this build carries NO engine pin, so it cannot install one. Build with RICHOS_ENGINE_VERSION / RICHOS_ENGINE_URL / RICHOS_ENGINE_SHA256 set.' \
     'A build that cannot repair the machine it is running on. The worst of the three and the
        one most likely to reach a stranger who downloaded a release.'
+
+  refused 'first-run setup video tools downloading' \
+    '[richos] video tools: downloading in the background' \
+    'Only ever printed beside missing video tools: the boot started their download (the CEO,
+       2026-10-07, "begin downloading in the background at first launch"). Good news about a
+       bad state, like the pinned-engine line above.'
 }
 
 # =========================================================================================
