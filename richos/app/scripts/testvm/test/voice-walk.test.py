@@ -70,6 +70,22 @@ class TalkPressesTheTalkControl(unittest.TestCase):
         self.assertTrue(got['home_door_pressed'])
         self.assertEqual(got['talk_control']['desc'], 'Stop talking')
 
+    def test_a_door_press_that_hit_the_deadline_is_read_not_repeated(self):
+        # walk-977f9c8d80b5: the door's click came back exit 124 although the press had landed.
+        w = self.walk_with({'home-enter'})
+        inner = w.ax
+
+        def ax(mode, *args, app=None, timeout=40):
+            out = inner(mode, *args, app=app, timeout=timeout)
+            if mode == 'click' and 'home-enter' in args:
+                raise walk.StepFailed('command failed (124): ax.sh click\n{"error": "guest_deadline"}')
+            return out
+
+        w.ax = ax
+        got = w.talk()
+        self.assertEqual(w.clicks, ['home-enter', 'talk-toggle'])
+        self.assertEqual(got['talk_control']['desc'], 'Stop talking')
+
     def test_no_home_screen_goes_straight_to_the_talk_control(self):
         w = self.walk_with({'talk-toggle'})
         w.talk()

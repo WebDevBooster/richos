@@ -209,6 +209,17 @@ class VoiceWalk(adopt_walk.Walk):
         nodes = [n for n in nodes if not n.get('meta')]
         return nodes[0] if nodes else None
 
+    def press_by_id(self, dom_id):
+        """One press. A press whose ax.sh call hit the guest deadline may or may not have landed
+        (walk-977f9c8d80b5 lost its heard step to exactly that on the home door), so it is not
+        a failure here and it is not pressed again: the caller reads what is on screen next."""
+        try:
+            return self.ax('click', '--id', dom_id)
+        except StepFailed as exc:
+            if 'guest_deadline' not in str(exc):
+                raise
+            return None
+
     def talk(self):
         """Open the microphone the way a person does: through the home screen's door, then the talk
         control. TWO BUTTONS ARE NAMED "Talk to Rich". The home screen's door (#home-enter,
@@ -226,13 +237,14 @@ class VoiceWalk(adopt_walk.Walk):
             if toggle:
                 break
             if self.by_id('home-enter'):
-                self.ax('click', '--id', 'home-enter')
+                # Pressed again only if a later pass still SEES the door: state, not a blind retry.
+                self.press_by_id('home-enter')
                 door = True
             time.sleep(1)
         if not toggle:
             self.shot('talk-missing.png')
             raise StepFailed('the talk control (#talk-toggle) is not on screen within 30 s of the home door')
-        self.ax('click', '--id', 'talk-toggle')
+        self.press_by_id('talk-toggle')  # once; what it did is read below
         end = time.monotonic() + 30
         while time.monotonic() < end:
             toggle = self.by_id('talk-toggle') or {}
