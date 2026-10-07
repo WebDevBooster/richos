@@ -323,14 +323,18 @@ mod tests {
     /// **The video skill transcribes with RichOS's pinned decode flags** (`richos_voice::stt::
     /// decode_args` with no prompt), never whisper.cpp's own `-mc -1`: on the CEO's 66-minute
     /// test video (D8PikZ1KhUo, 2026-10-07) that default looped "All right." 539 times and kept
-    /// 1,748 of the 14,241 captioned words.
+    /// 1,748 of the 14,241 captioned words. Unlike voice's short utterances, a video is decoded
+    /// with timestamps on (no `-nt`).
     #[test]
     fn the_video_skill_transcribes_with_the_pinned_decode_flags() {
         let whisper = video_commands("whisper-cli ");
         assert_eq!(whisper.len(), 1, "one transcription command: {whisper:?}");
-        for flag in ["-m \"$RICHOS_SPEECH_MODEL\"", " -l en ", " -t 4 ", " -fa ", " -mc 0 ", " -nt ", " -np "] {
+        for flag in ["-m \"$RICHOS_SPEECH_MODEL\"", " -l en ", " -t 4 ", " -fa ", " -mc 0 ", " -np "] {
             assert!(whisper[0].contains(flag), "missing {flag:?} in {}", whisper[0]);
         }
+        // `-nt` decodes without timestamp tokens, and then whisper.cpp drops the words at each
+        // 30-second window's seam: 44 of the 48 dropped stretches of 3+ words on D8PikZ1KhUo.
+        assert!(!whisper[0].contains(" -nt "), "no -nt on a long recording: {}", whisper[0]);
     }
 
     /// The name in the frontmatter, the directory it is written to, and the name the wire

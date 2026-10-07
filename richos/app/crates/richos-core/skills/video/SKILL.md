@@ -79,12 +79,13 @@ fetches several tracks and YouTube answers with HTTP 429.
 
 ```bash
 ffmpeg -nostdin -hide_banner -loglevel error -i "<video>" -vn -ar 16000 -ac 1 -c:a pcm_s16le "$work/audio.wav"
-whisper-cli -m "$RICHOS_SPEECH_MODEL" -f "$work/audio.wav" -l en -t 4 -fa -mc 0 -nt -np -otxt -of "$work/transcript"
+whisper-cli -m "$RICHOS_SPEECH_MODEL" -f "$work/audio.wav" -l en -t 4 -fa -mc 0 -np -otxt -of "$work/transcript"
 ```
 
 Use these flags exactly. `-mc 0` matters most: without it whisper-cli carries its own earlier
 words forward, and on an hour-long video it repeats one phrase hundreds of times and drops most
-of what was said. Read `$work/transcript.txt`. For speech that is not English, put `-l auto` in
+of what was said. Do not add `-nt`: without timestamps it loses the words at every 30-second
+seam. The `.txt` file holds the words only either way. Read `$work/transcript.txt`. For speech that is not English, put `-l auto` in
 place of `-l en`. A long video takes minutes to transcribe: for anything longer than a few
 minutes, start the `whisper-cli` command with your shell tool's background option, tell the CEO
 it is in progress rather than going quiet, and read the transcript when it has finished.
