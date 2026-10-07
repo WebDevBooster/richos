@@ -252,6 +252,17 @@ else
 fi
 sleep 5
 "$T/shot.sh" "$VM" "$S/5-after-handoff.png" || fail "capture 5-after-handoff"
+# The successor's answer is the fake's reply.txt, "Handed over cleanly.", as was the first
+# helper turn's; the conversation says it ONCE (walk of nightly 43). Read from the window's whole
+# accessibility tree, which holds the scrolled-off part of the conversation too.
+"$T/ax.sh" "$VM" tree > "$S/5-after-handoff.tree" 2>&1 || fail "the window's tree after the handoff"
+"$T/ax.sh" "$VM" find --value 'Handed over cleanly' --contains --json > "$S/5-handed-over.json" 2>/dev/null || true
+said=$(grep -c '"role"' "$S/5-handed-over.json" || true)  # node lines only, never timing lines
+if [ "$said" = 1 ]; then
+  note "ok: the conversation says \"Handed over cleanly.\" once"
+else
+  fail "the conversation says \"Handed over cleanly.\" $said times, not once"
+fi
 
 collect
 
