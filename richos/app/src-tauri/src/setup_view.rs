@@ -327,6 +327,11 @@ pub fn run(
                         if let Ok(mut cell) = engine_dir.lock() {
                             *cell = dest.clone();
                         }
+                        // AND VOICE FINDS ITS DECODER IN IT: the engine's runtime carries
+                        // `whisper-cli` (build-runtimes.py), verified here like every runtime file.
+                        if let Ok(runtime) = richos_core::runtime::verify_engine(&dest) {
+                            richos_voice::stt::set_delivered_runtime_bin(Some(runtime.root.join("bin")));
+                        }
                         "Your engine is installed.".to_string()
                     })
                 }
