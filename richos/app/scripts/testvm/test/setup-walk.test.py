@@ -70,5 +70,25 @@ class MeanwhileVerdict(unittest.TestCase):
         self.assertIn('after the download had finished', walk.meanwhile_verdict(t))
 
 
+class VoiceLines(unittest.TestCase):
+    # The walk of candidate 44: one ask at launch, model-missing, and none after the models arrived.
+    MISSING = ("[richos] voice: not ready on this machine (model-missing) — My speech model isn't on "
+               "this machine yet.\n")
+    READY = "[richos] voice: ready on this machine (ready) — whisper.cpp 1.9.1 model:small.en@c6138d6d58ec\n"
+
+    def test_only_the_launch_ask_is_not_ready(self):
+        lines = walk.voice_lines('[richos] video tools in the background 1/1 done: x\n' + self.MISSING)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(walk.voice_ready(lines), [])
+
+    def test_an_ask_after_the_model_arrived_is_ready(self):
+        lines = walk.voice_lines(self.MISSING + '[richos] voice model: ggml-small.en.bin installed\n' + self.READY)
+        self.assertEqual(walk.voice_ready(lines), [self.READY.rstrip('\n')])
+
+    def test_the_voice_step_runs_before_the_relaunch(self):
+        self.assertLess(walk.STEPS.index('voice'), walk.STEPS.index('relaunch'))
+        self.assertGreater(walk.STEPS.index('voice'), walk.STEPS.index('arrived'))
+
+
 if __name__ == '__main__':
     unittest.main()
