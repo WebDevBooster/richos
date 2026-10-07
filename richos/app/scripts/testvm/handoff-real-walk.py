@@ -131,32 +131,36 @@ class HandoffWalk(command_walk.CommandWalk):
         """After a relaunch: through the home screen's door into the thread, until the composer is back."""
         end, door = time.monotonic() + seconds, False
         while time.monotonic() < end:
-            if self.present('Message to Rich', role='AXTextArea'):
-                return True
-            if not door and self.present('Talk to Rich'):
-                door = True
-                self.press('Talk to Rich')
-                time.sleep(2)
-                self.press(self.facts.get('thread_title') or 'Running')
+            # A freshly relaunched app can hold an accessibility read past its deadline (exit 124,
+            # walk-9f611a4b22a7): that is "not drawn yet", not a failure, so the read is retried.
+            try:
+                if self.present('Message to Rich', role='AXTextArea'):
+                    return True
+                if not door and self.present('Talk to Rich'):
+                    door = True
+                    self.press('Talk to Rich')
+                    time.sleep(2)
+                    self.press(self.facts.get('thread_title') or 'Running')
+            except StepFailed:
+                pass
             time.sleep(3)
         raise StepFailed(f'the composer was not back within {seconds} s of the relaunch')
 
     def panel(self):
-        """The quota panel (Settings > Claude Code quota, ui id set-quota-open), opened and refreshed."""
+        """The quota panel (Settings > Claude Code quota, ui id set-quota-open), opened and refreshed.
+        Best effort: the readings are taken from the app's own claude-quota.json, which the app
+        keeps current with or without the panel; the panel is for the screenshot."""
         for _ in range(2):
             try:
-                self.ax('click', '--id', 'set-quota-open')
-            except StepFailed:
-                command([HERE / 'ax.sh', self.vm, '--key', '53'])
-                time.sleep(1)
-                self.press('Settings', role='AXPopUpButton')
-                time.sleep(2)
                 try:
                     self.ax('click', '--id', 'set-quota-open')
                 except StepFailed:
-                    continue
-            time.sleep(3)
-            try:
+                    command([HERE / 'ax.sh', self.vm, '--key', '53'])
+                    time.sleep(1)
+                    self.press('Settings', role='AXPopUpButton')
+                    time.sleep(2)
+                    self.ax('click', '--id', 'set-quota-open')
+                time.sleep(3)
                 self.ax('click', '--id', 'quota-refresh')
                 return True
             except StepFailed:
@@ -164,7 +168,10 @@ class HandoffWalk(command_walk.CommandWalk):
         return False
 
     def close_panel(self):
-        command([HERE / 'ax.sh', self.vm, '--key', '53'])
+        try:
+            command([HERE / 'ax.sh', self.vm, '--key', '53'])
+        except StepFailed:
+            pass
         time.sleep(2)
 
     def relaunch_app(self, environment):
@@ -268,33 +275,46 @@ class HandoffWalk(command_walk.CommandWalk):
         if not sent:
             raise StepFailed('job must have run (no send time on record)')
         end = time.monotonic() + self.a.within
-        presses, record, shots, last_note = [], None, set(), 0
+        presses, record, shots, last_note, misses = [], None, set(), 0, 0
         while time.monotonic() < end:
-            record = self.ours(sent)
-            if record and record.get('state') not in OPEN:
-                break
-            if record and len(presses) < self.a.approvals and self.approve_if_asked(record.get('title', '')):
-                presses.append({'guest_ms': round(self.clock()), 'state': record.get('state')})
-                self.facts['approvals'] = presses
+            # One read or press that misses its deadline in a run of hours is not the round's
+            # verdict: it is recorded and the next pass tries again; ten in a row end the watch.
+            try:
+                record = self.ours(sent) or record
+                if record and record.get('state') not in OPEN:
+                    break
+                if record and len(presses) < self.a.approvals and self.approve_if_asked(record.get('title', '')):
+                    presses.append({'guest_ms': round(self.clock()), 'state': record.get('state')})
+                    self.facts['approvals'] = presses
+                    self.save()
+                markers = self.markers()
+                if markers and 'order' not in shots:
+                    shots.add('order')
+                    self.shot('3-at-the-order.png')
+                if markers and any(m.get('continued_at') for m in markers) and 'continued' not in shots:
+                    shots.add('continued')
+                    time.sleep(20)
+                    self.shot('4-successor.png')
+                if time.monotonic() - last_note > 300:
+                    last_note = time.monotonic()
+                    quota = self.quota()
+                    print(json.dumps({'guest_ms': round(self.clock()), 'state': (record or {}).get('state'),
+                                      'home': self.weekly(quota, '1'), 'work': self.weekly(quota, '2'),
+                                      'leaving': quota.get('leaving'), 'markers': len(markers)}), flush=True)
+                misses = 0
+            except (StepFailed, RuntimeError, subprocess.TimeoutExpired, ValueError) as exc:
+                misses += 1
+                self.facts.setdefault('observe_misses', []).append(str(exc)[:500])
                 self.save()
-            markers = self.markers()
-            if markers and 'order' not in shots:
-                shots.add('order')
-                self.shot('3-at-the-order.png')
-            if markers and any(m.get('continued_at') for m in markers) and 'continued' not in shots:
-                shots.add('continued')
-                time.sleep(20)
-                self.shot('4-successor.png')
-            if time.monotonic() - last_note > 300:
-                last_note = time.monotonic()
-                quota = self.quota()
-                print(json.dumps({'guest_ms': round(self.clock()), 'state': (record or {}).get('state'),
-                                  'home': self.weekly(quota, '1'), 'work': self.weekly(quota, '2'),
-                                  'leaving': quota.get('leaving'), 'markers': len(markers)}), flush=True)
+                if misses >= 10:
+                    break
             time.sleep(20)
         if record:
             record = self.settled_read(record)
-        self.shot('5-end.png')
+        try:
+            self.shot('5-end.png')
+        except StepFailed:
+            pass
         self.facts['approvals'] = presses
         self.save()
         evidence = self.collect(record)
