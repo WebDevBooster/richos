@@ -35,5 +35,46 @@ class DecoderIdentity(unittest.TestCase):
         self.assertIsNone(walk.decoder_sha12('[richos] voice: ready on this machine (ready) — no sha'))
 
 
+class TalkPressesTheTalkControl(unittest.TestCase):
+    """The 2026-10-07 run (walk-1fede03eadc0) pressed "Talk to Rich" by title, which on a
+    relaunched app is the home screen's door, and nothing started the microphone."""
+
+    def walk_with(self, on_screen):
+        w = object.__new__(walk.VoiceWalk)
+        w.clicks = []
+        presses = {'talk-toggle': 0}
+
+        def ax(mode, *args, app=None, timeout=40):
+            dom_id = args[args.index('--id') + 1]
+            if mode == 'click':
+                w.clicks.append(dom_id)
+                if dom_id == 'home-enter':
+                    on_screen.discard('home-enter')
+                    on_screen.add('talk-toggle')
+                else:
+                    presses[dom_id] += 1
+                return [{'meta': True}, {'clicked': True}]
+            if dom_id not in on_screen:
+                raise walk.StepFailed('command failed (1): ax.sh find\n{"error":"notfound","detail":"nothing matched"}')
+            desc = 'Stop talking' if dom_id == 'talk-toggle' and presses['talk-toggle'] else 'Talk to Rich'
+            return [{'meta': True}, {'role': 'AXButton', 'desc': desc}]
+
+        w.ax = ax
+        w.shot = lambda name: None
+        return w
+
+    def test_the_home_door_is_passed_then_the_talk_control_is_pressed_by_id(self):
+        w = self.walk_with({'home-enter'})
+        got = w.talk()
+        self.assertEqual(w.clicks, ['home-enter', 'talk-toggle'])
+        self.assertTrue(got['home_door_pressed'])
+        self.assertEqual(got['talk_control']['desc'], 'Stop talking')
+
+    def test_no_home_screen_goes_straight_to_the_talk_control(self):
+        w = self.walk_with({'talk-toggle'})
+        w.talk()
+        self.assertEqual(w.clicks, ['talk-toggle'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -28,7 +28,8 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
               and nothing is played) and RICHOS_VOICE_WHISPER_MODEL_ID
   ready       the app's own voice-readiness line says ready, and its decoder sha256 is the
               runtime's whisper-cli
-  heard       "Talk to Rich" is pressed; the transcript the app stored (PromptReceived) is read
+  heard       the home screen's door is passed, the talk control (#talk-toggle) is pressed and
+              turns into "Stop talking"; the transcript the app stored (PromptReceived) is read
               from the guest's ledger
 
 CEO §53: no sound is played anywhere. The sample is made with `say -o`, which writes a file.
@@ -119,7 +120,7 @@ class VoiceWalk(adopt_walk.Walk):
         self.facts['relaunch'] = launched
         self.facts['relaunched_at_ms'] = self.clock()
         self.save()
-        self.wait_for('Talk to Rich', seconds=60)
+        self.wait_for('Talk to Rich', seconds=60)  # the home door or the talk control: the window is up
         return launched
 
     def ready(self):
@@ -138,8 +139,50 @@ class VoiceWalk(adopt_walk.Walk):
             time.sleep(1)
         raise StepFailed('the app printed no voice-readiness line within 60 s')
 
+    def by_id(self, dom_id):
+        """The node whose DOM id is dom_id, or None when it is not in the accessibility tree."""
+        try:
+            nodes = self.ax('find', '--id', dom_id, '--first')
+        except StepFailed as exc:
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+                return None
+            raise
+        nodes = [n for n in nodes if not n.get('meta')]
+        return nodes[0] if nodes else None
+
+    def talk(self):
+        """Open the microphone the way a person does: through the home screen's door, then the talk
+        control. TWO BUTTONS ARE NAMED "Talk to Rich". The home screen's door (#home-enter,
+        home.js DOOR_LABEL) opens the conversation and nothing else, and while the home screen is
+        up #app is inert, so the door is the ONLY "Talk to Rich" in the tree. The 2026-10-07 run
+        (walk-1fede03eadc0) pressed it by title and waited 120 s for a capture that nothing had
+        started. The talk control is #talk-toggle (index.html); its label turns into "Stop talking"
+        only after start_voice_capture resolves (main.js enterVoiceMode), so that label is the
+        proof the press opened capture."""
+        door = self.by_id('home-enter')
+        if door:
+            self.ax('click', '--id', 'home-enter')
+        end = time.monotonic() + 30
+        toggle = None
+        while time.monotonic() < end and not toggle:
+            toggle = self.by_id('talk-toggle')
+            if not toggle:
+                time.sleep(1)
+        if not toggle:
+            self.shot('talk-missing.png')
+            raise StepFailed('the talk control (#talk-toggle) is not on screen within 30 s of the home door')
+        self.ax('click', '--id', 'talk-toggle')
+        end = time.monotonic() + 30
+        while time.monotonic() < end:
+            toggle = self.by_id('talk-toggle') or {}
+            if toggle.get('desc') == 'Stop talking':
+                return {'home_door_pressed': bool(door), 'talk_control': toggle}
+            time.sleep(1)
+        self.shot('talk-refused.png')
+        raise StepFailed(f'the talk control did not turn into "Stop talking" within 30 s: {toggle}')
+
     def heard(self):
-        self.press('Talk to Rich')
+        talk = self.talk()
         end = time.monotonic() + self.a.within
         while time.monotonic() < end:
             rows = guest(self.vm, 'cat ' + shlex.quote(self.data + '/conversation-ledger.jsonl') + ' 2>/dev/null || true', 60)
@@ -147,7 +190,7 @@ class VoiceWalk(adopt_walk.Walk):
             if row:
                 log = guest(self.vm, 'grep -iE "richos-voice|\\[richos\\] voice|wav" ' + shlex.quote(self.log) + ' || true')
                 self.shot('heard.png')
-                return {'transcript': row['text'], 'row': row, 'voice_log': log.splitlines()[-20:]}
+                return {'transcript': row['text'], 'row': row, 'talk': talk, 'voice_log': log.splitlines()[-20:]}
             time.sleep(2)
         log = guest(self.vm, 'tail -40 ' + shlex.quote(self.log) + ' || true')
         # What the window showed when nothing was heard: the 2026-10-07 run pressed "Talk to Rich"
