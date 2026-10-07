@@ -61,6 +61,13 @@ class Contracts(unittest.TestCase):
         self.assertEqual(r['wer'], round(3 / 7, 4))
         self.assertEqual(r['spelling_top'], [{'captions': 'claude', 'transcript': 'cloud', 'count': 1}])
 
+    def test_disagreements_carry_the_caption_time_they_start_at(self):
+        self.assertEqual(m.caption_times(ROLLING), [0.0, 0.24, 0.32, 0.44, 1.44, 1.64, 1.72])
+        r = m.compare(ROLLING, 'Before we use cloud and Tailscale stop', disagreements=True)
+        self.assertEqual(r['disagreements'], [{'at': '00:00:00', 'captions': 'Claude', 'transcript': 'cloud'}])
+        r = m.compare(ROLLING, 'Before we use Claude and Tails kale stop', disagreements=True)
+        self.assertEqual(r['disagreements'], [{'at': '00:00:01', 'captions': 'Tailscale,', 'transcript': 'Tails kale'}])
+
     def test_a_decoder_loop_shows_in_repeats(self):
         r = m.compare(ROLLING, 'All right. ' * 50)
         self.assertEqual(r['repeats']['transcript'], {'phrase': 'all right', 'count': 50})

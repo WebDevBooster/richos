@@ -2,7 +2,7 @@
 """caption-wer.py — how far a transcript is from a video's captions: word error rate, and the
 spelling and capitalization differences, in one JSON answer.
 
-  caption-wer.py CAPTIONS.vtt TRANSCRIPT.txt [--top N]
+  caption-wer.py CAPTIONS.vtt TRANSCRIPT.txt [--top N] [--disagreements]
 
 CAPTIONS is a WebVTT file as yt-dlp writes it (YouTube's rolling cues, where each cue repeats the
 line before it, are read once). TRANSCRIPT is plain text (whisper-cli -otxt).
@@ -19,6 +19,9 @@ WHAT IS MEASURED
                pair (for example "claude" in the captions against "Claude" in the transcript).
   spelling     aligned substitutions whose normalized forms differ but are close (difflib ratio
                at least 0.6), counted by pair: the "Cloud"/"Claude" kind, not a different word.
+  disagreements  with --disagreements: every stretch where the two differ in a normalized word,
+               with the caption time it starts at (hh:mm:ss, from the cue and its inline word
+               times), what the captions say and what the transcript says there.
   repeats      the most frequent 2-word phrase in the transcript and how often it occurs, beside
                the same count in the captions: a decoder loop shows up here first.
 
@@ -55,6 +58,44 @@ def caption_text(vtt):
         out.append(s)
         last = s
     return ' '.join(out)
+
+
+def caption_times(vtt):
+    """Each caption word's start in seconds, in the order caption_text() reads them."""
+    lines, out, last, start = vtt.splitlines(), [], None, 0.0
+    rolling = any('<c>' in line for line in lines)
+    for line in lines:
+        s = line.strip()
+        cue = CUE.match(s)
+        if cue:
+            start = seconds(s.split(' --> ')[0])
+            continue
+        if not s or s == 'WEBVTT' or re.match(r'^(Kind|Language|NOTE)\b', s) or s.isdigit():
+            continue
+        if rolling:
+            if '<c>' not in s:
+                continue
+            at = start
+            for piece in re.split(r'(<\d\d:\d\d:\d\d\.\d{3}>)', s):
+                stamp = re.fullmatch(r'<(\d\d:\d\d:\d\d\.\d{3})>', piece)
+                if stamp:
+                    at = seconds(stamp.group(1))
+                    continue
+                out += [at] * len(TAG.sub('', piece).split())
+        elif s != last:
+            out += [start] * len(s.split())
+        last = s
+    return out
+
+
+def seconds(stamp):
+    parts = [float(x) for x in stamp.split(':')]
+    return sum(v * 60 ** i for i, v in enumerate(reversed(parts)))
+
+
+def clock(t):
+    t = int(t)
+    return f'{t // 3600:02d}:{t % 3600 // 60:02d}:{t % 60:02d}'
 
 
 def words(text):
@@ -135,8 +176,9 @@ def repeats(ws):
     return {'phrase': f'{a} {b}', 'count': c}
 
 
-def compare(vtt, txt, top=25):
-    ref = [(w, norm(w)) for w in words(caption_text(vtt))]
+def compare(vtt, txt, top=25, disagreements=False):
+    times = caption_times(vtt)
+    ref = [(w, norm(w), times[i] if i < len(times) else None) for i, w in enumerate(words(caption_text(vtt)))]
     hyp = [(w, norm(w)) for w in words(txt)]
     ref = [w for w in ref if w[1]]
     hyp = [w for w in hyp if w[1]]
@@ -153,7 +195,24 @@ def compare(vtt, txt, top=25):
         elif op == 'sub' and close(r[1], h[1]):
             spell[(r[1], h[1])] += 1
     errors = count['sub'] + count['del'] + count['ins']
-    return {
+    stretches, current, at = [], None, None
+    for op, r, h in ops:
+        if r is not None and r[2] is not None:
+            at = r[2]
+        if op == 'eq':
+            if current:
+                stretches.append(current)
+                current = None
+            continue
+        if current is None:
+            current = {'at': clock(at or 0), 'captions': [], 'transcript': []}
+        if r is not None:
+            current['captions'].append(r[0])
+        if h is not None:
+            current['transcript'].append(h[0])
+    if current:
+        stretches.append(current)
+    result = {
         'caption_words': len(ref), 'transcript_words': len(hyp),
         'wer': round(errors / len(ref), 4) if ref else None,
         'substitutions': count['sub'], 'deletions': count['del'], 'insertions': count['ins'],
@@ -163,6 +222,10 @@ def compare(vtt, txt, top=25):
         'spelling_top': top_pair(spell, top),
         'repeats': {'transcript': repeats([w[1] for w in hyp]), 'captions': repeats([w[1] for w in ref])},
     }
+    if disagreements:
+        result['disagreements'] = [{'at': d['at'], 'captions': ' '.join(d['captions']),
+                                    'transcript': ' '.join(d['transcript'])} for d in stretches]
+    return result
 
 
 def main():
@@ -170,6 +233,7 @@ def main():
     p.add_argument('captions', type=Path)
     p.add_argument('transcript', type=Path)
     p.add_argument('--top', type=int, default=25, help='how many of each difference to list')
+    p.add_argument('--disagreements', action='store_true', help='list every differing stretch with its caption time')
     a = p.parse_args()
     try:
         vtt, txt = a.captions.read_text(encoding='utf-8'), a.transcript.read_text(encoding='utf-8')
@@ -179,7 +243,7 @@ def main():
     if not caption_text(vtt).strip() or not txt.strip():
         print('caption-wer: the captions or the transcript has no words', file=sys.stderr)
         return 2
-    print(json.dumps(compare(vtt, txt, a.top), indent=2))
+    print(json.dumps(compare(vtt, txt, a.top, a.disagreements), indent=2))
     return 0
 
 
