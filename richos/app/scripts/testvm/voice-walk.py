@@ -150,6 +150,9 @@ class VoiceWalk(adopt_walk.Walk):
                 return {'transcript': row['text'], 'row': row, 'voice_log': log.splitlines()[-20:]}
             time.sleep(2)
         log = guest(self.vm, 'tail -40 ' + shlex.quote(self.log) + ' || true')
+        # What the window showed when nothing was heard: the 2026-10-07 run pressed "Talk to Rich"
+        # and the app logged no capture at all, and only the screen can say why.
+        self.shot('heard-failed.png')
         raise StepFailed(f'no transcript was stored within {self.a.within} s; log tail:\n{log}')
 
 
