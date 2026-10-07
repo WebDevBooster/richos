@@ -61,6 +61,13 @@ if [ -d "$ROOT/runtime" ]; then
   RICHOS_RUNTIME_DIR="$ROOT/runtime"
   export RICHOS_RUNTIME_DIR
 fi
+# The speech model suite-walk.sh pushed, if any (gui-boot's healthy machine needs one).
+for model in "$ROOT"/speech-model/ggml-*.bin; do
+  if [ -f "$model" ]; then
+    RICHOS_GUI_SPEECH_MODEL="$model"
+    export RICHOS_GUI_SPEECH_MODEL
+  fi
+done
 mkdir -p "$RICHOS_TEST_RESULTS_DIR"
 
 echo "  [guest $(hostname -s) as $USER, GUI session] $SUITE in prebuilt mode"

@@ -406,6 +406,25 @@ class LocalTests(unittest.TestCase):
         # An operator's --runtime-dir is used as given.
         self.assertEqual(r.runtime_path(self.root / "mine"), self.root / "mine")
 
+    def test_runtime_hands_gui_boot_the_speech_model_only_when_it_is_there(self):
+        # The video tools are a setup essential (media-tools plan, slice 3), so gui-boot's
+        # healthy machine needs a pinned speech model; runtime() hands it the one this Mac has
+        # (lib/runtime_cache.py) and sets nothing when the file is absent, so gui-boot refuses
+        # by name rather than booting a machine missing something.
+        sys.path.insert(0, str(Path(__file__).resolve().with_name("lib")))
+        import runtime_cache
+        r = m.Runner(self.root, self.root / "state", {}, io.StringIO())
+        r.command = Mock()
+        (self.root / "mine").mkdir()
+        model = self.root / "ggml-small.en.bin"
+        with patch.object(runtime_cache, "GUI_SPEECH_MODEL", model):
+            r.runtime(self.root / "mine")
+            self.assertNotIn("RICHOS_GUI_SPEECH_MODEL", r.env)
+            model.write_bytes(b"weights")
+            r.runtime(self.root / "mine")
+            self.assertEqual(r.env["RICHOS_GUI_SPEECH_MODEL"], str(model))
+        self.assertIn("RICHOS_GUI_SPEECH_MODEL", m.GATE_SET_BY_BUILD)
+
     def test_command_timeout_does_not_expose_signing_password(self):
         r = m.Runner(self.root, self.root, {}, io.StringIO())
         args = ["cargo", "tauri", "signer", "sign", "-p", "secret-password"]

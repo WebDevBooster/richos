@@ -4,7 +4,7 @@
 #                 the guest slot, with the booted guest's name as its first argument.
 #
 #   suite-walk.sh <vm> --stage <dir> --suite <name> --engine <dir> --rc <file>
-#                 [--runtime <dir>] [--results <dir>]
+#                 [--runtime <dir>] [--speech-model <file>] [--results <dir>]
 #
 # It pushes the payload, runs the suite in the guest (suite-in-guest.sh), streams the
 # suite's output as its own, and writes the suite's exit code to --rc. It exits 0 when the
@@ -24,20 +24,21 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 VM="${1:-}"; shift 2>/dev/null
-STAGE=""; SUITE=""; ENGINE=""; RUNTIME=""; RC_FILE=""; RESULTS=""
+STAGE=""; SUITE=""; ENGINE=""; RUNTIME=""; SPEECH_MODEL=""; RC_FILE=""; RESULTS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --stage)   STAGE="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
     --suite)   SUITE="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
     --engine)  ENGINE="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
     --runtime) RUNTIME="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
+    --speech-model) SPEECH_MODEL="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
     --rc)      RC_FILE="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
     --results) RESULTS="${2:-}"; shift 2 || { echo "suite-walk.sh: $1 needs a value" >&2; exit 64; } ;;
     *) echo "suite-walk.sh: unknown argument '$1'" >&2; exit 64 ;;
   esac
 done
 if [ -z "$VM" ] || [ -z "$STAGE" ] || [ -z "$SUITE" ] || [ -z "$ENGINE" ] || [ -z "$RC_FILE" ]; then
-  echo "suite-walk.sh: usage: suite-walk.sh <vm> --stage <dir> --suite <name> --engine <dir> --rc <file> [--runtime <dir>] [--results <dir>]" >&2
+  echo "suite-walk.sh: usage: suite-walk.sh <vm> --stage <dir> --suite <name> --engine <dir> --rc <file> [--runtime <dir>] [--speech-model <file>] [--results <dir>]" >&2
   exit 64
 fi
 
@@ -66,6 +67,13 @@ push "$STAGE" ""        || gone "the payload (the prebuilt executables and the s
 push "$ENGINE" engine   || gone "the engine at $ENGINE did not arrive in $VM"
 if [ -n "$RUNTIME" ]; then
   push "$RUNTIME" runtime || gone "the runtime at $RUNTIME did not arrive in $VM"
+fi
+# The pinned speech model gui-boot's healthy machine needs (the video tools are a setup
+# essential). One file, under its own name: suite-in-guest.sh exports it.
+if [ -n "$SPEECH_MODEL" ]; then
+  tar -C "$(dirname "$SPEECH_MODEL")" -cf - "$(basename "$SPEECH_MODEL")" \
+    | guest 'mkdir -p "$HOME/run-suite/speech-model" && tar -C "$HOME/run-suite/speech-model" -xf -' \
+    || gone "the speech model at $SPEECH_MODEL did not arrive in $VM"
 fi
 echo "  [guest $VM] payload in place in $(( $(date +%s) - T0 ))s; running $SUITE"
 

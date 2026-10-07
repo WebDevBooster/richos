@@ -228,6 +228,19 @@ gui_machine() {
     cp -a "$RICHOS_RUNTIME_DIR" "$home/FixtureDelivery/engine/runtime" || return 1
   fi
   ln -sfn ../FixtureDelivery/engine "$home/.claude/richos-engine" || return 1
+  # -- the speech model: half of the video tools, a setup essential since 2026-10-07 --------
+  # Present only when a PINNED model verifies (setup.rs `find_media_tools`, through
+  # `stt::readiness`), so it is a real one, named by the caller (nightly-local.py and
+  # proof-run.py hand lib/runtime_cache.py's; run-suite.sh pushes it into a guest). Cloned
+  # (`cp -c`, no bytes copied on APFS), with a plain copy where the two are on different
+  # volumes. Put where the app installs one: `~/.config/richos/models` (stt.rs).
+  [ -n "${RICHOS_GUI_SPEECH_MODEL:-}" ] && [ -f "$RICHOS_GUI_SPEECH_MODEL" ] \
+    || { echo "gui_machine: a pinned speech model is required (RICHOS_GUI_SPEECH_MODEL)" >&2; return 1; }
+  mkdir -p "$home/.config/richos/models" || return 1
+  local model_dest
+  model_dest="$home/.config/richos/models/$(basename "$RICHOS_GUI_SPEECH_MODEL")"
+  cp -c "$RICHOS_GUI_SPEECH_MODEL" "$model_dest" 2>/dev/null \
+    || cp "$RICHOS_GUI_SPEECH_MODEL" "$model_dest" || return 1
   src="$home/FixtureDelivery/engine/loro"
   # The same program either way; prebuilt mode runs the copy this Mac built (see the top).
   if gui_prebuilt_mode; then

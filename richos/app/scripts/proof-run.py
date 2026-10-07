@@ -410,6 +410,24 @@ def supply_runtime(items):
     return "RICHOS_RUNTIME_DIR=%s (the nightly's runtime, verified against runtime-sources.json)" % path
 
 
+def supply_speech_model(items):
+    """gui-boot's healthy machine needs a pinned speech model (the video tools are a setup
+    essential); the nightly hands it lib/runtime_cache.py's gui_speech_model(), so the checks
+    get the same file. Returns the line that says which."""
+    if os.path.join(HERE, "lib") not in sys.path:
+        sys.path.insert(0, os.path.join(HERE, "lib"))
+    import runtime_cache
+    if os.environ.get("RICHOS_GUI_SPEECH_MODEL"):
+        return "RICHOS_GUI_SPEECH_MODEL=%s (from the caller)" % os.environ["RICHOS_GUI_SPEECH_MODEL"]
+    model = runtime_cache.gui_speech_model()
+    if model is None:
+        return ("RICHOS_GUI_SPEECH_MODEL is unset and %s does not exist; gui-boot will refuse"
+                % runtime_cache.GUI_SPEECH_MODEL)
+    for it in items:
+        it.env["RICHOS_GUI_SPEECH_MODEL"] = str(model)
+    return "RICHOS_GUI_SPEECH_MODEL=%s (the nightly's)" % model
+
+
 def plan(lines, args, logdir, hist):
     items, units, cargo = [], [], []
     for n, line in enumerate(lines, 1):
@@ -2280,6 +2298,7 @@ def run_main(argv, run_state):
         print("  %-40s lane %-7s ~%5.0f s  cd %s && %s" % (it.label, it.lane or "-", it.weight,
                                                          os.path.relpath(it.cwd, ROOT), " ".join(it.argv)))
     print("  " + supply_runtime(items))
+    print("  " + supply_speech_model(items))
     print("  " + conditions_line(items))
     if args.dry_run:
         return 0

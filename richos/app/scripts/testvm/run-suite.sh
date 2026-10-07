@@ -138,6 +138,12 @@ WALK=(--no-app --home "$WORK/home" --engine "" --report "$WORK/walk.json" --wait
 say "running $NAME in a guest for RICHOS_GUI_HOST=$GUI_HOST (a fresh clone, held for this run only)"
 STEP=(--stage "$PAYLOAD" --suite "$NAME" --engine "$ENGINE" --rc "$WORK/suite.rc")
 [ -n "$RUNTIME" ] && STEP+=(--runtime "$RUNTIME")
+# The pinned speech model gui-boot's healthy machine needs (the video tools are a setup
+# essential); pushed into the guest with the rest. Unset, the suite refuses there by name.
+if [ -n "${RICHOS_GUI_SPEECH_MODEL:-}" ]; then
+  [ -f "$RICHOS_GUI_SPEECH_MODEL" ] || no_guest "RICHOS_GUI_SPEECH_MODEL names $RICHOS_GUI_SPEECH_MODEL, which is not a file"
+  STEP+=(--speech-model "$RICHOS_GUI_SPEECH_MODEL")
+fi
 [ -n "${RICHOS_TEST_RESULTS_DIR:-}" ] && STEP+=(--results "$RICHOS_TEST_RESULTS_DIR")
 "$RUN_WALK" "${WALK[@]}" -- "$HERE/suite-walk.sh" "${STEP[@]}"
 WALK_RC=$?
