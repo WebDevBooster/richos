@@ -248,6 +248,13 @@ hits = [o for o in (json.loads(l) for l in sys.stdin if l.strip().startswith("{"
 print(hits[0].get("value", "") if len(hits) == 1 else "?%d" % len(hits))'
 }
 is_on() { case "$1" in 1|true) return 0;; *) return 1;; esac; }
+quota_refresh() {  # the quota sheet's own Refresh, an AXButton, retried as press is
+  for _ in 1 2 3; do
+    ax click --title 'Refresh' --role AXButton --first >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  fail "$1 (could not press: Refresh)"
+}
 note "5b D13: two accounts on a fresh install; Pause is the chosen 5-hour choice, and it is in effect"
 for t in Dark Light; do
   if [ "$t" = Light ]; then lower=light; else lower=dark; fi
@@ -270,13 +277,21 @@ ax click --title 'Technical view' --first >/dev/null 2>&1 || note "no Technical 
 sleep 3
 if ax find --title 'Turn it on' --first >/dev/null 2>&1; then press 'Turn it on' "5b Turn it on"; sleep 3; fi
 menu open
-press 'Claude Code quota' "5b the Claude Code quota row"
-sleep 4
-press 'Refresh' "5b Refresh, so the card reads a current figure"
+# Pressed by role, as open_sheet does: a plain press of the words hit a node that is not the row
+# (walk-975166023ba2: "could not press", with the row on screen in 5b-d13-quota-on).
+quota_open=0
+for try in 1 2 3; do
+  menu open
+  ax click --title 'Claude Code quota' --role AXMenuItem --contains --first >/dev/null 2>&1 || note "no Claude Code quota row (try $try)"
+  sleep 4
+  if ax find --title 'Close Claude Code quota' --first >/dev/null 2>&1; then quota_open=1; break; fi
+done
+[ "$quota_open" = 1 ] || fail "5b the Claude Code quota sheet did not open"
+quota_refresh "5b Refresh, so the card reads a current figure"
 sleep 6
 auto_v=$(ax find --title 'Automatically pause' --contains --json 2>/dev/null | python3 -c '
 import json, sys
-hits = [o for o in (json.loads(l) for l in sys.stdin if l.strip().startswith("{")) if o.get("role") == "AXCheckBox"]
+hits = [o for o in (json.loads(l) for l in sys.stdin if l.strip().startswith("{")) if o.get("role") == "AXCheckBox" or o.get("sub") == "AXSwitch"]
 print(hits[0].get("value", "") if len(hits) == 1 else "?%d" % len(hits))')
 note "5b Automatic pause switch: $auto_v"
 ax find --title 'Automatically pause' --contains --json > "$S/5b-auto-switch.json" 2>&1 || true
@@ -284,7 +299,7 @@ is_on "$auto_v" || fail "5b the quota sheet's Automatic pause is not on (AXValue
 has 'On. Nothing is waiting.' "5b the status card says the pause is on"
 shot 5b-d13-quota-on
 usage /Users/admin/fill-first/usage-1.json 95 86 || fail "5b Home's five-hour 95% fixture"
-press 'Refresh' "5b Refresh"
+quota_refresh "5b Refresh"
 sleep 6
 has 'Ready to pause' "5b at 95% the card says the team will pause"
 has 'The five-hour allowance has reached 93%' "5b the card's reason"
@@ -292,7 +307,7 @@ shot 5b-d13-quota-held
 "$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/5b-accounts-held.txt" 2>&1 || fail "5b the accounts record"
 grep -q '"inUse": *"1"' "$S/5b-accounts-held.txt" || fail "5b Rich switched to Work at the five-hour line, though Pause is chosen"
 usage /Users/admin/fill-first/usage-1.json 20 86 || fail "5b Home's usage put back"
-press 'Refresh' "5b Refresh after"
+quota_refresh "5b Refresh after"
 sleep 4
 ax click --title 'Close Claude Code quota' >/dev/null 2>&1 || ax --key 53 >/dev/null 2>&1 || true
 sleep 2
