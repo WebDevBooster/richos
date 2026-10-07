@@ -545,7 +545,7 @@ richos/app/
                               spent, and — the finding itself —
                               that the injected upstream passes a 3-character probe while
                               failing a 120,000-character one
-    tests/upstream_turn_tests.rs 13 tests driving the REAL spine against an injected
+    tests/upstream_turn_tests.rs 14 tests driving the REAL spine against an injected
                               upstream: the `529` that arrives as an ASSISTANT MESSAGE (the
                               shape that would otherwise complete a turn whose answer is a
                               vendor diagnostic in Rich's voice), the loss statement built
@@ -1119,7 +1119,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1841 tests + 5 doc-tests (1837 direct, 4 ignored)
+cargo test -p richos-core                       # 1842 tests + 5 doc-tests (1838 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

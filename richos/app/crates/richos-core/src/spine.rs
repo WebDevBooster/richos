@@ -2372,6 +2372,7 @@ impl Spine {
             return Ok(turn_id);
         }
         // (3) otherwise deliver now.
+        self.upstream_budget.new_message();
         let delivered = self.deliver(&turn_id, &binding, text, true);
         let boundary = self.after_turn_boundary(&binding);
         let queued = self.drain_queue();
@@ -3700,6 +3701,7 @@ impl Spine {
         let mut failure = None;
         while !self.turn_in_progress {
             let Some(next) = self.queue.pop_front() else { break };
+            self.upstream_budget.new_message();
             let delivered = self.deliver(&next.turn_id, &next.binding, &next.text, true);
             let boundary = self.after_turn_boundary(&next.binding);
             if let Err(error) = delivered.and(boundary) {
