@@ -515,6 +515,20 @@ class HandoffWalk(command_walk.CommandWalk):
         return {'lines': [{'line': l['line'], 'outcome': l['outcome']} for l in verdict['lines']],
                 'handoff_ms': verdict['handoff_ms']}
 
+    def collect_now(self):
+        """Not in the default steps: `--steps collect-now` against a run's own live guest (its VM
+        name and its --out) saves the evidence and the verdict without waiting for the job to close,
+        for a job that waits on something the walk will not do (run 10: a seventh Approve after the
+        walk's six). Never presses anything."""
+        record = self.ours(self.facts['sent_ms'])
+        try:
+            self.shot('5-collected.png')
+        except StepFailed:
+            pass
+        verdict = judge(self.collect(record))
+        (self.out / 'verdict.json').write_text(json.dumps(verdict, indent=2) + '\n')
+        return {'lines': [{'line': l['line'], 'outcome': l['outcome'], 'detail': l['detail']} for l in verdict['lines']]}
+
     def collect(self, record):
         """Everything the verdict reads, saved into --out first, so it can be judged again offline."""
         watch = guest(self.vm, 'cat ' + shlex.quote(self.facts['watch_out']), 180)
@@ -529,8 +543,15 @@ class HandoffWalk(command_walk.CommandWalk):
         handoffs = [x.split('\t') for x in acme.splitlines() if x.count('\t') >= 3 and x.split('\t')[3].startswith(HANDOFF_PREFIX)]
         diffs = {}
         for sha, *_ in handoffs:
-            diffs[sha] = guest(self.vm, 'git -C ' + c + ' diff --numstat ' + shlex.quote(sha) + ' ' + shlex.quote(head)
+            # Against the newest branch that holds the handoff commit: the landed main when the job
+            # landed, the successor's own branch when it has not (run 10 stopped before its land).
+            tip = guest(self.vm, 'git -C ' + c + ' for-each-ref --contains ' + shlex.quote(sha)
+                        + ' --sort=-committerdate --format=%\\(objectname\\) refs/heads | head -1', 60).strip() or head
+            diffs[sha + ':tip'] = tip
+            diffs[sha] = guest(self.vm, 'git -C ' + c + ' diff --numstat ' + shlex.quote(sha) + ' ' + shlex.quote(tip)
                                + ' -- MODULES.md 2>&1 || true', 60).strip()
+            diffs[sha + ':tip-summary'] = guest(self.vm, 'git -C ' + c + ' show ' + shlex.quote(tip)
+                                                + ':MODULES.md 2>/dev/null || true', 60)
             diffs[sha + ':summary'] = guest(self.vm, 'git -C ' + c + ' show ' + shlex.quote(sha)
                                             + ':MODULES.md 2>/dev/null || true', 60)
         (self.out / 'handoff-diffs.json').write_text(json.dumps(diffs, indent=2) + '\n')
@@ -716,7 +737,7 @@ def judge(e):
         numstat = e['diffs'].get(handoff_sha or '', '')
         deleted = sum(int(x.split('\t')[1]) for x in numstat.splitlines() if x.count('\t') == 2 and x.split('\t')[1].isdigit())
         at_handoff = sections(e['diffs'].get((handoff_sha or '') + ':summary', ''))
-        final = sections(e['summary'])
+        final = sections(e['diffs'].get((handoff_sha or '') + ':tip-summary') or e['summary'])
         dup = sorted({n for n in final if final.count(n) > 1})
         found4.append({'worker': w['name'], 'summary_at_handoff_sections': len(at_handoff), 'final_sections': len(final),
                        'lines_deleted_after_handoff': deleted, 'numstat': numstat, 'duplicated_sections': dup,
@@ -797,7 +818,7 @@ def main():
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
-    unknown = [s for s in steps if s not in STEPS + ['probe']]
+    unknown = [s for s in steps if s not in STEPS + ['probe', 'collect-now']]
     if unknown:
         p.error('unknown step(s): ' + ', '.join(unknown))
     walk = HandoffWalk(a)
