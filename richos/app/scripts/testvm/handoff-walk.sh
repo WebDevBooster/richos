@@ -61,14 +61,24 @@ wait_calls() {
 # set-quota-open). The first time the menu is still open from the technical view; after that it
 # is opened again (a coordinate click after the panel was closed hit nothing: walk
 # walk-1fa6eaae9f14 wrote 51 and no quota check followed, so the order never came).
+# The Settings button sometimes offers only AXShowMenu (walk walk-b2f694786f61, the reset step:
+# "noaction"), so a refused press is retried as a click on its center (pos 1485,111 size 40).
 panel() {
-  if ! "$T/ax.sh" "$VM" click --id set-quota-open >/dev/null 2>&1; then
-    "$T/ax.sh" "$VM" click --title 'Settings' --role AXPopUpButton || true
-    sleep 2
-    "$T/ax.sh" "$VM" click --id set-quota-open || true
-  fi
-  sleep 3
-  "$T/ax.sh" "$VM" find --id quota-refresh >/dev/null 2>&1 || note "the quota panel did not open"
+  local try
+  for try in 1 2; do
+    if ! "$T/ax.sh" "$VM" click --id set-quota-open >/dev/null 2>&1; then
+      "$T/ax.sh" "$VM" --key 53 >/dev/null 2>&1 || true
+      sleep 1
+      "$T/ax.sh" "$VM" click --title 'Settings' --role AXPopUpButton || "$T/ax.sh" "$VM" click --at 1505,131 || true
+      sleep 2
+      "$T/ax.sh" "$VM" click --id set-quota-open || true
+    fi
+    sleep 3
+    "$T/ax.sh" "$VM" find --id quota-refresh >/dev/null 2>&1 && return 0
+    note "the quota panel did not open (try $try)"
+  done
+  "$T/shot.sh" "$VM" "$S/panel-not-open-$(date -u +%H%M%S).png" || true
+  return 1
 }
 close_panel() { "$T/ax.sh" "$VM" --key 53 || true; sleep 2; }
 refresh() { "$T/ax.sh" "$VM" click --id quota-refresh || true; }
