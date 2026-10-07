@@ -194,17 +194,23 @@ def cmd_sample(args):
                 os.environ.pop("CLAUDE_CONFIG_DIR", None)
             else:
                 os.environ["CLAUDE_CONFIG_DIR"] = old
-        if r["state"] != "ok":
+        # An idle account answers with five_hour resets_at null (no window open): that is no five-hour
+        # reading, but its weekly window is still a reading. Only a missing answer is a failure.
+        row = {"at": now, "account": label}
+        for w in r.get("windows", []):
+            key = {"five_hour": "five_hour", "seven_day": "seven_day"}.get(w["id"])
+            if key and w["resets_at"]:
+                row[key] = {"used": w["used"], "resets_at": w["resets_at"]}
+        if "five_hour" not in row and r["state"] == "ok" and r["resets_at"]:
+            row["five_hour"] = {"used": r["used"], "resets_at": r["resets_at"]}
+        if "five_hour" not in row and "seven_day" not in row:
             print("account %s: no reading (%s)" % (label, r["why"]), file=sys.stderr)
             status = 1
             continue
-        row = {"at": now, "account": label, "five_hour": {"used": r["used"], "resets_at": r["resets_at"]}}
-        for w in r.get("windows", []):
-            if w["id"] == "seven_day" and w["resets_at"]:
-                row["seven_day"] = {"used": w["used"], "resets_at": w["resets_at"]}
         with open(os.path.join(state_dir(), "readings.jsonl"), "a") as fh:
             fh.write(json.dumps(row) + "\n")
-        print("account %s: five-hour %g%%, weekly %s" % (label, r["used"], ("%g%%" % row["seven_day"]["used"]) if "seven_day" in row else "unknown"))
+        print("account %s: five-hour %s, weekly %s" % (label, ("%g%%" % row["five_hour"]["used"]) if "five_hour" in row else "idle",
+                                                     ("%g%%" % row["seven_day"]["used"]) if "seven_day" in row else "unknown"))
     return status
 
 
