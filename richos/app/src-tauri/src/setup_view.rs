@@ -202,15 +202,34 @@ pub fn detect(boot_engine: Option<&std::path::Path>) -> SetupStatus {
     setup::detect(&paths, &extra, &setup::engine_is_usable, &speech_model)
 }
 
-/// **The speech-model half of the video tools** (media-tools plan §2): present exactly when
-/// `stt::readiness()` is `Ready` — the one resolution voice mode, `voice_readiness` and the model
-/// download all run, so setup cannot call a model present that the microphone path would not
-/// find, nor fetch one it would not look for. The `Err` is the readiness answer's own `Debug`,
-/// which is hand-written to carry no home-folder path (`stt.rs`), for the operator's boot line.
+/// **The speech-model half of the video tools: BOTH models** (media-tools plan §2; the CEO,
+/// 2026-10-07, "Both, in this nightly, yes"). Present exactly when
+///
+/// 1. `stt::readiness()` is `Ready` — the one resolution voice mode, `voice_readiness` and the
+///    voice-model download all run, so setup cannot call a model present that the microphone
+///    path would not find, nor fetch one it would not look for; AND
+/// 2. the transcription model (`stt::TRANSCRIPTION_MODEL_ID`) is installed and verified
+///    (`stt::model_verified`).
+///
+/// The `Err` names the half that is missing, for the operator's boot line; readiness's `Debug`
+/// is hand-written to carry no home-folder path (`stt.rs`).
 fn speech_model() -> Result<String, String> {
-    match richos_voice::stt::readiness() {
-        richos_voice::stt::SpeechReadiness::Ready(r) => Ok(r.model_id().to_string()),
-        other => Err(format!("{other:?}")),
+    use richos_voice::stt;
+    // The operator's boot-line wording, never shown to the CEO (`looked_in` is the boot log's).
+    let voice = match stt::readiness() {
+        stt::SpeechReadiness::Ready(r) => Ok(r.model_id().to_string()),
+        other => {
+            let operator_line = format!("for voice, {other:?}");
+            Err(operator_line)
+        }
+    };
+    let transcription = stt::model_verified(stt::TRANSCRIPTION_MODEL_ID)
+        .map(|_| stt::TRANSCRIPTION_MODEL_ID.to_string())
+        .map_err(|why| format!("for transcription, {why}"));
+    match (voice, transcription) {
+        (Ok(v), Ok(t)) => Ok(format!("{v} for voice and {t} for transcription")),
+        (Err(a), Err(b)) => Err(format!("{a}; {b}")),
+        (Err(a), _) | (_, Err(a)) => Err(a),
     }
 }
 
@@ -442,13 +461,15 @@ fn started_line(c: Component) -> String {
 }
 
 /// **THE VIDEO TOOLS, INSTALLED** (media-tools plan §2, slice 3): yt-dlp through slice 2's
-/// verified install, then the speech model through the voice panel's own verified, resumable
-/// fetch (`voice_provision::fetch_model`), with this sheet as the one asking. Each half is
-/// skipped when it is already there, so the CEO's Mac — whose model already resolves — fetches
-/// only the 3 MB yt-dlp, and pressing "Set it up" again after a failed model download resumes
-/// it rather than starting over (`provision.rs` resume rules).
+/// verified install, then BOTH speech models through the voice panel's own verified, resumable
+/// fetch, with this sheet as the one asking: the model voice resolves (`fetch_model`) and the
+/// transcription model (`fetch_pinned`, `stt::TRANSCRIPTION_MODEL_ID`; the CEO, 2026-10-07:
+/// "Both, in this nightly, yes"). Each part is skipped when it is already there, so the CEO's
+/// Mac — which has both models in `~/Models/Whisper` — fetches only the 3 MB yt-dlp, and pressing
+/// "Set it up" again after a failed model download resumes it rather than starting over
+/// (`provision.rs` resume rules).
 ///
-/// Ends by asking readiness again, never by trusting the fetch's `Ok`: `fetch_model` answers
+/// Each model ends by being checked again, never by trusting the fetch's `Ok`: the fetch answers
 /// `Ok` for a download the voice panel already has running, and for one stopped on request.
 fn install_media_tools(
     app: &AppHandle,
@@ -457,7 +478,7 @@ fn install_media_tools(
     total: usize,
 ) -> Result<String, SetupError> {
     use richos_core::media_tools;
-    use richos_voice::stt::SpeechReadiness;
+    use richos_voice::stt::{self, SpeechReadiness};
 
     let home = home.ok_or(SetupError::NoHome)?;
     let tools = media_tools::tools_dir(home);
@@ -473,15 +494,59 @@ fn install_media_tools(
         },
     }
 
-    if let SpeechReadiness::Ready(r) = richos_voice::stt::readiness() {
-        eprintln!("[richos] setup: speech model {} already installed and verified", r.model_id());
-        return Ok(format!("{} are installed.", capitalized(Component::MediaTools.display_name())));
-    }
     let observer = SetupModelObserver { app: app.clone(), index, total };
     let state = crate::ensure_model_fetch_state(app);
-    // ITS OWN THREAD AND ITS OWN RUNTIME. `run_setup` is a sync command Tauri runs inside an
-    // async task, where `block_on` panics ("Cannot start a runtime from within a runtime"); a
-    // scoped thread owns a current-thread runtime for exactly this download and ends with it.
+
+    // 1. THE MODEL VOICE RESOLVES (chosen by speed, `stt::choose_model`).
+    if let SpeechReadiness::Ready(r) = stt::readiness() {
+        eprintln!("[richos] setup: voice speech model {} already installed and verified", r.model_id());
+    } else {
+        let voice_state = state.clone();
+        run_fetch(|| crate::voice_provision::fetch_model(&observer, voice_state))?;
+        match stt::readiness() {
+            SpeechReadiness::Ready(r) => {
+                eprintln!("[richos] setup: voice speech model {} installed and verified", r.model_id())
+            }
+            // Still not there (the voice panel's download is the one running, or it was
+            // stopped): the sentence voice mode itself gives for this state.
+            other => {
+                eprintln!("[richos] setup: voice speech model still not ready after the fetch: {other:?}");
+                return Err(SetupError::SpeechModelFailed { sentence: other.ceo_message().unwrap_or_default() });
+            }
+        }
+    }
+
+    // 2. THE TRANSCRIPTION MODEL, whatever voice chose (the CEO, 2026-10-07: "Both").
+    let id = stt::TRANSCRIPTION_MODEL_ID;
+    match stt::model_verified(id) {
+        Ok(path) => eprintln!("[richos] setup: transcription model {id} already installed and verified at {}", path.display()),
+        Err(why) => {
+            eprintln!("[richos] setup: transcription model {id} missing ({why}); fetching it");
+            run_fetch(|| crate::voice_provision::fetch_pinned(&observer, state, id))?;
+            match stt::model_verified(id) {
+                Ok(path) => eprintln!("[richos] setup: transcription model {id} installed and verified at {}", path.display()),
+                Err(why) => {
+                    eprintln!("[richos] setup: transcription model {id} still not verified after the fetch: {why}");
+                    return Err(SetupError::SpeechModelFailed {
+                        sentence: stt::SttError::ModelNotFound(why).ceo_message(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(format!("{} are installed.", capitalized(Component::MediaTools.display_name())))
+}
+
+/// Run one model download to its end. ITS OWN THREAD AND ITS OWN RUNTIME: `run_setup` is a sync
+/// command Tauri runs inside an async task, where `block_on` panics ("Cannot start a runtime from
+/// within a runtime"); a scoped thread owns a current-thread runtime for exactly this download
+/// and ends with it. A download's own failure is its sentence (written by `provision`); a panic
+/// is left to the caller's re-check, which gives voice's own sentence.
+fn run_fetch<F, Fut>(fetch: F) -> Result<(), SetupError>
+where
+    F: FnOnce() -> Fut + Send,
+    Fut: std::future::Future<Output = Result<serde_json::Value, String>>,
+{
     let fetched = std::thread::scope(|scope| {
         scope
             .spawn(|| -> Result<serde_json::Value, String> {
@@ -489,31 +554,16 @@ fn install_media_tools(
                     .enable_all()
                     .build()
                     .map_err(|e| format!("the download could not start: {e}"))?;
-                runtime.block_on(crate::voice_provision::fetch_model(&observer, state))
+                runtime.block_on(fetch())
             })
             .join()
     });
     match fetched {
         Ok(Ok(v)) => eprintln!("[richos] setup: speech model fetch answered {v}"),
-        // `fetch_model`'s own sentence for him, already written by `provision`.
         Ok(Err(sentence)) => return Err(SetupError::SpeechModelFailed { sentence }),
-        // A panicked download thread: the readiness check below gives voice's own sentence.
         Err(_) => eprintln!("[richos] setup: the speech model download stopped unexpectedly"),
     }
-    match richos_voice::stt::readiness() {
-        SpeechReadiness::Ready(r) => {
-            eprintln!("[richos] setup: speech model {} installed and verified", r.model_id());
-            Ok(format!("{} are installed.", capitalized(Component::MediaTools.display_name())))
-        }
-        // Still not there (the voice panel's download is the one running, or it was stopped):
-        // the sentence voice mode itself gives for this state, so the two never disagree.
-        other => {
-            eprintln!("[richos] setup: speech model still not ready after the fetch: {other:?}");
-            Err(SetupError::SpeechModelFailed {
-                sentence: other.ceo_message().unwrap_or_default(),
-            })
-        }
-    }
+    Ok(())
 }
 
 fn capitalized(s: &str) -> String {

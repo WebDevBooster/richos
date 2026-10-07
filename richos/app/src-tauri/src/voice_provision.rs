@@ -242,7 +242,19 @@ pub async fn fetch_model(obs: &dyn ModelObserver, state: Arc<ModelFetchState>) -
             return Err(other.ceo_message().unwrap_or_else(|| NO_HEARING_HERE.to_string()))
         }
     };
+    fetch_pinned(obs, state, &model_id).await
+}
 
+/// **Download the pinned model `model_id`, verify it, install it** — [`fetch_model`]'s transfer,
+/// for a model named by the caller rather than resolved by voice. First-run setup uses it for the
+/// transcription model (`richos_voice::stt::TRANSCRIPTION_MODEL_ID`, the CEO's "Both", 2026-10-07).
+/// Same pin table, same resume rules, same one-at-a-time guard, same bounded retries.
+pub async fn fetch_pinned(
+    obs: &dyn ModelObserver,
+    state: Arc<ModelFetchState>,
+    model_id: &str,
+) -> Result<serde_json::Value, String> {
+    let model_id = model_id.to_string();
     let pin = provision::pin_for(&model_id)
         // NO PIN, NO DOWNLOAD. RichOS will not fetch a model it cannot verify against
         // `model-pins.json`, and it says so rather than trying and failing later.

@@ -577,8 +577,10 @@ pub enum Component {
     /// **The video tools, an essential since 2026-10-07** (media-tools plan, richos-hq
     /// `docs/plans/2026-10-07-media-tools.md` §2 and §6 item 3). The CEO: *"These tools need to
     /// be classed as necessary essentials."* Present means BOTH: the app's own yt-dlp
-    /// ([`crate::media_tools::installed`]) and a pinned speech model this machine resolves (the
-    /// [`SpeechModel`] answer). ffmpeg, ffprobe and whisper-cli need no check of their own: they
+    /// ([`crate::media_tools::installed`]) and the pinned speech models (the [`SpeechModel`]
+    /// answer): the one voice resolves by speed AND the transcription model, both installed and
+    /// verified (the CEO, 2026-10-07, asked whether setup should download both: "Both, in this
+    /// nightly, yes."). ffmpeg, ffprobe and whisper-cli need no check of their own: they
     /// are runtime files, and an engine whose runtime does not verify is not an engine
     /// ([`engine_is_usable`]). Installed AFTER the engine, because yt-dlp runs on the engine's
     /// Python and the model fetch is offered only once the engine's `whisper-cli` resolves.
@@ -624,19 +626,19 @@ impl Component {
     }
 }
 
-/// **Does this machine have a pinned speech model it can hear with?** `Ok` with the model's id,
-/// or `Err` with the reason it has not.
+/// **Does this machine have its pinned speech models?** `Ok` naming them, or `Err` with the reason
+/// it has not.
 ///
 /// A seam rather than a call, for two reasons. `richos-core` does not depend on `richos-voice`
 /// (that crate depends on this one), and the answer the product uses is
 /// `richos_voice::stt::readiness()` being `Ready` — the SAME resolution voice mode and the model
-/// download use, so setup can never call present a model the microphone path would not find
-/// (`setup_view.rs` passes it). And a test can then say "the model is there" or "it is not"
+/// download use, so setup can never call present a model the microphone path would not find —
+/// and the transcription model verified beside it (`setup_view.rs` passes it). And a test can then say "the model is there" or "it is not"
 /// without 574 MB of weights on disk, as [`EngineUsable`] does for a 322 MB runtime.
 pub type SpeechModel<'a> = &'a dyn Fn() -> Result<String, String>;
 
 /// Find the video tools, or report every place that was looked: the yt-dlp RichOS installs, and
-/// the speech model. Both are named either way, so a boot line that says they are missing says
+/// the speech models. Both are named either way, so a boot line that says they are missing says
 /// WHICH half is missing.
 pub fn find_media_tools(paths: &SetupPaths, speech: SpeechModel<'_>) -> ComponentStatus {
     let Some(home) = paths.home.as_deref() else {
@@ -651,14 +653,14 @@ pub fn find_media_tools(paths: &SetupPaths, speech: SpeechModel<'_>) -> Componen
         None => format!("{} — no yt-dlp that RichOS installed and can verify", tools.join("yt-dlp").display()),
     }];
     looked.push(match &model {
-        Ok(id) => format!("the speech model — {id} is installed and verified"),
-        Err(why) => format!("the speech model — {why}"),
+        Ok(models) => format!("the speech models — {models}: installed and verified"),
+        Err(why) => format!("the speech models — {why}"),
     });
     match (yt_dlp, model) {
-        (Some(i), Ok(id)) => ComponentStatus::found(
+        (Some(i), Ok(models)) => ComponentStatus::found(
             Component::MediaTools,
             tools,
-            Some(format!("yt-dlp nightly {}, speech model {id}", i.tag)),
+            Some(format!("yt-dlp nightly {}, speech models {models}", i.tag)),
         ),
         _ => ComponentStatus::missing(Component::MediaTools, looked),
     }

@@ -43,11 +43,11 @@ fn every_engine_is_usable(_: &Path) -> Result<(), String> {
 /// **THE SPEECH-MODEL SEAM**, held open the same way: the product asks
 /// `richos_voice::stt::readiness()`, which needs 574 MB of pinned weights on disk.
 fn a_speech_model() -> Result<String, String> {
-    Ok("large-v3-turbo-q5_0".to_string())
+    Ok("small.en for voice and large-v3-turbo-q5_0 for transcription".to_string())
 }
 
 fn no_speech_model() -> Result<String, String> {
-    Err("whisper model not found: ggml-large-v3-turbo-q5_0.bin".to_string())
+    Err("for transcription, whisper model not found: ggml-large-v3-turbo-q5_0.bin".to_string())
 }
 
 /// One published yt-dlp nightly, for installing the real way ([`richos_core::media_tools::refresh`]).
@@ -250,7 +250,7 @@ fn a_customers_mac_is_missing_both_and_says_where_it_looked() {
     assert!(!status.complete());
     let media_places = status.media_tools.looked_in.join(" | ");
     assert!(media_places.contains("Application Support/RichOS/tools/yt-dlp"), "{media_places}");
-    assert!(media_places.contains("the speech model — whisper model not found"), "{media_places}");
+    assert!(media_places.contains("the speech models — for transcription, whisper model not found"), "{media_places}");
 
     // NAMED, not "not found".
     let claude_places = status.claude.looked_in.join(" ");
@@ -283,7 +283,7 @@ fn a_machine_that_already_has_both_is_asked_nothing() {
     assert!(!status.blocked());
     assert_eq!(
         status.media_tools.detail.as_deref(),
-        Some(format!("yt-dlp nightly {NIGHTLY_TAG}, speech model large-v3-turbo-q5_0").as_str())
+        Some(format!("yt-dlp nightly {NIGHTLY_TAG}, speech models small.en for voice and large-v3-turbo-q5_0 for transcription").as_str())
     );
 }
 
@@ -305,13 +305,13 @@ fn a_machine_set_up_before_the_video_tools_is_asked_for_them_alone() {
     assert!(!before.complete());
     assert!(!before.blocked(), "the video tools are always installable; nothing is pinned at build time");
 
-    // yt-dlp alone is not enough: the speech model is the other half.
+    // yt-dlp alone is not enough: the speech models are the other half.
     install_yt_dlp(&home);
     let half = detect(&paths, &[], &every_engine_is_usable, &no_speech_model);
     assert_eq!(half.needs(), vec![Component::MediaTools], "{half:?}");
     let places = half.media_tools.looked_in.join(" | ");
     assert!(places.contains(&format!("yt-dlp nightly {NIGHTLY_TAG} is installed")), "{places}");
-    assert!(places.contains("the speech model — whisper model not found"), "{places}");
+    assert!(places.contains("the speech models — for transcription, whisper model not found"), "{places}");
 
     // ...and the model alone is not enough either: a yt-dlp that does not match its record.
     let tools = richos_core::media_tools::tools_dir(&home);
