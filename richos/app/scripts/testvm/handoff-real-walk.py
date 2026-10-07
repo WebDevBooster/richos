@@ -157,18 +157,39 @@ class HandoffWalk(command_walk.CommandWalk):
         """The quota panel (Settings > Claude Code quota, ui id set-quota-open), opened and refreshed.
         Best effort: the readings are taken from the app's own claude-quota.json, which the app
         keeps current with or without the panel; the panel is for the screenshot."""
-        for _ in range(2):
-            try:
+        # The row is an AXMenuItem titled "Claude Code quota ..." (fakewalk1 run7's log: "pressed
+        # AXMenuItem title='Claude Code quota Home 50% weekly · next Work'"); by DOM id it was
+        # refused in runs 2-6 with the menu open, so the title is tried first. Every refusal is
+        # kept in facts.json, so a panel that does not open says why.
+        def attempt(*ways):
+            for way in ways:
                 try:
-                    self.ax('click', '--id', 'set-quota-open')
-                except StepFailed:
-                    command([HERE / 'ax.sh', self.vm, '--key', '53'])
-                    time.sleep(1)
-                    self.press('Settings', role='AXPopUpButton')
-                    time.sleep(2)
-                    self.ax('click', '--id', 'set-quota-open')
+                    way()
+                    return True
+                except StepFailed as exc:
+                    self.facts.setdefault('panel_refusals', []).append(str(exc)[:400])
+            return False
+        for _ in range(3):
+            if not self.present('Claude Code quota', role='AXMenuItem'):
+                self.close_panel()
+                attempt(lambda: self.press('Settings', role='AXPopUpButton'))
+                time.sleep(2)
+            if attempt(lambda: self.press('Claude Code quota', role='AXMenuItem'),
+                       lambda: self.ax('click', '--id', 'set-quota-open')):
                 time.sleep(3)
-                self.ax('click', '--id', 'quota-refresh')
+                if attempt(lambda: self.ax('click', '--id', 'quota-refresh'),
+                           lambda: self.press('Refresh'), lambda: self.press('Ask Claude Code')):
+                    self.save()
+                    return True
+        self.save()
+        return False
+
+    def refresh_panel(self):
+        """One press of the open panel's Refresh (its words: Refresh, or Ask Claude Code)."""
+        for way in (lambda: self.ax('click', '--id', 'quota-refresh'), lambda: self.press('Refresh'),
+                    lambda: self.press('Ask Claude Code')):
+            try:
+                way()
                 return True
             except StepFailed:
                 continue
@@ -259,13 +280,14 @@ class HandoffWalk(command_walk.CommandWalk):
             home, work = self.weekly(quota, '1'), self.weekly(quota, '2')
             if home is not None and work is not None:
                 break
-            if opened and time.monotonic() - pressed >= 45:
+            if time.monotonic() - pressed >= 45:
                 pressed = time.monotonic()
-                try:
-                    self.ax('click', '--id', 'quota-refresh')
+                if (opened and self.refresh_panel()) or self.panel():
+                    opened = True
                     self.facts['refresh_presses'] = self.facts.get('refresh_presses', 0) + 1
-                except StepFailed:
-                    opened = self.panel()
+                else:
+                    opened = False
+                self.save()
             time.sleep(5)
         return quota, home, work
 
