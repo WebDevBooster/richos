@@ -21,7 +21,7 @@ class RuntimeInventoryTests(unittest.TestCase):
         self.sources = Path(self.temp.name) / "sources.json"
         self.sources.write_text('{"synthetic":true}')
         (self.root / "runtime-sources.json").write_bytes(self.sources.read_bytes())
-        for name in ("python3", "node", "git", "jq", "whisper-cli"):
+        for name in ("python3", "node", "git", "jq", "whisper-cli", "ffmpeg", "ffprobe"):
             path = self.root / "bin" / name
             path.write_text("#!/bin/sh\nexit 0\n")
             path.chmod(0o755)
@@ -68,6 +68,15 @@ class RuntimeInventoryTests(unittest.TestCase):
         (self.root / "bin/whisper-cli").chmod(0o644)
         with self.assertRaisesRegex(ValueError, "not executable: whisper-cli"):
             module.verify(self.root, self.sources)
+
+    def test_runtime_without_the_video_tools_refuses(self):
+        # Rich's PATH holds the runtime and system folders only; a runtime without ffmpeg or
+        # ffprobe would leave him unable to watch a video, so it never ships.
+        for name in ("ffmpeg", "ffprobe"):
+            (self.root / "bin" / name).chmod(0o644)
+            with self.assertRaisesRegex(ValueError, f"not executable: {name}"):
+                module.verify(self.root, self.sources)
+            (self.root / "bin" / name).chmod(0o755)
 
     def test_invalid_member_name_refuses(self):
         self.manifest["files"]["../outside"] = "0" * 64
