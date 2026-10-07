@@ -562,10 +562,33 @@ class HandoffWalk(command_walk.CommandWalk):
             except StepFailed as exc:
                 transcripts[name] = 'not copied: ' + str(exc)[:300]
         (self.out / 'records-final.json').write_text(json.dumps(self.records(), indent=2) + '\n')
+        obligation = self.obligation((record or {}).get('obligation_id')) if record and record.get('obligation_id') else None
+        (self.out / 'obligation.json').write_text(json.dumps(obligation, indent=2) + '\n')
         return {'rows': rows, 'acme_log': acme, 'acme_head': head, 'summary': summary, 'diffs': diffs,
-                'transcripts': transcripts, 'record': record, 'facts': self.facts,
-                'obligation': self.obligation((record or {}).get('obligation_id')) if record and record.get('obligation_id') else None,
+                'transcripts': transcripts, 'record': record, 'facts': self.facts, 'obligation': obligation,
                 'out': str(self.out)}
+
+
+def saved_evidence(out):
+    """The verdict's evidence read back from a finished run's --out, so the pass list can be judged
+    again offline (`--judge OUT`) after a rule is corrected, without another guest run."""
+    out = Path(out)
+    facts = json.loads((out / 'facts.json').read_text())
+    rows = [json.loads(line) for line in (out / 'handoff-watch.jsonl').read_text().splitlines() if line.startswith('{')]
+    sent = facts.get('sent_ms') or [0]
+    records = json.loads((out / 'records-final.json').read_text()) if (out / 'records-final.json').exists() else []
+    mine = [r for r in records if r.get('registered_at_ms', 0) >= sent[0]]
+    record = max(mine, key=lambda r: r.get('registered_at_ms', 0)) if mine else None
+    obligation = None
+    if (out / 'obligation.json').exists():
+        obligation = json.loads((out / 'obligation.json').read_text())
+    elif (out / 'verdict.json').exists():
+        for l in json.loads((out / 'verdict.json').read_text()).get('lines', []):
+            if l['line'].startswith('5 ') and isinstance(l.get('evidence'), dict):
+                obligation = l['evidence'].get('obligation')
+    return {'rows': rows, 'acme_log': (out / 'acme-log.txt').read_text(), 'summary': (out / 'MODULES.md').read_text(),
+            'diffs': json.loads((out / 'handoff-diffs.json').read_text()), 'record': record, 'facts': facts,
+            'obligation': obligation, 'out': str(out)}
 
 
 def sections(text):
@@ -642,9 +665,15 @@ def judge(e):
         point = ((at or {}).get('actAt') or {}).get('seven_day')
         early = [q for q in quotas if q['t_ms'] <= first['at'] and '1' in (q['value'].get('leaving') or [])
                  and next((a['weekly'] for a in q['value']['accounts'] if a['id'] == '1'), 0) < (cut or 0)]
-        ok = at is not None and '1' in (at.get('leaving') or []) and home is not None and cut is not None and home >= (point or cut)
+        # The view's `actAt` is the point of the account IN USE: at the order the switch has
+        # usually happened already, so Home's own point is read from the last view in which Home
+        # was in use (run 10: 99 at the order, Work's; 83 just before, Home's cut-off).
+        home_rows = [q for q in before if any(a['id'] == '1' and a.get('inUse') for a in q['value']['accounts'])]
+        point = ((home_rows[-1]['value'].get('actAt') or {}).get('seven_day')) if home_rows else point
+        ok = (at is not None and '1' in (at.get('leaving') or []) and home is not None and cut is not None
+              and home >= min(cut, point if point is not None else cut))
         line('1 The order arrives at the cut-off.', ok,
-             f'first order {first["agent"]} at {first["at"]}: Home weekly {home}, point {point}, cut-off {cut}, '
+             f'first order {first["agent"]} at {first["at"]}: Home weekly {home}, Home\'s point {point}, cut-off {cut}, '
              f'leaving {at.get("leaving") if at else None}' + ('; Home was leaving below the cut-off' if early else ''),
              {'marker': first, 'view_at_order': at})
     # The ordered workers and their successors.
@@ -751,6 +780,12 @@ def seed_team(home):
 def main():
     if sys.argv[1:2] == ['--seed-team']:
         return seed_team(sys.argv[2])
+    if sys.argv[1:2] == ['--judge']:
+        verdict = judge(saved_evidence(sys.argv[2]))
+        (Path(sys.argv[2]) / 'verdict-rejudged.json').write_text(json.dumps(verdict, indent=2) + '\n')
+        for l in verdict['lines']:
+            print(f"{l['outcome']}  {l['line']}  {l['detail']}")
+        return 0 if all(l['outcome'] == 'PASS' for l in verdict['lines']) else 1
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('vm')
     p.add_argument('--out', type=Path, required=True)

@@ -17,8 +17,10 @@ T0 = 1_791_370_000_000
 BASE, W1, W2, HANDOFF, S1, MERGED = 'b' * 40, '1' * 40, '2' * 40, 'h' * 40, '3' * 40, 'm' * 40
 
 
-def quota(t, home, leaving, point=78):
-    return {'kind': 'quota', 't_ms': t, 'value': {'accounts': [{'id': '1', 'weekly': home}, {'id': '2', 'weekly': 20}],
+def quota(t, home, leaving, point=78, in_use='1'):
+    # actAt is the point of the account in use (run 10: Work's 99 once the switch had happened).
+    return {'kind': 'quota', 't_ms': t, 'value': {'accounts': [{'id': '1', 'weekly': home, 'inUse': in_use == '1'},
+                                                               {'id': '2', 'weekly': 20, 'inUse': in_use == '2'}],
                                                     'leaving': leaving, 'actAt': {'seven_day': point}}}
 
 
@@ -32,7 +34,7 @@ def evidence(out, *, handoff_last=True, deleted=0, successor_on='work', stop_aft
                                                      'agent_id': 'ag1', 'request': {'role': 'worker'}}},
         {'kind': 'hook', 't_ms': T0 + 2, 'event': 'SubagentStart', 'agent_id': 'ag1'},
         {'kind': 'git', 't_ms': T0 + 3, 'path': '/x/target-worktrees/s/scribe-opus-aaa', 'value': {'log': log}},
-        quota(T0 + 100_000, 78, ['1']),
+        quota(T0 + 100_000, 78, ['1'], point=99, in_use='2'),
         {'kind': 'marker', 't_ms': T0 + 110_000, 'value': {'agent': 'ag1', 'at': T0 + 105_000, 'account': '1'}},
         {'kind': 'hook', 't_ms': T0 + 105_000 + stop_after_ms, 'event': 'SubagentStop', 'agent_id': 'ag1'},
         {'kind': 'receipt', 't_ms': T0 + 400_000, 'value': {'id': 'r2', 'name': 'scribe-opus-bbb', 'status': 'integrated',
