@@ -8796,8 +8796,8 @@
     },
     "mega-lander/tests/workspace-spec-fourteen.test.sh": {
       "source": "mega-lander/tests/workspace-spec-fourteen.test.sh",
-      "sha256": "53f74b973bd0c1105c0bc17f09ca53c5cffeb5ffa32f0147ec3a0dfe2fa32c0c",
-      "evidence": "Reviewed suite fixture constructors, complete executable call sites, inline Python and finite eval assertions. Private adopted repository copies real config; settings are retained. Agent/lifecycle events are literal JSON, not actual model dispatch. Creator repositories have no setup hooks. Land invokes the actual scratch sweep. Direct unsourced integration consumers read only environment defaults, while hook children source the copied config.",
+      "sha256": "a8c257d33a726316ce7534b9ae470c26895653f8ce3d77c7097a35ec838d79e9",
+      "evidence": "Reviewed suite fixture constructors, complete executable call sites, inline Python and finite eval assertions. Private adopted repository copies real config; settings are retained. Agent/lifecycle events are literal JSON, not actual model dispatch. Creator repositories have no setup hooks. Land invokes the actual scratch sweep. Direct unsourced integration consumers read only environment defaults, while hook children source the copied config. Renewed 2026-10-07: C13 reads deletion.attempts and deletion.deferred from its existing private agent record and follows the same literal SubagentStop hook only for budget deferrals with no new failed attempt. No new configuration key, environment variable or executable reader is introduced; the existing final workspace/branch/record assertions remain mandatory.",
       "keys": [],
       "edges": [
         {
@@ -14652,7 +14652,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "13ab8983faf172cdcd8b8bba49a963b9051e2d9e3e737bbc408bee235bd7ed94",
+          "sha256": "a08b16b55e6eaf1df2e16f2b27899b4170250a1e01767fecbcf970cf01bb5f3e",
           "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         },
         {
@@ -17379,7 +17379,7 @@
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "bc1212593d178b4b992e399cabcd8e91df7c02a7dcd89efd5cf7517bdcadca78",
-        "mega-lander/tests/workspace-spec-fourteen.test.sh": "53f74b973bd0c1105c0bc17f09ca53c5cffeb5ffa32f0147ec3a0dfe2fa32c0c",
+        "mega-lander/tests/workspace-spec-fourteen.test.sh": "a8c257d33a726316ce7534b9ae470c26895653f8ce3d77c7097a35ec838d79e9",
         "mega-lander/workspaces.py": "8f80cffceacfe389208ed6c00209049b7905014189b6a79971c9728801fdfa88",
         "mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
         "scripts/hooks/guard-sealed-worktree.sh": "c402048c55ef4e44a6f610af0f527780743a7cc944c1f79caa68190503574fd2",

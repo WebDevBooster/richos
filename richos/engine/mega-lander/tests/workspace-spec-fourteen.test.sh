@@ -1293,9 +1293,20 @@ AN="$(jget "$REC" deletion.attempts)"
 sub "C13.5 at the stated number of failures ($STATED, now $AN) the turn-end gate tells the CEO, by name, and still lets the turn end ($rc)" \
     "[ \"$AN\" -ge \"$STATED\" ] && grep -q 'TELL THE CEO' '$T/stop.out' && grep -q 'zach-opus-k1' '$T/stop.out' && [ $rc -eq 0 ]" "$(cat "$T/stop.out" "$T/stop.err")"
 if [ "$HOLD" = uchg ]; then chflags nouchg "$NPK/pinned.txt"; else chmod 755 "$(dirname "$NPK")"; fi
+C13_ATTEMPTS="$(jget "$REC" deletion.attempts)"
 subagent_stop "anothersubrun0099"                           # the hold clears; the next hook event retries
+# A SubagentStop gives cleanup two seconds. Under load that event may
+# explicitly defer the retry before deletion can finish. A deferral is not
+# an attempted deletion (workspaces.py _delete), so let subsequent real
+# hook events deliver the next attempt. Never retry an actual failure here.
+C13_UNTIL=$((SECONDS + 30))
+while [ -n "$(agent_rec zach-opus-k1)" ] && [ "$SECONDS" -lt "$C13_UNTIL" ]; do
+    [ "$(jget "$REC" deletion.attempts)" = "$C13_ATTEMPTS" ] && \
+        [ -n "$(jget "$REC" deletion.deferred)" ] || break
+    subagent_stop "anothersubrun0100"
+done
 sub "C13.6 when the hold clears, the next retry succeeds on its own: workspace and branch gone, nothing left retrying" \
-    "[ ! -e '$NPK' ] && ! has_branch '$ENT' worktree-agent-ak1k1k1k1k1k1k1k1 && [ -z \"\$(agent_rec zach-opus-k1)\" ] && [ -n \"\$(done_rec zach-opus-k1)\" ]" "$(ls "$NPK" 2>&1 | head -3)"
+    "[ ! -e '$NPK' ] && ! has_branch '$ENT' worktree-agent-ak1k1k1k1k1k1k1k1 && [ -z \"\$(agent_rec zach-opus-k1)\" ] && [ -n \"\$(done_rec zach-opus-k1)\" ]" "$(ls "$NPK" 2>&1 | head -3) $(jget "$REC" deletion)"
 verdict
 
 # ===========================================================================
