@@ -397,8 +397,13 @@ def supply_runtime(items):
     if os.path.join(HERE, "lib") not in sys.path:
         sys.path.insert(0, os.path.join(HERE, "lib"))
     import runtime_cache
-    path = str(runtime_cache.cache_path(os.path.join(os.path.expanduser("~"), ".richos-nightly"),
-                                        os.path.join(HERE, "runtime-sources.json")))
+    recipe = os.path.join(HERE, "runtime-sources.json")
+    try:
+        path = str(runtime_cache.cache_path(os.path.join(os.path.expanduser("~"), ".richos-nightly"),
+                                            recipe))
+    except OSError as error:
+        return "RICHOS_RUNTIME_DIR is unset and %s cannot be read (%s); suites that need it will refuse" % (
+            recipe, error.strerror or error)
     if not os.path.isdir(path):
         return "RICHOS_RUNTIME_DIR is unset and %s does not exist; suites that need it will refuse" % path
     r = subprocess.run([sys.executable, os.path.join(HERE, "verify-runtime.py"), path,

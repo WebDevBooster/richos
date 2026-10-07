@@ -10145,8 +10145,8 @@
     },
     "scripts/lib/pierce.py": {
       "source": "scripts/lib/pierce.py",
-      "sha256": "125105bdb0542303d778f7ddb4726f56b39282ccab7af1508fc571f224a3a4a7",
-      "evidence": "Full program reviewed again after the revision-review change (2026-10-06): reads the outgoing Agent prompt as data, diffs it against the preceding prompt of the same named spawn kept in its own state, reads the project and user CLAUDE.md and agent definitions, and its own state; runs one reviewer subprocess on the prompt and imports the strip-ack-lines transformer when that hook is registered. It reads none of the CEO's words.",
+      "sha256": "607c18caa578ce1ce0b855bc82bfdfd42248b5c4003e72ac4aeb4fe283230953",
+      "evidence": "Full program reviewed 2026-10-07: reads actual assignment, original human transcript and inherited instruction files as data; terminal sessions resolve explicitly cited existing repository/evidence paths using metadata. Desktop sessions use only host-selected RICHOS_APP_READ_ROOTS (connected company folders, current thread workspaces/attachments) and the current session evidence directory; brief paths never grant app access. Reads/writes exact-input review state and diffs revisions; runs one restricted Read/Glob/Grep subprocess, with a single variadic add-dir list, and imports the registered strip-ack-lines transformer. Notes are nonblocking and excluded from the preceding material-findings report. No cited text/command is executed and no configuration keys are read.",
       "keys": [],
       "edges": [
         {
@@ -14762,6 +14762,12 @@
           "path": "richos/app/scripts/lib/cargo_identity.py",
           "sha256": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
           "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/proof-run.py",
+          "sha256": "b805cc7eb19c9d14eb65dd8f03e51d72e4953485c5b08f36a8cb645ff27afdfe",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         }
       ]
     },
@@ -14897,6 +14903,12 @@
           "path": "richos/app/scripts/lib/cargo_identity.py",
           "sha256": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
           "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/proof-run.py",
+          "sha256": "b805cc7eb19c9d14eb65dd8f03e51d72e4953485c5b08f36a8cb645ff27afdfe",
+          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         }
       ]
     },
