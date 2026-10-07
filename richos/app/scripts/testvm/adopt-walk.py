@@ -130,9 +130,28 @@ class Walk:
         self.facts['built_from'] = built
         return {'built_from': built}
 
+    def decline_first_run_sheets(self, tries=3, seconds=45):
+        """Press Not now on each sheet a first run puts up before the company question (main.js,
+        WHAT A FIRST RUN ASKS: the setup sheet, then the memory question), one at a time, until
+        the company question is up. Since the setup essentials (e0a346d76) a guest without the
+        video tools gets the setup sheet too, so one press left the memory question over the
+        window (walk of candidate 43: "Add this company" never appeared). A sheet that is not up
+        yet is waited for, `seconds` in all. Returns the presses."""
+        presses = 0
+        end = time.monotonic() + seconds
+        while presses < tries and time.monotonic() < end:
+            if self.present('Add this company'):
+                break
+            if self.present('Not now'):
+                self.press('Not now')
+                presses += 1
+                time.sleep(3)
+            else:
+                time.sleep(1)
+        return presses
+
     def first_run(self):
-        if self.present('Set it up'):
-            self.press('Not now')
+        self.decline_first_run_sheets()
         # Idempotent, so --steps can re-run it against a guest that already has the repository.
         guest(self.vm, 'mkdir -p {c} && cd {c} && if [ ! -d .git ]; then printf "Acme notes\\n" > README.md '
                        '&& git init -q && git add README.md && git -c user.name=QA -c user.email=qa@example.invalid '
