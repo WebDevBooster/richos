@@ -29,6 +29,49 @@ def sha(path):
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
+# whisper-cli, the speech decoder voice mode runs (richos-voice `stt.rs`). Built here from the
+# pinned whisper.cpp source so every user's Mac gets it with the engine, and so it is the same
+# version the decode settings were measured on (`engine/voice/models/model-pins.json`,
+# `toolchain.whisperCppVersion`). One static executable: whisper and its vendored ggml are linked
+# in (BUILD_SHARED_LIBS=OFF), the Metal shaders are embedded, and it links only macOS frameworks.
+# GGML_NATIVE=OFF so the build machine's own CPU features (an M4's) are not required on an M1;
+# OpenMP is off because Apple's clang has none and ggml then uses its own thread pool.
+WHISPER_CMAKE_FLAGS = (
+    "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=OFF", "-DGGML_NATIVE=OFF", "-DGGML_OPENMP=OFF",
+    "-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON", "-DGGML_BLAS=ON",
+    "-DWHISPER_BUILD_TESTS=OFF", "-DWHISPER_BUILD_SERVER=OFF", "-DWHISPER_SDL2=OFF", "-DWHISPER_CURL=OFF",
+    "-DCMAKE_OSX_ARCHITECTURES=arm64", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0",
+)
+
+
+def build_whisper_cli(source, scratch, runtime):
+    # CMake is build-time tooling only, like Xcode's compilers; nothing it produces links to it.
+    cmake = shutil.which("cmake")
+    if not cmake:
+        raise RuntimeError("whisper-cpp: cmake is required to build the runtime and is not on PATH")
+    build_dir = scratch / "whisper-build"
+    prefix_map = "-ffile-prefix-map=" + str(source) + "=whisper.cpp-source"
+    clean_env = {**os.environ, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                 "SDKROOT": subprocess.check_output(["xcrun", "--show-sdk-path"], text=True).strip()}
+    log_path = scratch / "whisper-build.log"
+    try:
+        with log_path.open("w") as log:
+            subprocess.run([cmake, "--version"], env=clean_env, stdout=log, stderr=log, check=True)
+            subprocess.run([cmake, "-S", str(source), "-B", str(build_dir), *WHISPER_CMAKE_FLAGS,
+                            "-DCMAKE_C_FLAGS=" + prefix_map, "-DCMAKE_CXX_FLAGS=" + prefix_map],
+                           env=clean_env, stdout=log, stderr=log, check=True)
+            subprocess.run([cmake, "--build", str(build_dir), "--config", "Release", "--target", "whisper-cli", "-j", "4"],
+                           env=clean_env, stdout=log, stderr=log, check=True)
+    except subprocess.CalledProcessError:
+        print(log_path.read_text()[-10000:], flush=True)
+        raise
+    shutil.copyfile(build_dir / "bin/whisper-cli", runtime / "bin/whisper-cli")
+    (runtime / "bin/whisper-cli").chmod(0o755)
+    # MIT: the copyright and permission notice travels with the binary. Its one LICENSE ("The
+    # ggml authors") covers whisper.cpp and the ggml it vendors.
+    shutil.copyfile(source / "LICENSE", runtime / "sources/WHISPER-CPP-LICENSE")
+
+
 def build(destination):
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise RuntimeError("this runtime recipe supports macOS arm64 only")
@@ -68,6 +111,9 @@ def build(destination):
                 raise RuntimeError(f"{name}: unexpected upstream archive root")
             if name in ("python", "node"):
                 shutil.move(entries[0], runtime / name)
+                continue
+            if name == "whisper-cpp":
+                build_whisper_cli(entries[0], scratch, runtime)
                 continue
             if name == "iconv":
                 iconv_source = entries[0]
@@ -110,12 +156,12 @@ def build(destination):
         (runtime / "bin/git").write_text('#!/bin/sh\nexec "$(dirname "$0")/../git/bin/git" "$@"\n')
         (runtime / "bin/git").chmod(0o755)
         # License files from binary upstream distributions are retained in full.
-        (runtime / "sources/README.txt").write_text("Pinned upstream distributions are listed in runtime-sources.json. Git's exact corresponding source and COPYING are included. Python and Node license notices remain in their distributions. jq is distributed under the MIT license; see https://github.com/jqlang/jq/blob/jq-1.8.2/COPYING. macOS supplies bash and system libraries.\n")
+        (runtime / "sources/README.txt").write_text("Pinned upstream distributions are listed in runtime-sources.json. Git's exact corresponding source and COPYING are included. Python and Node license notices remain in their distributions. jq is distributed under the MIT license; see https://github.com/jqlang/jq/blob/jq-1.8.2/COPYING. whisper-cli is built from the pinned whisper.cpp source and is distributed under the MIT license in WHISPER-CPP-LICENSE. macOS supplies bash and system libraries.\n")
         (runtime / "runtime-sources.json").write_text(json.dumps(manifest, indent=2) + "\n")
         env = {**os.environ, "PATH": str(runtime / "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin",
                "GIT_EXEC_PATH": str(runtime / "git/libexec/git-core"), "PYTHONDONTWRITEBYTECODE": "1"}
         versions = {}
-        for name in ("python3", "node", "git", "jq"):
+        for name in ("python3", "node", "git", "jq", "whisper-cli"):
             versions[name] = subprocess.check_output([str(runtime / "bin" / name), "--version"], text=True, env=env).strip()
         subprocess.run([str(runtime / "bin/python3"), "-c", CLOSURE_CHECK], env=env, check=True)
         # Reject any dynamic dependency on Homebrew or the developer's home.

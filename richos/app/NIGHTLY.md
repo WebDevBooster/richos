@@ -339,8 +339,8 @@ own shell exported. This is a correctness rule before it is a secrecy one: on
 `package-app.test.sh` cases that refuse when notary credentials are absent or
 half-supplied ran with a complete key in their environment.
 
-Python 3.11+, Git, GitHub CLI, Rust, Tauri CLI 2.11.4 and Xcode command-line tools
-must be installed. GitHub CLI and Git must already be authenticated. A restricted
+Python 3.11+, Git, GitHub CLI, Rust, Tauri CLI 2.11.4, CMake (it builds the
+runtime's `whisper-cli`) and Xcode command-line tools must be installed. GitHub CLI and Git must already be authenticated. A restricted
 Keychain may require user interaction to sign; the command fails if its signing
 probe cannot complete within 90 seconds. This implementation currently supports
 Apple Silicon macOS, matching the bundled runtime recipe.

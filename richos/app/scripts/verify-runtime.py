@@ -35,7 +35,7 @@ def verify(root, sources):
         path = root / name
         if not path.is_symlink() or os.readlink(path) != target or not path.resolve(strict=True).is_relative_to(root):
             raise ValueError(f"invalid runtime link: {name}")
-    for name in ("python3", "node", "git", "jq"):
+    for name in ("python3", "node", "git", "jq", "whisper-cli"):
         if not os.access(root / "bin" / name, os.X_OK):
             raise ValueError(f"runtime is not executable: {name}")
     return identity
