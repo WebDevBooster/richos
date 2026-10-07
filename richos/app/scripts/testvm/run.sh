@@ -322,6 +322,18 @@ fi
 # asked to. It says so here rather than at the first model turn.
 CLAUDE_LOGIN_LINE="$("$HERE/claude-login.sh" push "$VM" "$GUEST_HOME")" || true
 printf '%s\n' "$CLAUDE_LOGIN_LINE" >&2
+# His second sign-in (Work), the same way, with no step for him: the host folder
+# is where the app keeps Account 2 on this Mac, the host item is named for it
+# (sha256 of the folder, first 8 hex digits: claude-login.sh header), and the
+# guest gets it under its own folder. Access token only. Skipped silently when
+# this Mac has no Work item; never fatal. No keeper: an access token outlives a round.
+WORK_HOST_FOLDER="${TESTVM_WORK_HOST_FOLDER:-$HOME/Library/Application Support/com.richos.app/claude-accounts/2}"
+WORK_HOST_ITEM="Claude Code-credentials-$(printf '%s' "$WORK_HOST_FOLDER" | shasum -a 256 | cut -c1-8)"
+WORK_GUEST_FOLDER="$GUEST_HOME/claude-accounts/2"
+if /usr/bin/security find-generic-password -s "$WORK_HOST_ITEM" -a "${USER:-alex}" >/dev/null 2>&1; then
+  "$HERE/claude-login.sh" push --account "$WORK_HOST_ITEM" --host-folder "$WORK_HOST_FOLDER" \
+    "$VM" "$WORK_GUEST_FOLDER" >&2 || true
+fi
 # The keeper: for the run's lifetime, each access token THIS Mac renews is
 # handed to the guest, so a run longer than one token's remaining life keeps
 # working without the guest ever holding a refresh token (claude-login.sh, "A

@@ -9,6 +9,14 @@
 #                                                     the guest each access token
 #                                                     this Mac renews (run.sh starts it)
 #
+#   push|check|keep --account <host keychain item> [--host-folder <dir>] <vm> <guest-folder>
+#       the same for a SECOND sign-in (Work): <host keychain item> is the host
+#       item (`Claude Code-credentials-<sha8 of the host folder>`), <host-folder>
+#       is that account's CLAUDE_CONFIG_DIR on this Mac (used only to renew it),
+#       <guest-folder> is the guest app's folder for the account. Access token only,
+#       read through /usr/bin/security; the guest item is named for the GUEST folder.
+#       Home's bare item and files are never touched in this mode.
+#
 # Prints ONE line on stdout:
 #
 #   claude login: guest logged in
@@ -98,6 +106,19 @@ TESTVM_SECURITY_STDIN_MAX="${TESTVM_SECURITY_STDIN_MAX:-4032}"
 
 VM=""; GUEST_HOME=""
 CMD="${1:-}"; shift 2>/dev/null
+# A second sign-in: host item, host folder (renewal only). Empty = Home.
+ACCOUNT_ITEM=""; HOST_FOLDER=""
+while :; do
+  case "${1:-}" in
+    --account)     ACCOUNT_ITEM="${2:-}"; shift 2 2>/dev/null || die "--account needs a value" ;;
+    --host-folder) HOST_FOLDER="${2:-}"; shift 2 2>/dev/null || die "--host-folder needs a value" ;;
+    *) break ;;
+  esac
+done
+# The host item every host-side read names; Home's by default.
+HOST_SERVICE="${ACCOUNT_ITEM:-$TESTVM_CLAUDE_KC_SERVICE}"
+# Per-account run-state names, so Home's keeper state is never overwritten.
+STATE_SUFFIX=""; [ -n "$ACCOUNT_ITEM" ] && STATE_SUFFIX=".account"
 
 cg() {  # one command in the guest, the harness's single indirection
   if [ -n "${TESTVM_GUEST_EXEC:-}" ]; then
@@ -129,7 +150,7 @@ TESTVM_HOST_SECURITY="${TESTVM_HOST_SECURITY:-/usr/bin/security}"
 host_logged_in() {
   perl -e 'alarm shift; exec @ARGV' "$TESTVM_CLAUDE_LOGIN_SECONDS" \
     "$TESTVM_HOST_SECURITY" find-generic-password \
-      -s "$TESTVM_CLAUDE_KC_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" \
+      -s "$HOST_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" \
     >/dev/null 2>&1
 }
 
@@ -167,7 +188,7 @@ TESTVM_HOST_CLAUDE_RENEW="${TESTVM_HOST_CLAUDE_RENEW:-}"
 host_written_at() {
   perl -e 'alarm shift; exec @ARGV' "$TESTVM_CLAUDE_LOGIN_SECONDS" \
     "$TESTVM_HOST_SECURITY" find-generic-password \
-      -s "$TESTVM_CLAUDE_KC_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" 2>/dev/null \
+      -s "$HOST_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" 2>/dev/null \
     | sed -n 's/.*"mdat"<timedate>=[^"]*"\([0-9]\{14\}\)Z.*/\1/p' | head -1
 }
 
@@ -183,6 +204,7 @@ host_renew() {
     return $?
   fi
   local bin
+  [ -n "$HOST_FOLDER" ] && export CLAUDE_CONFIG_DIR="$HOST_FOLDER"
   bin="$(host_claude_path)"
   [ -n "$bin" ] && [ -x "$bin" ] || return 1
   python3 - "$bin" <<'PY'
@@ -249,7 +271,7 @@ take_snapshot() {
   local raw
   raw="$(perl -e 'alarm shift; exec @ARGV' "$TESTVM_CLAUDE_LOGIN_SECONDS" \
           "$TESTVM_HOST_SECURITY" find-generic-password \
-            -s "$TESTVM_CLAUDE_KC_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" -w 2>/dev/null \
+            -s "$HOST_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" -w 2>/dev/null \
          | perl -0777 -pe 's/\n\z//')"
   [ -n "$raw" ] || return 1
   # Drop refresh capability BEFORE either guest store is written. Use an explicit
@@ -312,7 +334,10 @@ case "$GUEST_HOME" in
   *) die "refusing: '$GUEST_HOME' is not under the guest user's home (/Users/$TESTVM_GUEST_USER/)" ;;
 esac
 
-SVC_SCOPED="$(guest_service_scoped "$GUEST_HOME/.claude")"
+# Home: the app's config dir is <home>/.claude. A second sign-in: the guest
+# folder IS the config dir.
+CRED_DIR="$GUEST_HOME/.claude"; [ -n "$ACCOUNT_ITEM" ] && CRED_DIR="$GUEST_HOME"
+SVC_SCOPED="$(guest_service_scoped "$CRED_DIR")"
 [ -n "$SVC_SCOPED" ] || die "could not derive the scoped keychain service name"
 
 report() {  # report <logged in|NOT logged in>
@@ -324,7 +349,7 @@ report() {  # report <logged in|NOT logged in>
 # being read back out of the guest — and it is precisely the check that catches
 # Ray's failure mode, where a store reports success and holds nothing.
 guest_credential_bytes() {
-  cg "wc -c < '$GUEST_HOME/.claude/.credentials.json' 2>/dev/null || echo 0" 2>/dev/null \
+  cg "wc -c < '$CRED_DIR/.credentials.json' 2>/dev/null || echo 0" 2>/dev/null \
     | tr -d '[:space:]'
 }
 
@@ -333,7 +358,7 @@ if [ "$CMD" = "check" ]; then
   if [ "${FB:-0}" -gt 1 ] 2>/dev/null; then
     report "logged in"; exit 0
   fi
-  if guest_logged_in "$SVC_SCOPED" || guest_logged_in "$TESTVM_CLAUDE_KC_SERVICE"; then
+  if guest_logged_in "$SVC_SCOPED" || { [ -z "$ACCOUNT_ITEM" ] && guest_logged_in "$TESTVM_CLAUDE_KC_SERVICE"; }; then
     report "logged in"; exit 0
   fi
   report "NOT logged in"; exit 1
@@ -349,7 +374,7 @@ if [ "$CMD" = "keep" ]; then
   STATE="$TESTVM_RUN/$VM"
   [ -d "$STATE" ] || die "no run state at $STATE: keep runs only beside a run"
   BEGAN="$(date +%s)"
-  LAST_WRITTEN="$(cat "$STATE/claude-login.host-written" 2>/dev/null)"
+  LAST_WRITTEN="$(cat "$STATE/claude-login${STATE_SUFFIX}.host-written" 2>/dev/null)"
   ASKED_FOR=""
   log "keeping $VM's access token current (every ${TESTVM_CLAUDE_KEEP_SECONDS}s, until the run ends)"
   while :; do
@@ -365,12 +390,12 @@ if [ "$CMD" = "keep" ]; then
     W="$(host_written_at)"
     if [ -n "$W" ] && [ "$W" != "$LAST_WRITTEN" ]; then
       log "this Mac's login was renewed: handing $VM the new access token"
-      if "$0" push "$VM" "$GUEST_HOME" >/dev/null; then
+      if "$0" push ${ACCOUNT_ITEM:+--account "$ACCOUNT_ITEM"} ${HOST_FOLDER:+--host-folder "$HOST_FOLDER"} "$VM" "$GUEST_HOME" >/dev/null; then
         LAST_WRITTEN="$W"
       fi
       continue
     fi
-    EXP="$(cat "$STATE/claude-login.expires" 2>/dev/null)"
+    EXP="$(cat "$STATE/claude-login${STATE_SUFFIX}.expires" 2>/dev/null)"
     case "$EXP" in *[!0-9]*|"") continue ;; esac
     LEFT=$(( EXP / 1000 - $(date +%s) ))
     if [ "$LEFT" -lt "$TESTVM_CLAUDE_RENEW_BELOW_SECONDS" ] && [ "$ASKED_FOR" != "$EXP" ]; then
@@ -431,16 +456,24 @@ HEX="$(printf '%s' "$SECRET" | xxd -p | tr -d '\n')"
 # an argument and never crosses the wire twice. `umask 077` before the write,
 # because the file IS the credential.
 log "writing the access snapshot into the guest's credential file (no refresh token; may expire during the run)"
+COPY_HOME_DIR="\$HOME/.claude"; COPY_HOME_FILE="\$HOME/.claude/.credentials.json"
+COPY_HOME_CP="cp '$CRED_DIR/.credentials.json' \$HOME/.claude/.credentials.json &&"
+if [ -n "$ACCOUNT_ITEM" ]; then COPY_HOME_DIR=""; COPY_HOME_FILE=""; COPY_HOME_CP=""; fi
 FILE_BYTES="$(printf '%s' "$SECRET" | cg_stdin "umask 077; \
-  mkdir -p '$GUEST_HOME/.claude' ~/.claude && \
-  cat > '$GUEST_HOME/.claude/.credentials.json' && \
-  cp '$GUEST_HOME/.claude/.credentials.json' ~/.claude/.credentials.json && \
-  chmod 600 '$GUEST_HOME/.claude/.credentials.json' ~/.claude/.credentials.json && \
-  wc -c < '$GUEST_HOME/.claude/.credentials.json'" 2>/dev/null | tr -d '[:space:]')"
+  mkdir -p '$CRED_DIR' $COPY_HOME_DIR && \
+  cat > '$CRED_DIR/.credentials.json' && \
+  $COPY_HOME_CP \
+  chmod 600 '$CRED_DIR/.credentials.json' $COPY_HOME_FILE && \
+  wc -c < '$CRED_DIR/.credentials.json'" 2>/dev/null | tr -d '[:space:]')"
 
-PAYLOAD="$(printf 'add-generic-password -U -a "%s" -s "%s" -X "%s" "%s"\nadd-generic-password -U -a "%s" -s "%s" -X "%s" "%s"\n' \
-  "$TESTVM_GUEST_USER" "$SVC_SCOPED"               "$HEX" "$GUEST_HOME/Library/Keychains/login.keychain-db" \
+PAYLOAD="$(printf 'add-generic-password -U -a "%s" -s "%s" -X "%s" "%s"\n' \
+  "$TESTVM_GUEST_USER" "$SVC_SCOPED" "$HEX" "$GUEST_HOME/Library/Keychains/login.keychain-db")"
+# The bare name is Home's: a second sign-in never writes it.
+if [ -z "$ACCOUNT_ITEM" ]; then
+  PAYLOAD="$PAYLOAD
+$(printf 'add-generic-password -U -a "%s" -s "%s" -X "%s" "%s"\n' \
   "$TESTVM_GUEST_USER" "$TESTVM_CLAUDE_KC_SERVICE" "$HEX" "$GUEST_HOME/Library/Keychains/login.keychain-db")"
+fi
 
 # Each line is one `security -i` command; the limit is per line, as the code
 # quoted in the header treats it.
@@ -496,8 +529,8 @@ if [ "$FILE_OK" -eq 1 ] || [ "$KC_OK" -eq 1 ]; then
   # For `keep`: WHEN the guest's copy runs out and WHICH host write it came from.
   # Two timestamps, no token.
   if [ -d "$TESTVM_RUN/$VM" ]; then
-    printf '%s\n' "$EXPIRES_MS" > "$TESTVM_RUN/$VM/claude-login.expires"
-    host_written_at > "$TESTVM_RUN/$VM/claude-login.host-written"
+    printf '%s\n' "$EXPIRES_MS" > "$TESTVM_RUN/$VM/claude-login${STATE_SUFFIX}.expires"
+    host_written_at > "$TESTVM_RUN/$VM/claude-login${STATE_SUFFIX}.host-written"
   fi
   [ -n "$EXPIRES_MS" ] && log "the guest's access token expires $(date -u -r $(( EXPIRES_MS / 1000 )) +%H:%MZ 2>/dev/null) (no refresh token; keep renews it from this Mac)"
   report "logged in"
