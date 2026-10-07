@@ -11,7 +11,10 @@ Three things the 2026-10-05 round-16 walk needed and did not have:
   3. with the agents file present, the first user turn journals one background agent per
      line, in the rows app_workers.rs reads, and answers with reply.txt.
 The journal is checked the way app_workers.rs status() reads it: schema 1, this session's
-id on every row, three SubagentStart rows each with an async_launched PostToolUse."""
+id on every row, three SubagentStart rows each with an async_launched PostToolUse.
+Section 7 (round 1 of the weekly-switch handoff test): the front desk writes the job down through
+the register in --mcp-config, and the back end's work-agent keeps stepping through the gate after
+the back end's turn ended, until the gate's order ends it."""
 import json
 import os
 import subprocess
@@ -157,7 +160,10 @@ with tempfile.TemporaryDirectory() as root:
     allow = 'cat > /dev/null\nexit 0\n'
     check(stops_for(refuse, 'Mark\nAndy\n', 'gate-refuses') == ['walk-agent-1', 'walk-agent-2'],
           'a gate that refuses with the order ends each helper with a SubagentStop row')
-    check('gate walk-agent-1 exit 2' in (walk / 'calls.log').read_text(), 'the gate step is a line in calls.log')
+    check('gate walk-agent-1 exit 2 order' in (walk / 'calls.log').read_text(), 'the gate step is a line in calls.log, the order named')
+    other = 'cat > /dev/null\necho "Refused: some other reason." >&2\nexit 2\n'
+    check(stops_for(other, 'Mark\n', 'gate-other') == [] and 'gate walk-agent-1 exit 2 said: Refused: some other reason.' in (walk / 'calls.log').read_text(),
+          'another refusal ends nothing and is logged with its words, never as the order')
     check(stops_for(allow, 'Mark\nAndy\n', 'gate-allows') == [], 'a gate that admits the step ends no helper')
     check(stops_for(refuse, '', 'no-helpers') == [] and 'gate' not in (walk / 'calls.log').read_text(),
           'with no helpers listed the gate is never called and nothing ends (as on main)')
@@ -166,6 +172,90 @@ with tempfile.TemporaryDirectory() as root:
     stops_for(allow, '', 'turn-log')
     check('turn Keep going.' in (walk / 'calls.log').read_text(), 'with log-turns present a user turn is a "turn <text>" line in calls.log')
     (walk / 'log-turns').unlink()
+
+    # 7: the back end's job (round 1 of the handoff test). The front desk writes the job down
+    # through the register named in --mcp-config; the back end launches the work-agents once,
+    # and they keep stepping through the gate after its turn ended, until the gate orders them.
+    register = root / 'register-server.py'
+    register.write_text(
+        'import json, sys\n'
+        'seen = []\n'
+        'for line in sys.stdin:\n'
+        '    m = json.loads(line)\n'
+        '    seen.append(m.get("method"))\n'
+        '    if m.get("method") == "initialize":\n'
+        '        print(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": {"protocolVersion": "2025-06-18"}}), flush=True)\n'
+        '    elif m.get("method") == "tools/call":\n'
+        '        ok = seen[:2] == ["initialize", "notifications/initialized"] and m["params"]["name"] == "record"\n'
+        '        text = json.dumps({"recorded": ok, "say": "On it! " + m["params"]["arguments"]["assignment"]})\n'
+        '        print(json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": {"content": [{"type": "text", "text": text}], "isError": False}}), flush=True)\n')
+    front_config = json.dumps({'mcpServers': {'richos_assignments': {'type': 'stdio', 'command': sys.executable, 'args': [str(register)]}}})
+    back_config = json.dumps({'mcpServers': {'richos_work': {'type': 'stdio', 'command': 'true', 'args': []}}})
+    for name in ('agents', 'reply.txt', 'calls.log'):
+        (walk / name).unlink(missing_ok=True)
+    (walk / 'register').write_text('Start the Northwind job and keep Mark on it.\n')
+    (walk / 'work-agents').write_text('Mark\n')
+    flag = root / 'leaving'
+    gate = root / 'gate-work.sh'
+    gate.write_text(f'#!/bin/sh\ncat > /dev/null\nif [ -e {flag} ]; then echo "Stop the task now." >&2; exit 2; fi\nexit 0\n')
+    gate.chmod(0o755)
+
+    def lease(session, config):
+        plug = data / 'engine-profiles' / f'profile-{session}'
+        (plug / 'hooks').mkdir(parents=True)
+        (plug / 'hooks' / 'hooks.json').write_text(json.dumps(
+            {'hooks': {'PreToolUse': [{'hooks': [{'type': 'command', 'command': str(gate), 'timeout': 5}]}]}}))
+        run = subprocess.Popen(['perl', str(FAKE), '--print', '--session-id', session, '--plugin-dir', str(plug),
+                                '--strict-mcp-config', '--mcp-config', config],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+        return run, data / 'engine-state' / 'evidence' / session / 'callbacks.jsonl'
+
+    def events(path, event):
+        return [r['callback'].get('agent_id') for r in map(json.loads, path.read_text().splitlines())
+                if r['callback'].get('hook_event_name') == event]
+
+    desk, desk_journal = lease('front-desk', front_config)
+    desk.stdin.write(user('<executive-continuity> scoped operational state </executive-continuity>'))
+    desk.stdin.flush()
+    answers(desk)
+    check((walk / 'register').exists() and ' register ' not in (walk / 'calls.log').read_text(),
+          'the app\'s own priming turn does not take the register (it is not his turn)')
+    desk.stdin.write(user('Start the Northwind job and keep Mark on it.'))
+    desk.stdin.flush()
+    said = answers(desk)
+    check(said == 'On it! Start the Northwind job and keep Mark on it.', 'the front desk says the register\'s words', said)
+    log = (walk / 'calls.log').read_text()
+    check('register ok' in log and not (walk / 'register').exists(), 'the job was written down once through the register', log)
+    check(events(desk_journal, 'SubagentStart') == [], 'the front desk launches no work-agent')
+    desk.stdin.close()
+    desk.wait()
+
+    back, back_journal = lease('back-end', back_config)
+    back.stdin.write(user('The assignment: Start the Northwind job.'))
+    back.stdin.flush()
+    desk_tools = set(inits[-1].get('tools', []))
+    answers(back)  # the turn has ended; the helper keeps running
+    work_tools = {f'mcp__richos_work__{t}' for t in ('repositories', 'prepare', 'inspect', 'integrate', 'complete')}
+    check(work_tools <= set(inits[-1].get('tools', [])) and not work_tools & desk_tools,
+          'only the back end declares the five work tools (native.rs work_readiness_facts)')
+    check(events(back_journal, 'SubagentStart') == ['work-agent-1'], 'the back end launched the work-agent', events(back_journal, 'SubagentStart'))
+    deadline = time.time() + 20
+    while 'gate work-agent-1 exit 0' not in (walk / 'calls.log').read_text() and time.time() < deadline:
+        time.sleep(0.2)
+    check('gate work-agent-1 exit 0' in (walk / 'calls.log').read_text(), 'after the turn, the helper steps through the gate (admitted)')
+    flag.touch()
+    deadline = time.time() + 20
+    while events(back_journal, 'SubagentStop') == [] and time.time() < deadline:
+        time.sleep(0.2)
+    check(events(back_journal, 'SubagentStop') == ['work-agent-1'], 'the order ends the helper between turns (SubagentStop)')
+    second, second_journal = lease('back-end-2', back_config)
+    second.stdin.write(user('Helpers you started were stopped. RichOS handoff: continue.'))
+    second.stdin.flush()
+    answers(second)
+    check(events(second_journal, 'SubagentStart') == [], 'a later back-end lease launches no second set (once per walk)')
+    for run in (back, second):
+        run.stdin.close()
+        run.wait()
 
 print('fake-claude-fill-first:', 'FAILED' if failed else 'all passed')
 sys.exit(1 if failed else 0)
