@@ -1,0 +1,68 @@
+---
+name: watch-video
+description: Watch a video or screen recording - see what is on screen AND hear what is said - with tooling ALREADY INSTALLED on this Mac. Use whenever a task involves watching, reviewing, analyzing or understanding a video, screen recording, screencast, demo, bug recording or .mov/.mp4/.webm/.mkv file (for example one the CEO recorded). One command gives a timestamped transcript plus still frames at every scene change and every 5 seconds, interleaved in one index you read with the Read tool.
+---
+
+# Watch a video or screen recording — one command, everything already installed
+
+**Do not search for tools, do not download Whisper or any model, do not install
+anything (no pip, no brew, no Hugging Face).** Transcription (whisper.cpp with
+RichOS's own pipeline) and frame extraction (ffmpeg) are installed on this Mac.
+Run this:
+
+```bash
+~/.claude/richos-engine/skills/watch-video/watch.sh <video-file> <output-dir>
+```
+
+It prints the index's path on stdout. Then:
+
+1. `Read` `<output-dir>/watch.md` — frames and transcript paragraphs in time order:
+
+   ```
+   [00m10.0s] FRAME <output-dir>/frames/frame-0003-t00m10.0s.png  (no change for 5s)
+
+   **[00:11] Me:** I have the option to toggle that sidebar and close it.
+
+   [00m12.6s] FRAME <output-dir>/frames/frame-0004-t00m12.6s.png  (scene change (0.068910))
+   ```
+
+2. `Read` each FRAME path (a PNG, at most 1920 px wide) to see the screen at that
+   moment, beside the words spoken around it. The Read tool shows images.
+
+- `<output-dir>`: a new or empty directory **outside every repository**, in your
+  own scratch, e.g. `/Volumes/E1TB/tmp/claude/<your-name>/watch-1`.
+- Speed: about 28 s for a 2.4-minute 1080p screen recording on this Mac, giving
+  42 frames and a 270-word transcript (measured 2026-10-07).
+- Non-English speech: add `--lang <code>` or `--lang auto`.
+- A long recording: frames come at most 12 a minute; for more than about 10
+  minutes add `--every 15`, or read only the frames near the moments that matter.
+- A recording with no sound still gets its frames; `watch.md` says there is no
+  transcript.
+- Delete the output directory when your task is done.
+
+## The frame rule, and why
+
+A frame is kept when the screen changes (scene score over **0.05**, judged at 5
+frames a second, at most one per second of a transition), and otherwise at least
+every **5 seconds**. On the CEO's screen recording of 2026-10-07 a panel opening
+scored 0.10-0.30 and typing or a pointer move scored under 0.01, so 0.05 catches
+the first and skips the second. The 5-second floor covers what the threshold
+skips (typed text, a slow scroll, the pointer showing "this button here"): it is
+about one spoken sentence, so every transcript paragraph has a frame from inside
+it. The values live in `watch.sh`; nobody types them.
+
+## Also in `<output-dir>`
+
+`transcript.md` on its own, `pipeline.log`, and `pipeline/<session>/` with
+`verification.json` (coverage and guard warnings). "Me" in the transcript means
+the recording's sound, not a speaker; see the `audio-transcription` skill for
+the transcript's details.
+
+## When it stops
+
+| Exit | Meaning | Do |
+|---|---|---|
+| 1 | usage, missing file, no video track, a tool not on PATH, output dir not empty | fix the call; never install a tool, report a missing one to the lead; for audio only use `audio-transcription` |
+| 2 | frames written, transcription failed; the reason is printed and in `watch.md` | use the frames, report the transcription output to the lead |
+
+Audio only (no picture to see): use the `audio-transcription` skill.

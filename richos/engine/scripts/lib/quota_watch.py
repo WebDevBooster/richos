@@ -53,8 +53,15 @@ capped at 256 KiB. It never sends a user message, so it is not a model turn.
 One difference, on purpose: the desktop keeps one connection open; this
 watcher is a short-lived script with 5 minutes between polls, so it starts
 the process in its own process group, captured at spawn, and ends that group
-on every read. The working directory is `/`, which this user cannot write, so
-a read cannot leave anything behind. Measured here on 2026-09-25 with claude
+on every read. The working directory is `/var/empty` (CONTROL_CWD), which is
+empty and which this user cannot write, so a read can neither leave anything
+behind nor read anything there. Never `/` (it was until 2026-10-07): at start
+Claude Code lists every file under its working directory (`rg --no-config
+--files --hidden <cwd>`, 2.1.292), so from `/` every read walked the whole
+disk, and run from launchd, where no Terminal with Full Disk Access stands in
+front of it, each protected place it reached (Desktop, Downloads, the external
+SSD, network volumes) put a macOS permission dialog on the CEO's screen.
+Measured here on 2026-09-25 with claude
 2.1.282: initialize 1.2 s, get_usage 7.2 s, five_hour answered, the only
 message type on stdout `control_response`, nothing written to the working
 directory and no transcript under ~/.claude/projects.
@@ -317,6 +324,9 @@ MAX_FRAME = 256 * 1024
 CONTROL_ARGS = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--verbose",
                 "--setting-sources", "", "--no-session-persistence", "--tools", "",
                 "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+# Empty and unwritable: Claude Code lists every file under its working directory
+# at start, so this is the only place it looks (the module docstring says why).
+CONTROL_CWD = "/var/empty"
 
 PAUSE_UNTIL_PREFIX = "the five-hour quota reset"
 CONFIG_KEY = "QUOTA_PAUSE_PERCENT"
@@ -504,7 +514,7 @@ def read_get_usage(now, deadline_s=None):
         errf = subprocess.DEVNULL
     started = _monotonic()
     try:
-        proc = subprocess.Popen([b] + CONTROL_ARGS, cwd="/", env=env, stdin=subprocess.PIPE,
+        proc = subprocess.Popen([b] + CONTROL_ARGS, cwd=CONTROL_CWD, env=env, stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=errf, start_new_session=True)
     except OSError as e:
         r["state"], r["why"] = "failed", "cannot start %s (%s)" % (b, e.__class__.__name__)

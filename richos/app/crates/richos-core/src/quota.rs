@@ -14,6 +14,7 @@ pub mod holds;
 pub mod probe;
 pub mod resets;
 pub mod terminal;
+pub mod tokens;
 pub mod reset_transport;
 pub mod reset_tools;
 
@@ -132,26 +133,25 @@ impl Reading {
     pub fn reaches(&self, window: &Window, threshold: f64) -> bool {
         window.used_percent >= self.act_point(window, threshold)
     }
-    /// **The weekly handoff point** (weekly-switch plan §1; his words, 2026-10-07: at 99%,
-    /// *"Unless the current token consumption velocity is very high. In that case the handoff
-    /// command must come 1 or 2 percentage points earlier than 99%"*):
+    /// **The weekly handoff point** (weekly-switch plan §1; his words, 2026-10-07: *"the
+    /// percentage for the switch needs to be adjusted dynamically so that this doesn't happen.
+    /// My "1-2% sooner" was just guesswork."*, "this" being 100% before the switch):
     ///
-    /// `point = 99 - min(2, max(0, ceil(s x (I + H)) - 1))`
+    /// `point = 99 - max(0, ceil(s x (I + H)) - 1)`
     ///
     /// with `s` the window's measured speed, `I` the time to the next check (`interval`) and
     /// `H` the time a teammate needs to hand off (`HANDOFF_MS`). If the wait for the next check
-    /// and the handoff would use 1 point or less, it is 99; up to 2 points, 98; more, 97. Every
-    /// weekly decision uses it, so the account switch and the order to every teammate on the
-    /// account fire at the same moment. 99 is the test cut-off instead, on the one account it
-    /// names (`weekly_cutoff`).
-    ///
-    /// Unlike `act_point`, it never goes below 97 (two points under the base): at an extreme
-    /// speed the switch comes later than `100 - s x I` would put it (Frank's review, minor 11).
+    /// and the handoff would use 1 point or less, it is 99; up to 2 points, 98; up to 5, 95;
+    /// and so on, as early as the speed requires, with no floor but 0. So the point plus
+    /// `s x (I + H)` is at or under 100 at any speed: the next check and the handoff end by
+    /// 100%. Every weekly decision uses it, so the account switch and the order to every
+    /// teammate on the account fire at the same moment. 99 is the test cut-off instead, on the
+    /// one account it names (`weekly_cutoff`).
     pub fn weekly_point(&self, window: &Window) -> f64 {
         let base = self.weekly_cutoff.unwrap_or(resets::WEEKLY_THRESHOLD);
         let speed = self.speeds.get(&window.id).copied().unwrap_or(0.);
         let points = speed * (self.interval() + HANDOFF_MS) as f64;
-        let earlier = (points.ceil() - 1.).clamp(0., 2.);
+        let earlier = (points.ceil() - 1.).max(0.);
         (base - earlier).clamp(0., 100.)
     }
     /// Has this weekly window reached its handoff point?
@@ -504,6 +504,9 @@ struct Snapshot {
     /// The last check came back with no figures at this moment (`View::empty_at`). A reading
     /// (`accept`) clears it.
     empty_at: Option<u64>,
+    /// The weekly speed from the last minute's token use, points per millisecond
+    /// (`tokens::Track::speed`), set at every token scan (`Service::track_tokens`).
+    token_speed: Option<f64>,
 }
 
 /// One window's reading as a speed base: used percent, its reset time, and when it was read.
@@ -547,8 +550,18 @@ impl Snapshot {
         self.reading_with(None, crate::util::now_millis())
     }
     /// This account's reading, with its test cut-off (`Reading::weekly_cutoff`).
+    ///
+    /// **The weekly speed is the larger of the percentage speed and the token speed** (the CEO,
+    /// 2026-10-07): live tokens move it before the percentage does, and the percentage speed
+    /// stays its floor, for a model with no tokens-per-point figure yet and for use this Mac's
+    /// transcripts cannot see.
     fn reading_with(&self, weekly_cutoff: Option<f64>, now: u64) -> Reading {
-        Reading { windows: self.windows.clone(), speeds: self.speeds.clone(),
+        let mut speeds = self.speeds.clone();
+        if let Some(tokens) = self.token_speed.filter(|s| *s > 0.) {
+            let speed = speeds.entry("seven_day".to_string()).or_insert(0.);
+            *speed = speed.max(tokens);
+        }
+        Reading { windows: self.windows.clone(), speeds,
             expected: self.rise_until.is_some_and(|t| t > now), rises: self.rises.clone(), weekly_cutoff }
     }
     fn accept(&mut self, mut windows: Vec<Window>, observed: u64) {
@@ -562,8 +575,8 @@ impl Snapshot {
         let speeds = std::mem::take(&mut self.speeds);
         let bases = std::mem::take(&mut self.bases);
         let rises = std::mem::take(&mut self.rises);
-        let rise_until = self.rise_until;
-        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rises, rise_until, empty_at: None };
+        let (rise_until, token_speed) = (self.rise_until, self.token_speed);
+        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rises, rise_until, empty_at: None, token_speed };
     }
     /// **A check that came back with no figures.** Every kind records when, so the pause stops
     /// waiting on it (`Admission::NoReading`). A null answer (`ReadError::NoReading`) is not a
@@ -707,7 +720,9 @@ impl Snapshot {
             accounts: Vec::new(),
             held_until: None,
             at_threshold: Default::default(),
-            speeds: self.speeds.clone(),
+            // The speeds the check points were computed from, token speed included, so the
+            // separate-process gate decides from the same figures.
+            speeds: reading.speeds.clone(),
             act_at,
             rises: self.rises.clone(),
             agents_working: 0,
@@ -766,7 +781,22 @@ pub struct Service {
     /// The test cut-off this app was launched with (`test_weekly_cutoff`, weekly-switch plan
     /// §4): one account and its weekly point. `None` in every ordinary launch.
     weekly_cutoff: Option<(String, f64)>,
+    /// Each account's token reader and its learned episodes (`tokens::Track`).
+    tokens: Mutex<BTreeMap<String, tokens::Track>>,
+    /// Account 1's Claude Code folder, whose transcripts are its token use: the app's own
+    /// (`CLAUDE_CONFIG_DIR`, else `~/.claude`), set only by the desktop entrypoint so tests and
+    /// simulations never read the developer's transcripts. Added accounts use their folder.
+    transcripts_one: Option<PathBuf>,
+    /// When the transcripts were last read (`track_tokens`).
+    scanned_at: std::sync::atomic::AtomicU64,
 }
+
+/// The shortest gap between two transcript reads from the monitor's one-second tick.
+pub const TOKEN_SCAN_MS: u64 = 10_000;
+
+/// Every account's learned weekly episodes (`tokens::Episode`), kept across launches so the
+/// token speed does not start from nothing at every launch.
+pub const TOKEN_POINTS_FILE: &str = "claude-token-points.json";
 
 /// The gate appends one line per agent dispatch here (`gate.rs`); the service counts them.
 pub const DISPATCH_LOG: &str = "agent-dispatches.log";
@@ -800,7 +830,10 @@ impl Service {
     /// Production desktop entrypoint. Tests and simulations keep `open` isolated.
     pub fn open_account_wide(data_dir: &Path) -> io::Result<Self> {
         let reset_dir = terminal::data_dir().map_err(io::Error::other)?;
-        Self::open_with_reset_dir(data_dir, &reset_dir)
+        let mut service = Self::open_with_reset_dir(data_dir, &reset_dir)?;
+        let nonempty = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+        service.transcripts_one = nonempty("CLAUDE_CONFIG_DIR").or_else(|| nonempty("HOME").map(|h| h.join(".claude")));
+        Ok(service)
     }
     fn open_with_reset_dir(data_dir: &Path, reset_dir: &Path) -> io::Result<Self> {
         let mut service = Self::open(data_dir)?;
@@ -823,6 +856,9 @@ impl Service {
             Err(e) => return Err(e),
         };
         let control = std::sync::Arc::new(probe::Control::default());
+        // A missing or unreadable file is no episodes yet: the figures are learned again.
+        let learned: BTreeMap<String, Vec<tokens::Episode>> = fs::read(data_dir.join(TOKEN_POINTS_FILE)).ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
         let service = Self {
             resets: resets::Service::new(data_dir),
             last_reset_marker: Mutex::new(None),
@@ -847,6 +883,9 @@ impl Service {
             agents_working: std::sync::atomic::AtomicUsize::new(0),
             utc_offset_minutes: Mutex::new(None),
             weekly_cutoff: test_weekly_cutoff(),
+            tokens: Mutex::new(learned.into_iter().map(|(id, e)| (id, tokens::Track::with_episodes(e))).collect()),
+            transcripts_one: None,
+            scanned_at: std::sync::atomic::AtomicU64::new(0),
         };
         service.publish()?;
         Ok(service)
@@ -969,12 +1008,48 @@ impl Service {
                 snapshot.observe(&windows, observed);
             }
         }
+        self.track_tokens();
         self.decide();
         self.note_speed();
         self.note_held();
         self.note_accounts();
         let _best_effort = self.publish();
         self.accounts.in_use().id
+    }
+
+    /// **Token use, before every decision** (`tokens`): read what each account's transcripts
+    /// gained, give its freshest weekly reading to its track (an episode may close: tokens per
+    /// point are learned from it), and set its token speed from the last minute. True when a
+    /// token speed changed.
+    fn track_tokens(&self) -> bool {
+        let now = crate::util::now_millis();
+        self.scanned_at.store(now, std::sync::atomic::Ordering::SeqCst);
+        let (mut learned, mut moved) = (false, false);
+        for account in self.accounts.list() {
+            let one = account.id == crate::claude_accounts::ACCOUNT_ONE;
+            let Some(folder) = (if one { self.transcripts_one.clone() } else { account.folder.clone() }) else { continue };
+            let week = |s: &Snapshot| s.windows.iter().find(|w| w.id == "seven_day").cloned().zip(s.checked_at);
+            let reading = if one { week(&self.snapshot.lock().unwrap()) }
+                else { self.extra.lock().unwrap().get(&account.id).and_then(|(_, s)| week(s)) };
+            let speed = {
+                let mut tracks = self.tokens.lock().unwrap();
+                let track = tracks.entry(account.id.clone()).or_default();
+                track.scan(&folder, now);
+                if let Some((window, at)) = reading { learned |= track.reading(&window, at, now); }
+                track.speed(now)
+            };
+            let mut set = |s: &mut Snapshot| { moved |= s.token_speed != Some(speed); s.token_speed = Some(speed); };
+            if one { set(&mut self.snapshot.lock().unwrap()); }
+            else if let Some((_, snapshot)) = self.extra.lock().unwrap().get_mut(&account.id) { set(snapshot); }
+        }
+        if learned {
+            let episodes: BTreeMap<String, Vec<tokens::Episode>> = self.tokens.lock().unwrap().iter()
+                .map(|(id, t)| (id.clone(), t.episodes.clone())).collect();
+            if let Err(error) = atomic_write(&self.cwd.join(TOKEN_POINTS_FILE), &episodes) {
+                eprintln!("[richos] quota: the tokens per point could not be kept ({error})");
+            }
+        }
+        moved
     }
 
     /// **Detect very high speed once** (plan §15 answer 9, the same detection that moves the
@@ -1377,9 +1452,16 @@ impl Service {
             }
         }
         self.refresh_windows(bin, force || changed);
+        if self.accounts.count() > 1 { self.refresh_accounts(bin, force); }
+        // The monitor ticks every second; transcripts are read at most every `TOKEN_SCAN_MS`
+        // here (every turn reads them anyway, `before_turn`).
+        let now = crate::util::now_millis();
+        let moved = now >= self.scanned_at.load(std::sync::atomic::Ordering::SeqCst) + TOKEN_SCAN_MS
+            && self.track_tokens();
         if self.accounts.count() > 1 {
-            self.refresh_accounts(bin, force);
             self.decide();
+            if let Err(error) = self.publish() { eprintln!("[richos] quota snapshot: {error}"); }
+        } else if moved {
             if let Err(error) = self.publish() { eprintln!("[richos] quota snapshot: {error}"); }
         }
         self.note_speed();
@@ -1544,6 +1626,52 @@ pub(crate) mod tests {
             ..Default::default()
         }
     }
+    /// **The CEO, 2026-10-07**: the weekly switch point reacts to live token use before the
+    /// weekly percentage moves. The app learns Opus's tokens per point from its own readings
+    /// (51% to 52% took 1,000,000 Opus tokens), then 2,000,000 Opus tokens in the last minute
+    /// are 2 points a minute while the window still reads 52%.
+    #[test]
+    fn a_burst_of_opus_tokens_moves_the_weekly_switch_point_before_the_percentage_moves() {
+        let root = Scratch::new();
+        let mut service = Service::open(&root.path().join("app")).unwrap();
+        let folder = root.path().join("claude");
+        service.transcripts_one = Some(folder.clone());
+        let transcript = folder.join("projects").join("p").join("session.jsonl");
+        fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        let now = crate::util::now_millis();
+        let (minute, hour) = (60_000, 3_600_000);
+        let append = |id: &str, at: u64, tokens: u64| {
+            use io::Write;
+            let t = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(at) * 1_000_000).unwrap();
+            let stamp = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", t.year(), u8::from(t.month()), t.day(),
+                t.hour(), t.minute(), t.second(), t.millisecond());
+            let line = json!({"type": "assistant", "timestamp": stamp, "message": {"id": id, "model": "claude-opus-5-5",
+                "usage": {"input_tokens": 0, "output_tokens": 1_000, "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": tokens - 1_000}}});
+            // Claude Code writes one message several times; it counts once.
+            let mut file = fs::OpenOptions::new().create(true).append(true).open(&transcript).unwrap();
+            writeln!(file, "{line}\n{line}").unwrap();
+        };
+        let week = |used: f64, at: u64| (vec![Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: used,
+            resets_at: Some(now + 72 * hour), duration_ms: 168 * hour }], at);
+        let one = crate::claude_accounts::ACCOUNT_ONE;
+        service.before_turn(one, Some(week(50., now - 3 * hour)));
+        service.before_turn(one, Some(week(51., now - 2 * hour)));
+        append("msg_1", now - 90 * minute, 1_000_000);
+        service.before_turn(one, Some(week(52., now - hour)));
+        let before = service.view();
+        assert_eq!(before.act_at["seven_day"], 99., "a point an hour switches at 99%");
+        assert!(root.path().join("app").join(TOKEN_POINTS_FILE).exists(), "the tokens per point are kept");
+        // The burst: still 52%.
+        append("msg_2", now - 20_000, 2_000_000);
+        service.before_turn(one, Some(week(52., now - 1_000)));
+        let after = service.view();
+        assert_eq!(after.windows[0].used_percent, 52.);
+        let per_minute = after.speeds["seven_day"] * minute as f64;
+        assert!((per_minute - 2.).abs() < 1e-9, "2,000,000 / 1,000,000 tokens a point = 2 points a minute, got {per_minute}");
+        assert!(after.act_at["seven_day"] < 99., "the switch point moved: {}", after.act_at["seven_day"]);
+    }
+
     #[test]
     fn weekly_99_holds_until_fresh_allowance_even_near_five_hour_reset() {
         let mut state = snapshot(100., RESET_EXEMPTION_MS - 1);
@@ -1767,7 +1895,8 @@ pub(crate) mod tests {
     /// published view (the panel's) carries them. Five-hour gaining 8 a minute: 100 - 8 = 92
     /// (from 93). Weekly gaining 2 a minute, checked every minute: the next check and a
     /// 10-minute handoff use 2 x (1 + 10) = 22 points, so the weekly handoff point is
-    /// 99 - 2 = 97 (weekly-switch plan §1; it was 100 - 2 = 98 before the handoff existed).
+    /// 99 - (22 - 1) = 78, and 78 + 22 = 100 (weekly-switch plan §1; it was 100 - 2 = 98
+    /// before the handoff existed, and 97 while the handoff point was capped two points early).
     #[test]
     fn a_measured_jump_moves_both_check_points_and_the_view_shows_them() {
         let mut s = Snapshot::default();
@@ -1775,34 +1904,49 @@ pub(crate) mod tests {
         assert_eq!(s.view(policy(), NOW).act_at, [("five_hour".to_string(), 93.), ("seven_day".to_string(), 99.)].into());
         s.accept(both_at(48., 62.), NOW + 60_000);
         let act = s.view(policy(), NOW + 60_000).act_at;
-        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 97.).abs() < 1e-9, "{act:?}");
+        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 78.).abs() < 1e-9, "{act:?}");
     }
 
     // ---- the weekly switch handoff (richos-hq docs/plans/2026-10-07-weekly-switch-handoff.md) --
 
-    /// **Plan §1, the weekly handoff point at three measured speeds**, checked every 5 minutes
-    /// (none of them is fast: the five-hour window does not move) with a 10-minute handoff, so
-    /// `s x (I + H)` is the speed times 15 minutes:
-    /// - 0.05 a minute: 0.75 points, 1 or less, so 99;
-    /// - 0.1 a minute: 1.5 points, up to 2, so 98, one point earlier;
-    /// - 0.3 a minute: 4.5 points, more than 2, so 97, two points earlier (never lower).
+    /// **Plan §1, the weekly handoff point moves as early as the measured speed requires**
+    /// (his words, 2026-10-07: *"the percentage for the switch needs to be adjusted dynamically
+    /// so that this doesn't happen"*, "this" being 100% before the switch). With a 10-minute
+    /// handoff, `s x (I + H)` is the speed times 15 minutes when checked every 5, and times 11
+    /// when the speed is fast enough to check every minute:
+    /// - 0.05 a minute: 0.05 x 15 = 0.75 points, 1 or less, so 99;
+    /// - 0.1 a minute: 0.1 x 15 = 1.5 points, so 98;
+    /// - 0.3 a minute: 0.3 x 15 = 4.5 points, so 95;
+    /// - 1 point in 3 minutes: (1 / 3) x 15 = 5 points, so 95;
+    /// - 4 a minute (fast, checked every minute): 4 x 11 = 44 points, so 56.
     ///
-    /// The published point and the weekly hold agree: at the point the view holds, a tenth
-    /// under it the view admits.
+    /// At every speed the point plus `s x (I + H)` is at or under 100: the next check and the
+    /// handoff end by 100%. The published point and the weekly hold agree: at the point the
+    /// view holds, a tenth under it the view admits.
     #[test]
-    fn the_weekly_handoff_point_is_99_98_or_97_at_three_measured_speeds() {
-        for (gain, point) in [(0.05, 99.), (0.1, 98.), (0.3, 97.)] {
+    fn the_weekly_handoff_point_moves_as_early_as_the_measured_speed_requires() {
+        for (gain, minutes, interval, point) in [
+            (0.05, 1, REFRESH_INTERVAL_MS, 99.),
+            (0.1, 1, REFRESH_INTERVAL_MS, 98.),
+            (0.3, 1, REFRESH_INTERVAL_MS, 95.),
+            (1., 3, REFRESH_INTERVAL_MS, 95.),
+            (4., 1, FAST_REFRESH_INTERVAL_MS, 56.),
+        ] {
             let mut s = Snapshot::default();
             s.accept(both_at(40., 60.), NOW);
-            s.accept(both_at(40., 60. + gain), NOW + 60_000);
-            let view = s.view(policy(), NOW + 60_000);
-            assert_eq!(view.refresh_interval_ms, REFRESH_INTERVAL_MS, "{gain} a minute is not fast");
-            assert!((view.act_at["seven_day"] - point).abs() < 1e-9, "{gain} a minute: {:?}", view.act_at);
+            let at = NOW + minutes * 60_000;
+            s.accept(both_at(40., 60. + gain), at);
+            let view = s.view(policy(), at);
+            assert_eq!(view.refresh_interval_ms, interval, "{gain} in {minutes} min");
+            assert!((view.act_at["seven_day"] - point).abs() < 1e-9, "{gain} in {minutes} min: {:?}", view.act_at);
             assert_eq!(view.act_at["five_hour"], 93., "the five-hour point is untouched");
+            let reading = s.reading();
+            let wait_and_handoff = reading.speeds["seven_day"] * (reading.interval() + HANDOFF_MS) as f64;
+            assert!(point + wait_and_handoff <= 100. + 1e-9, "{gain} in {minutes} min: {point} + {wait_and_handoff} passes 100");
             for (used, held) in [(point - 0.1, false), (point, true)] {
                 s.windows[1].used_percent = used;
-                let admission = s.view(policy(), NOW + 60_000).admission;
-                assert_eq!(matches!(admission, Admission::Held { .. }), held, "{gain} a minute at {used}%: {admission:?}");
+                let admission = s.view(policy(), at).admission;
+                assert_eq!(matches!(admission, Admission::Held { .. }), held, "{gain} in {minutes} min at {used}%: {admission:?}");
             }
         }
     }
