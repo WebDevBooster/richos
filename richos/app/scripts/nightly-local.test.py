@@ -377,6 +377,35 @@ class LocalTests(unittest.TestCase):
         r.runtime.assert_not_called()
         r.command.assert_not_called()
 
+    def test_a_changed_runtime_recipe_builds_its_own_runtime(self):
+        # Frank's media-tools review M3: the cache used to be <state>/runtime whatever the
+        # recipe said, so the first nightly after a recipe change found the old runtime and
+        # verify-runtime.py refused it. Keyed to the recipe, a changed recipe names a new
+        # directory, which runtime() builds; the old one is left unused.
+        r = m.Runner(self.root, self.root / "state", {}, io.StringIO())
+        recipe = r.source / m.SCRIPTS / "runtime-sources.json"
+        recipe.parent.mkdir(parents=True)
+        recipe.write_text('{"recipe": 1}')
+        old = r.runtime_path()
+        old.mkdir(parents=True)
+        (r.state / "runtime").mkdir()  # the pre-keying cache: never used again
+        r.command = Mock()
+        r.runtime(None)
+        self.assertEqual([Path(c.args[1]).name for c in r.command.call_args_list], ["verify-runtime.py"])
+        self.assertEqual(r.command.call_args.args[2], old)
+        recipe.write_text('{"recipe": 2}')
+        new = r.runtime_path()
+        self.assertNotEqual(new, old)
+        self.assertEqual(new.parent, r.state)
+        self.assertRegex(new.name, r"^runtime-[0-9a-f]{12}$")
+        r.command = Mock()
+        r.runtime(None)
+        self.assertEqual([(Path(c.args[1]).name, c.args[2]) for c in r.command.call_args_list],
+                         [("build-runtimes.py", new), ("verify-runtime.py", new)])
+        self.assertEqual(r.env["RICHOS_RUNTIME_DIR"], str(new))
+        # An operator's --runtime-dir is used as given.
+        self.assertEqual(r.runtime_path(self.root / "mine"), self.root / "mine")
+
     def test_command_timeout_does_not_expose_signing_password(self):
         r = m.Runner(self.root, self.root, {}, io.StringIO())
         args = ["cargo", "tauri", "signer", "sign", "-p", "secret-password"]

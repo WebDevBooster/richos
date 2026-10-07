@@ -2978,6 +2978,18 @@ fn main() {
             // would otherwise be asked every launch.
             let boot_engine: Option<PathBuf> =
                 resolution.source.is_some().then(|| engine.clone());
+            // THE SPEECH DECODER THE ENGINE DELIVERED. `whisper-cli` is in the verified runtime
+            // since 2026-10-07 (build-runtimes.py); voice resolves it before PATH or Homebrew.
+            // Set here, before the window can ask `voice_readiness`, and again by first-run
+            // setup when it installs an engine (`setup_view::run`). The full hash this costs is
+            // not paid twice: the recovery block below verifies the same runtime and
+            // `runtime.rs` re-reads only files whose stamp changed.
+            richos_voice::stt::set_delivered_runtime_bin(
+                boot_engine
+                    .as_deref()
+                    .and_then(|dir| richos_core::runtime::verify_engine(dir).ok())
+                    .map(|runtime| runtime.root.join("bin")),
+            );
             // THE CELL THE LEASE FACTORY READS. Shared, so a successful first-run install can
             // re-point it without a relaunch (`setup_view::run`).
             let engine_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(engine.clone()));
@@ -4239,8 +4251,9 @@ fn ensure_model_fetch_state(app: &AppHandle) -> std::sync::Arc<voice_provision::
 
 /// **CAN THIS MACHINE TURN SPEECH INTO WORDS?** Asked WITHOUT touching the microphone.
 ///
-/// `Recognizer::resolve` is `stt.rs`'s own resolution — `RICHOS_WHISPER_BIN`, then `PATH`,
-/// then the Homebrew prefixes for the binary; `RICHOS_VOICE_WHISPER_MODEL`/
+/// `Recognizer::resolve` is `stt.rs`'s own resolution — `RICHOS_WHISPER_BIN`, then the engine
+/// runtime's `bin/whisper-cli`, then `PATH`, then the Homebrew prefixes for the binary;
+/// `RICHOS_VOICE_WHISPER_MODEL`/
 /// `RICHOS_WHISPER_MODEL`, then `RICHOS_MODEL_DIR`, then FOUR per-user directories for the
 /// model — `~/.config/richos/models` joined the walk on 2026-09-17 and is where
 /// `provision.rs` installs what it downloads. It reads paths and runs `command -v`; it opens
@@ -4253,16 +4266,20 @@ fn ensure_model_fetch_state(app: &AppHandle) -> std::sync::Arc<voice_provision::
 /// the discipline `wire_company_memory` already establishes for the corpus.
 ///
 /// **The shipping bundle carries no whisper binary and no model** (`tauri.conf.json`
-/// declares no `resources` and no `externalBin`), so on a customer's fresh Mac this is
-/// `Err`, and it is `Err` before the microphone is ever asked for.
+/// declares no `resources` and no `externalBin`), so on a customer's fresh Mac, before
+/// first-run setup has installed the engine, this is `Err`, and it is `Err` before the
+/// microphone is ever asked for.
 ///
 /// **WHAT CHANGED ON 2026-09-17.** It is still `Err` on a fresh Mac, and it must be — a hot mic
 /// on a machine that cannot transcribe is the defect `voice_readiness` exists to prevent. What
 /// is new is that one of the two reasons for that `Err` is now something RichOS can fix by
-/// itself: `provision_speech_model` fetches the pinned weights this machine resolved to. The
-/// decoder is NOT fetchable and never will be here — `model-pins.json` explains why a Homebrew
-/// binary cannot carry a source pin — so `stt::readiness` separates the two and only the model
-/// gap is ever offered.
+/// itself: `provision_speech_model` fetches the pinned weights this machine resolved to.
+///
+/// **WHAT CHANGED ON 2026-10-07.** The other reason is gone on any Mac that has an engine: the
+/// engine's runtime carries `whisper-cli`, built from pinned whisper.cpp 1.9.1 source
+/// (`scripts/build-runtimes.py`) and installed by first-run setup, so the decoder arrives with the
+/// engine and the app download does not grow. `stt::readiness` still separates the two gaps, and
+/// only the model gap is offered for download here.
 fn speech_preflight() -> Result<(), String> {
     richos_voice::stt::Recognizer::resolve().map(|_| ()).map_err(|e| e.ceo_message())
 }

@@ -21,7 +21,7 @@ class RuntimeInventoryTests(unittest.TestCase):
         self.sources = Path(self.temp.name) / "sources.json"
         self.sources.write_text('{"synthetic":true}')
         (self.root / "runtime-sources.json").write_bytes(self.sources.read_bytes())
-        for name in ("python3", "node", "git", "jq"):
+        for name in ("python3", "node", "git", "jq", "whisper-cli"):
             path = self.root / "bin" / name
             path.write_text("#!/bin/sh\nexit 0\n")
             path.chmod(0o755)
@@ -63,11 +63,35 @@ class RuntimeInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not executable"):
             module.verify(self.root, self.sources)
 
+    def test_runtime_without_the_speech_decoder_refuses(self):
+        # Voice mode on a user's Mac has no other whisper-cli; a runtime without it never ships.
+        (self.root / "bin/whisper-cli").chmod(0o644)
+        with self.assertRaisesRegex(ValueError, "not executable: whisper-cli"):
+            module.verify(self.root, self.sources)
+
     def test_invalid_member_name_refuses(self):
         self.manifest["files"]["../outside"] = "0" * 64
         self.save()
         with self.assertRaisesRegex(ValueError, "member name"):
             module.verify(self.root, self.sources)
+
+
+class TrackedRecipeTests(unittest.TestCase):
+    """The tracked recipe itself: every source pinned, and the speech decoder at the reference
+    version the decode settings were measured on."""
+    recipe = json.loads(Path(__file__).with_name("runtime-sources.json").read_text())
+
+    def test_every_source_is_an_https_url_with_a_sha256_pin(self):
+        for name, source in self.recipe["sources"].items():
+            self.assertTrue(source["url"].startswith("https://"), name)
+            self.assertRegex(source["sha256"], r"^[0-9a-f]{64}$", name)
+
+    def test_whisper_cpp_is_the_reference_build_version(self):
+        pins = Path(__file__).resolve().parents[2] / "engine/voice/models/model-pins.json"
+        reference = json.loads(pins.read_text())["toolchain"]["whisperCppVersion"]
+        whisper = self.recipe["sources"]["whisper-cpp"]
+        self.assertEqual(whisper["version"], reference)
+        self.assertIn(f"/v{reference}.tar.gz", whisper["url"])
 
 
 if __name__ == "__main__":

@@ -17,7 +17,8 @@ pulls the results back, and deletes the clone however the run ends (§54).
 
 W4 (the work path's crash matrix, richos-hq docs/plans/2026-09-27-work-path-answer-delivery-design.md
 §4.2) runs a real work lease, which needs the delivered runtime the app ships: --runtime names one
-(default ~/.richos-nightly/runtime, read only), and it is copied into the guest with the binary.
+(default the nightly's runtime for this recipe,
+~/.richos-nightly/runtime-<recipe sha256[:12]>, read only), and it is copied into the guest with the binary.
 
 Exit: the guest driver's exit code (0 when every probe that ran PASSED; 1 when any FAILED
 or its premise was false; 2 for a harness failure), or 75 when admission was refused.
@@ -45,6 +46,8 @@ TESTVM = HERE.parent / 'testvm'
 REPO = HERE.parents[3]
 sys.path.insert(0, str(TESTVM))
 from slots import guest_slot  # noqa: E402
+sys.path.insert(0, str(HERE.parent / 'lib'))
+import runtime_cache  # noqa: E402
 
 
 def sh(args, timeout=None, **kw):
@@ -107,7 +110,8 @@ def main():
                    help='the operator_walk example binary (cargo build --example operator_walk), for the W2 walk')
     p.add_argument('--work-walk-binary', type=Path, default=None,
                    help='the work_walk example binary (cargo build --features crash-points --example work_walk), for W4')
-    p.add_argument('--runtime', type=Path, default=Path.home() / '.richos-nightly' / 'runtime',
+    p.add_argument('--runtime', type=Path, default=runtime_cache.cache_path(Path.home() / '.richos-nightly',
+                                                                          HERE.parent / 'runtime-sources.json'),
                    help='a delivered runtime (delivery.json and its files) for W4\'s work lease; read, never written')
     p.add_argument('--w4-cells', default='',
                    help='comma-separated work crash-matrix cells for W4 (baseline,P4-carry,P4-sent,P5,P4e,P7; default '
