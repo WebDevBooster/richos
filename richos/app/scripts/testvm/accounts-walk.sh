@@ -289,12 +289,15 @@ done
 [ "$quota_open" = 1 ] || fail "5b the Claude Code quota sheet did not open"
 quota_refresh "5b Refresh, so the card reads a current figure"
 sleep 6
-auto_v=$(ax find --title 'Automatically pause' --contains --json 2>/dev/null | python3 -c '
+# The switch is named "Automatically pause Rich's agents" with one account and "Automatic pause or
+# switch at the line" with several (quota.js), so it is found by the word both names share
+# (walk-7f24258100bf looked for the one-account name with two accounts and found nothing).
+auto_v=$(ax find --title 'Automatic' --contains --json 2>/dev/null | python3 -c '
 import json, sys
 hits = [o for o in (json.loads(l) for l in sys.stdin if l.strip().startswith("{")) if o.get("role") == "AXCheckBox" or o.get("sub") == "AXSwitch"]
 print(hits[0].get("value", "") if len(hits) == 1 else "?%d" % len(hits))')
 note "5b Automatic pause switch: $auto_v"
-ax find --title 'Automatically pause' --contains --json > "$S/5b-auto-switch.json" 2>&1 || true
+ax find --title 'Automatic' --contains --json > "$S/5b-auto-switch.json" 2>&1 || true
 is_on "$auto_v" || fail "5b the quota sheet's Automatic pause is not on (AXValue $auto_v)"
 has 'On. Nothing is waiting.' "5b the status card says the pause is on"
 shot 5b-d13-quota-on
