@@ -4874,14 +4874,47 @@ def merge_and_land(ref, me="", message=""):
             raise SpecError("cannot merge %s: the main checkout %s is on %s, not on %s, the branch this work "
                             "integrates on" % (b, main, head.strip() or "a detached HEAD", target))
         args = ["merge", "--no-ff", "--no-edit"] + (["-m", message] if message else []) + [b]
+        before = git(main, "rev-parse", "HEAD")[1].strip()
         # git's own checks (pre-merge-commit) run here and may take minutes.
         r = subprocess.run(["git", "-C", main] + args, capture_output=True, text=True, env=_git_env())
         if r.returncode != 0:
-            raise SpecError("git merge of %s into %s of %s failed (exit %d); nothing was landed:\n%s"
-                            % (b, target, main, r.returncode, (r.stdout + r.stderr).strip()[-3000:]))
+            raise SpecError("git merge of %s into %s of %s failed (exit %d); nothing was landed:\n%s\n%s"
+                            % (b, target, main, r.returncode, (r.stdout + r.stderr).strip()[-3000:],
+                               _abort_own_merge(main, before, t)))
         merged.append((repo, b))
         event("merged", key=rec["key"], repo=repo, branch=b, into=target)
     return merged, land(rec["key"], me, keep_ignored=True)
+
+
+def _abort_own_merge(main, before, tip):
+    """A REFUSED MERGE LEAVES NO MERGE BEHIND (2026-10-07). When git's own
+    pre-merge-commit check (the merge gate) refuses, git stops with "Not
+    committing merge" and leaves MERGE_HEAD set and the branch's files staged.
+    Three of Rich's lands ended that way and his hand-typed `git merge --abort`
+    then met the operator fence without the land lease, which refused it after
+    git had already rewritten the index.
+
+    The abort runs HERE, as a child of this command. Under the fence, the merge
+    above wrote ORIG_HEAD in the main checkout, which the fence passes only for
+    a process whose ancestor holds the land lease (operator-fences.test.sh F1,
+    F6); the abort writes the same ref from the same ancestry, so the fence
+    accepts it exactly as it accepted the merge. With the fence off nothing is
+    fenced. Only the merge this command started is aborted: MERGE_HEAD must be
+    the branch tip it merged and HEAD the commit it merged into. Returns one
+    line saying what was done, for the refusal it is appended to."""
+    rc, mh, _e = git(main, "rev-parse", "-q", "--verify", "MERGE_HEAD")
+    if rc != 0:
+        return "No merge was left in progress in %s." % main
+    now_head = git(main, "rev-parse", "HEAD")[1].strip()
+    if mh.strip() != tip or not before or now_head != before:
+        return ("A merge is in progress in %s that is not the one this command started (MERGE_HEAD %s, HEAD %s); "
+                "it was left alone." % (main, mh.strip()[:12], now_head[:12]))
+    rc, out, err = git(main, "merge", "--abort", timeout=300)
+    left = git(main, "rev-parse", "-q", "--verify", "MERGE_HEAD")[0] == 0
+    if rc == 0 and not left:
+        return "The merge it started was aborted: %s is back at %s with no merge in progress." % (main, before[:12])
+    return ("The merge it started could NOT be aborted (exit %d) and is still in progress in %s:\n%s"
+            % (rc, main, (out + err).strip()[-2000:]))
 
 
 def _require_landed(rec, chain, ignored_ok="", deadline=None, record=True):
