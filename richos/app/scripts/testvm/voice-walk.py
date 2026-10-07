@@ -158,7 +158,10 @@ class VoiceWalk(adopt_walk.Walk):
         declined = False
         while time.monotonic() < end:
             try:
-                if self.present('Talk to Rich'):
+                # The home screen's door is an AXButton; with no home screen the window opens on
+                # the conversation, whose talk control (#talk-toggle, aria-pressed) is an
+                # AXCheckBox/AXToggle (candidate 43, voice run 4: relaunch-missing.tree).
+                if self.present('Talk to Rich') or self.present('Talk to Rich', role='AXCheckBox'):
                     return True
                 # This walk copies one speech model in and declines setup, so the video tools are
                 # still missing and the relaunched app puts the setup sheet up again (setup

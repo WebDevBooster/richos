@@ -140,6 +140,14 @@ class WindowUpDeclinesTheSetupSheetOnce(unittest.TestCase):
         self.assertEqual(pressed, ['Not now'])
         self.assertTrue(w.facts['relaunch_setup_sheet_declined'])
 
+    def test_with_no_home_screen_the_talk_toggle_is_the_window(self):
+        """Voice run 4: the conversation's talk control is an AXCheckBox, never an AXButton."""
+        w = object.__new__(walk.VoiceWalk)
+        w.facts, w.save, w.shot = {}, (lambda: None), (lambda name: None)
+        w.present = lambda title, role='AXButton', app=None: title == 'Talk to Rich' and role == 'AXCheckBox'
+        w.press = lambda *a, **k: self.fail('nothing to press')
+        self.assertTrue(w.window_up(seconds=5))
+
 
 class AFindIsAskedAgainAClickIsNot(unittest.TestCase):
     """walk-ea458ffa8bca lost first-run to one find that hit the guest deadline."""
