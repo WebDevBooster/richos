@@ -273,7 +273,9 @@ if [ "$chosen" = 1 ]; then
   "$T/guest.sh" "$VM" "cat \"$DATA/claude-accounts.json\"" > "$S/9-accounts-chosen.txt" 2>&1 || fail "9 the accounts record"
   grep -q '"inUse": *"1"' "$S/9-accounts-chosen.txt" || fail "9 the record does not say Home is in use after Use this one now"
   grep -q '"kind": *"chose"' "$S/9-accounts-chosen.txt" || fail "9 Recent changes has no chose row"
-  has 'You chose Home' "9 Recent changes says You chose Home"
+  # "You chose <b>Home</b>." is two text nodes, so the words are read up to the bold name
+  # (walk-434edf5caf3d: the frame showed the row and a find of the whole sentence missed it).
+  has 'You chose' "9 Recent changes says You chose Home"
   shot 9-home-in-use
   close_sheet
   usage /Users/admin/fill-first/usage-1.json 20 99 || fail "Home's second 99% usage fixture"
@@ -294,13 +296,24 @@ note "10 _02: with Technical view on, the quick settings quota row is the WEEKLY
 menu open
 ax click --title 'Technical view' --first >/dev/null 2>&1 || note "no Technical view switch"
 sleep 3
+# Turning it on asks where ("Turn on the technical view": all conversations, this company, this
+# one); its own default and "Turn it on" (walk-434edf5caf3d: left open, it blocked every later read).
+if ax find --title 'Turn it on' --first >/dev/null 2>&1; then
+  press 'Turn it on' "10 Turn it on"
+  sleep 3
+fi
 menu open
 has 'Claude Code quota' "10 the quota row with Technical view on"
 has 'Work 12% weekly' "10 the row reads Work's weekly 12%, not its five-hour 0%"
 ax find --title 'Claude Code quota' --contains --json > "$S/10-row.json" 2>&1 || true
 shot 10-menu-technical
+menu open
 ax click --title 'Technical view' --first >/dev/null 2>&1 || note "Technical view not switched back off"
-sleep 2
+sleep 3
+if ax find --title 'Turn it off' --first >/dev/null 2>&1; then
+  press 'Turn it off' "10 Turn it off"
+  sleep 3
+fi
 menu closed
 
 note "11 the smallest window, 1024x700: the row's lines fit and can be read"
