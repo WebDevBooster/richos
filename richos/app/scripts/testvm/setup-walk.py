@@ -225,7 +225,10 @@ class SetupWalk(adopt_walk.Walk):
             if self.present('Set it up') and self.shows_text('my video tools'):
                 self.click('Set it up', 'setup sheet: "Set it up" pressed (it lists my video tools)')
             elif self.present('Set it up') and self.shows_text('Where should I keep what you tell me?'):
-                self.click('Set it up', 'memory question: "Set it up" pressed')
+                if self.a.memory == 'set-up':
+                    self.click('Set it up', 'memory question: "Set it up" pressed')
+                else:
+                    self.click('Not now', 'memory question: "Not now" pressed')
             elif self.present('Close') and (self.shows_text('Setup is done.') or self.shows_text("That's set up.")
                                             or self.shows_text('Your memory folder.')
                                             or self.shows_text('Your Anthropic account')):
@@ -329,6 +332,10 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
     p.add_argument('--within', type=float, default=2700, help='seconds for first setup, and for the download (two models, about 1 GB)')
+    p.add_argument('--memory', choices=('set-up', 'not-now'), default='set-up',
+                   help='the answer to the memory question. Setting it up takes about 30 s in the guest, and the '
+                        "guest's network fetches the 1 GB in about 63 s (run of 2026-10-07 18:38Z), so not-now "
+                        'reaches the company question while the models are still arriving')
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
