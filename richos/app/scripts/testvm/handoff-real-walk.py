@@ -275,13 +275,15 @@ class HandoffWalk(command_walk.CommandWalk):
         self.technical_view()
         opened = self.panel()
         self.facts['refresh_presses'] = 0
-        quota, home, work = self.read_both(600, opened)
+        # Only Home's reading is needed here (the cut-off). Work is read in the instance that runs
+        # the job (`work-reading`); a reading here is kept as evidence that the sign-in answers.
+        quota, home, work = self.read_both(90, opened)
         self.shot('1-quota-panel.png')
         (self.out / 'quota-at-start.json').write_text(json.dumps(quota, indent=2) + '\n')
         self.close_panel()
-        if home is None or work is None:
+        if home is None:
             self.diagnose(folder, 'failed')
-            raise StepFailed(f'the app has no weekly reading for both accounts (Home {home}, Work {work}): '
+            raise StepFailed(f'the app has no weekly reading for Home: '
                              + json.dumps([{k: a.get(k) for k in ('id', 'label', 'message')} for a in quota.get('accounts') or []]))
         self.facts.update(home_weekly_at_start=home, work_weekly_at_start=work)
         self.save()
