@@ -15,7 +15,7 @@
 #
 #   spawn.sh <teammate-name> --repo <repo> [--repo <repo> ...]
 #            --type <subagent-type> --brief <file>
-#            [--model <alias>] [--description <text>] [--base [<repo>=]<ref>]
+#            [--model <alias>] [--effort <level>] [--description <text>] [--base [<repo>=]<ref>]
 #            [--dir [<repo>=]<path>] [--integration [<repo>=]<branch>]
 #            [--integration-why <text>] [--payload-out <file>] [--json] [--dry-run]
 #

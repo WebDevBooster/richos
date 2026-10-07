@@ -11452,7 +11452,7 @@
     },
     "scripts/lib/spawn.py#fixture-guards": {
       "source": "scripts/lib/spawn.py",
-      "sha256": "86de1d90ae61bc3da2469408ba7226b7c435a88f7a6b3a137f5ba0d426415911",
+      "sha256": "f5b571c166cc9b6f05edb1c7de0545fe04c3d57088918065b718e622aa17f786",
       "evidence": "All import/execution sites and full main/rollback reviewed. Fixture calls pin hook sources to literal verdict scripts plus real isolation guard. Real-surface collector calls only read hook JSON without execution. Creator runs only on plain private repositories. Prompt annotators produce data, never spawn model agents. Renewed 2026-09-28 (af7d7c93): for the operator audience it also loads brief-done.py, whose annotate runs the brief's quoted read-only evidence commands from its allowlist and appends their output.",
       "keys": [],
       "edges": [
@@ -11487,7 +11487,7 @@
     },
     "scripts/spawn.sh#fixture-guards": {
       "source": "scripts/spawn.sh",
-      "sha256": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817",
+      "sha256": "c1965676afbb3cca7b2659304bc23574cc738dedd84c1410841b11498ba26bc9",
       "evidence": "Full shell wrapper executes the adjacent fixed spawn library only.",
       "keys": [],
       "edges": [
@@ -13237,6 +13237,28 @@
       "edges": [
         {
           "to": "scripts/prepare-agent-spawn.test.py"
+        }
+      ]
+    },
+    "scripts/spawn-effort.test.py": {
+      "source": "scripts/spawn-effort.test.py",
+      "sha256": "b17b847e2db4d7f3075e0bc5e5235c43aa861af680fadac0705fb3b13fabb315",
+      "evidence": "Imports lib/spawn.py and calls only parse_args and build_payload on literal arguments. build_payload runs the pure preparation helper; no workspace, registry, guard or hook is touched and nothing is created.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/spawn.py"
+        }
+      ]
+    },
+    "scripts/spawn-effort.test.sh": {
+      "source": "scripts/spawn-effort.test.sh",
+      "sha256": "48f0027795eaee7afb712856e4fe960b6f1a7ba251e14f072a29c38832a83f68",
+      "evidence": "Wrapper executes exactly the bound Python fixture with bytecode disabled. No mutation driver or other helper.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/spawn-effort.test.py"
         }
       ]
     },
@@ -16016,6 +16038,7 @@
     "scripts/lib/appinstances.test.sh": "scripts/lib/appinstances.test.sh",
     "scripts/lib/testdevices.test.sh": "scripts/lib/testdevices.test.sh",
     "scripts/prepare-agent-spawn.test.sh": "scripts/prepare-agent-spawn.test.sh",
+    "scripts/spawn-effort.test.sh": "scripts/spawn-effort.test.sh",
     "scripts/stop.test.sh": "scripts/stop.test.sh",
     "loro/tests/run.test.sh": "loro/tests/run.test.sh",
     "mega-lander/tests/create-teammate-worktree.test.sh": "mega-lander/tests/create-teammate-worktree.test.sh",
@@ -17304,7 +17327,7 @@
       ],
       "sources": {
         "scripts/spawn.test.sh": "a24d96df5679d3dcf143f4cac62cc874c1c7969b3232d0d14ac37ee02a37c624",
-        "scripts/lib/spawn.py": "86de1d90ae61bc3da2469408ba7226b7c435a88f7a6b3a137f5ba0d426415911",
+        "scripts/lib/spawn.py": "f5b571c166cc9b6f05edb1c7de0545fe04c3d57088918065b718e622aa17f786",
         "ass-kicker/brief-provenance.py": "78b82b175a6d2e59032bcffd9ca49928023f4742bd8866275c581e7afb6d4a10",
         "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
@@ -17325,7 +17348,7 @@
         "scripts/lib/testdevices.py": "c9295549c45a16f78d6c58386859a20acc5041ecbe2c6abb31315ba4ea1a4c3d",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/prepare-agent-spawn.py": "b183c8fc36ff67717f73f44f97afd8ead961fe39e94bd47a167555cbd35b5bdf",
-        "scripts/spawn.sh": "62d22409afdd7ca9bb9b534ccba51794977bfc371d9d153655659f38f64ac817",
+        "scripts/spawn.sh": "c1965676afbb3cca7b2659304bc23574cc738dedd84c1410841b11498ba26bc9",
         "ass-kicker/brief-done.py": "db1fd5e6658db77631bbde3d54b0ca47bbad319c14cde21bb7a44e4135efb4f3"
       },
       "seated_events": [
