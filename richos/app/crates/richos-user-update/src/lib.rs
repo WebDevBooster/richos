@@ -3156,24 +3156,51 @@ released lease, so the next session refused to activate over a session that had 
             .unwrap()
             .success());
         let bytes = archive_with_binary("2.0.0", &fs::read(exe).unwrap(), |_| {});
+        // NEITHER SIDE MAY TREAT A MOMENTARY `WouldBlock` AS AN ANSWER, because in this test
+        // neither side is a session yet. `stage` takes its lease EXCLUSIVE and converts it to
+        // shared in `begin_session`; between the two, under no publication lock, an observer
+        // reads EX-busy then SH-busy and gets `WouldBlock` (nightly 2026-10-07, run
+        // 20261007T141505Z-83f09f28, this test's `acquire().unwrap()`). The same holds the
+        // other way: an observer between its own EX `acquire` and `drop` makes the stager's
+        // acquisition `WouldBlock`. A real startup already retries exactly this --
+        // `update_startup::wait_for_lock` (src-tauri) retries `WouldBlock` for 10 s -- and a
+        // real stage runs inside an app that holds its shared session, so its lease is never
+        // EX. Retrying both here is the production shape; a probe that really blocked a
+        // startup still fails, at the deadline, as it did before.
+        let retry = |deadline: std::time::Instant, error: &io::Error| {
+            error.kind() == io::ErrorKind::WouldBlock && std::time::Instant::now() < deadline
+        };
         let worker_home = h.clone();
-        let worker = std::thread::spawn(move || stage_verified(&worker_home, &bytes, "2.0.0"));
+        let worker = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                match stage_verified(&worker_home, &bytes, "2.0.0") {
+                    Err(e) if retry(deadline, &e) => {
+                        std::thread::sleep(std::time::Duration::from_millis(20))
+                    }
+                    result => return result,
+                }
+            }
+        });
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
-            let mut observer = StartupLease::acquire(&h).unwrap();
-            if !observer.can_activate() {
-                assert!(
-                    !worker.is_finished(),
-                    "slow stage unexpectedly finished before observation"
-                );
-                let publication = with_preferred(&h, |p| Ok(p.version.clone()))
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(publication, "1.0.0");
-                observer.begin_session().unwrap();
-                break;
+            match StartupLease::acquire(&h) {
+                Err(e) if retry(deadline, &e) => {}
+                Err(e) => panic!("a normal startup could not take its lease: {e:?}"),
+                Ok(mut observer) if !observer.can_activate() => {
+                    assert!(
+                        !worker.is_finished(),
+                        "slow stage unexpectedly finished before observation"
+                    );
+                    let publication = with_preferred(&h, |p| Ok(p.version.clone()))
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(publication, "1.0.0");
+                    observer.begin_session().unwrap();
+                    break;
+                }
+                Ok(observer) => drop(observer),
             }
-            drop(observer);
             assert!(std::time::Instant::now() < deadline);
             std::thread::sleep(std::time::Duration::from_millis(20));
         }

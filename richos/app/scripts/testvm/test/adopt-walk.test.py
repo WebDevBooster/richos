@@ -94,5 +94,36 @@ class Verdict(unittest.TestCase):
         self.assertIn('no assignment was registered', failure)
 
 
+class FirstRunSheets(unittest.TestCase):
+    """decline_first_run_sheets against a scripted screen: each Not now takes one sheet away."""
+
+    def walk_on(self, screens):
+        w = walk.Walk.__new__(walk.Walk)
+        state = {'screens': list(screens), 'pressed': []}
+        w.present = lambda title, *a, **k: title in state['screens'][0]
+        def press(title, *a, **k):
+            state['pressed'].append(title)
+            state['screens'].pop(0)
+        w.press = press
+        return w, state
+
+    def setUp(self):
+        self.sleep = walk.time.sleep
+        walk.time.sleep = lambda s: None
+
+    def tearDown(self):
+        walk.time.sleep = self.sleep
+
+    def test_the_setup_sheet_then_the_memory_question_are_both_declined(self):
+        w, state = self.walk_on([{'Set it up', 'Not now'}, {'Not now'}, {'Add this company', 'Not now'}])
+        self.assertEqual(w.decline_first_run_sheets(), 2)
+        self.assertEqual(state['pressed'], ['Not now', 'Not now'])
+
+    def test_the_company_question_is_never_declined(self):
+        w, state = self.walk_on([{'Add this company', 'Not now'}])
+        self.assertEqual(w.decline_first_run_sheets(), 0)
+        self.assertEqual(state['pressed'], [])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

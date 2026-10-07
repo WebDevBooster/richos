@@ -571,6 +571,7 @@ impl LeaseFactory for EngineLeaseFactory {
         profile.permissions = self.permissions.clone();
         // Fill-first: the work lease runs under the Claude account in use now.
         profile.claude_account = Some(self.quota.lease_account());
+        profile.token_sink = Some(self.quota.token_sink()); // what the lease spends, counted on that account
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
@@ -643,6 +644,7 @@ impl EngineLeaseFactory {
         profile.operator_desk = self.operator_desk.clone();
         // Fill-first: the conversation lease runs under the Claude account in use now.
         profile.claude_account = Some(self.quota.lease_account());
+        profile.token_sink = Some(self.quota.token_sink()); // what the lease spends, counted on that account
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
@@ -3213,6 +3215,7 @@ fn main() {
                         let what = match c {
                             richos_core::setup::Component::ClaudeCode => &s.claude,
                             richos_core::setup::Component::Engine => &s.engine,
+                            richos_core::setup::Component::MediaTools => &s.media_tools,
                         };
                         // ONE PLACE PER LINE, and never a trailing colon with nothing after
                         // it. On 2026-09-17 the published nightly printed exactly that —
@@ -6868,6 +6871,19 @@ mod stale_engine_send_gate_tests {
         Ok(())
     }
 
+    /// The engine is what these tests are about, so the machine has its video tools: the speech
+    /// model answers present, and the yt-dlp half is set present after detection (a fixture
+    /// home has no tools folder; `richos-core/tests/setup.rs` installs one for real).
+    fn a_speech_model() -> Result<String, String> {
+        Ok("large-v3-turbo-q5_0".to_string())
+    }
+
+    fn detect_with_video_tools(root: &Path, pin: &setup::EnginePin) -> setup::SetupStatus {
+        let mut status = setup::detect_with_pin(&paths(root), &[], &always_usable, Some(pin), &a_speech_model);
+        status.media_tools.present = true;
+        status
+    }
+
     #[test]
     fn a_stale_engine_is_answered_with_the_offer_and_not_with_a_lost_connection() {
         let root = scratch("stale");
@@ -6881,7 +6897,7 @@ mod stale_engine_send_gate_tests {
             PINNED_SOURCE,
         )
         .unwrap();
-        let status = setup::detect_with_pin(&paths(&root.0), &[], &always_usable, Some(&pin));
+        let status = detect_with_video_tools(&root.0, &pin);
 
         // The directory is THERE and is refused, which is the state Ray was in.
         assert!(installed.is_dir(), "the fixture did not write an engine");
@@ -6920,7 +6936,7 @@ mod stale_engine_send_gate_tests {
             PINNED_SOURCE,
         )
         .unwrap();
-        let status = setup::detect_with_pin(&paths(&root.0), &[], &always_usable, Some(&pin));
+        let status = detect_with_video_tools(&root.0, &pin);
 
         assert!(status.complete(), "nothing is missing: {:?}", status.needs());
         assert_eq!(

@@ -116,7 +116,18 @@ print(relaunch(sys.argv[1], environment={'RICHOS_CLAUDE_BIN': '/Users/admin/fill
 PY
 
 wait_for 'Not now' || true
-"$T/ax.sh" "$VM" click --title 'Not now' --first || true
+# Since the setup essentials (e0a346d76) a guest without the video tools first gets the setup
+# sheet ("There's one thing I need on this Mac"), and then the memory question: each says Not
+# now (main.js, WHAT A FIRST RUN ASKS). One press answered only the first, and the memory
+# question blocked every later step (walk walk-7de64f57aafc, candidate 43).
+first_run_not_now() {
+  for _ in 1 2 3; do
+    "$T/ax.sh" "$VM" find --title 'Add this company' --first >/dev/null 2>&1 && return 0
+    "$T/ax.sh" "$VM" click --title 'Not now' --first >/dev/null 2>&1 || true
+    sleep 4
+  done
+}
+first_run_not_now
 wait_for 'Add this company' || true
 sleep 2
 for attempt in 1 2 3; do
@@ -241,6 +252,19 @@ else
 fi
 sleep 5
 "$T/shot.sh" "$VM" "$S/5-after-handoff.png" || fail "capture 5-after-handoff"
+# The successor's answer is the fake's reply.txt, "Handed over cleanly.", as was the first
+# helper turn's; the conversation says it ONCE (walk of nightly 43). Read from the window's whole
+# accessibility tree, which holds the scrolled-off part of the conversation too.
+# The tree is evidence only: the find below is exhaustive by itself ("exhaustive":true), and a
+# whole-window tree on a busy host can pass ax.sh's guest deadline (run 3 of the nightly 43 walk).
+"$T/ax.sh" "$VM" tree > "$S/5-after-handoff.tree" 2>&1 || note "no tree after the handoff (evidence only)"
+"$T/ax.sh" "$VM" find --value 'Handed over cleanly' --contains --json > "$S/5-handed-over.json" 2>/dev/null || true
+said=$(grep -c '"role"' "$S/5-handed-over.json" || true)  # node lines only, never timing lines
+if [ "$said" = 1 ]; then
+  note "ok: the conversation says \"Handed over cleanly.\" once"
+else
+  fail "the conversation says \"Handed over cleanly.\" $said times, not once"
+fi
 
 collect
 

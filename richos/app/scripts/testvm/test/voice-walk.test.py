@@ -117,6 +117,38 @@ class WindowUpAsksASlowReadAgain(unittest.TestCase):
             w.window_up(seconds=10)
 
 
+class WindowUpDeclinesTheSetupSheetOnce(unittest.TestCase):
+    """Candidate 43, voice run 2: after the relaunch the setup sheet held the window."""
+
+    def test_the_setup_sheet_is_declined_once_then_the_window_is_read(self):
+        w = object.__new__(walk.VoiceWalk)
+        w.facts, w.save, w.shot = {}, (lambda: None), (lambda name: None)
+        screen = {'up': {'Set it up', 'Not now'}}
+        pressed = []
+
+        def press(title, role='AXButton', app=None, contains=True):
+            pressed.append(title)
+            screen['up'] = {'Talk to Rich'}
+
+        w.present = lambda title, role='AXButton', app=None: title in screen['up']
+        w.press = press
+        sleep, walk.time.sleep = walk.time.sleep, (lambda s: None)
+        try:
+            self.assertTrue(w.window_up(seconds=10))
+        finally:
+            walk.time.sleep = sleep
+        self.assertEqual(pressed, ['Not now'])
+        self.assertTrue(w.facts['relaunch_setup_sheet_declined'])
+
+    def test_with_no_home_screen_the_talk_toggle_is_the_window(self):
+        """Voice run 4: the conversation's talk control is an AXCheckBox, never an AXButton."""
+        w = object.__new__(walk.VoiceWalk)
+        w.facts, w.save, w.shot = {}, (lambda: None), (lambda name: None)
+        w.present = lambda title, role='AXButton', app=None: title == 'Talk to Rich' and role == 'AXCheckBox'
+        w.press = lambda *a, **k: self.fail('nothing to press')
+        self.assertTrue(w.window_up(seconds=5))
+
+
 class AFindIsAskedAgainAClickIsNot(unittest.TestCase):
     """walk-ea458ffa8bca lost first-run to one find that hit the guest deadline."""
 

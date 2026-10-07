@@ -5,10 +5,11 @@
 //!
 //! The weekly percentage moves in whole points, so a burst is invisible to the percentage speed
 //! (`Snapshot::measure`) until a whole point has gone. Token use is visible at once: every
-//! assistant message's `usage` is in the account's Claude Code transcripts
-//! (`<folder>/projects/**/*.jsonl`), read exactly as `engine/scripts/token-track.py` reads them
-//! (input + output + cache write + cache read, by model; a message streamed in several copies
-//! counts once, its largest copy).
+//! assistant message's `usage` is in the stream the app reads from each of its own leases
+//! ([`Sink`]: they write no transcript), and, for Claude Code used outside the app, in the
+//! account's transcripts (`<folder>/projects/**/*.jsonl`), read exactly as
+//! `engine/scripts/token-track.py` reads them (input + output + cache write + cache read, by
+//! model; a message streamed in several copies counts once, its largest copy).
 //!
 //! - **Learning** (`Track::reading`): each weekly percentage value is an episode from the
 //!   reading that first shows it (after a lower one, so the rise itself was seen) to the reading
@@ -61,6 +62,9 @@ pub struct Track {
     current: Option<(f64, Option<u64>, Option<u64>)>,
     last_reading: Option<u64>,
     pub episodes: Vec<Episode>,
+    /// Keep every message since this moment too: an order whose handoff commit has not come
+    /// yet (`Service::track_tokens` counts its points when it does).
+    pub hold_from: Option<u64>,
 }
 
 fn stamp(text: &str) -> Option<u64> {
@@ -123,16 +127,13 @@ impl Track {
     fn line(&mut self, line: &[u8]) {
         if !line.windows(7).any(|w| w == b"\"usage\"") { return; }
         let Ok(row) = serde_json::from_slice::<Value>(line) else { return };
-        let message = &row["message"];
-        let Some(usage) = message["usage"].as_object() else { return };
         let Some(at) = row["timestamp"].as_str().and_then(stamp) else { return };
-        let count = |field: &str| usage.get(field).and_then(Value::as_u64).unwrap_or(0);
-        let output = count("output_tokens");
-        let tokens = count("input_tokens") + output + count("cache_creation_input_tokens") + count("cache_read_input_tokens");
-        if tokens == 0 { return; }
-        let Some(id) = message["id"].as_str().or_else(|| row["uuid"].as_str()) else { return };
-        let model = message["model"].as_str().unwrap_or("unknown").to_string();
-        self.add(id, at, &model, tokens, output);
+        if let Some(found) = message_use(&row["message"], row["uuid"].as_str(), at) { self.add_use(&found); }
+    }
+
+    /// One message's usage, from a transcript or from a lease's stream ([`Sink`]).
+    pub fn add_use(&mut self, found: &Use) {
+        self.add(&found.id, found.at, &found.model, found.tokens, found.output);
     }
 
     /// One assistant message's usage. A later, larger copy of the same message replaces it.
@@ -176,10 +177,23 @@ impl Track {
                 _ => Some((used, None, window.resets_at)),
             };
         }
-        // Keep only what an episode still open or the live window can use.
-        let keep = self.current.and_then(|c| c.1).map_or(now.saturating_sub(LIVE_MS), |s| s.min(now.saturating_sub(LIVE_MS)));
+        // Keep only what an episode still open, the live window, the tokens since the last good
+        // reading (`points_since`) or a handoff still under way (`hold_from`) can use.
+        let keep = [self.current.and_then(|c| c.1), Some(now.saturating_sub(LIVE_MS)), self.last_reading, self.hold_from]
+            .into_iter().flatten().min().unwrap_or(0);
         self.events.retain(|_, e| e.0 > keep);
         closed
+    }
+
+    /// **Weekly points spent since `since`** (the last good reading), each measured model's
+    /// tokens divided by its tokens per point. A model with no figure adds nothing: its tokens
+    /// cannot be turned into points honestly.
+    pub fn points_since(&self, since: u64, now: u64) -> f64 {
+        let per_point = figures(&self.episodes);
+        self.events.values()
+            .filter(|e| e.0 > since && e.0 <= now)
+            .filter_map(|e| per_point.get(&e.1).map(|p| e.2 as f64 / p))
+            .sum()
     }
 
     /// Weekly points per millisecond from the last minute's tokens (`LIVE_MS`), each model's
@@ -191,6 +205,110 @@ impl Track {
             .filter_map(|e| per_point.get(&e.1).map(|p| e.2 as f64 / p))
             .sum();
         points / LIVE_MS as f64
+    }
+}
+
+/// One assistant message's usage: input + output + cache write + cache read, by model, as
+/// `token-track.py` counts it, and when it was stamped.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Use { pub id: String, pub at: u64, pub model: String, pub tokens: u64, pub output: u64 }
+
+/// The usage of one assistant `message` (a transcript row's or a stream frame's), stamped
+/// `at`. `None` without usage, without tokens or without an id.
+pub fn message_use(message: &Value, fallback_id: Option<&str>, at: u64) -> Option<Use> {
+    let usage = message["usage"].as_object()?;
+    let count = |field: &str| usage.get(field).and_then(Value::as_u64).unwrap_or(0);
+    let output = count("output_tokens");
+    let tokens = count("input_tokens") + output + count("cache_creation_input_tokens") + count("cache_read_input_tokens");
+    if tokens == 0 { return None; }
+    let id = message["id"].as_str().or(fallback_id)?.to_string();
+    let model = message["model"].as_str().unwrap_or("unknown").to_string();
+    Some(Use { id, at, model, tokens, output })
+}
+
+/// The most messages a sink holds before the quota service takes them (it takes them every
+/// `TOKEN_SCAN_MS` and before every turn); past it the oldest go first.
+const SINK_KEEP: usize = 20_000;
+
+/// **Token use the app's own leases streamed** (the CEO, 2026-10-07; handoff round 2, run 10:
+/// the leases run with `--no-session-persistence`, so they write no transcript and
+/// `Track::scan` never saw the app's own teammates). Every lease's reader puts each
+/// `assistant` frame's usage here under the account the lease runs on, its helpers' nested
+/// frames included; the quota service takes them into that account's `Track`. A message
+/// streamed in several frames counts once, at its largest copy, exactly as a transcript does.
+#[derive(Debug, Default)]
+pub struct Sink { pending: std::sync::Mutex<Vec<(String, Use)>> }
+
+impl Sink {
+    /// An `assistant` frame from a lease on `account`, received at `at`. Anything else, or an
+    /// assistant frame with no usage, adds nothing.
+    pub fn frame(&self, account: &str, frame: &Value, at: u64) {
+        if frame["type"] != "assistant" { return; }
+        let Some(found) = message_use(&frame["message"], frame["uuid"].as_str(), at) else { return };
+        self.push(account, found);
+    }
+    /// One message's usage (or a [`Tally`] remainder) from a lease on `account`.
+    pub fn push(&self, account: &str, found: Use) {
+        let mut pending = self.pending.lock().unwrap();
+        if pending.len() >= SINK_KEEP { pending.remove(0); }
+        pending.push((account.to_string(), found));
+    }
+    /// Everything put here since the last take, oldest first.
+    pub fn take(&self) -> Vec<(String, Use)> {
+        std::mem::take(&mut *self.pending.lock().unwrap())
+    }
+}
+
+/// **One lease's tokens, the ones no `assistant` frame shows included** (2.1.292, measured
+/// 2026-10-07 with the app's own flags). An `assistant` frame carries the usage of its
+/// message's START: the lead's Agent call streamed `output_tokens: 16` and finished at 152,
+/// and a background helper's one message streamed 4 and finished at 5 (its
+/// `task_notification`: 10,152 in all). What was written after the start is only in the
+/// `result` frame's `modelUsage`, the lease's running total per model, the helpers' tokens
+/// included. So the frames count at once (the live speed), and each `result` adds, per model,
+/// whatever its running total holds beyond what the frames and earlier results counted.
+#[derive(Debug, Default)]
+pub struct Tally {
+    /// Each message counted so far, by id: its model and its largest streamed total.
+    seen: HashMap<String, (String, u64)>,
+    /// Per model, everything this lease has counted: frames plus earlier remainders.
+    counted: BTreeMap<String, u64>,
+    results: u64,
+}
+
+impl Tally {
+    /// What to count for one frame from this lease, received at `at`.
+    pub fn frame(&mut self, frame: &Value, at: u64) -> Vec<Use> {
+        match frame["type"].as_str() {
+            Some("assistant") => {
+                let Some(found) = message_use(&frame["message"], frame["uuid"].as_str(), at) else { return vec![] };
+                let old = self.seen.get(&found.id).map_or(0, |(_, tokens)| *tokens);
+                if found.tokens > old {
+                    *self.counted.entry(found.model.clone()).or_insert(0) += found.tokens - old;
+                    self.seen.insert(found.id.clone(), (found.model.clone(), found.tokens));
+                }
+                vec![found]
+            }
+            Some("result") => {
+                let Some(models) = frame["modelUsage"].as_object() else { return vec![] };
+                self.results += 1;
+                let lease = frame["session_id"].as_str().unwrap_or("lease");
+                let mut remainders = Vec::new();
+                for (model, usage) in models {
+                    let count = |field: &str| usage.get(field).and_then(Value::as_u64).unwrap_or(0);
+                    let total = count("inputTokens") + count("outputTokens")
+                        + count("cacheCreationInputTokens") + count("cacheReadInputTokens");
+                    let counted = self.counted.entry(model.clone()).or_insert(0);
+                    if total > *counted {
+                        remainders.push(Use { id: format!("{lease}:result-{}:{model}", self.results), at,
+                            model: model.clone(), tokens: total - *counted, output: 0 });
+                        *counted = total;
+                    }
+                }
+                remainders
+            }
+            _ => vec![],
+        }
     }
 }
 

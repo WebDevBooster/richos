@@ -406,6 +406,28 @@ class LocalTests(unittest.TestCase):
         # An operator's --runtime-dir is used as given.
         self.assertEqual(r.runtime_path(self.root / "mine"), self.root / "mine")
 
+    def test_runtime_hands_gui_boot_the_speech_models_only_when_both_are_there(self):
+        # The video tools are a setup essential (media-tools plan, slice 3), so gui-boot's
+        # healthy machine needs a pinned speech model; runtime() hands it the one this Mac has
+        # (lib/runtime_cache.py) and sets nothing when the file is absent, so gui-boot refuses
+        # by name rather than booting a machine missing something.
+        sys.path.insert(0, str(Path(__file__).resolve().with_name("lib")))
+        import runtime_cache
+        r = m.Runner(self.root, self.root / "state", {}, io.StringIO())
+        r.command = Mock()
+        (self.root / "mine").mkdir()
+        small, large = self.root / "ggml-small.en.bin", self.root / "ggml-large-v3-turbo-q5_0.bin"
+        with patch.object(runtime_cache, "GUI_SPEECH_MODELS", (small, large)):
+            r.runtime(self.root / "mine")
+            self.assertNotIn("RICHOS_GUI_SPEECH_MODELS", r.env)
+            small.write_bytes(b"weights")
+            r.runtime(self.root / "mine")
+            self.assertNotIn("RICHOS_GUI_SPEECH_MODELS", r.env, "one model is not both")
+            large.write_bytes(b"weights")
+            r.runtime(self.root / "mine")
+            self.assertEqual(r.env["RICHOS_GUI_SPEECH_MODELS"], f"{small}:{large}")
+        self.assertIn("RICHOS_GUI_SPEECH_MODELS", m.GATE_SET_BY_BUILD)
+
     def test_command_timeout_does_not_expose_signing_password(self):
         r = m.Runner(self.root, self.root, {}, io.StringIO())
         args = ["cargo", "tauri", "signer", "sign", "-p", "secret-password"]
@@ -2380,6 +2402,239 @@ class WalkRecipeTests(unittest.TestCase):
         self.assertEqual(seen["TMPDIR"], str(home / "tmp") + "/")
         nshome = (home / ".home-probe" / "nshome").read_text().strip()
         self.assertEqual(Path(nshome).resolve(), home)
+
+
+
+class GateReconciliationTests(unittest.TestCase):
+    setUp = LocalTests.setUp
+    def store(self, run="20261007T170000Z-11111111", identity="same"):
+        library = str(Path(m.__file__).parent / "lib")
+        if library not in sys.path:
+            sys.path.insert(0, library)
+        from nightly_gate_evidence import GateEvidence
+        return GateEvidence(self.root / "records", run, lambda: identity, lambda _: None)
+
+    def test_pass_survives_another_gates_failure_and_names_its_actual_run(self):
+        first = self.store()
+        first.record("gates/core-tests", "same", "passed", "525 passed")
+        first.record("gates/updater-tests", "same", "failed", "55 passed; 1 failed")
+        retry = self.store("20261007T170100Z-22222222")
+        self.assertIsNotNone(retry.reusable("gates/core-tests", "same"))
+        self.assertIsNone(retry.reusable("gates/updater-tests", "same"))
+        retry.reuse("gates/core-tests", "same")
+        self.assertEqual(retry.selected["gates/core-tests"]["status"], "reused")
+        self.assertEqual(retry.selected["gates/core-tests"]["run_id"], first.run_id)
+        self.assertEqual(len(list((self.root / "records").glob("*/*.json"))), 2)
+
+    def test_changed_inputs_never_reuse_a_pass(self):
+        store = self.store()
+        store.record("gates/core-tests", "same", "passed", "green")
+        self.assertIsNone(store.reusable("gates/core-tests", "different"))
+
+    def test_a_new_failure_does_not_fall_back_to_older_green(self):
+        first = self.store()
+        first.record("gates/core-tests", "same", "passed", "green")
+        second = self.store("20261007T170100Z-22222222")
+        second.record("gates/core-tests", "same", "failed", "red")
+        self.assertIsNone(second.reusable("gates/core-tests", "same"))
+        self.assertTrue(second.unresolved("gates/core-tests", "same"))
+
+    def test_damaged_record_log_or_suite_evidence_cannot_certify_a_pass(self):
+        for suffix in (".log", ".json", ".sha256"):
+            with self.subTest(suffix=suffix):
+                store = self.store("20261007T170100Z-" + uuid.uuid4().hex[:8])
+                store.record("gates/core-tests", "same", "passed", "green")
+                path = Path(store.selected["gates/core-tests"]["record"])
+                path.with_suffix(suffix).write_text("damaged")
+                self.assertIsNone(store.reusable("gates/core-tests", "same"))
+
+    def test_a_record_rotated_during_discovery_is_a_cache_miss(self):
+        store = self.store()
+        store.record("gates/core-tests", "same", "passed", "green")
+        self.assertIsNotNone(store.reusable("gates/core-tests", "same"))
+        path = Path(store.selected["gates/core-tests"]["record"])
+        def rotate(_):
+            path.unlink()
+            return [path]
+        with patch.object(Path, "glob", side_effect=rotate):
+            self.assertIsNone(store.reusable("gates/core-tests", "same"))
+
+    def test_cancelled_skipped_and_input_changed_gates_are_never_passes(self):
+        for state in ("stopped", "skipped", "inputs-changed", "unqualified"):
+            with self.subTest(state=state):
+                store = self.store("20261007T170100Z-" + uuid.uuid4().hex[:8])
+                store.record("gates/core-tests", "same", state, state)
+                self.assertIsNone(store.reusable("gates/core-tests", "same"))
+
+    def test_successful_body_with_changing_inputs_is_recorded_without_reuse(self):
+        store = self.store(identity="after")
+        with self.assertRaisesRegex(RuntimeError, "inputs-changed"):
+            store.wrap("gates/core-tests", lambda: None, "before", lambda: "green", lambda: None)()
+        self.assertEqual(store.selected["gates/core-tests"]["status"], "inputs-changed")
+        self.assertIsNone(store.reusable("gates/core-tests", "before"))
+
+    def test_exception_preserves_failure_evidence_and_propagates(self):
+        store = self.store()
+        def red():
+            raise RuntimeError("real failure")
+        with self.assertRaisesRegex(RuntimeError, "real failure"):
+            store.wrap("gates/core-tests", red, "same", lambda: "red", lambda: None)()
+        self.assertEqual(store.selected["gates/core-tests"]["status"], "failed")
+
+    def test_deadline_refusal_and_cancellation_keep_their_actual_states(self):
+        for error, state, stopped in ((m.GateTimedOut("deadline"), "timed-out", False),
+                                      (m.GateNotAdmitted("queue"), "refused", False),
+                                      (RuntimeError("child stopped"), "stopped", True)):
+            with self.subTest(state=state):
+                store = self.store("20261007T170100Z-" + uuid.uuid4().hex[:8])
+                def fail(error=error):
+                    raise error
+                with self.assertRaises(RuntimeError):
+                    store.wrap("gates/core-tests", fail, "same", lambda: str(error),
+                               lambda: None, stopping=lambda: stopped)()
+                self.assertEqual(store.selected["gates/core-tests"]["status"], state)
+                self.assertIsNone(store.reusable("gates/core-tests", "same"))
+
+    def test_identical_run_cannot_overwrite_completed_evidence(self):
+        store = self.store()
+        store.record("gates/core-tests", "same", "failed", "red")
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            store.record("gates/core-tests", "same", "passed", "green")
+        self.assertIsNone(store.reusable("gates/core-tests", "same"))
+
+    def test_real_identity_binds_dirty_source_untracked_source_external_files_and_settings(self):
+        library = str(Path(m.__file__).parent / "lib")
+        if library not in sys.path:
+            sys.path.insert(0, library)
+        import proof_evidence
+        source = self.root / "state/source"
+        source.mkdir(parents=True)
+        config = self.root / "fixture.gitconfig"
+        config.write_text('[user]\nname = Verification Fixture\nemail = fixture@example.invalid\n')
+        fixture_env = {**os.environ, "HOME": str(self.root), "GIT_CONFIG_GLOBAL": str(config),
+                       "GIT_CONFIG_NOSYSTEM": "1"}
+        subprocess.run(["git", "init", "-q", str(source)], env=fixture_env, check=True)
+        text = source / "input.txt"
+        text.write_text("original")
+        subprocess.run(["git", "-C", str(source), "add", "."], env=fixture_env, check=True)
+        subprocess.run(["git", "-C", str(source), "commit", "-qm", "fixture"],
+                       env=fixture_env, check=True)
+        private = self.root / "private-list"
+        private.write_text("fixture roster")
+        models = [self.root / "model-a", self.root / "model-b"]
+        for model in models:
+            model.write_text("model")
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.root / "home"),
+               "TMPDIR": str(self.root), "RICHOS_NAMED_PERSONS_FILE": str(private),
+               "RICHOS_GUI_SPEECH_MODELS": os.pathsep.join(map(str, models)),
+               "RICHOS_NIGHTLY_RUN_ID": "20261007T170000Z-11111111"}
+        r = m.Runner(source, self.root / "state", env, io.StringIO(), gates_at_once="all")
+        with patch.object(proof_evidence, "installed_dependencies", return_value={"fixture": "dependencies"}):
+            initial = r.gate_input_identity(None, True)
+            env["RICHOS_NIGHTLY_RUN_ID"] = "20261007T170100Z-22222222"
+            self.assertEqual(r.gate_input_identity(None, True), initial)
+            text.write_text("dirty")
+            self.assertNotEqual(r.gate_input_identity(None, True), initial)
+            text.write_text("original")
+            self.assertEqual(r.gate_input_identity(None, True), initial)
+            extra = source / "untracked.txt"
+            extra.write_text("fixture")
+            self.assertNotEqual(r.gate_input_identity(None, True), initial)
+            extra.unlink()
+            private.write_text("another roster")
+            self.assertNotEqual(r.gate_input_identity(None, True), initial)
+            private.write_text("fixture roster")
+            models[1].write_text("changed model")
+            self.assertNotEqual(r.gate_input_identity(None, True), initial)
+            models[1].write_text("model")
+            self.assertNotEqual(r.gate_input_identity(None, False), initial)
+            r.gates_at_once = 1
+            self.assertNotEqual(r.gate_input_identity(None, True), initial)
+            r.gates_at_once = "all"
+            with patch.object(proof_evidence, "installed_dependencies", return_value={"fixture": "changed"}):
+                self.assertNotEqual(r.gate_input_identity(None, True), initial)
+
+    def test_release_keeps_every_gate_fresh(self):
+        r = self.retry_runner("20261007T170100Z-22222222")
+        r.reconcile_gates = Mock(side_effect=AssertionError("release reused evidence"))
+        r.run_gates = Mock()
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.gates(skip_unchanged=False)
+        self.assertEqual(tuple(name for name, _ in r.run_gates.call_args.args[0]), m.GATE_NAMES)
+        r.reconcile_gates.assert_not_called()
+
+    def retry_runner(self, run):
+        r = m.Runner(self.root, self.root / "state", {"RICHOS_NIGHTLY_RUN_ID": run},
+                     io.StringIO(), gates_at_once=1)
+        r.gate_input_identity = Mock(return_value={"source_commit": "a" * 40, "inputs_sha256": "b" * 64})
+        return r
+
+    def test_runner_retries_only_unresolved_gates_and_keeps_prerequisites(self):
+        seen = []
+        first = self.retry_runner("20261007T170000Z-11111111")
+        gates = [("gates/core-tests", lambda: seen.append("core")),
+                 ("gates/updater-tests", lambda: (_ for _ in ()).throw(RuntimeError("red")))]
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, "red"):
+            first.run_gates(first.reconcile_gates(gates, None, False))
+        second = self.retry_runner("20261007T170100Z-22222222")
+        gates = [("gates/core-tests", lambda: seen.append("core-again")),
+                 ("gates/updater-tests", lambda: seen.append("updater-retry")),
+                 ("gates/release-smoke", lambda: seen.append("smoke"))]
+        with contextlib.redirect_stdout(io.StringIO()):
+            second.run_gates(second.reconcile_gates(gates, None, False))
+        self.assertEqual(seen, ["core", "updater-retry", "smoke"])
+        self.assertEqual(second.gate_evidence.selected["gates/core-tests"]["status"], "reused")
+
+    def test_a_reused_script_gate_restores_its_frozen_report(self):
+        first = self.retry_runner("20261007T170000Z-11111111")
+        report = {"commit": "a" * 40, "run_id": first.env["RICHOS_NIGHTLY_RUN_ID"], "suites": []}
+        first.state.mkdir(parents=True)
+        def scripts():
+            (first.state / m.SUITE_RESULTS).write_text(json.dumps(report))
+        with contextlib.redirect_stdout(io.StringIO()):
+            first.run_gates(first.reconcile_gates([("gates/script-suites", scripts)], None, True))
+        (first.state / m.SUITE_RESULTS).write_text('{"another": "run"}')
+        second = self.retry_runner("20261007T170100Z-22222222")
+        with contextlib.redirect_stdout(io.StringIO()):
+            second.run_gates(second.reconcile_gates([
+                ("gates/script-suites", lambda: self.fail("script gate repeated")),
+                ("gates/lint-tauri", lambda: None)], None, True))
+        self.assertEqual(json.loads((first.state / m.SUITE_RESULTS).read_text()), report)
+        self.assertEqual(second.gate_evidence.selected["gates/script-suites"]["run_id"], report["run_id"])
+
+    def test_ui_reuse_reconciles_frozen_receipts_instead_of_running_suites(self):
+        first = self.retry_runner("20261007T170000Z-11111111")
+        receipts = first.state / "ui-receipts"
+        receipts.mkdir(parents=True)
+        record = {"commit": "a" * 40, "suite": "fixture.js", "exit": 0, "records": []}
+        def ui():
+            (receipts / "fixture.receipt.json").write_text(json.dumps(record))
+        with contextlib.redirect_stdout(io.StringIO()):
+            first.run_gates(first.reconcile_gates([(m.UI_SUITE_GATE, ui)], None, True))
+        second = self.retry_runner("20261007T170100Z-22222222")
+        second.command = Mock()
+        with contextlib.redirect_stdout(io.StringIO()):
+            pending = second.reconcile_gates([(m.UI_SUITE_GATE, lambda: self.fail("UI repeated"))], None, True)
+        self.assertEqual(pending, [])
+        args = second.command.call_args.args
+        self.assertEqual(args[:2], ("node", "run.js"))
+        self.assertTrue(args[2].startswith("--coverage="))
+        snapshot = Path(args[2].split("=", 1)[1])
+        self.assertEqual(json.loads((snapshot / "fixture.receipt.json").read_text()), record)
+        self.assertEqual(second.gate_evidence.selected[m.UI_SUITE_GATE]["status"], "reused")
+        third = self.retry_runner("20261007T170200Z-33333333")
+        third.command = Mock(side_effect=RuntimeError("missing coverage"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            pending = third.reconcile_gates([(m.UI_SUITE_GATE, ui)], None, True)
+        self.assertEqual([name for name, _ in pending], [m.UI_SUITE_GATE])
+        self.assertNotIn(m.UI_SUITE_GATE, third.reused_gates)
+
+    def test_sequential_retry_still_runs_the_prerequisite_before_its_failed_dependent(self):
+        r = self.retry_runner("20261007T170000Z-11111111")
+        seen = []
+        r.run_gates([("gates/lint-tauri", lambda: seen.append("lint")),
+                     ("gates/script-suites", lambda: seen.append("scripts"))])
+        self.assertEqual(seen, ["scripts", "lint"])
 
 
 if __name__ == "__main__":

@@ -779,10 +779,21 @@ fn still_running_for_others(watching: &[Watched]) -> String {
 
 /// Add one turn's words to the account, bounded the way the stream was: 64 KiB is eight times
 /// the answer cap, so no real answer is cut by it.
+///
+/// **Each turn's words are their own paragraph, and the same words twice are said once**
+/// (handoff round 1, 2026-10-07: his status read "Handed over cleanly.Handed over cleanly.",
+/// the back end's first turn and its handoff continuation run together). A turn that repeats
+/// what the previous one ended with adds nothing he has not read.
 fn keep_words(answer: &mut String, said: &str) {
-    if answer.len() < 64 * 1024 {
-        answer.push_str(said);
+    let said = said.trim();
+    if said.is_empty() || answer.len() >= 64 * 1024 || answer.trim_end().ends_with(said) {
+        return;
     }
+    if !answer.trim().is_empty() {
+        answer.truncate(answer.trim_end().len());
+        answer.push_str("\n\n");
+    }
+    answer.push_str(said);
 }
 
 impl WorkHost {
@@ -4537,6 +4548,24 @@ fn strip_engineer_prefix(sentence: &str) -> &str {
 mod honest_sentence_tests {
     use super::*;
 
+    /// **Handoff round 1 (2026-10-07), run 6's status: "Handed over cleanly.Handed over
+    /// cleanly."** The back end's first turn and its handoff continuation (a helper turn, which
+    /// adds to the account) both said "Handed over cleanly.", and the two ran together. The
+    /// same words twice are said once; different words are two paragraphs, never one run-on.
+    #[test]
+    fn a_continuation_that_says_the_same_words_again_is_said_once_and_new_words_are_their_own_paragraph() {
+        let mut answer = String::new();
+        keep_words(&mut answer, "Handed over cleanly.");
+        keep_words(&mut answer, "Handed over cleanly.");
+        let said = assignment::says::answered("Start the Northwind job", &assignment::sanitize_answer(&answer));
+        assert_eq!(said.matches("Handed over cleanly.").count(), 1, "{said:?}");
+        let mut answer = String::new();
+        keep_words(&mut answer, "Mark is on it.");
+        keep_words(&mut answer, "");
+        keep_words(&mut answer, "Mark handed over; Ann continues.");
+        assert_eq!(assignment::sanitize_answer(&answer), "Mark is on it.\n\nMark handed over; Ann continues.");
+    }
+
     /// **Ray's candidate-.7 row 8: the failure card said "cognition protocol:".**
     ///
     /// The exact string off his walk is the first case. The sentence after the label was always
@@ -6829,7 +6858,7 @@ mod tests {
         let folder = h.state.join(crate::quota::gate::HANDOFFS_DIR);
         std::fs::create_dir_all(&folder).unwrap();
         let marker = crate::quota::gate::Handoff { agent: agent.into(), session: "work-session-one".into(),
-            account: account.into(), at: crate::util::now_millis(), continued_at: None };
+            account: account.into(), at: crate::util::now_millis(), continued_at: None, committed_at: None, points: None };
         std::fs::write(folder.join(format!("{agent}.json")), serde_json::to_vec(&marker).unwrap()).unwrap();
     }
     fn continued(h: &Harness, agent: &str) -> Option<u64> {
