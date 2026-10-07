@@ -155,10 +155,20 @@ class VoiceWalk(adopt_walk.Walk):
         a window that walk-e5e9903a36b4, the same bundle, had read at once."""
         end = time.monotonic() + seconds
         last = None
+        declined = False
         while time.monotonic() < end:
             try:
                 if self.present('Talk to Rich'):
                     return True
+                # This walk copies one speech model in and declines setup, so the video tools are
+                # still missing and the relaunched app puts the setup sheet up again (setup
+                # essentials, e0a346d76); it holds the window and the find above sees nothing
+                # (candidate 43, voice run 2: relaunch-missing.png). Declined once, as at first run.
+                if not declined and self.present('Set it up'):
+                    self.press('Not now')
+                    declined = True
+                    self.facts['relaunch_setup_sheet_declined'] = True
+                    self.save()
             except StepFailed as exc:
                 if 'guest_deadline' not in str(exc):
                     raise
