@@ -14622,7 +14622,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "9caddad07ff944b108018d2bb38895920d508497f197eab1c08334ee65f89f86",
+          "sha256": "967bdfaae60bb54d2eecb9ef48382d93e3f623ad6b8586633029b19e2a2f17fd",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14762,12 +14762,6 @@
           "path": "richos/app/scripts/lib/cargo_identity.py",
           "sha256": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
           "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
-        },
-        {
-          "root": "repository",
-          "path": "richos/app/scripts/proof-run.py",
-          "sha256": "b805cc7eb19c9d14eb65dd8f03e51d72e4953485c5b08f36a8cb645ff27afdfe",
-          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         }
       ]
     },
@@ -14859,7 +14853,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "9caddad07ff944b108018d2bb38895920d508497f197eab1c08334ee65f89f86",
+          "sha256": "967bdfaae60bb54d2eecb9ef48382d93e3f623ad6b8586633029b19e2a2f17fd",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14903,12 +14897,6 @@
           "path": "richos/app/scripts/lib/cargo_identity.py",
           "sha256": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
           "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
-        },
-        {
-          "root": "repository",
-          "path": "richos/app/scripts/proof-run.py",
-          "sha256": "b805cc7eb19c9d14eb65dd8f03e51d72e4953485c5b08f36a8cb645ff27afdfe",
-          "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         }
       ]
     },
