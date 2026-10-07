@@ -184,6 +184,19 @@ class VoiceWalk(adopt_walk.Walk):
             time.sleep(1)
         raise StepFailed('the app printed no voice-readiness line within 60 s')
 
+    def ax(self, mode, *args, app=None, timeout=40):
+        """adopt-walk's ax(), with a READ that hit ax.sh's guest deadline asked again, up to three
+        times. Two runs on 2026-10-07 each lost a step to one such read on a busy host:
+        walk-3fa7da94531b in relaunch, walk-ea458ffa8bca in first-run (adopt-walk's "Start the
+        questions" find), both exit 124, guest_deadline. A find changes nothing in the guest, so a
+        second ask is the same question. A click is never asked again: its effect is unknown."""
+        for attempt in range(3):
+            try:
+                return super().ax(mode, *args, app=app, timeout=timeout)
+            except StepFailed as exc:
+                if mode != 'find' or 'guest_deadline' not in str(exc) or attempt == 2:
+                    raise
+
     def by_id(self, dom_id):
         """The node whose DOM id is dom_id, or None when it is not in the accessibility tree."""
         try:

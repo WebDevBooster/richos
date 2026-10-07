@@ -101,5 +101,27 @@ class WindowUpAsksASlowReadAgain(unittest.TestCase):
             w.window_up(seconds=10)
 
 
+class AFindIsAskedAgainAClickIsNot(unittest.TestCase):
+    """walk-ea458ffa8bca lost first-run to one find that hit the guest deadline."""
+
+    DEADLINE = 'command failed (124): ax.sh find\n{"error": "guest_deadline"}'
+
+    def test_a_find_that_hit_the_deadline_is_asked_again(self):
+        from unittest import mock
+        w = object.__new__(walk.VoiceWalk)
+        answers = [walk.StepFailed(self.DEADLINE), [{'meta': True}, {'role': 'AXButton'}]]
+        with mock.patch.object(walk.adopt_walk.Walk, 'ax', side_effect=answers) as base:
+            self.assertEqual(w.ax('find', '--title', 'Start the questions')[1]['role'], 'AXButton')
+        self.assertEqual(base.call_count, 2)
+
+    def test_a_click_that_hit_the_deadline_is_never_pressed_again(self):
+        from unittest import mock
+        w = object.__new__(walk.VoiceWalk)
+        with mock.patch.object(walk.adopt_walk.Walk, 'ax', side_effect=[walk.StepFailed(self.DEADLINE)]) as base:
+            with self.assertRaises(walk.StepFailed):
+                w.ax('click', '--id', 'talk-toggle')
+        self.assertEqual(base.call_count, 1)
+
+
 if __name__ == '__main__':
     unittest.main()
