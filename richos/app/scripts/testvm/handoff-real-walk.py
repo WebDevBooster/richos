@@ -127,23 +127,30 @@ class HandoffWalk(command_walk.CommandWalk):
                 return next((w.get('usedPercent') for w in a.get('windows') or [] if w.get('id') == 'seven_day'), None)
         return None
 
-    def thread_back(self, seconds=120):
+    def thread_back(self, seconds=180):
         """After a relaunch: through the home screen's door into the thread, until the composer is back."""
-        end, door = time.monotonic() + seconds, False
+        end = time.monotonic() + seconds
         while time.monotonic() < end:
             # A freshly relaunched app can hold an accessibility read past its deadline (exit 124,
             # walk-9f611a4b22a7): that is "not drawn yet", not a failure, so the read is retried.
+            # The door and the thread are pressed again on every pass until the composer is there
+            # (run 5: a press that missed once was never tried again).
             try:
                 if self.present('Message to Rich', role='AXTextArea'):
                     return True
-                if not door and self.present('Talk to Rich'):
-                    door = True
+                if self.present('Talk to Rich'):
                     self.press('Talk to Rich')
                     time.sleep(2)
+                if self.present(self.facts.get('thread_title') or 'Running'):
                     self.press(self.facts.get('thread_title') or 'Running')
             except StepFailed:
                 pass
             time.sleep(3)
+        try:
+            self.shot('relaunch-no-composer-%d.png' % int(time.time()))
+            (self.out / 'relaunch-no-composer-tree.txt').write_text(command([HERE / 'ax.sh', self.vm, 'tree', '--depth', '6'], 60))
+        except StepFailed:
+            pass
         raise StepFailed(f'the composer was not back within {seconds} s of the relaunch')
 
     def panel(self):
