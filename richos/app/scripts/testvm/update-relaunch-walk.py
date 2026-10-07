@@ -240,16 +240,26 @@ class Walk(adopt.Walk):
     def after(self):
         end = time.monotonic() + self.a.within
         frame = ''
+        last_error = ''
         while time.monotonic() < end:
             try:
                 frame = self.windows()
-            except StepFailed:
-                frame = ''
-            if frame and self.present('Message to Rich', role='AXTextArea'):
-                break
+            except StepFailed as exc:
+                frame, last_error = '', str(exc)[-600:]
+            try:
+                if frame and self.present('Message to Rich', role='AXTextArea'):
+                    break
+            except StepFailed as exc:
+                last_error = str(exc)[-600:]
             time.sleep(1)
         else:
-            raise StepFailed('the relaunched app has no window with a composer')
+            # Keep what the screen showed and what the reads said: the nightly 41 walk's run
+            # walk-c389e7d4353f ended here with neither, after a relaunch that had activated.
+            self.shot('3-after-failed.png')
+            ps = guest(self.vm, 'ps -axo pid=,ppid=,comm= | grep -i richos || true')
+            raise StepFailed('the relaunched app has no window with a composer; windows read '
+                             + repr(frame) + '; last read error ' + repr(last_error)
+                             + '; processes ' + repr(ps[-600:]) + '; frame 3-after-failed.png')
         time.sleep(2)
         value = self.composer()
         title = self.facts.get('thread_title') or ''
