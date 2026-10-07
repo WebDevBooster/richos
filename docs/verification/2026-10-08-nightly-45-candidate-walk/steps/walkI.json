@@ -2,8 +2,6 @@
   {"op": "guest", "command": "mkdir -p \"$HOME/Acme\" && echo \"$HOME/Acme\""},
   {"op": "until", "args": ["find", "--title", "Not now", "--role", "AXButton", "--contains", "--first"], "contains": "Not now", "seconds": 60},
   {"op": "ax", "args": ["click", "--title", "Not now", "--role", "AXButton", "--contains", "--first"]},
-  {"op": "until", "args": ["find", "--title", "Add this company", "--role", "AXButton", "--contains", "--first"], "contains": "Add this company", "seconds": 60, "allow_fail": true},
-  {"op": "ax", "args": ["click", "--title", "Not now", "--role", "AXButton", "--contains", "--first"], "allow_fail": true},
   {"op": "until", "args": ["find", "--title", "Add this company", "--role", "AXButton", "--contains", "--first"], "contains": "Add this company", "seconds": 60},
   {"op": "ax", "args": ["set the clipboard to \"seed\""]},
   {"op": "ax", "args": ["type", "Acme", "--role", "AXTextField", "--title", "What's the company called?", "--contains", "--first", "--replace"]},
