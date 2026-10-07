@@ -126,5 +126,46 @@ with tempfile.TemporaryDirectory() as root:
     check(null == {'rate_limits_available': True, 'rate_limits': None},
           'with {"null": true}, get_usage answers rate_limits: null beside rate_limits_available: true', null)
 
+    # 6: helper steps (weekly-switch handoff plan, slice 6). The fake calls the gate command of
+    # the lease's hooks.json for each listed helper; a refusal with the order ends that helper
+    # (SubagentStop row), an admitted step writes nothing, and with no helpers listed nothing runs.
+    def stops_for(gate_body, agents, session):
+        """Run one lease whose hooks.json names a stub gate; the SubagentStop agent ids it journaled."""
+        gate = root / f'gate-{session}.sh'
+        gate.write_text('#!/bin/sh\n' + gate_body)
+        gate.chmod(0o755)
+        plug = data / 'engine-profiles' / f'profile-{session}'
+        (plug / 'hooks').mkdir(parents=True)
+        (plug / 'hooks' / 'hooks.json').write_text(json.dumps(
+            {'hooks': {'PreToolUse': [{'hooks': [{'type': 'command', 'command': str(gate), 'timeout': 5}]}]}}))
+        if agents:
+            (walk / 'agents').write_text(agents)
+        elif (walk / 'agents').exists():
+            (walk / 'agents').unlink()
+        (walk / 'calls.log').unlink(missing_ok=True)
+        run = subprocess.Popen(['perl', str(FAKE), '--print', '--session-id', session, '--plugin-dir', str(plug)],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+        run.stdin.write(user('Keep going.'))
+        run.stdin.flush()
+        answers(run)
+        run.stdin.close()
+        run.wait()
+        path = data / 'engine-state' / 'evidence' / session / 'callbacks.jsonl'
+        return sorted(r['callback']['agent_id'] for r in map(json.loads, path.read_text().splitlines())
+                      if r['callback'].get('hook_event_name') == 'SubagentStop')
+    refuse = 'cat > /dev/null\necho "RichOS: the Claude account is being left. Stop the task now." >&2\nexit 2\n'
+    allow = 'cat > /dev/null\nexit 0\n'
+    check(stops_for(refuse, 'Mark\nAndy\n', 'gate-refuses') == ['walk-agent-1', 'walk-agent-2'],
+          'a gate that refuses with the order ends each helper with a SubagentStop row')
+    check('gate walk-agent-1 exit 2' in (walk / 'calls.log').read_text(), 'the gate step is a line in calls.log')
+    check(stops_for(allow, 'Mark\nAndy\n', 'gate-allows') == [], 'a gate that admits the step ends no helper')
+    check(stops_for(refuse, '', 'no-helpers') == [] and 'gate' not in (walk / 'calls.log').read_text(),
+          'with no helpers listed the gate is never called and nothing ends (as on main)')
+
+    (walk / 'log-turns').touch()
+    stops_for(allow, '', 'turn-log')
+    check('turn Keep going.' in (walk / 'calls.log').read_text(), 'with log-turns present a user turn is a "turn <text>" line in calls.log')
+    (walk / 'log-turns').unlink()
+
 print('fake-claude-fill-first:', 'FAILED' if failed else 'all passed')
 sys.exit(1 if failed else 0)
