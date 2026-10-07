@@ -639,6 +639,60 @@ impl SpeechReadiness {
 /// code, not two functions written to the same description. The ordering below is unchanged from
 /// what `resolve()` always did: binary first, then the model the machine resolved to, then the
 /// toolchain check over both.
+/// **The second model setup installs: for file and call transcription, not for live voice.**
+///
+/// The CEO, 2026-10-07, asked whether setup should download both speech models: *"Both, in this
+/// nightly, yes."* Live voice keeps choosing its model by speed ([`choose_model`]); this one is
+/// installed beside it whatever voice chose, because transcribing a file or a call is not bound
+/// by the one-second live ceiling. Pinned in `engine/voice/models/model-pins.json`
+/// (574,041,195 B).
+pub const TRANSCRIPTION_MODEL_ID: &str = "large-v3-turbo-q5_0";
+
+/// **Is the pinned model `model_id` on this machine and verified?** `Ok` with its path, or `Err`
+/// with why not.
+///
+/// Resolved where voice resolves every model ([`resolve_model`]), so a copy the machine already
+/// has (the CEO's `~/Models/Whisper`) counts, and verified by [`crate::toolchain::check`]: the
+/// same identity check voice runs, refusing weights that are not the pinned weights, and caching
+/// the hash by file identity in the toolchain lock, so a launch pays a stat rather than hashing
+/// 574 MB once the file has been verified once.
+pub fn model_verified(model_id: &str) -> Result<PathBuf, String> {
+    let bin = resolve_whisper_bin().map_err(|e| e.to_string())?;
+    let model = resolve_model(model_id).map_err(|e| e.to_string())?;
+    let report = crate::toolchain::check(&bin, &model, model_id);
+    if report.verdict() == crate::toolchain::Severity::Refuse {
+        return Err(report.refusals().join(" "));
+    }
+    let pinned = crate::toolchain::pinned_sha256(model_id);
+    match (pinned, report.model_sha256.as_deref()) {
+        (Some(want), Some(got)) if want == got.to_ascii_lowercase() => Ok(model),
+        (None, _) => Err(format!("{model_id} is not a pinned model")),
+        _ => Err(format!("{} could not be read to verify it", model.display())),
+    }
+}
+
+/// **Does voice have a model to hear with — answered WITHOUT calibrating.** `Ok` with the first
+/// live-ladder model that is installed and verified ([`model_verified`]), best first, or `Err`.
+///
+/// Why first-run setup asks this rather than [`readiness`]: `readiness` CHOOSES the model by
+/// timing real decodes on this machine ([`choose_model`]) whenever a rung's speed is not cached,
+/// and setup's presence check runs at every launch, on the boot path. Measured 2026-10-07 in a
+/// test-VM guest with both pinned models installed: large-v3-turbo-q5_0 4.929 s per utterance
+/// (three tries before it is rejected) and small.en 2.310 s, and the boot missed gui-boot's 60 s
+/// mark. The two answers agree: the ladder keeps only installed rungs and always accepts its
+/// last, so `readiness` is `Ready` exactly when some live-ladder model is installed and its
+/// weights verify, which is what this checks, at the cost of a cached hash.
+pub fn voice_model_installed() -> Result<String, String> {
+    let mut reasons = Vec::new();
+    for id in crate::hardware::Costs::load().live_ladder {
+        match model_verified(&id) {
+            Ok(_) => return Ok(id),
+            Err(why) => reasons.push(why),
+        }
+    }
+    Err(if reasons.is_empty() { "the live ladder names no model".to_string() } else { reasons.join("; ") })
+}
+
 pub fn readiness() -> SpeechReadiness {
     let bin = match resolve_whisper_bin() {
         Ok(b) => b,

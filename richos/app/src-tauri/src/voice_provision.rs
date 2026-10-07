@@ -25,7 +25,8 @@
 //! # What this file will not do
 //!
 //! - **No daemon, no scheduler, no background retry.** A download happens because the CEO asked
-//!   for it, in the foreground, and stops when it stops.
+//!   for it, at the voice toggle or on the setup sheet (the video tools are a setup essential
+//!   since 2026-10-07, media-tools plan §2), in the foreground, and stops when it stops.
 //! - **No automatic retry of a corrupted download.** `Finding::retryable` decides, and it says no
 //!   to a hash mismatch: retrying corruption in a loop is how a transient fault becomes a support
 //!   conversation.
@@ -241,7 +242,19 @@ pub async fn fetch_model(obs: &dyn ModelObserver, state: Arc<ModelFetchState>) -
             return Err(other.ceo_message().unwrap_or_else(|| NO_HEARING_HERE.to_string()))
         }
     };
+    fetch_pinned(obs, state, &model_id).await
+}
 
+/// **Download the pinned model `model_id`, verify it, install it** — [`fetch_model`]'s transfer,
+/// for a model named by the caller rather than resolved by voice. First-run setup uses it for the
+/// transcription model (`richos_voice::stt::TRANSCRIPTION_MODEL_ID`, the CEO's "Both", 2026-10-07).
+/// Same pin table, same resume rules, same one-at-a-time guard, same bounded retries.
+pub async fn fetch_pinned(
+    obs: &dyn ModelObserver,
+    state: Arc<ModelFetchState>,
+    model_id: &str,
+) -> Result<serde_json::Value, String> {
+    let model_id = model_id.to_string();
     let pin = provision::pin_for(&model_id)
         // NO PIN, NO DOWNLOAD. RichOS will not fetch a model it cannot verify against
         // `model-pins.json`, and it says so rather than trying and failing later.

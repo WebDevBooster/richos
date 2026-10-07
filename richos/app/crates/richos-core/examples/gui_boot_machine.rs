@@ -133,6 +133,50 @@ fn main() {
     let mut config = ConfigStore::open(&config_path).expect("open the scratch config store");
     config.set_entity(&entity).expect("save the company answer");
     println!("saved company   : {entity} in {}", config_path.display());
+
+    // ---- yt-dlp, half of the video tools (a setup essential since 2026-10-07) ----------
+    // Installed by the product's own `media_tools::refresh`, so the launcher, the version file
+    // and the hash record are the shape the app writes and setup's presence check reads. The
+    // bytes are a stand-in: the boot only verifies them against their record, and fetching the
+    // real nightly would make a fixture depend on the network. The speech model, the other
+    // half, is a real pinned file the shell harness clones in (gui-launch.sh).
+    let tools = richos_core::media_tools::tools_dir(&home);
+    match richos_core::media_tools::refresh(&StandInNightly, &StandInNightly, &tools) {
+        Ok(_) => println!("yt-dlp          : {} (stand-in nightly {STAND_IN_TAG})", tools.display()),
+        Err(e) => {
+            eprintln!("gui_boot_machine: yt-dlp could not be installed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+const STAND_IN_TAG: &str = "2000.01.01.000000";
+const STAND_IN_BYTES: &[u8] = b"#!/usr/bin/env python3\n# gui-boot fixture stand-in for yt-dlp\n";
+
+/// One published "nightly" with stand-in bytes and its checksum list.
+struct StandInNightly;
+
+impl richos_core::setup::Fetcher for StandInNightly {
+    fn fetch(&self, url: &str, dest: &Path) -> Result<u64, richos_core::setup::SetupError> {
+        let body = if url.ends_with("/SHA2-256SUMS") {
+            use sha2::{Digest, Sha256};
+            let hex: String = Sha256::digest(STAND_IN_BYTES).iter().map(|b| format!("{b:02x}")).collect();
+            format!("{hex}  yt-dlp\n").into_bytes()
+        } else {
+            STAND_IN_BYTES.to_vec()
+        };
+        std::fs::write(dest, &body).map_err(|e| richos_core::setup::SetupError::InstallFailed {
+            what: "the stand-in yt-dlp".to_string(),
+            detail: e.to_string(),
+        })?;
+        Ok(body.len() as u64)
+    }
+}
+
+impl richos_core::media_tools::LatestRelease for StandInNightly {
+    fn latest_tag(&self) -> Result<String, richos_core::setup::SetupError> {
+        Ok(STAND_IN_TAG.to_string())
+    }
 }
 
 /// `$HOME/Library/Application Support/com.richos.app` — where Tauri's `app_data_dir()` lands

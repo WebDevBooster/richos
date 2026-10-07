@@ -1782,6 +1782,10 @@ t "voice-walk: only a voice prompt with words is a transcript (never a re-prime)
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/voice-walk.test.py" >"$TMP/voice-walk.log" 2>&1; ok $? "$(cat "$TMP/voice-walk.log")"
 t_done
 
+t "setup-walk: the boot's first-run verdict and the setup run's end are read from their own lines"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/setup-walk.test.py" >"$TMP/setup-walk.log" 2>&1; ok $? "$(cat "$TMP/setup-walk.log")"
+t_done
+
 t "permission-provider: only the exact native decision releases a request; interruption never approves"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/permission-provider.test.py" >"$TMP/permission-provider.log" 2>&1; ok $? "$(cat "$TMP/permission-provider.log")"
 t_done

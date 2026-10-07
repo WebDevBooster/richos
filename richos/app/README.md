@@ -500,9 +500,10 @@ richos/app/
                               that failed for want of a lease is free to his next message once something
                               asks again (Ray's candidate-.11 §2.1). The count read 5 while the file held
                               6: this row's two-line shape is one the docs-claims join cannot see.
-    tests/setup.rs           52 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
+    tests/setup.rs           55 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
                               two executables a customer's Mac does not have, fetched and
-                              verified. Every failure path is a VALUE rather than a network
+                              verified, and since 2026-10-07 the video tools (yt-dlp and a
+                              pinned speech model) as the third essential. Every failure path is a VALUE rather than a network
                               condition — no network, a 404, a truncated body, a tampered
                               body, an installer that refuses, HTML where a script should
                               be, an archive with the wrong shape or the wrong version, a
@@ -1126,7 +1127,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1868 tests + 5 doc-tests (1864 direct, 4 ignored)
+cargo test -p richos-core                       # 1871 tests + 5 doc-tests (1867 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
