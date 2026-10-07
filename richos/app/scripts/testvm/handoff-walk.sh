@@ -57,18 +57,30 @@ wait_calls() {
   done
   return 1
 }
-panel() { "$T/ax.sh" "$VM" click --at 1330,327 || true; sleep 3; }
+# The quota panel is the Settings menu's "Claude Code quota" row (settings-button.js
+# set-quota-open). The first time the menu is still open from the technical view; after that it
+# is opened again (a coordinate click after the panel was closed hit nothing: walk
+# walk-1fa6eaae9f14 wrote 51 and no quota check followed, so the order never came).
+panel() {
+  if ! "$T/ax.sh" "$VM" click --id set-quota-open >/dev/null 2>&1; then
+    "$T/ax.sh" "$VM" click --title 'Settings' --role AXPopUpButton || true
+    sleep 2
+    "$T/ax.sh" "$VM" click --id set-quota-open || true
+  fi
+  sleep 3
+  "$T/ax.sh" "$VM" find --id quota-refresh >/dev/null 2>&1 || note "the quota panel did not open"
+}
 close_panel() { "$T/ax.sh" "$VM" --key 53 || true; sleep 2; }
 refresh() { "$T/ax.sh" "$VM" click --id quota-refresh || true; }
 # The work records (engine-state/assignments, one JSON per job: state and detail), the gate's
 # handoff markers (engine-state/handoffs) and the accounts file.
 records() {
-  "$T/guest.sh" "$VM" "for f in \"$DATA\"/engine-state/assignments/*/*.json \"$DATA\"/engine-state/handoffs/*.json; do [ -e \"\$f\" ] || continue; echo \"== \$f\"; cat \"\$f\"; echo; done; echo '== claude-accounts.json'; cat \"$DATA/claude-accounts.json\" 2>&1; true" > "$1" 2>&1
+  "$T/guest.sh" "$VM" "find \"$DATA/engine-state/assignments\" \"$DATA/engine-state/handoffs\" -type f -name '*.json' 2>/dev/null | sort | while IFS= read -r f; do echo \"== \$f\"; cat \"\$f\"; echo; done; echo '== claude-quota.json'; cat \"$DATA/engine-state/claude-quota.json\" 2>&1; echo; echo '== claude-accounts.json'; cat \"$DATA/claude-accounts.json\" 2>&1; true" > "$1" 2>&1
 }
 # Everything the checks read, saved into <out-dir>.
 collect() {
   "$T/guest.sh" "$VM" "cat $G/calls.log" > "$S/calls.log" 2>&1 || fail "calls.log"
-  "$T/guest.sh" "$VM" "for f in \"$DATA\"/engine-state/evidence/*/callbacks.jsonl; do [ -e \"\$f\" ] || continue; echo \"== \$f\"; cat \"\$f\"; done" > "$S/journal.txt" 2>&1 \
+  "$T/guest.sh" "$VM" "find \"$DATA/engine-state/evidence\" -type f -name callbacks.jsonl 2>/dev/null | sort | while IFS= read -r f; do echo \"== \$f\"; cat \"\$f\"; done" > "$S/journal.txt" 2>&1 \
     || fail "the evidence journals"
   records "$S/records.txt" || fail "the app's records"
 }
