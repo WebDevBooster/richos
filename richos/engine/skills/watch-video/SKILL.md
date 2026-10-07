@@ -16,7 +16,7 @@ Run this:
 
 It prints the index's path on stdout. Then:
 
-1. `Read` `<output-dir>/watch.md` — frames and transcript paragraphs in time order:
+1. `Read` `<output-dir>/watched.md` — frames and transcript paragraphs in time order:
 
    ```
    [00m10.0s] FRAME <output-dir>/frames/frame-0003-t00m10.0s.png  (no change for 5s)
@@ -36,7 +36,7 @@ It prints the index's path on stdout. Then:
 - Non-English speech: add `--lang <code>` or `--lang auto`.
 - A long recording: frames come at most 12 a minute; for more than about 10
   minutes add `--every 15`, or read only the frames near the moments that matter.
-- A recording with no sound still gets its frames; `watch.md` says there is no
+- A recording with no sound still gets its frames; `watched.md` says there is no
   transcript.
 - Delete the output directory when your task is done.
 
@@ -63,6 +63,6 @@ the transcript's details.
 | Exit | Meaning | Do |
 |---|---|---|
 | 1 | usage, missing file, no video track, a tool not on PATH, output dir not empty | fix the call; never install a tool, report a missing one to the lead; for audio only use `audio-transcription` |
-| 2 | frames written, transcription failed; the reason is printed and in `watch.md` | use the frames, report the transcription output to the lead |
+| 2 | frames written, transcription failed; the reason is printed and in `watched.md` | use the frames, report the transcription output to the lead |
 
 Audio only (no picture to see): use the `audio-transcription` skill.
