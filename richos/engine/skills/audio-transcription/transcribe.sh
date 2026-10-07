@@ -59,6 +59,18 @@ for tool in ffmpeg ffprobe whisper-cli node; do
     fi
 done
 
+# The models are installed in the account's own ~/Models/Whisper. The pipeline
+# searches under $HOME, and $HOME is not always the account's home: the merge
+# gate and other sandboxes give each run a scratch HOME, where the pipeline then
+# finds no model at all. So name the installed folder by the account's home from
+# the user database, unless the caller already chose a model or a folder.
+if [ -z "${RICHOS_WHISPER_MODEL:-}" ] && [ -z "${RICHOS_MODEL_DIR:-}" ]; then
+    ACCOUNT_HOME="$(node -p 'require("os").userInfo().homedir')"
+    if [ -d "$ACCOUNT_HOME/Models/Whisper" ]; then
+        export RICHOS_MODEL_DIR="$ACCOUNT_HOME/Models/Whisper"
+    fi
+fi
+
 if [ -e "$OUT" ] && [ -n "$(ls -A "$OUT")" ]; then
     echo "transcribe: output directory is not empty: $OUT (give a new or empty one)" >&2
     exit 1

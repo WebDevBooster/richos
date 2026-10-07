@@ -27,7 +27,10 @@ say -o "$SANDBOX/speech.aiff" "The quick brown fox jumps over the lazy dog. Plea
 ffmpeg -hide_banner -nostdin -loglevel error -y -f lavfi -i "color=c=gray:s=320x240:d=8" \
     -i "$SANDBOX/speech.aiff" -c:v libx264 -c:a aac -shortest "$SANDBOX/speech.mp4"
 OUT1="$SANDBOX/out1"
-PRINTED="$("$SCRIPT" "$SANDBOX/speech.mp4" "$OUT1" 2>"$SANDBOX/err1")"
+# An empty HOME, as the merge gate gives every unit: the installed models must
+# still be found, so the script cannot be leaning on HOME being the real one.
+mkdir -p "$SANDBOX/home"
+PRINTED="$(HOME="$SANDBOX/home" "$SCRIPT" "$SANDBOX/speech.mp4" "$OUT1" 2>"$SANDBOX/err1")"
 STATUS=$?
 if [ "$STATUS" -eq 0 ]; then ok "exit 0 on a spoken file"; else bad "exit 0 on a spoken file (got $STATUS: $(tail -5 "$SANDBOX/err1"))"; fi
 if [ "$PRINTED" = "$OUT1/transcript.md" ] && [ -f "$OUT1/transcript.md" ]; then

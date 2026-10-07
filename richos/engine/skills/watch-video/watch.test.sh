@@ -33,7 +33,10 @@ ffmpeg -hide_banner -nostdin -loglevel error -y -f lavfi -i "color=c=black:s=320
 
 # 1. a recording with sound
 OUT="$SANDBOX/out1"
-PRINTED="$("$SCRIPT" "$SANDBOX/rec.mov" "$OUT" 2>"$SANDBOX/err1")"
+# An empty HOME, as the merge gate gives every unit: the installed models must
+# still be found, so the script cannot be leaning on HOME being the real one.
+mkdir -p "$SANDBOX/home"
+PRINTED="$(HOME="$SANDBOX/home" "$SCRIPT" "$SANDBOX/rec.mov" "$OUT" 2>"$SANDBOX/err1")"
 STATUS=$?
 if [ "$STATUS" -eq 0 ]; then ok "exit 0"; else bad "exit 0 (got $STATUS: $(tail -5 "$SANDBOX/err1"))"; fi
 if [ "$PRINTED" = "$OUT/watch.md" ] && [ -f "$OUT/watch.md" ]; then ok "prints the index path"; else bad "prints the index path (printed: $PRINTED)"; fi
